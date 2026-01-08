@@ -2,7 +2,7 @@
 //!
 //! Loads, compiles, and executes a Continuum world.
 //!
-//! Usage: world-run <world-dir> [--ticks N]
+//! Usage: world-run <world-dir> [--steps N] [--dt SECONDS]
 
 use std::env;
 use std::path::Path;
@@ -15,30 +15,42 @@ use continuum_ir::{
     get_initial_signal_value, lower,
 };
 use continuum_runtime::executor::Runtime;
-use continuum_runtime::types::Value;
+use continuum_runtime::types::{Dt, Value};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <world-dir> [--ticks N]", args[0]);
+        eprintln!("Usage: {} <world-dir> [--steps N] [--dt SECONDS]", args[0]);
         process::exit(1);
     }
 
     let world_dir = Path::new(&args[1]);
 
-    // Parse optional --ticks argument
-    let mut num_ticks: u64 = 10;
+    // Parse optional arguments
+    let mut num_steps: u64 = 10;
+    let mut dt_override: Option<f64> = None;
+
     let mut i = 2;
     while i < args.len() {
-        if args[i] == "--ticks" && i + 1 < args.len() {
-            num_ticks = args[i + 1].parse().unwrap_or_else(|_| {
-                eprintln!("Error: invalid tick count");
-                process::exit(1);
-            });
-            i += 2;
-        } else {
-            i += 1;
+        match args[i].as_str() {
+            "--steps" | "--ticks" if i + 1 < args.len() => {
+                num_steps = args[i + 1].parse().unwrap_or_else(|_| {
+                    eprintln!("Error: invalid step count");
+                    process::exit(1);
+                });
+                i += 2;
+            }
+            "--dt" if i + 1 < args.len() => {
+                dt_override = Some(args[i + 1].parse().unwrap_or_else(|_| {
+                    eprintln!("Error: invalid dt value");
+                    process::exit(1);
+                }));
+                i += 2;
+            }
+            _ => {
+                i += 1;
+            }
         }
     }
 
@@ -105,10 +117,22 @@ fn main() {
 
     println!("  Initial era: {}", initial_era);
 
-    // Build era configs
-    let era_configs = build_era_configs(&world);
+    // Build era configs (with optional dt override)
+    let mut era_configs = build_era_configs(&world);
+
+    if let Some(dt) = dt_override {
+        println!("  Overriding dt = {:.2e} seconds", dt);
+        for config in era_configs.values_mut() {
+            config.dt = Dt(dt);
+        }
+    }
+
     for (era_id, era) in &world.eras {
-        println!("  Era {}: dt = {:.2e} seconds", era_id, era.dt_seconds);
+        let effective_dt = era_configs
+            .get(era_id)
+            .map(|c| c.dt.0)
+            .unwrap_or(era.dt_seconds);
+        println!("  Era {}: dt = {:.2e} seconds", era_id, effective_dt);
     }
 
     // Create runtime
@@ -154,12 +178,12 @@ fn main() {
 
     // Run simulation
     println!("\n{}", "=".repeat(50));
-    println!("Running {} ticks...\n", num_ticks);
+    println!("Running {} steps...\n", num_steps);
 
-    for tick in 0..num_ticks {
+    for step in 0..num_steps {
         match runtime.execute_tick() {
             Ok(ctx) => {
-                print!("Tick {}: ", tick);
+                print!("Step {}: ", step);
 
                 // Print signal values
                 let mut first = true;
@@ -182,7 +206,7 @@ fn main() {
                 println!(" (dt={:.2e}s)", ctx.dt.seconds());
             }
             Err(e) => {
-                eprintln!("\nError at tick {}: {}", tick, e);
+                eprintln!("\nError at step {}: {}", step, e);
                 process::exit(1);
             }
         }
