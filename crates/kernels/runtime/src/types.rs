@@ -78,6 +78,23 @@ impl Value {
             _ => None,
         }
     }
+
+    /// Get a component by name (x, y, z, w)
+    pub fn component(&self, name: &str) -> Option<f64> {
+        match (self, name) {
+            (Value::Scalar(v), _) => Some(*v),
+            (Value::Vec2(v), "x") => Some(v[0]),
+            (Value::Vec2(v), "y") => Some(v[1]),
+            (Value::Vec3(v), "x") => Some(v[0]),
+            (Value::Vec3(v), "y") => Some(v[1]),
+            (Value::Vec3(v), "z") => Some(v[2]),
+            (Value::Vec4(v), "x") => Some(v[0]),
+            (Value::Vec4(v), "y") => Some(v[1]),
+            (Value::Vec4(v), "z") => Some(v[2]),
+            (Value::Vec4(v), "w") => Some(v[3]),
+            _ => None,
+        }
+    }
 }
 
 impl Default for Value {
@@ -132,4 +149,25 @@ pub struct WarmupResult {
     pub iterations: u32,
     /// Whether convergence was achieved
     pub converged: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_value_component_vec3() {
+        let v = Value::Vec3([1.0, 2.0, 3.0]);
+        assert_eq!(v.component("x"), Some(1.0));
+        assert_eq!(v.component("y"), Some(2.0));
+        assert_eq!(v.component("z"), Some(3.0));
+        assert_eq!(v.component("w"), None);
+    }
+
+    #[test]
+    fn test_value_component_scalar() {
+        let v = Value::Scalar(42.0);
+        assert_eq!(v.component("x"), Some(42.0));
+        assert_eq!(v.component("y"), Some(42.0));
+    }
 }

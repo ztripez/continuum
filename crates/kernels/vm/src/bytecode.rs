@@ -31,6 +31,9 @@ pub enum Op {
     /// Push value of signal by index (resolved at compile time)
     LoadSignal(u16),
 
+    /// Push value of signal component by signal index and component index
+    LoadSignalComponent(u16, u16),
+
     /// Push value of constant by index
     LoadConst(u16),
 
@@ -92,6 +95,9 @@ pub struct BytecodeChunk {
     /// Signal name table (indices referenced by LoadSignal)
     pub signals: Vec<String>,
 
+    /// Component name table (indices referenced by LoadSignalComponent)
+    pub components: Vec<String>,
+
     /// Constant name table (indices referenced by LoadConst)
     pub constants: Vec<String>,
 
@@ -117,6 +123,16 @@ impl BytecodeChunk {
         }
         let idx = self.signals.len() as u16;
         self.signals.push(name.to_string());
+        idx
+    }
+
+    /// Add a component reference, returning its index
+    pub fn add_component(&mut self, name: &str) -> u16 {
+        if let Some(idx) = self.components.iter().position(|s| s == name) {
+            return idx as u16;
+        }
+        let idx = self.components.len() as u16;
+        self.components.push(name.to_string());
         idx
     }
 

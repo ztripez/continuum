@@ -42,6 +42,8 @@ pub enum Expr {
     DtRaw,
     SumInputs,
     Signal(String),
+    /// Access a component of a vector signal (e.g., signal.x, signal.y)
+    SignalComponent(String, String),
     Const(String),
     Config(String),
     Binary {
@@ -107,6 +109,12 @@ impl Compiler {
             Expr::Signal(name) => {
                 let idx = self.chunk.add_signal(name);
                 self.chunk.emit(Op::LoadSignal(idx));
+            }
+
+            Expr::SignalComponent(signal, component) => {
+                let signal_idx = self.chunk.add_signal(signal);
+                let component_idx = self.chunk.add_component(component);
+                self.chunk.emit(Op::LoadSignalComponent(signal_idx, component_idx));
             }
 
             Expr::Const(name) => {

@@ -485,6 +485,21 @@ impl Lowerer {
                 }
             }
             Expr::SignalRef(path) => {
+                // Check if the last component is a vector accessor (x, y, z, w)
+                let parts = &path.segments;
+                if parts.len() > 1 {
+                    let last = parts.last().unwrap();
+                    if matches!(last.as_str(), "x" | "y" | "z" | "w") {
+                        // This is a component access like signal.foo.bar.x
+                        let signal_path = parts[..parts.len() - 1].join(".");
+                        return CompiledExpr::FieldAccess {
+                            object: Box::new(CompiledExpr::Signal(SignalId::from(
+                                signal_path.as_str(),
+                            ))),
+                            field: last.clone(),
+                        };
+                    }
+                }
                 CompiledExpr::Signal(SignalId::from(path.join(".").as_str()))
             }
             Expr::ConstRef(path) => CompiledExpr::Const(path.join(".")),

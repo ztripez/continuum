@@ -18,6 +18,13 @@ pub trait ExecutionContext {
     /// Get signal value by name
     fn signal(&self, name: &str) -> f64;
 
+    /// Get signal component by name and component (x, y, z, w)
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        // Default implementation returns the full signal value
+        let _ = component;
+        self.signal(name)
+    }
+
     /// Get constant value by name
     fn constant(&self, name: &str) -> f64;
 
@@ -55,6 +62,12 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> f64 {
             Op::LoadSignal(idx) => {
                 let name = &chunk.signals[idx as usize];
                 stack.push(ctx.signal(name));
+            }
+
+            Op::LoadSignalComponent(signal_idx, component_idx) => {
+                let name = &chunk.signals[signal_idx as usize];
+                let component = &chunk.components[component_idx as usize];
+                stack.push(ctx.signal_component(name, component));
             }
 
             Op::LoadConst(idx) => {

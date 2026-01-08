@@ -18,6 +18,7 @@ path = "src/bin/dsl_lint.rs"
 [dependencies]
 continuum-dsl = { path = "../kernels/dsl" }
 continuum-foundation = { path = "../kernels/foundation" }
+continuum-functions = { version = "0.1.0", path = "../kernels/functions" }
 continuum-ir = { path = "../kernels/ir" }
 continuum-runtime = { path = "../kernels/runtime" }
 indexmap = "2.13.0"

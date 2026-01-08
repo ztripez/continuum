@@ -5,6 +5,7 @@
 
 mod dt_operators;
 mod math;
+mod vector;
 
 // Re-export for convenience
 pub use continuum_foundation::Dt;

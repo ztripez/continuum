@@ -72,9 +72,18 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
             body: Box::new(convert_expr(body)),
         },
         CompiledExpr::Local(name) => Expr::Local(name.clone()),
-        CompiledExpr::FieldAccess { .. } => {
-            // Field access not supported in bytecode yet - return 0
-            Expr::Literal(0.0)
+        CompiledExpr::FieldAccess { object, field } => {
+            // Handle field access on signals (e.g., signal.x, signal.y, signal.z)
+            match object.as_ref() {
+                CompiledExpr::Signal(id) => {
+                    // Convert to SignalComponent for vector component access
+                    Expr::SignalComponent(id.0.clone(), field.clone())
+                }
+                _ => {
+                    // Nested field access not yet supported - return 0
+                    Expr::Literal(0.0)
+                }
+            }
         }
     }
 }

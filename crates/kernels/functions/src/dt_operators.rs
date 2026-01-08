@@ -25,6 +25,13 @@ pub fn relax(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     target + (current - target) * alpha
 }
 
+/// Exponential relaxation: `relax_to(current, target, tau)` → approaches target
+/// Alias for `relax`
+#[kernel_fn(name = "relax_to")]
+pub fn relax_to(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
+    relax(current, target, tau, dt)
+}
+
 #[cfg(test)]
 mod tests {
     use continuum_kernel_registry::{eval, get, is_known, Arity};

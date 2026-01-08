@@ -84,6 +84,7 @@ version = "0.1.0"
 dependencies = [
  "ariadne",
  "chumsky",
+ "continuum-kernel-registry",
  "logos",
  "tempfile",
 ]
@@ -151,6 +152,7 @@ version = "0.1.0"
 dependencies = [
  "continuum-dsl",
  "continuum-foundation",
+ "continuum-functions",
  "continuum-ir",
  "continuum-runtime",
  "indexmap",

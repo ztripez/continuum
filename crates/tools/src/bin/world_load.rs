@@ -4,6 +4,9 @@
 //!
 //! Usage: world-load <world-dir>
 
+// Link against functions crate to pull in kernel function registrations
+extern crate continuum_functions;
+
 use std::env;
 use std::fs;
 use std::path::Path;

@@ -64,6 +64,12 @@ pub fn log10(x: f64) -> f64 {
     x.log10()
 }
 
+/// Modulo: `mod(a, b)` → `a % b` (always positive)
+#[kernel_fn(name = "mod")]
+pub fn modulo(a: f64, b: f64) -> f64 {
+    ((a % b) + b) % b
+}
+
 // === Variadic ===
 
 /// Minimum: `min(a, b, ...)`

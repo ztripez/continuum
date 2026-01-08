@@ -285,6 +285,14 @@ impl ExecutionContext for ResolverContext<'_> {
             .unwrap_or(0.0)
     }
 
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
+            .unwrap_or(0.0)
+    }
+
     fn constant(&self, name: &str) -> f64 {
         self.constants.get(name).copied().unwrap_or(0.0)
     }
@@ -334,6 +342,14 @@ impl ExecutionContext for AssertionContext<'_> {
             .unwrap_or(0.0)
     }
 
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
+            .unwrap_or(0.0)
+    }
+
     fn constant(&self, name: &str) -> f64 {
         self.constants.get(name).copied().unwrap_or(0.0)
     }
@@ -375,6 +391,14 @@ impl ExecutionContext for TransitionContext<'_> {
         self.signals
             .get(&runtime_id)
             .and_then(|v| v.as_scalar())
+            .unwrap_or(0.0)
+    }
+
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
             .unwrap_or(0.0)
     }
 
@@ -423,6 +447,14 @@ impl ExecutionContext for MeasureContext<'_> {
             .unwrap_or(0.0)
     }
 
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
+            .unwrap_or(0.0)
+    }
+
     fn constant(&self, name: &str) -> f64 {
         self.constants.get(name).copied().unwrap_or(0.0)
     }
@@ -465,6 +497,14 @@ impl ExecutionContext for FractureExecContext<'_> {
         self.signals
             .get(&runtime_id)
             .and_then(|v| v.as_scalar())
+            .unwrap_or(0.0)
+    }
+
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
             .unwrap_or(0.0)
     }
 
