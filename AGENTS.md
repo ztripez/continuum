@@ -235,11 +235,23 @@ They do not override the invariants above.
 - `@docs/fractures.md`
 - `@docs/observers/chronicles.md`
 
+### DSL
+- `@docs/dsl/language.md`
+- `@docs/dsl/syntax.md`
+- `@docs/dsl/types-and-units.md`
+- `@docs/dsl/dt-robust.md`
+- `@docs/dsl/functions.md`
+- `@docs/dsl/entities.md`
+- `@docs/dsl/assertions.md`
+
 ### Execution
 - `@docs/execution/lifecycle.md`
 - `@docs/execution/phases.md`
 - `@docs/execution/ir.md`
 - `@docs/execution/dag.md`
+- `@docs/execution/dag-construction.md`
+- `@docs/execution/tick-execution.md`
+- `@docs/execution/kernels.md`
 - `@docs/execution/determinism.md`
 
 ### Observers

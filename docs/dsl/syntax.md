@@ -1,0 +1,619 @@
+# Continuum DSL — Syntax Reference
+
+This document defines the **concrete syntax** of the Continuum DSL.
+
+---
+
+## 1. File Structure
+
+DSL source files use the extension `*.cdsl`.
+
+All files under a World root are:
+- discovered recursively
+- ordered lexicographically by path
+- compiled together as a single unit
+
+There are no includes or conditional loading.
+
+---
+
+## 2. Comments
+
+```
+// Single line comment
+# Alternative single line comment
+/* Multi-line
+   comment */
+```
+
+---
+
+## 3. Namespaced Identifiers
+
+All entities use namespaced paths with the pattern `[kind].[path]`:
+
+```
+signal.terra.geophysics.core.temp_k
+field.terra.surface.temperature_map
+strata.terra.thermal
+era.hadean
+impulse.terra.impact.asteroid
+fracture.terra.climate.runaway_greenhouse
+chronicle.terra.events.supercontinent
+```
+
+Identifiers are:
+- lowercase
+- dot-separated
+- globally unique within a World
+
+---
+
+## 4. Units and Literals
+
+Units are specified in angle brackets:
+
+```
+5.67e-8 <W/m²/K⁴>
+100 <K>
+1 <Myr>
+0.5 <atm>
+```
+
+Ranges use `..` syntax:
+
+```
+100..10000
+0..1
+-500..2000
+```
+
+---
+
+## 5. World-Level Blocks
+
+### Constants
+
+Immutable universal values:
+
+```
+const {
+  physics.stefan_boltzmann: 5.67e-8 <W/m²/K⁴>
+  physics.gravitational: 6.674e-11 <m³/kg/s²>
+  physics.speed_of_light: 299792458 <m/s>
+}
+```
+
+### Configuration
+
+Scenario-tunable parameters:
+
+```
+config {
+  terra.thermal.reference_heat: 8e30 <J>
+  terra.tectonics.rift_threshold: 1e8 <Pa>
+}
+```
+
+---
+
+## 6. Types
+
+Custom struct types:
+
+```
+type.PlateState {
+  position: Vec3<m>
+  velocity: Vec3<m/s>
+  strain: Tensor<3,3,Pa>
+  age: Scalar<s>
+}
+
+type.ImpactEvent {
+  mass: Scalar<kg>
+  velocity: Vec3<m/s>
+  location: Vec2<rad>
+}
+```
+
+### Built-in Types
+
+| Type | Description |
+|------|-------------|
+| `Scalar<unit>` | Single value |
+| `Scalar<unit, range>` | Bounded single value |
+| `Vec2<unit>` | 2D vector |
+| `Vec3<unit>` | 3D vector |
+| `Vec4<unit>` | 4D vector (quaternions, homogeneous coords) |
+| `Vec3<unit, magnitude: range>` | Vector with magnitude constraint |
+| `Tensor<N,M,unit>` | NxM tensor |
+| `Seq<T>` | Ordered sequence |
+| `Grid<W,H,T>` | 2D grid |
+
+### Constraints
+
+```
+: Scalar<K, 100..10000>              // range
+: Vec3<m, magnitude: 1e10..1e12>     // magnitude bound
+: Vec4<1, magnitude: 1>              // unit quaternion
+: Tensor<3,3,Pa>                     // structural
+  : symmetric
+  : positive_definite
+: Seq<Scalar<kg>>
+  : each(1e20..1e28)
+  : sum(1e25..1e30)
+```
+
+---
+
+## 7. Strata
+
+Time strata define execution groupings:
+
+```
+strata.terra.thermal {
+  : title("Thermal")
+  : symbol("Q")
+  : stride(5)
+}
+
+strata.terra.tectonics {
+  : title("Tectonics")
+  : symbol("T")
+  : stride(10)
+}
+```
+
+---
+
+## 8. Eras
+
+Execution policy regimes:
+
+```
+era.hadean {
+  : initial
+  : title("Hadean")
+  : dt(1 <Myr>)
+
+  config {
+    terra.tectonics.viscosity_factor: 0.5
+  }
+
+  strata {
+    terra.genesis: active
+    terra.thermal: active
+    terra.tectonics: gated
+    terra.atmosphere: gated
+  }
+
+  transition {
+    to: era.archean
+    when {
+      signal.terra.geophysics.mantle.heat_j < 9e30 <J>
+      signal.time.planet_age > 500 <Myr>
+    }
+  }
+}
+
+era.phanerozoic {
+  : terminal
+  : title("Phanerozoic")
+  : dt(10 <kyr>)
+
+  strata {
+    terra.thermal: active
+    terra.tectonics: active
+    terra.atmosphere: active(stride: 2)
+  }
+}
+```
+
+### Era Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `: initial` | Starting era |
+| `: terminal` | No outgoing transitions |
+| `: dt(value)` | Base timestep |
+| `: title("...")` | Human-readable name |
+
+### Strata States
+
+| State | Description |
+|-------|-------------|
+| `active` | Executes every tick |
+| `active(stride: N)` | Executes every Nth tick |
+| `gated` | Paused, state preserved |
+
+### Transitions
+
+Multiple transitions allowed; first match wins:
+
+```
+transition {
+  to: era.target
+  when {
+    signal.path > value
+    signal.other < value
+  }
+}
+```
+
+---
+
+## 9. Signals
+
+Authoritative resolved values:
+
+```
+signal.terra.geophysics.core.temp_k {
+  : Scalar<K, 100..10000>
+  : strata(terra.thermal)
+  : title("Core Temperature")
+  : symbol("T_core")
+
+  const {
+    radiative_factor: 0.85
+  }
+
+  config {
+    initial_temp: 5500 <K>
+  }
+
+  resolve {
+    let radiation = const.physics.stefan_boltzmann * (prev ^ 4) * const.radiative_factor
+    prev - radiation * config.decay_rate * dt
+  }
+}
+```
+
+### Signal Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `: Type<...>` | Value type with constraints |
+| `: strata(path)` | Stratum binding |
+| `: title("...")` | Human-readable name |
+| `: symbol("...")` | Display symbol |
+
+### Resolve Block
+
+- `prev` — previous resolved value
+- `prev.field` — field access for struct types
+- `signal.path` — read other resolved signals
+- `const.path` — read constants
+- `config.path` — read configuration
+- `dt` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
+- `sum(inputs)` — accumulated inputs from Collect phase
+- `kernel.fn(...)` — engine-provided functions
+- `let name = expr` — local bindings
+
+---
+
+## 10. Fields
+
+Observable derived data:
+
+```
+field.terra.surface.temperature_map {
+  : Grid<2048, 1024, Scalar<K>>
+  : strata(terra.atmosphere)
+  : topology(sphere_surface)
+  : title("Surface Temperature")
+  : symbol("T_s")
+
+  measure {
+    kernel.surface_projection(
+      signal.terra.atmosphere.temp_profile,
+      signal.terra.geophysics.surface.temp
+    )
+  }
+}
+```
+
+### Topology Options
+
+| Topology | Description |
+|----------|-------------|
+| `sphere_surface` | Data on planetary surface |
+| `point_cloud` | Sparse spatial samples |
+| `volume` | 3D volumetric data |
+
+---
+
+## 11. Operators
+
+Phase-tagged logic blocks:
+
+```
+operator.terra.thermal.budget {
+  : strata(terra.thermal)
+  : phase(collect)
+
+  collect {
+    let radiogenic = kernel.radiogenic_power(config.terra.thermal.base, signal.time.age)
+    let loss = kernel.surface_heat_loss(signal.terra.geophysics.mantle.heat_j)
+
+    signal.terra.geophysics.mantle.heat_j <- radiogenic - loss
+  }
+}
+
+operator.terra.tectonics.boundary_capture {
+  : strata(terra.tectonics)
+  : phase(measure)
+
+  measure {
+    let segments = signal.terra.tectonics.plate_boundaries
+
+    for seg in segments {
+      field.terra.plates.boundary_type <- seg.position, seg.kind
+      field.terra.plates.boundary_shear <- seg.position, seg.shear
+    }
+  }
+}
+```
+
+### Phases
+
+| Phase | Purpose | Can Write |
+|-------|---------|-----------|
+| `collect` | Gather signal inputs | `signal.x <- value` |
+| `measure` | Emit field samples | `field.x <- position, value` |
+
+---
+
+## 12. Impulses
+
+External causal inputs:
+
+```
+impulse.terra.impact.asteroid {
+  : ImpactEvent
+
+  config {
+    max_energy: 1e25 <J>
+  }
+
+  apply {
+    let crater = kernel.impact_physics(payload.mass, payload.velocity)
+    signal.terra.geophysics.surface.energy <- crater.thermal_energy
+    signal.terra.atmosphere.dust <- crater.ejecta_mass
+  }
+}
+```
+
+- `payload` — the impulse data (typed per declaration)
+- Writes to signals via `<-`
+
+---
+
+## 13. Fractures
+
+Emergent tension detectors:
+
+```
+fracture.terra.climate.runaway_greenhouse {
+  when {
+    signal.terra.atmosphere.co2 > 1000 <ppm>
+    signal.terra.surface.avg_temp > 350 <K>
+  }
+
+  emit {
+    signal.terra.atmosphere.feedback <- 1.5
+  }
+}
+
+fracture.terra.tectonics.subduction {
+  when {
+    let age_diff = signal.terra.tectonics.plate_a.age - signal.terra.tectonics.plate_b.age
+    age_diff > 50e6 <s>
+    signal.terra.tectonics.boundary.stress > config.subduction_threshold
+  }
+
+  emit {
+    signal.terra.tectonics.boundary.mode <- SubductionMode.Active
+  }
+}
+```
+
+---
+
+## 14. Chronicles
+
+Observer-only pattern recognition:
+
+```
+chronicle.terra.events.supercontinent {
+  observe {
+    when signal.terra.tectonics.continental_fraction > 0.8 {
+      emit event.supercontinent_formed {
+        age: signal.time.planet_age
+        area: signal.terra.tectonics.continental_area
+      }
+    }
+  }
+}
+
+chronicle.terra.events.mass_extinction {
+  observe {
+    when signal.terra.biosphere.diversity.delta < -0.5 {
+      emit event.mass_extinction {
+        severity: -signal.terra.biosphere.diversity.delta
+        cause: infer_cause(signal.terra.atmosphere, signal.terra.surface)
+      }
+    }
+  }
+}
+```
+
+Chronicles:
+- Execute in Measure phase
+- Cannot influence causality
+- Emit structured events for analysis
+
+---
+
+## 15. Expression Syntax
+
+### Arithmetic
+
+```
+a + b
+a - b
+a * b
+a / b
+a ^ b      // power
+-a         // negation
+```
+
+### Comparisons
+
+```
+a > b
+a < b
+a >= b
+a <= b
+a == b
+a != b
+```
+
+### Logic
+
+```
+a and b
+a or b
+not a
+```
+
+### Locals
+
+```
+let name = expr
+```
+
+### Conditionals
+
+```
+if condition { expr } else { expr }
+```
+
+### Iteration (deterministic only)
+
+```
+for item in sequence { ... }
+sum(sequence)
+map(sequence, fn)
+fold(sequence, init, fn)
+```
+
+---
+
+## 16. Signal Input Operator
+
+The `<-` operator writes to signal input accumulators:
+
+```
+signal.target <- value
+```
+
+Multiple writes accumulate (must be commutative).
+
+For fields with position:
+
+```
+field.target <- position, value
+```
+
+---
+
+## 17. Reference Prefixes
+
+| Prefix | Meaning |
+|--------|---------|
+| `signal.` | Resolved signal value |
+| `field.` | Field (measure phase only) |
+| `const.` | Constant value |
+| `config.` | Configuration parameter |
+| `prev` | Previous signal value (in resolve blocks) |
+| `payload` | Impulse data (in apply blocks) |
+| `dt` | Current timestep (prefer dt-robust operators) |
+| `kernel.` | Engine-provided function |
+
+---
+
+## 18. Complete Example
+
+```
+const {
+  physics.stefan_boltzmann: 5.67e-8 <W/m²/K⁴>
+}
+
+config {
+  terra.thermal.decay_rate: 1e-10 <1/s>
+}
+
+type.ThermalState {
+  temperature: Scalar<K>
+  flux: Scalar<W/m²>
+}
+
+strata.terra.thermal {
+  : title("Thermal")
+  : stride(5)
+}
+
+era.early {
+  : initial
+  : dt(1 <Myr>)
+
+  strata {
+    terra.thermal: active
+  }
+
+  transition {
+    to: era.stable
+    when {
+      signal.terra.core.temp < 5000 <K>
+    }
+  }
+}
+
+era.stable {
+  : terminal
+  : dt(100 <kyr>)
+
+  strata {
+    terra.thermal: active
+  }
+}
+
+signal.terra.core.temp {
+  : Scalar<K, 100..10000>
+  : strata(terra.thermal)
+
+  resolve {
+    let loss = const.physics.stefan_boltzmann * (prev ^ 4)
+    prev - loss * config.terra.thermal.decay_rate * dt
+  }
+}
+
+field.terra.core.temp_field {
+  : Scalar<K>
+  : strata(terra.thermal)
+  : topology(point_cloud)
+
+  measure {
+    signal.terra.core.temp
+  }
+}
+```
+
+---
+
+## See Also
+
+- @dsl/language.md — Design principles
+- @dsl/types-and-units.md — Type system details
+- @dsl/dt-robust.md — dt-robust operators
+- @dsl/assertions.md — Assertions and faults
