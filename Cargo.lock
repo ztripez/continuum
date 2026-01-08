@@ -112,6 +112,10 @@ name = "continuum-tools"
 version = "0.1.0"
 dependencies = [
  "continuum-dsl",
+ "continuum-foundation",
+ "continuum-ir",
+ "continuum-runtime",
+ "indexmap",
 ]
 
 [[package]]

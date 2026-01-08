@@ -642,7 +642,7 @@ impl Lowerer {
             "d" | "day" | "days" => base * 86400.0,
             "yr" | "year" | "years" => base * 31_557_600.0, // Julian year
             "kyr" => base * 31_557_600_000.0,
-            "myr" | "Ma" => base * 31_557_600_000_000.0,
+            "myr" | "Myr" | "Ma" => base * 31_557_600_000_000.0,
             "byr" | "Ga" => base * 31_557_600_000_000_000.0,
             _ => base, // assume seconds for unknown units
         }

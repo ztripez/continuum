@@ -7,5 +7,13 @@ edition.workspace = true
 name = "world-load"
 path = "src/bin/world_load.rs"
 
+[[bin]]
+name = "world-run"
+path = "src/bin/world_run.rs"
+
 [dependencies]
 continuum-dsl = { path = "../kernels/dsl" }
+continuum-foundation = { path = "../kernels/foundation" }
+continuum-ir = { path = "../kernels/ir" }
+continuum-runtime = { path = "../kernels/runtime" }
+indexmap = "2.13.0"
