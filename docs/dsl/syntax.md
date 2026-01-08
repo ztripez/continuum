@@ -289,6 +289,46 @@ signal.terra.geophysics.core.temp_k {
 - `kernel.fn(...)` — engine-provided functions
 - `let name = expr` — local bindings
 
+### Warmup Block
+
+Signals may declare a warmup block for pre-causal equilibration:
+
+```
+signal.terra.thermal.equilibrium {
+  : Scalar<K>
+  : strata(terra.thermal)
+
+  warmup {
+    : iterations(100)
+    : convergence(1e-6)
+
+    iterate {
+      let flux_in = kernel.radiogenic_heat(config.terra.core.budget)
+      let flux_out = kernel.surface_radiation(prev)
+      prev + (flux_in - flux_out) * 0.1
+    }
+  }
+
+  resolve {
+    prev + sum(inputs) * dt
+  }
+}
+```
+
+Warmup attributes:
+
+| Attribute | Description |
+|-----------|-------------|
+| `: iterations(N)` | Maximum warmup iterations (required) |
+| `: convergence(epsilon)` | Convergence threshold (optional) |
+
+In warmup blocks:
+- `prev` — current warmup value
+- `dt` — **not available** (time has not started)
+- `signal.path` — read other warmup signals (current iteration if resolved, else previous)
+
+See @execution/warmup.md for full semantics.
+
 ---
 
 ## 10. Fields
@@ -358,8 +398,12 @@ operator.terra.tectonics.boundary_capture {
 
 | Phase | Purpose | Can Write |
 |-------|---------|-----------|
+| `warmup` | Pre-causal initialization | `signal.x <- value` |
 | `collect` | Gather signal inputs | `signal.x <- value` |
 | `measure` | Emit field samples | `field.x <- position, value` |
+
+Warmup operators execute during the warmup phase before causal execution begins.
+See @execution/warmup.md for warmup semantics.
 
 ---
 

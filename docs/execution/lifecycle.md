@@ -136,6 +136,8 @@ Warmup must be:
 
 If warmup produces divergent or unstable results, execution must fail.
 
+For full warmup semantics and DSL syntax, see @execution/warmup.md.
+
 ---
 
 ## 6. Begin Causal Execution
