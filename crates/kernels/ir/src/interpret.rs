@@ -6,15 +6,17 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{EraId, SignalId, StratumId};
-use continuum_runtime::executor::{AssertionFn, AssertionSeverity, EraConfig, ResolverFn};
+use continuum_foundation::{EraId, FieldId, SignalId, StratumId};
+use continuum_runtime::executor::{
+    AssertionFn, AssertionSeverity, EraConfig, FractureFn, MeasureFn, ResolverFn, TransitionFn,
+};
 use continuum_runtime::operators;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::{Dt, StratumState, Value};
 
 use crate::{
-    AssertionSeverity as IrAssertionSeverity, BinaryOpIr, CompiledExpr, CompiledWorld,
-    StratumStateIr, UnaryOpIr, ValueType,
+    AssertionSeverity as IrAssertionSeverity, BinaryOpIr, CompiledEra, CompiledExpr,
+    CompiledFracture, CompiledWorld, StratumStateIr, UnaryOpIr, ValueType,
 };
 
 /// Build era configurations from compiled world
@@ -32,17 +34,52 @@ pub fn build_era_configs(world: &CompiledWorld) -> HashMap<EraId, EraConfig> {
             strata.insert(StratumId(stratum_id.0.clone()), runtime_state);
         }
 
+        // Build transition function if there are transitions
+        let transition = build_transition_fn(era, &world.constants, &world.config);
+
         configs.insert(
             EraId(era_id.0.clone()),
             EraConfig {
                 dt: Dt(era.dt_seconds),
                 strata,
-                transition: None, // TODO: implement transition conditions
+                transition,
             },
         );
     }
 
     configs
+}
+
+/// Build a transition function for an era
+fn build_transition_fn(
+    era: &CompiledEra,
+    constants: &IndexMap<String, f64>,
+    config: &IndexMap<String, f64>,
+) -> Option<TransitionFn> {
+    if era.transitions.is_empty() {
+        return None;
+    }
+
+    // Clone the data we need for the closure
+    let transitions: Vec<_> = era
+        .transitions
+        .iter()
+        .map(|t| (t.target_era.clone(), t.condition.clone()))
+        .collect();
+    let constants = constants.clone();
+    let config = config.clone();
+
+    Some(Box::new(move |signals: &SignalStorage| {
+        // Evaluate each transition condition in order
+        // First matching condition wins
+        for (target_era, condition) in &transitions {
+            let result = eval_transition_expr(condition, &constants, &config, signals);
+            if result != 0.0 {
+                return Some(EraId(target_era.0.clone()));
+            }
+        }
+        None
+    }))
 }
 
 /// Get initial value for a signal from config
@@ -97,6 +134,64 @@ pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: b
 
         let result = eval_expr(&expr, ctx.prev, ctx.inputs, dt, &constants, &config, ctx.signals);
         Value::Scalar(result)
+    })
+}
+
+/// Build a measure function for a field
+///
+/// Field measure expressions evaluate against current signal values and emit to the field buffer.
+pub fn build_field_measure(
+    field_id: &FieldId,
+    expr: &CompiledExpr,
+    world: &CompiledWorld,
+) -> MeasureFn {
+    let field_id = FieldId(field_id.0.clone());
+    let expr = expr.clone();
+    let constants = world.constants.clone();
+    let config = world.config.clone();
+
+    Box::new(move |ctx| {
+        let result = eval_measure_expr(&expr, ctx.dt.seconds(), &constants, &config, ctx.signals);
+        ctx.fields.emit_scalar(field_id.clone(), result);
+    })
+}
+
+/// Build a fracture detection function
+///
+/// Fractures check conditions and emit to signals when triggered.
+/// Returns `Some(emits)` if all conditions pass, `None` otherwise.
+pub fn build_fracture(fracture: &CompiledFracture, world: &CompiledWorld) -> FractureFn {
+    let conditions = fracture.conditions.clone();
+    let emits = fracture.emits.clone();
+    let constants = world.constants.clone();
+    let config = world.config.clone();
+
+    Box::new(move |ctx| {
+        // Check all conditions - all must be non-zero
+        for condition in &conditions {
+            let result =
+                eval_fracture_expr(condition, ctx.dt.seconds(), &constants, &config, ctx.signals);
+            if result == 0.0 {
+                return None;
+            }
+        }
+
+        // All conditions passed - evaluate emit expressions
+        let outputs: Vec<(continuum_runtime::SignalId, f64)> = emits
+            .iter()
+            .map(|emit| {
+                let value = eval_fracture_expr(
+                    &emit.value,
+                    ctx.dt.seconds(),
+                    &constants,
+                    &config,
+                    ctx.signals,
+                );
+                (continuum_runtime::SignalId(emit.target.0.clone()), value)
+            })
+            .collect();
+
+        Some(outputs)
     })
 }
 
@@ -257,6 +352,136 @@ fn eval_assertion_expr(
         }
         CompiledExpr::FieldAccess { .. } => 0.0,
     }
+}
+
+/// Evaluate a compiled expression in transition context (signals only, no prev/dt)
+fn eval_transition_expr(
+    expr: &CompiledExpr,
+    constants: &IndexMap<String, f64>,
+    config: &IndexMap<String, f64>,
+    signals: &SignalStorage,
+) -> f64 {
+    match expr {
+        CompiledExpr::Literal(v) => *v,
+        // Prev and DtRaw don't make sense in transition conditions
+        CompiledExpr::Prev => 0.0,
+        CompiledExpr::DtRaw => 0.0,
+        CompiledExpr::SumInputs => 0.0,
+        CompiledExpr::Signal(id) => {
+            let runtime_id = SignalId(id.0.clone());
+            signals
+                .get(&runtime_id)
+                .and_then(|v| v.as_scalar())
+                .unwrap_or(0.0)
+        }
+        CompiledExpr::Const(name) => constants.get(name).copied().unwrap_or(0.0),
+        CompiledExpr::Config(name) => config.get(name).copied().unwrap_or(0.0),
+        CompiledExpr::Binary { op, left, right } => {
+            let l = eval_transition_expr(left, constants, config, signals);
+            let r = eval_transition_expr(right, constants, config, signals);
+            eval_binary_op(*op, l, r)
+        }
+        CompiledExpr::Unary { op, operand } => {
+            let v = eval_transition_expr(operand, constants, config, signals);
+            eval_unary_op(*op, v)
+        }
+        CompiledExpr::Call { function, args } => {
+            let arg_values: Vec<f64> = args
+                .iter()
+                .map(|a| eval_transition_expr(a, constants, config, signals))
+                .collect();
+            // Transitions use pure math functions only
+            eval_assertion_function_call(function, &arg_values)
+        }
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            let cond = eval_transition_expr(condition, constants, config, signals);
+            if cond != 0.0 {
+                eval_transition_expr(then_branch, constants, config, signals)
+            } else {
+                eval_transition_expr(else_branch, constants, config, signals)
+            }
+        }
+        CompiledExpr::Let { value, body, .. } => {
+            let _val = eval_transition_expr(value, constants, config, signals);
+            eval_transition_expr(body, constants, config, signals)
+        }
+        CompiledExpr::FieldAccess { .. } => 0.0,
+    }
+}
+
+/// Evaluate a compiled expression in measure context (current signals, with dt)
+fn eval_measure_expr(
+    expr: &CompiledExpr,
+    dt: f64,
+    constants: &IndexMap<String, f64>,
+    config: &IndexMap<String, f64>,
+    signals: &SignalStorage,
+) -> f64 {
+    match expr {
+        CompiledExpr::Literal(v) => *v,
+        // Prev doesn't make sense in measure context (we have current values)
+        CompiledExpr::Prev => 0.0,
+        CompiledExpr::DtRaw => dt,
+        CompiledExpr::SumInputs => 0.0,
+        CompiledExpr::Signal(id) => {
+            let runtime_id = SignalId(id.0.clone());
+            signals
+                .get(&runtime_id)
+                .and_then(|v| v.as_scalar())
+                .unwrap_or(0.0)
+        }
+        CompiledExpr::Const(name) => constants.get(name).copied().unwrap_or(0.0),
+        CompiledExpr::Config(name) => config.get(name).copied().unwrap_or(0.0),
+        CompiledExpr::Binary { op, left, right } => {
+            let l = eval_measure_expr(left, dt, constants, config, signals);
+            let r = eval_measure_expr(right, dt, constants, config, signals);
+            eval_binary_op(*op, l, r)
+        }
+        CompiledExpr::Unary { op, operand } => {
+            let v = eval_measure_expr(operand, dt, constants, config, signals);
+            eval_unary_op(*op, v)
+        }
+        CompiledExpr::Call { function, args } => {
+            let arg_values: Vec<f64> = args
+                .iter()
+                .map(|a| eval_measure_expr(a, dt, constants, config, signals))
+                .collect();
+            eval_assertion_function_call(function, &arg_values)
+        }
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            let cond = eval_measure_expr(condition, dt, constants, config, signals);
+            if cond != 0.0 {
+                eval_measure_expr(then_branch, dt, constants, config, signals)
+            } else {
+                eval_measure_expr(else_branch, dt, constants, config, signals)
+            }
+        }
+        CompiledExpr::Let { value, body, .. } => {
+            let _val = eval_measure_expr(value, dt, constants, config, signals);
+            eval_measure_expr(body, dt, constants, config, signals)
+        }
+        CompiledExpr::FieldAccess { .. } => 0.0,
+    }
+}
+
+/// Evaluate a compiled expression in fracture context (current signals, with dt)
+fn eval_fracture_expr(
+    expr: &CompiledExpr,
+    dt: f64,
+    constants: &IndexMap<String, f64>,
+    config: &IndexMap<String, f64>,
+    signals: &SignalStorage,
+) -> f64 {
+    // Fracture evaluation is identical to measure evaluation - access to current signals and dt
+    eval_measure_expr(expr, dt, constants, config, signals)
 }
 
 /// Evaluate a binary operation
@@ -452,5 +677,150 @@ mod tests {
         assert_eq!(eval_function_call("min", &[3.0, 1.0, 2.0], 1.0), 1.0);
         assert_eq!(eval_function_call("max", &[3.0, 1.0, 2.0], 1.0), 3.0);
         assert_eq!(eval_function_call("clamp", &[5.0, 0.0, 3.0], 1.0), 3.0);
+    }
+
+    #[test]
+    fn test_eval_transition_expr() {
+        use continuum_runtime::storage::SignalStorage;
+
+        let constants = IndexMap::new();
+        let config = IndexMap::new();
+        let mut signals = SignalStorage::default();
+
+        // Initialize a signal
+        signals.init(SignalId::from("temp"), Value::Scalar(100.0));
+
+        // Test literal
+        let expr = CompiledExpr::Literal(1.0);
+        assert_eq!(eval_transition_expr(&expr, &constants, &config, &signals), 1.0);
+
+        // Test signal reference
+        let expr = CompiledExpr::Signal(continuum_foundation::SignalId::from("temp"));
+        assert_eq!(eval_transition_expr(&expr, &constants, &config, &signals), 100.0);
+
+        // Test comparison: temp < 200
+        let expr = CompiledExpr::Binary {
+            op: BinaryOpIr::Lt,
+            left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from("temp"))),
+            right: Box::new(CompiledExpr::Literal(200.0)),
+        };
+        assert_eq!(eval_transition_expr(&expr, &constants, &config, &signals), 1.0); // true
+
+        // Test comparison: temp < 50
+        let expr = CompiledExpr::Binary {
+            op: BinaryOpIr::Lt,
+            left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from("temp"))),
+            right: Box::new(CompiledExpr::Literal(50.0)),
+        };
+        assert_eq!(eval_transition_expr(&expr, &constants, &config, &signals), 0.0); // false
+    }
+
+    #[test]
+    fn test_build_transition_fn() {
+        use crate::{CompiledEra, CompiledTransition};
+        use continuum_runtime::storage::SignalStorage;
+
+        let constants = IndexMap::new();
+        let config = IndexMap::new();
+        let mut signals = SignalStorage::default();
+
+        // Initialize signal at 100
+        signals.init(SignalId::from("temp"), Value::Scalar(100.0));
+
+        // Create an era with a transition when temp < 50
+        let era = CompiledEra {
+            id: continuum_foundation::EraId::from("test"),
+            is_initial: true,
+            is_terminal: false,
+            title: None,
+            dt_seconds: 1.0,
+            strata_states: IndexMap::new(),
+            transitions: vec![CompiledTransition {
+                target_era: continuum_foundation::EraId::from("next_era"),
+                condition: CompiledExpr::Binary {
+                    op: BinaryOpIr::Lt,
+                    left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from("temp"))),
+                    right: Box::new(CompiledExpr::Literal(50.0)),
+                },
+            }],
+        };
+
+        let transition_fn = build_transition_fn(&era, &constants, &config).unwrap();
+
+        // Signal at 100, should not transition (100 < 50 is false)
+        assert!(transition_fn(&signals).is_none());
+
+        // Update signal to 30
+        signals.set_current(SignalId::from("temp"), Value::Scalar(30.0));
+
+        // Signal at 30, should transition (30 < 50 is true)
+        let result = transition_fn(&signals);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().0, "next_era");
+    }
+
+    #[test]
+    fn test_build_fracture() {
+        use crate::{CompiledEmit, CompiledFracture};
+        use continuum_runtime::executor::FractureContext;
+        use continuum_runtime::storage::SignalStorage;
+        use continuum_runtime::types::Dt;
+
+        let world = CompiledWorld {
+            constants: IndexMap::new(),
+            config: IndexMap::new(),
+            strata: IndexMap::new(),
+            eras: IndexMap::new(),
+            signals: IndexMap::new(),
+            fields: IndexMap::new(),
+            operators: IndexMap::new(),
+            impulses: IndexMap::new(),
+            fractures: IndexMap::new(),
+        };
+
+        // Create a fracture that triggers when temp > 100 and emits to energy
+        let fracture = CompiledFracture {
+            id: continuum_foundation::FractureId::from("test_fracture"),
+            reads: vec![continuum_foundation::SignalId::from("temp")],
+            conditions: vec![CompiledExpr::Binary {
+                op: BinaryOpIr::Gt,
+                left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from(
+                    "temp",
+                ))),
+                right: Box::new(CompiledExpr::Literal(100.0)),
+            }],
+            emits: vec![CompiledEmit {
+                target: continuum_foundation::SignalId::from("energy"),
+                value: CompiledExpr::Literal(50.0),
+            }],
+        };
+
+        let fracture_fn = build_fracture(&fracture, &world);
+
+        let mut signals = SignalStorage::default();
+        signals.init(SignalId::from("temp"), Value::Scalar(50.0));
+
+        let ctx = FractureContext {
+            signals: &signals,
+            dt: Dt(1.0),
+        };
+
+        // Temp is 50, condition (temp > 100) is false, should not trigger
+        assert!(fracture_fn(&ctx).is_none());
+
+        // Update temp to 150
+        signals.set_current(SignalId::from("temp"), Value::Scalar(150.0));
+        let ctx = FractureContext {
+            signals: &signals,
+            dt: Dt(1.0),
+        };
+
+        // Temp is 150, condition (temp > 100) is true, should trigger
+        let result = fracture_fn(&ctx);
+        assert!(result.is_some());
+        let emits = result.unwrap();
+        assert_eq!(emits.len(), 1);
+        assert_eq!(emits[0].0, SignalId::from("energy"));
+        assert_eq!(emits[0].1, 50.0);
     }
 }

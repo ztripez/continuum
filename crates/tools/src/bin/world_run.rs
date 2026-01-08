@@ -9,10 +9,10 @@ use std::path::Path;
 use std::process;
 
 use continuum_dsl::load_world;
-use continuum_foundation::SignalId;
+use continuum_foundation::{FieldId, SignalId};
 use continuum_ir::{
-    build_assertion, build_era_configs, build_resolver, compile, convert_assertion_severity,
-    get_initial_signal_value, lower,
+    build_assertion, build_era_configs, build_field_measure, build_fracture, build_resolver,
+    compile, convert_assertion_severity, get_initial_signal_value, lower, validate,
 };
 use continuum_runtime::executor::Runtime;
 use continuum_runtime::types::{Dt, Value};
@@ -85,6 +85,19 @@ fn main() {
     println!("  Constants: {}", world.constants.len());
     println!("  Config: {}", world.config.len());
 
+    // Validate IR
+    println!("\nValidating...");
+    let warnings = validate(&world);
+    if warnings.is_empty() {
+        println!("  No warnings");
+    } else {
+        eprintln!("\n⚠ {} warning(s):", warnings.len());
+        for warning in &warnings {
+            eprintln!("  - {} (in {})", warning.message, warning.entity);
+        }
+        eprintln!();
+    }
+
     // Compile to DAGs
     println!("\nCompiling to DAGs...");
     let compilation = match compile(&world) {
@@ -96,6 +109,9 @@ fn main() {
     };
 
     println!("  Resolver indices: {}", compilation.resolver_indices.len());
+    println!("  Field indices: {}", compilation.field_indices.len());
+    println!("  Fracture indices: {}", compilation.fracture_indices.len());
+    println!("  Eras in DAG: {}", compilation.dags.era_count());
 
     // Build runtime
     println!("\nBuilding runtime...");
@@ -166,6 +182,33 @@ fn main() {
         println!("  Registered {} assertions", assertion_count);
     }
 
+    // Register field measure functions
+    let mut field_count = 0;
+    for (field_id, field) in &world.fields {
+        if let Some(ref expr) = field.measure {
+            let runtime_id = FieldId(field_id.0.clone());
+            let measure_fn = build_field_measure(&runtime_id, expr, &world);
+            let idx = runtime.register_measure_op(measure_fn);
+            println!("  Registered field measure for {} (idx={})", field_id, idx);
+            field_count += 1;
+        }
+    }
+    if field_count > 0 {
+        println!("  Registered {} field measures", field_count);
+    }
+
+    // Register fracture detectors
+    let mut fracture_count = 0;
+    for (fracture_id, fracture) in &world.fractures {
+        let fracture_fn = build_fracture(fracture, &world);
+        let idx = runtime.register_fracture(fracture_fn);
+        println!("  Registered fracture {} (idx={})", fracture_id, idx);
+        fracture_count += 1;
+    }
+    if fracture_count > 0 {
+        println!("  Registered {} fractures", fracture_count);
+    }
+
     // Initialize signals
     for (signal_id, _signal) in &world.signals {
         let value = get_initial_signal_value(&world, signal_id);
@@ -204,6 +247,25 @@ fn main() {
                     }
                 }
                 println!(" (dt={:.2e}s)", ctx.dt.seconds());
+
+                // Print field values if any were emitted
+                let fields = runtime.drain_fields();
+                if !fields.is_empty() {
+                    for (field_id, samples) in &fields {
+                        for sample in samples {
+                            match &sample.value {
+                                Value::Scalar(v) => println!("  [field] {} = {:.4}", field_id, v),
+                                Value::Vec3(v) => {
+                                    println!(
+                                        "  [field] {} = [{:.2}, {:.2}, {:.2}]",
+                                        field_id, v[0], v[1], v[2]
+                                    )
+                                }
+                                _ => println!("  [field] {} = {:?}", field_id, sample.value),
+                            }
+                        }
+                    }
+                }
             }
             Err(e) => {
                 eprintln!("\nError at step {}: {}", step, e);

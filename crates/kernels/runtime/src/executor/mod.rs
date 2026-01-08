@@ -798,4 +798,103 @@ mod tests {
         let result = runtime.execute_tick();
         assert!(matches!(result, Err(Error::AssertionFailed { .. })));
     }
+
+    #[test]
+    fn test_era_transition() {
+        let era_a: EraId = "era_a".into();
+        let era_b: EraId = "era_b".into();
+        let stratum_id: StratumId = "default".into();
+        let signal_id: SignalId = "counter".into();
+
+        // Build DAG for Resolve phase
+        let mut builder = DagBuilder::new(Phase::Resolve, stratum_id.clone());
+        builder.add_node(DagNode {
+            id: NodeId("counter_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(signal_id.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_id.clone(),
+                resolver_idx: 0,
+            },
+        });
+        let dag = builder.build().unwrap();
+
+        let mut era_dags_a = EraDags::default();
+        era_dags_a.insert(dag);
+
+        // Build same DAG for era B
+        let mut builder_b = DagBuilder::new(Phase::Resolve, stratum_id.clone());
+        builder_b.add_node(DagNode {
+            id: NodeId("counter_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(signal_id.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_id.clone(),
+                resolver_idx: 0,
+            },
+        });
+        let dag_b = builder_b.build().unwrap();
+        let mut era_dags_b = EraDags::default();
+        era_dags_b.insert(dag_b);
+
+        let mut dags = DagSet::default();
+        dags.insert_era(era_a.clone(), era_dags_a);
+        dags.insert_era(era_b.clone(), era_dags_b);
+
+        // Era A transitions to Era B when counter >= 5
+        let mut strata_a = HashMap::new();
+        strata_a.insert(stratum_id.clone(), StratumState::Active);
+
+        let era_b_clone = era_b.clone();
+        let signal_id_clone = signal_id.clone();
+        let era_a_config = EraConfig {
+            dt: Dt(1.0),
+            strata: strata_a.clone(),
+            transition: Some(Box::new(move |signals| {
+                if let Some(value) = signals.get(&signal_id_clone) {
+                    if value.as_scalar().unwrap_or(0.0) >= 5.0 {
+                        return Some(era_b_clone.clone());
+                    }
+                }
+                None
+            })),
+        };
+
+        let era_b_config = EraConfig {
+            dt: Dt(10.0), // Different dt to verify transition
+            strata: strata_a,
+            transition: None,
+        };
+
+        let mut eras = HashMap::new();
+        eras.insert(era_a.clone(), era_a_config);
+        eras.insert(era_b.clone(), era_b_config);
+
+        let mut runtime = Runtime::new(era_a.clone(), eras, dags);
+
+        // Register resolver: increment by 1 each tick
+        runtime.register_resolver(Box::new(|ctx| {
+            let prev = ctx.prev.as_scalar().unwrap_or(0.0);
+            Value::Scalar(prev + 1.0)
+        }));
+
+        runtime.init_signal(signal_id.clone(), Value::Scalar(0.0));
+
+        // Start in era A
+        assert_eq!(runtime.era(), &era_a);
+
+        // Ticks 0-4: counter goes from 0 to 5, still in era A until tick ends
+        for i in 0..5 {
+            let ctx = runtime.execute_tick().unwrap();
+            assert_eq!(ctx.dt.0, 1.0, "tick {} should have dt=1.0", i);
+        }
+
+        // After tick 4, counter is 5, transition should happen
+        assert_eq!(runtime.era(), &era_b);
+
+        // Next tick should be in era B with dt=10
+        let ctx = runtime.execute_tick().unwrap();
+        assert_eq!(ctx.dt.0, 10.0, "should now use era B's dt");
+        assert_eq!(runtime.era(), &era_b);
+    }
 }

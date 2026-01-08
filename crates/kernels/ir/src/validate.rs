@@ -2,9 +2,11 @@
 //!
 //! Validates the compiled IR and emits warnings for potential issues.
 
+use std::collections::HashSet;
+
 use tracing::warn;
 
-use crate::{CompiledWorld, ValueType};
+use crate::{CompiledExpr, CompiledWorld, ValueType};
 
 /// A compilation warning
 #[derive(Debug, Clone)]
@@ -22,6 +24,10 @@ pub struct CompileWarning {
 pub enum WarningCode {
     /// Signal has range constraint but no assertions to validate it
     MissingRangeAssertion,
+    /// Reference to undefined symbol (likely typo)
+    UndefinedSymbol,
+    /// Unknown function call
+    UnknownFunction,
 }
 
 /// Validate a compiled world and return any warnings
@@ -29,6 +35,7 @@ pub fn validate(world: &CompiledWorld) -> Vec<CompileWarning> {
     let mut warnings = Vec::new();
 
     check_range_assertions(world, &mut warnings);
+    check_undefined_symbols(world, &mut warnings);
 
     // Log warnings
     for warning in &warnings {
@@ -59,6 +66,201 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
                 entity: signal_id.0.clone(),
             });
         }
+    }
+}
+
+/// Known built-in functions
+const KNOWN_FUNCTIONS: &[&str] = &[
+    // dt-dependent operators
+    "decay",
+    "relax",
+    "integrate",
+    // math functions
+    "clamp",
+    "min",
+    "max",
+    "abs",
+    "sqrt",
+    "sin",
+    "cos",
+    "exp",
+    "ln",
+    "log10",
+    "pow",
+    // special
+    "sum",
+];
+
+/// Check for undefined symbols in expressions
+fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
+    // Collect all defined symbols
+    let mut defined_signals: HashSet<&str> = HashSet::new();
+    for signal_id in world.signals.keys() {
+        defined_signals.insert(&signal_id.0);
+    }
+
+    let defined_constants: HashSet<&str> = world.constants.keys().map(|s| s.as_str()).collect();
+    let defined_config: HashSet<&str> = world.config.keys().map(|s| s.as_str()).collect();
+
+    // Check signals
+    for (signal_id, signal) in &world.signals {
+        if let Some(resolve) = &signal.resolve {
+            check_expr_symbols(
+                resolve,
+                &format!("signal.{}", signal_id.0),
+                &defined_signals,
+                &defined_constants,
+                &defined_config,
+                warnings,
+            );
+        }
+        for assertion in &signal.assertions {
+            check_expr_symbols(
+                &assertion.condition,
+                &format!("signal.{} assert", signal_id.0),
+                &defined_signals,
+                &defined_constants,
+                &defined_config,
+                warnings,
+            );
+        }
+    }
+
+    // Check fields
+    for (field_id, field) in &world.fields {
+        if let Some(measure) = &field.measure {
+            check_expr_symbols(
+                measure,
+                &format!("field.{}", field_id.0),
+                &defined_signals,
+                &defined_constants,
+                &defined_config,
+                warnings,
+            );
+        }
+    }
+
+    // Check fractures
+    for (fracture_id, fracture) in &world.fractures {
+        for condition in &fracture.conditions {
+            check_expr_symbols(
+                condition,
+                &format!("fracture.{}", fracture_id.0),
+                &defined_signals,
+                &defined_constants,
+                &defined_config,
+                warnings,
+            );
+        }
+        for emit in &fracture.emits {
+            check_expr_symbols(
+                &emit.value,
+                &format!("fracture.{}", fracture_id.0),
+                &defined_signals,
+                &defined_constants,
+                &defined_config,
+                warnings,
+            );
+        }
+    }
+
+    // Check era transitions
+    for (era_id, era) in &world.eras {
+        for transition in &era.transitions {
+            check_expr_symbols(
+                &transition.condition,
+                &format!("era.{} transition", era_id.0),
+                &defined_signals,
+                &defined_constants,
+                &defined_config,
+                warnings,
+            );
+        }
+    }
+}
+
+/// Check a single expression for undefined symbols
+fn check_expr_symbols(
+    expr: &CompiledExpr,
+    context: &str,
+    defined_signals: &HashSet<&str>,
+    defined_constants: &HashSet<&str>,
+    defined_config: &HashSet<&str>,
+    warnings: &mut Vec<CompileWarning>,
+) {
+    match expr {
+        CompiledExpr::Signal(signal_id) => {
+            if !defined_signals.contains(signal_id.0.as_str()) {
+                warnings.push(CompileWarning {
+                    code: WarningCode::UndefinedSymbol,
+                    message: format!(
+                        "undefined signal '{}' in {} (possible typo?)",
+                        signal_id.0, context
+                    ),
+                    entity: context.to_string(),
+                });
+            }
+        }
+        CompiledExpr::Const(name) => {
+            if !defined_constants.contains(name.as_str()) {
+                warnings.push(CompileWarning {
+                    code: WarningCode::UndefinedSymbol,
+                    message: format!(
+                        "undefined constant '{}' in {} (possible typo?)",
+                        name, context
+                    ),
+                    entity: context.to_string(),
+                });
+            }
+        }
+        CompiledExpr::Config(name) => {
+            if !defined_config.contains(name.as_str()) {
+                warnings.push(CompileWarning {
+                    code: WarningCode::UndefinedSymbol,
+                    message: format!(
+                        "undefined config '{}' in {} (possible typo?)",
+                        name, context
+                    ),
+                    entity: context.to_string(),
+                });
+            }
+        }
+        CompiledExpr::Call { function, args } => {
+            if !KNOWN_FUNCTIONS.contains(&function.as_str()) {
+                warnings.push(CompileWarning {
+                    code: WarningCode::UnknownFunction,
+                    message: format!(
+                        "unknown function '{}' in {} (possible typo?)",
+                        function, context
+                    ),
+                    entity: context.to_string(),
+                });
+            }
+            for arg in args {
+                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+            }
+        }
+        CompiledExpr::Binary { left, right, .. } => {
+            check_expr_symbols(left, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(right, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        CompiledExpr::Unary { operand, .. } => {
+            check_expr_symbols(operand, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        CompiledExpr::If { condition, then_branch, else_branch } => {
+            check_expr_symbols(condition, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(then_branch, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(else_branch, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        CompiledExpr::Let { value, body, .. } => {
+            check_expr_symbols(value, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        CompiledExpr::FieldAccess { object, .. } => {
+            check_expr_symbols(object, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        // Literals, Prev, DtRaw, SumInputs don't need checking
+        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::SumInputs => {}
     }
 }
 
@@ -134,5 +336,90 @@ mod tests {
         let warnings = validate(&world);
 
         assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn test_undefined_symbol_warns() {
+        // "sum_inputs" is a typo - should be "sum(inputs)"
+        // The parser will treat it as a path/signal reference
+        let src = r#"
+            strata.terra {}
+            era.main { : initial }
+
+            signal.terra.temp {
+                : Scalar<K>
+                : strata(terra)
+                resolve { prev + sum_inputs }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should warn about undefined symbol "sum_inputs"
+        assert!(!warnings.is_empty());
+        let undefined_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UndefinedSymbol)
+            .collect();
+        assert_eq!(undefined_warnings.len(), 1);
+        assert!(undefined_warnings[0].message.contains("sum_inputs"));
+    }
+
+    #[test]
+    fn test_unknown_function_warns() {
+        let src = r#"
+            strata.terra {}
+            era.main { : initial }
+
+            signal.terra.temp {
+                : Scalar<K>
+                : strata(terra)
+                resolve { unknownfunc(prev) }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should warn about unknown function
+        let func_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UnknownFunction)
+            .collect();
+        assert_eq!(func_warnings.len(), 1);
+        assert!(func_warnings[0].message.contains("unknownfunc"));
+    }
+
+    #[test]
+    fn test_valid_symbols_no_warning() {
+        let src = r#"
+            const {
+                physics.gravity: 9.81
+            }
+
+            config {
+                thermal.decay_halflife: 1.0
+            }
+
+            strata.terra {}
+            era.main { : initial }
+
+            signal.terra.temp {
+                : Scalar<K>
+                : strata(terra)
+                resolve { decay(prev, config.thermal.decay_halflife) + sum(inputs) }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // No undefined symbol or unknown function warnings
+        let symbol_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| matches!(w.code, WarningCode::UndefinedSymbol | WarningCode::UnknownFunction))
+            .collect();
+        assert!(symbol_warnings.is_empty(), "unexpected warnings: {:?}", symbol_warnings);
     }
 }

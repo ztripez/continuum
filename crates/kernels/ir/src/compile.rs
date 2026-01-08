@@ -105,9 +105,13 @@ impl<'a> Compiler<'a> {
             self.operator_indices.insert(op_id.0.clone(), idx);
         }
 
-        // Assign field indices
-        for (idx, (field_id, _)) in self.world.fields.iter().enumerate() {
-            self.field_indices.insert(field_id.0.clone(), idx);
+        // Assign field indices (only for fields with measure expressions)
+        let mut field_idx = 0;
+        for (field_id, field) in &self.world.fields {
+            if field.measure.is_some() {
+                self.field_indices.insert(field_id.0.clone(), field_idx);
+                field_idx += 1;
+            }
         }
 
         // Assign fracture indices
@@ -233,8 +237,9 @@ impl<'a> Compiler<'a> {
         let mut builder = DagBuilder::new(Phase::Fracture, (*stratum_id).clone());
 
         // Fractures aren't bound to a specific stratum in IR
-        // For now, put all fractures under the "default" stratum
-        if stratum_id.0 != "default" {
+        // Add all fractures to the first stratum only (to avoid duplicating execution)
+        let first_stratum = self.world.strata.keys().next();
+        if first_stratum != Some(stratum_id) {
             let dag = builder.build()?;
             return Ok(if dag.is_empty() { None } else { Some(dag) });
         }
@@ -269,24 +274,29 @@ impl<'a> Compiler<'a> {
     ) -> Result<Option<ExecutableDag>, CompileError> {
         let mut builder = DagBuilder::new(Phase::Measure, (*stratum_id).clone());
 
+        // Fields with measure expressions become OperatorMeasure nodes
+        // Fields without measure expressions would be FieldEmit nodes (for dependency tracking only)
         for (field_id, field) in &self.world.fields {
             if field.stratum != *stratum_id {
                 continue;
             }
 
-            let node = DagNode {
-                id: NodeId(format!("field.{}", field_id.0)),
-                reads: field
-                    .reads
-                    .iter()
-                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
-                    .collect(),
-                writes: None,
-                kind: NodeKind::FieldEmit {
-                    field_idx: self.field_indices[&field_id.0],
-                },
-            };
-            builder.add_node(node);
+            // Only create nodes for fields that have measure expressions
+            if field.measure.is_some() {
+                let node = DagNode {
+                    id: NodeId(format!("field.{}", field_id.0)),
+                    reads: field
+                        .reads
+                        .iter()
+                        .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                        .collect(),
+                    writes: None,
+                    kind: NodeKind::OperatorMeasure {
+                        operator_idx: self.field_indices[&field_id.0],
+                    },
+                };
+                builder.add_node(node);
+            }
         }
 
         // Also add measure-phase operators

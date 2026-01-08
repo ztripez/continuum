@@ -51,13 +51,25 @@ signal.core.temp {
     : symbol("T_core")
 
     resolve {
-        decay(prev, config.thermal.decay_halflife)
+        decay(prev, config.thermal.decay_halflife) + sum(inputs)
     }
 
     assert {
         prev >= 100 <K>
         prev <= 10000 <K>
         prev > 0 : fatal, "temperature cannot be negative or zero"
+    }
+}
+
+# Radioactive heating events - when temp drops below threshold,
+# decay heat from radioactive elements provides a burst of energy
+fracture.core.decay_heat {
+    when {
+        signal.core.temp < 5498 <K>
+    }
+
+    emit {
+        signal.core.temp <- 5.0
     }
 }
 
