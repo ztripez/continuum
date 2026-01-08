@@ -1,0 +1,190 @@
+# Execution Lifecycle
+
+This document defines the **lifecycle of a Continuum run**.
+
+The lifecycle describes **when** major system stages occur, from loading a World
+to advancing causal history under a specific Scenario.
+
+It does **not** define execution logic or time semantics; those are covered elsewhere.
+
+---
+
+## Overview
+
+A Continuum run proceeds through the following stages:
+
+1. World loading
+2. DSL compilation
+3. Execution graph construction
+4. Scenario application
+5. Warmup (pre-causal)
+6. Causal execution (ticks)
+
+Only stages 5 and 6 involve computation.
+Only stage 6 produces causal history.
+
+---
+
+## 1. World Loading
+
+The system loads a World from disk.
+
+This includes:
+- locating `world.yaml`
+- loading and merging all YAML configuration
+- discovering all DSL source files
+
+At this stage:
+- no logic is executed
+- no time advances
+- no state exists
+
+World loading establishes **causal structure**, not instantiation.
+
+---
+
+## 2. DSL Compilation
+
+All DSL files are compiled.
+
+This includes:
+- parsing source files
+- building the symbol table
+- type checking
+- lowering to typed IR
+- inferring dependencies
+
+The output of this stage is a **complete, validated intermediate representation**
+of the World’s declared causal structure.
+
+No execution occurs during compilation.
+
+---
+
+## 3. Execution Graph Construction
+
+From the typed IR, the system builds **execution graphs**.
+
+Graphs are constructed per:
+
+```
+
+(phase × stratum × era)
+
+```
+
+This stage includes:
+- dependency analysis
+- cycle detection
+- topological ordering
+- partitioning into parallel execution levels
+
+The result is a fully determined execution plan.
+
+At the end of this stage:
+- execution order is fixed
+- parallelism boundaries are known
+- no runtime decisions about ordering remain
+
+Graph construction is independent of Scenario.
+
+---
+
+## 4. Scenario Application
+
+A **Scenario** is applied to the World to produce a concrete run configuration.
+
+This stage includes:
+- applying initial signal values
+- applying signal parameters and constants
+- validating scenario-defined bounds and assertions
+- fixing all instantiation-time choices
+
+Scenario application:
+- does not advance time
+- does not execute logic
+- does not produce causal history
+
+After this stage, the run has a fully specified **initial state**.
+
+---
+
+## 5. Warmup (Pre-Causal)
+
+Warmup is a **bounded, deterministic pre-execution phase**.
+
+Warmup exists to prepare values that must be **stable before causal history begins**.
+
+Warmup may be used to:
+- derive time unit tables
+- stabilize reconstruction caches
+- converge internal fixed-point values
+- validate execution invariants
+
+Warmup is **not time**.
+
+During warmup:
+- no ticks advance
+- no causal history is produced
+- no fields are emitted
+- no observers are invoked
+
+Warmup must be:
+- deterministic
+- bounded
+- non-observable
+
+If warmup produces divergent or unstable results, execution must fail.
+
+---
+
+## 6. Begin Causal Execution
+
+After warmup completes successfully, causal execution begins.
+
+From this point onward:
+- ticks advance time
+- execution phases run in order
+- signals are resolved
+- fields may be emitted
+- observers may attach
+
+Everything that happens after this point is part of the simulation’s causal history.
+
+---
+
+## Lifecycle Guarantees
+
+The lifecycle guarantees that:
+
+- World structure is fixed before instantiation
+- Scenario configuration is fixed before execution
+- No observer can influence execution before causality begins
+- No time advancement occurs before warmup completes
+- Execution order is fully determined before the first tick
+- Failures before the first tick leave no partial history
+
+---
+
+## What the Lifecycle Is Not
+
+The lifecycle is **not**:
+- a runtime loop description
+- a scheduling algorithm
+- a visualization concern
+- a domain-specific concept
+
+It is the **structural envelope** within which execution occurs.
+
+---
+
+## Summary
+
+- Lifecycle defines *when* things happen
+- Worlds define structure
+- Scenarios define instantiation
+- Warmup is pre-causal and non-temporal
+- Causal history begins only after warmup
+- Execution order is fixed before time advances
+
+Nothing that happens before the first tick is part of time.
