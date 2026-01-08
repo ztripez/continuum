@@ -86,6 +86,17 @@ name = "continuum-foundation"
 version = "0.1.0"
 
 [[package]]
+name = "continuum-ir"
+version = "0.1.0"
+dependencies = [
+ "continuum-dsl",
+ "continuum-foundation",
+ "continuum-runtime",
+ "indexmap",
+ "thiserror",
+]
+
+[[package]]
 name = "continuum-runtime"
 version = "0.1.0"
 dependencies = [
