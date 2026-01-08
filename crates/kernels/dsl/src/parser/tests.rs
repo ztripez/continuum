@@ -553,3 +553,76 @@ fn test_parse_let_expression() {
         _ => panic!("expected SignalDef"),
     }
 }
+
+#[test]
+fn test_parse_fn_def() {
+    let source = r#"
+        fn.physics.stefan_boltzmann_loss(temp: Scalar<K>) -> Scalar<K> {
+            temp * 4.0
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::FnDef(def) => {
+            assert_eq!(def.path.node.join("."), "physics.stefan_boltzmann_loss");
+            assert_eq!(def.params.len(), 1);
+            assert_eq!(def.params[0].name.node, "temp");
+            assert!(def.params[0].ty.is_some());
+            assert!(def.return_type.is_some());
+            // Body should be temp * 4.0
+            match &def.body.node {
+                Expr::Binary { op, .. } => {
+                    assert_eq!(*op, BinaryOp::Mul);
+                }
+                _ => panic!("expected Binary mul, got {:?}", def.body.node),
+            }
+        }
+        _ => panic!("expected FnDef"),
+    }
+}
+
+#[test]
+fn test_parse_fn_def_no_return_type() {
+    let source = r#"
+        fn.math.add(a, b) {
+            a + b
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::FnDef(def) => {
+            assert_eq!(def.path.node.join("."), "math.add");
+            assert_eq!(def.params.len(), 2);
+            assert_eq!(def.params[0].name.node, "a");
+            assert!(def.params[0].ty.is_none());
+            assert_eq!(def.params[1].name.node, "b");
+            assert!(def.params[1].ty.is_none());
+            assert!(def.return_type.is_none());
+        }
+        _ => panic!("expected FnDef"),
+    }
+}
+
+#[test]
+fn test_parse_fn_def_with_const_config() {
+    let source = r#"
+        fn.isostasy.factor() {
+            1.0 - config.isostasy.crustal_density / config.isostasy.mantle_density
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::FnDef(def) => {
+            assert_eq!(def.path.node.join("."), "isostasy.factor");
+            assert_eq!(def.params.len(), 0);
+        }
+        _ => panic!("expected FnDef"),
+    }
+}

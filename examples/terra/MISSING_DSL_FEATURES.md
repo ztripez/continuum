@@ -30,15 +30,15 @@ This file tracks DSL features that are documented but not yet implemented in the
 - **Current workaround**: Use dimensionless units or simple units like `<m>`, `<K>`, `<Pa>`
 
 ### 4. `fn` (user-defined functions)
-- **Status**: NOT IMPLEMENTED
+- **Status**: IMPLEMENTED
 - **Documented in**: docs/dsl/functions.md
 - **Example**:
   ```
-  fn.isostasy.factor() -> Scalar<1> {
-      1.0 - config.isostasy.crustal_density / config.isostasy.mantle_density
+  fn.isostasy.buoyancy_factor(crustal_density, mantle_density) {
+      1.0 - crustal_density / mantle_density
   }
   ```
-- **Current workaround**: Define intermediate signals instead of functions
+- **Note**: Functions are pure and inlined at call sites. They can access `const.*` and `config.*`, call other functions, but cannot access `prev`, `dt_raw`, or write to signals.
 
 ### 5. Complex unit expressions
 - **Status**: LIMITED
@@ -65,7 +65,7 @@ The following kernel functions are used in the terra DSL:
 - `sum(inputs)` - IMPLEMENTED (special form)
 
 ### 8. Signal-local config blocks
-- **Status**: NOT IMPLEMENTED (uses global config with naming convention)
+- **Status**: IMPLEMENTED
 - **Documented in**: docs/dsl/syntax.md line 256-262
 - **Example**:
   ```
@@ -73,9 +73,12 @@ The following kernel functions are used in the terra DSL:
       config {
           initial_temp: 5500 <K>
       }
+      resolve {
+          config.core.temp.initial_temp  # Access via signal-prefixed path
+      }
   }
   ```
-- **Current workaround**: Use global config with `<domain>.initial_<signal>` pattern
+- **Note**: Local config/const are namespaced under the signal path. A local `initial_temp` in `signal.core.temp` becomes `config.core.temp.initial_temp` globally.
 
 ### 9. Assert severity as bare keyword vs quoted string
 - **Status**: Parser expects bare keyword (`warn`, `error`, `fatal`)
@@ -93,12 +96,12 @@ When implementing these features:
 ## Priority for Implementation
 
 **High Priority** (most impactful for DSL usability):
-1. `let` expressions - dramatically improves readability
-2. `fn` user-defined functions - essential for code reuse
+1. ~~`let` expressions~~ - IMPLEMENTED
+2. ~~`fn` user-defined functions~~ - IMPLEMENTED
 
 **Medium Priority**:
-3. Signal-local config blocks - cleaner organization
+3. ~~Signal-local config blocks~~ - IMPLEMENTED
 4. Unicode unit superscripts - matches documentation
 
 **Low Priority** (workarounds exist):
-5. `dt` raw access - dt-robust operators preferred anyway
+5. ~~`dt` raw access~~ - IMPLEMENTED (with `: dt_raw` declaration)

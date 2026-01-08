@@ -4,7 +4,7 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{EraId, FieldId, FractureId, ImpulseId, OperatorId, SignalId, StratumId};
+use continuum_foundation::{EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId, StratumId};
 
 /// Compiled world ready for DAG construction
 #[derive(Debug)]
@@ -13,6 +13,8 @@ pub struct CompiledWorld {
     pub constants: IndexMap<String, f64>,
     /// Runtime configuration values
     pub config: IndexMap<String, f64>,
+    /// User-defined functions
+    pub functions: IndexMap<FnId, CompiledFn>,
     /// Strata definitions
     pub strata: IndexMap<StratumId, CompiledStratum>,
     /// Era definitions
@@ -36,6 +38,19 @@ pub struct CompiledStratum {
     pub title: Option<String>,
     pub symbol: Option<String>,
     pub default_stride: u32,
+}
+
+/// Compiled user-defined function
+///
+/// Functions are pure, inlined at call sites. They cannot access `prev`, `dt`, or write to signals.
+/// They can access `const.*` and `config.*`, and call other functions.
+#[derive(Debug, Clone)]
+pub struct CompiledFn {
+    pub id: FnId,
+    /// Parameter names in order
+    pub params: Vec<String>,
+    /// Function body expression
+    pub body: CompiledExpr,
 }
 
 /// Compiled era

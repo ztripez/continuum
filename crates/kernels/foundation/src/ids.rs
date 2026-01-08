@@ -59,3 +59,8 @@ define_id!(
     /// Unique identifier for a fracture
     FractureId
 );
+
+define_id!(
+    /// Unique identifier for a user-defined function
+    FnId
+);

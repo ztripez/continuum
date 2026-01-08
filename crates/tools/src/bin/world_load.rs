@@ -141,6 +141,7 @@ fn describe_item(item: &continuum_dsl::Item) -> String {
             format!("config block ({} entries)", config.entries.len())
         }
         continuum_dsl::Item::TypeDef(t) => format!("type {}", t.name.node),
+        continuum_dsl::Item::FnDef(f) => format!("fn {}", f.path.node),
         continuum_dsl::Item::StrataDef(s) => format!("strata {}", s.path.node),
         continuum_dsl::Item::EraDef(e) => format!("era {}", e.name.node),
         continuum_dsl::Item::SignalDef(s) => format!("signal {}", s.path.node),

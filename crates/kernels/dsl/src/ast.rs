@@ -30,6 +30,7 @@ pub enum Item {
     ConstBlock(ConstBlock),
     ConfigBlock(ConfigBlock),
     TypeDef(TypeDef),
+    FnDef(FnDef),
     StrataDef(StrataDef),
     EraDef(EraDef),
     SignalDef(SignalDef),
@@ -113,6 +114,32 @@ pub enum TypeExpr {
 pub struct Range {
     pub min: f64,
     pub max: f64,
+}
+
+// === Functions ===
+
+/// User-defined function declaration
+///
+/// Example: `fn.physics.stefan_boltzmann_loss(temp: Scalar<K>) -> Scalar<W/m²> { ... }`
+#[derive(Debug, Clone, PartialEq)]
+pub struct FnDef {
+    /// Function path (e.g., `physics.stefan_boltzmann_loss`)
+    pub path: Spanned<Path>,
+    /// Function parameters
+    pub params: Vec<FnParam>,
+    /// Return type (optional, can be inferred)
+    pub return_type: Option<Spanned<TypeExpr>>,
+    /// Function body expression
+    pub body: Spanned<Expr>,
+}
+
+/// A function parameter
+#[derive(Debug, Clone, PartialEq)]
+pub struct FnParam {
+    /// Parameter name
+    pub name: Spanned<String>,
+    /// Parameter type (optional)
+    pub ty: Option<Spanned<TypeExpr>>,
 }
 
 // === Strata ===

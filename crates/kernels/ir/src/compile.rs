@@ -350,6 +350,7 @@ mod tests {
         let world = CompiledWorld {
             constants: IndexMap::new(),
             config: IndexMap::new(),
+            functions: IndexMap::new(),
             strata: IndexMap::new(),
             eras: IndexMap::new(),
             signals: IndexMap::new(),

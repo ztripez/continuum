@@ -3,6 +3,30 @@
 # to stress-test the bytecode VM with complex mathematical expressions
 #
 # NOTE: See MISSING_DSL_FEATURES.md for features used here that need implementation
+# NOTE: this is should be a recration of oldreference-project/crates/domains/terra/src/geophysics/crust.rs
+# =============================================================================
+# User-Defined Functions
+# =============================================================================
+
+# Compute isostatic buoyancy factor from density contrast
+fn.isostasy.buoyancy_factor(crustal_density, mantle_density) {
+    1.0 - crustal_density / mantle_density
+}
+
+# Compute isostatic elevation from thickness, factor, and reference level
+fn.isostasy.compute_elevation(thickness, factor, reference_level) {
+    factor * thickness - reference_level
+}
+
+# Compute lithostatic pressure at depth
+fn.pressure.lithostatic(surface_pressure, density, gravity, depth) {
+    surface_pressure + density * gravity * depth
+}
+
+# Compute geothermal temperature at depth
+fn.thermal.geothermal_temp(surface_temp, gradient, depth_km) {
+    surface_temp + gradient * depth_km
+}
 
 # =============================================================================
 # Physical Constants
@@ -196,9 +220,16 @@ signal.core.temp {
     : title("Core Temperature")
     : symbol("T_core")
 
+    # Signal-local config - showcasing the new feature
+    # These values become accessible as config.core.temp.<key>
+    config {
+        decay_halflife: 4.5e17 <s>
+    }
+
     resolve {
         # Using dt-robust decay operator instead of manual exp(-ln2*dt/halflife)
-        decay(prev, config.thermal.decay_halflife) + sum(inputs)
+        # Note: using signal-local config via config.core.temp.decay_halflife
+        decay(prev, config.core.temp.decay_halflife) + sum(inputs)
     }
 
     assert {
@@ -213,10 +244,17 @@ signal.mantle.temp {
     : strata(thermal)
     : title("Mantle Temperature")
 
+    # Signal-local config for mantle thermal properties
+    config {
+        core_coupling_factor: 0.01
+        min_temp: 500.0
+        max_temp: 5000.0
+    }
+
     resolve {
         # Mantle cools as heat flows to surface, coupled to core
-        let core_coupling = (signal.core.temp - prev) * 0.01
-        clamp(prev + core_coupling + sum(inputs), 500.0, 5000.0)
+        let core_coupling = (signal.core.temp - prev) * config.mantle.temp.core_coupling_factor
+        clamp(prev + core_coupling + sum(inputs), config.mantle.temp.min_temp, config.mantle.temp.max_temp)
     }
 }
 
@@ -225,10 +263,15 @@ signal.surface.temp {
     : strata(thermal)
     : title("Surface Temperature")
 
+    # Signal-local const for geothermal contribution
+    const {
+        geothermal_contribution: 0.875
+    }
+
     resolve {
         # geothermal = gradient * 0.001 * initial_thickness / 1000
         # = 25 * 0.001 * 35000 / 1000 = 0.875 K
-        const.thermal.surface_temp + 0.875 + sum(inputs)
+        const.thermal.surface_temp + const.surface.temp.geothermal_contribution + sum(inputs)
     }
 }
 
@@ -243,13 +286,19 @@ signal.crust.thickness {
     : title("Crustal Thickness")
     : symbol("h_crust")
 
+    # Signal-local config for thickness constraints
+    config {
+        min: 3000.0
+        max: 80000.0
+    }
+
     resolve {
-        clamp(prev + sum(inputs), config.crust.min_thickness, config.crust.max_thickness)
+        clamp(prev + sum(inputs), config.crust.thickness.min, config.crust.thickness.max)
     }
 
     assert {
-        prev >= config.crust.min_thickness : warn, "Crust thinning below minimum"
-        prev <= config.crust.max_thickness : warn, "Crust thickening above maximum"
+        prev >= config.crust.thickness.min : warn, "Crust thinning below minimum"
+        prev <= config.crust.thickness.max : warn, "Crust thickening above maximum"
     }
 }
 
@@ -270,8 +319,15 @@ signal.isostasy.factor {
     : strata(tectonics)
     : title("Isostatic Factor")
 
+    # Signal-local config for density values used in isostasy calculation
+    config {
+        crustal_density: 2700.0
+        mantle_density: 3300.0
+    }
+
     resolve {
-        1.0 - config.isostasy.crustal_density / config.isostasy.mantle_density
+        # Using user-defined function for density contrast calculation
+        isostasy.buoyancy_factor(config.isostasy.factor.crustal_density, config.isostasy.factor.mantle_density)
     }
 }
 
@@ -293,7 +349,8 @@ signal.isostasy.elevation {
     : title("Isostatic Elevation")
 
     resolve {
-        signal.isostasy.factor * signal.crust.thickness - signal.isostasy.reference_level
+        # Using user-defined function for isostatic elevation
+        isostasy.compute_elevation(signal.crust.thickness, signal.isostasy.factor, signal.isostasy.reference_level)
     }
 }
 
@@ -307,9 +364,15 @@ signal.topography.dynamic_offset {
     : strata(tectonics)
     : title("Dynamic Topography Offset")
 
+    # Signal-local config for dynamic topography parameters
+    config {
+        flow_coupling: 1.0
+        uplift_scale: 0.01
+    }
+
     resolve {
         let thermal_gradient = (signal.mantle.temp - const.thermal.mantle_temp) / 1000.0
-        let uplift = thermal_gradient * const.topography.max_plume_uplift * config.topography.flow_coupling * 0.01
+        let uplift = thermal_gradient * const.topography.max_plume_uplift * config.topography.dynamic_offset.flow_coupling * config.topography.dynamic_offset.uplift_scale
         clamp(
             prev + uplift + sum(inputs),
             -const.topography.max_slab_depression,
@@ -328,18 +391,24 @@ signal.crust.elevation {
     : title("Surface Elevation")
     : symbol("h_elev")
 
+    # Signal-local config for elevation bounds (Earth-realistic limits)
+    config {
+        max_depth: 11000.0
+        max_height: 9000.0
+    }
+
     resolve {
         # Combined isostatic + dynamic elevation
         clamp(
             signal.isostasy.elevation + signal.topography.dynamic_offset + sum(inputs),
-            -config.elevation.max_depth,
-            config.elevation.max_height
+            -config.crust.elevation.max_depth,
+            config.crust.elevation.max_height
         )
     }
 
     assert {
-        prev >= -config.elevation.max_depth : warn, "Elevation below maximum ocean depth"
-        prev <= config.elevation.max_height : warn, "Elevation above maximum mountain height"
+        prev >= -config.crust.elevation.max_depth : warn, "Elevation below maximum ocean depth"
+        prev <= config.crust.elevation.max_height : warn, "Elevation above maximum mountain height"
     }
 }
 
@@ -353,8 +422,15 @@ signal.crust.pressure_base {
     : strata(tectonics)
     : title("Base Crustal Pressure")
 
+    # Signal-local config for pressure calculation
+    config {
+        surface_pressure: 100000.0
+        density: 2700.0
+    }
+
     resolve {
-        100000.0 + config.crust.density * signal.planet.surface_gravity * signal.crust.thickness
+        # Using user-defined function for lithostatic pressure
+        pressure.lithostatic(config.crust.pressure_base.surface_pressure, config.crust.pressure_base.density, signal.planet.surface_gravity, signal.crust.thickness)
     }
 }
 
@@ -365,7 +441,9 @@ signal.crust.temp_base {
     : title("Base Crustal Temperature")
 
     resolve {
-        const.thermal.surface_temp + const.thermal.gradient * signal.crust.thickness / 1000.0
+        # Using user-defined function for geothermal temperature
+        # depth_km = thickness / 1000
+        thermal.geothermal_temp(const.thermal.surface_temp, const.thermal.gradient, signal.crust.thickness / 1000.0)
     }
 }
 
@@ -389,10 +467,20 @@ signal.tectonics.boundary_stress {
     : strata(tectonics)
     : title("Plate Boundary Stress")
 
+    # Signal-local config for stress calculation factors
+    config {
+        thermal_factor: 0.001
+        thermal_scale: 1e4
+        thickness_factor: 0.001
+        thickness_scale: 1e3
+        max_stress: 1e9
+        reference_mantle_temp: 1600.0
+    }
+
     resolve {
-        let thermal_stress = abs(signal.mantle.temp - 1600.0) * 1e4 * 0.001
-        let thickness_stress = abs(signal.crust.thickness - const.isostasy.reference_thickness) * 1e3 * 0.001
-        clamp(prev + thermal_stress + thickness_stress + sum(inputs), 0.0, 1e9)
+        let thermal_stress = abs(signal.mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor
+        let thickness_stress = abs(signal.crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor
+        clamp(prev + thermal_stress + thickness_stress + sum(inputs), 0.0, config.tectonics.boundary_stress.max_stress)
     }
 }
 

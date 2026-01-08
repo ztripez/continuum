@@ -6,16 +6,16 @@ use indexmap::IndexMap;
 use thiserror::Error;
 
 use continuum_dsl::ast::{
-    self, AssertBlock, AssertSeverity, BinaryOp, CompilationUnit, Expr, Item, Literal,
+    self, AssertBlock, AssertSeverity, BinaryOp, CompilationUnit, Expr, FnDef, Item, Literal,
     OperatorBody, OperatorPhase, StrataStateKind, Topology, TypeExpr, UnaryOp,
 };
 use continuum_foundation::{
-    EraId, FieldId, FractureId, ImpulseId, OperatorId, SignalId, StratumId,
+    EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId, StratumId,
 };
 
 use crate::{
     AssertionSeverity, BinaryOpIr, CompiledAssertion, CompiledEmit, CompiledEra, CompiledExpr,
-    CompiledField, CompiledFracture, CompiledImpulse, CompiledOperator, CompiledSignal,
+    CompiledField, CompiledFn, CompiledFracture, CompiledImpulse, CompiledOperator, CompiledSignal,
     CompiledStratum, CompiledTransition, CompiledWarmup, CompiledWorld, OperatorPhaseIr,
     StratumStateIr, TopologyIr, UnaryOpIr, ValueRange, ValueType,
 };
@@ -49,6 +49,7 @@ pub fn lower(unit: &CompilationUnit) -> Result<CompiledWorld, LowerError> {
 struct Lowerer {
     constants: IndexMap<String, f64>,
     config: IndexMap<String, f64>,
+    functions: IndexMap<FnId, CompiledFn>,
     strata: IndexMap<StratumId, CompiledStratum>,
     eras: IndexMap<EraId, CompiledEra>,
     signals: IndexMap<SignalId, CompiledSignal>,
@@ -63,6 +64,7 @@ impl Lowerer {
         Self {
             constants: IndexMap::new(),
             config: IndexMap::new(),
+            functions: IndexMap::new(),
             strata: IndexMap::new(),
             eras: IndexMap::new(),
             signals: IndexMap::new(),
@@ -77,6 +79,7 @@ impl Lowerer {
         CompiledWorld {
             constants: self.constants,
             config: self.config,
+            functions: self.functions,
             strata: self.strata,
             eras: self.eras,
             signals: self.signals,
@@ -88,7 +91,7 @@ impl Lowerer {
     }
 
     fn lower_unit(&mut self, unit: &CompilationUnit) -> Result<(), LowerError> {
-        // First pass: collect constants, config, and strata
+        // First pass: collect constants, config, functions, and strata
         for item in &unit.items {
             match &item.node {
                 Item::ConstBlock(block) => {
@@ -104,6 +107,9 @@ impl Lowerer {
                         let value = self.literal_to_f64(&entry.value.node)?;
                         self.config.insert(key, value);
                     }
+                }
+                Item::FnDef(def) => {
+                    self.lower_fn(def)?;
                 }
                 Item::StrataDef(def) => {
                     let id = StratumId::from(def.path.node.join(".").as_str());
@@ -207,6 +213,7 @@ impl Lowerer {
 
     fn lower_signal(&mut self, def: &ast::SignalDef) -> Result<(), LowerError> {
         let id = SignalId::from(def.path.node.join(".").as_str());
+        let signal_path = def.path.node.join(".");
 
         // Determine stratum
         let stratum = def
@@ -214,6 +221,24 @@ impl Lowerer {
             .as_ref()
             .map(|s| StratumId::from(s.node.join(".").as_str()))
             .unwrap_or_else(|| StratumId::from("default"));
+
+        // Process local const blocks - add to global constants with signal-prefixed keys
+        for entry in &def.local_consts {
+            let local_key = entry.path.node.join(".");
+            // Add with full signal path prefix: signal.path.local_key
+            let full_key = format!("{}.{}", signal_path, local_key);
+            let value = self.literal_to_f64(&entry.value.node)?;
+            self.constants.insert(full_key, value);
+        }
+
+        // Process local config blocks - add to global config with signal-prefixed keys
+        for entry in &def.local_config {
+            let local_key = entry.path.node.join(".");
+            // Add with full signal path prefix: signal.path.local_key
+            let full_key = format!("{}.{}", signal_path, local_key);
+            let value = self.literal_to_f64(&entry.value.node)?;
+            self.config.insert(full_key, value);
+        }
 
         // Collect signal dependencies from resolve expression
         let mut reads = Vec::new();
@@ -394,6 +419,29 @@ impl Lowerer {
         Ok(())
     }
 
+    fn lower_fn(&mut self, def: &FnDef) -> Result<(), LowerError> {
+        let id = FnId::from(def.path.node.join(".").as_str());
+
+        // Collect parameter names
+        let params: Vec<String> = def.params.iter().map(|p| p.name.node.clone()).collect();
+
+        // Lower the body with parameters as locals
+        let mut locals = std::collections::HashSet::new();
+        for param in &params {
+            locals.insert(param.clone());
+        }
+        let body = self.lower_expr_with_locals(&def.body.node, &locals);
+
+        let compiled_fn = CompiledFn {
+            id: id.clone(),
+            params,
+            body,
+        };
+
+        self.functions.insert(id, compiled_fn);
+        Ok(())
+    }
+
     fn lower_expr(&self, expr: &Expr) -> CompiledExpr {
         self.lower_expr_with_locals(expr, &std::collections::HashSet::new())
     }
@@ -442,12 +490,35 @@ impl Lowerer {
             },
             Expr::Call { function, args } => {
                 let func_name = self.expr_to_function_name(&function.node);
-                CompiledExpr::Call {
-                    function: func_name,
-                    args: args
+                let fn_id = FnId::from(func_name.as_str());
+
+                // Check if this is a user-defined function
+                if let Some(user_fn) = self.functions.get(&fn_id) {
+                    // Inline the function by wrapping body in let bindings for each param
+                    let lowered_args: Vec<_> = args
                         .iter()
                         .map(|a| self.lower_expr_with_locals(&a.node, locals))
-                        .collect(),
+                        .collect();
+
+                    // Build nested let expressions: let param1 = arg1 in let param2 = arg2 in body
+                    let mut result = user_fn.body.clone();
+                    for (param, arg) in user_fn.params.iter().rev().zip(lowered_args.iter().rev()) {
+                        result = CompiledExpr::Let {
+                            name: param.clone(),
+                            value: Box::new(arg.clone()),
+                            body: Box::new(result),
+                        };
+                    }
+                    result
+                } else {
+                    // Kernel function - leave as a call
+                    CompiledExpr::Call {
+                        function: func_name,
+                        args: args
+                            .iter()
+                            .map(|a| self.lower_expr_with_locals(&a.node, locals))
+                            .collect(),
+                    }
                 }
             }
             Expr::FieldAccess { object, field } => CompiledExpr::FieldAccess {
@@ -802,5 +873,256 @@ mod tests {
             }
             _ => panic!("expected Let, got {:?}", resolve),
         }
+    }
+
+    #[test]
+    fn test_lower_fn_def() {
+        let src = r#"
+            fn.math.add(a, b) {
+                a + b
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+
+        let fn_id = FnId::from("math.add");
+        let func = world.functions.get(&fn_id).expect("function not found");
+        assert_eq!(func.params, vec!["a", "b"]);
+
+        // Check the body is a + b
+        match &func.body {
+            CompiledExpr::Binary { op, left, right } => {
+                assert!(matches!(op, BinaryOpIr::Add));
+                assert!(matches!(left.as_ref(), CompiledExpr::Local(n) if n == "a"));
+                assert!(matches!(right.as_ref(), CompiledExpr::Local(n) if n == "b"));
+            }
+            _ => panic!("expected Binary, got {:?}", func.body),
+        }
+    }
+
+    #[test]
+    fn test_lower_fn_with_const_config() {
+        let src = r#"
+            const {
+                physics.gravity: 9.81
+            }
+            config {
+                factor: 2.0
+            }
+            fn.physics.scaled_gravity() {
+                const.physics.gravity * config.factor
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+
+        let fn_id = FnId::from("physics.scaled_gravity");
+        let func = world.functions.get(&fn_id).expect("function not found");
+        assert!(func.params.is_empty());
+
+        // Check the body references const and config
+        match &func.body {
+            CompiledExpr::Binary { op, left, right } => {
+                assert!(matches!(op, BinaryOpIr::Mul));
+                assert!(matches!(left.as_ref(), CompiledExpr::Const(s) if s == "physics.gravity"));
+                assert!(matches!(right.as_ref(), CompiledExpr::Config(s) if s == "factor"));
+            }
+            _ => panic!("expected Binary, got {:?}", func.body),
+        }
+    }
+
+    #[test]
+    fn test_fn_inlining_in_signal() {
+        let src = r#"
+            fn.math.add(a, b) {
+                a + b
+            }
+            strata.test {}
+            era.main { : initial }
+            signal.test.result {
+                : strata(test)
+                resolve {
+                    math.add(10.0, 20.0)
+                }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+
+        let signal = world.signals.get(&SignalId::from("test.result")).unwrap();
+        let resolve = signal.resolve.as_ref().unwrap();
+
+        // The function call should be inlined as:
+        // let a = 10.0 in let b = 20.0 in a + b
+        match resolve {
+            CompiledExpr::Let { name, value, body } => {
+                assert_eq!(name, "a");
+                assert!(matches!(value.as_ref(), CompiledExpr::Literal(10.0)));
+                match body.as_ref() {
+                    CompiledExpr::Let { name, value, body } => {
+                        assert_eq!(name, "b");
+                        assert!(matches!(value.as_ref(), CompiledExpr::Literal(20.0)));
+                        match body.as_ref() {
+                            CompiledExpr::Binary { op, left, right } => {
+                                assert!(matches!(op, BinaryOpIr::Add));
+                                assert!(matches!(left.as_ref(), CompiledExpr::Local(n) if n == "a"));
+                                assert!(matches!(right.as_ref(), CompiledExpr::Local(n) if n == "b"));
+                            }
+                            _ => panic!("expected Binary, got {:?}", body),
+                        }
+                    }
+                    _ => panic!("expected inner Let, got {:?}", body),
+                }
+            }
+            _ => panic!("expected Let, got {:?}", resolve),
+        }
+    }
+
+    #[test]
+    fn test_fn_calling_kernel() {
+        // Kernel functions should NOT be inlined, they should remain as Call
+        let src = r#"
+            strata.test {}
+            era.main { : initial }
+            signal.test.result {
+                : strata(test)
+                resolve {
+                    kernel.abs(-5.0)
+                }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+
+        let signal = world.signals.get(&SignalId::from("test.result")).unwrap();
+        let resolve = signal.resolve.as_ref().unwrap();
+
+        // Kernel call should remain as a Call, not inlined
+        match resolve {
+            CompiledExpr::Call { function, args } => {
+                assert_eq!(function, "kernel.abs");
+                assert_eq!(args.len(), 1);
+            }
+            _ => panic!("expected Call, got {:?}", resolve),
+        }
+    }
+
+    #[test]
+    fn test_signal_local_config() {
+        let src = r#"
+            strata.test {}
+            era.main { : initial }
+            signal.core.temp {
+                : strata(test)
+                config {
+                    initial_temp: 5500.0
+                    decay_rate: 0.01
+                }
+                resolve {
+                    config.core.temp.initial_temp
+                }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+
+        // Local config should be added to global config with signal path prefix
+        assert_eq!(
+            world.config.get("core.temp.initial_temp"),
+            Some(&5500.0),
+            "config: {:?}",
+            world.config
+        );
+        assert_eq!(
+            world.config.get("core.temp.decay_rate"),
+            Some(&0.01),
+            "config: {:?}",
+            world.config
+        );
+
+        // Check the resolve expression references the config correctly
+        let signal = world.signals.get(&SignalId::from("core.temp")).unwrap();
+        let resolve = signal.resolve.as_ref().unwrap();
+        match resolve {
+            CompiledExpr::Config(key) => {
+                assert_eq!(key, "core.temp.initial_temp");
+            }
+            _ => panic!("expected Config, got {:?}", resolve),
+        }
+    }
+
+    #[test]
+    fn test_signal_local_const() {
+        let src = r#"
+            strata.test {}
+            era.main { : initial }
+            signal.physics.gravity {
+                : strata(test)
+                const {
+                    G: 6.674e-11
+                    mass: 5.972e24
+                }
+                resolve {
+                    const.physics.gravity.G * const.physics.gravity.mass
+                }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+
+        // Local const should be added to global constants with signal path prefix
+        assert_eq!(
+            world.constants.get("physics.gravity.G"),
+            Some(&6.674e-11),
+            "constants: {:?}",
+            world.constants
+        );
+        assert_eq!(
+            world.constants.get("physics.gravity.mass"),
+            Some(&5.972e24),
+            "constants: {:?}",
+            world.constants
+        );
+    }
+
+    #[test]
+    fn test_signal_local_config_with_global_config() {
+        // Test that local config and global config can coexist
+        let src = r#"
+            config {
+                global.factor: 2.0
+            }
+            strata.test {}
+            era.main { : initial }
+            signal.test.value {
+                : strata(test)
+                config {
+                    local_scale: 10.0
+                }
+                resolve {
+                    config.global.factor * config.test.value.local_scale
+                }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+
+        // Both global and local config should be present
+        assert_eq!(world.config.get("global.factor"), Some(&2.0));
+        assert_eq!(world.config.get("test.value.local_scale"), Some(&10.0));
     }
 }

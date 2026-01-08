@@ -4,10 +4,10 @@ use chumsky::prelude::*;
 
 use crate::ast::{
     ApplyBlock, AssertBlock, AssertSeverity, Assertion, ConfigBlock, ConfigEntry, ConstBlock,
-    ConstEntry, ChronicleDef, EmitStatement, EraDef, Expr, FieldDef, FractureDef, ImpulseDef,
-    Item, MeasureBlock, ObserveBlock, ObserveHandler, OperatorBody, OperatorDef, OperatorPhase,
-    Path, Range, ResolveBlock, SignalDef, Spanned, StrataDef, StrataState, StrataStateKind,
-    Topology, Transition, TypeDef, TypeExpr, TypeField, ValueWithUnit,
+    ConstEntry, ChronicleDef, EmitStatement, EraDef, Expr, FieldDef, FnDef, FnParam, FractureDef,
+    ImpulseDef, Item, MeasureBlock, ObserveBlock, ObserveHandler, OperatorBody, OperatorDef,
+    OperatorPhase, Path, Range, ResolveBlock, SignalDef, Spanned, StrataDef, StrataState,
+    StrataStateKind, Topology, Transition, TypeDef, TypeExpr, TypeField, ValueWithUnit,
 };
 
 use super::expr::spanned_expr;
@@ -19,6 +19,7 @@ pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<
         const_block().map(Item::ConstBlock),
         config_block().map(Item::ConfigBlock),
         type_def().map(Item::TypeDef),
+        fn_def().map(Item::FnDef),
         strata_def().map(Item::StrataDef),
         era_def().map(Item::EraDef),
         signal_def().map(Item::SignalDef),
@@ -136,6 +137,55 @@ fn range<'src>() -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'s
         .then_ignore(just("..").padded_by(ws()))
         .then(float())
         .map(|(min, max)| Range { min, max })
+}
+
+// === Functions ===
+
+/// Parse a user-defined function
+/// Syntax: fn.path.to.func(param1: Type, param2: Type) -> ReturnType { body_expr }
+fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseError<'src>>> {
+    text::keyword("fn")
+        .padded_by(ws())
+        .ignore_then(just('.'))
+        .ignore_then(spanned_path())
+        .then(
+            fn_param()
+                .padded_by(ws())
+                .separated_by(just(',').padded_by(ws()))
+                .allow_trailing()
+                .collect()
+                .delimited_by(just('(').padded_by(ws()), just(')').padded_by(ws())),
+        )
+        .then(
+            just("->")
+                .padded_by(ws())
+                .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+                .or_not(),
+        )
+        .then(
+            spanned_expr()
+                .padded_by(ws())
+                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+        )
+        .map(|(((path, params), return_type), body)| FnDef {
+            path,
+            params,
+            return_type,
+            body,
+        })
+}
+
+/// Parse a function parameter: name or name: Type
+fn fn_param<'src>() -> impl Parser<'src, &'src str, FnParam, extra::Err<ParseError<'src>>> {
+    ident()
+        .map_with(|n, e| Spanned::new(n, e.span().into()))
+        .then(
+            just(':')
+                .padded_by(ws())
+                .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+                .or_not(),
+        )
+        .map(|(name, ty)| FnParam { name, ty })
 }
 
 // === Strata ===
@@ -405,6 +455,8 @@ fn signal_def<'src>() -> impl Parser<'src, &'src str, SignalDef, extra::Err<Pars
                     SignalContent::Title(t) => def.title = Some(t),
                     SignalContent::Symbol(s) => def.symbol = Some(s),
                     SignalContent::DtRaw => def.dt_raw = true,
+                    SignalContent::LocalConst(c) => def.local_consts.extend(c),
+                    SignalContent::LocalConfig(c) => def.local_config.extend(c),
                     SignalContent::Resolve(r) => def.resolve = Some(r),
                     SignalContent::Assert(a) => def.assertions = Some(a),
                 }
@@ -420,6 +472,8 @@ enum SignalContent {
     Title(Spanned<String>),
     Symbol(Spanned<String>),
     DtRaw,
+    LocalConst(Vec<ConstEntry>),
+    LocalConfig(Vec<ConfigEntry>),
     Resolve(ResolveBlock),
     Assert(AssertBlock),
 }
@@ -458,8 +512,38 @@ fn signal_content<'src>(
             .to(SignalContent::DtRaw),
         just(':')
             .padded_by(ws())
+            .ignore_then(text::keyword("uses"))
+            .ignore_then(
+                just('(')
+                    .padded_by(ws())
+                    .ignore_then(just("dt_raw"))
+                    .then_ignore(just(')').padded_by(ws())),
+            )
+            .to(SignalContent::DtRaw),
+        just(':')
+            .padded_by(ws())
             .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
             .map(SignalContent::Type),
+        text::keyword("const")
+            .padded_by(ws())
+            .ignore_then(
+                const_entry()
+                    .padded_by(ws())
+                    .repeated()
+                    .collect()
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .map(SignalContent::LocalConst),
+        text::keyword("config")
+            .padded_by(ws())
+            .ignore_then(
+                config_entry()
+                    .padded_by(ws())
+                    .repeated()
+                    .collect()
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .map(SignalContent::LocalConfig),
         text::keyword("resolve")
             .padded_by(ws())
             .ignore_then(
