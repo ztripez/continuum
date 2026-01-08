@@ -4,8 +4,10 @@
 //!
 //! Pipeline: DSL AST -> IR -> Runtime DAGs
 
+mod compile;
 mod lower;
 mod types;
 
+pub use compile::{compile, CompilationResult, CompileError};
 pub use lower::{lower, LowerError};
 pub use types::*;

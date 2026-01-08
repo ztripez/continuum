@@ -126,6 +126,16 @@ impl DagSet {
     pub fn get_era(&self, era: &EraId) -> Option<&EraDags> {
         self.eras.get(era)
     }
+
+    /// Number of eras
+    pub fn era_count(&self) -> usize {
+        self.eras.len()
+    }
+
+    /// Check if empty
+    pub fn is_empty(&self) -> bool {
+        self.eras.is_empty()
+    }
 }
 
 /// Builder for constructing DAGs from dependency information
