@@ -33,4 +33,11 @@ pub enum Error {
 
     #[error("invalid value for {signal}: {message}")]
     InvalidValue { signal: SignalId, message: String },
+
+    #[error("warmup divergence in {signal} at iteration {iteration}: {message}")]
+    WarmupDivergence {
+        signal: SignalId,
+        iteration: u32,
+        message: String,
+    },
 }

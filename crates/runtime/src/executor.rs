@@ -10,7 +10,10 @@ use tracing::{debug, error, info, instrument, trace};
 use crate::dag::{DagSet, NodeKind};
 use crate::error::{Error, Result};
 use crate::storage::{FractureQueue, InputChannels, SignalStorage};
-use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, TickContext, Value};
+use crate::types::{
+    Dt, EraId, Phase, SignalId, StratumId, StratumState, TickContext, Value, WarmupConfig,
+    WarmupResult,
+};
 
 /// Function that resolves a signal value
 pub type ResolverFn = Box<dyn Fn(&ResolveContext) -> Value + Send + Sync>;
@@ -23,6 +26,19 @@ pub type FractureFn = Box<dyn Fn(&FractureContext) -> Option<Vec<(SignalId, f64)
 
 /// Function that evaluates era transition conditions
 pub type TransitionFn = Box<dyn Fn(&SignalStorage) -> Option<EraId> + Send + Sync>;
+
+/// Function that computes a warmup iteration for a signal
+pub type WarmupFn = Box<dyn Fn(&WarmupContext) -> Value + Send + Sync>;
+
+/// Context available to warmup functions
+pub struct WarmupContext<'a> {
+    /// Current warmup value for this signal
+    pub prev: &'a Value,
+    /// Access to other signals (current iteration if resolved, else previous)
+    pub signals: &'a SignalStorage,
+    /// Current warmup iteration (0-indexed)
+    pub iteration: u32,
+}
 
 /// Context available to resolver functions
 pub struct ResolveContext<'a> {
@@ -86,6 +102,10 @@ pub struct Runtime {
     collect_ops: Vec<CollectFn>,
     /// Fracture functions
     fractures: Vec<FractureFn>,
+    /// Warmup functions indexed by signal
+    warmup_fns: Vec<(SignalId, WarmupFn, WarmupConfig)>,
+    /// Whether warmup has been executed
+    warmup_complete: bool,
 }
 
 impl Runtime {
@@ -107,6 +127,8 @@ impl Runtime {
             resolvers: Vec::new(),
             collect_ops: Vec::new(),
             fractures: Vec::new(),
+            warmup_fns: Vec::new(),
+            warmup_complete: false,
         }
     }
 
@@ -131,6 +153,12 @@ impl Runtime {
         idx
     }
 
+    /// Register a warmup function for a signal
+    pub fn register_warmup(&mut self, signal: SignalId, warmup_fn: WarmupFn, config: WarmupConfig) {
+        debug!(signal = %signal, max_iter = config.max_iterations, "warmup registered");
+        self.warmup_fns.push((signal, warmup_fn, config));
+    }
+
     /// Initialize a signal with a value
     pub fn init_signal(&mut self, id: SignalId, value: Value) {
         debug!(signal = %id, ?value, "signal initialized");
@@ -150,6 +178,150 @@ impl Runtime {
     /// Get a signal's last resolved value
     pub fn get_signal(&self, id: &SignalId) -> Option<&Value> {
         self.signals.get_resolved(id)
+    }
+
+    /// Check if warmup has been executed
+    pub fn is_warmup_complete(&self) -> bool {
+        self.warmup_complete
+    }
+
+    /// Execute warmup phase (pre-causal equilibration)
+    ///
+    /// Must be called before execute_tick. Runs all registered warmup
+    /// functions until convergence or max iterations.
+    #[instrument(skip(self), name = "warmup")]
+    pub fn execute_warmup(&mut self) -> Result<WarmupResult> {
+        if self.warmup_complete {
+            return Ok(WarmupResult {
+                iterations: 0,
+                converged: true,
+            });
+        }
+
+        if self.warmup_fns.is_empty() {
+            info!("no warmup functions registered");
+            self.warmup_complete = true;
+            return Ok(WarmupResult {
+                iterations: 0,
+                converged: true,
+            });
+        }
+
+        // Find the maximum iterations needed
+        let max_iterations = self
+            .warmup_fns
+            .iter()
+            .map(|(_, _, cfg)| cfg.max_iterations)
+            .max()
+            .unwrap_or(0);
+
+        info!(signals = self.warmup_fns.len(), max_iterations, "warmup starting");
+
+        let mut iteration = 0;
+        let mut converged = false;
+
+        while iteration < max_iterations {
+            trace!(iteration, "warmup iteration");
+
+            let mut all_converged = true;
+            let mut max_delta: f64 = 0.0;
+
+            // Execute each warmup function
+            for (signal_id, warmup_fn, config) in &self.warmup_fns {
+                // Skip if this signal's iterations are exhausted
+                if iteration >= config.max_iterations {
+                    continue;
+                }
+
+                let prev = self
+                    .signals
+                    .get(signal_id)
+                    .ok_or_else(|| Error::SignalNotFound(signal_id.clone()))?;
+
+                let ctx = WarmupContext {
+                    prev,
+                    signals: &self.signals,
+                    iteration,
+                };
+
+                let new_value = warmup_fn(&ctx);
+
+                // Check for numeric errors
+                if let Value::Scalar(v) = &new_value {
+                    if v.is_nan() {
+                        error!(signal = %signal_id, iteration, "warmup NaN");
+                        return Err(Error::WarmupDivergence {
+                            signal: signal_id.clone(),
+                            iteration,
+                            message: "NaN result".to_string(),
+                        });
+                    }
+                    if v.is_infinite() {
+                        error!(signal = %signal_id, iteration, "warmup infinite");
+                        return Err(Error::WarmupDivergence {
+                            signal: signal_id.clone(),
+                            iteration,
+                            message: "Infinite result".to_string(),
+                        });
+                    }
+
+                    // Check convergence
+                    if let Some(epsilon) = config.convergence_epsilon {
+                        if let Value::Scalar(prev_v) = prev {
+                            let delta = (v - prev_v).abs();
+                            max_delta = max_delta.max(delta);
+                            if delta >= epsilon {
+                                all_converged = false;
+                            }
+                        }
+                    } else {
+                        all_converged = false;
+                    }
+                }
+
+                self.signals.set_current(signal_id.clone(), new_value);
+            }
+
+            // Advance iteration state
+            self.signals.advance_tick();
+            iteration += 1;
+
+            // Check if all signals with convergence criteria have converged
+            if all_converged
+                && self
+                    .warmup_fns
+                    .iter()
+                    .any(|(_, _, cfg)| cfg.convergence_epsilon.is_some())
+            {
+                debug!(iteration, max_delta, "warmup converged");
+                converged = true;
+                break;
+            }
+        }
+
+        // Check for divergence (didn't converge within iterations)
+        let any_requires_convergence = self
+            .warmup_fns
+            .iter()
+            .any(|(_, _, cfg)| cfg.convergence_epsilon.is_some());
+
+        if any_requires_convergence && !converged {
+            let first_signal = &self.warmup_fns[0].0;
+            error!(iterations = iteration, "warmup failed to converge");
+            return Err(Error::WarmupDivergence {
+                signal: first_signal.clone(),
+                iteration,
+                message: "Failed to converge within max iterations".to_string(),
+            });
+        }
+
+        info!(iterations = iteration, converged, "warmup complete");
+        self.warmup_complete = true;
+
+        Ok(WarmupResult {
+            iterations: iteration,
+            converged,
+        })
     }
 
     /// Execute a single tick
@@ -496,5 +668,162 @@ mod tests {
         // Tick 2: 2 % 2 == 0, executes
         runtime.execute_tick().unwrap();
         assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(2.0)));
+    }
+
+    fn create_minimal_runtime(era_id: EraId) -> Runtime {
+        let dags = DagSet::default();
+        let mut eras = HashMap::new();
+        eras.insert(
+            era_id.clone(),
+            EraConfig {
+                dt: Dt(1.0),
+                strata: HashMap::new(),
+                transition: None,
+            },
+        );
+        Runtime::new(era_id, eras, dags)
+    }
+
+    #[test]
+    fn test_warmup_fixed_iterations() {
+        let era_id: EraId = "test".into();
+        let signal_id: SignalId = "temp".into();
+
+        let mut runtime = create_minimal_runtime(era_id);
+        runtime.init_signal(signal_id.clone(), Value::Scalar(1000.0));
+
+        // Warmup: halve the value each iteration
+        runtime.register_warmup(
+            signal_id.clone(),
+            Box::new(|ctx| {
+                let prev = ctx.prev.as_scalar().unwrap();
+                Value::Scalar(prev * 0.5)
+            }),
+            WarmupConfig {
+                max_iterations: 5,
+                convergence_epsilon: None,
+            },
+        );
+
+        let result = runtime.execute_warmup().unwrap();
+
+        assert_eq!(result.iterations, 5);
+        assert!(!result.converged);
+
+        // 1000 * 0.5^5 = 31.25
+        let final_value = runtime.get_signal(&signal_id).unwrap().as_scalar().unwrap();
+        assert!((final_value - 31.25).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_warmup_convergence() {
+        let era_id: EraId = "test".into();
+        let signal_id: SignalId = "equilibrium".into();
+
+        let mut runtime = create_minimal_runtime(era_id);
+        runtime.init_signal(signal_id.clone(), Value::Scalar(100.0));
+
+        // Warmup: converge toward 50 by halving the distance each iteration
+        runtime.register_warmup(
+            signal_id.clone(),
+            Box::new(|ctx| {
+                let prev = ctx.prev.as_scalar().unwrap();
+                let target = 50.0;
+                Value::Scalar(prev + (target - prev) * 0.5)
+            }),
+            WarmupConfig {
+                max_iterations: 100,
+                convergence_epsilon: Some(0.01),
+            },
+        );
+
+        let result = runtime.execute_warmup().unwrap();
+
+        assert!(result.converged);
+        assert!(result.iterations < 100); // Should converge before max
+
+        let final_value = runtime.get_signal(&signal_id).unwrap().as_scalar().unwrap();
+        assert!((final_value - 50.0).abs() < 0.1);
+    }
+
+    #[test]
+    fn test_warmup_divergence_nan() {
+        let era_id: EraId = "test".into();
+        let signal_id: SignalId = "bad".into();
+
+        let mut runtime = create_minimal_runtime(era_id);
+        runtime.init_signal(signal_id.clone(), Value::Scalar(0.0));
+
+        // Warmup: produce NaN
+        runtime.register_warmup(
+            signal_id.clone(),
+            Box::new(|_ctx| Value::Scalar(f64::NAN)),
+            WarmupConfig {
+                max_iterations: 10,
+                convergence_epsilon: None,
+            },
+        );
+
+        let result = runtime.execute_warmup();
+        assert!(matches!(result, Err(Error::WarmupDivergence { .. })));
+    }
+
+    #[test]
+    fn test_warmup_no_functions() {
+        let era_id: EraId = "test".into();
+        let mut runtime = create_minimal_runtime(era_id);
+
+        let result = runtime.execute_warmup().unwrap();
+
+        assert_eq!(result.iterations, 0);
+        assert!(result.converged);
+        assert!(runtime.is_warmup_complete());
+    }
+
+    #[test]
+    fn test_warmup_multiple_signals() {
+        let era_id: EraId = "test".into();
+        let signal_a: SignalId = "a".into();
+        let signal_b: SignalId = "b".into();
+
+        let mut runtime = create_minimal_runtime(era_id);
+        runtime.init_signal(signal_a.clone(), Value::Scalar(100.0));
+        runtime.init_signal(signal_b.clone(), Value::Scalar(0.0));
+
+        // Signal A: decays toward 50
+        runtime.register_warmup(
+            signal_a.clone(),
+            Box::new(|ctx| {
+                let prev = ctx.prev.as_scalar().unwrap();
+                Value::Scalar(prev + (50.0 - prev) * 0.5)
+            }),
+            WarmupConfig {
+                max_iterations: 50,
+                convergence_epsilon: Some(0.1),
+            },
+        );
+
+        // Signal B: grows toward 50
+        runtime.register_warmup(
+            signal_b.clone(),
+            Box::new(|ctx| {
+                let prev = ctx.prev.as_scalar().unwrap();
+                Value::Scalar(prev + (50.0 - prev) * 0.5)
+            }),
+            WarmupConfig {
+                max_iterations: 50,
+                convergence_epsilon: Some(0.1),
+            },
+        );
+
+        let result = runtime.execute_warmup().unwrap();
+
+        assert!(result.converged);
+
+        let a_val = runtime.get_signal(&signal_a).unwrap().as_scalar().unwrap();
+        let b_val = runtime.get_signal(&signal_b).unwrap().as_scalar().unwrap();
+
+        assert!((a_val - 50.0).abs() < 1.0);
+        assert!((b_val - 50.0).abs() < 1.0);
     }
 }

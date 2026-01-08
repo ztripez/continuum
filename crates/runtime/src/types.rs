@@ -106,3 +106,30 @@ pub struct TickContext {
     /// Current era
     pub era: EraId,
 }
+
+/// Configuration for warmup execution
+#[derive(Debug, Clone)]
+pub struct WarmupConfig {
+    /// Maximum iterations before failure
+    pub max_iterations: u32,
+    /// Convergence threshold (None = run all iterations)
+    pub convergence_epsilon: Option<f64>,
+}
+
+impl Default for WarmupConfig {
+    fn default() -> Self {
+        Self {
+            max_iterations: 100,
+            convergence_epsilon: None,
+        }
+    }
+}
+
+/// Result of warmup execution
+#[derive(Debug, Clone)]
+pub struct WarmupResult {
+    /// Number of iterations executed
+    pub iterations: u32,
+    /// Whether convergence was achieved
+    pub converged: bool,
+}
