@@ -1,0 +1,9 @@
+[package]
+name = "continuum-dsl"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ariadne = "0.6.0"
+chumsky = "0.12.0"
+logos = "0.16.0"
