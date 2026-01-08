@@ -1,0 +1,546 @@
+# Terra Geophysics Simulation
+# Implements realistic crust dynamics with isostasy and dynamic topography
+# to stress-test the bytecode VM with complex mathematical expressions
+#
+# NOTE: See MISSING_DSL_FEATURES.md for features used here that need implementation
+
+# =============================================================================
+# Physical Constants
+# =============================================================================
+
+const {
+    physics.gravitational: 6.67430e-11
+    physics.stefan_boltzmann: 5.67e-8
+    earth.mass: 5.972e24
+    earth.radius: 6.371e6
+    earth.gravity: 9.80665
+    crust.density_continental: 2700.0
+    mantle.density: 3300.0
+    isostasy.reference_thickness: 35000.0
+    topography.max_plume_uplift: 2000.0
+    topography.max_slab_depression: 1000.0
+    thermal.surface_temp: 288.0
+    thermal.gradient: 25.0
+    thermal.mantle_temp: 1600.0
+}
+
+# =============================================================================
+# Configuration (scenario-overridable)
+# =============================================================================
+
+config {
+    planet.mass: 5.972e24
+    planet.radius: 6.371e6
+    crust.initial_thickness: 35000.0
+    crust.min_thickness: 3000.0
+    crust.max_thickness: 80000.0
+    crust.density: 2700.0
+    isostasy.crustal_density: 2700.0
+    isostasy.mantle_density: 3300.0
+    topography.flow_coupling: 1.0
+    elevation.max_depth: 11000.0
+    elevation.max_height: 9000.0
+    thermal.decay_halflife: 4.5e17 <s>
+    thermal.surface_heat_flow: 0.065
+    thermal.conductivity: 2.5
+
+    # Initial values for signals (pattern: initial_<last_segment>)
+    core.initial_temp: 5500.0
+    mantle.initial_temp: 1600.0
+    surface.initial_temp: 288.0
+    crust.initial_elevation: 0.0
+    crust.initial_pressure_base: 1e9
+    crust.initial_temp_base: 1163.0
+    crust.initial_moho_depth: 35000.0
+    isostasy.initial_factor: 0.182
+    isostasy.initial_reference_level: 6370.0
+    isostasy.initial_elevation: 0.0
+    topography.initial_dynamic_offset: 0.0
+    tectonics.initial_boundary_stress: 0.0
+    planet.initial_radius: 6.371e6
+    planet.initial_mass: 5.972e24
+    planet.initial_gravity_mu: 3.986e14
+    planet.initial_surface_gravity: 9.81
+}
+
+# =============================================================================
+# Strata Definitions
+# =============================================================================
+
+strata.genesis {
+    : title("Genesis")
+    : symbol("G")
+    : stride(1)
+}
+
+strata.tectonics {
+    : title("Tectonics")
+    : symbol("T")
+    : stride(10)
+}
+
+strata.thermal {
+    : title("Thermal")
+    : symbol("Q")
+    : stride(1)
+}
+
+# =============================================================================
+# Era Definitions
+# =============================================================================
+
+era.formation {
+    : initial
+    : title("Planetary Formation")
+    : dt(10 <Myr>)
+
+    strata {
+        genesis: active
+        tectonics: active
+        thermal: active
+    }
+
+    transition {
+        to: era.active_tectonics
+        when {
+            signal.crust.total_thickness > 30000
+        }
+    }
+}
+
+era.active_tectonics {
+    : title("Active Tectonics")
+    : dt(1 <Myr>)
+
+    strata {
+        genesis: gated
+        tectonics: active
+        thermal: active
+    }
+
+    transition {
+        to: era.cooling
+        when {
+            signal.core.temp < 4000 <K>
+        }
+    }
+}
+
+era.cooling {
+    : terminal
+    : title("Cooling Phase")
+    : dt(100 <kyr>)
+
+    strata {
+        genesis: gated
+        tectonics: gated
+        thermal: active
+    }
+}
+
+# =============================================================================
+# Core Planetary Signals
+# =============================================================================
+
+signal.planet.radius {
+    : Scalar<m, 1e6..1e8>
+    : strata(genesis)
+    : title("Planet Radius")
+    : symbol("R")
+
+    resolve {
+        config.planet.radius
+    }
+}
+
+signal.planet.mass {
+    : Scalar<kg, 1e22..1e28>
+    : strata(genesis)
+    : title("Planet Mass")
+    : symbol("M")
+
+    resolve {
+        config.planet.mass
+    }
+}
+
+# Gravitational parameter mu = G * M
+signal.planet.gravity_mu {
+    : Scalar<m, 1e12..1e18>
+    : strata(genesis)
+    : title("Gravitational Parameter")
+
+    resolve {
+        const.physics.gravitational * signal.planet.mass
+    }
+}
+
+# Surface gravity g = mu / R^2
+signal.planet.surface_gravity {
+    : Scalar<m, 1..50>
+    : strata(genesis)
+    : title("Surface Gravity")
+
+    resolve {
+        signal.planet.gravity_mu / (signal.planet.radius * signal.planet.radius)
+    }
+}
+
+# =============================================================================
+# Thermal Signals
+# =============================================================================
+
+signal.core.temp {
+    : Scalar<K, 100..10000>
+    : strata(thermal)
+    : title("Core Temperature")
+    : symbol("T_core")
+
+    resolve {
+        # Using dt-robust decay operator instead of manual exp(-ln2*dt/halflife)
+        decay(prev, config.thermal.decay_halflife) + sum(inputs)
+    }
+
+    assert {
+        prev >= 100 <K>
+        prev <= 10000 <K>
+        prev > 0 : fatal, "Core temperature must be positive"
+    }
+}
+
+signal.mantle.temp {
+    : Scalar<K, 500..5000>
+    : strata(thermal)
+    : title("Mantle Temperature")
+
+    resolve {
+        # Mantle cools as heat flows to surface, coupled to core
+        let core_coupling = (signal.core.temp - prev) * 0.01
+        clamp(prev + core_coupling + sum(inputs), 500.0, 5000.0)
+    }
+}
+
+signal.surface.temp {
+    : Scalar<K, 50..500>
+    : strata(thermal)
+    : title("Surface Temperature")
+
+    resolve {
+        # geothermal = gradient * 0.001 * initial_thickness / 1000
+        # = 25 * 0.001 * 35000 / 1000 = 0.875 K
+        const.thermal.surface_temp + 0.875 + sum(inputs)
+    }
+}
+
+# =============================================================================
+# Crust Signals - Isostasy Implementation
+# =============================================================================
+
+# Crustal thickness signal
+signal.crust.thickness {
+    : Scalar<m, 3000..80000>
+    : strata(tectonics)
+    : title("Crustal Thickness")
+    : symbol("h_crust")
+
+    resolve {
+        clamp(prev + sum(inputs), config.crust.min_thickness, config.crust.max_thickness)
+    }
+
+    assert {
+        prev >= config.crust.min_thickness : warn, "Crust thinning below minimum"
+        prev <= config.crust.max_thickness : warn, "Crust thickening above maximum"
+    }
+}
+
+signal.crust.total_thickness {
+    : Scalar<m, 0..100000>
+    : strata(tectonics)
+    : title("Total Crustal Thickness")
+
+    resolve {
+        signal.crust.thickness
+    }
+}
+
+# Isostatic factor: 1 - (crust_density / mantle_density)
+# For Earth: (1 - 2700/3300) = 0.182
+signal.isostasy.factor {
+    : Scalar<m, 0..1>
+    : strata(tectonics)
+    : title("Isostatic Factor")
+
+    resolve {
+        1.0 - config.isostasy.crustal_density / config.isostasy.mantle_density
+    }
+}
+
+# Reference level = factor * reference_thickness = 0.182 * 35000 = 6370 m
+signal.isostasy.reference_level {
+    : Scalar<m, 0..10000>
+    : strata(tectonics)
+    : title("Isostatic Reference Level")
+
+    resolve {
+        signal.isostasy.factor * const.isostasy.reference_thickness
+    }
+}
+
+# Isostatic elevation = factor * thickness - reference_level
+signal.isostasy.elevation {
+    : Scalar<m, -15000..15000>
+    : strata(tectonics)
+    : title("Isostatic Elevation")
+
+    resolve {
+        signal.isostasy.factor * signal.crust.thickness - signal.isostasy.reference_level
+    }
+}
+
+# =============================================================================
+# Dynamic Topography
+# =============================================================================
+
+# Offset from mantle convection, breaks perfect r=1.0 correlation
+signal.topography.dynamic_offset {
+    : Scalar<m, -1200..2400>
+    : strata(tectonics)
+    : title("Dynamic Topography Offset")
+
+    resolve {
+        let thermal_gradient = (signal.mantle.temp - const.thermal.mantle_temp) / 1000.0
+        let uplift = thermal_gradient * const.topography.max_plume_uplift * config.topography.flow_coupling * 0.01
+        clamp(
+            prev + uplift + sum(inputs),
+            -const.topography.max_slab_depression,
+            const.topography.max_plume_uplift
+        )
+    }
+}
+
+# =============================================================================
+# Combined Elevation (Isostasy + Dynamic)
+# =============================================================================
+
+signal.crust.elevation {
+    : Scalar<m, -11000..9000>
+    : strata(tectonics)
+    : title("Surface Elevation")
+    : symbol("h_elev")
+
+    resolve {
+        # Combined isostatic + dynamic elevation
+        clamp(
+            signal.isostasy.elevation + signal.topography.dynamic_offset + sum(inputs),
+            -config.elevation.max_depth,
+            config.elevation.max_height
+        )
+    }
+
+    assert {
+        prev >= -config.elevation.max_depth : warn, "Elevation below maximum ocean depth"
+        prev <= config.elevation.max_height : warn, "Elevation above maximum mountain height"
+    }
+}
+
+# =============================================================================
+# Derived Crust Properties
+# =============================================================================
+
+# Lithostatic pressure at base: P = P_surface + rho * g * depth
+signal.crust.pressure_base {
+    : Scalar<Pa, 1e5..3e9>
+    : strata(tectonics)
+    : title("Base Crustal Pressure")
+
+    resolve {
+        100000.0 + config.crust.density * signal.planet.surface_gravity * signal.crust.thickness
+    }
+}
+
+# Geothermal temperature at crust base
+signal.crust.temp_base {
+    : Scalar<K, 300..1500>
+    : strata(thermal)
+    : title("Base Crustal Temperature")
+
+    resolve {
+        const.thermal.surface_temp + const.thermal.gradient * signal.crust.thickness / 1000.0
+    }
+}
+
+# Moho depth
+signal.crust.moho_depth {
+    : Scalar<m, 3000..80000>
+    : strata(tectonics)
+    : title("Moho Depth")
+
+    resolve {
+        signal.crust.thickness
+    }
+}
+
+# =============================================================================
+# Plate Boundary Stress
+# =============================================================================
+
+signal.tectonics.boundary_stress {
+    : Scalar<Pa, 0..1e9>
+    : strata(tectonics)
+    : title("Plate Boundary Stress")
+
+    resolve {
+        let thermal_stress = abs(signal.mantle.temp - 1600.0) * 1e4 * 0.001
+        let thickness_stress = abs(signal.crust.thickness - const.isostasy.reference_thickness) * 1e3 * 0.001
+        clamp(prev + thermal_stress + thickness_stress + sum(inputs), 0.0, 1e9)
+    }
+}
+
+# =============================================================================
+# Fractures (Tectonic Events)
+# =============================================================================
+
+# Rifting: thin crust + high stress -> rift opening
+fracture.tectonics.rift {
+    when {
+        signal.crust.thickness < 25000
+        signal.tectonics.boundary_stress > 5e8
+    }
+
+    emit {
+        signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.8
+        signal.crust.thickness <- -500.0
+        signal.topography.dynamic_offset <- 200.0
+    }
+}
+
+# Orogeny: thick crust + compression -> mountain building
+fracture.tectonics.orogeny {
+    when {
+        signal.crust.thickness > 50000
+        signal.tectonics.boundary_stress > 7e8
+    }
+
+    emit {
+        signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.6
+        signal.crust.thickness <- 1000.0
+        signal.topography.dynamic_offset <- -100.0
+    }
+}
+
+# Volcanism: hot mantle + thin crust -> volcanic activity
+fracture.thermal.volcanism {
+    when {
+        signal.mantle.temp > 1800 <K>
+        signal.crust.thickness < 30000
+    }
+
+    emit {
+        signal.mantle.temp <- -50.0
+        signal.crust.thickness <- 100.0
+        signal.topography.dynamic_offset <- 50.0
+    }
+}
+
+# Radioactive heating burst
+fracture.core.decay_heat {
+    when {
+        signal.core.temp < 5000 <K>
+    }
+
+    emit {
+        signal.core.temp <- 10.0
+    }
+}
+
+# =============================================================================
+# Fields (Observer Data)
+# =============================================================================
+
+field.elevation.map {
+    : Scalar<m>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Elevation Map")
+
+    measure {
+        signal.crust.elevation
+    }
+}
+
+field.thickness.map {
+    : Scalar<m>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Crustal Thickness Map")
+
+    measure {
+        signal.crust.thickness
+    }
+}
+
+field.thermal.core {
+    : Scalar<K>
+    : strata(thermal)
+    : topology(point_cloud)
+    : title("Core Temperature Field")
+
+    measure {
+        signal.core.temp
+    }
+}
+
+field.thermal.mantle {
+    : Scalar<K>
+    : strata(thermal)
+    : topology(point_cloud)
+    : title("Mantle Temperature Field")
+
+    measure {
+        signal.mantle.temp
+    }
+}
+
+field.pressure.crustal {
+    : Scalar<Pa>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Crustal Pressure Field")
+
+    measure {
+        signal.crust.pressure_base
+    }
+}
+
+field.stress.boundary {
+    : Scalar<Pa>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Boundary Stress Field")
+
+    measure {
+        signal.tectonics.boundary_stress
+    }
+}
+
+field.topography.dynamic {
+    : Scalar<m>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Dynamic Topography Field")
+
+    measure {
+        signal.topography.dynamic_offset
+    }
+}
+
+field.isostasy.elevation_field {
+    : Scalar<m>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Isostatic Elevation Field")
+
+    measure {
+        signal.isostasy.elevation
+    }
+}

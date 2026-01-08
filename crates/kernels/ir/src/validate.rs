@@ -6,6 +6,9 @@ use std::collections::HashSet;
 
 use tracing::warn;
 
+// Import functions crate to ensure kernels are registered
+use continuum_functions as _;
+
 use crate::{CompiledExpr, CompiledWorld, ValueType};
 
 /// A compilation warning
@@ -69,27 +72,10 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
     }
 }
 
-/// Known built-in functions
-const KNOWN_FUNCTIONS: &[&str] = &[
-    // dt-dependent operators
-    "decay",
-    "relax",
-    "integrate",
-    // math functions
-    "clamp",
-    "min",
-    "max",
-    "abs",
-    "sqrt",
-    "sin",
-    "cos",
-    "exp",
-    "ln",
-    "log10",
-    "pow",
-    // special
-    "sum",
-];
+/// Known built-in functions - sourced from the kernel registry
+fn is_known_function(name: &str) -> bool {
+    continuum_kernel_registry::is_known(name)
+}
 
 /// Check for undefined symbols in expressions
 fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
@@ -226,7 +212,7 @@ fn check_expr_symbols(
             }
         }
         CompiledExpr::Call { function, args } => {
-            if !KNOWN_FUNCTIONS.contains(&function.as_str()) {
+            if !is_known_function(function) {
                 warnings.push(CompileWarning {
                     code: WarningCode::UnknownFunction,
                     message: format!(
@@ -259,8 +245,9 @@ fn check_expr_symbols(
         CompiledExpr::FieldAccess { object, .. } => {
             check_expr_symbols(object, context, defined_signals, defined_constants, defined_config, warnings);
         }
-        // Literals, Prev, DtRaw, SumInputs don't need checking
-        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::SumInputs => {}
+        // Literals, Prev, DtRaw, SumInputs, Local don't need checking
+        // Local variables are validated at parse/lower time
+        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::SumInputs | CompiledExpr::Local(_) => {}
     }
 }
 

@@ -1,0 +1,10 @@
+[package]
+name = "continuum-functions"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+continuum-foundation = { path = "../foundation" }
+continuum-kernel-registry = { path = "../../kernel-registry" }
+continuum-kernel-macros = { path = "../../kernel-macros" }
+linkme = "0.3"

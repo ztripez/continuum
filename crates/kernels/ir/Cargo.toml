@@ -6,7 +6,10 @@ edition.workspace = true
 [dependencies]
 continuum-dsl = { path = "../dsl" }
 continuum-foundation = { path = "../foundation" }
+continuum-functions = { path = "../functions" }
+continuum-kernel-registry = { path = "../../kernel-registry" }
 continuum-runtime = { path = "../runtime" }
+continuum-vm = { path = "../vm" }
 thiserror = "2"
 indexmap = "2"
 tracing = "0.1.44"

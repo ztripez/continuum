@@ -1,0 +1,7 @@
+apiVersion: continuum/v1
+kind: World
+
+metadata:
+  name: terra
+  title: "Terra Geophysics Simulation"
+  description: "Realistic crust dynamics with isostasy and dynamic topography"

@@ -494,3 +494,62 @@ fn test_parse_namespaced_function_call() {
         _ => panic!("expected SignalDef"),
     }
 }
+
+#[test]
+fn test_parse_let_expression() {
+    let source = r#"
+        signal.core.temp {
+            : Scalar<K>
+            resolve {
+                let a = 1.0
+                let b = 2.0
+                a + b
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Let { name, value, body } => {
+                    assert_eq!(name, "a");
+                    match &value.node {
+                        Expr::Literal(Literal::Float(f)) => assert_eq!(*f, 1.0),
+                        _ => panic!("expected float literal for value"),
+                    }
+                    // Body should be another let
+                    match &body.node {
+                        Expr::Let { name, value, body } => {
+                            assert_eq!(name, "b");
+                            match &value.node {
+                                Expr::Literal(Literal::Float(f)) => assert_eq!(*f, 2.0),
+                                _ => panic!("expected float literal for value"),
+                            }
+                            // Inner body should be a + b
+                            match &body.node {
+                                Expr::Binary { op, left, right } => {
+                                    assert_eq!(*op, BinaryOp::Add);
+                                    match &left.node {
+                                        Expr::Path(p) => assert_eq!(p.join("."), "a"),
+                                        _ => panic!("expected path 'a'"),
+                                    }
+                                    match &right.node {
+                                        Expr::Path(p) => assert_eq!(p.join("."), "b"),
+                                        _ => panic!("expected path 'b'"),
+                                    }
+                                }
+                                _ => panic!("expected Binary add, got {:?}", body.node),
+                            }
+                        }
+                        _ => panic!("expected inner Let, got {:?}", body.node),
+                    }
+                }
+                _ => panic!("expected Let, got {:?}", resolve.body.node),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}

@@ -5,7 +5,6 @@
 pub mod dag;
 pub mod error;
 pub mod executor;
-pub mod operators;
 pub mod storage;
 pub mod types;
 

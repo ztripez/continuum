@@ -395,6 +395,14 @@ impl Lowerer {
     }
 
     fn lower_expr(&self, expr: &Expr) -> CompiledExpr {
+        self.lower_expr_with_locals(expr, &std::collections::HashSet::new())
+    }
+
+    fn lower_expr_with_locals(
+        &self,
+        expr: &Expr,
+        locals: &std::collections::HashSet<String>,
+    ) -> CompiledExpr {
         match expr {
             Expr::Literal(lit) => CompiledExpr::Literal(self.literal_to_f64_unchecked(lit)),
             Expr::LiteralWithUnit { value, .. } => {
@@ -404,6 +412,10 @@ impl Lowerer {
             Expr::DtRaw => CompiledExpr::DtRaw,
             Expr::SumInputs => CompiledExpr::SumInputs,
             Expr::Path(path) => {
+                // Check for local variable first (single-segment paths only)
+                if path.segments.len() == 1 && locals.contains(&path.segments[0]) {
+                    return CompiledExpr::Local(path.segments[0].clone());
+                }
                 // Could be signal, const, or config reference
                 let joined = path.join(".");
                 if self.constants.contains_key(&joined) {
@@ -421,22 +433,25 @@ impl Lowerer {
             Expr::ConfigRef(path) => CompiledExpr::Config(path.join(".")),
             Expr::Binary { op, left, right } => CompiledExpr::Binary {
                 op: self.lower_binary_op(*op),
-                left: Box::new(self.lower_expr(&left.node)),
-                right: Box::new(self.lower_expr(&right.node)),
+                left: Box::new(self.lower_expr_with_locals(&left.node, locals)),
+                right: Box::new(self.lower_expr_with_locals(&right.node, locals)),
             },
             Expr::Unary { op, operand } => CompiledExpr::Unary {
                 op: self.lower_unary_op(*op),
-                operand: Box::new(self.lower_expr(&operand.node)),
+                operand: Box::new(self.lower_expr_with_locals(&operand.node, locals)),
             },
             Expr::Call { function, args } => {
                 let func_name = self.expr_to_function_name(&function.node);
                 CompiledExpr::Call {
                     function: func_name,
-                    args: args.iter().map(|a| self.lower_expr(&a.node)).collect(),
+                    args: args
+                        .iter()
+                        .map(|a| self.lower_expr_with_locals(&a.node, locals))
+                        .collect(),
                 }
             }
             Expr::FieldAccess { object, field } => CompiledExpr::FieldAccess {
-                object: Box::new(self.lower_expr(&object.node)),
+                object: Box::new(self.lower_expr_with_locals(&object.node, locals)),
                 field: field.clone(),
             },
             Expr::If {
@@ -444,20 +459,28 @@ impl Lowerer {
                 then_branch,
                 else_branch,
             } => CompiledExpr::If {
-                condition: Box::new(self.lower_expr(&condition.node)),
-                then_branch: Box::new(self.lower_expr(&then_branch.node)),
+                condition: Box::new(self.lower_expr_with_locals(&condition.node, locals)),
+                then_branch: Box::new(self.lower_expr_with_locals(&then_branch.node, locals)),
                 else_branch: Box::new(
                     else_branch
                         .as_ref()
-                        .map(|e| self.lower_expr(&e.node))
+                        .map(|e| self.lower_expr_with_locals(&e.node, locals))
                         .unwrap_or(CompiledExpr::Literal(0.0)),
                 ),
             },
-            Expr::Let { name, value, body } => CompiledExpr::Let {
-                name: name.clone(),
-                value: Box::new(self.lower_expr(&value.node)),
-                body: Box::new(self.lower_expr(&body.node)),
-            },
+            Expr::Let { name, value, body } => {
+                // Lower the value without the new local
+                let lowered_value = self.lower_expr_with_locals(&value.node, locals);
+                // Add the new local for the body
+                let mut new_locals = locals.clone();
+                new_locals.insert(name.clone());
+                let lowered_body = self.lower_expr_with_locals(&body.node, &new_locals);
+                CompiledExpr::Let {
+                    name: name.clone(),
+                    value: Box::new(lowered_value),
+                    body: Box::new(lowered_body),
+                }
+            }
             Expr::MathConst(c) => {
                 let val = match c {
                     ast::MathConst::Pi => std::f64::consts::PI,
@@ -475,7 +498,7 @@ impl Lowerer {
                     CompiledExpr::Literal(0.0)
                 } else {
                     // For now, just evaluate to the last expression
-                    self.lower_expr(&exprs.last().unwrap().node)
+                    self.lower_expr_with_locals(&exprs.last().unwrap().node, locals)
                 }
             }
             _ => CompiledExpr::Literal(0.0), // placeholder for complex expressions
@@ -732,5 +755,52 @@ mod tests {
         let terra = world.strata.get(&StratumId::from("terra")).unwrap();
         assert_eq!(terra.title, Some("Terra".to_string()));
         assert_eq!(terra.default_stride, 10);
+    }
+
+    #[test]
+    fn test_lower_let_expression() {
+        let src = r#"
+            strata.test {}
+            era.main { : initial }
+            signal.test.sum {
+                : strata(test)
+                resolve {
+                    let a = 10.0
+                    let b = 20.0
+                    a + b
+                }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+        let signal = world.signals.get(&SignalId::from("test.sum")).unwrap();
+        assert!(signal.resolve.is_some());
+
+        // Check the structure of the lowered expression
+        let resolve = signal.resolve.as_ref().unwrap();
+        match resolve {
+            CompiledExpr::Let { name, value, body } => {
+                assert_eq!(name, "a");
+                assert!(matches!(value.as_ref(), CompiledExpr::Literal(10.0)));
+                match body.as_ref() {
+                    CompiledExpr::Let { name, value, body } => {
+                        assert_eq!(name, "b");
+                        assert!(matches!(value.as_ref(), CompiledExpr::Literal(20.0)));
+                        match body.as_ref() {
+                            CompiledExpr::Binary { op, left, right } => {
+                                assert!(matches!(op, BinaryOpIr::Add));
+                                assert!(matches!(left.as_ref(), CompiledExpr::Local(n) if n == "a"));
+                                assert!(matches!(right.as_ref(), CompiledExpr::Local(n) if n == "b"));
+                            }
+                            _ => panic!("expected Binary, got {:?}", body),
+                        }
+                    }
+                    _ => panic!("expected inner Let, got {:?}", body),
+                }
+            }
+            _ => panic!("expected Let, got {:?}", resolve),
+        }
     }
 }

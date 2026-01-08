@@ -10,6 +10,25 @@ use super::ParseError;
 /// Expression parser
 pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<'src>>> + Clone {
     recursive(|expr| {
+        // Let expression: let name = value \n body
+        // Multiple lets chain together: let a = 1 \n let b = 2 \n a + b
+        let let_expr = text::keyword("let")
+            .padded_by(ws())
+            .ignore_then(ident())
+            .then_ignore(just('=').padded_by(ws()))
+            .then(expr.clone().map_with(|e, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(e, span.start..span.end)
+            }))
+            .then(expr.clone().map_with(|e, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(e, span.start..span.end)
+            }))
+            .map(|((name, value), body)| Expr::Let {
+                name,
+                value: Box::new(value),
+                body: Box::new(body),
+            });
         // Arguments list for function calls
         let args = expr
             .clone()
@@ -131,7 +150,7 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
             },
         );
 
-        sum.clone().foldl(
+        let comparison = sum.clone().foldl(
             choice((
                 just("==").to(BinaryOp::Eq),
                 just("!=").to(BinaryOp::Ne),
@@ -148,7 +167,10 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
                 left: Box::new(Spanned::new(left, 0..0)),
                 right: Box::new(Spanned::new(right, 0..0)),
             },
-        )
+        );
+
+        // Let expressions have lowest precedence - they consume the rest as body
+        choice((let_expr, comparison))
     })
 }
 

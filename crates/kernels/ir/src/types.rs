@@ -256,6 +256,8 @@ pub enum CompiledExpr {
         value: Box<CompiledExpr>,
         body: Box<CompiledExpr>,
     },
+    /// Local variable reference
+    Local(String),
 }
 
 /// Binary operators

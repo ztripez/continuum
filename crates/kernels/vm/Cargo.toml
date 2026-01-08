@@ -1,0 +1,7 @@
+[package]
+name = "continuum-vm"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+continuum-kernel-registry = { path = "../../kernel-registry" }

@@ -1,10 +1,14 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/kernel-macros",
+    "crates/kernel-registry",
     "crates/kernels/dsl",
     "crates/kernels/foundation",
+    "crates/kernels/functions",
     "crates/kernels/ir",
     "crates/kernels/runtime",
+    "crates/kernels/vm",
     "crates/tools",
 ]
 

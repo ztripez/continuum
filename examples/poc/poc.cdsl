@@ -1,14 +1,18 @@
 # Minimal Thermal Simulation
-# A simple cooling simulation demonstrating the DSL
+# A simple cooling simulation demonstrating the DSL and let expressions
 
 const {
-    physics.stefan_boltzmann: 5.67e-8 <W/m²/K⁴>
+    physics.stefan_boltzmann: 5.67e-8
+    physics.boltzmann: 1.380649e-23
+    thermal.ambient: 290.0
 }
 
 config {
     # Halflife in seconds (~4.5 billion years, like U-238)
     thermal.decay_halflife: 1.42e17 <s>
     thermal.initial_temp: 5500 <K>
+    thermal.coupling_factor: 0.01
+    thermal.radiation_factor: 0.0001
 }
 
 strata.thermal {
@@ -51,13 +55,47 @@ signal.core.temp {
     : symbol("T_core")
 
     resolve {
-        decay(prev, config.thermal.decay_halflife) + sum(inputs)
+        # Demonstrating let expressions for readable multi-step calculations
+        let decayed = decay(prev, config.thermal.decay_halflife)
+        let with_inputs = decayed + sum(inputs)
+        with_inputs
     }
 
     assert {
         prev >= 100 <K>
         prev <= 10000 <K>
         prev > 0 : fatal, "temperature cannot be negative or zero"
+    }
+}
+
+# Surface temperature with let expressions for heat transfer calculation
+signal.surface.temp {
+    : Scalar<K, 100..1000>
+    : strata(thermal)
+    : title("Surface Temperature")
+    : symbol("T_surf")
+
+    resolve {
+        # Heat transfer from core to surface using let for clarity
+        let temp_diff = signal.core.temp - prev
+        let heat_transfer = temp_diff * config.thermal.coupling_factor
+        let radiation_loss = (prev - const.thermal.ambient) * config.thermal.radiation_factor
+        let new_temp = prev + heat_transfer - radiation_loss + sum(inputs)
+        clamp(new_temp, 100.0, 1000.0)
+    }
+}
+
+# Derived signal showing temperature gradient
+signal.thermal.gradient {
+    : Scalar<K, 0..10000>
+    : strata(thermal)
+    : title("Core-Surface Gradient")
+
+    resolve {
+        let core = signal.core.temp
+        let surface = signal.surface.temp
+        let gradient = core - surface
+        abs(gradient)
     }
 }
 
@@ -81,5 +119,27 @@ field.core.temp_field {
 
     measure {
         signal.core.temp
+    }
+}
+
+field.surface.temp_field {
+    : Scalar<K>
+    : strata(thermal)
+    : topology(point_cloud)
+    : title("Surface Temperature Field")
+
+    measure {
+        signal.surface.temp
+    }
+}
+
+field.thermal.gradient_field {
+    : Scalar<K>
+    : strata(thermal)
+    : topology(point_cloud)
+    : title("Thermal Gradient Field")
+
+    measure {
+        signal.thermal.gradient
     }
 }

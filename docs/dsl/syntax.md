@@ -284,7 +284,7 @@ signal.terra.geophysics.core.temp_k {
 - `signal.path` — read other resolved signals
 - `const.path` — read constants
 - `config.path` — read configuration
-- `dt` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
+- `dt_raw` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
 - `sum(inputs)` — accumulated inputs from Collect phase
 - `kernel.fn(...)` — engine-provided functions
 - `let name = expr` — local bindings
