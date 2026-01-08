@@ -34,7 +34,7 @@ pub type WarmupFn = Box<dyn Fn(&WarmupContext) -> Value + Send + Sync>;
 pub type MeasureFn = Box<dyn Fn(&mut MeasureContext) + Send + Sync>;
 
 /// Function that applies an impulse with a typed payload
-pub type ImpulseFn = Box<dyn Fn(&ImpulseContext, &Value) + Send + Sync>;
+pub type ImpulseFn = Box<dyn Fn(&mut ImpulseContext, &Value) + Send + Sync>;
 
 /// Context available to warmup functions
 pub struct WarmupContext<'a> {
@@ -1039,5 +1039,82 @@ mod tests {
 
         let samples = runtime.field_buffer().get_samples(&field_id).unwrap();
         assert_eq!(samples[0].value.as_scalar(), Some(120.0));
+    }
+
+    #[test]
+    fn test_impulse_injection() {
+        let era_id: EraId = "test".into();
+        let stratum_id: StratumId = "default".into();
+        let signal_id: SignalId = "energy".into();
+
+        // Build DAG for Resolve phase
+        let mut resolve_builder = DagBuilder::new(Phase::Resolve, stratum_id.clone());
+        resolve_builder.add_node(DagNode {
+            id: NodeId("energy_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(signal_id.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_id.clone(),
+                resolver_idx: 0,
+            },
+        });
+        let resolve_dag = resolve_builder.build().unwrap();
+
+        let mut era_dags = EraDags::default();
+        era_dags.insert(resolve_dag);
+
+        let mut dags = DagSet::default();
+        dags.insert_era(era_id.clone(), era_dags);
+
+        let mut strata = HashMap::new();
+        strata.insert(stratum_id, StratumState::Active);
+        let era_config = EraConfig {
+            dt: Dt(1.0),
+            strata,
+            transition: None,
+        };
+
+        let mut eras = HashMap::new();
+        eras.insert(era_id.clone(), era_config);
+
+        let mut runtime = Runtime::new(era_id, eras, dags);
+
+        // Register resolver: prev + sum(inputs)
+        runtime.register_resolver(Box::new(|ctx| {
+            let prev = ctx.prev.as_scalar().unwrap_or(0.0);
+            Value::Scalar(prev + ctx.inputs)
+        }));
+
+        // Register impulse handler: adds payload value to signal
+        let signal_id_clone = signal_id.clone();
+        let handler_idx = runtime.register_impulse(Box::new(move |ctx, payload| {
+            let value = payload.as_scalar().unwrap();
+            ctx.channels.accumulate(&signal_id_clone, value);
+        }));
+
+        runtime.init_signal(signal_id.clone(), Value::Scalar(0.0));
+
+        // Tick 1: no impulse, signal stays at 0
+        runtime.execute_tick().unwrap();
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(0.0)));
+
+        // Inject impulse for next tick
+        runtime.inject_impulse(handler_idx, Value::Scalar(100.0));
+
+        // Tick 2: impulse adds 100
+        runtime.execute_tick().unwrap();
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(100.0)));
+
+        // Tick 3: no impulse, signal stays at 100
+        runtime.execute_tick().unwrap();
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(100.0)));
+
+        // Inject multiple impulses
+        runtime.inject_impulse(handler_idx, Value::Scalar(25.0));
+        runtime.inject_impulse(handler_idx, Value::Scalar(25.0));
+
+        // Tick 4: both impulses add 50 total
+        runtime.execute_tick().unwrap();
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(150.0)));
     }
 }
