@@ -8,4 +8,4 @@ name = "world-load"
 path = "src/bin/world_load.rs"
 
 [dependencies]
-continuum-dsl = { path = "../dsl" }
+continuum-dsl = { path = "../kernels/dsl" }

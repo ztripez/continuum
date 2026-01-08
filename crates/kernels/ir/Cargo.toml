@@ -1,0 +1,11 @@
+[package]
+name = "continuum-ir"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+continuum-dsl = { path = "../dsl" }
+continuum-foundation = { path = "../foundation" }
+continuum-runtime = { path = "../runtime" }
+thiserror = "2"
+indexmap = "2"

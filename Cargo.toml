@@ -1,9 +1,10 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/dsl",
-    "crates/foundation",
-    "crates/runtime",
+    "crates/kernels/dsl",
+    "crates/kernels/foundation",
+    "crates/kernels/ir",
+    "crates/kernels/runtime",
     "crates/tools",
 ]
 
