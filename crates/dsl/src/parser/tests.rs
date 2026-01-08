@@ -1,5 +1,5 @@
 use super::*;
-use crate::ast::{BinaryOp, Item, Literal};
+use crate::ast::{BinaryOp, Expr, Item, Literal};
 
 #[test]
 fn test_parse_const_block() {
@@ -343,5 +343,154 @@ fn test_parse_comparison_with_unit() {
             }
         }
         _ => panic!("expected EraDef"),
+    }
+}
+
+#[test]
+fn test_parse_function_call_simple() {
+    let source = r#"
+        signal.core.temp {
+            : Scalar<K>
+            : strata(thermal)
+
+            resolve {
+                decay(prev, 0.5)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            assert!(def.resolve.is_some());
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { function, args } => {
+                    match &function.node {
+                        Expr::Path(p) => assert_eq!(p.join("."), "decay"),
+                        _ => panic!("expected Path, got {:?}", function.node),
+                    }
+                    assert_eq!(args.len(), 2);
+                }
+                _ => panic!("expected Call, got {:?}", resolve.body.node),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_function_call_nested() {
+    let source = r#"
+        signal.core.temp {
+            : Scalar<K>
+            resolve {
+                max(min(prev, 1000), 100)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { function, args } => {
+                    match &function.node {
+                        Expr::Path(p) => assert_eq!(p.join("."), "max"),
+                        _ => panic!("expected Path"),
+                    }
+                    assert_eq!(args.len(), 2);
+                    // First arg should be min(prev, 1000)
+                    match &args[0].node {
+                        Expr::Call { function, args: inner_args } => {
+                            match &function.node {
+                                Expr::Path(p) => assert_eq!(p.join("."), "min"),
+                                _ => panic!("expected Path"),
+                            }
+                            assert_eq!(inner_args.len(), 2);
+                        }
+                        _ => panic!("expected Call"),
+                    }
+                }
+                _ => panic!("expected Call"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_function_call_in_expression() {
+    let source = r#"
+        signal.core.temp {
+            : Scalar<K>
+            resolve {
+                prev * exp(-config.thermal.decay_rate)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Binary { op, left, right } => {
+                    assert_eq!(*op, BinaryOp::Mul);
+                    match &left.node {
+                        Expr::Prev => {}
+                        _ => panic!("expected Prev, got {:?}", left.node),
+                    }
+                    match &right.node {
+                        Expr::Call { function, args } => {
+                            match &function.node {
+                                Expr::Path(p) => assert_eq!(p.join("."), "exp"),
+                                _ => panic!("expected Path"),
+                            }
+                            assert_eq!(args.len(), 1);
+                        }
+                        _ => panic!("expected Call, got {:?}", right.node),
+                    }
+                }
+                _ => panic!("expected Binary, got {:?}", resolve.body.node),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_namespaced_function_call() {
+    let source = r#"
+        signal.core.temp {
+            : Scalar<K>
+            resolve {
+                math.clamp(prev, 100, 10000)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { function, args } => {
+                    match &function.node {
+                        Expr::Path(p) => assert_eq!(p.join("."), "math.clamp"),
+                        _ => panic!("expected Path"),
+                    }
+                    assert_eq!(args.len(), 3);
+                }
+                _ => panic!("expected Call"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
     }
 }

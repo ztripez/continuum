@@ -2,14 +2,26 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{BinaryOp, Expr, Literal, MathConst, Spanned, UnaryOp};
+use crate::ast::{BinaryOp, Expr, Literal, MathConst, Path, Spanned, UnaryOp};
 
-use super::primitives::{number, path, string_lit, unit, ws};
+use super::primitives::{ident, number, path, string_lit, unit, ws};
 use super::ParseError;
 
 /// Expression parser
 pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<'src>>> + Clone {
     recursive(|expr| {
+        // Arguments list for function calls
+        let args = expr
+            .clone()
+            .map_with(|e, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(e, span.start..span.end)
+            })
+            .separated_by(just(',').padded_by(ws()))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just('(').padded_by(ws()), just(')').padded_by(ws()));
+
         let atom = choice((
             text::keyword("prev").to(Expr::Prev),
             just("dt_raw").to(Expr::DtRaw),
@@ -44,6 +56,13 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
                 .ignore_then(just('.'))
                 .ignore_then(path())
                 .map(Expr::FieldRef),
+            // Function call: name(args) or path.to.func(args)
+            path()
+                .then(args.clone())
+                .map(|(p, args)| Expr::Call {
+                    function: Box::new(Spanned::new(Expr::Path(p), 0..0)),
+                    args,
+                }),
             number()
                 .then(unit().padded_by(ws()).or_not())
                 .map(|(lit, unit_opt)| match unit_opt {
@@ -54,11 +73,36 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
             expr.clone()
                 .padded_by(ws())
                 .delimited_by(just('('), just(')')),
+            // Plain path (must come after function call attempt)
             path().map(Expr::Path),
         ))
         .padded_by(ws());
 
-        let unary = just('-').repeated().foldr(atom, |_, operand| Expr::Unary {
+        // Method calls: expr.method(args)
+        let postfix = atom.clone().foldl(
+            just('.')
+                .padded_by(ws())
+                .ignore_then(ident())
+                .then(args.clone().or_not())
+                .repeated(),
+            |obj, (method, maybe_args)| match maybe_args {
+                Some(args) => Expr::Call {
+                    function: Box::new(Spanned::new(
+                        Expr::Path(Path::new(vec![method])),
+                        0..0,
+                    )),
+                    args: std::iter::once(Spanned::new(obj, 0..0))
+                        .chain(args)
+                        .collect(),
+                },
+                None => Expr::FieldAccess {
+                    object: Box::new(Spanned::new(obj, 0..0)),
+                    field: method,
+                },
+            },
+        );
+
+        let unary = just('-').repeated().foldr(postfix, |_, operand| Expr::Unary {
             op: UnaryOp::Neg,
             operand: Box::new(Spanned::new(operand, 0..0)),
         });

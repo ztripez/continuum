@@ -50,8 +50,7 @@ signal.core.temp {
     : symbol("T_core")
 
     resolve {
-        # Simple decay: prev * 0.99 (placeholder until function calls are supported)
-        prev * 0.99
+        decay(prev, config.thermal.decay_halflife)
     }
 }
 
