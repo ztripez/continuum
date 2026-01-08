@@ -6,7 +6,7 @@ use chumsky::prelude::*;
 
 use crate::ast::{
     BinaryOp, CompilationUnit, ConfigBlock, ConfigEntry, ConstBlock, ConstEntry, EraDef,
-    Expr, FieldDef, FractureDef, ImpulseDef, Item, Literal, OperatorDef, Path, Range,
+    Expr, FieldDef, FractureDef, ImpulseDef, Item, Literal, MathConst, OperatorDef, Path, Range,
     SignalDef, Spanned, StrataDef, StrataState, StrataStateKind, Topology, Transition,
     TypeDef, TypeExpr, TypeField, UnaryOp, ValueWithUnit, ResolveBlock,
     MeasureBlock, OperatorPhase, OperatorBody, ApplyBlock, EmitStatement, ChronicleDef,
@@ -1100,8 +1100,15 @@ fn simple_expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseErr
         let atom = choice((
             // prev
             text::keyword("prev").to(Expr::Prev),
-            // dt
-            text::keyword("dt").to(Expr::Dt),
+            // dt_raw - explicit raw timestep (requires : dt_raw declaration on signal)
+            just("dt_raw").to(Expr::DtRaw),
+            // Mathematical constants (ASCII and Unicode symbols)
+            just("PI").or(just("π")).to(Expr::MathConst(MathConst::Pi)),
+            just("TAU").or(just("τ")).to(Expr::MathConst(MathConst::Tau)),
+            just("PHI").or(just("φ")).to(Expr::MathConst(MathConst::Phi)),
+            // E and I must come after longer tokens to avoid matching prefixes
+            just("E").or(just("ℯ")).to(Expr::MathConst(MathConst::E)),
+            just("I").or(just("ⅈ")).to(Expr::MathConst(MathConst::I)),
             // payload
             text::keyword("payload").to(Expr::Payload),
             // sum(inputs)
@@ -1133,8 +1140,13 @@ fn simple_expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseErr
                 .ignore_then(just('.'))
                 .ignore_then(path())
                 .map(Expr::FieldRef),
-            // Number literal
-            number().map(Expr::Literal),
+            // Number literal with optional unit: 5000 <K>, 1 <Myr>
+            number()
+                .then(unit().padded_by(ws()).or_not())
+                .map(|(lit, unit_opt)| match unit_opt {
+                    Some(u) => Expr::LiteralWithUnit { value: lit, unit: u },
+                    None => Expr::Literal(lit),
+                }),
             // String literal
             string_lit().map(|s| Expr::Literal(Literal::String(s))),
             // Parenthesized expression
@@ -1181,7 +1193,7 @@ fn simple_expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseErr
         );
 
         // Comparison operators
-        let comparison = sum.clone().foldl(
+        sum.clone().foldl(
             choice((
                 just("==").to(BinaryOp::Eq),
                 just("!=").to(BinaryOp::Ne),
@@ -1198,9 +1210,7 @@ fn simple_expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseErr
                 left: Box::new(Spanned::new(left, 0..0)),
                 right: Box::new(Spanned::new(right, 0..0)),
             },
-        );
-
-        comparison
+        )
     })
 }
 
@@ -1482,6 +1492,77 @@ mod tests {
                 assert!(def.apply.is_some());
             }
             _ => panic!("expected ImpulseDef"),
+        }
+    }
+
+    #[test]
+    fn test_parse_unit_qualified_literals() {
+        // Test era with unit-qualified dt
+        let source = r#"
+            era.hadean {
+                : initial
+                : dt(1 <Myr>)
+            }
+        "#;
+        let (result, errors) = parse(source);
+        assert!(errors.is_empty(), "errors: {:?}", errors);
+        let unit = result.unwrap();
+        assert_eq!(unit.items.len(), 1);
+        match &unit.items[0].node {
+            Item::EraDef(def) => {
+                assert_eq!(def.name.node, "hadean");
+                assert!(def.dt.is_some());
+                let dt = def.dt.as_ref().unwrap();
+                assert_eq!(dt.node.unit, "Myr");
+            }
+            _ => panic!("expected EraDef"),
+        }
+    }
+
+    #[test]
+    fn test_parse_comparison_with_unit() {
+        // Test transition condition with unit-qualified value
+        let source = r#"
+            era.hadean {
+                : initial
+                : dt(1 <Myr>)
+
+                transition {
+                    to: era.archean
+                    when {
+                        signal.terra.core.temp < 5000 <K>
+                    }
+                }
+            }
+        "#;
+        let (result, errors) = parse(source);
+        assert!(errors.is_empty(), "errors: {:?}", errors);
+        let unit = result.unwrap();
+        assert_eq!(unit.items.len(), 1);
+        match &unit.items[0].node {
+            Item::EraDef(def) => {
+                assert_eq!(def.transitions.len(), 1);
+                let transition = &def.transitions[0];
+                assert_eq!(transition.conditions.len(), 1);
+                // Check the condition contains a comparison with unit
+                match &transition.conditions[0].node {
+                    Expr::Binary { op, right, .. } => {
+                        assert_eq!(*op, BinaryOp::Lt);
+                        match &right.node {
+                            Expr::LiteralWithUnit { value, unit } => {
+                                match value {
+                                    Literal::Float(f) => assert_eq!(*f, 5000.0),
+                                    _ => panic!("expected float literal"),
+                                }
+                                assert_eq!(unit, "K");
+                            }
+                            _ => panic!("expected LiteralWithUnit, got {:?}", right.node),
+                        }
+                    }
+                    _ => panic!("expected Binary expression"),
+                }
+            }
+            _ => panic!("expected EraDef"),
         }
     }
 }

@@ -1,0 +1,67 @@
+# Minimal Thermal Simulation
+# A simple cooling simulation demonstrating the DSL
+
+const {
+    physics.stefan_boltzmann: 5.67e-8 <W/m²/K⁴>
+}
+
+config {
+    thermal.decay_halflife: 1e9 <s>
+    thermal.initial_temp: 5500 <K>
+}
+
+strata.thermal {
+    : title("Thermal")
+    : symbol("Q")
+    : stride(1)
+}
+
+era.early {
+    : initial
+    : title("Early Cooling")
+    : dt(1 <Myr>)
+
+    strata {
+        thermal: active
+    }
+
+    transition {
+        to: era.stable
+        when {
+            signal.core.temp < 4000 <K>
+        }
+    }
+}
+
+era.stable {
+    : terminal
+    : title("Stable")
+    : dt(100 <kyr>)
+
+    strata {
+        thermal: active
+    }
+}
+
+signal.core.temp {
+    : Scalar<K, 100..10000>
+    : strata(thermal)
+    : title("Core Temperature")
+    : symbol("T_core")
+
+    resolve {
+        # Simple decay: prev * 0.99 (placeholder until function calls are supported)
+        prev * 0.99
+    }
+}
+
+field.core.temp_field {
+    : Scalar<K>
+    : strata(thermal)
+    : topology(point_cloud)
+    : title("Core Temperature Field")
+
+    measure {
+        signal.core.temp
+    }
+}

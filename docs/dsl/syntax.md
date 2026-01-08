@@ -581,12 +581,39 @@ field.target <- position, value
 | `config.` | Configuration parameter |
 | `prev` | Previous signal value (in resolve blocks) |
 | `payload` | Impulse data (in apply blocks) |
-| `dt` | Current timestep (prefer dt-robust operators) |
+| `dt_raw` | Raw timestep (requires `: dt_raw` declaration, prefer dt-robust operators) |
 | `kernel.` | Engine-provided function |
 
 ---
 
-## 18. Complete Example
+## 18. Mathematical Constants
+
+Built-in mathematical constants. Both ASCII and Unicode forms are supported:
+
+| Constant | Symbol | Value |
+|----------|--------|-------|
+| `PI` | `π` | 3.14159... (ratio of circumference to diameter) |
+| `TAU` | `τ` | 6.28318... (2π, the circle constant) |
+| `E` | `ℯ` | 2.71828... (Euler's number) |
+| `I` | `ⅈ` | √-1 (imaginary unit) |
+| `PHI` | `φ` | 1.61803... (golden ratio) |
+
+Example usage:
+
+```
+resolve {
+  advance_phase(prev, signal.omega, 0..TAU)
+}
+
+# Unicode form for extra flair
+resolve {
+  prev * ℯ ^ (-signal.rate * τ)
+}
+```
+
+---
+
+## 19. Complete Example
 
 ```
 const {
@@ -637,8 +664,8 @@ signal.terra.core.temp {
   : strata(terra.thermal)
 
   resolve {
-    let loss = const.physics.stefan_boltzmann * (prev ^ 4)
-    prev - loss * config.terra.thermal.decay_rate * dt
+    # Use dt-robust decay operator instead of raw dt
+    decay(prev, config.terra.thermal.decay_halflife)
   }
 }
 

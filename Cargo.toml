@@ -1,8 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/dsl",
+members = [
+    "crates/dsl",
     "crates/foundation",
     "crates/runtime",
+    "crates/tools",
 ]
 
 [workspace.package]

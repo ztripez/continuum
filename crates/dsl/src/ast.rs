@@ -417,6 +417,12 @@ pub enum Expr {
     /// Literal value
     Literal(Literal),
 
+    /// Literal with unit: 5000 <K>, 1 <Myr>
+    LiteralWithUnit {
+        value: Literal,
+        unit: String,
+    },
+
     /// Variable or path reference
     Path(Path),
 
@@ -426,8 +432,8 @@ pub enum Expr {
     /// prev.field
     PrevField(String),
 
-    /// dt (timestep)
-    Dt,
+    /// dt_raw (explicit raw timestep access - requires : dt_raw declaration)
+    DtRaw,
 
     /// payload (impulse data)
     Payload,
@@ -515,6 +521,9 @@ pub enum Expr {
     /// Sum of inputs: sum(inputs)
     SumInputs,
 
+    /// Mathematical constant: PI, TAU, E, I, PHI
+    MathConst(MathConst),
+
     /// Map over sequence: map(seq, fn)
     Map {
         sequence: Box<Spanned<Expr>>,
@@ -536,6 +545,21 @@ pub enum Literal {
     Float(f64),
     String(String),
     Bool(bool),
+}
+
+/// Mathematical constants
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MathConst {
+    /// π (pi) - ratio of circumference to diameter
+    Pi,
+    /// τ (tau) - 2π, the circle constant
+    Tau,
+    /// e - Euler's number, base of natural logarithm
+    E,
+    /// i - imaginary unit (√-1)
+    I,
+    /// φ (phi) - golden ratio
+    Phi,
 }
 
 /// Binary operators

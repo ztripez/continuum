@@ -83,8 +83,8 @@ pub enum Token<'src> {
     // === Built-in references ===
     #[token("prev")]
     Prev,
-    #[token("dt")]
-    Dt,
+    #[token("dt_raw")]
+    DtRaw,
     #[token("payload")]
     Payload,
     #[token("sum")]
@@ -93,6 +93,23 @@ pub enum Token<'src> {
     Map,
     #[token("fold")]
     Fold,
+
+    // === Mathematical constants ===
+    #[token("PI")]
+    #[token("π")]
+    Pi,
+    #[token("TAU")]
+    #[token("τ")]
+    Tau,
+    #[token("E")]
+    #[token("ℯ")]
+    MathE,
+    #[token("I")]
+    #[token("ⅈ")]
+    MathI,
+    #[token("PHI")]
+    #[token("φ")]
+    Phi,
 
     // === Era attributes ===
     #[token("initial")]
@@ -456,5 +473,27 @@ mod tests {
         assert_eq!(tokens[4].token, Token::TensorType);
         assert_eq!(tokens[5].token, Token::SeqType);
         assert_eq!(tokens[6].token, Token::GridType);
+    }
+
+    #[test]
+    fn test_math_constants() {
+        let tokens = lex("PI TAU E I PHI").unwrap();
+        assert_eq!(tokens.len(), 5);
+        assert_eq!(tokens[0].token, Token::Pi);
+        assert_eq!(tokens[1].token, Token::Tau);
+        assert_eq!(tokens[2].token, Token::MathE);
+        assert_eq!(tokens[3].token, Token::MathI);
+        assert_eq!(tokens[4].token, Token::Phi);
+    }
+
+    #[test]
+    fn test_math_constants_unicode() {
+        let tokens = lex("π τ ℯ ⅈ φ").unwrap();
+        assert_eq!(tokens.len(), 5);
+        assert_eq!(tokens[0].token, Token::Pi);
+        assert_eq!(tokens[1].token, Token::Tau);
+        assert_eq!(tokens[2].token, Token::MathE);
+        assert_eq!(tokens[3].token, Token::MathI);
+        assert_eq!(tokens[4].token, Token::Phi);
     }
 }
