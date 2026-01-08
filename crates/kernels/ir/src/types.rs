@@ -83,6 +83,8 @@ pub struct CompiledSignal {
     pub resolve: Option<CompiledExpr>,
     /// Warmup configuration
     pub warmup: Option<CompiledWarmup>,
+    /// Assertions to validate after resolution
+    pub assertions: Vec<CompiledAssertion>,
 }
 
 /// Compiled field
@@ -109,6 +111,8 @@ pub struct CompiledOperator {
     pub reads: Vec<SignalId>,
     /// The operator body
     pub body: Option<CompiledExpr>,
+    /// Assertions to validate after execution
+    pub assertions: Vec<CompiledAssertion>,
 }
 
 /// Compiled impulse
@@ -147,13 +151,43 @@ pub struct CompiledWarmup {
     pub iterate: CompiledExpr,
 }
 
+/// Compiled assertion
+#[derive(Debug, Clone)]
+pub struct CompiledAssertion {
+    /// The condition that must be true
+    pub condition: CompiledExpr,
+    /// Severity of the assertion failure
+    pub severity: AssertionSeverity,
+    /// Optional message to emit on failure
+    pub message: Option<String>,
+}
+
+/// Severity of an assertion failure
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AssertionSeverity {
+    /// Warning only, execution continues
+    Warn,
+    /// Error, may halt based on policy
+    #[default]
+    Error,
+    /// Fatal, always halts
+    Fatal,
+}
+
 /// Value types
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ValueType {
-    Scalar,
+    Scalar { range: Option<ValueRange> },
     Vec2,
     Vec3,
     Vec4,
+}
+
+/// Value range constraint
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ValueRange {
+    pub min: f64,
+    pub max: f64,
 }
 
 /// Topology types

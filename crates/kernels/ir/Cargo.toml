@@ -9,3 +9,4 @@ continuum-foundation = { path = "../foundation" }
 continuum-runtime = { path = "../runtime" }
 thiserror = "2"
 indexmap = "2"
+tracing = "0.1.44"

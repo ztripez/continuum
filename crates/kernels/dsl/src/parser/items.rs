@@ -3,11 +3,11 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    ApplyBlock, ConfigBlock, ConfigEntry, ConstBlock, ConstEntry, ChronicleDef, EmitStatement,
-    EraDef, Expr, FieldDef, FractureDef, ImpulseDef, Item, MeasureBlock, ObserveBlock,
-    ObserveHandler, OperatorBody, OperatorDef, OperatorPhase, Path, Range, ResolveBlock,
-    SignalDef, Spanned, StrataDef, StrataState, StrataStateKind, Topology, Transition, TypeDef,
-    TypeExpr, TypeField, ValueWithUnit,
+    ApplyBlock, AssertBlock, AssertSeverity, Assertion, ConfigBlock, ConfigEntry, ConstBlock,
+    ConstEntry, ChronicleDef, EmitStatement, EraDef, Expr, FieldDef, FractureDef, ImpulseDef,
+    Item, MeasureBlock, ObserveBlock, ObserveHandler, OperatorBody, OperatorDef, OperatorPhase,
+    Path, Range, ResolveBlock, SignalDef, Spanned, StrataDef, StrataState, StrataStateKind,
+    Topology, Transition, TypeDef, TypeExpr, TypeField, ValueWithUnit,
 };
 
 use super::expr::spanned_expr;
@@ -396,6 +396,7 @@ fn signal_def<'src>() -> impl Parser<'src, &'src str, SignalDef, extra::Err<Pars
                 local_config: vec![],
                 warmup: None,
                 resolve: None,
+                assertions: None,
             };
             for content in contents {
                 match content {
@@ -405,6 +406,7 @@ fn signal_def<'src>() -> impl Parser<'src, &'src str, SignalDef, extra::Err<Pars
                     SignalContent::Symbol(s) => def.symbol = Some(s),
                     SignalContent::DtRaw => def.dt_raw = true,
                     SignalContent::Resolve(r) => def.resolve = Some(r),
+                    SignalContent::Assert(a) => def.assertions = Some(a),
                 }
             }
             def
@@ -419,6 +421,7 @@ enum SignalContent {
     Symbol(Spanned<String>),
     DtRaw,
     Resolve(ResolveBlock),
+    Assert(AssertBlock),
 }
 
 fn signal_content<'src>(
@@ -465,6 +468,7 @@ fn signal_content<'src>(
                     .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
             )
             .map(|body| SignalContent::Resolve(ResolveBlock { body })),
+        assert_block().map(SignalContent::Assert),
     ))
 }
 
@@ -599,12 +603,14 @@ fn operator_def<'src>() -> impl Parser<'src, &'src str, OperatorDef, extra::Err<
                 strata: None,
                 phase: None,
                 body: None,
+                assertions: None,
             };
             for content in contents {
                 match content {
                     OperatorContent::Strata(s) => def.strata = Some(s),
                     OperatorContent::Phase(p) => def.phase = Some(p),
                     OperatorContent::Body(b) => def.body = Some(b),
+                    OperatorContent::Assert(a) => def.assertions = Some(a),
                 }
             }
             def
@@ -616,6 +622,7 @@ enum OperatorContent {
     Strata(Spanned<Path>),
     Phase(Spanned<OperatorPhase>),
     Body(OperatorBody),
+    Assert(AssertBlock),
 }
 
 fn operator_content<'src>(
@@ -659,6 +666,7 @@ fn operator_content<'src>(
                     .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
             )
             .map(|e| OperatorContent::Body(OperatorBody::Measure(e))),
+        assert_block().map(OperatorContent::Assert),
     ))
 }
 
@@ -859,4 +867,51 @@ fn event_field<'src>(
         .map_with(|n, e| Spanned::new(n, e.span().into()))
         .then_ignore(just(':').padded_by(ws()))
         .then(spanned_expr())
+}
+
+// === Assertions ===
+
+fn assert_block<'src>() -> impl Parser<'src, &'src str, AssertBlock, extra::Err<ParseError<'src>>> {
+    text::keyword("assert")
+        .padded_by(ws())
+        .ignore_then(
+            assertion()
+                .padded_by(ws())
+                .repeated()
+                .at_least(1)
+                .collect()
+                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+        )
+        .map(|assertions| AssertBlock { assertions })
+}
+
+fn assertion<'src>() -> impl Parser<'src, &'src str, Assertion, extra::Err<ParseError<'src>>> {
+    // Parse: condition [: severity] [, "message"]
+    spanned_expr()
+        .then(
+            just(':')
+                .padded_by(ws())
+                .ignore_then(assert_severity())
+                .or_not(),
+        )
+        .then(
+            just(',')
+                .padded_by(ws())
+                .ignore_then(string_lit().map_with(|s, e| Spanned::new(s, e.span().into())))
+                .or_not(),
+        )
+        .map(|((condition, severity), message)| Assertion {
+            condition,
+            severity: severity.unwrap_or_default(),
+            message,
+        })
+}
+
+fn assert_severity<'src>() -> impl Parser<'src, &'src str, AssertSeverity, extra::Err<ParseError<'src>>>
+{
+    choice((
+        text::keyword("warn").to(AssertSeverity::Warn),
+        text::keyword("error").to(AssertSeverity::Error),
+        text::keyword("fatal").to(AssertSeverity::Fatal),
+    ))
 }

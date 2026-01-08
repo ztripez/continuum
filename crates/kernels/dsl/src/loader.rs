@@ -1,0 +1,220 @@
+//! World Loading
+//!
+//! Collects and parses .cdsl files from a world directory.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use crate::ast::CompilationUnit;
+use crate::{parse, validate, ValidationError};
+
+/// Errors that can occur during world loading
+#[derive(Debug)]
+pub enum LoadError {
+    /// World directory doesn't exist or isn't a directory
+    InvalidWorldDir(PathBuf),
+    /// No world.yaml found in the world directory
+    MissingWorldYaml(PathBuf),
+    /// Failed to read a file
+    ReadError { path: PathBuf, error: std::io::Error },
+    /// Parse errors in a file
+    ParseErrors { path: PathBuf, errors: Vec<String> },
+    /// Validation errors in a file
+    ValidationErrors {
+        path: PathBuf,
+        errors: Vec<ValidationError>,
+    },
+}
+
+impl std::fmt::Display for LoadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            LoadError::InvalidWorldDir(path) => {
+                write!(f, "'{}' is not a valid directory", path.display())
+            }
+            LoadError::MissingWorldYaml(path) => {
+                write!(f, "no world.yaml found in '{}'", path.display())
+            }
+            LoadError::ReadError { path, error } => {
+                write!(f, "error reading {}: {}", path.display(), error)
+            }
+            LoadError::ParseErrors { path, errors } => {
+                write!(f, "parse errors in {}:", path.display())?;
+                for err in errors {
+                    write!(f, "\n  - {}", err)?;
+                }
+                Ok(())
+            }
+            LoadError::ValidationErrors { path, errors } => {
+                write!(f, "validation errors in {}:", path.display())?;
+                for err in errors {
+                    write!(f, "\n  - {}", err)?;
+                }
+                Ok(())
+            }
+        }
+    }
+}
+
+impl std::error::Error for LoadError {}
+
+/// Result of loading a world
+pub struct LoadResult {
+    /// The merged compilation unit
+    pub unit: CompilationUnit,
+    /// Paths of all loaded .cdsl files
+    pub files: Vec<PathBuf>,
+}
+
+/// Collect all .cdsl files in a directory (recursive)
+pub fn collect_cdsl_files(dir: &Path) -> Vec<PathBuf> {
+    let mut files = Vec::new();
+    collect_cdsl_files_recursive(dir, &mut files);
+    files.sort();
+    files
+}
+
+fn collect_cdsl_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_cdsl_files_recursive(&path, files);
+            } else if path.extension().is_some_and(|e| e == "cdsl") {
+                files.push(path);
+            }
+        }
+    }
+}
+
+/// Load and parse a single .cdsl file
+pub fn load_file(path: &Path) -> Result<CompilationUnit, LoadError> {
+    let source = fs::read_to_string(path).map_err(|e| LoadError::ReadError {
+        path: path.to_path_buf(),
+        error: e,
+    })?;
+
+    let (result, parse_errors) = parse(&source);
+
+    if !parse_errors.is_empty() {
+        return Err(LoadError::ParseErrors {
+            path: path.to_path_buf(),
+            errors: parse_errors.iter().map(|e| e.to_string()).collect(),
+        });
+    }
+
+    let unit = result.ok_or_else(|| LoadError::ParseErrors {
+        path: path.to_path_buf(),
+        errors: vec!["failed to parse".to_string()],
+    })?;
+
+    let validation_errors = validate(&unit);
+    if !validation_errors.is_empty() {
+        return Err(LoadError::ValidationErrors {
+            path: path.to_path_buf(),
+            errors: validation_errors,
+        });
+    }
+
+    Ok(unit)
+}
+
+/// Load all .cdsl files from a world directory
+///
+/// Verifies the directory exists and contains a world.yaml,
+/// then collects and parses all .cdsl files, merging them into
+/// a single compilation unit.
+pub fn load_world(world_dir: &Path) -> Result<LoadResult, LoadError> {
+    // Validate world directory
+    if !world_dir.exists() || !world_dir.is_dir() {
+        return Err(LoadError::InvalidWorldDir(world_dir.to_path_buf()));
+    }
+
+    // Check for world.yaml
+    let world_yaml = world_dir.join("world.yaml");
+    if !world_yaml.exists() {
+        return Err(LoadError::MissingWorldYaml(world_dir.to_path_buf()));
+    }
+
+    // Collect .cdsl files
+    let files = collect_cdsl_files(world_dir);
+
+    // Parse and merge all files
+    let mut merged_unit = CompilationUnit::default();
+
+    for file in &files {
+        let unit = load_file(file)?;
+        merged_unit.items.extend(unit.items);
+    }
+
+    Ok(LoadResult {
+        unit: merged_unit,
+        files,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+    use std::io::Write;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_collect_cdsl_files() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        // Create some .cdsl files
+        File::create(root.join("a.cdsl")).unwrap();
+        File::create(root.join("b.cdsl")).unwrap();
+        File::create(root.join("other.txt")).unwrap();
+
+        // Create a subdirectory with more files
+        fs::create_dir(root.join("sub")).unwrap();
+        File::create(root.join("sub/c.cdsl")).unwrap();
+
+        let files = collect_cdsl_files(root);
+
+        assert_eq!(files.len(), 3);
+        assert!(files.iter().all(|f| f.extension().unwrap() == "cdsl"));
+    }
+
+    #[test]
+    fn test_load_file_simple() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.cdsl");
+
+        let mut file = File::create(&path).unwrap();
+        writeln!(file, "strata.test {{ }}").unwrap();
+        writeln!(file, "era.main {{ : initial }}").unwrap();
+
+        let unit = load_file(&path).unwrap();
+        assert_eq!(unit.items.len(), 2);
+    }
+
+    #[test]
+    fn test_load_world() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        // Create world.yaml
+        File::create(root.join("world.yaml")).unwrap();
+
+        // Create a .cdsl file
+        let mut file = File::create(root.join("test.cdsl")).unwrap();
+        writeln!(file, "strata.test {{ }}").unwrap();
+        writeln!(file, "era.main {{ : initial }}").unwrap();
+
+        let result = load_world(root).unwrap();
+        assert_eq!(result.files.len(), 1);
+        assert_eq!(result.unit.items.len(), 2);
+    }
+
+    #[test]
+    fn test_load_world_missing_yaml() {
+        let dir = tempdir().unwrap();
+        let result = load_world(dir.path());
+        assert!(matches!(result, Err(LoadError::MissingWorldYaml(_))));
+    }
+}

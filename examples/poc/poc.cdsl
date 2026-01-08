@@ -6,7 +6,8 @@ const {
 }
 
 config {
-    thermal.decay_halflife: 1e9 <s>
+    # Halflife in seconds (~4.5 billion years, like U-238)
+    thermal.decay_halflife: 1.42e17 <s>
     thermal.initial_temp: 5500 <K>
 }
 
@@ -51,6 +52,12 @@ signal.core.temp {
 
     resolve {
         decay(prev, config.thermal.decay_halflife)
+    }
+
+    assert {
+        prev >= 100 <K>
+        prev <= 10000 <K>
+        prev > 0 : fatal, "temperature cannot be negative or zero"
     }
 }
 

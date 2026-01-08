@@ -6,18 +6,18 @@ use indexmap::IndexMap;
 use thiserror::Error;
 
 use continuum_dsl::ast::{
-    self, BinaryOp, CompilationUnit, Expr, Item, Literal, OperatorBody, OperatorPhase,
-    StrataStateKind, Topology, TypeExpr, UnaryOp,
+    self, AssertBlock, AssertSeverity, BinaryOp, CompilationUnit, Expr, Item, Literal,
+    OperatorBody, OperatorPhase, StrataStateKind, Topology, TypeExpr, UnaryOp,
 };
 use continuum_foundation::{
     EraId, FieldId, FractureId, ImpulseId, OperatorId, SignalId, StratumId,
 };
 
 use crate::{
-    BinaryOpIr, CompiledEmit, CompiledEra, CompiledExpr, CompiledField, CompiledFracture,
-    CompiledImpulse, CompiledOperator, CompiledSignal, CompiledStratum, CompiledTransition,
-    CompiledWarmup, CompiledWorld, OperatorPhaseIr, StratumStateIr, TopologyIr, UnaryOpIr,
-    ValueType,
+    AssertionSeverity, BinaryOpIr, CompiledAssertion, CompiledEmit, CompiledEra, CompiledExpr,
+    CompiledField, CompiledFracture, CompiledImpulse, CompiledOperator, CompiledSignal,
+    CompiledStratum, CompiledTransition, CompiledWarmup, CompiledWorld, OperatorPhaseIr,
+    StratumStateIr, TopologyIr, UnaryOpIr, ValueRange, ValueType,
 };
 
 /// Errors that can occur during lowering
@@ -231,6 +231,13 @@ impl Lowerer {
         // Lower resolve expression
         let resolve = def.resolve.as_ref().map(|r| self.lower_expr(&r.body.node));
 
+        // Lower assertions
+        let assertions = def
+            .assertions
+            .as_ref()
+            .map(|a| self.lower_assert_block(a))
+            .unwrap_or_default();
+
         let signal = CompiledSignal {
             id: id.clone(),
             stratum,
@@ -240,11 +247,12 @@ impl Lowerer {
                 .ty
                 .as_ref()
                 .map(|t| self.lower_type_expr(&t.node))
-                .unwrap_or(ValueType::Scalar),
+                .unwrap_or(ValueType::Scalar { range: None }),
             uses_dt_raw: def.dt_raw,
             reads,
             resolve,
             warmup,
+            assertions,
         };
 
         self.signals.insert(id, signal);
@@ -278,7 +286,7 @@ impl Lowerer {
                 .ty
                 .as_ref()
                 .map(|t| self.lower_type_expr(&t.node))
-                .unwrap_or(ValueType::Scalar),
+                .unwrap_or(ValueType::Scalar { range: None }),
             reads,
             measure: def.measure.as_ref().map(|m| self.lower_expr(&m.body.node)),
         };
@@ -320,12 +328,20 @@ impl Lowerer {
             self.collect_signal_refs(expr, &mut reads);
         }
 
+        // Lower assertions
+        let assertions = def
+            .assertions
+            .as_ref()
+            .map(|a| self.lower_assert_block(a))
+            .unwrap_or_default();
+
         let operator = CompiledOperator {
             id: id.clone(),
             stratum,
             phase,
             reads,
             body: body_expr.map(|e| self.lower_expr(e)),
+            assertions,
         };
 
         self.operators.insert(id, operator);
@@ -341,7 +357,7 @@ impl Lowerer {
                 .payload_type
                 .as_ref()
                 .map(|t| self.lower_type_expr(&t.node))
-                .unwrap_or(ValueType::Scalar),
+                .unwrap_or(ValueType::Scalar { range: None }),
             apply: def.apply.as_ref().map(|a| self.lower_expr(&a.body.node)),
         };
 
@@ -576,14 +592,19 @@ impl Lowerer {
 
     fn lower_type_expr(&self, ty: &TypeExpr) -> ValueType {
         match ty {
-            TypeExpr::Scalar { .. } => ValueType::Scalar,
+            TypeExpr::Scalar { range, .. } => ValueType::Scalar {
+                range: range.as_ref().map(|r| ValueRange {
+                    min: r.min,
+                    max: r.max,
+                }),
+            },
             TypeExpr::Vector { dim, .. } => match dim {
                 2 => ValueType::Vec2,
                 3 => ValueType::Vec3,
                 4 => ValueType::Vec4,
-                _ => ValueType::Scalar,
+                _ => ValueType::Scalar { range: None },
             },
-            TypeExpr::Named(_) => ValueType::Scalar, // resolve named types later
+            TypeExpr::Named(_) => ValueType::Scalar { range: None }, // resolve named types later
         }
     }
 
@@ -600,6 +621,26 @@ impl Lowerer {
             OperatorPhase::Warmup => OperatorPhaseIr::Warmup,
             OperatorPhase::Collect => OperatorPhaseIr::Collect,
             OperatorPhase::Measure => OperatorPhaseIr::Measure,
+        }
+    }
+
+    fn lower_assert_block(&self, block: &AssertBlock) -> Vec<CompiledAssertion> {
+        block
+            .assertions
+            .iter()
+            .map(|a| CompiledAssertion {
+                condition: self.lower_expr(&a.condition.node),
+                severity: self.lower_assert_severity(a.severity),
+                message: a.message.as_ref().map(|m| m.node.clone()),
+            })
+            .collect()
+    }
+
+    fn lower_assert_severity(&self, severity: AssertSeverity) -> AssertionSeverity {
+        match severity {
+            AssertSeverity::Warn => AssertionSeverity::Warn,
+            AssertSeverity::Error => AssertionSeverity::Error,
+            AssertSeverity::Fatal => AssertionSeverity::Fatal,
         }
     }
 

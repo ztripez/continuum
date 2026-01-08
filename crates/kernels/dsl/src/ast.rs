@@ -178,6 +178,7 @@ pub struct SignalDef {
     pub local_config: Vec<ConfigEntry>,
     pub warmup: Option<WarmupBlock>,
     pub resolve: Option<ResolveBlock>,
+    pub assertions: Option<AssertBlock>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -190,6 +191,37 @@ pub struct WarmupBlock {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResolveBlock {
     pub body: Spanned<Expr>,
+}
+
+// === Assertions ===
+
+/// An assertion block containing one or more assertions
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssertBlock {
+    pub assertions: Vec<Assertion>,
+}
+
+/// A single assertion
+#[derive(Debug, Clone, PartialEq)]
+pub struct Assertion {
+    /// The condition that must be true
+    pub condition: Spanned<Expr>,
+    /// Optional severity level (defaults to Error)
+    pub severity: AssertSeverity,
+    /// Optional message to emit on failure
+    pub message: Option<Spanned<String>>,
+}
+
+/// Severity of an assertion failure
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AssertSeverity {
+    /// Warning only, execution continues
+    Warn,
+    /// Error, may halt based on policy
+    #[default]
+    Error,
+    /// Fatal, always halts
+    Fatal,
 }
 
 // === Field ===
@@ -225,6 +257,7 @@ pub struct OperatorDef {
     pub strata: Option<Spanned<Path>>,
     pub phase: Option<Spanned<OperatorPhase>>,
     pub body: Option<OperatorBody>,
+    pub assertions: Option<AssertBlock>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
