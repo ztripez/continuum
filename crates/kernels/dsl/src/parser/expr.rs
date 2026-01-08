@@ -8,29 +8,17 @@ use super::primitives::{ident, number, path, string_lit, unit, ws};
 use super::ParseError;
 
 /// Expression parser
+///
+/// Uses `.boxed()` at strategic points to reduce compile times by breaking the type chain.
+/// Without boxing, chumsky's parser combinators create deeply nested generic types that
+/// cause exponential compile time growth.
 pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<'src>>> + Clone {
     recursive(|expr| {
-        // Let expression: let name = value \n body
-        // Multiple lets chain together: let a = 1 \n let b = 2 \n a + b
-        let let_expr = text::keyword("let")
-            .padded_by(ws())
-            .ignore_then(ident())
-            .then_ignore(just('=').padded_by(ws()))
-            .then(expr.clone().map_with(|e, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(e, span.start..span.end)
-            }))
-            .then(expr.clone().map_with(|e, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(e, span.start..span.end)
-            }))
-            .map(|((name, value), body)| Expr::Let {
-                name,
-                value: Box::new(value),
-                body: Box::new(body),
-            });
+        // Box the recursive expr to prevent type explosion
+        let expr_boxed = expr.clone().boxed();
+
         // Arguments list for function calls
-        let args = expr
+        let args = expr_boxed
             .clone()
             .map_with(|e, extra| {
                 let span: chumsky::span::SimpleSpan = extra.span();
@@ -89,20 +77,22 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
                     None => Expr::Literal(lit),
                 }),
             string_lit().map(|s| Expr::Literal(Literal::String(s))),
-            expr.clone()
+            expr_boxed
+                .clone()
                 .padded_by(ws())
                 .delimited_by(just('('), just(')')),
             // Plain path (must come after function call attempt)
             path().map(Expr::Path),
         ))
-        .padded_by(ws());
+        .padded_by(ws())
+        .boxed(); // Box atom to reduce type size
 
         // Method calls: expr.method(args)
-        let postfix = atom.clone().foldl(
+        let postfix = atom.foldl(
             just('.')
                 .padded_by(ws())
                 .ignore_then(ident())
-                .then(args.clone().or_not())
+                .then(args.or_not())
                 .repeated(),
             |obj, (method, maybe_args)| match maybe_args {
                 Some(args) => Expr::Call {
@@ -129,7 +119,7 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
         let product = unary.clone().foldl(
             choice((just('*').to(BinaryOp::Mul), just('/').to(BinaryOp::Div)))
                 .padded_by(ws())
-                .then(unary.clone())
+                .then(unary)
                 .repeated(),
             |left, (op, right)| Expr::Binary {
                 op,
@@ -141,7 +131,7 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
         let sum = product.clone().foldl(
             choice((just('+').to(BinaryOp::Add), just('-').to(BinaryOp::Sub)))
                 .padded_by(ws())
-                .then(product.clone())
+                .then(product)
                 .repeated(),
             |left, (op, right)| Expr::Binary {
                 op,
@@ -160,7 +150,7 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
                 just('>').to(BinaryOp::Gt),
             ))
             .padded_by(ws())
-            .then(sum.clone())
+            .then(sum)
             .repeated(),
             |left, (op, right)| Expr::Binary {
                 op,
@@ -169,8 +159,98 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
             },
         );
 
-        // Let expressions have lowest precedence - they consume the rest as body
-        choice((let_expr, comparison))
+        // Logical AND has lower precedence than comparison
+        let logical_and = comparison.clone().foldl(
+            just("&&")
+                .to(BinaryOp::And)
+                .padded_by(ws())
+                .then(comparison)
+                .repeated(),
+            |left, (op, right)| Expr::Binary {
+                op,
+                left: Box::new(Spanned::new(left, 0..0)),
+                right: Box::new(Spanned::new(right, 0..0)),
+            },
+        );
+
+        // Logical OR has lower precedence than AND
+        let logical_or = logical_and.clone().foldl(
+            just("||")
+                .to(BinaryOp::Or)
+                .padded_by(ws())
+                .then(logical_and)
+                .repeated(),
+            |left, (op, right)| Expr::Binary {
+                op,
+                left: Box::new(Spanned::new(left, 0..0)),
+                right: Box::new(Spanned::new(right, 0..0)),
+            },
+        );
+
+        // Box logical_or before using in if_expr to reduce type complexity
+        let logical_or_boxed = logical_or.clone().boxed();
+
+        // Let expression: let name = value \n body
+        // Multiple lets chain together: let a = 1 \n let b = 2 \n a + b
+        let let_expr = text::keyword("let")
+            .padded_by(ws())
+            .ignore_then(ident())
+            .then_ignore(just('=').padded_by(ws()))
+            .then(expr_boxed.clone().map_with(|e, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(e, span.start..span.end)
+            }))
+            .then(expr_boxed.clone().map_with(|e, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(e, span.start..span.end)
+            }))
+            .map(|((name, value), body)| Expr::Let {
+                name,
+                value: Box::new(value),
+                body: Box::new(body),
+            });
+
+        // If expression: if condition { then } else { else }
+        // The condition uses logical_or (not expr) to avoid infinite recursion
+        // (conditions shouldn't be let or if expressions without braces)
+        let if_expr = text::keyword("if")
+            .padded_by(ws())
+            .ignore_then(logical_or_boxed.map_with(|e, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(e, span.start..span.end)
+            }))
+            .then(
+                expr_boxed
+                    .clone()
+                    .map_with(|e, extra| {
+                        let span: chumsky::span::SimpleSpan = extra.span();
+                        Spanned::new(e, span.start..span.end)
+                    })
+                    .padded_by(ws())
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .then(
+                text::keyword("else")
+                    .padded_by(ws())
+                    .ignore_then(
+                        expr_boxed
+                            .map_with(|e, extra| {
+                                let span: chumsky::span::SimpleSpan = extra.span();
+                                Spanned::new(e, span.start..span.end)
+                            })
+                            .padded_by(ws())
+                            .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    )
+                    .or_not(),
+            )
+            .map(|((condition, then_branch), else_branch)| Expr::If {
+                condition: Box::new(condition),
+                then_branch: Box::new(then_branch),
+                else_branch: else_branch.map(Box::new),
+            });
+
+        // Let and if expressions have lowest precedence - they consume the rest as body
+        choice((let_expr, if_expr, logical_or))
     })
 }
 

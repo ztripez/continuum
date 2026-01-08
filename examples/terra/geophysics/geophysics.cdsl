@@ -1,0 +1,883 @@
+# Terra Geophysics Module
+# Core planetary physics: gravity, rotation, thermal dynamics, and tectonics
+#
+# This module provides the foundational geophysical signals that other
+# modules (atmosphere, hydrology, ecology) depend on.
+# =============================================================================
+
+# =============================================================================
+# Geophysics Functions
+# =============================================================================
+
+# Compute isostatic buoyancy factor from density contrast
+fn.isostasy.buoyancy_factor(crustal_density, mantle_density) {
+    1.0 - crustal_density / mantle_density
+}
+
+# Compute isostatic elevation from thickness, factor, and reference level
+fn.isostasy.compute_elevation(thickness, factor, reference_level) {
+    factor * thickness - reference_level
+}
+
+# Compute lithostatic pressure at depth
+fn.pressure.lithostatic(surface_pressure, density, gravity, depth) {
+    surface_pressure + density * gravity * depth
+}
+
+# Compute geothermal temperature at depth
+fn.thermal.geothermal_temp(surface_temp, gradient, depth_km) {
+    surface_temp + gradient * depth_km
+}
+
+# =============================================================================
+# Geophysics Constants
+# =============================================================================
+
+const {
+    # Fundamental physics
+    physics.gravitational: 6.67430e-11
+    physics.stefan_boltzmann: 5.67e-8
+
+    # Earth reference values
+    earth.mass: 5.972e24
+    earth.radius: 6.371e6
+    earth.gravity: 9.80665
+    earth.gravitational_parameter: 3.986e14
+
+    # Crust properties
+    crust.density_continental: 2700.0
+    crust.density_oceanic: 2900.0
+    mantle.density: 3300.0
+
+    # Isostasy
+    isostasy.reference_thickness: 35000.0
+
+    # Dynamic topography
+    topography.max_plume_uplift: 2000.0
+    topography.max_slab_depression: 1000.0
+
+    # Thermal
+    thermal.surface_temp: 288.0
+    thermal.gradient: 25.0
+    thermal.mantle_temp: 1600.0
+
+    # Radiogenic decay
+    thermal.radiogenic_halflife_gyr: 2.5
+
+    # Rotation
+    rotation.earth_omega: 7.292e-5
+}
+
+# =============================================================================
+# Geophysics Configuration
+# =============================================================================
+
+config {
+    # Planet parameters
+    planet.mass: 5.972e24
+    planet.radius: 6.371e6
+
+    # Crust configuration
+    crust.initial_thickness: 35000.0
+    crust.min_thickness: 3000.0
+    crust.max_thickness: 80000.0
+    crust.density: 2700.0
+
+    # Isostasy configuration
+    isostasy.crustal_density: 2700.0
+    isostasy.mantle_density: 3300.0
+
+    # Topography
+    topography.flow_coupling: 1.0
+    elevation.max_depth: 11000.0
+    elevation.max_height: 9000.0
+
+    # Thermal
+    thermal.decay_halflife: 4.5e17 <s>
+    thermal.surface_heat_flow: 0.065
+    thermal.conductivity: 2.5
+
+    # Initial values
+    core.initial_temp: 5500.0
+    mantle.initial_temp: 1600.0
+    surface.initial_temp: 288.0
+    surface.initial_heat_flow: 0.065
+    crust.initial_density: 2700.0
+    crust.initial_elevation: 0.0
+    crust.initial_pressure_base: 1e9
+    crust.initial_temp_base: 1163.0
+    crust.initial_moho_depth: 35000.0
+    isostasy.initial_factor: 0.182
+    isostasy.initial_reference_level: 6370.0
+    isostasy.initial_elevation: 0.0
+    topography.initial_dynamic_offset: 0.0
+    tectonics.initial_boundary_stress: 0.0
+    planet.initial_radius: 6.371e6
+    planet.initial_mass: 5.972e24
+    planet.initial_gravity_mu: 3.986e14
+    planet.initial_surface_gravity: 9.81
+
+    # Rotation initial values
+    rotation.initial_phase: 0.0
+    rotation.initial_omega: 7.292e-5
+    spin.initial_obliquity: 0.409
+    spin.initial_precession: 0.0
+
+    # Mantle flow
+    mantle.initial_heat_content: 8.0e30
+    core.initial_heat_power: 4.0e13
+
+    # Tectonic activity
+    tectonics.initial_activity: 1.0
+    tectonics.reference_shear: 30.0
+    tectonics.initial_plate_count: 12
+}
+
+# =============================================================================
+# Core Planetary Signals
+# =============================================================================
+
+signal.planet.radius {
+    : Scalar<m, 1e6..1e8>
+    : strata(genesis)
+    : title("Planet Radius")
+    : symbol("R")
+
+    resolve {
+        config.planet.radius
+    }
+
+    assert {
+        prev >= 1e6 : fatal, "Planet radius below minimum"
+        prev <= 1e8 : fatal, "Planet radius above maximum"
+    }
+}
+
+signal.planet.mass {
+    : Scalar<kg, 1e22..1e28>
+    : strata(genesis)
+    : title("Planet Mass")
+    : symbol("M")
+
+    resolve {
+        config.planet.mass
+    }
+
+    assert {
+        prev >= 1e22 : fatal, "Planet mass below minimum"
+        prev <= 1e28 : fatal, "Planet mass above maximum"
+    }
+}
+
+# Gravitational parameter mu = G * M
+signal.planet.gravity_mu {
+    : Scalar<m³/s², 1e12..1e18>
+    : strata(genesis)
+    : title("Gravitational Parameter")
+    : symbol("mu")
+
+    resolve {
+        const.physics.gravitational * signal.planet.mass
+    }
+
+    assert {
+        prev >= 1e12 : fatal, "Gravitational parameter below minimum"
+        prev <= 1e18 : fatal, "Gravitational parameter above maximum"
+    }
+}
+
+# Surface gravity g = mu / R^2
+signal.planet.surface_gravity {
+    : Scalar<m/s², 1..50>
+    : strata(genesis)
+    : title("Surface Gravity")
+    : symbol("g")
+
+    resolve {
+        signal.planet.gravity_mu / (signal.planet.radius * signal.planet.radius)
+    }
+
+    assert {
+        prev >= 1.0 : warn, "Surface gravity unusually low"
+        prev <= 50.0 : warn, "Surface gravity unusually high"
+    }
+}
+
+# =============================================================================
+# Rotation Signals (from old geophysics/signals.rs)
+# =============================================================================
+
+# Rotation state: phase and angular velocity
+signal.rotation.state {
+    : Vec2<rad>
+    : strata(rotation)
+    : title("Rotation State")
+    : symbol("theta,omega")
+    : uses(dt_raw)
+
+    config {
+        initial_phase: 0.0
+        initial_omega: 7.292e-5
+    }
+
+    resolve {
+        # Phase advances with angular velocity
+        # phase += omega * dt
+        let phase = prev.x + prev.y * dt_raw
+        let omega = prev.y + sum(inputs)
+        vec2(mod(phase, 6.283185307), omega)
+    }
+
+    assert {
+        prev.y >= 0.0 : warn, "Angular velocity should be non-negative"
+        prev.y <= 1e-3 : warn, "Angular velocity exceeds physical limits"
+    }
+}
+
+# Spin axis in world coordinates (obliquity and precession encoded)
+signal.rotation.spin_axis {
+    : Vec3<1>
+    : strata(rotation)
+    : title("Spin Axis World")
+    : symbol("n_spin")
+
+    config {
+        initial_obliquity: 0.409
+        initial_precession: 0.0
+    }
+
+    resolve {
+        # Spin axis from obliquity (theta from +Y) and precession (phi around Y)
+        # For Earth: obliquity ~23.4 deg = 0.409 rad
+        prev + sum(inputs)
+    }
+
+    assert {
+        abs(length(prev) - 1.0) < 0.01 : warn, "Spin axis should be unit vector"
+    }
+}
+
+# =============================================================================
+# Thermal Signals
+# =============================================================================
+
+signal.core.temp {
+    : Scalar<K, 100..10000>
+    : strata(thermal)
+    : title("Core Temperature")
+    : symbol("T_core")
+
+    config {
+        decay_halflife: 4.5e17 <s>
+    }
+
+    resolve {
+        decay(prev, config.core.temp.decay_halflife) + sum(inputs)
+    }
+
+    assert {
+        prev >= 100 <K>
+        prev <= 10000 <K>
+        prev > 0 : fatal, "Core temperature must be positive"
+    }
+}
+
+# Core heat power - net power from core to mantle
+signal.core.heat_power {
+    : Scalar<W, 0..1e15>
+    : strata(thermal)
+    : title("Core Heat Power")
+    : symbol("P_core")
+
+    config {
+        initial_power: 4.0e13
+        radiogenic_halflife_gyr: 2.5
+    }
+
+    resolve {
+        # Radiogenic decay reduces heat production over time
+        # Earth's core heat flow is ~2-6 TW
+        decay(prev, config.core.heat_power.radiogenic_halflife_gyr * 3.1536e16) + sum(inputs)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Core heat power cannot be negative"
+        prev <= 1e15 : warn, "Core heat power exceeds physical maximum"
+    }
+}
+
+# Mantle heat content - thermal reservoir
+signal.mantle.heat_content {
+    : Scalar<J, 1e28..1e32>
+    : strata(thermal)
+    : title("Mantle Heat Content")
+    : symbol("Q_mantle")
+    : uses(dt_raw)
+
+    config {
+        initial_heat: 8.0e30
+    }
+
+    resolve {
+        # Heat content changes with net power input: dQ/dt = P_in
+        # Earth's mantle: mass ~4e24 kg, Cp ~1200 J/kg/K, T ~1600K = 8e30 J
+        prev + signal.core.heat_power * dt_raw + sum(inputs)
+    }
+
+    assert {
+        prev >= 1e28 : warn, "Mantle heat content below minimum"
+        prev <= 1e32 : warn, "Mantle heat content above maximum"
+    }
+}
+
+signal.mantle.temp {
+    : Scalar<K, 500..5000>
+    : strata(thermal)
+    : title("Mantle Temperature")
+
+    config {
+        core_coupling_factor: 0.01
+        min_temp: 500.0
+        max_temp: 5000.0
+    }
+
+    resolve {
+        let core_coupling = (signal.core.temp - prev) * config.mantle.temp.core_coupling_factor
+        clamp(prev + core_coupling + sum(inputs), config.mantle.temp.min_temp, config.mantle.temp.max_temp)
+    }
+
+    assert {
+        prev >= config.mantle.temp.min_temp : warn, "Mantle temperature below minimum"
+        prev <= config.mantle.temp.max_temp : warn, "Mantle temperature above maximum"
+    }
+}
+
+signal.surface.temp {
+    : Scalar<K, 50..500>
+    : strata(thermal)
+    : title("Surface Temperature")
+
+    const {
+        geothermal_contribution: 0.875
+    }
+
+    resolve {
+        const.thermal.surface_temp + const.surface.temp.geothermal_contribution + sum(inputs)
+    }
+
+    assert {
+        prev >= 50.0 : warn, "Surface temperature below habitable range"
+        prev <= 500.0 : warn, "Surface temperature above habitable range"
+    }
+}
+
+signal.surface.heat_flow {
+    : Scalar<W/m², 0.01..0.5>
+    : strata(thermal)
+    : title("Surface Heat Flow")
+    : symbol("q")
+
+    config {
+        baseline: 0.065
+        conductivity: 2.5
+    }
+
+    resolve {
+        let thermal_contribution = (signal.mantle.temp - signal.surface.temp) * 0.00001
+        clamp(config.surface.heat_flow.baseline + thermal_contribution + sum(inputs), 0.01, 0.5)
+    }
+
+    assert {
+        prev >= 0.01 : warn, "Heat flow below realistic minimum"
+        prev <= 0.5 : warn, "Heat flow above realistic maximum"
+    }
+}
+
+# =============================================================================
+# Crust Signals - Isostasy Implementation
+# =============================================================================
+
+signal.crust.density {
+    : Scalar<kg/m³, 2000..3500>
+    : strata(tectonics)
+    : title("Crustal Density")
+    : symbol("rho_crust")
+
+    config {
+        continental: 2700.0
+        oceanic: 2900.0
+        min: 2000.0
+        max: 3500.0
+    }
+
+    resolve {
+        clamp(prev + sum(inputs), config.crust.density.min, config.crust.density.max)
+    }
+
+    assert {
+        prev >= config.crust.density.min : warn, "Crustal density below minimum"
+        prev <= config.crust.density.max : warn, "Crustal density above maximum"
+    }
+}
+
+signal.crust.thickness {
+    : Scalar<m, 3000..80000>
+    : strata(tectonics)
+    : title("Crustal Thickness")
+    : symbol("h_crust")
+
+    config {
+        min: 3000.0
+        max: 80000.0
+    }
+
+    resolve {
+        clamp(prev + sum(inputs), config.crust.thickness.min, config.crust.thickness.max)
+    }
+
+    assert {
+        prev >= config.crust.thickness.min : warn, "Crust thinning below minimum"
+        prev <= config.crust.thickness.max : warn, "Crust thickening above maximum"
+    }
+}
+
+signal.crust.total_thickness {
+    : Scalar<m, 0..100000>
+    : strata(tectonics)
+    : title("Total Crustal Thickness")
+
+    resolve {
+        signal.crust.thickness
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Total thickness cannot be negative"
+        prev <= 100000.0 : warn, "Total thickness exceeds maximum"
+    }
+}
+
+# Isostatic factor: 1 - (crust_density / mantle_density)
+signal.isostasy.factor {
+    : Scalar<1, 0..1>
+    : strata(tectonics)
+    : title("Isostatic Factor")
+
+    config {
+        crustal_density: 2700.0
+        mantle_density: 3300.0
+    }
+
+    resolve {
+        isostasy.buoyancy_factor(config.isostasy.factor.crustal_density, config.isostasy.factor.mantle_density)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Isostatic factor cannot be negative"
+        prev <= 1.0 : warn, "Isostatic factor cannot exceed 1"
+    }
+}
+
+signal.isostasy.reference_level {
+    : Scalar<m, 0..10000>
+    : strata(tectonics)
+    : title("Isostatic Reference Level")
+
+    resolve {
+        signal.isostasy.factor * const.isostasy.reference_thickness
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Reference level cannot be negative"
+        prev <= 10000.0 : warn, "Reference level exceeds maximum"
+    }
+}
+
+signal.isostasy.elevation {
+    : Scalar<m, -15000..15000>
+    : strata(tectonics)
+    : title("Isostatic Elevation")
+
+    resolve {
+        isostasy.compute_elevation(signal.crust.thickness, signal.isostasy.factor, signal.isostasy.reference_level)
+    }
+
+    assert {
+        prev >= -15000.0 : warn, "Isostatic elevation below minimum"
+        prev <= 15000.0 : warn, "Isostatic elevation above maximum"
+    }
+}
+
+# =============================================================================
+# Dynamic Topography
+# =============================================================================
+
+signal.topography.dynamic_offset {
+    : Scalar<m, -1200..2400>
+    : strata(tectonics)
+    : title("Dynamic Topography Offset")
+
+    config {
+        flow_coupling: 1.0
+        uplift_scale: 0.01
+    }
+
+    resolve {
+        let thermal_gradient = (signal.mantle.temp - const.thermal.mantle_temp) / 1000.0
+        let uplift = thermal_gradient * const.topography.max_plume_uplift * config.topography.dynamic_offset.flow_coupling * config.topography.dynamic_offset.uplift_scale
+        clamp(
+            prev + uplift + sum(inputs),
+            -const.topography.max_slab_depression,
+            const.topography.max_plume_uplift
+        )
+    }
+
+    assert {
+        prev >= -const.topography.max_slab_depression : warn, "Dynamic offset below slab depression limit"
+        prev <= const.topography.max_plume_uplift : warn, "Dynamic offset above plume uplift limit"
+    }
+}
+
+# =============================================================================
+# Combined Elevation
+# =============================================================================
+
+signal.crust.elevation {
+    : Scalar<m, -11000..9000>
+    : strata(tectonics)
+    : title("Surface Elevation")
+    : symbol("h_elev")
+
+    config {
+        max_depth: 11000.0
+        max_height: 9000.0
+    }
+
+    resolve {
+        clamp(
+            signal.isostasy.elevation + signal.topography.dynamic_offset + sum(inputs),
+            -config.crust.elevation.max_depth,
+            config.crust.elevation.max_height
+        )
+    }
+
+    assert {
+        prev >= -config.crust.elevation.max_depth : warn, "Elevation below maximum ocean depth"
+        prev <= config.crust.elevation.max_height : warn, "Elevation above maximum mountain height"
+    }
+}
+
+# =============================================================================
+# Derived Crust Properties
+# =============================================================================
+
+signal.crust.pressure_base {
+    : Scalar<kg/m/s², 1e5..3e9>
+    : strata(tectonics)
+    : title("Base Crustal Pressure")
+
+    config {
+        surface_pressure: 100000.0
+        density: 2700.0
+        min: 1e5
+        max: 3e9
+    }
+
+    resolve {
+        pressure.lithostatic(config.crust.pressure_base.surface_pressure, config.crust.pressure_base.density, signal.planet.surface_gravity, signal.crust.thickness)
+    }
+
+    assert {
+        prev >= config.crust.pressure_base.min : warn, "Base pressure below minimum"
+        prev <= config.crust.pressure_base.max : warn, "Base pressure above maximum"
+    }
+}
+
+signal.crust.temp_base {
+    : Scalar<K, 300..1500>
+    : strata(thermal)
+    : title("Base Crustal Temperature")
+
+    resolve {
+        thermal.geothermal_temp(const.thermal.surface_temp, const.thermal.gradient, signal.crust.thickness / 1000.0)
+    }
+
+    assert {
+        prev >= 300.0 : warn, "Base temperature below minimum"
+        prev <= 1500.0 : warn, "Base temperature above maximum"
+    }
+}
+
+signal.crust.moho_depth {
+    : Scalar<m, 3000..80000>
+    : strata(tectonics)
+    : title("Moho Depth")
+
+    resolve {
+        signal.crust.thickness
+    }
+
+    assert {
+        prev >= 3000.0 : warn, "Moho depth below minimum crustal thickness"
+        prev <= 80000.0 : warn, "Moho depth above maximum crustal thickness"
+    }
+}
+
+# =============================================================================
+# Tectonic Signals
+# =============================================================================
+
+signal.tectonics.boundary_stress {
+    : Scalar<N/m², 0..1e9>
+    : strata(tectonics)
+    : title("Plate Boundary Stress")
+
+    config {
+        thermal_factor: 0.001
+        thermal_scale: 1e4
+        thickness_factor: 0.001
+        thickness_scale: 1e3
+        max_stress: 1e9
+        reference_mantle_temp: 1600.0
+    }
+
+    resolve {
+        let thermal_stress = abs(signal.mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor
+        let thickness_stress = abs(signal.crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor
+        clamp(prev + thermal_stress + thickness_stress + sum(inputs), 0.0, config.tectonics.boundary_stress.max_stress)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Boundary stress cannot be negative"
+        prev <= config.tectonics.boundary_stress.max_stress : warn, "Boundary stress exceeds maximum"
+    }
+}
+
+# Tectonic activity index (from old signals.rs)
+signal.tectonics.activity {
+    : Scalar<1, 0..100>
+    : strata(tectonics)
+    : title("Tectonic Activity")
+    : symbol("A_tec")
+
+    config {
+        reference_shear: 30.0
+    }
+
+    resolve {
+        # Activity index normalized to 1.0 for Earth-like tectonics
+        let raw_shear = sum(inputs)
+        if raw_shear > 0.0 {
+            raw_shear / config.tectonics.activity.reference_shear
+        } else {
+            prev
+        }
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Tectonic activity cannot be negative"
+        prev <= 100.0 : warn, "Tectonic activity exceeds maximum"
+    }
+}
+
+# Plate count diagnostic
+signal.tectonics.plate_count {
+    : Scalar<1, 0..64>
+    : strata(tectonics)
+    : title("Plate Count")
+
+    resolve {
+        clamp(prev + sum(inputs), 0.0, 64.0)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Plate count cannot be negative"
+        prev <= 64.0 : warn, "Plate count exceeds maximum"
+    }
+}
+
+# Mantle viscosity diagnostic
+signal.mantle.viscosity {
+    : Scalar<Pa*s, 0..1e24>
+    : strata(tectonics)
+    : title("Mantle Viscosity")
+    : symbol("eta")
+
+    resolve {
+        prev + sum(inputs)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Viscosity cannot be negative"
+    }
+}
+
+# =============================================================================
+# Geophysics Fractures (Tectonic Events)
+# =============================================================================
+
+# Rifting: thin crust + high stress -> rift opening
+fracture.tectonics.rift {
+    when {
+        signal.crust.thickness < 25000
+        signal.tectonics.boundary_stress > 5e8
+    }
+
+    emit {
+        signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.8
+        signal.crust.thickness <- -500.0
+        signal.topography.dynamic_offset <- 200.0
+    }
+}
+
+# Orogeny: thick crust + compression -> mountain building
+fracture.tectonics.orogeny {
+    when {
+        signal.crust.thickness > 50000
+        signal.tectonics.boundary_stress > 7e8
+    }
+
+    emit {
+        signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.6
+        signal.crust.thickness <- 1000.0
+        signal.topography.dynamic_offset <- -100.0
+    }
+}
+
+# Volcanism: hot mantle + thin crust -> volcanic activity
+fracture.thermal.volcanism {
+    when {
+        signal.mantle.temp > 1800 <K>
+        signal.crust.thickness < 30000
+    }
+
+    emit {
+        signal.mantle.temp <- -50.0
+        signal.crust.thickness <- 100.0
+        signal.topography.dynamic_offset <- 50.0
+    }
+}
+
+# Radioactive heating burst
+fracture.core.decay_heat {
+    when {
+        signal.core.temp < 5000 <K>
+    }
+
+    emit {
+        signal.core.temp <- 10.0
+    }
+}
+
+# =============================================================================
+# Geophysics Fields (Observer Data)
+# =============================================================================
+
+field.elevation.map {
+    : Scalar<m>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Elevation Map")
+
+    measure {
+        signal.crust.elevation
+    }
+}
+
+field.thickness.map {
+    : Scalar<m>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Crustal Thickness Map")
+
+    measure {
+        signal.crust.thickness
+    }
+}
+
+field.thermal.core {
+    : Scalar<K>
+    : strata(thermal)
+    : topology(point_cloud)
+    : title("Core Temperature Field")
+
+    measure {
+        signal.core.temp
+    }
+}
+
+field.thermal.mantle {
+    : Scalar<K>
+    : strata(thermal)
+    : topology(point_cloud)
+    : title("Mantle Temperature Field")
+
+    measure {
+        signal.mantle.temp
+    }
+}
+
+field.pressure.crustal {
+    : Scalar<kg/m/s²>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Crustal Pressure Field")
+
+    measure {
+        signal.crust.pressure_base
+    }
+}
+
+field.stress.boundary {
+    : Scalar<N/m²>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Boundary Stress Field")
+
+    measure {
+        signal.tectonics.boundary_stress
+    }
+}
+
+field.topography.dynamic {
+    : Scalar<m>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Dynamic Topography Field")
+
+    measure {
+        signal.topography.dynamic_offset
+    }
+}
+
+field.isostasy.elevation_field {
+    : Scalar<m>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Isostatic Elevation Field")
+
+    measure {
+        signal.isostasy.elevation
+    }
+}
+
+field.density.crustal {
+    : Scalar<kg/m³>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Crustal Density Field")
+
+    measure {
+        signal.crust.density
+    }
+}
+
+field.thermal.heat_flow {
+    : Scalar<W/m²>
+    : strata(thermal)
+    : topology(point_cloud)
+    : title("Surface Heat Flow Field")
+
+    measure {
+        signal.surface.heat_flow
+    }
+}

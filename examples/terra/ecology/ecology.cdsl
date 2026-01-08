@@ -1,0 +1,273 @@
+# Terra Ecology Module
+# Biosphere: primary productivity, biomass, and carbon cycling
+#
+# This module handles biological processes and the carbon cycle.
+# Depends on atmosphere for temperature/CO2 and hydrology for water availability.
+# =============================================================================
+
+# =============================================================================
+# Ecology Constants
+# =============================================================================
+
+const {
+    # Carbon cycling
+    ecology.co2_ref_ppmv: 280.0
+    ecology.q10_respiration: 2.0
+    ecology.t_ref_q10_k: 293.0
+
+    # Biomass
+    ecology.biomass_half_cover: 5.0
+    ecology.co2_half_sat_ppmv: 150.0
+
+    # NPP limits
+    ecology.npp_max: 3.0
+    ecology.npp_min: 0.0
+
+    # Temperature limits
+    ecology.t_min_k: 273.0
+    ecology.t_opt_k: 298.0
+    ecology.t_max_k: 318.0
+
+    # Light
+    ecology.light_half_sat: 100.0
+
+    # Turnover
+    ecology.biomass_turnover_years: 20.0
+}
+
+# =============================================================================
+# Ecology Configuration
+# =============================================================================
+
+config {
+    # NPP parameters
+    ecology.npp_max: 3.0
+    ecology.t_opt_k: 298.0
+    ecology.t_min_k: 273.0
+    ecology.t_max_k: 318.0
+    ecology.light_half_sat: 100.0
+    ecology.co2_ppmv: 280.0
+
+    # Biomass parameters
+    ecology.biomass_turnover_years: 20.0
+    ecology.initial_biomass: 10.0
+    ecology.max_biomass: 100.0
+    ecology.min_biomass: 0.0
+
+    # Respiration
+    ecology.q10: 2.0
+    ecology.base_respiration_rate: 0.05
+
+    # Initial values
+    ecology.initial_npp: 1.0
+    ecology.initial_limiting_factor: 0.0
+}
+
+# =============================================================================
+# Primary Productivity
+# =============================================================================
+
+signal.ecology.npp {
+    : Scalar<1, 0..5>
+    : strata(ecology)
+    : title("Net Primary Productivity")
+    : symbol("NPP")
+
+    config {
+        npp_max: 3.0
+        t_opt_k: 298.0
+        t_min_k: 273.0
+        t_max_k: 318.0
+    }
+
+    resolve {
+        # Simplified NPP based on temperature
+        let temp = signal.surface.temp
+        let t_factor = clamp((temp - config.ecology.npp.t_min_k) / (config.ecology.npp.t_opt_k - config.ecology.npp.t_min_k), 0.0, 1.0)
+        config.ecology.npp.npp_max * t_factor + sum(inputs)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "NPP cannot be negative"
+        prev <= 5.0 : warn, "NPP exceeds maximum"
+    }
+}
+
+# Limiting factor indicator (0=Temp, 1=Water, 2=Light, 3=CO2, 4=Ocean)
+signal.ecology.limiting_factor {
+    : Scalar<1, 0..4>
+    : strata(ecology)
+    : title("Limiting Factor")
+    : symbol("LF")
+
+    resolve {
+        # Simple placeholder - always temperature limited for now
+        0.0 + sum(inputs)
+    }
+}
+
+# =============================================================================
+# Biomass Stock
+# =============================================================================
+
+signal.ecology.biomass {
+    : Scalar<kg/m², 0..100>
+    : strata(ecology)
+    : title("Biomass Stock")
+    : symbol("B")
+
+    config {
+        turnover_years: 20.0
+        initial: 10.0
+        min: 0.0
+        max: 100.0
+    }
+
+    resolve {
+        # Biomass relaxes toward NPP-driven equilibrium
+        let npp = signal.ecology.npp
+        let equilibrium = npp * config.ecology.biomass.turnover_years
+        relax_to(prev, equilibrium, config.ecology.biomass.turnover_years * 3.1536e7) + sum(inputs)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Biomass cannot be negative"
+        prev <= config.ecology.biomass.max : warn, "Biomass exceeds maximum"
+    }
+}
+
+# =============================================================================
+# Vegetation Cover
+# =============================================================================
+
+signal.ecology.vegetation_cover {
+    : Scalar<1, 0..1>
+    : strata(ecology)
+    : title("Vegetation Cover Fraction")
+    : symbol("V")
+
+    resolve {
+        # Logistic function of biomass
+        let biomass = signal.ecology.biomass
+        biomass / (biomass + const.ecology.biomass_half_cover) + sum(inputs)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Vegetation cover cannot be negative"
+        prev <= 1.0 : warn, "Vegetation cover cannot exceed 1"
+    }
+}
+
+# =============================================================================
+# Carbon Flux
+# =============================================================================
+
+signal.ecology.respiration_rate {
+    : Scalar<1, 0..5>
+    : strata(ecology)
+    : title("Ecosystem Respiration")
+    : symbol("R_eco")
+
+    config {
+        base_rate: 0.05
+    }
+
+    resolve {
+        # Respiration increases with temperature and biomass
+        let temp = signal.surface.temp
+        let biomass = signal.ecology.biomass
+        let q10_factor = pow(const.ecology.q10_respiration, (temp - const.ecology.t_ref_q10_k) / 10.0)
+        config.ecology.respiration_rate.base_rate * biomass * q10_factor + sum(inputs)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Respiration cannot be negative"
+    }
+}
+
+# Net Ecosystem Exchange (NEE = R - NPP, negative = carbon sink)
+signal.ecology.nee {
+    : Scalar<1, -5..5>
+    : strata(ecology)
+    : title("Net Ecosystem Exchange")
+    : symbol("NEE")
+
+    resolve {
+        signal.ecology.respiration_rate - signal.ecology.npp + sum(inputs)
+    }
+}
+
+# =============================================================================
+# Ecology Fractures
+# =============================================================================
+
+# Mass extinction (temperature threshold)
+fracture.ecology.mass_extinction {
+    when {
+        signal.surface.temp > 320.0 <K>
+        signal.ecology.biomass > 5.0
+    }
+
+    emit {
+        signal.ecology.biomass <- -signal.ecology.biomass * 0.9
+    }
+}
+
+# =============================================================================
+# Ecology Fields
+# =============================================================================
+
+field.ecology.npp_map {
+    : Scalar<1>
+    : strata(ecology)
+    : topology(sphere_surface)
+    : title("NPP Field")
+
+    measure {
+        signal.ecology.npp
+    }
+}
+
+field.ecology.biomass_map {
+    : Scalar<kg/m²>
+    : strata(ecology)
+    : topology(sphere_surface)
+    : title("Biomass Field")
+
+    measure {
+        signal.ecology.biomass
+    }
+}
+
+field.ecology.vegetation_map {
+    : Scalar<1>
+    : strata(ecology)
+    : topology(sphere_surface)
+    : title("Vegetation Cover Field")
+
+    measure {
+        signal.ecology.vegetation_cover
+    }
+}
+
+field.ecology.respiration_map {
+    : Scalar<1>
+    : strata(ecology)
+    : topology(sphere_surface)
+    : title("Respiration Field")
+
+    measure {
+        signal.ecology.respiration_rate
+    }
+}
+
+field.ecology.nee_map {
+    : Scalar<1>
+    : strata(ecology)
+    : topology(sphere_surface)
+    : title("Net Ecosystem Exchange Field")
+
+    measure {
+        signal.ecology.nee
+    }
+}

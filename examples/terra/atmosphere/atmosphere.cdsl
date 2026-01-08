@@ -1,0 +1,356 @@
+# Terra Atmosphere Module
+# Atmospheric physics: radiative transfer, water vapor feedback, clouds
+#
+# This module handles atmospheric temperature, composition, and energy balance.
+# Depends on geophysics for surface temperature and planetary parameters.
+# =============================================================================
+
+# =============================================================================
+# Atmosphere Constants
+# =============================================================================
+
+const {
+    # Clausius-Clapeyron constants
+    atmosphere.e0_pa: 611.0                    # Reference saturation vapor pressure at T0 (Pa)
+    atmosphere.t0_k: 273.15                    # Reference temperature (K)
+    atmosphere.lv_j_kg: 2.5e6                  # Latent heat of vaporization (J/kg)
+    atmosphere.rv_j_kg_k: 461.0                # Gas constant for water vapor (J/kg/K)
+    atmosphere.l_over_r: 5423.86               # Lv/Rv precomputed
+
+    # Stefan-Boltzmann
+    atmosphere.sigma: 5.67e-8                  # Stefan-Boltzmann constant (W/m²/K⁴)
+
+    # Earth reference values
+    atmosphere.earth_surface_temp: 288.0       # Earth mean surface temp (K)
+    atmosphere.earth_toa_flux: 1361.0          # Solar constant at Earth (W/m²)
+    atmosphere.earth_albedo: 0.3               # Earth's average albedo
+    atmosphere.earth_emissivity: 0.95          # Surface emissivity
+
+    # Greenhouse effect
+    atmosphere.earth_tau_greenhouse: 1.0       # Earth's optical depth for greenhouse
+    atmosphere.co2_ref_ppmv: 280.0             # Pre-industrial CO2 (ppmv)
+
+    # Heat transport
+    atmosphere.heat_transport_efficiency: 1e14  # Earth W/K meridional transport
+    atmosphere.insolation_ratio: 2.5           # Equator/pole insolation ratio
+}
+
+# =============================================================================
+# Atmosphere Configuration
+# =============================================================================
+
+config {
+    # Radiative balance
+    atmosphere.initial_surface_temp: 288.0
+    atmosphere.heat_capacity_j_k: 5e23
+    atmosphere.emissivity: 0.95
+    atmosphere.albedo: 0.3
+
+    # Greenhouse effect
+    atmosphere.co2_ppmv: 280.0
+    atmosphere.tau_greenhouse: 1.0
+
+    # Water vapor feedback
+    atmosphere.water_vapor_enabled: 1.0
+    atmosphere.relative_humidity: 0.6
+    atmosphere.scale_height_m: 2000.0
+    atmosphere.relaxation_time_s: 86400.0
+    atmosphere.min_water_vapor_kg_m2: 0.1
+    atmosphere.max_water_vapor_kg_m2: 200.0
+
+    # Heat transport
+    atmosphere.enable_heat_transport: 1.0
+    atmosphere.transport_efficiency_w_k: 1e14
+    atmosphere.insolation_ratio: 2.5
+
+    # Initial values
+    atmosphere.initial_external_power: 0.0
+    atmosphere.initial_water_vapor: 25.0
+    atmosphere.initial_co2_ppmv: 280.0
+    atmosphere.initial_cloud_cover: 0.5
+}
+
+# =============================================================================
+# Atmosphere Functions
+# =============================================================================
+
+# Tetens formula for saturation vapor pressure
+fn.atmosphere.saturation_vapor_pressure(temperature_k) {
+    # e_sat(T) = 610.94 * exp((17.625 * T_C) / (T_C + 243.04))
+    let t_celsius = temperature_k - 273.15
+    610.94 * exp((17.625 * t_celsius) / (t_celsius + 243.04))
+}
+
+# Equilibrium water vapor column mass
+fn.atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
+    let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k)
+    let rh = clamp(relative_humidity, 0.0, 1.0)
+    (e_sat * rh * scale_height_m) / (461.0 * surface_temp_k)
+}
+
+# Effective greenhouse emissivity
+fn.atmosphere.effective_emissivity(base_emissivity, tau_greenhouse) {
+    base_emissivity / (1.0 + 0.75 * tau_greenhouse)
+}
+
+# =============================================================================
+# External Radiative Forcing
+# =============================================================================
+
+signal.atmosphere.external_power {
+    : Scalar<W, 0..1e20>
+    : strata(atmosphere)
+    : title("External Radiative Power")
+    : symbol("P_ext")
+
+    resolve {
+        # Ephemeral signal - sum of all external radiative inputs
+        sum(inputs)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "External power should be non-negative"
+    }
+}
+
+# =============================================================================
+# Surface Temperature (Three-zone model)
+# =============================================================================
+
+# Mean surface temperature
+signal.atmosphere.surface_temp {
+    : Vec3<K>
+    : strata(atmosphere)
+    : title("Surface Temperature")
+    : symbol("T_surf")
+    : uses(dt_raw)
+
+    config {
+        heat_capacity_j_k: 5e23
+        emissivity: 0.95
+        tau_greenhouse: 1.0
+    }
+
+    resolve {
+        # T = [T_mean, T_equator, T_pole]
+        # Energy balance with Stefan-Boltzmann radiative cooling
+        # dT/dt = (P_in - P_out) / C
+        # P_out = epsilon_eff * sigma * A * T^4
+
+        let t_mean = prev.x
+        let epsilon_eff = atmosphere.effective_emissivity(config.atmosphere.surface_temp.emissivity, config.atmosphere.surface_temp.tau_greenhouse)
+        let radiative_loss = epsilon_eff * const.atmosphere.sigma * t_mean * t_mean * t_mean * t_mean
+
+        # Simple energy balance (placeholder for full model)
+        let net_power = signal.atmosphere.external_power - radiative_loss * 1e14
+        let dt_temp = net_power / config.atmosphere.surface_temp.heat_capacity_j_k
+
+        vec3(
+            clamp(t_mean + dt_temp * dt_raw, 50.0, 500.0),
+            prev.y + sum(inputs),
+            prev.z + sum(inputs)
+        )
+    }
+
+    assert {
+        prev.x >= 50.0 : warn, "Mean temperature below minimum"
+        prev.x <= 500.0 : warn, "Mean temperature above maximum"
+    }
+}
+
+# =============================================================================
+# Water Vapor Feedback (Clausius-Clapeyron)
+# =============================================================================
+
+signal.atmosphere.water_vapor {
+    : Scalar<kg/m², 0.1..200>
+    : strata(atmosphere)
+    : title("Water Vapor Column")
+    : symbol("W_v")
+
+    config {
+        relative_humidity: 0.6
+        scale_height_m: 2000.0
+        relaxation_time_s: 86400.0
+        min: 0.1
+        max: 200.0
+    }
+
+    resolve {
+        # Water vapor relaxes toward equilibrium determined by surface temperature
+        let t_surf = signal.atmosphere.surface_temp.x
+        let equilibrium = atmosphere.equilibrium_water_vapor(t_surf, config.atmosphere.water_vapor.relative_humidity, config.atmosphere.water_vapor.scale_height_m)
+
+        relax_to(prev, equilibrium, config.atmosphere.water_vapor.relaxation_time_s)
+    }
+
+    assert {
+        prev >= config.atmosphere.water_vapor.min : warn, "Water vapor below minimum"
+        prev <= config.atmosphere.water_vapor.max : warn, "Water vapor above maximum"
+    }
+}
+
+# =============================================================================
+# Atmospheric Composition
+# =============================================================================
+
+signal.atmosphere.co2_ppmv {
+    : Scalar<ppmv, 100..10000>
+    : strata(atmosphere)
+    : title("CO2 Concentration")
+    : symbol("CO2")
+
+    config {
+        initial: 280.0
+        min: 100.0
+        max: 10000.0
+    }
+
+    resolve {
+        # CO2 changes through weathering sinks, volcanic sources, biological processes
+        clamp(prev + sum(inputs), config.atmosphere.co2_ppmv.min, config.atmosphere.co2_ppmv.max)
+    }
+
+    assert {
+        prev >= config.atmosphere.co2_ppmv.min : warn, "CO2 below minimum"
+        prev <= config.atmosphere.co2_ppmv.max : warn, "CO2 above maximum"
+    }
+}
+
+# =============================================================================
+# Cloud Cover
+# =============================================================================
+
+signal.atmosphere.cloud_cover {
+    : Scalar<1, 0..1>
+    : strata(atmosphere)
+    : title("Cloud Cover Fraction")
+    : symbol("C")
+
+    config {
+        initial: 0.5
+        min_water_vapor: 5.0
+        saturation_water_vapor: 50.0
+    }
+
+    resolve {
+        # Cloud cover depends on water vapor availability
+        let water_vapor = signal.atmosphere.water_vapor
+        let cloud_potential = (water_vapor - config.atmosphere.cloud_cover.min_water_vapor) /
+                             (config.atmosphere.cloud_cover.saturation_water_vapor - config.atmosphere.cloud_cover.min_water_vapor)
+        clamp(cloud_potential + sum(inputs), 0.0, 1.0)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Cloud cover cannot be negative"
+        prev <= 1.0 : warn, "Cloud cover cannot exceed 1"
+    }
+}
+
+# =============================================================================
+# Atmospheric Optical Depth (Greenhouse)
+# =============================================================================
+
+signal.atmosphere.tau_greenhouse {
+    : Scalar<1, 0..10>
+    : strata(atmosphere)
+    : title("Greenhouse Optical Depth")
+    : symbol("tau")
+
+    config {
+        base_tau: 1.0
+        co2_sensitivity: 0.002
+        water_vapor_sensitivity: 0.01
+    }
+
+    resolve {
+        # Optical depth from CO2 and water vapor
+        let co2_contribution = (signal.atmosphere.co2_ppmv - const.atmosphere.co2_ref_ppmv) * config.atmosphere.tau_greenhouse.co2_sensitivity
+        let wv_contribution = signal.atmosphere.water_vapor * config.atmosphere.tau_greenhouse.water_vapor_sensitivity
+
+        config.atmosphere.tau_greenhouse.base_tau + co2_contribution + wv_contribution + sum(inputs)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Optical depth cannot be negative"
+        prev <= 10.0 : warn, "Optical depth exceeds maximum"
+    }
+}
+
+# =============================================================================
+# Atmosphere Fractures
+# =============================================================================
+
+# Runaway greenhouse threshold
+fracture.atmosphere.runaway_greenhouse {
+    when {
+        signal.atmosphere.surface_temp.x > 350.0 <K>
+        signal.atmosphere.water_vapor > 150.0
+    }
+
+    emit {
+        signal.atmosphere.water_vapor <- 50.0
+        signal.atmosphere.co2_ppmv <- 100.0
+    }
+}
+
+# Ice age trigger
+fracture.atmosphere.ice_age {
+    when {
+        signal.atmosphere.surface_temp.x < 270.0 <K>
+        signal.atmosphere.co2_ppmv < 200.0
+    }
+
+    emit {
+        # Reduced weathering allows CO2 buildup
+        signal.atmosphere.co2_ppmv <- 50.0
+    }
+}
+
+# =============================================================================
+# Atmosphere Fields
+# =============================================================================
+
+field.atmosphere.temperature {
+    : Scalar<K>
+    : strata(atmosphere)
+    : topology(point_cloud)
+    : title("Surface Temperature Field")
+
+    measure {
+        signal.atmosphere.surface_temp.x
+    }
+}
+
+field.atmosphere.water_vapor_map {
+    : Scalar<kg/m²>
+    : strata(atmosphere)
+    : topology(point_cloud)
+    : title("Water Vapor Column Field")
+
+    measure {
+        signal.atmosphere.water_vapor
+    }
+}
+
+field.atmosphere.cloud_map {
+    : Scalar<1>
+    : strata(atmosphere)
+    : topology(point_cloud)
+    : title("Cloud Cover Field")
+
+    measure {
+        signal.atmosphere.cloud_cover
+    }
+}
+
+field.atmosphere.co2_map {
+    : Scalar<ppmv>
+    : strata(atmosphere)
+    : topology(point_cloud)
+    : title("CO2 Concentration Field")
+
+    measure {
+        signal.atmosphere.co2_ppmv
+    }
+}

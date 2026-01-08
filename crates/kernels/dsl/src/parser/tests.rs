@@ -728,3 +728,243 @@ fn test_parse_unicode_unit_with_range() {
         _ => panic!("expected SignalDef"),
     }
 }
+
+#[test]
+fn test_parse_unit_with_multiplication() {
+    // Test units with multiplication like Pa*s (Pascal-seconds for viscosity)
+    let source = r#"
+        signal.test.viscosity {
+            : Scalar<Pa*s, 0..1e24>
+            resolve { 1e21 }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().unwrap();
+            match &ty.node {
+                TypeExpr::Scalar { unit, range } => {
+                    assert_eq!(unit, "Pa*s");
+                    let r = range.as_ref().unwrap();
+                    assert_eq!(r.min, 0.0);
+                    assert_eq!(r.max, 1e24);
+                }
+                _ => panic!("expected Scalar"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_unit_with_multiple_slashes() {
+    // Test compound units with multiple slashes like kg/m²/yr
+    let source = r#"
+        signal.test.weathering {
+            : Scalar<kg/m²/yr, 0..1>
+            resolve { 0.01 }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().unwrap();
+            match &ty.node {
+                TypeExpr::Scalar { unit, range } => {
+                    assert_eq!(unit, "kg/m²/yr");
+                    let r = range.as_ref().unwrap();
+                    assert_eq!(r.min, 0.0);
+                    assert_eq!(r.max, 1.0);
+                }
+                _ => panic!("expected Scalar"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_geophysics_viscosity_signal() {
+    // Full signal test matching geophysics.cdsl signal.mantle.viscosity
+    let source = r#"
+signal.mantle.viscosity {
+    : Scalar<Pa*s, 0..1e24>
+    : strata(tectonics)
+    : title("Mantle Viscosity")
+    : symbol("eta")
+
+    resolve {
+        prev + sum(inputs)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Viscosity cannot be negative"
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().unwrap();
+            match &ty.node {
+                TypeExpr::Scalar { unit, range } => {
+                    assert_eq!(unit, "Pa*s");
+                    let r = range.as_ref().unwrap();
+                    assert_eq!(r.min, 0.0);
+                    assert_eq!(r.max, 1e24);
+                }
+                _ => panic!("expected Scalar"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_complete_geophysics_file() {
+    // Test a simplified version of the geophysics structure
+    let source = r#"
+fn.isostasy.buoyancy_factor(crustal_density, mantle_density) {
+    1.0 - crustal_density / mantle_density
+}
+
+const {
+    physics.gravitational: 6.67430e-11
+    earth.mass: 5.972e24
+}
+
+config {
+    planet.mass: 5.972e24
+    planet.radius: 6.371e6
+}
+
+signal.mantle.viscosity {
+    : Scalar<Pa*s, 0..1e24>
+    : strata(tectonics)
+
+    resolve {
+        prev + sum(inputs)
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 4);
+}
+
+#[test]
+fn test_parse_config_with_unit() {
+    // Test config entry with unit (this is supported in const but maybe not config)
+    let source = r#"
+config {
+    thermal.decay_halflife: 4.5e17 <s>
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+}
+
+#[test]
+fn test_parse_vec2_and_mod_calls() {
+    // Test vec2 constructor and mod function from geophysics
+    let source = r#"
+signal.rotation.state {
+    : Vec2<rad>
+    : strata(rotation)
+    : uses(dt_raw)
+
+    resolve {
+        let phase = prev.x + prev.y * dt_raw
+        let omega = prev.y + sum(inputs)
+        vec2(mod(phase, 6.283185307), omega)
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+}
+
+#[test]
+fn test_parse_if_else_expression() {
+    // Test if-else expression parsing
+    let source = r#"
+signal.test.conditional {
+    : Scalar<1>
+    resolve {
+        if prev > 0.0 {
+            prev * 2.0
+        } else {
+            0.0
+        }
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            assert!(def.resolve.is_some());
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::If { condition, then_branch, else_branch } => {
+                    // Verify condition is prev > 0.0
+                    match &condition.node {
+                        Expr::Binary { op, .. } => {
+                            assert_eq!(*op, BinaryOp::Gt);
+                        }
+                        _ => panic!("expected Binary comparison"),
+                    }
+                    // Verify then branch
+                    match &then_branch.node {
+                        Expr::Binary { op, .. } => {
+                            assert_eq!(*op, BinaryOp::Mul);
+                        }
+                        _ => panic!("expected Binary mul in then branch"),
+                    }
+                    // Verify else branch exists
+                    assert!(else_branch.is_some());
+                }
+                _ => panic!("expected If expression, got {:?}", resolve.body.node),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_nested_if_else() {
+    // Test nested if-else from geophysics
+    let source = r#"
+signal.test.nested_if {
+    : Scalar<1>
+    resolve {
+        let raw_shear = sum(inputs)
+        if raw_shear > 0.0 {
+            raw_shear / 100.0
+        } else {
+            0.0
+        }
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+}

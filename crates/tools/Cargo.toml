@@ -11,6 +11,10 @@ path = "src/bin/world_load.rs"
 name = "world-run"
 path = "src/bin/world_run.rs"
 
+[[bin]]
+name = "dsl-lint"
+path = "src/bin/dsl_lint.rs"
+
 [dependencies]
 continuum-dsl = { path = "../kernels/dsl" }
 continuum-foundation = { path = "../kernels/foundation" }

@@ -1,0 +1,8 @@
+# Cargo configuration for Continuum
+#
+# Chumsky parser combinator library creates deeply nested recursive types
+# that require more stack space for construction. This sets a larger default
+# stack size to prevent overflow during parser initialization.
+
+[env]
+RUST_MIN_STACK = "16777216"  # 16 MB stack (default is typically 2-8 MB)

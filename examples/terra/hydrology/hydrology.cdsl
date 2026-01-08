@@ -1,0 +1,471 @@
+# Terra Hydrology Module
+# Water cycle: precipitation, evaporation, runoff, and sediment transport
+#
+# This module handles the hydrological cycle and surface water dynamics.
+# Depends on atmosphere for temperature and precipitation drivers.
+# =============================================================================
+
+# =============================================================================
+# Hydrology Constants
+# =============================================================================
+
+const {
+    # Water phase boundaries (K at 1 atm)
+    hydrology.freezing_point_k: 273.15
+    hydrology.boiling_point_k: 373.15
+
+    # Latent heats (J/kg)
+    hydrology.latent_heat_vaporization: 2.45e6
+    hydrology.latent_heat_sublimation: 2.83e6
+    hydrology.latent_heat_fusion: 3.34e5
+
+    # Physical constants
+    hydrology.psychrometric_constant: 0.066     # kPa/K
+    hydrology.priestley_taylor_alpha: 1.26      # PT coefficient
+
+    # Sediment
+    hydrology.max_sediment_load: 10.0           # Maximum sediment capacity
+
+    # Reference values
+    hydrology.reference_water_mass_kg: 1e8      # kg per cell for "saturated"
+}
+
+# =============================================================================
+# Hydrology Configuration
+# =============================================================================
+
+config {
+    # Evaporation
+    hydrology.evaporation_coefficient: 1.0
+    hydrology.bulk_transfer_coefficient: 1.5e-3
+    hydrology.wind_speed_m_s: 5.0
+
+    # Precipitation
+    hydrology.base_precipitation_rate: 1e-5     # kg/m²/s base rate
+    hydrology.orographic_factor: 2.0            # Enhancement on windward slopes
+    hydrology.rain_shadow_factor: 0.3           # Reduction on leeward slopes
+
+    # Runoff
+    hydrology.runoff_coefficient: 0.3
+    hydrology.infiltration_rate: 1e-6           # m/s
+
+    # Sediment transport
+    hydrology.erosion_rate: 1e-6                # m/s base erosion
+    hydrology.deposition_rate: 1e-7             # m/s base deposition
+    hydrology.sediment_capacity_factor: 1.0
+
+    # Ice/glacier
+    hydrology.ice_flow_rate: 1e-10              # m/s base glacial flow
+    hydrology.sublimation_rate: 1e-8            # kg/m²/s sublimation rate
+
+    # Initial values
+    hydrology.initial_water_mass: 1e6
+    hydrology.initial_ice_mass: 0.0
+    hydrology.initial_sediment_load: 0.2
+    hydrology.initial_runoff_accumulation: 0.0
+    hydrology.initial_evaporation_rate: 1e-6
+    hydrology.initial_precipitation_rate: 1e-5
+}
+
+# =============================================================================
+# Hydrology Functions
+# =============================================================================
+
+# Determine water phase from temperature
+fn.hydrology.water_phase(temperature_k) {
+    if temperature_k < 273.15 {
+        0.0  # Ice
+    } else {
+        if temperature_k < 373.15 {
+            1.0  # Liquid
+        } else {
+            2.0  # Vapor
+        }
+    }
+}
+
+# Saturation vapor pressure (simplified)
+fn.hydrology.saturation_vapor_pressure(temperature_k) {
+    let t_celsius = temperature_k - 273.15
+    610.94 * exp((17.625 * t_celsius) / (t_celsius + 243.04))
+}
+
+# Water presence from mass (normalized 0-1)
+fn.hydrology.water_presence(water_mass_kg, reference_mass_kg) {
+    clamp(water_mass_kg / reference_mass_kg, 0.0, 1.0)
+}
+
+# =============================================================================
+# Surface Water Signals
+# =============================================================================
+
+# Global water mass budget
+signal.hydrology.water_mass {
+    : Scalar<kg, 0..1e20>
+    : strata(hydrology)
+    : title("Total Surface Water Mass")
+    : symbol("M_water")
+    : uses(dt_raw)
+
+    config {
+        initial: 1e18
+        min: 0.0
+        max: 1e20
+    }
+
+    resolve {
+        # Water budget: precipitation - evaporation + external inputs
+        let evap_loss = signal.hydrology.evaporation_rate * dt_raw * 5.1e14  # Earth surface area
+        let precip_gain = signal.hydrology.precipitation_rate * dt_raw * 5.1e14
+        clamp(prev + precip_gain - evap_loss + sum(inputs), config.hydrology.water_mass.min, config.hydrology.water_mass.max)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Water mass cannot be negative"
+    }
+}
+
+# Ice mass (glaciers, ice sheets)
+signal.hydrology.ice_mass {
+    : Scalar<kg, 0..1e19>
+    : strata(hydrology)
+    : title("Total Ice Mass")
+    : symbol("M_ice")
+    : uses(dt_raw)
+
+    config {
+        initial: 2.6e19  # Earth's ice mass ~26 million km³
+        sublimation_rate: 1e-8
+    }
+
+    resolve {
+        # Ice mass changes through freezing/melting and sublimation
+        let temp = signal.surface.temp
+        let phase = hydrology.water_phase(temp)
+
+        if phase < 0.5 {
+            # Freezing conditions - ice can accumulate
+            prev + sum(inputs)
+        } else {
+            # Melting/sublimation conditions
+            let sublimation = config.hydrology.ice_mass.sublimation_rate * dt_raw * 1e13
+            max(prev - sublimation + sum(inputs), 0.0)
+        }
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Ice mass cannot be negative"
+    }
+}
+
+# =============================================================================
+# Evaporation
+# =============================================================================
+
+signal.hydrology.evaporation_rate {
+    : Scalar<kg/m²/s, 0..1e-3>
+    : strata(hydrology)
+    : title("Evaporation Rate")
+    : symbol("E")
+
+    config {
+        bulk_transfer: 1.5e-3
+        wind_speed: 5.0
+        min: 0.0
+        max: 1e-3
+    }
+
+    resolve {
+        # Bulk aerodynamic formula: E = C_E * U * (q_sat - q_air)
+        let temp = signal.surface.temp
+        let phase = hydrology.water_phase(temp)
+
+        if phase > 0.5 && phase < 1.5 {
+            # Liquid water - normal evaporation
+            let e_sat = hydrology.saturation_vapor_pressure(temp)
+            let q_sat = 0.622 * e_sat / 101325.0  # Mixing ratio at saturation
+            let q_air = q_sat * 0.6                # Assume 60% RH
+            let evap = config.hydrology.evaporation_rate.bulk_transfer * config.hydrology.evaporation_rate.wind_speed * (q_sat - q_air) * 1.2
+            clamp(evap + sum(inputs), config.hydrology.evaporation_rate.min, config.hydrology.evaporation_rate.max)
+        } else {
+            # Ice or vapor - reduced/no evaporation
+            sum(inputs)
+        }
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Evaporation rate cannot be negative"
+    }
+}
+
+# =============================================================================
+# Precipitation
+# =============================================================================
+
+signal.hydrology.precipitation_rate {
+    : Scalar<kg/m²/s, 0..1e-2>
+    : strata(hydrology)
+    : title("Precipitation Rate")
+    : symbol("P")
+
+    config {
+        base_rate: 1e-5
+        water_vapor_sensitivity: 1e-6
+        min: 0.0
+        max: 1e-2
+    }
+
+    resolve {
+        # Precipitation depends on water vapor availability
+        let water_vapor = signal.atmosphere.water_vapor
+        let precip = config.hydrology.precipitation_rate.base_rate + water_vapor * config.hydrology.precipitation_rate.water_vapor_sensitivity
+        clamp(precip + sum(inputs), config.hydrology.precipitation_rate.min, config.hydrology.precipitation_rate.max)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Precipitation rate cannot be negative"
+    }
+}
+
+# =============================================================================
+# Runoff and Flow
+# =============================================================================
+
+signal.hydrology.runoff_accumulation {
+    : Scalar<kg/s, 0..1e15>
+    : strata(hydrology)
+    : title("Runoff Accumulation")
+    : symbol("Q")
+
+    config {
+        coefficient: 0.3
+        min: 0.0
+        max: 1e15
+    }
+
+    resolve {
+        # Runoff = precipitation * runoff_coefficient * area
+        let precip = signal.hydrology.precipitation_rate
+        let evap = signal.hydrology.evaporation_rate
+        let net_water = max(precip - evap, 0.0)
+        let runoff = net_water * config.hydrology.runoff_accumulation.coefficient * 5.1e14
+
+        clamp(runoff + sum(inputs), config.hydrology.runoff_accumulation.min, config.hydrology.runoff_accumulation.max)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Runoff cannot be negative"
+    }
+}
+
+# =============================================================================
+# Sediment Transport
+# =============================================================================
+
+signal.hydrology.sediment_load {
+    : Scalar<kg/m², 0..10>
+    : strata(hydrology)
+    : title("Sediment Load")
+    : symbol("S")
+    : uses(dt_raw)
+
+    config {
+        erosion_rate: 1e-6
+        deposition_rate: 1e-7
+        max_load: 10.0
+    }
+
+    resolve {
+        # Sediment transport depends on runoff and slope
+        let runoff = signal.hydrology.runoff_accumulation
+        let erosion = runoff * config.hydrology.sediment_load.erosion_rate * dt_raw / 1e12
+        let deposition = prev * config.hydrology.sediment_load.deposition_rate * dt_raw
+
+        clamp(prev + erosion - deposition + sum(inputs), 0.0, config.hydrology.sediment_load.max_load)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Sediment load cannot be negative"
+        prev <= const.hydrology.max_sediment_load : warn, "Sediment load exceeds maximum"
+    }
+}
+
+# =============================================================================
+# Weathering (Chemical erosion)
+# =============================================================================
+
+signal.hydrology.chemical_weathering {
+    : Scalar<kg/m²/yr, 0..1>
+    : strata(hydrology)
+    : title("Chemical Weathering Rate")
+    : symbol("W_chem")
+
+    config {
+        base_rate: 0.01
+        temperature_sensitivity: 0.05
+        runoff_sensitivity: 1e-16
+        co2_sensitivity: 0.001
+    }
+
+    resolve {
+        # Weathering increases with temperature, runoff, and CO2
+        let temp = signal.surface.temp
+        let runoff = signal.hydrology.runoff_accumulation
+        let co2 = signal.atmosphere.co2_ppmv
+
+        let temp_factor = exp(config.hydrology.chemical_weathering.temperature_sensitivity * (temp - 288.0))
+        let runoff_factor = 1.0 + runoff * config.hydrology.chemical_weathering.runoff_sensitivity
+        let co2_factor = 1.0 + (co2 - 280.0) * config.hydrology.chemical_weathering.co2_sensitivity
+
+        clamp(config.hydrology.chemical_weathering.base_rate * temp_factor * runoff_factor * co2_factor + sum(inputs), 0.0, 1.0)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Weathering rate cannot be negative"
+    }
+}
+
+# =============================================================================
+# Hydrology Fractures
+# =============================================================================
+
+# Flash flood: sudden high precipitation
+fracture.hydrology.flash_flood {
+    when {
+        signal.hydrology.precipitation_rate > 5e-4
+        signal.hydrology.runoff_accumulation > 1e14
+    }
+
+    emit {
+        signal.hydrology.sediment_load <- 1.0
+        signal.hydrology.runoff_accumulation <- -signal.hydrology.runoff_accumulation * 0.5
+    }
+}
+
+# Drought: prolonged low precipitation
+fracture.hydrology.drought {
+    when {
+        signal.hydrology.precipitation_rate < 1e-6
+        signal.hydrology.water_mass < 1e17
+    }
+
+    emit {
+        signal.hydrology.evaporation_rate <- -signal.hydrology.evaporation_rate * 0.5
+    }
+}
+
+# Glacial surge
+fracture.hydrology.glacial_surge {
+    when {
+        signal.hydrology.ice_mass > 3e19
+        signal.surface.temp < 270.0 <K>
+    }
+
+    emit {
+        signal.hydrology.ice_mass <- -1e18
+        signal.hydrology.sediment_load <- 2.0
+    }
+}
+
+# =============================================================================
+# Hydrology Fields
+# =============================================================================
+
+field.hydrology.water_mass_map {
+    : Scalar<kg>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Water Mass Field")
+
+    measure {
+        signal.hydrology.water_mass
+    }
+}
+
+field.hydrology.water_presence {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Water Presence")
+
+    measure {
+        hydrology.water_presence(signal.hydrology.water_mass, const.hydrology.reference_water_mass_kg)
+    }
+}
+
+field.hydrology.ice_map {
+    : Scalar<kg>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Ice Mass Field")
+
+    measure {
+        signal.hydrology.ice_mass
+    }
+}
+
+field.hydrology.evaporation {
+    : Scalar<kg/m²/s>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Evaporation Rate Field")
+
+    measure {
+        signal.hydrology.evaporation_rate
+    }
+}
+
+field.hydrology.precipitation {
+    : Scalar<kg/m²/s>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Precipitation Rate Field")
+
+    measure {
+        signal.hydrology.precipitation_rate
+    }
+}
+
+field.hydrology.runoff {
+    : Scalar<kg/s>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Runoff Accumulation Field")
+
+    measure {
+        signal.hydrology.runoff_accumulation
+    }
+}
+
+field.hydrology.sediment {
+    : Scalar<kg/m²>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Sediment Load Field")
+
+    measure {
+        signal.hydrology.sediment_load
+    }
+}
+
+field.hydrology.weathering {
+    : Scalar<kg/m²/yr>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Chemical Weathering Field")
+
+    measure {
+        signal.hydrology.chemical_weathering
+    }
+}
+
+field.hydrology.water_phase {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Water Phase Field")
+
+    measure {
+        hydrology.water_phase(signal.surface.temp)
+    }
+}
