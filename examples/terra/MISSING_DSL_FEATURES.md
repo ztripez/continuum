@@ -25,9 +25,9 @@ This file tracks DSL features that are documented but not yet implemented in the
 - **Note**: `dt` does NOT exist by design. Use dt-robust operators like `decay(prev, halflife)` instead. Raw `dt_raw` access requires explicit opt-in via `: uses(dt_raw)` attribute.
 
 ### 3. Unicode unit superscripts
-- **Status**: NOT IMPLEMENTED
+- **Status**: IMPLEMENTED
 - **Examples**: `<m³/kg/s²>`, `<W/m²/K⁴>`, `<kg/m³>`
-- **Current workaround**: Use dimensionless units or simple units like `<m>`, `<K>`, `<Pa>`
+- **Note**: All Unicode superscripts (⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺) and subscripts (₀₁₂₃₄₅₆₇₈₉) are now supported in type expressions
 
 ### 4. `fn` (user-defined functions)
 - **Status**: IMPLEMENTED
@@ -41,19 +41,21 @@ This file tracks DSL features that are documented but not yet implemented in the
 - **Note**: Functions are pure and inlined at call sites. They can access `const.*` and `config.*`, call other functions, but cannot access `prev`, `dt_raw`, or write to signals.
 
 ### 5. Complex unit expressions
-- **Status**: LIMITED
-- **Working**: Simple units like `<K>`, `<m>`, `<Pa>`, `<s>`, `<kg>`, `<Myr>`, `<kyr>`
-- **Not working**: Compound units with superscripts or complex fractions
+- **Status**: IMPLEMENTED
+- **Working**: All units including compound units with superscripts (`<W/m²/K⁴>`, `<kg/m³>`)
+- **Note**: Unit strings can contain letters, digits, Unicode superscripts/subscripts, `/`, `*`, `·`, `°`, `-`, `_`
 
 ## Runtime/Compiler Features
 
 ### 6. Cross-strata signal dependencies
-- **Status**: UNKNOWN - needs testing
+- **Status**: IMPLEMENTED (verified with tests)
 - **Example**: thermal strata signal reading from tectonics strata signal
+- **Note**: Works correctly - signals can read from any other signal regardless of strata
 
 ### 7. Negative literal values in ranges
-- **Status**: NEEDS TESTING
+- **Status**: IMPLEMENTED (verified with tests)
 - **Example**: `Scalar<m, -11000..9000>`
+- **Note**: Negative values in ranges work correctly
 
 ## Kernel Functions Needed
 
@@ -101,7 +103,7 @@ When implementing these features:
 
 **Medium Priority**:
 3. ~~Signal-local config blocks~~ - IMPLEMENTED
-4. Unicode unit superscripts - matches documentation
+4. ~~Unicode unit superscripts~~ - IMPLEMENTED
 
 **Low Priority** (workarounds exist):
 5. ~~`dt` raw access~~ - IMPLEMENTED (with `: dt_raw` declaration)

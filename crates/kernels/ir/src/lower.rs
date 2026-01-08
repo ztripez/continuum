@@ -37,6 +37,9 @@ pub enum LowerError {
 
     #[error("invalid expression: {0}")]
     InvalidExpression(String),
+
+    #[error("signal '{0}' uses dt_raw without explicit `: uses(dt_raw)` declaration - this is required for dt-robustness auditing")]
+    UndeclaredDtRawUsage(String),
 }
 
 /// Lower a compilation unit to IR
@@ -244,6 +247,13 @@ impl Lowerer {
         let mut reads = Vec::new();
         if let Some(resolve) = &def.resolve {
             self.collect_signal_refs(&resolve.body.node, &mut reads);
+        }
+
+        // Validate dt_raw usage: if resolve uses dt_raw, signal must declare it
+        if let Some(resolve) = &def.resolve {
+            if !def.dt_raw && self.expr_uses_dt_raw(&resolve.body.node) {
+                return Err(LowerError::UndeclaredDtRawUsage(signal_path));
+            }
         }
 
         // Lower warmup if present
@@ -738,6 +748,72 @@ impl Lowerer {
         }
     }
 
+    /// Check if an AST expression contains dt_raw usage
+    fn expr_uses_dt_raw(&self, expr: &Expr) -> bool {
+        match expr {
+            Expr::DtRaw => true,
+            Expr::Binary { left, right, .. } => {
+                self.expr_uses_dt_raw(&left.node) || self.expr_uses_dt_raw(&right.node)
+            }
+            Expr::Unary { operand, .. } => self.expr_uses_dt_raw(&operand.node),
+            Expr::Call { function, args } => {
+                self.expr_uses_dt_raw(&function.node)
+                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.node))
+            }
+            Expr::Let { value, body, .. } => {
+                self.expr_uses_dt_raw(&value.node) || self.expr_uses_dt_raw(&body.node)
+            }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.expr_uses_dt_raw(&condition.node)
+                    || self.expr_uses_dt_raw(&then_branch.node)
+                    || else_branch
+                        .as_ref()
+                        .map(|e| self.expr_uses_dt_raw(&e.node))
+                        .unwrap_or(false)
+            }
+            Expr::FieldAccess { object, .. } => self.expr_uses_dt_raw(&object.node),
+            Expr::Block(exprs) => exprs.iter().any(|e| self.expr_uses_dt_raw(&e.node)),
+            Expr::For { iter, body, .. } => {
+                self.expr_uses_dt_raw(&iter.node) || self.expr_uses_dt_raw(&body.node)
+            }
+            Expr::EmitSignal { value, .. } => self.expr_uses_dt_raw(&value.node),
+            Expr::EmitField {
+                position, value, ..
+            } => self.expr_uses_dt_raw(&position.node) || self.expr_uses_dt_raw(&value.node),
+            Expr::Struct(fields) => fields.iter().any(|(_, e)| self.expr_uses_dt_raw(&e.node)),
+            Expr::Map { sequence, function } => {
+                self.expr_uses_dt_raw(&sequence.node) || self.expr_uses_dt_raw(&function.node)
+            }
+            Expr::Fold {
+                sequence,
+                init,
+                function,
+            } => {
+                self.expr_uses_dt_raw(&sequence.node)
+                    || self.expr_uses_dt_raw(&init.node)
+                    || self.expr_uses_dt_raw(&function.node)
+            }
+            // These don't contain dt_raw
+            Expr::Literal(_)
+            | Expr::LiteralWithUnit { .. }
+            | Expr::Path(_)
+            | Expr::Prev
+            | Expr::PrevField(_)
+            | Expr::Payload
+            | Expr::PayloadField(_)
+            | Expr::SignalRef(_)
+            | Expr::ConstRef(_)
+            | Expr::ConfigRef(_)
+            | Expr::FieldRef(_)
+            | Expr::SumInputs
+            | Expr::MathConst(_) => false,
+        }
+    }
+
     fn literal_to_f64(&self, lit: &Literal) -> Result<f64, LowerError> {
         match lit {
             Literal::Integer(i) => Ok(*i as f64),
@@ -826,6 +902,66 @@ mod tests {
         let terra = world.strata.get(&StratumId::from("terra")).unwrap();
         assert_eq!(terra.title, Some("Terra".to_string()));
         assert_eq!(terra.default_stride, 10);
+    }
+
+    #[test]
+    fn test_negative_range_in_type() {
+        let src = r#"
+            strata.test {}
+            era.main { : initial }
+            signal.test.elevation {
+                : Scalar<m, -11000..9000>
+                : strata(test)
+                resolve { prev }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+        let signal = world.signals.get(&SignalId::from("test.elevation")).unwrap();
+
+        // Verify the negative range is captured
+        match &signal.value_type {
+            ValueType::Scalar { range: Some(r) } => {
+                assert_eq!(r.min, -11000.0);
+                assert_eq!(r.max, 9000.0);
+            }
+            _ => panic!("expected Scalar with range, got {:?}", signal.value_type),
+        }
+    }
+
+    #[test]
+    fn test_cross_strata_signal_dependency() {
+        let src = r#"
+            strata.alpha {}
+            strata.beta {}
+            era.main { : initial }
+
+            signal.alpha.source {
+                : Scalar<K>
+                : strata(alpha)
+                resolve { 100.0 }
+            }
+
+            signal.beta.consumer {
+                : Scalar<K>
+                : strata(beta)
+                resolve { signal.alpha.source * 2.0 }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+
+        // Consumer signal should have alpha.source in its reads
+        let consumer = world.signals.get(&SignalId::from("beta.consumer")).unwrap();
+        assert!(
+            consumer.reads.contains(&SignalId::from("alpha.source")),
+            "reads: {:?}",
+            consumer.reads
+        );
     }
 
     #[test]
@@ -1124,5 +1260,78 @@ mod tests {
         // Both global and local config should be present
         assert_eq!(world.config.get("global.factor"), Some(&2.0));
         assert_eq!(world.config.get("test.value.local_scale"), Some(&10.0));
+    }
+
+    #[test]
+    fn test_dt_raw_without_declaration_fails() {
+        // Using dt_raw without `: uses(dt_raw)` should fail
+        let src = r#"
+            strata.test {}
+            era.main { : initial }
+            signal.test.value {
+                : strata(test)
+                resolve {
+                    prev + dt_raw * 0.5
+                }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let result = lower(&unit);
+
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            LowerError::UndeclaredDtRawUsage(signal) => {
+                assert_eq!(signal, "test.value");
+            }
+            e => panic!("expected UndeclaredDtRawUsage, got: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn test_dt_raw_with_declaration_succeeds() {
+        // Using dt_raw WITH `: uses(dt_raw)` should work
+        let src = r#"
+            strata.test {}
+            era.main { : initial }
+            signal.test.value {
+                : strata(test)
+                : uses(dt_raw)
+                resolve {
+                    prev + dt_raw * 0.5
+                }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let world = lower(&unit).unwrap();
+
+        let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+        assert!(signal.uses_dt_raw);
+    }
+
+    #[test]
+    fn test_dt_raw_in_nested_expr_without_declaration_fails() {
+        // dt_raw buried in nested expression should still be detected
+        let src = r#"
+            strata.test {}
+            era.main { : initial }
+            signal.test.value {
+                : strata(test)
+                resolve {
+                    let factor = dt_raw * 2.0
+                    prev + factor
+                }
+            }
+        "#;
+        let (unit, errors) = parse(src);
+        assert!(errors.is_empty(), "parse errors: {:?}", errors);
+        let unit = unit.unwrap();
+        let result = lower(&unit);
+
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), LowerError::UndeclaredDtRawUsage(_)));
     }
 }

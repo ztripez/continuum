@@ -2,7 +2,7 @@
 # Implements realistic crust dynamics with isostasy and dynamic topography
 # to stress-test the bytecode VM with complex mathematical expressions
 #
-# NOTE: See MISSING_DSL_FEATURES.md for features used here that need implementation
+# SHOWCASES: Unicode unit superscripts (kg/m³, m/s², W/m², N/m², etc.)
 # NOTE: this is should be a recration of oldreference-project/crates/domains/terra/src/geophysics/crust.rs
 # =============================================================================
 # User-Defined Functions
@@ -72,6 +72,8 @@ config {
     core.initial_temp: 5500.0
     mantle.initial_temp: 1600.0
     surface.initial_temp: 288.0
+    surface.initial_heat_flow: 0.065
+    crust.initial_density: 2700.0
     crust.initial_elevation: 0.0
     crust.initial_pressure_base: 1e9
     crust.initial_temp_base: 1163.0
@@ -201,7 +203,7 @@ signal.planet.gravity_mu {
 
 # Surface gravity g = mu / R^2
 signal.planet.surface_gravity {
-    : Scalar<m, 1..50>
+    : Scalar<m/s², 1..50>
     : strata(genesis)
     : title("Surface Gravity")
 
@@ -275,9 +277,47 @@ signal.surface.temp {
     }
 }
 
+# Surface heat flow - showcasing W/m² Unicode superscript
+signal.surface.heat_flow {
+    : Scalar<W/m², 0.01..0.5>
+    : strata(thermal)
+    : title("Surface Heat Flow")
+    : symbol("q")
+
+    config {
+        baseline: 0.065
+        conductivity: 2.5
+    }
+
+    resolve {
+        # Heat flow = conductivity * (mantle_temp - surface_temp) / thickness
+        # Simplified: baseline + thermal contribution from mantle
+        let thermal_contribution = (signal.mantle.temp - signal.surface.temp) * 0.00001
+        clamp(config.surface.heat_flow.baseline + thermal_contribution + sum(inputs), 0.01, 0.5)
+    }
+}
+
 # =============================================================================
 # Crust Signals - Isostasy Implementation
 # =============================================================================
+
+# Crustal density - showcasing kg/m³ Unicode superscript
+signal.crust.density {
+    : Scalar<kg/m³, 2000..3500>
+    : strata(tectonics)
+    : title("Crustal Density")
+    : symbol("ρ_crust")
+
+    config {
+        continental: 2700.0
+        oceanic: 2900.0
+    }
+
+    resolve {
+        # Default to continental density, can be modified by inputs
+        clamp(prev + sum(inputs), 2000.0, 3500.0)
+    }
+}
 
 # Crustal thickness signal
 signal.crust.thickness {
@@ -418,7 +458,7 @@ signal.crust.elevation {
 
 # Lithostatic pressure at base: P = P_surface + rho * g * depth
 signal.crust.pressure_base {
-    : Scalar<Pa, 1e5..3e9>
+    : Scalar<kg/m/s², 1e5..3e9>
     : strata(tectonics)
     : title("Base Crustal Pressure")
 
@@ -463,7 +503,7 @@ signal.crust.moho_depth {
 # =============================================================================
 
 signal.tectonics.boundary_stress {
-    : Scalar<Pa, 0..1e9>
+    : Scalar<N/m², 0..1e9>
     : strata(tectonics)
     : title("Plate Boundary Stress")
 
@@ -590,7 +630,7 @@ field.thermal.mantle {
 }
 
 field.pressure.crustal {
-    : Scalar<Pa>
+    : Scalar<kg/m/s²>
     : strata(tectonics)
     : topology(point_cloud)
     : title("Crustal Pressure Field")
@@ -601,7 +641,7 @@ field.pressure.crustal {
 }
 
 field.stress.boundary {
-    : Scalar<Pa>
+    : Scalar<N/m²>
     : strata(tectonics)
     : topology(point_cloud)
     : title("Boundary Stress Field")
@@ -630,5 +670,29 @@ field.isostasy.elevation_field {
 
     measure {
         signal.isostasy.elevation
+    }
+}
+
+# Density field - showcasing kg/m³ Unicode superscript
+field.density.crustal {
+    : Scalar<kg/m³>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Crustal Density Field")
+
+    measure {
+        signal.crust.density
+    }
+}
+
+# Heat flow field - showcasing W/m² Unicode superscript
+field.thermal.heat_flow {
+    : Scalar<W/m²>
+    : strata(thermal)
+    : topology(point_cloud)
+    : title("Surface Heat Flow Field")
+
+    measure {
+        signal.surface.heat_flow
     }
 }

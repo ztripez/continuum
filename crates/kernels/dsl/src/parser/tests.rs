@@ -1,5 +1,5 @@
 use super::*;
-use crate::ast::{BinaryOp, Expr, Item, Literal};
+use crate::ast::{BinaryOp, Expr, Item, Literal, TypeExpr};
 
 #[test]
 fn test_parse_const_block() {
@@ -624,5 +624,107 @@ fn test_parse_fn_def_with_const_config() {
             assert_eq!(def.params.len(), 0);
         }
         _ => panic!("expected FnDef"),
+    }
+}
+
+#[test]
+fn test_parse_unicode_unit_superscripts() {
+    // Test various Unicode superscript units
+    let source = r#"
+        signal.test.density {
+            : Scalar<kg/m³>
+            resolve { 2700.0 }
+        }
+        signal.test.flux {
+            : Scalar<W/m²>
+            resolve { 100.0 }
+        }
+        signal.test.accel {
+            : Scalar<m/s²>
+            resolve { 9.81 }
+        }
+        signal.test.stefan {
+            : Scalar<W/m²/K⁴>
+            resolve { 5.67e-8 }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 4);
+
+    // Check each signal has the correct unit
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().unwrap();
+            match &ty.node {
+                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "kg/m³"),
+                _ => panic!("expected Scalar"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+
+    match &unit.items[1].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().unwrap();
+            match &ty.node {
+                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "W/m²"),
+                _ => panic!("expected Scalar"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+
+    match &unit.items[2].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().unwrap();
+            match &ty.node {
+                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "m/s²"),
+                _ => panic!("expected Scalar"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+
+    match &unit.items[3].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().unwrap();
+            match &ty.node {
+                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "W/m²/K⁴"),
+                _ => panic!("expected Scalar"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_unicode_unit_with_range() {
+    // Test Unicode units combined with ranges
+    let source = r#"
+        signal.test.density {
+            : Scalar<kg/m³, 1000..10000>
+            resolve { 2700.0 }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().unwrap();
+            match &ty.node {
+                TypeExpr::Scalar { unit, range } => {
+                    assert_eq!(unit, "kg/m³");
+                    let r = range.as_ref().unwrap();
+                    assert_eq!(r.min, 1000.0);
+                    assert_eq!(r.max, 10000.0);
+                }
+                _ => panic!("expected Scalar"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
     }
 }

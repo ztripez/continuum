@@ -11,7 +11,9 @@ use crate::ast::{
 };
 
 use super::expr::spanned_expr;
-use super::primitives::{float, ident, literal, optional_unit, spanned_path, string_lit, unit, ws};
+use super::primitives::{
+    float, ident, literal, optional_unit, spanned_path, string_lit, unit, unit_string, ws,
+};
 use super::ParseError;
 
 pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<'src>>> {
@@ -107,7 +109,7 @@ fn type_expr<'src>() -> impl Parser<'src, &'src str, TypeExpr, extra::Err<ParseE
             .ignore_then(
                 just('<')
                     .padded_by(ws())
-                    .ignore_then(ident())
+                    .ignore_then(unit_string())
                     .then(just(',').padded_by(ws()).ignore_then(range()).or_not())
                     .then_ignore(just('>').padded_by(ws())),
             )
@@ -120,7 +122,7 @@ fn type_expr<'src>() -> impl Parser<'src, &'src str, TypeExpr, extra::Err<ParseE
         .then(
             just('<')
                 .padded_by(ws())
-                .ignore_then(ident())
+                .ignore_then(unit_string())
                 .then_ignore(just('>').padded_by(ws())),
         )
         .map(|(dim, unit)| TypeExpr::Vector {

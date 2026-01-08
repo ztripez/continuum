@@ -96,6 +96,58 @@ pub fn unit<'src>() -> impl Parser<'src, &'src str, String, extra::Err<ParseErro
         .delimited_by(just('<'), just('>'))
 }
 
+/// Unit string content (without angle brackets): K, W/m², kg/m³
+/// Used in type expressions like Scalar<kg/m³, 0..1000>
+/// Accepts Unicode superscripts and common unit characters
+pub fn unit_string<'src>(
+) -> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
+    // Unit strings can contain:
+    // - Letters (a-z, A-Z)
+    // - Digits (0-9)
+    // - Unicode superscripts (⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺)
+    // - Division and multiplication (/, *, ·)
+    // - Degree symbol (°)
+    // - Common unit prefixes are just letters
+    // Stop at: comma, closing bracket, whitespace
+    any()
+        .filter(|c: &char| {
+            c.is_alphanumeric()
+                || *c == '/'
+                || *c == '*'
+                || *c == '·'
+                || *c == '°'
+                || *c == '-'
+                || *c == '_'
+                // Unicode superscripts
+                || *c == '⁰'
+                || *c == '¹'
+                || *c == '²'
+                || *c == '³'
+                || *c == '⁴'
+                || *c == '⁵'
+                || *c == '⁶'
+                || *c == '⁷'
+                || *c == '⁸'
+                || *c == '⁹'
+                || *c == '⁻'
+                || *c == '⁺'
+                // Unicode subscripts (less common but might be useful)
+                || *c == '₀'
+                || *c == '₁'
+                || *c == '₂'
+                || *c == '₃'
+                || *c == '₄'
+                || *c == '₅'
+                || *c == '₆'
+                || *c == '₇'
+                || *c == '₈'
+                || *c == '₉'
+        })
+        .repeated()
+        .at_least(1)
+        .collect::<String>()
+}
+
 /// Optional spanned unit
 pub fn optional_unit<'src>(
 ) -> impl Parser<'src, &'src str, Option<Spanned<String>>, extra::Err<ParseError<'src>>> + Clone {
