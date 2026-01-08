@@ -177,6 +177,11 @@ signal.planet.radius {
     resolve {
         config.planet.radius
     }
+
+    assert {
+        prev >= 1e6 : fatal, "Planet radius below minimum"
+        prev <= 1e8 : fatal, "Planet radius above maximum"
+    }
 }
 
 signal.planet.mass {
@@ -188,16 +193,26 @@ signal.planet.mass {
     resolve {
         config.planet.mass
     }
+
+    assert {
+        prev >= 1e22 : fatal, "Planet mass below minimum"
+        prev <= 1e28 : fatal, "Planet mass above maximum"
+    }
 }
 
 # Gravitational parameter mu = G * M
 signal.planet.gravity_mu {
-    : Scalar<m, 1e12..1e18>
+    : Scalar<m³/s², 1e12..1e18>
     : strata(genesis)
     : title("Gravitational Parameter")
 
     resolve {
         const.physics.gravitational * signal.planet.mass
+    }
+
+    assert {
+        prev >= 1e12 : fatal, "Gravitational parameter below minimum"
+        prev <= 1e18 : fatal, "Gravitational parameter above maximum"
     }
 }
 
@@ -209,6 +224,11 @@ signal.planet.surface_gravity {
 
     resolve {
         signal.planet.gravity_mu / (signal.planet.radius * signal.planet.radius)
+    }
+
+    assert {
+        prev >= 1.0 : warn, "Surface gravity unusually low"
+        prev <= 50.0 : warn, "Surface gravity unusually high"
     }
 }
 
@@ -258,6 +278,11 @@ signal.mantle.temp {
         let core_coupling = (signal.core.temp - prev) * config.mantle.temp.core_coupling_factor
         clamp(prev + core_coupling + sum(inputs), config.mantle.temp.min_temp, config.mantle.temp.max_temp)
     }
+
+    assert {
+        prev >= config.mantle.temp.min_temp : warn, "Mantle temperature below minimum"
+        prev <= config.mantle.temp.max_temp : warn, "Mantle temperature above maximum"
+    }
 }
 
 signal.surface.temp {
@@ -274,6 +299,11 @@ signal.surface.temp {
         # geothermal = gradient * 0.001 * initial_thickness / 1000
         # = 25 * 0.001 * 35000 / 1000 = 0.875 K
         const.thermal.surface_temp + const.surface.temp.geothermal_contribution + sum(inputs)
+    }
+
+    assert {
+        prev >= 50.0 : warn, "Surface temperature below habitable range"
+        prev <= 500.0 : warn, "Surface temperature above habitable range"
     }
 }
 
@@ -295,6 +325,11 @@ signal.surface.heat_flow {
         let thermal_contribution = (signal.mantle.temp - signal.surface.temp) * 0.00001
         clamp(config.surface.heat_flow.baseline + thermal_contribution + sum(inputs), 0.01, 0.5)
     }
+
+    assert {
+        prev >= 0.01 : warn, "Heat flow below realistic minimum"
+        prev <= 0.5 : warn, "Heat flow above realistic maximum"
+    }
 }
 
 # =============================================================================
@@ -311,11 +346,18 @@ signal.crust.density {
     config {
         continental: 2700.0
         oceanic: 2900.0
+        min: 2000.0
+        max: 3500.0
     }
 
     resolve {
         # Default to continental density, can be modified by inputs
-        clamp(prev + sum(inputs), 2000.0, 3500.0)
+        clamp(prev + sum(inputs), config.crust.density.min, config.crust.density.max)
+    }
+
+    assert {
+        prev >= config.crust.density.min : warn, "Crustal density below minimum"
+        prev <= config.crust.density.max : warn, "Crustal density above maximum"
     }
 }
 
@@ -350,12 +392,17 @@ signal.crust.total_thickness {
     resolve {
         signal.crust.thickness
     }
+
+    assert {
+        prev >= 0.0 : warn, "Total thickness cannot be negative"
+        prev <= 100000.0 : warn, "Total thickness exceeds maximum"
+    }
 }
 
 # Isostatic factor: 1 - (crust_density / mantle_density)
 # For Earth: (1 - 2700/3300) = 0.182
 signal.isostasy.factor {
-    : Scalar<m, 0..1>
+    : Scalar<1, 0..1>
     : strata(tectonics)
     : title("Isostatic Factor")
 
@@ -369,6 +416,11 @@ signal.isostasy.factor {
         # Using user-defined function for density contrast calculation
         isostasy.buoyancy_factor(config.isostasy.factor.crustal_density, config.isostasy.factor.mantle_density)
     }
+
+    assert {
+        prev >= 0.0 : warn, "Isostatic factor cannot be negative"
+        prev <= 1.0 : warn, "Isostatic factor cannot exceed 1"
+    }
 }
 
 # Reference level = factor * reference_thickness = 0.182 * 35000 = 6370 m
@@ -379,6 +431,11 @@ signal.isostasy.reference_level {
 
     resolve {
         signal.isostasy.factor * const.isostasy.reference_thickness
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Reference level cannot be negative"
+        prev <= 10000.0 : warn, "Reference level exceeds maximum"
     }
 }
 
@@ -391,6 +448,11 @@ signal.isostasy.elevation {
     resolve {
         # Using user-defined function for isostatic elevation
         isostasy.compute_elevation(signal.crust.thickness, signal.isostasy.factor, signal.isostasy.reference_level)
+    }
+
+    assert {
+        prev >= -15000.0 : warn, "Isostatic elevation below minimum"
+        prev <= 15000.0 : warn, "Isostatic elevation above maximum"
     }
 }
 
@@ -418,6 +480,11 @@ signal.topography.dynamic_offset {
             -const.topography.max_slab_depression,
             const.topography.max_plume_uplift
         )
+    }
+
+    assert {
+        prev >= -const.topography.max_slab_depression : warn, "Dynamic offset below slab depression limit"
+        prev <= const.topography.max_plume_uplift : warn, "Dynamic offset above plume uplift limit"
     }
 }
 
@@ -466,11 +533,18 @@ signal.crust.pressure_base {
     config {
         surface_pressure: 100000.0
         density: 2700.0
+        min: 1e5
+        max: 3e9
     }
 
     resolve {
         # Using user-defined function for lithostatic pressure
         pressure.lithostatic(config.crust.pressure_base.surface_pressure, config.crust.pressure_base.density, signal.planet.surface_gravity, signal.crust.thickness)
+    }
+
+    assert {
+        prev >= config.crust.pressure_base.min : warn, "Base pressure below minimum"
+        prev <= config.crust.pressure_base.max : warn, "Base pressure above maximum"
     }
 }
 
@@ -485,6 +559,11 @@ signal.crust.temp_base {
         # depth_km = thickness / 1000
         thermal.geothermal_temp(const.thermal.surface_temp, const.thermal.gradient, signal.crust.thickness / 1000.0)
     }
+
+    assert {
+        prev >= 300.0 : warn, "Base temperature below minimum"
+        prev <= 1500.0 : warn, "Base temperature above maximum"
+    }
 }
 
 # Moho depth
@@ -495,6 +574,11 @@ signal.crust.moho_depth {
 
     resolve {
         signal.crust.thickness
+    }
+
+    assert {
+        prev >= 3000.0 : warn, "Moho depth below minimum crustal thickness"
+        prev <= 80000.0 : warn, "Moho depth above maximum crustal thickness"
     }
 }
 
@@ -521,6 +605,11 @@ signal.tectonics.boundary_stress {
         let thermal_stress = abs(signal.mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor
         let thickness_stress = abs(signal.crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor
         clamp(prev + thermal_stress + thickness_stress + sum(inputs), 0.0, config.tectonics.boundary_stress.max_stress)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Boundary stress cannot be negative"
+        prev <= config.tectonics.boundary_stress.max_stress : warn, "Boundary stress exceeds maximum"
     }
 }
 
