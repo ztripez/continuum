@@ -4,7 +4,7 @@
 
 use indexmap::IndexMap;
 
-use crate::types::{SignalId, Value};
+use crate::types::{FieldId, SignalId, Value};
 
 /// Storage for signal values across ticks
 #[derive(Debug, Default)]
@@ -98,6 +98,62 @@ impl FractureQueue {
         for (id, value) in self.queue.drain(..) {
             channels.accumulate(&id, value);
         }
+    }
+}
+
+/// A single field sample (position + value)
+#[derive(Debug, Clone)]
+pub struct FieldSample {
+    /// Position in field's coordinate space
+    pub position: [f64; 3],
+    /// Sample value
+    pub value: Value,
+}
+
+/// Storage for field samples emitted during Measure phase
+#[derive(Debug, Default)]
+pub struct FieldBuffer {
+    /// Samples per field, collected during Measure phase
+    samples: IndexMap<FieldId, Vec<FieldSample>>,
+}
+
+impl FieldBuffer {
+    /// Emit a sample to a field
+    pub fn emit(&mut self, field: FieldId, position: [f64; 3], value: Value) {
+        self.samples
+            .entry(field)
+            .or_default()
+            .push(FieldSample { position, value });
+    }
+
+    /// Emit a scalar sample (convenience for point values)
+    pub fn emit_scalar(&mut self, field: FieldId, value: f64) {
+        self.emit(field, [0.0, 0.0, 0.0], Value::Scalar(value));
+    }
+
+    /// Get samples for a field
+    pub fn get_samples(&self, field: &FieldId) -> Option<&[FieldSample]> {
+        self.samples.get(field).map(|v| v.as_slice())
+    }
+
+    /// Drain all samples (for observer consumption)
+    pub fn drain(&mut self) -> IndexMap<FieldId, Vec<FieldSample>> {
+        std::mem::take(&mut self.samples)
+    }
+
+    /// Clear all samples
+    pub fn clear(&mut self) {
+        self.samples.clear();
+    }
+
+    /// Check if any samples exist
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
+    }
+
+    /// Get field IDs with samples
+    pub fn field_ids(&self) -> impl Iterator<Item = &FieldId> {
+        self.samples.keys()
     }
 }
 

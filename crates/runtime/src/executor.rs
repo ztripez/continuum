@@ -9,7 +9,7 @@ use tracing::{debug, error, info, instrument, trace};
 
 use crate::dag::{DagSet, NodeKind};
 use crate::error::{Error, Result};
-use crate::storage::{FractureQueue, InputChannels, SignalStorage};
+use crate::storage::{FieldBuffer, FractureQueue, InputChannels, SignalStorage};
 use crate::types::{
     Dt, EraId, Phase, SignalId, StratumId, StratumState, TickContext, Value, WarmupConfig,
     WarmupResult,
@@ -29,6 +29,12 @@ pub type TransitionFn = Box<dyn Fn(&SignalStorage) -> Option<EraId> + Send + Syn
 
 /// Function that computes a warmup iteration for a signal
 pub type WarmupFn = Box<dyn Fn(&WarmupContext) -> Value + Send + Sync>;
+
+/// Function that executes a measure-phase operator
+pub type MeasureFn = Box<dyn Fn(&mut MeasureContext) + Send + Sync>;
+
+/// Function that applies an impulse with a typed payload
+pub type ImpulseFn = Box<dyn Fn(&ImpulseContext, &Value) + Send + Sync>;
 
 /// Context available to warmup functions
 pub struct WarmupContext<'a> {
@@ -70,6 +76,24 @@ pub struct FractureContext<'a> {
     pub dt: Dt,
 }
 
+/// Context available to measure operators
+pub struct MeasureContext<'a> {
+    /// Access to signals (current tick values, post-resolve)
+    pub signals: &'a SignalStorage,
+    /// Field buffer for emission
+    pub fields: &'a mut FieldBuffer,
+    /// Time step
+    pub dt: Dt,
+}
+
+/// Context available to impulse application
+pub struct ImpulseContext<'a> {
+    /// Access to signals (previous tick values)
+    pub signals: &'a SignalStorage,
+    /// Channel to write inputs
+    pub channels: &'a mut InputChannels,
+}
+
 /// Era configuration
 pub struct EraConfig {
     /// Time step for this era
@@ -86,6 +110,8 @@ pub struct Runtime {
     signals: SignalStorage,
     /// Input channels for Collect phase
     input_channels: InputChannels,
+    /// Field buffer for Measure phase
+    field_buffer: FieldBuffer,
     /// Fracture outputs queued for next tick
     fracture_queue: FractureQueue,
     /// Current tick number
@@ -100,8 +126,14 @@ pub struct Runtime {
     resolvers: Vec<ResolverFn>,
     /// Collect operator functions
     collect_ops: Vec<CollectFn>,
+    /// Measure operator functions
+    measure_ops: Vec<MeasureFn>,
     /// Fracture functions
     fractures: Vec<FractureFn>,
+    /// Impulse handler functions
+    impulse_handlers: Vec<ImpulseFn>,
+    /// Pending impulses to apply in next Collect phase (handler_idx, payload)
+    pending_impulses: Vec<(usize, Value)>,
     /// Warmup functions indexed by signal
     warmup_fns: Vec<(SignalId, WarmupFn, WarmupConfig)>,
     /// Whether warmup has been executed
@@ -119,6 +151,7 @@ impl Runtime {
         Self {
             signals: SignalStorage::default(),
             input_channels: InputChannels::default(),
+            field_buffer: FieldBuffer::default(),
             fracture_queue: FractureQueue::default(),
             tick: 0,
             current_era: initial_era,
@@ -126,7 +159,10 @@ impl Runtime {
             dags,
             resolvers: Vec::new(),
             collect_ops: Vec::new(),
+            measure_ops: Vec::new(),
             fractures: Vec::new(),
+            impulse_handlers: Vec::new(),
+            pending_impulses: Vec::new(),
             warmup_fns: Vec::new(),
             warmup_complete: false,
         }
@@ -151,6 +187,26 @@ impl Runtime {
         let idx = self.fractures.len();
         self.fractures.push(fracture);
         idx
+    }
+
+    /// Register a measure operator, returns its index
+    pub fn register_measure_op(&mut self, op: MeasureFn) -> usize {
+        let idx = self.measure_ops.len();
+        self.measure_ops.push(op);
+        idx
+    }
+
+    /// Register an impulse handler, returns its index
+    pub fn register_impulse(&mut self, handler: ImpulseFn) -> usize {
+        let idx = self.impulse_handlers.len();
+        self.impulse_handlers.push(handler);
+        idx
+    }
+
+    /// Inject an impulse to be applied in the next tick's Collect phase
+    pub fn inject_impulse(&mut self, handler_idx: usize, payload: Value) {
+        debug!(handler_idx, ?payload, "impulse injected");
+        self.pending_impulses.push((handler_idx, payload));
     }
 
     /// Register a warmup function for a signal
@@ -183,6 +239,16 @@ impl Runtime {
     /// Check if warmup has been executed
     pub fn is_warmup_complete(&self) -> bool {
         self.warmup_complete
+    }
+
+    /// Get access to the field buffer (for observer consumption)
+    pub fn field_buffer(&self) -> &FieldBuffer {
+        &self.field_buffer
+    }
+
+    /// Drain the field buffer (for observer consumption)
+    pub fn drain_fields(&mut self) -> indexmap::IndexMap<crate::types::FieldId, Vec<crate::storage::FieldSample>> {
+        self.field_buffer.drain()
     }
 
     /// Execute warmup phase (pre-causal equilibration)
@@ -359,6 +425,9 @@ impl Runtime {
         // Phase 4: Fracture
         self.execute_fracture_phase(dt)?;
 
+        // Phase 5: Measure
+        self.execute_measure_phase(&strata_states, dt)?;
+
         // Post-tick: check era transitions
         self.check_era_transition()?;
 
@@ -377,6 +446,18 @@ impl Runtime {
         strata_states: &HashMap<StratumId, StratumState>,
         dt: Dt,
     ) -> Result<()> {
+        // Apply pending impulses first
+        let impulses = std::mem::take(&mut self.pending_impulses);
+        for (handler_idx, payload) in impulses {
+            let handler = &self.impulse_handlers[handler_idx];
+            let mut ctx = ImpulseContext {
+                signals: &self.signals,
+                channels: &mut self.input_channels,
+            };
+            trace!(handler_idx, "applying impulse");
+            handler(&mut ctx, &payload);
+        }
+
         let era_dags = self.dags.get_era(&self.current_era).unwrap();
 
         for dag in era_dags.for_phase(Phase::Collect) {
@@ -515,6 +596,51 @@ impl Runtime {
                                 self.fracture_queue.queue(signal, value);
                             }
                         }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[instrument(skip_all, name = "measure")]
+    fn execute_measure_phase(
+        &mut self,
+        strata_states: &HashMap<StratumId, StratumState>,
+        dt: Dt,
+    ) -> Result<()> {
+        let era_dags = self.dags.get_era(&self.current_era).unwrap();
+
+        for dag in era_dags.for_phase(Phase::Measure) {
+            let stratum_state = strata_states
+                .get(&dag.stratum)
+                .copied()
+                .unwrap_or(StratumState::Active);
+
+            if !stratum_state.is_eligible(self.tick) {
+                trace!(stratum = %dag.stratum, "stratum gated");
+                continue;
+            }
+
+            trace!(stratum = %dag.stratum, nodes = dag.node_count(), "measuring stratum");
+
+            for level in &dag.levels {
+                for node in &level.nodes {
+                    match &node.kind {
+                        NodeKind::OperatorMeasure { operator_idx } => {
+                            let op = &self.measure_ops[*operator_idx];
+                            let mut ctx = MeasureContext {
+                                signals: &self.signals,
+                                fields: &mut self.field_buffer,
+                                dt,
+                            };
+                            op(&mut ctx);
+                        }
+                        NodeKind::FieldEmit { field_idx: _ } => {
+                            // FieldEmit nodes are placeholders for dependency tracking
+                            // The actual emission happens via MeasureContext.fields.emit()
+                        }
+                        _ => {}
                     }
                 }
             }
@@ -825,5 +951,93 @@ mod tests {
 
         assert!((a_val - 50.0).abs() < 1.0);
         assert!((b_val - 50.0).abs() < 1.0);
+    }
+
+    #[test]
+    fn test_measure_phase_field_emission() {
+        use crate::types::FieldId;
+
+        let era_id: EraId = "test".into();
+        let stratum_id: StratumId = "default".into();
+        let signal_id: SignalId = "temperature".into();
+        let field_id: FieldId = "temp_field".into();
+
+        // Build DAG for Resolve phase
+        let mut resolve_builder = DagBuilder::new(Phase::Resolve, stratum_id.clone());
+        resolve_builder.add_node(DagNode {
+            id: NodeId("temp_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(signal_id.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_id.clone(),
+                resolver_idx: 0,
+            },
+        });
+        let resolve_dag = resolve_builder.build().unwrap();
+
+        // Build DAG for Measure phase
+        let mut measure_builder = DagBuilder::new(Phase::Measure, stratum_id.clone());
+        measure_builder.add_node(DagNode {
+            id: NodeId("temp_measure".to_string()),
+            reads: [signal_id.clone()].into_iter().collect(),
+            writes: None,
+            kind: NodeKind::OperatorMeasure { operator_idx: 0 },
+        });
+        let measure_dag = measure_builder.build().unwrap();
+
+        let mut era_dags = EraDags::default();
+        era_dags.insert(resolve_dag);
+        era_dags.insert(measure_dag);
+
+        let mut dags = DagSet::default();
+        dags.insert_era(era_id.clone(), era_dags);
+
+        let mut strata = HashMap::new();
+        strata.insert(stratum_id, StratumState::Active);
+        let era_config = EraConfig {
+            dt: Dt(1.0),
+            strata,
+            transition: None,
+        };
+
+        let mut eras = HashMap::new();
+        eras.insert(era_id.clone(), era_config);
+
+        let mut runtime = Runtime::new(era_id, eras, dags);
+
+        // Register resolver: temperature increments by 10 each tick
+        runtime.register_resolver(Box::new(|ctx| {
+            let prev = ctx.prev.as_scalar().unwrap_or(0.0);
+            Value::Scalar(prev + 10.0)
+        }));
+
+        // Register measure operator: emit temperature to field
+        let signal_id_clone = signal_id.clone();
+        let field_id_clone = field_id.clone();
+        runtime.register_measure_op(Box::new(move |ctx| {
+            let temp = ctx.signals.get(&signal_id_clone).unwrap().as_scalar().unwrap();
+            ctx.fields.emit_scalar(field_id_clone.clone(), temp);
+        }));
+
+        runtime.init_signal(signal_id, Value::Scalar(100.0));
+
+        // Execute tick
+        runtime.execute_tick().unwrap();
+
+        // Check field buffer has the emitted value
+        let samples = runtime.field_buffer().get_samples(&field_id).unwrap();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].value.as_scalar(), Some(110.0));
+
+        // Drain and verify empty
+        let drained = runtime.drain_fields();
+        assert_eq!(drained.len(), 1);
+        assert!(runtime.field_buffer().is_empty());
+
+        // Execute another tick
+        runtime.execute_tick().unwrap();
+
+        let samples = runtime.field_buffer().get_samples(&field_id).unwrap();
+        assert_eq!(samples[0].value.as_scalar(), Some(120.0));
     }
 }
