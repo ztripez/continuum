@@ -45,7 +45,7 @@ impl StratumState {
     pub fn is_eligible(&self, tick: u64) -> bool {
         match self {
             StratumState::Active => true,
-            StratumState::ActiveWithStride(stride) => tick % (*stride as u64) == 0,
+            StratumState::ActiveWithStride(stride) => tick.is_multiple_of(*stride as u64),
             StratumState::Gated => false,
         }
     }

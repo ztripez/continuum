@@ -221,14 +221,14 @@ fn topological_levels(nodes: &[DagNode]) -> Result<Vec<Level>, CycleError> {
         // Find next level
         let mut next_level = Vec::new();
         for node in &current_level {
-            if let Some(ref signal) = node.writes {
-                if let Some(deps) = dependents.get(signal) {
-                    for dep in deps {
-                        let degree = in_degree.get_mut(&dep.id).unwrap();
-                        *degree -= 1;
-                        if *degree == 0 {
-                            next_level.push(*dep);
-                        }
+            if let Some(ref signal) = node.writes
+                && let Some(deps) = dependents.get(signal)
+            {
+                for dep in deps {
+                    let degree = in_degree.get_mut(&dep.id).unwrap();
+                    *degree -= 1;
+                    if *degree == 0 {
+                        next_level.push(*dep);
                     }
                 }
             }

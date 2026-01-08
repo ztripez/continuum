@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use rayon::prelude::*;
+use tracing::{debug, error, info, instrument, trace};
 
 use crate::dag::{DagSet, NodeKind};
 use crate::error::{Error, Result};
@@ -19,6 +20,9 @@ pub type CollectFn = Box<dyn Fn(&CollectContext) + Send + Sync>;
 
 /// Function that evaluates a fracture condition and emits
 pub type FractureFn = Box<dyn Fn(&FractureContext) -> Option<Vec<(SignalId, f64)>> + Send + Sync>;
+
+/// Function that evaluates era transition conditions
+pub type TransitionFn = Box<dyn Fn(&SignalStorage) -> Option<EraId> + Send + Sync>;
 
 /// Context available to resolver functions
 pub struct ResolveContext<'a> {
@@ -57,7 +61,7 @@ pub struct EraConfig {
     /// Stratum states in this era
     pub strata: HashMap<StratumId, StratumState>,
     /// Transition condition (returns Some(next_era) if should transition)
-    pub transition: Option<Box<dyn Fn(&SignalStorage) -> Option<EraId> + Send + Sync>>,
+    pub transition: Option<TransitionFn>,
 }
 
 /// Runtime state for a simulation
@@ -91,6 +95,7 @@ impl Runtime {
         eras: HashMap<EraId, EraConfig>,
         dags: DagSet,
     ) -> Self {
+        info!(era = %initial_era, "runtime created");
         Self {
             signals: SignalStorage::default(),
             input_channels: InputChannels::default(),
@@ -128,6 +133,7 @@ impl Runtime {
 
     /// Initialize a signal with a value
     pub fn init_signal(&mut self, id: SignalId, value: Value) {
+        debug!(signal = %id, ?value, "signal initialized");
         self.signals.init(id, value);
     }
 
@@ -147,7 +153,10 @@ impl Runtime {
     }
 
     /// Execute a single tick
+    #[instrument(skip(self), fields(tick = self.tick, era = %self.current_era))]
     pub fn execute_tick(&mut self) -> Result<TickContext> {
+        trace!("tick start");
+
         // Extract needed config values to avoid borrow issues
         let (dt, strata_states) = {
             let era_config = self
@@ -165,11 +174,9 @@ impl Runtime {
 
         // Verify era DAGs exist
         if !self.dags.eras.contains_key(&self.current_era) {
+            error!(era = %self.current_era, "era DAGs not found");
             return Err(Error::EraNotFound(self.current_era.clone()));
         }
-
-        // Phase 1: Configure (internal - prepare context)
-        // Already done above
 
         // Phase 2: Collect
         self.execute_collect_phase(&strata_states, dt)?;
@@ -180,8 +187,6 @@ impl Runtime {
         // Phase 4: Fracture
         self.execute_fracture_phase(dt)?;
 
-        // Phase 5: Measure (TODO: fields and chronicles)
-
         // Post-tick: check era transitions
         self.check_era_transition()?;
 
@@ -190,9 +195,11 @@ impl Runtime {
         self.fracture_queue.drain_into(&mut self.input_channels);
         self.tick += 1;
 
+        trace!("tick complete");
         Ok(ctx)
     }
 
+    #[instrument(skip_all, name = "collect")]
     fn execute_collect_phase(
         &mut self,
         strata_states: &HashMap<StratumId, StratumState>,
@@ -201,18 +208,18 @@ impl Runtime {
         let era_dags = self.dags.get_era(&self.current_era).unwrap();
 
         for dag in era_dags.for_phase(Phase::Collect) {
-            // Check if stratum is eligible this tick
             let stratum_state = strata_states
                 .get(&dag.stratum)
                 .copied()
                 .unwrap_or(StratumState::Active);
 
             if !stratum_state.is_eligible(self.tick) {
+                trace!(stratum = %dag.stratum, "stratum gated");
                 continue;
             }
 
-            // Execute levels sequentially, nodes within level could parallelize
-            // but collect ops mutate input_channels, so we serialize for now
+            trace!(stratum = %dag.stratum, nodes = dag.node_count(), "executing stratum");
+
             for level in &dag.levels {
                 for node in &level.nodes {
                     if let NodeKind::OperatorCollect { operator_idx } = &node.kind {
@@ -230,6 +237,7 @@ impl Runtime {
         Ok(())
     }
 
+    #[instrument(skip_all, name = "resolve")]
     fn execute_resolve_phase(
         &mut self,
         strata_states: &HashMap<StratumId, StratumState>,
@@ -244,10 +252,12 @@ impl Runtime {
                 .unwrap_or(StratumState::Active);
 
             if !stratum_state.is_eligible(self.tick) {
+                trace!(stratum = %dag.stratum, "stratum gated");
                 continue;
             }
 
-            // Execute levels sequentially
+            trace!(stratum = %dag.stratum, levels = dag.levels.len(), "resolving stratum");
+
             for level in &dag.levels {
                 // Collect signal IDs and drain inputs BEFORE parallel iteration
                 let signal_inputs: Vec<(SignalId, usize, f64)> = level
@@ -267,7 +277,7 @@ impl Runtime {
                     })
                     .collect();
 
-                // Now parallelize the actual resolution
+                // Parallelize resolution
                 let results: Vec<Result<(SignalId, Value)>> = signal_inputs
                     .par_iter()
                     .map(|(signal, resolver_idx, inputs)| {
@@ -287,24 +297,26 @@ impl Runtime {
                     })
                     .collect();
 
-                // Apply results (must be sequential to maintain determinism)
+                // Apply results sequentially for determinism
                 for result in results {
                     let (signal, value) = result?;
-                    // Validate value
                     if let Value::Scalar(v) = &value {
                         if v.is_nan() {
+                            error!(signal = %signal, "NaN result");
                             return Err(Error::NumericError {
                                 signal: signal.clone(),
                                 message: "NaN result".to_string(),
                             });
                         }
                         if v.is_infinite() {
+                            error!(signal = %signal, "infinite result");
                             return Err(Error::NumericError {
                                 signal: signal.clone(),
                                 message: "Infinite result".to_string(),
                             });
                         }
                     }
+                    trace!(signal = %signal, ?value, "signal resolved");
                     self.signals.set_current(signal, value);
                 }
             }
@@ -312,6 +324,7 @@ impl Runtime {
         Ok(())
     }
 
+    #[instrument(skip_all, name = "fracture")]
     fn execute_fracture_phase(&mut self, dt: Dt) -> Result<()> {
         let era_dags = self.dags.get_era(&self.current_era).unwrap();
 
@@ -325,6 +338,7 @@ impl Runtime {
                             dt,
                         };
                         if let Some(outputs) = fracture(&ctx) {
+                            debug!(outputs = outputs.len(), "fracture emitted");
                             for (signal, value) in outputs {
                                 self.fracture_queue.queue(signal, value);
                             }
@@ -338,13 +352,15 @@ impl Runtime {
 
     fn check_era_transition(&mut self) -> Result<()> {
         let era_config = self.eras.get(&self.current_era).unwrap();
-        if let Some(ref transition) = era_config.transition {
-            if let Some(next_era) = transition(&self.signals) {
-                if !self.eras.contains_key(&next_era) {
-                    return Err(Error::EraNotFound(next_era));
-                }
-                self.current_era = next_era;
+        if let Some(ref transition) = era_config.transition
+            && let Some(next_era) = transition(&self.signals)
+        {
+            if !self.eras.contains_key(&next_era) {
+                error!(era = %next_era, "transition to unknown era");
+                return Err(Error::EraNotFound(next_era));
             }
+            info!(from = %self.current_era, to = %next_era, "era transition");
+            self.current_era = next_era;
         }
         Ok(())
     }
