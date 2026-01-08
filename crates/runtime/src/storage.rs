@@ -16,11 +16,6 @@ pub struct SignalStorage {
 }
 
 impl SignalStorage {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Initialize a signal with a value
     pub fn init(&mut self, id: SignalId, value: Value) {
         self.previous.insert(id.clone(), value.clone());
         self.current.insert(id, value);
@@ -48,26 +43,15 @@ impl SignalStorage {
         self.current.insert(id, value);
     }
 
-    /// Advance to next tick
-    /// Signals that were resolved this tick have their new values in current.
-    /// Signals that were gated keep their previous values.
+    /// Advance to next tick. Gated signals keep their previous values.
     pub fn advance_tick(&mut self) {
-        // For each signal: if it was resolved this tick (in current),
-        // use that value; otherwise keep the previous value
-        let to_preserve: Vec<_> = self
-            .previous
-            .iter()
-            .filter(|(id, _)| !self.current.contains_key(*id))
-            .map(|(id, v)| (id.clone(), v.clone()))
-            .collect();
-
-        for (id, value) in to_preserve {
-            self.current.insert(id, value);
+        // Copy forward any signals not resolved this tick (gated strata)
+        for (id, value) in &self.previous {
+            if !self.current.contains_key(id) {
+                self.current.insert(id.clone(), value.clone());
+            }
         }
-
-        // Now swap - previous gets current (all resolved + preserved values)
         std::mem::swap(&mut self.previous, &mut self.current);
-        // Clear current for next tick
         self.current.clear();
     }
 
@@ -85,26 +69,15 @@ pub struct InputChannels {
 }
 
 impl InputChannels {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Accumulate a value into a signal's input channel
     pub fn accumulate(&mut self, id: &SignalId, value: f64) {
         self.channels.entry(id.clone()).or_default().push(value);
     }
 
-    /// Drain and sum all accumulated inputs for a signal
     pub fn drain_sum(&mut self, id: &SignalId) -> f64 {
         self.channels
             .shift_remove(id)
             .map(|values| values.iter().sum())
             .unwrap_or(0.0)
-    }
-
-    /// Clear all channels (called after Resolve)
-    pub fn clear(&mut self) {
-        self.channels.clear();
     }
 }
 
@@ -116,11 +89,6 @@ pub struct FractureQueue {
 }
 
 impl FractureQueue {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Queue a value to be applied next tick
     pub fn queue(&mut self, id: SignalId, value: f64) {
         self.queue.push((id, value));
     }
@@ -139,7 +107,7 @@ mod tests {
 
     #[test]
     fn test_signal_storage_tick_advance() {
-        let mut storage = SignalStorage::new();
+        let mut storage = SignalStorage::default();
         let id: SignalId = "test.signal".into();
 
         storage.init(id.clone(), Value::Scalar(1.0));
@@ -155,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_input_channels_accumulation() {
-        let mut channels = InputChannels::new();
+        let mut channels = InputChannels::default();
         let id: SignalId = "test.signal".into();
 
         channels.accumulate(&id, 1.0);

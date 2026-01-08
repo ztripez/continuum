@@ -92,9 +92,9 @@ impl Runtime {
         dags: DagSet,
     ) -> Self {
         Self {
-            signals: SignalStorage::new(),
-            input_channels: InputChannels::new(),
-            fracture_queue: FractureQueue::new(),
+            signals: SignalStorage::default(),
+            input_channels: InputChannels::default(),
+            fracture_queue: FractureQueue::default(),
             tick: 0,
             current_era: initial_era,
             eras,
@@ -376,10 +376,10 @@ mod tests {
         });
         let dag = builder.build().unwrap();
 
-        let mut era_dags = EraDags::new();
+        let mut era_dags = EraDags::default();
         era_dags.insert(dag);
 
-        let mut dags = DagSet::new();
+        let mut dags = DagSet::default();
         dags.insert_era(era_id.clone(), era_dags);
 
         // Create era config
@@ -444,10 +444,10 @@ mod tests {
         });
         let dag = builder.build().unwrap();
 
-        let mut era_dags = EraDags::new();
+        let mut era_dags = EraDags::default();
         era_dags.insert(dag);
 
-        let mut dags = DagSet::new();
+        let mut dags = DagSet::default();
         dags.insert_era(era_id.clone(), era_dags);
 
         // Stratum executes every 2 ticks

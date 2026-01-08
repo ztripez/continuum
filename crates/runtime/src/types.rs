@@ -3,95 +3,10 @@
 //! These types represent the execution model at runtime.
 //! They are populated from the compiled IR.
 
-use std::fmt;
-
-/// Unique identifier for a signal
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SignalId(pub String);
-
-impl fmt::Display for SignalId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<&str> for SignalId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-/// Unique identifier for a stratum
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct StratumId(pub String);
-
-impl fmt::Display for StratumId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<&str> for StratumId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-/// Unique identifier for an era
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct EraId(pub String);
-
-impl fmt::Display for EraId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-impl From<&str> for EraId {
-    fn from(s: &str) -> Self {
-        Self(s.to_string())
-    }
-}
-
-/// Unique identifier for a field
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FieldId(pub String);
-
-impl fmt::Display for FieldId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// Unique identifier for an operator
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct OperatorId(pub String);
-
-impl fmt::Display for OperatorId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// Unique identifier for an impulse
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ImpulseId(pub String);
-
-impl fmt::Display for ImpulseId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// Unique identifier for a fracture
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct FractureId(pub String);
-
-impl fmt::Display for FractureId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
+// Re-export foundational ID types
+pub use continuum_foundation::{
+    EraId, FieldId, FractureId, ImpulseId, OperatorId, SignalId, StratumId,
+};
 
 /// Execution phases in order
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

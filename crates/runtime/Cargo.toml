@@ -7,3 +7,4 @@ edition.workspace = true
 thiserror = "2"
 indexmap = "2"
 rayon = "1"
+continuum-foundation = { version = "0.1.0", path = "../foundation" }

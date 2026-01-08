@@ -1,0 +1,6 @@
+[package]
+name = "continuum-foundation"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]

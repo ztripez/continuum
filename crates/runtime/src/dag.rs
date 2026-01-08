@@ -91,11 +91,6 @@ pub struct EraDags {
 }
 
 impl EraDags {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert a DAG
     pub fn insert(&mut self, dag: ExecutableDag) {
         let key = (dag.phase, dag.stratum.clone());
         self.dags.insert(key, dag);
@@ -123,11 +118,6 @@ pub struct DagSet {
 }
 
 impl DagSet {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Insert DAGs for an era
     pub fn insert_era(&mut self, era: EraId, dags: EraDags) {
         self.eras.insert(era, dags);
     }
