@@ -54,10 +54,9 @@ A World is loaded from a directory.
 
 ### Fixed rules (not configurable)
 
-- The World root is the directory containing `world.yaml`
-- All other `*.yaml` files under the root are loaded recursively
-- YAML files are merged by overwrite, sorted by relative path
-- All `*.cdsl` files under the root are loaded recursively and compiled
+1. **Find root**: The World root is the directory containing `world.yaml`
+2. **Load YAML**: Glob all `*.yaml` under root (recursive), sort by path, merge (last wins)
+3. **Load DSL**: Glob all `*.cdsl` under root (recursive), sort by path, compile as single unit
 
 There are:
 - no include directives
@@ -66,28 +65,90 @@ There are:
 
 World structure is defined by the filesystem.
 
+### Example structures
+
+Organized by domain:
+```
+terra/
+  world.yaml
+  config/
+    physics.yaml
+    defaults.yaml
+  domains/
+    geophysics/
+      signals.cdsl
+      thermal.cdsl
+    atmosphere/
+      signals.cdsl
+      chemistry.cdsl
+  strata.cdsl
+  eras.cdsl
+```
+
+Or flat:
+```
+terra/
+  world.yaml
+  terra.cdsl
+```
+
+Both are valid. The engine only cares about sorted glob results.
+
 ---
 
-## 4. Responsibilities of `world.yaml`
+## 4. The `world.yaml` Manifest
+
+### Required structure
+
+```yaml
+apiVersion: continuum/v1
+kind: World
+
+metadata:
+  name: terra
+  title: "Earth Planetary Simulation"
+```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `apiVersion` | Yes | Engine compatibility version (`continuum/v1`) |
+| `kind` | Yes | Always `World` for world manifests |
+| `metadata.name` | Yes | Machine identifier (lowercase, no spaces) |
+| `metadata.title` | No | Human-readable name |
+
+### What `world.yaml` defines
 
 `world.yaml` defines **execution policy**, not simulation logic.
 
 It may define:
-- time strata
-- derived time unit configuration
-- eras (dt, gating, cadence)
-- era transitions (signal-only conditions)
-- determinism and fault policy
+- determinism policy
+- fault policy
+- engine feature flags
 
 It must not define:
 - signals
 - operators
 - fields
 - impulses
+- strata (defined in DSL)
+- eras (defined in DSL)
 - initial conditions
 - observer logic
 
 If logic or instantiation appears in `world.yaml`, the model is incorrect.
+
+### Additional YAML files
+
+Other `*.yaml` files under the world root are merged into the manifest.
+Use for organizing configuration:
+
+```yaml
+# config/physics.yaml
+metadata:
+  description: "Physics constants override"
+```
+
+Files are merged in sorted path order. Later files override earlier ones.
 
 ---
 
