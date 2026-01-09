@@ -4,7 +4,7 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId, StratumId};
+use continuum_foundation::{EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId};
 
 /// Compiled world ready for DAG construction
 #[derive(Debug)]
@@ -29,6 +29,8 @@ pub struct CompiledWorld {
     pub impulses: IndexMap<ImpulseId, CompiledImpulse>,
     /// Fracture definitions
     pub fractures: IndexMap<FractureId, CompiledFracture>,
+    /// Entity definitions
+    pub entities: IndexMap<EntityId, CompiledEntity>,
 }
 
 /// Compiled stratum
@@ -158,6 +160,46 @@ pub struct CompiledEmit {
     pub value: CompiledExpr,
 }
 
+/// Compiled entity - a collection of structured instances
+#[derive(Debug, Clone)]
+pub struct CompiledEntity {
+    pub id: EntityId,
+    pub stratum: StratumId,
+    /// Count source from config (e.g., "stellar.moon_count")
+    pub count_source: Option<String>,
+    /// Count validation bounds
+    pub count_bounds: Option<(u32, u32)>,
+    /// Schema fields for each instance
+    pub schema: Vec<CompiledSchemaField>,
+    /// Signals this entity reads
+    pub reads: Vec<SignalId>,
+    /// Entities this entity reads (for other(), cross-entity access)
+    pub entity_reads: Vec<EntityId>,
+    /// Resolution logic (executed per instance)
+    pub resolve: Option<CompiledExpr>,
+    /// Entity-level assertions
+    pub assertions: Vec<CompiledAssertion>,
+    /// Nested field definitions for observation
+    pub fields: Vec<CompiledEntityField>,
+}
+
+/// A field in an entity schema
+#[derive(Debug, Clone)]
+pub struct CompiledSchemaField {
+    pub name: String,
+    pub value_type: ValueType,
+}
+
+/// A field definition nested within an entity (for observation)
+#[derive(Debug, Clone)]
+pub struct CompiledEntityField {
+    pub name: String,
+    pub value_type: ValueType,
+    pub topology: TopologyIr,
+    /// The measure expression
+    pub measure: Option<CompiledExpr>,
+}
+
 /// Warmup configuration
 #[derive(Debug, Clone)]
 pub struct CompiledWarmup {
@@ -230,8 +272,8 @@ pub enum CompiledExpr {
     Prev,
     /// Raw dt value
     DtRaw,
-    /// Sum of inputs for this signal
-    SumInputs,
+    /// Collected/accumulated inputs from Collect phase
+    Collected,
     /// Reference to a signal
     Signal(SignalId),
     /// Reference to a constant
@@ -273,6 +315,79 @@ pub enum CompiledExpr {
     },
     /// Local variable reference
     Local(String),
+
+    // === Entity expressions ===
+
+    /// Access current entity instance field: self.mass
+    SelfField(String),
+
+    /// Access entity instance by ID: entity.moon["luna"].mass
+    EntityAccess {
+        entity: EntityId,
+        instance: InstanceId,
+        field: String,
+    },
+
+    /// Aggregate operation over entity instances: sum(entity.moon, self.mass)
+    Aggregate {
+        op: AggregateOpIr,
+        entity: EntityId,
+        body: Box<CompiledExpr>,
+    },
+
+    /// Other instances (self-exclusion): sum(other(entity.moon), ...)
+    /// Used within entity resolve for N-body interactions
+    Other {
+        entity: EntityId,
+        body: Box<CompiledExpr>,
+    },
+
+    /// Pairwise iteration: for (a, b) in pairs(entity.moon)
+    Pairs {
+        entity: EntityId,
+        body: Box<CompiledExpr>,
+    },
+
+    /// Filter entity instances: filter(entity.moon, self.mass > 1e20)
+    Filter {
+        entity: EntityId,
+        predicate: Box<CompiledExpr>,
+        body: Box<CompiledExpr>,
+    },
+
+    /// First matching instance: first(entity.plate, self.type == Continental)
+    First {
+        entity: EntityId,
+        predicate: Box<CompiledExpr>,
+    },
+
+    /// Nearest instance to position: nearest(entity.plate, position)
+    Nearest {
+        entity: EntityId,
+        position: Box<CompiledExpr>,
+    },
+
+    /// All instances within radius: within(entity.moon, pos, 1e9)
+    Within {
+        entity: EntityId,
+        position: Box<CompiledExpr>,
+        radius: Box<CompiledExpr>,
+        body: Box<CompiledExpr>,
+    },
+}
+
+/// Aggregate operations over entity instances
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregateOpIr {
+    Sum,
+    Product,
+    Min,
+    Max,
+    Mean,
+    Count,
+    Any,
+    All,
+    None,
 }
 
 /// Binary operators

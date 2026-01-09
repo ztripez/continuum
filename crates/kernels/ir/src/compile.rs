@@ -358,6 +358,7 @@ mod tests {
             operators: IndexMap::new(),
             impulses: IndexMap::new(),
             fractures: IndexMap::new(),
+            entities: IndexMap::new(),
         };
 
         let result = compile(&world).unwrap();

@@ -592,6 +592,7 @@ mod tests {
             operators: IndexMap::new(),
             impulses: IndexMap::new(),
             fractures: IndexMap::new(),
+            entities: IndexMap::new(),
         };
 
         // Create a fracture that triggers when temp > 100 and emits to energy

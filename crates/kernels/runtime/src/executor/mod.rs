@@ -693,7 +693,7 @@ mod tests {
 
         let mut runtime = Runtime::new(era_id, eras, dags);
 
-        // Register resolver: prev + sum(inputs)
+        // Register resolver: prev + collected
         runtime.register_resolver(Box::new(|ctx| {
             let prev = ctx.prev.as_scalar().unwrap_or(0.0);
             Value::Scalar(prev + ctx.inputs)

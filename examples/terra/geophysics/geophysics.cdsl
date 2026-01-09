@@ -224,7 +224,7 @@ signal.rotation.state {
         # Phase advances with angular velocity
         # phase += omega * dt
         let phase = prev.x + prev.y * dt_raw in
-        let omega = prev.y + sum(inputs) in
+        let omega = prev.y + collected in
         vec2(mod(phase, 6.283185307), omega)
     }
 
@@ -249,7 +249,7 @@ signal.rotation.spin_axis {
     resolve {
         # Spin axis from obliquity (theta from +Y) and precession (phi around Y)
         # For Earth: obliquity ~23.4 deg = 0.409 rad
-        prev + sum(inputs)
+        prev + collected
     }
 
     assert {
@@ -272,7 +272,7 @@ signal.core.temp {
     }
 
     resolve {
-        decay(prev, config.core.temp.decay_halflife) + sum(inputs)
+        decay(prev, config.core.temp.decay_halflife) + collected
     }
 
     assert {
@@ -297,7 +297,7 @@ signal.core.heat_power {
     resolve {
         # Radiogenic decay reduces heat production over time
         # Earth's core heat flow is ~2-6 TW
-        decay(prev, config.core.heat_power.radiogenic_halflife_gyr * 3.1536e16) + sum(inputs)
+        decay(prev, config.core.heat_power.radiogenic_halflife_gyr * 3.1536e16) + collected
     }
 
     assert {
@@ -321,7 +321,7 @@ signal.mantle.heat_content {
     resolve {
         # Heat content changes with net power input: dQ/dt = P_in
         # Earth's mantle: mass ~4e24 kg, Cp ~1200 J/kg/K, T ~1600K = 8e30 J
-        prev + signal.core.heat_power * dt_raw + sum(inputs)
+        prev + signal.core.heat_power * dt_raw + collected
     }
 
     assert {
@@ -343,7 +343,7 @@ signal.mantle.temp {
 
     resolve {
         let core_coupling = (signal.core.temp - prev) * config.mantle.temp.core_coupling_factor in
-        clamp(prev + core_coupling + sum(inputs), config.mantle.temp.min_temp, config.mantle.temp.max_temp)
+        clamp(prev + core_coupling + collected, config.mantle.temp.min_temp, config.mantle.temp.max_temp)
     }
 
     assert {
@@ -362,7 +362,7 @@ signal.surface.temp {
     }
 
     resolve {
-        const.thermal.surface_temp + const.surface.temp.geothermal_contribution + sum(inputs)
+        const.thermal.surface_temp + const.surface.temp.geothermal_contribution + collected
     }
 
     assert {
@@ -384,7 +384,7 @@ signal.surface.heat_flow {
 
     resolve {
         let thermal_contribution = (signal.mantle.temp - signal.surface.temp) * 0.00001 in
-        clamp(config.surface.heat_flow.baseline + thermal_contribution + sum(inputs), 0.01, 0.5)
+        clamp(config.surface.heat_flow.baseline + thermal_contribution + collected, 0.01, 0.5)
     }
 
     assert {
@@ -411,7 +411,7 @@ signal.crust.density {
     }
 
     resolve {
-        clamp(prev + sum(inputs), config.crust.density.min, config.crust.density.max)
+        clamp(prev + collected, config.crust.density.min, config.crust.density.max)
     }
 
     assert {
@@ -432,7 +432,7 @@ signal.crust.thickness {
     }
 
     resolve {
-        clamp(prev + sum(inputs), config.crust.thickness.min, config.crust.thickness.max)
+        clamp(prev + collected, config.crust.thickness.min, config.crust.thickness.max)
     }
 
     assert {
@@ -525,7 +525,7 @@ signal.topography.dynamic_offset {
         let thermal_gradient = (signal.mantle.temp - const.thermal.mantle_temp) / 1000.0 in
         let uplift = thermal_gradient * const.topography.max_plume_uplift * config.topography.dynamic_offset.flow_coupling * config.topography.dynamic_offset.uplift_scale in
         clamp(
-            prev + uplift + sum(inputs),
+            prev + uplift + collected,
             -const.topography.max_slab_depression,
             const.topography.max_plume_uplift
         )
@@ -554,7 +554,7 @@ signal.crust.elevation {
 
     resolve {
         clamp(
-            signal.isostasy.elevation + signal.topography.dynamic_offset + sum(inputs),
+            signal.isostasy.elevation + signal.topography.dynamic_offset + collected,
             -config.crust.elevation.max_depth,
             config.crust.elevation.max_height
         )
@@ -643,7 +643,7 @@ signal.tectonics.boundary_stress {
     resolve {
         let thermal_stress = abs(signal.mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor in
         let thickness_stress = abs(signal.crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor in
-        clamp(prev + thermal_stress + thickness_stress + sum(inputs), 0.0, config.tectonics.boundary_stress.max_stress)
+        clamp(prev + thermal_stress + thickness_stress + collected, 0.0, config.tectonics.boundary_stress.max_stress)
     }
 
     assert {
@@ -665,7 +665,7 @@ signal.tectonics.activity {
 
     resolve {
         # Activity index normalized to 1.0 for Earth-like tectonics
-        let raw_shear = sum(inputs) in
+        let raw_shear = collected in
         if raw_shear > 0.0 {
             raw_shear / config.tectonics.activity.reference_shear
         } else {
@@ -686,7 +686,7 @@ signal.tectonics.plate_count {
     : title("Plate Count")
 
     resolve {
-        clamp(prev + sum(inputs), 0.0, 64.0)
+        clamp(prev + collected, 0.0, 64.0)
     }
 
     assert {
@@ -703,7 +703,7 @@ signal.mantle.viscosity {
     : symbol("eta")
 
     resolve {
-        prev + sum(inputs)
+        prev + collected
     }
 
     assert {

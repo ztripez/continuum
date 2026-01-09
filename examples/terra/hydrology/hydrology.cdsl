@@ -117,7 +117,7 @@ signal.hydrology.water_mass {
         # Water budget: precipitation - evaporation + external inputs
         let evap_loss = signal.hydrology.evaporation_rate * dt_raw * 5.1e14 in  # Earth surface area
         let precip_gain = signal.hydrology.precipitation_rate * dt_raw * 5.1e14 in
-        clamp(prev + precip_gain - evap_loss + sum(inputs), config.hydrology.water_mass.min, config.hydrology.water_mass.max)
+        clamp(prev + precip_gain - evap_loss + collected, config.hydrology.water_mass.min, config.hydrology.water_mass.max)
     }
 
     assert {
@@ -145,11 +145,11 @@ signal.hydrology.ice_mass {
 
         if phase < 0.5 {
             # Freezing conditions - ice can accumulate
-            prev + sum(inputs)
+            prev + collected
         } else {
             # Melting/sublimation conditions
             let sublimation = config.hydrology.ice_mass.sublimation_rate * dt_raw * 1e13 in
-            max(prev - sublimation + sum(inputs), 0.0)
+            max(prev - sublimation + collected, 0.0)
         }
     }
 
@@ -186,10 +186,10 @@ signal.hydrology.evaporation_rate {
             let q_sat = 0.622 * e_sat / 101325.0 in  # Mixing ratio at saturation
             let q_air = q_sat * 0.6 in                # Assume 60% RH
             let evap = config.hydrology.evaporation_rate.bulk_transfer * config.hydrology.evaporation_rate.wind_speed * (q_sat - q_air) * 1.2 in
-            clamp(evap + sum(inputs), config.hydrology.evaporation_rate.min, config.hydrology.evaporation_rate.max)
+            clamp(evap + collected, config.hydrology.evaporation_rate.min, config.hydrology.evaporation_rate.max)
         } else {
             # Ice or vapor - reduced/no evaporation
-            sum(inputs)
+            collected
         }
     }
 
@@ -219,7 +219,7 @@ signal.hydrology.precipitation_rate {
         # Precipitation depends on water vapor availability
         let water_vapor = signal.atmosphere.water_vapor in
         let precip = config.hydrology.precipitation_rate.base_rate + water_vapor * config.hydrology.precipitation_rate.water_vapor_sensitivity in
-        clamp(precip + sum(inputs), config.hydrology.precipitation_rate.min, config.hydrology.precipitation_rate.max)
+        clamp(precip + collected, config.hydrology.precipitation_rate.min, config.hydrology.precipitation_rate.max)
     }
 
     assert {
@@ -250,7 +250,7 @@ signal.hydrology.runoff_accumulation {
         let net_water = max(precip - evap, 0.0) in
         let runoff = net_water * config.hydrology.runoff_accumulation.coefficient * 5.1e14 in
 
-        clamp(runoff + sum(inputs), config.hydrology.runoff_accumulation.min, config.hydrology.runoff_accumulation.max)
+        clamp(runoff + collected, config.hydrology.runoff_accumulation.min, config.hydrology.runoff_accumulation.max)
     }
 
     assert {
@@ -281,7 +281,7 @@ signal.hydrology.sediment_load {
         let erosion = runoff * config.hydrology.sediment_load.erosion_rate * dt_raw / 1e12 in
         let deposition = prev * config.hydrology.sediment_load.deposition_rate * dt_raw in
 
-        clamp(prev + erosion - deposition + sum(inputs), 0.0, config.hydrology.sediment_load.max_load)
+        clamp(prev + erosion - deposition + collected, 0.0, config.hydrology.sediment_load.max_load)
     }
 
     assert {
@@ -317,7 +317,7 @@ signal.hydrology.chemical_weathering {
         let runoff_factor = 1.0 + runoff * config.hydrology.chemical_weathering.runoff_sensitivity in
         let co2_factor = 1.0 + (co2 - 280.0) * config.hydrology.chemical_weathering.co2_sensitivity in
 
-        clamp(config.hydrology.chemical_weathering.base_rate * temp_factor * runoff_factor * co2_factor + sum(inputs), 0.0, 1.0)
+        clamp(config.hydrology.chemical_weathering.base_rate * temp_factor * runoff_factor * co2_factor + collected, 0.0, 1.0)
     }
 
     assert {

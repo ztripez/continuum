@@ -113,6 +113,34 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                     }
                 }
             }
+            Item::EntityDef(entity) => {
+                // Check entity resolve block for dt_raw usage
+                if let Some(resolve) = &entity.resolve {
+                    if uses_dt_raw(&resolve.body.node) {
+                        errors.push(ValidationError {
+                            message: format!(
+                                "entity '{}' uses dt_raw which is not allowed in entity resolve blocks",
+                                entity.path.node
+                            ),
+                            span: resolve.body.span.clone(),
+                        });
+                    }
+                }
+                // Check entity field measure blocks
+                for field in &entity.fields {
+                    if let Some(measure) = &field.measure {
+                        if uses_dt_raw(&measure.body.node) {
+                            errors.push(ValidationError {
+                                message: format!(
+                                    "entity field '{}.{}' uses dt_raw which is not allowed in measure blocks",
+                                    entity.path.node, field.name.node
+                                ),
+                                span: measure.body.span.clone(),
+                            });
+                        }
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -165,6 +193,16 @@ fn collect_unknown_functions(
         }
         Item::FnDef(f) => {
             check_expr_for_unknown_functions(&f.body, user_functions, errors);
+        }
+        Item::EntityDef(entity) => {
+            if let Some(resolve) = &entity.resolve {
+                check_expr_for_unknown_functions(&resolve.body, user_functions, errors);
+            }
+            for field in &entity.fields {
+                if let Some(measure) = &field.measure {
+                    check_expr_for_unknown_functions(&measure.body, user_functions, errors);
+                }
+            }
         }
         _ => {}
     }
@@ -266,6 +304,29 @@ fn check_expr_for_unknown_functions(
             check_expr_for_unknown_functions(init, user_functions, errors);
             check_expr_for_unknown_functions(function, user_functions, errors);
         }
+        // Entity expressions
+        Expr::SelfField(_) | Expr::EntityRef(_) | Expr::Other(_) | Expr::Pairs(_) => {}
+        Expr::EntityAccess { instance, .. } => {
+            check_expr_for_unknown_functions(instance, user_functions, errors);
+        }
+        Expr::Aggregate { body, .. } => {
+            check_expr_for_unknown_functions(body, user_functions, errors);
+        }
+        Expr::Filter { predicate, .. } => {
+            check_expr_for_unknown_functions(predicate, user_functions, errors);
+        }
+        Expr::First { predicate, .. } => {
+            check_expr_for_unknown_functions(predicate, user_functions, errors);
+        }
+        Expr::Nearest { position, .. } => {
+            check_expr_for_unknown_functions(position, user_functions, errors);
+        }
+        Expr::Within {
+            position, radius, ..
+        } => {
+            check_expr_for_unknown_functions(position, user_functions, errors);
+            check_expr_for_unknown_functions(radius, user_functions, errors);
+        }
         // These don't contain function calls
         Expr::Literal(_)
         | Expr::LiteralWithUnit { .. }
@@ -279,7 +340,7 @@ fn check_expr_for_unknown_functions(
         | Expr::ConstRef(_)
         | Expr::ConfigRef(_)
         | Expr::FieldRef(_)
-        | Expr::SumInputs
+        | Expr::Collected
         | Expr::MathConst(_) => {}
     }
 }
@@ -332,6 +393,16 @@ fn uses_dt_raw(expr: &Expr) -> bool {
                 || uses_dt_raw(&init.node)
                 || uses_dt_raw(&function.node)
         }
+        // Entity expressions
+        Expr::SelfField(_) | Expr::EntityRef(_) | Expr::Other(_) | Expr::Pairs(_) => false,
+        Expr::EntityAccess { instance, .. } => uses_dt_raw(&instance.node),
+        Expr::Aggregate { body, .. } => uses_dt_raw(&body.node),
+        Expr::Filter { predicate, .. } => uses_dt_raw(&predicate.node),
+        Expr::First { predicate, .. } => uses_dt_raw(&predicate.node),
+        Expr::Nearest { position, .. } => uses_dt_raw(&position.node),
+        Expr::Within {
+            position, radius, ..
+        } => uses_dt_raw(&position.node) || uses_dt_raw(&radius.node),
         // These don't contain dt_raw
         Expr::Literal(_)
         | Expr::LiteralWithUnit { .. }
@@ -344,7 +415,7 @@ fn uses_dt_raw(expr: &Expr) -> bool {
         | Expr::ConstRef(_)
         | Expr::ConfigRef(_)
         | Expr::FieldRef(_)
-        | Expr::SumInputs
+        | Expr::Collected
         | Expr::MathConst(_) => false,
     }
 }

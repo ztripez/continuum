@@ -1,10 +1,14 @@
-//! Signal storage
+//! Signal and entity storage
 //!
 //! Manages current and previous tick values, plus input channel accumulation.
 
 use indexmap::IndexMap;
 
-use crate::types::{FieldId, SignalId, Value};
+use crate::types::{EntityId, FieldId, InstanceId, SignalId, Value};
+
+// Type aliases for clarity in complex closures
+type EntityInstancesRef<'a> = &'a EntityInstances;
+type InstanceDataRef<'a> = &'a InstanceData;
 
 /// Storage for signal values across ticks
 #[derive(Debug, Default)]
@@ -154,6 +158,194 @@ impl FieldBuffer {
     /// Get field IDs with samples
     pub fn field_ids(&self) -> impl Iterator<Item = &FieldId> {
         self.samples.keys()
+    }
+}
+
+/// Data for a single entity instance
+#[derive(Debug, Clone, Default)]
+pub struct InstanceData {
+    /// Field values for this instance
+    pub fields: IndexMap<String, Value>,
+}
+
+impl InstanceData {
+    /// Create a new instance with the given fields
+    pub fn new(fields: IndexMap<String, Value>) -> Self {
+        Self { fields }
+    }
+
+    /// Get a field value
+    pub fn get(&self, field: &str) -> Option<&Value> {
+        self.fields.get(field)
+    }
+
+    /// Set a field value
+    pub fn set(&mut self, field: String, value: Value) {
+        self.fields.insert(field, value);
+    }
+}
+
+/// All instances of a single entity type, keyed by stable InstanceId
+#[derive(Debug, Clone, Default)]
+pub struct EntityInstances {
+    /// Map from instance ID to instance data (deterministic ordering via IndexMap)
+    pub instances: IndexMap<InstanceId, InstanceData>,
+}
+
+impl EntityInstances {
+    /// Create empty instances
+    pub fn new() -> Self {
+        Self {
+            instances: IndexMap::new(),
+        }
+    }
+
+    /// Add a new instance
+    pub fn insert(&mut self, id: InstanceId, data: InstanceData) {
+        self.instances.insert(id, data);
+    }
+
+    /// Get an instance by ID
+    pub fn get(&self, id: &InstanceId) -> Option<&InstanceData> {
+        self.instances.get(id)
+    }
+
+    /// Get mutable reference to an instance by ID
+    pub fn get_mut(&mut self, id: &InstanceId) -> Option<&mut InstanceData> {
+        self.instances.get_mut(id)
+    }
+
+    /// Get number of instances
+    pub fn count(&self) -> usize {
+        self.instances.len()
+    }
+
+    /// Iterate over all instance IDs in deterministic order
+    pub fn instance_ids(&self) -> impl Iterator<Item = &InstanceId> {
+        self.instances.keys()
+    }
+
+    /// Iterate over all instances in deterministic order
+    pub fn iter(&self) -> impl Iterator<Item = (&InstanceId, &InstanceData)> {
+        self.instances.iter()
+    }
+
+    /// Iterate over all instances mutably
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (&InstanceId, &mut InstanceData)> {
+        self.instances.iter_mut()
+    }
+}
+
+/// Storage for entity instances across ticks
+///
+/// Uses stable InstanceIds (not numeric indexes) for deterministic iteration
+/// across serialization/deserialization and parallel execution.
+#[derive(Debug, Default)]
+pub struct EntityStorage {
+    /// Instances resolved in the current tick
+    current: IndexMap<EntityId, EntityInstances>,
+    /// Instances from the previous tick (for `prev` access)
+    previous: IndexMap<EntityId, EntityInstances>,
+}
+
+impl EntityStorage {
+    /// Initialize an entity type with its instances
+    pub fn init_entity(&mut self, id: EntityId, instances: EntityInstances) {
+        self.previous.insert(id.clone(), instances.clone());
+        self.current.insert(id, instances);
+    }
+
+    /// Get the previous tick's data for an instance field
+    pub fn get_prev_field(
+        &self,
+        entity: &EntityId,
+        instance: &InstanceId,
+        field: &str,
+    ) -> Option<&Value> {
+        self.previous
+            .get(entity)
+            .and_then(|e: &EntityInstances| e.get(instance))
+            .and_then(|i: &InstanceData| i.get(field))
+    }
+
+    /// Get a field value for an instance (current if resolved, else previous)
+    pub fn get_field(
+        &self,
+        entity: &EntityId,
+        instance: &InstanceId,
+        field: &str,
+    ) -> Option<&Value> {
+        self.current
+            .get(entity)
+            .and_then(|e: &EntityInstances| e.get(instance))
+            .and_then(|i: &InstanceData| i.get(field))
+            .or_else(|| self.get_prev_field(entity, instance, field))
+    }
+
+    /// Set a field value for the current tick
+    pub fn set_field(
+        &mut self,
+        entity: &EntityId,
+        instance: &InstanceId,
+        field: String,
+        value: Value,
+    ) {
+        if let Some(instances) = self.current.get_mut(entity) {
+            if let Some(data) = instances.get_mut(instance) {
+                data.set(field, value);
+            }
+        }
+    }
+
+    /// Get the number of instances for an entity type
+    pub fn count(&self, entity: &EntityId) -> usize {
+        self.previous
+            .get(entity)
+            .map(|e: &EntityInstances| e.count())
+            .unwrap_or(0)
+    }
+
+    /// Get all instance IDs for an entity type (deterministic order)
+    pub fn instance_ids(&self, entity: &EntityId) -> impl Iterator<Item = &InstanceId> {
+        self.previous
+            .get(entity)
+            .into_iter()
+            .flat_map(|e: &EntityInstances| e.instance_ids())
+    }
+
+    /// Get previous tick instances for an entity
+    pub fn get_prev_instances(&self, entity: &EntityId) -> Option<&EntityInstances> {
+        self.previous.get(entity)
+    }
+
+    /// Get current tick instances for an entity
+    pub fn get_current_instances(&self, entity: &EntityId) -> Option<&EntityInstances> {
+        self.current.get(entity)
+    }
+
+    /// Get mutable reference to current tick instances
+    pub fn get_current_instances_mut(&mut self, entity: &EntityId) -> Option<&mut EntityInstances> {
+        self.current.get_mut(entity)
+    }
+
+    /// Advance to next tick
+    pub fn advance_tick(&mut self) {
+        // Copy forward any entities not resolved this tick
+        for (id, instances) in &self.previous {
+            if !self.current.contains_key(id) {
+                self.current.insert(id.clone(), instances.clone());
+            }
+        }
+        std::mem::swap(&mut self.previous, &mut self.current);
+        // Re-create current from previous (deep clone for field mutation)
+        for (id, instances) in &self.previous {
+            self.current.insert(id.clone(), instances.clone());
+        }
+    }
+
+    /// Get all entity IDs
+    pub fn entity_ids(&self) -> impl Iterator<Item = &EntityId> {
+        self.previous.keys()
     }
 }
 

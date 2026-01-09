@@ -5,7 +5,7 @@
 
 // Re-export foundational ID types
 pub use continuum_foundation::{
-    EraId, FieldId, FractureId, ImpulseId, OperatorId, SignalId, StratumId,
+    EntityId, EraId, FieldId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId,
 };
 
 /// Execution phases in order

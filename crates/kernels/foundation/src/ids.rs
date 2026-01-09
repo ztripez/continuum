@@ -64,3 +64,13 @@ define_id!(
     /// Unique identifier for a user-defined function
     FnId
 );
+
+define_id!(
+    /// Unique identifier for an entity type (e.g., "stellar.moon")
+    EntityId
+);
+
+define_id!(
+    /// Unique identifier for an entity instance within an entity type (e.g., "luna")
+    InstanceId
+);

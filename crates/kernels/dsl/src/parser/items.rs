@@ -4,10 +4,11 @@ use chumsky::prelude::*;
 
 use crate::ast::{
     ApplyBlock, AssertBlock, AssertSeverity, Assertion, ConfigBlock, ConfigEntry, ConstBlock,
-    ConstEntry, ChronicleDef, EmitStatement, EraDef, Expr, FieldDef, FnDef, FnParam, FractureDef,
-    ImpulseDef, Item, MeasureBlock, ObserveBlock, ObserveHandler, OperatorBody, OperatorDef,
-    OperatorPhase, Path, Range, ResolveBlock, SignalDef, Spanned, StrataDef, StrataState,
-    StrataStateKind, Topology, Transition, TypeDef, TypeExpr, TypeField, ValueWithUnit,
+    ConstEntry, CountBounds, ChronicleDef, EmitStatement, EntityDef, EntityFieldDef,
+    EntitySchemaField, EraDef, Expr, FieldDef, FnDef, FnParam, FractureDef, ImpulseDef, Item,
+    MeasureBlock, ObserveBlock, ObserveHandler, OperatorBody, OperatorDef, OperatorPhase, Path,
+    Range, ResolveBlock, SignalDef, Spanned, StrataDef, StrataState, StrataStateKind, Topology,
+    Transition, TypeDef, TypeExpr, TypeField, ValueWithUnit,
 };
 
 use super::expr::spanned_expr;
@@ -30,6 +31,7 @@ pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<
         impulse_def().map(Item::ImpulseDef),
         fracture_def().map(Item::FractureDef),
         chronicle_def().map(Item::ChronicleDef),
+        entity_def().map(Item::EntityDef),
     ))
 }
 
@@ -999,5 +1001,214 @@ fn assert_severity<'src>() -> impl Parser<'src, &'src str, AssertSeverity, extra
         text::keyword("warn").to(AssertSeverity::Warn),
         text::keyword("error").to(AssertSeverity::Error),
         text::keyword("fatal").to(AssertSeverity::Fatal),
+    ))
+}
+
+// === Entity ===
+
+fn entity_def<'src>() -> impl Parser<'src, &'src str, EntityDef, extra::Err<ParseError<'src>>> {
+    text::keyword("entity")
+        .padded_by(ws())
+        .ignore_then(just('.'))
+        .ignore_then(spanned_path())
+        .padded_by(ws())
+        .then(
+            entity_content()
+                .padded_by(ws())
+                .repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+        )
+        .map(|(path, contents)| {
+            let mut def = EntityDef {
+                path,
+                strata: None,
+                count_source: None,
+                count_bounds: None,
+                schema: vec![],
+                config_defaults: vec![],
+                resolve: None,
+                assertions: None,
+                fields: vec![],
+            };
+            for content in contents {
+                match content {
+                    EntityContent::Strata(s) => def.strata = Some(s),
+                    EntityContent::CountSource(c) => def.count_source = Some(c),
+                    EntityContent::CountBounds(b) => def.count_bounds = Some(b),
+                    EntityContent::Schema(s) => def.schema = s,
+                    EntityContent::Config(c) => def.config_defaults = c,
+                    EntityContent::Resolve(r) => def.resolve = Some(r),
+                    EntityContent::Assert(a) => def.assertions = Some(a),
+                    EntityContent::Field(f) => def.fields.push(f),
+                }
+            }
+            def
+        })
+}
+
+#[derive(Clone)]
+enum EntityContent {
+    Strata(Spanned<Path>),
+    CountSource(Spanned<Path>),
+    CountBounds(CountBounds),
+    Schema(Vec<EntitySchemaField>),
+    Config(Vec<ConfigEntry>),
+    Resolve(ResolveBlock),
+    Assert(AssertBlock),
+    Field(EntityFieldDef),
+}
+
+fn entity_content<'src>(
+) -> impl Parser<'src, &'src str, EntityContent, extra::Err<ParseError<'src>>> {
+    choice((
+        // : strata(path)
+        just(':')
+            .padded_by(ws())
+            .ignore_then(text::keyword("strata"))
+            .ignore_then(spanned_path().padded_by(ws()).delimited_by(just('('), just(')')))
+            .map(EntityContent::Strata),
+        // : count(config.path) - count from config
+        just(':')
+            .padded_by(ws())
+            .ignore_then(text::keyword("count"))
+            .ignore_then(
+                just('(')
+                    .padded_by(ws())
+                    .ignore_then(text::keyword("config"))
+                    .ignore_then(just('.'))
+                    .ignore_then(spanned_path())
+                    .then_ignore(just(')').padded_by(ws())),
+            )
+            .map(EntityContent::CountSource),
+        // : count(min..max) - count bounds
+        just(':')
+            .padded_by(ws())
+            .ignore_then(text::keyword("count"))
+            .ignore_then(
+                count_bounds()
+                    .padded_by(ws())
+                    .delimited_by(just('('), just(')')),
+            )
+            .map(EntityContent::CountBounds),
+        // schema { fields }
+        text::keyword("schema")
+            .padded_by(ws())
+            .ignore_then(
+                entity_schema_field()
+                    .padded_by(ws())
+                    .repeated()
+                    .collect()
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .map(EntityContent::Schema),
+        // config { defaults }
+        text::keyword("config")
+            .padded_by(ws())
+            .ignore_then(
+                config_entry()
+                    .padded_by(ws())
+                    .repeated()
+                    .collect()
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .map(EntityContent::Config),
+        // resolve { expr }
+        text::keyword("resolve")
+            .padded_by(ws())
+            .ignore_then(
+                spanned_expr()
+                    .padded_by(ws())
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .map(|body| EntityContent::Resolve(ResolveBlock { body })),
+        // assert { assertions }
+        assert_block().map(EntityContent::Assert),
+        // field.name { ... } - nested field definition
+        entity_field_def().map(EntityContent::Field),
+    ))
+}
+
+fn count_bounds<'src>() -> impl Parser<'src, &'src str, CountBounds, extra::Err<ParseError<'src>>> {
+    text::int(10)
+        .map(|s: &str| s.parse::<u32>().unwrap_or(0))
+        .then_ignore(just("..").padded_by(ws()))
+        .then(text::int(10).map(|s: &str| s.parse::<u32>().unwrap_or(u32::MAX)))
+        .map(|(min, max)| CountBounds { min, max })
+}
+
+fn entity_schema_field<'src>(
+) -> impl Parser<'src, &'src str, EntitySchemaField, extra::Err<ParseError<'src>>> {
+    ident()
+        .map_with(|n, e| Spanned::new(n, e.span().into()))
+        .then_ignore(just(':').padded_by(ws()))
+        .then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+        .map(|(name, ty)| EntitySchemaField { name, ty })
+}
+
+fn entity_field_def<'src>(
+) -> impl Parser<'src, &'src str, EntityFieldDef, extra::Err<ParseError<'src>>> {
+    text::keyword("field")
+        .padded_by(ws())
+        .ignore_then(just('.'))
+        .ignore_then(ident().map_with(|n, e| Spanned::new(n, e.span().into())))
+        .padded_by(ws())
+        .then(
+            entity_field_content()
+                .padded_by(ws())
+                .repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+        )
+        .map(|(name, contents)| {
+            let mut def = EntityFieldDef {
+                name,
+                ty: None,
+                topology: None,
+                measure: None,
+            };
+            for content in contents {
+                match content {
+                    EntityFieldContent::Type(t) => def.ty = Some(t),
+                    EntityFieldContent::Topology(t) => def.topology = Some(t),
+                    EntityFieldContent::Measure(m) => def.measure = Some(m),
+                }
+            }
+            def
+        })
+}
+
+#[derive(Clone)]
+enum EntityFieldContent {
+    Type(Spanned<TypeExpr>),
+    Topology(Spanned<Topology>),
+    Measure(MeasureBlock),
+}
+
+fn entity_field_content<'src>(
+) -> impl Parser<'src, &'src str, EntityFieldContent, extra::Err<ParseError<'src>>> {
+    choice((
+        just(':')
+            .padded_by(ws())
+            .ignore_then(text::keyword("topology"))
+            .ignore_then(
+                topology()
+                    .map_with(|t, e| Spanned::new(t, e.span().into()))
+                    .padded_by(ws())
+                    .delimited_by(just('('), just(')')),
+            )
+            .map(EntityFieldContent::Topology),
+        just(':')
+            .padded_by(ws())
+            .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+            .map(EntityFieldContent::Type),
+        text::keyword("measure")
+            .padded_by(ws())
+            .ignore_then(
+                spanned_expr()
+                    .padded_by(ws())
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .map(|body| EntityFieldContent::Measure(MeasureBlock { body })),
     ))
 }

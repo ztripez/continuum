@@ -57,14 +57,7 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             just("E").or(just("ℯ")).to(Expr::MathConst(MathConst::E)),
             just("I").or(just("ⅈ")).to(Expr::MathConst(MathConst::I)),
             text::keyword("payload").to(Expr::Payload),
-            text::keyword("sum")
-                .ignore_then(
-                    just('(')
-                        .padded_by(ws())
-                        .ignore_then(text::keyword("inputs"))
-                        .ignore_then(just(')').padded_by(ws())),
-                )
-                .to(Expr::SumInputs),
+            text::keyword("collected").to(Expr::Collected),
             text::keyword("signal")
                 .ignore_then(just('.'))
                 .ignore_then(path())

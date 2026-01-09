@@ -40,7 +40,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         CompiledExpr::Literal(v) => Expr::Literal(*v),
         CompiledExpr::Prev => Expr::Prev,
         CompiledExpr::DtRaw => Expr::DtRaw,
-        CompiledExpr::SumInputs => Expr::SumInputs,
+        CompiledExpr::Collected => Expr::Collected,
         CompiledExpr::Signal(id) => Expr::Signal(id.0.clone()),
         CompiledExpr::Const(name) => Expr::Const(name.clone()),
         CompiledExpr::Config(name) => Expr::Config(name.clone()),
@@ -84,6 +84,22 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
                     Expr::Literal(0.0)
                 }
             }
+        }
+
+        // Entity expressions are handled by the runtime, not bytecode VM
+        // These return placeholder values - actual entity execution uses EntityExecutor
+        CompiledExpr::SelfField(_)
+        | CompiledExpr::EntityAccess { .. }
+        | CompiledExpr::Aggregate { .. }
+        | CompiledExpr::Other { .. }
+        | CompiledExpr::Pairs { .. }
+        | CompiledExpr::Filter { .. }
+        | CompiledExpr::First { .. }
+        | CompiledExpr::Nearest { .. }
+        | CompiledExpr::Within { .. } => {
+            // Entity operations are not converted to bytecode - they require
+            // special runtime handling with access to entity storage
+            Expr::Literal(0.0)
         }
     }
 }

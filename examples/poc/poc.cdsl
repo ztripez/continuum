@@ -57,7 +57,7 @@ signal.core.temp {
     resolve {
         # Demonstrating let expressions for readable multi-step calculations
         let decayed = decay(prev, config.thermal.decay_halflife) in
-        let with_inputs = decayed + sum(inputs) in
+        let with_inputs = decayed + collected in
         with_inputs
     }
 
@@ -80,7 +80,7 @@ signal.surface.temp {
         let temp_diff = signal.core.temp - prev in
         let heat_transfer = temp_diff * config.thermal.coupling_factor in
         let radiation_loss = (prev - const.thermal.ambient) * config.thermal.radiation_factor in
-        let new_temp = prev + heat_transfer - radiation_loss + sum(inputs) in
+        let new_temp = prev + heat_transfer - radiation_loss + collected in
         clamp(new_temp, 100.0, 1000.0)
     }
 }

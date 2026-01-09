@@ -39,6 +39,7 @@ pub enum Item {
     ImpulseDef(ImpulseDef),
     FractureDef(FractureDef),
     ChronicleDef(ChronicleDef),
+    EntityDef(EntityDef),
 }
 
 /// Dot-separated path
@@ -351,6 +352,72 @@ pub struct ObserveHandler {
     pub event_fields: Vec<(Spanned<String>, Spanned<Expr>)>,
 }
 
+// === Entity ===
+
+/// Entity definition - a named, indexed collection of structured state
+///
+/// Example:
+/// ```cdsl
+/// entity.stellar.moon {
+///   : strata(stellar.orbital)
+///   : count(config.stellar.moon_count)
+///   : count(1..20)
+///
+///   schema {
+///     mass: Scalar<kg, 1e18..1e24>
+///     radius: Scalar<m, 1e5..1e7>
+///   }
+///
+///   resolve {
+///     self.velocity = integrate(self.velocity, acceleration)
+///   }
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct EntityDef {
+    /// Entity path (e.g., `stellar.moon`)
+    pub path: Spanned<Path>,
+    /// Stratum binding
+    pub strata: Option<Spanned<Path>>,
+    /// Count source from config (e.g., `config.stellar.moon_count`)
+    pub count_source: Option<Spanned<Path>>,
+    /// Count validation bounds (e.g., `1..20`)
+    pub count_bounds: Option<CountBounds>,
+    /// Schema fields for each instance
+    pub schema: Vec<EntitySchemaField>,
+    /// Default config values for schema fields
+    pub config_defaults: Vec<ConfigEntry>,
+    /// Resolution logic (executed per instance)
+    pub resolve: Option<ResolveBlock>,
+    /// Entity-level assertions
+    pub assertions: Option<AssertBlock>,
+    /// Nested field definitions for observation
+    pub fields: Vec<EntityFieldDef>,
+}
+
+/// Count validation bounds for entity instances
+#[derive(Debug, Clone, PartialEq)]
+pub struct CountBounds {
+    pub min: u32,
+    pub max: u32,
+}
+
+/// A field in an entity schema
+#[derive(Debug, Clone, PartialEq)]
+pub struct EntitySchemaField {
+    pub name: Spanned<String>,
+    pub ty: Spanned<TypeExpr>,
+}
+
+/// A field definition nested within an entity (for observation)
+#[derive(Debug, Clone, PartialEq)]
+pub struct EntityFieldDef {
+    pub name: Spanned<String>,
+    pub ty: Option<Spanned<TypeExpr>>,
+    pub topology: Option<Spanned<Topology>>,
+    pub measure: Option<MeasureBlock>,
+}
+
 // === Expressions ===
 
 #[derive(Debug, Clone, PartialEq)]
@@ -378,10 +445,65 @@ pub enum Expr {
     EmitSignal { target: Path, value: Box<Spanned<Expr>> },
     EmitField { target: Path, position: Box<Spanned<Expr>>, value: Box<Spanned<Expr>> },
     Struct(Vec<(String, Spanned<Expr>)>),
-    SumInputs,
+    /// Accumulated inputs from Collect phase: `collected`
+    Collected,
     MathConst(MathConst),
     Map { sequence: Box<Spanned<Expr>>, function: Box<Spanned<Expr>> },
     Fold { sequence: Box<Spanned<Expr>>, init: Box<Spanned<Expr>>, function: Box<Spanned<Expr>> },
+
+    // === Entity expressions ===
+
+    /// Reference to current entity instance field: `self.mass`
+    SelfField(String),
+
+    /// Reference to an entity type: `entity.stellar.moon`
+    EntityRef(Path),
+
+    /// Access entity instance by ID: `entity.moon["luna"]`
+    EntityAccess {
+        entity: Path,
+        instance: Box<Spanned<Expr>>,
+    },
+
+    /// Aggregate operation over entity instances: `sum(entity.moon, self.mass)`
+    Aggregate {
+        op: AggregateOp,
+        entity: Path,
+        body: Box<Spanned<Expr>>,
+    },
+
+    /// Other instances (self-exclusion): `other(entity.moon)`
+    /// Used for N-body interactions where you need all instances except current
+    Other(Path),
+
+    /// Pairwise iteration: `pairs(entity.moon)`
+    /// Generates all unique (i,j) combinations where i < j
+    Pairs(Path),
+
+    /// Filter entity instances: `filter(entity.moon, self.mass > 1e20)`
+    Filter {
+        entity: Path,
+        predicate: Box<Spanned<Expr>>,
+    },
+
+    /// First matching instance: `first(entity.plate, self.type == Continental)`
+    First {
+        entity: Path,
+        predicate: Box<Spanned<Expr>>,
+    },
+
+    /// Nearest instance to position: `nearest(entity.plate, position)`
+    Nearest {
+        entity: Path,
+        position: Box<Spanned<Expr>>,
+    },
+
+    /// All instances within radius: `within(entity.moon, pos, 1e9)`
+    Within {
+        entity: Path,
+        position: Box<Spanned<Expr>>,
+        radius: Box<Spanned<Expr>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -412,4 +534,27 @@ pub enum BinaryOp {
 pub enum UnaryOp {
     Neg,
     Not,
+}
+
+/// Aggregate operations over entity instances
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregateOp {
+    /// Sum of values: `sum(entity.moon, self.mass)`
+    Sum,
+    /// Product of values: `product(entity.layer, self.transmittance)`
+    Product,
+    /// Minimum value: `min(entity.moon, self.orbit_radius)`
+    Min,
+    /// Maximum value: `max(entity.star, self.luminosity)`
+    Max,
+    /// Average value: `mean(entity.plate, self.age)`
+    Mean,
+    /// Count of instances: `count(entity.moon)`
+    Count,
+    /// Any instance matches predicate: `any(entity.moon, self.mass > 1e22)`
+    Any,
+    /// All instances match predicate: `all(entity.star, self.luminosity > 0)`
+    All,
+    /// No instance matches predicate: `none(entity.plate, self.age < 0)`
+    None,
 }

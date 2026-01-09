@@ -77,7 +77,7 @@ signal.terra.thermal.equilibrium {
 
   resolve {
     // Normal tick resolution
-    prev + sum(inputs) * dt
+    prev + collected * dt
   }
 }
 ```
@@ -235,7 +235,7 @@ signal.terra.thermal.equilibrium_temp {
   }
 
   resolve {
-    let heating = sum(inputs)
+    let heating = collected
     let radiation = const.physics.stefan_boltzmann * (prev ^ 4)
     prev + (heating - radiation) * dt
   }
@@ -256,7 +256,7 @@ signal.terra.thermal.crust_temp {
   }
 
   resolve {
-    signal.terra.thermal.equilibrium_temp * 0.1 + sum(inputs) * dt
+    signal.terra.thermal.equilibrium_temp * 0.1 + collected * dt
   }
 }
 ```

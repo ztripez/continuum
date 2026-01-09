@@ -565,7 +565,7 @@ impl Lowerer {
             }
             Expr::Prev | Expr::PrevField(_) => CompiledExpr::Prev,
             Expr::DtRaw => CompiledExpr::DtRaw,
-            Expr::SumInputs => CompiledExpr::SumInputs,
+            Expr::Collected => CompiledExpr::Collected,
             Expr::Path(path) => {
                 // Check for local variable first (single-segment paths only)
                 if path.segments.len() == 1 && locals.contains(&path.segments[0]) {
@@ -1134,7 +1134,7 @@ impl Lowerer {
             | Expr::ConstRef(_)
             | Expr::ConfigRef(_)
             | Expr::FieldRef(_)
-            | Expr::SumInputs
+            | Expr::Collected
             | Expr::MathConst(_) => false,
         }
     }

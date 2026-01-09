@@ -800,7 +800,7 @@ signal.mantle.viscosity {
     : symbol("eta")
 
     resolve {
-        prev + sum(inputs)
+        prev + collected
     }
 
     assert {
@@ -852,7 +852,7 @@ signal.mantle.viscosity {
     : strata(tectonics)
 
     resolve {
-        prev + sum(inputs)
+        prev + collected
     }
 }
     "#;
@@ -887,7 +887,7 @@ signal.rotation.state {
 
     resolve {
         let phase = prev.x + prev.y * dt_raw in
-        let omega = prev.y + sum(inputs) in
+        let omega = prev.y + collected in
         vec2(mod(phase, 6.283185307), omega)
     }
 }
@@ -954,7 +954,7 @@ fn test_parse_nested_if_else() {
 signal.test.nested_if {
     : Scalar<1>
     resolve {
-        let raw_shear = sum(inputs) in
+        let raw_shear = collected in
         if raw_shear > 0.0 {
             raw_shear / 100.0
         } else {

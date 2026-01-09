@@ -245,9 +245,35 @@ fn check_expr_symbols(
         CompiledExpr::FieldAccess { object, .. } => {
             check_expr_symbols(object, context, defined_signals, defined_constants, defined_config, warnings);
         }
-        // Literals, Prev, DtRaw, SumInputs, Local don't need checking
+        // Entity expressions - recurse into sub-expressions
+        CompiledExpr::SelfField(_) => {}
+        CompiledExpr::EntityAccess { .. } => {
+            // Entity access validation happens at runtime
+        }
+        CompiledExpr::Aggregate { body, .. } => {
+            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        CompiledExpr::Other { body, .. } | CompiledExpr::Pairs { body, .. } => {
+            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        CompiledExpr::Filter { predicate, body, .. } => {
+            check_expr_symbols(predicate, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        CompiledExpr::First { predicate, .. } => {
+            check_expr_symbols(predicate, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        CompiledExpr::Nearest { position, .. } => {
+            check_expr_symbols(position, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        CompiledExpr::Within { position, radius, body, .. } => {
+            check_expr_symbols(position, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(radius, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        // Literals, Prev, DtRaw, Collected, Local don't need checking
         // Local variables are validated at parse/lower time
-        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::SumInputs | CompiledExpr::Local(_) => {}
+        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::Collected | CompiledExpr::Local(_) => {}
     }
 }
 
@@ -327,7 +353,7 @@ mod tests {
 
     #[test]
     fn test_undefined_symbol_warns() {
-        // "sum_inputs" is a typo - should be "sum(inputs)"
+        // "colected" is a typo - should be "collected"
         // The parser will treat it as a path/signal reference
         let src = r#"
             strata.terra {}
@@ -336,21 +362,21 @@ mod tests {
             signal.terra.temp {
                 : Scalar<K>
                 : strata(terra)
-                resolve { prev + sum_inputs }
+                resolve { prev + colected }
             }
         "#;
 
         let world = parse_and_lower(src);
         let warnings = validate(&world);
 
-        // Should warn about undefined symbol "sum_inputs"
+        // Should warn about undefined symbol "colected"
         assert!(!warnings.is_empty());
         let undefined_warnings: Vec<_> = warnings
             .iter()
             .filter(|w| w.code == WarningCode::UndefinedSymbol)
             .collect();
         assert_eq!(undefined_warnings.len(), 1);
-        assert!(undefined_warnings[0].message.contains("sum_inputs"));
+        assert!(undefined_warnings[0].message.contains("colected"));
     }
 
     #[test]
@@ -395,7 +421,7 @@ mod tests {
             signal.terra.temp {
                 : Scalar<K>
                 : strata(terra)
-                resolve { decay(prev, config.thermal.decay_halflife) + sum(inputs) }
+                resolve { decay(prev, config.thermal.decay_halflife) + collected }
             }
         "#;
 

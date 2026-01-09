@@ -40,7 +40,7 @@ pub enum Expr {
     Literal(f64),
     Prev,
     DtRaw,
-    SumInputs,
+    Collected,
     Signal(String),
     /// Access a component of a vector signal (e.g., signal.x, signal.y)
     SignalComponent(String, String),
@@ -102,7 +102,7 @@ impl Compiler {
                 self.chunk.emit(Op::LoadDt);
             }
 
-            Expr::SumInputs => {
+            Expr::Collected => {
                 self.chunk.emit(Op::LoadInputs);
             }
 

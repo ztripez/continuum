@@ -285,7 +285,7 @@ signal.terra.geophysics.core.temp_k {
 - `const.path` — read constants
 - `config.path` — read configuration
 - `dt_raw` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
-- `sum(inputs)` — accumulated inputs from Collect phase
+- `collected` — accumulated inputs from Collect phase
 - `kernel.fn(...)` — engine-provided functions
 - `let name = expr in body` — local bindings (ML-style)
 
@@ -310,7 +310,7 @@ signal.terra.thermal.equilibrium {
   }
 
   resolve {
-    prev + sum(inputs) * dt
+    prev + collected * dt
   }
 }
 ```

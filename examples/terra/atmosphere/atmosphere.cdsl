@@ -105,7 +105,7 @@ signal.atmosphere.external_power {
 
     resolve {
         # Ephemeral signal - sum of all external radiative inputs
-        sum(inputs)
+        collected
     }
 
     assert {
@@ -147,8 +147,8 @@ signal.atmosphere.surface_temp {
 
         vec3(
             clamp(t_mean + dt_temp * dt_raw, 50.0, 500.0),
-            prev.y + sum(inputs),
-            prev.z + sum(inputs)
+            prev.y + collected,
+            prev.z + collected
         )
     }
 
@@ -208,7 +208,7 @@ signal.atmosphere.co2_ppmv {
 
     resolve {
         # CO2 changes through weathering sinks, volcanic sources, biological processes
-        clamp(prev + sum(inputs), config.atmosphere.co2_ppmv.min, config.atmosphere.co2_ppmv.max)
+        clamp(prev + collected, config.atmosphere.co2_ppmv.min, config.atmosphere.co2_ppmv.max)
     }
 
     assert {
@@ -238,7 +238,7 @@ signal.atmosphere.cloud_cover {
         let water_vapor = signal.atmosphere.water_vapor in
         let cloud_potential = (water_vapor - config.atmosphere.cloud_cover.min_water_vapor) /
                              (config.atmosphere.cloud_cover.saturation_water_vapor - config.atmosphere.cloud_cover.min_water_vapor) in
-        clamp(cloud_potential + sum(inputs), 0.0, 1.0)
+        clamp(cloud_potential + collected, 0.0, 1.0)
     }
 
     assert {
@@ -268,7 +268,7 @@ signal.atmosphere.tau_greenhouse {
         let co2_contribution = (signal.atmosphere.co2_ppmv - const.atmosphere.co2_ref_ppmv) * config.atmosphere.tau_greenhouse.co2_sensitivity in
         let wv_contribution = signal.atmosphere.water_vapor * config.atmosphere.tau_greenhouse.water_vapor_sensitivity in
 
-        config.atmosphere.tau_greenhouse.base_tau + co2_contribution + wv_contribution + sum(inputs)
+        config.atmosphere.tau_greenhouse.base_tau + co2_contribution + wv_contribution + collected
     }
 
     assert {
