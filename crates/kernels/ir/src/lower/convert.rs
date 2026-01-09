@@ -57,19 +57,34 @@ impl Lowerer {
 
     pub(crate) fn lower_type_expr(&self, ty: &TypeExpr) -> ValueType {
         match ty {
-            TypeExpr::Scalar { range, .. } => ValueType::Scalar {
+            TypeExpr::Scalar { unit, range } => ValueType::Scalar {
+                unit: if unit.is_empty() {
+                    None
+                } else {
+                    Some(unit.clone())
+                },
                 range: range.as_ref().map(|r| ValueRange {
                     min: r.min,
                     max: r.max,
                 }),
             },
-            TypeExpr::Vector { dim, .. } => match dim {
-                2 => ValueType::Vec2,
-                3 => ValueType::Vec3,
-                4 => ValueType::Vec4,
-                _ => ValueType::Scalar { range: None },
-            },
-            TypeExpr::Named(_) => ValueType::Scalar { range: None }, // resolve named types later
+            TypeExpr::Vector { dim, unit, .. } => {
+                let unit = if unit.is_empty() {
+                    None
+                } else {
+                    Some(unit.clone())
+                };
+                match dim {
+                    2 => ValueType::Vec2 { unit },
+                    3 => ValueType::Vec3 { unit },
+                    4 => ValueType::Vec4 { unit },
+                    _ => ValueType::Scalar { unit, range: None },
+                }
+            }
+            TypeExpr::Named(_) => ValueType::Scalar {
+                unit: None,
+                range: None,
+            }, // resolve named types later
         }
     }
 

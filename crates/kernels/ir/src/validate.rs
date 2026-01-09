@@ -140,7 +140,7 @@ pub fn validate(world: &CompiledWorld) -> Vec<CompileWarning> {
 fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
     for (signal_id, signal) in &world.signals {
         // Check if the signal has a range constraint
-        let has_range = matches!(&signal.value_type, ValueType::Scalar { range: Some(_) });
+        let has_range = matches!(&signal.value_type, ValueType::Scalar { range: Some(_), .. });
 
         if has_range && signal.assertions.is_empty() {
             warnings.push(CompileWarning {

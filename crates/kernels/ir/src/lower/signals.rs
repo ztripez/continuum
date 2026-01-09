@@ -87,7 +87,10 @@ impl Lowerer {
                 .ty
                 .as_ref()
                 .map(|t| self.lower_type_expr(&t.node))
-                .unwrap_or(ValueType::Scalar { range: None }),
+                .unwrap_or(ValueType::Scalar {
+                    unit: None,
+                    range: None,
+                }),
             uses_dt_raw: def.dt_raw,
             reads,
             resolve,
@@ -134,7 +137,10 @@ impl Lowerer {
                 .ty
                 .as_ref()
                 .map(|t| self.lower_type_expr(&t.node))
-                .unwrap_or(ValueType::Scalar { range: None }),
+                .unwrap_or(ValueType::Scalar {
+                    unit: None,
+                    range: None,
+                }),
             reads,
             measure: def.measure.as_ref().map(|m| self.lower_expr(&m.body.node)),
         };

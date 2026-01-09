@@ -542,8 +542,8 @@ pub struct EmitStatement {
 /// ```cdsl
 /// chronicle.stellar.events {
 ///     observe {
-///         when { signal.terra.temp < 273.0 } {
-///             event.ice_age {
+///         when signal.terra.temp < 273.0 {
+///             emit event.ice_age {
 ///                 temp: signal.terra.temp
 ///                 tick: tick
 ///             }

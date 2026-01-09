@@ -82,7 +82,10 @@ impl Lowerer {
                     .ty
                     .as_ref()
                     .map(|t| self.lower_type_expr(&t.node))
-                    .unwrap_or(ValueType::Scalar { range: None }),
+                    .unwrap_or(ValueType::Scalar {
+                        unit: None,
+                        range: None,
+                    }),
                 topology: f
                     .topology
                     .as_ref()

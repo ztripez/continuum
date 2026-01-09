@@ -64,11 +64,99 @@ fn test_negative_range_in_type() {
 
     // Verify the negative range is captured
     match &signal.value_type {
-        ValueType::Scalar { range: Some(r) } => {
+        ValueType::Scalar { range: Some(r), .. } => {
             assert_eq!(r.min, -11000.0);
             assert_eq!(r.max, 9000.0);
         }
         _ => panic!("expected Scalar with range, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_unit_preserved_in_scalar_type() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.temp {
+            : Scalar<K, 100..10000>
+            : strata(terra)
+            resolve { prev + 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.temp")).unwrap();
+
+    // Verify the unit is preserved
+    match &signal.value_type {
+        ValueType::Scalar { unit, range } => {
+            assert_eq!(unit, &Some("K".to_string()), "unit should be 'K'");
+            assert!(range.is_some(), "range should be present");
+            let r = range.as_ref().unwrap();
+            assert_eq!(r.min, 100.0);
+            assert_eq!(r.max, 10000.0);
+        }
+        _ => panic!("expected Scalar, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_unit_preserved_in_vector_type() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.velocity {
+            : Vec3<m/s>
+            : strata(terra)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.velocity")).unwrap();
+
+    // Verify the unit is preserved
+    match &signal.value_type {
+        ValueType::Vec3 { unit } => {
+            assert_eq!(unit, &Some("m/s".to_string()), "unit should be 'm/s'");
+        }
+        _ => panic!("expected Vec3, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_no_type_annotation_has_no_unit() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.dimensionless {
+            : strata(terra)
+            resolve { 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world
+        .signals
+        .get(&SignalId::from("terra.dimensionless"))
+        .unwrap();
+
+    // Verify no type annotation defaults to Scalar with no unit
+    match &signal.value_type {
+        ValueType::Scalar { unit, range } => {
+            assert_eq!(unit, &None, "no type annotation should have no unit");
+            assert_eq!(range, &None, "no type annotation should have no range");
+        }
+        _ => panic!("expected Scalar, got {:?}", signal.value_type),
     }
 }
 
@@ -1144,8 +1232,8 @@ fn test_lower_chronicle_basic() {
         }
         chronicle.thermal.events {
             observe {
-                when { signal.thermal.temp > 100.0 } {
-                    event.overheating {
+                when signal.thermal.temp > 100.0 {
+                    emit event.overheating {
                         temp: signal.thermal.temp
                     }
                 }
@@ -1173,13 +1261,13 @@ fn test_lower_chronicle_with_multiple_handlers() {
         }
         chronicle.thermal.events {
             observe {
-                when { signal.thermal.temp > 500.0 } {
-                    event.critical_temp {
+                when signal.thermal.temp > 500.0 {
+                    emit event.critical_temp {
                         temp: signal.thermal.temp
                     }
                 }
-                when { signal.thermal.temp < 100.0 } {
-                    event.cold_snap {
+                when signal.thermal.temp < 100.0 {
+                    emit event.cold_snap {
                         temp: signal.thermal.temp
                     }
                 }
@@ -1212,8 +1300,8 @@ fn test_lower_chronicle_collects_signal_reads() {
         }
         chronicle.thermal.events {
             observe {
-                when { signal.thermal.temp > 100.0 } {
-                    event.status {
+                when signal.thermal.temp > 100.0 {
+                    emit event.status {
                         temp: signal.thermal.temp
                         pressure: signal.thermal.pressure
                     }
@@ -1242,8 +1330,8 @@ fn test_lower_chronicle_event_fields() {
         }
         chronicle.thermal.events {
             observe {
-                when { signal.thermal.temp > 100.0 } {
-                    event.reading {
+                when signal.thermal.temp > 100.0 {
+                    emit event.reading {
                         temperature: signal.thermal.temp
                         doubled: signal.thermal.temp * 2.0
                     }
