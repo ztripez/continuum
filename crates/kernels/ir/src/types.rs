@@ -574,25 +574,35 @@ pub enum AssertionSeverity {
 /// unit information (e.g., "K" for Kelvin, "m/s" for velocity) and range
 /// constraints.
 ///
-/// # Unit Preservation
+/// # Unit Representation
 ///
-/// Units are preserved from the DSL source through the IR for:
+/// Units are stored in two forms:
+/// - `unit: Option<String>`: The original unit string for display and serialization
+/// - `dimension: Option<Unit>`: Parsed dimensional representation for analysis
+///
+/// The string form is used for:
 /// - Error message clarity (e.g., "expected K, got m/s")
 /// - Observer output formatting
 /// - Documentation generation
-/// - Future dimensional analysis (#62)
+///
+/// The structured form (`Unit`) enables:
+/// - Dimensional analysis at compile time
+/// - Unit algebra for expression type checking
+/// - Physics safety validation
 ///
 /// # Examples
 ///
-/// - `Scalar { unit: None, range: None }`: Unbounded dimensionless scalar
-/// - `Scalar { unit: Some("K"), range: Some(...) }`: Temperature in Kelvin with bounds
-/// - `Vec3 { unit: Some("m/s") }`: Velocity vector
+/// - `Scalar { unit: None, dimension: None, range: None }`: Unbounded dimensionless scalar
+/// - `Scalar { unit: Some("K"), dimension: Some(Unit::temperature()), ... }`: Temperature
+/// - `Vec3 { unit: Some("m/s"), dimension: Some(Unit::velocity()) }`: Velocity vector
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueType {
     /// Single scalar value.
     Scalar {
         /// Unit string (e.g., "K", "Pa", "W/m²").
         unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
         /// Optional value bounds.
         range: Option<ValueRange>,
     },
@@ -600,16 +610,22 @@ pub enum ValueType {
     Vec2 {
         /// Component unit (e.g., "m", "m/s").
         unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
     },
     /// 3D vector.
     Vec3 {
         /// Component unit (e.g., "m", "m/s").
         unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
     },
     /// 4D vector (quaternions, homogeneous coordinates).
     Vec4 {
         /// Component unit (typically "1" for quaternions).
         unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
     },
     /// NxM tensor (matrices, stress/strain tensors).
     Tensor {
@@ -619,6 +635,8 @@ pub enum ValueType {
         cols: u8,
         /// Element unit (e.g., "Pa" for stress tensors).
         unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
     },
     /// 2D grid of values (e.g., temperature maps, heightmaps).
     Grid {

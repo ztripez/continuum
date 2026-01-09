@@ -92,7 +92,7 @@ fn test_unit_preserved_in_scalar_type() {
 
     // Verify the unit is preserved
     match &signal.value_type {
-        ValueType::Scalar { unit, range } => {
+        ValueType::Scalar { unit, range, .. } => {
             assert_eq!(unit, &Some("K".to_string()), "unit should be 'K'");
             assert!(range.is_some(), "range should be present");
             let r = range.as_ref().unwrap();
@@ -123,8 +123,108 @@ fn test_unit_preserved_in_vector_type() {
 
     // Verify the unit is preserved
     match &signal.value_type {
-        ValueType::Vec3 { unit } => {
+        ValueType::Vec3 { unit, .. } => {
             assert_eq!(unit, &Some("m/s".to_string()), "unit should be 'm/s'");
+        }
+        _ => panic!("expected Vec3, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_dimension_parsed_for_scalar_unit() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.velocity {
+            : Scalar<m/s>
+            : strata(terra)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.velocity")).unwrap();
+
+    // Verify the dimension is parsed correctly: m/s = length^1 * time^-1
+    match &signal.value_type {
+        ValueType::Scalar {
+            unit,
+            dimension,
+            range,
+        } => {
+            assert_eq!(unit, &Some("m/s".to_string()), "unit should be 'm/s'");
+            assert!(dimension.is_some(), "dimension should be parsed");
+            let dim = dimension.as_ref().unwrap();
+            assert_eq!(dim.length, 1, "length dimension should be 1");
+            assert_eq!(dim.time, -1, "time dimension should be -1");
+            assert_eq!(dim.mass, 0, "mass dimension should be 0");
+            assert_eq!(range, &None, "no range specified");
+        }
+        _ => panic!("expected Scalar, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_dimension_parsed_for_derived_unit() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.force {
+            : Scalar<N>
+            : strata(terra)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.force")).unwrap();
+
+    // Verify N = kg·m/s² = mass^1 * length^1 * time^-2
+    match &signal.value_type {
+        ValueType::Scalar { dimension, .. } => {
+            assert!(dimension.is_some(), "dimension should be parsed for N");
+            let dim = dimension.as_ref().unwrap();
+            assert_eq!(dim.mass, 1, "mass dimension should be 1");
+            assert_eq!(dim.length, 1, "length dimension should be 1");
+            assert_eq!(dim.time, -2, "time dimension should be -2");
+        }
+        _ => panic!("expected Scalar, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_dimension_parsed_for_vector_unit() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.acceleration {
+            : Vec3<m/s²>
+            : strata(terra)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.acceleration")).unwrap();
+
+    // Verify m/s² = length^1 * time^-2
+    match &signal.value_type {
+        ValueType::Vec3 { unit, dimension } => {
+            assert_eq!(unit, &Some("m/s²".to_string()), "unit should be 'm/s²'");
+            assert!(dimension.is_some(), "dimension should be parsed");
+            let dim = dimension.as_ref().unwrap();
+            assert_eq!(dim.length, 1, "length dimension should be 1");
+            assert_eq!(dim.time, -2, "time dimension should be -2");
+            assert_eq!(dim.mass, 0, "mass dimension should be 0");
         }
         _ => panic!("expected Vec3, got {:?}", signal.value_type),
     }
@@ -152,7 +252,7 @@ fn test_no_type_annotation_has_no_unit() {
 
     // Verify no type annotation defaults to Scalar with no unit
     match &signal.value_type {
-        ValueType::Scalar { unit, range } => {
+        ValueType::Scalar { unit, range, .. } => {
             assert_eq!(unit, &None, "no type annotation should have no unit");
             assert_eq!(range, &None, "no type annotation should have no range");
         }
@@ -1902,7 +2002,7 @@ fn test_lower_typedef_with_tensor() {
     assert_eq!(type_def.fields.len(), 1);
 
     match &type_def.fields[0].value_type {
-        ValueType::Tensor { rows, cols, unit } => {
+        ValueType::Tensor { rows, cols, unit, .. } => {
             assert_eq!(*rows, 3);
             assert_eq!(*cols, 3);
             assert_eq!(unit.as_deref(), Some("Pa"));

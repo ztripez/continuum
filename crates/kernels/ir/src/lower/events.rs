@@ -26,6 +26,7 @@ impl Lowerer {
                 .map(|t| self.lower_type_expr(&t.node))
                 .unwrap_or(ValueType::Scalar {
                     unit: None,
+                    dimension: None,
                     range: None,
                 }),
             apply: def.apply.as_ref().map(|a| self.lower_expr(&a.body.node)),

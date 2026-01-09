@@ -57,39 +57,48 @@ impl Lowerer {
 
     pub(crate) fn lower_type_expr(&self, ty: &TypeExpr) -> ValueType {
         match ty {
-            TypeExpr::Scalar { unit, range } => ValueType::Scalar {
-                unit: if unit.is_empty() {
-                    None
-                } else {
-                    Some(unit.clone())
-                },
-                range: range.as_ref().map(|r| ValueRange {
-                    min: r.min,
-                    max: r.max,
-                }),
-            },
-            TypeExpr::Vector { dim, unit, .. } => {
-                let unit = if unit.is_empty() {
-                    None
-                } else {
-                    Some(unit.clone())
-                };
-                match dim {
-                    2 => ValueType::Vec2 { unit },
-                    3 => ValueType::Vec3 { unit },
-                    4 => ValueType::Vec4 { unit },
-                    _ => ValueType::Scalar { unit, range: None },
+            TypeExpr::Scalar { unit, range } => {
+                let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
+                ValueType::Scalar {
+                    unit: unit_str,
+                    dimension,
+                    range: range.as_ref().map(|r| ValueRange {
+                        min: r.min,
+                        max: r.max,
+                    }),
                 }
             }
-            TypeExpr::Tensor { rows, cols, unit } => ValueType::Tensor {
-                rows: *rows,
-                cols: *cols,
-                unit: if unit.is_empty() {
-                    None
-                } else {
-                    Some(unit.clone())
-                },
-            },
+            TypeExpr::Vector { dim, unit, .. } => {
+                let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
+                match dim {
+                    2 => ValueType::Vec2 {
+                        unit: unit_str,
+                        dimension,
+                    },
+                    3 => ValueType::Vec3 {
+                        unit: unit_str,
+                        dimension,
+                    },
+                    4 => ValueType::Vec4 {
+                        unit: unit_str,
+                        dimension,
+                    },
+                    _ => ValueType::Scalar {
+                        unit: unit_str,
+                        dimension,
+                        range: None,
+                    },
+                }
+            }
+            TypeExpr::Tensor { rows, cols, unit } => {
+                let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
+                ValueType::Tensor {
+                    rows: *rows,
+                    cols: *cols,
+                    unit: unit_str,
+                    dimension,
+                }
+            }
             TypeExpr::Grid {
                 width,
                 height,
@@ -104,8 +113,20 @@ impl Lowerer {
             },
             TypeExpr::Named(_) => ValueType::Scalar {
                 unit: None,
+                dimension: None,
                 range: None,
             }, // resolve named types later
+        }
+    }
+
+    /// Parses a unit string and returns both the string representation and
+    /// the structured dimensional representation.
+    fn parse_unit_with_dimension(&self, unit: &str) -> (Option<String>, Option<crate::units::Unit>) {
+        if unit.is_empty() {
+            (None, None)
+        } else {
+            let dimension = crate::units::Unit::parse(unit);
+            (Some(unit.to_string()), dimension)
         }
     }
 
