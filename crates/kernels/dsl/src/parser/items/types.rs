@@ -86,6 +86,15 @@ pub fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseErr
         .ignore_then(just('.'))
         .ignore_then(spanned_path())
         .then(
+            ident()
+                .map_with(|i, e| Spanned::new(i, e.span().into()))
+                .separated_by(just(',').padded_by(ws()))
+                .collect()
+                .delimited_by(just('<').padded_by(ws()), just('>').padded_by(ws()))
+                .or_not()
+                .map(|o| o.unwrap_or_default()),
+        )
+        .then(
             fn_param()
                 .padded_by(ws())
                 .separated_by(just(',').padded_by(ws()))
@@ -104,8 +113,9 @@ pub fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseErr
                 .padded_by(ws())
                 .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
         )
-        .map(|(((path, params), return_type), body)| FnDef {
+        .map(|((((path, generics), params), return_type), body)| FnDef {
             path,
+            generics,
             params,
             return_type,
             body,

@@ -26,10 +26,6 @@ use indexmap::IndexMap;
 
 use crate::types::{EntityId, FieldId, InstanceId, SignalId, Value};
 
-// Type aliases for clarity in complex closures
-type EntityInstancesRef<'a> = &'a EntityInstances;
-type InstanceDataRef<'a> = &'a InstanceData;
-
 /// Double-buffered storage for signal values across ticks.
 ///
 /// SignalStorage maintains two value maps: `current` (being resolved this tick)
