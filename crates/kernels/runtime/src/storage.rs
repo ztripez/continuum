@@ -446,4 +446,369 @@ mod tests {
         assert_eq!(channels.drain_sum(&id), 6.0);
         assert_eq!(channels.drain_sum(&id), 0.0); // Drained
     }
+
+    // ========================================================================
+    // InstanceData Tests
+    // ========================================================================
+
+    #[test]
+    fn test_instance_data_creation() {
+        let mut fields = IndexMap::new();
+        fields.insert("mass".to_string(), Value::Scalar(1000.0));
+        fields.insert("position".to_string(), Value::Vec3([1.0, 2.0, 3.0]));
+
+        let data = InstanceData::new(fields);
+        assert_eq!(data.get("mass"), Some(&Value::Scalar(1000.0)));
+        assert_eq!(data.get("position"), Some(&Value::Vec3([1.0, 2.0, 3.0])));
+        assert_eq!(data.get("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_instance_data_set_field() {
+        let mut data = InstanceData::default();
+        data.set("mass".to_string(), Value::Scalar(500.0));
+
+        assert_eq!(data.get("mass"), Some(&Value::Scalar(500.0)));
+
+        // Update existing field
+        data.set("mass".to_string(), Value::Scalar(600.0));
+        assert_eq!(data.get("mass"), Some(&Value::Scalar(600.0)));
+    }
+
+    // ========================================================================
+    // EntityInstances Tests
+    // ========================================================================
+
+    #[test]
+    fn test_entity_instances_basic() {
+        let mut instances = EntityInstances::new();
+        let id1: InstanceId = "moon_1".into();
+        let id2: InstanceId = "moon_2".into();
+
+        let mut data1 = InstanceData::default();
+        data1.set("mass".to_string(), Value::Scalar(100.0));
+
+        let mut data2 = InstanceData::default();
+        data2.set("mass".to_string(), Value::Scalar(200.0));
+
+        instances.insert(id1.clone(), data1);
+        instances.insert(id2.clone(), data2);
+
+        assert_eq!(instances.count(), 2);
+        assert_eq!(
+            instances.get(&id1).unwrap().get("mass"),
+            Some(&Value::Scalar(100.0))
+        );
+        assert_eq!(
+            instances.get(&id2).unwrap().get("mass"),
+            Some(&Value::Scalar(200.0))
+        );
+    }
+
+    #[test]
+    fn test_entity_instances_mutable_access() {
+        let mut instances = EntityInstances::new();
+        let id: InstanceId = "moon_1".into();
+
+        let mut data = InstanceData::default();
+        data.set("mass".to_string(), Value::Scalar(100.0));
+        instances.insert(id.clone(), data);
+
+        // Mutate via get_mut
+        if let Some(inst) = instances.get_mut(&id) {
+            inst.set("mass".to_string(), Value::Scalar(150.0));
+        }
+
+        assert_eq!(
+            instances.get(&id).unwrap().get("mass"),
+            Some(&Value::Scalar(150.0))
+        );
+    }
+
+    #[test]
+    fn test_entity_instances_iteration() {
+        let mut instances = EntityInstances::new();
+        let id1: InstanceId = "a".into();
+        let id2: InstanceId = "b".into();
+
+        instances.insert(id1.clone(), InstanceData::default());
+        instances.insert(id2.clone(), InstanceData::default());
+
+        let ids: Vec<_> = instances.instance_ids().collect();
+        assert_eq!(ids.len(), 2);
+
+        // iter() returns (id, data) pairs
+        let pairs: Vec<_> = instances.iter().collect();
+        assert_eq!(pairs.len(), 2);
+    }
+
+    // ========================================================================
+    // EntityStorage Tests
+    // ========================================================================
+
+    #[test]
+    fn test_entity_storage_init() {
+        let mut storage = EntityStorage::default();
+        let entity_id: EntityId = "stellar.moon".into();
+        let instance_id: InstanceId = "moon_1".into();
+
+        let mut instances = EntityInstances::new();
+        let mut data = InstanceData::default();
+        data.set("mass".to_string(), Value::Scalar(1000.0));
+        instances.insert(instance_id.clone(), data);
+
+        storage.init_entity(entity_id.clone(), instances);
+
+        // Verify count
+        assert_eq!(storage.count(&entity_id), 1);
+
+        // Verify field access
+        assert_eq!(
+            storage.get_field(&entity_id, &instance_id, "mass"),
+            Some(&Value::Scalar(1000.0))
+        );
+    }
+
+    #[test]
+    fn test_entity_storage_set_field() {
+        let mut storage = EntityStorage::default();
+        let entity_id: EntityId = "stellar.moon".into();
+        let instance_id: InstanceId = "moon_1".into();
+
+        let mut instances = EntityInstances::new();
+        let mut data = InstanceData::default();
+        data.set("mass".to_string(), Value::Scalar(1000.0));
+        instances.insert(instance_id.clone(), data);
+
+        storage.init_entity(entity_id.clone(), instances);
+
+        // Set new value
+        storage.set_field(
+            &entity_id,
+            &instance_id,
+            "mass".to_string(),
+            Value::Scalar(1500.0),
+        );
+
+        // Current should have new value
+        assert_eq!(
+            storage.get_field(&entity_id, &instance_id, "mass"),
+            Some(&Value::Scalar(1500.0))
+        );
+
+        // Previous should still have old value
+        assert_eq!(
+            storage.get_prev_field(&entity_id, &instance_id, "mass"),
+            Some(&Value::Scalar(1000.0))
+        );
+    }
+
+    #[test]
+    fn test_entity_storage_advance_tick() {
+        let mut storage = EntityStorage::default();
+        let entity_id: EntityId = "stellar.moon".into();
+        let instance_id: InstanceId = "moon_1".into();
+
+        let mut instances = EntityInstances::new();
+        let mut data = InstanceData::default();
+        data.set("mass".to_string(), Value::Scalar(1000.0));
+        instances.insert(instance_id.clone(), data);
+
+        storage.init_entity(entity_id.clone(), instances);
+
+        // Set new value
+        storage.set_field(
+            &entity_id,
+            &instance_id,
+            "mass".to_string(),
+            Value::Scalar(1500.0),
+        );
+
+        // Advance tick
+        storage.advance_tick();
+
+        // Now previous has the 1500.0 value
+        assert_eq!(
+            storage.get_prev_field(&entity_id, &instance_id, "mass"),
+            Some(&Value::Scalar(1500.0))
+        );
+    }
+
+    #[test]
+    fn test_entity_storage_multiple_entities() {
+        let mut storage = EntityStorage::default();
+        let moon_id: EntityId = "stellar.moon".into();
+        let star_id: EntityId = "stellar.star".into();
+
+        // Add moons
+        let mut moon_instances = EntityInstances::new();
+        let mut moon_data = InstanceData::default();
+        moon_data.set("mass".to_string(), Value::Scalar(100.0));
+        moon_instances.insert("moon_1".into(), moon_data);
+
+        // Add stars
+        let mut star_instances = EntityInstances::new();
+        let mut star_data = InstanceData::default();
+        star_data.set("luminosity".to_string(), Value::Scalar(5000.0));
+        star_instances.insert("star_1".into(), star_data);
+
+        storage.init_entity(moon_id.clone(), moon_instances);
+        storage.init_entity(star_id.clone(), star_instances);
+
+        assert_eq!(storage.count(&moon_id), 1);
+        assert_eq!(storage.count(&star_id), 1);
+
+        let entity_ids: Vec<_> = storage.entity_ids().collect();
+        assert_eq!(entity_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_entity_storage_instance_ids() {
+        let mut storage = EntityStorage::default();
+        let entity_id: EntityId = "stellar.moon".into();
+
+        let mut instances = EntityInstances::new();
+        instances.insert("moon_1".into(), InstanceData::default());
+        instances.insert("moon_2".into(), InstanceData::default());
+        instances.insert("moon_3".into(), InstanceData::default());
+
+        storage.init_entity(entity_id.clone(), instances);
+
+        let ids: Vec<_> = storage.instance_ids(&entity_id).collect();
+        assert_eq!(ids.len(), 3);
+    }
+
+    // ========================================================================
+    // FieldBuffer Tests
+    // ========================================================================
+
+    #[test]
+    fn test_field_buffer_emit_scalar() {
+        let mut buffer = FieldBuffer::default();
+        let field_id: FieldId = "terra.temp".into();
+
+        buffer.emit_scalar(field_id.clone(), 300.0);
+        buffer.emit_scalar(field_id.clone(), 301.0);
+
+        let samples = buffer.get_samples(&field_id).unwrap();
+        assert_eq!(samples.len(), 2);
+        assert_eq!(samples[0].value, Value::Scalar(300.0));
+        assert_eq!(samples[1].value, Value::Scalar(301.0));
+    }
+
+    #[test]
+    fn test_field_buffer_emit_with_position() {
+        let mut buffer = FieldBuffer::default();
+        let field_id: FieldId = "terra.temp".into();
+
+        buffer.emit(
+            field_id.clone(),
+            [1.0, 2.0, 3.0],
+            Value::Scalar(300.0),
+        );
+
+        let samples = buffer.get_samples(&field_id).unwrap();
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].position, [1.0, 2.0, 3.0]);
+        assert_eq!(samples[0].value, Value::Scalar(300.0));
+    }
+
+    #[test]
+    fn test_field_buffer_drain() {
+        let mut buffer = FieldBuffer::default();
+        let field_id: FieldId = "terra.temp".into();
+
+        buffer.emit_scalar(field_id.clone(), 300.0);
+        assert!(!buffer.is_empty());
+
+        let drained = buffer.drain();
+        assert!(buffer.is_empty());
+        assert!(drained.contains_key(&field_id));
+    }
+
+    #[test]
+    fn test_field_buffer_clear() {
+        let mut buffer = FieldBuffer::default();
+        let field_id: FieldId = "terra.temp".into();
+
+        buffer.emit_scalar(field_id.clone(), 300.0);
+        buffer.clear();
+
+        assert!(buffer.is_empty());
+        assert!(buffer.get_samples(&field_id).is_none());
+    }
+
+    #[test]
+    fn test_field_buffer_multiple_fields() {
+        let mut buffer = FieldBuffer::default();
+        let temp_id: FieldId = "terra.temp".into();
+        let pressure_id: FieldId = "terra.pressure".into();
+
+        buffer.emit_scalar(temp_id.clone(), 300.0);
+        buffer.emit_scalar(pressure_id.clone(), 101.0);
+
+        let field_ids: Vec<_> = buffer.field_ids().collect();
+        assert_eq!(field_ids.len(), 2);
+    }
+
+    // ========================================================================
+    // FractureQueue Tests
+    // ========================================================================
+
+    #[test]
+    fn test_fracture_queue_basic() {
+        let mut queue = FractureQueue::default();
+        let signal_id: SignalId = "terra.stress".into();
+
+        queue.queue(signal_id.clone(), 10.0);
+        queue.queue(signal_id.clone(), 20.0);
+
+        let mut channels = InputChannels::default();
+        queue.drain_into(&mut channels);
+
+        // Both values should be accumulated
+        assert_eq!(channels.drain_sum(&signal_id), 30.0);
+    }
+
+    #[test]
+    fn test_fracture_queue_drain_clears() {
+        let mut queue = FractureQueue::default();
+        let signal_id: SignalId = "terra.stress".into();
+
+        queue.queue(signal_id.clone(), 10.0);
+
+        let mut channels = InputChannels::default();
+        queue.drain_into(&mut channels);
+
+        // Draining again should produce nothing
+        let mut channels2 = InputChannels::default();
+        queue.drain_into(&mut channels2);
+        assert_eq!(channels2.drain_sum(&signal_id), 0.0);
+    }
+
+    // ========================================================================
+    // Gated Signal Tests
+    // ========================================================================
+
+    #[test]
+    fn test_signal_storage_gated_signals_preserved() {
+        let mut storage = SignalStorage::default();
+        let fast_id: SignalId = "fast.signal".into();
+        let slow_id: SignalId = "slow.signal".into();
+
+        // Initialize both signals
+        storage.init(fast_id.clone(), Value::Scalar(1.0));
+        storage.init(slow_id.clone(), Value::Scalar(100.0));
+
+        // Only resolve the fast signal (slow is gated)
+        storage.set_current(fast_id.clone(), Value::Scalar(2.0));
+
+        // Advance tick
+        storage.advance_tick();
+
+        // Fast signal has new value
+        assert_eq!(storage.get_prev(&fast_id), Some(&Value::Scalar(2.0)));
+        // Slow signal preserved from previous tick
+        assert_eq!(storage.get_prev(&slow_id), Some(&Value::Scalar(100.0)));
+    }
 }
