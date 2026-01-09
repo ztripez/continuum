@@ -169,8 +169,23 @@ impl Runtime {
     }
 
     /// Get current tick context (tick, dt, era)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the current era is not found in the era configurations.
+    /// This indicates a configuration bug since the runtime should not be
+    /// in an era that was never registered.
     pub fn tick_context(&self) -> TickContext {
-        let dt = self.eras.get(&self.current_era).map(|c| c.dt).unwrap_or(Dt(0.0));
+        let dt = self
+            .eras
+            .get(&self.current_era)
+            .map(|c| c.dt)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Era '{}' not found in runtime configuration - cannot get tick context for unregistered era",
+                    self.current_era
+                )
+            });
         TickContext {
             tick: self.tick,
             dt,

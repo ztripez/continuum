@@ -130,7 +130,11 @@ pub fn float<'src>() -> impl Parser<'src, &'src str, f64, extra::Err<ParseError<
                 .or_not(),
         )
         .to_slice()
-        .map(|s: &str| s.parse().unwrap_or(0.0))
+        .map(|s: &str| {
+            s.parse().unwrap_or_else(|e| {
+                panic!("Internal parser error: matched float pattern '{}' but parse failed: {}", s, e)
+            })
+        })
 }
 
 /// Number literal
@@ -260,7 +264,11 @@ pub fn attr_int<'src>(
         .padded_by(ws())
         .ignore_then(text::keyword(keyword))
         .ignore_then(
-            spanned(text::int(10).map(|s: &str| s.parse::<u32>().unwrap_or(0)))
+            spanned(text::int(10).map(|s: &str| {
+                s.parse::<u32>().unwrap_or_else(|e| {
+                    panic!("Internal parser error: matched integer pattern '{}' but parse failed: {}", s, e)
+                })
+            }))
                 .padded_by(ws())
                 .delimited_by(just('('), just(')')),
         )

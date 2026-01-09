@@ -157,7 +157,9 @@ impl Lowerer {
                     ast::MathConst::Tau => std::f64::consts::TAU,
                     ast::MathConst::E => std::f64::consts::E,
                     ast::MathConst::Phi => 1.618_033_988_749_895,
-                    ast::MathConst::I => 0.0, // imaginary unit not directly representable
+                    ast::MathConst::I => {
+                        panic!("MathConst::I (imaginary unit) cannot be represented as a real number")
+                    }
                 };
                 CompiledExpr::Literal(val)
             }
@@ -165,7 +167,7 @@ impl Lowerer {
             // These require more complex lowering or are handled specially
             Expr::Block(exprs) => {
                 if exprs.is_empty() {
-                    CompiledExpr::Literal(0.0)
+                    panic!("Empty block expression has no value - blocks must contain at least one expression")
                 } else {
                     // For now, just evaluate to the last expression
                     self.lower_expr_with_locals(&exprs.last().unwrap().node, locals)
@@ -175,17 +177,22 @@ impl Lowerer {
             // === Entity expressions ===
             Expr::SelfField(field) => CompiledExpr::SelfField(field.clone()),
 
-            Expr::EntityRef(_path) => {
-                // EntityRef by itself can't be evaluated to a value; it needs to be
-                // used in aggregation context. For now, treat as placeholder.
-                CompiledExpr::Literal(0.0)
+            Expr::EntityRef(path) => {
+                panic!(
+                    "EntityRef '{}' cannot be evaluated to a value - entity references must be used in aggregation context (e.g., sum(entity.{}, ...))",
+                    path.join("."),
+                    path.join(".")
+                )
             }
 
             Expr::EntityAccess { entity, instance } => {
-                // instance expression should be a string literal for the instance ID
+                // instance expression must be a string literal for the instance ID
                 let inst_id = match &instance.node {
                     Expr::Literal(Literal::String(s)) => InstanceId::from(s.as_str()),
-                    _ => InstanceId::from("unknown"), // TODO: handle dynamic lookups
+                    other => panic!(
+                        "EntityAccess instance must be a string literal, got {:?} - dynamic instance lookups are not supported",
+                        other
+                    ),
                 };
                 CompiledExpr::EntityAccess {
                     entity: EntityId::from(entity.join(".").as_str()),
@@ -241,7 +248,10 @@ impl Lowerer {
             },
 
             // Remaining expressions that need more complex handling
-            _ => CompiledExpr::Literal(0.0), // placeholder for complex expressions
+            other => panic!(
+                "Unhandled expression type in lowering: {:?} - this expression cannot be compiled",
+                other
+            ),
         }
     }
 
@@ -251,7 +261,10 @@ impl Lowerer {
             Expr::FieldAccess { object, field } => {
                 format!("{}.{}", self.expr_to_function_name(&object.node), field)
             }
-            _ => "unknown".to_string(),
+            other => panic!(
+                "Cannot extract function name from expression: {:?} - expected Path or FieldAccess",
+                other
+            ),
         }
     }
 }

@@ -133,27 +133,71 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
                     // Convert to SignalComponent for vector component access
                     Expr::SignalComponent(id.0.clone(), field.clone())
                 }
-                _ => {
-                    // Nested field access not yet supported - return 0
-                    Expr::Literal(0.0)
+                other => {
+                    panic!(
+                        "Nested field access on {:?} not supported in bytecode compiler",
+                        other
+                    );
                 }
             }
         }
 
-        // Entity expressions are handled by the runtime, not bytecode VM
-        // These return placeholder values - actual entity execution uses EntityExecutor
-        CompiledExpr::SelfField(_)
-        | CompiledExpr::EntityAccess { .. }
-        | CompiledExpr::Aggregate { .. }
-        | CompiledExpr::Other { .. }
-        | CompiledExpr::Pairs { .. }
-        | CompiledExpr::Filter { .. }
-        | CompiledExpr::First { .. }
-        | CompiledExpr::Nearest { .. }
-        | CompiledExpr::Within { .. } => {
-            // Entity operations are not converted to bytecode - they require
-            // special runtime handling with access to entity storage
-            Expr::Literal(0.0)
+        // Entity expressions are handled by the EntityExecutor at runtime, NOT the bytecode VM.
+        // If these expressions reach the bytecode compiler, it indicates a bug in the
+        // compilation pipeline - entity operations should be routed to EntityExecutor instead.
+        CompiledExpr::SelfField(field) => {
+            panic!(
+                "SelfField({}) reached bytecode compiler - entity expressions must use EntityExecutor",
+                field
+            );
+        }
+        CompiledExpr::EntityAccess { entity, instance, field } => {
+            panic!(
+                "EntityAccess({}.{}.{}) reached bytecode compiler - entity expressions must use EntityExecutor",
+                entity.0, instance.0, field
+            );
+        }
+        CompiledExpr::Aggregate { op, entity, .. } => {
+            panic!(
+                "Aggregate({:?} over {}) reached bytecode compiler - entity expressions must use EntityExecutor",
+                op, entity.0
+            );
+        }
+        CompiledExpr::Other { entity, .. } => {
+            panic!(
+                "Other({}) reached bytecode compiler - entity expressions must use EntityExecutor",
+                entity.0
+            );
+        }
+        CompiledExpr::Pairs { entity, .. } => {
+            panic!(
+                "Pairs({}) reached bytecode compiler - entity expressions must use EntityExecutor",
+                entity.0
+            );
+        }
+        CompiledExpr::Filter { entity, .. } => {
+            panic!(
+                "Filter({}) reached bytecode compiler - entity expressions must use EntityExecutor",
+                entity.0
+            );
+        }
+        CompiledExpr::First { entity, .. } => {
+            panic!(
+                "First({}) reached bytecode compiler - entity expressions must use EntityExecutor",
+                entity.0
+            );
+        }
+        CompiledExpr::Nearest { entity, .. } => {
+            panic!(
+                "Nearest({}) reached bytecode compiler - entity expressions must use EntityExecutor",
+                entity.0
+            );
+        }
+        CompiledExpr::Within { entity, .. } => {
+            panic!(
+                "Within({}) reached bytecode compiler - entity expressions must use EntityExecutor",
+                entity.0
+            );
         }
     }
 }

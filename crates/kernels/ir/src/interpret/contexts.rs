@@ -27,29 +27,45 @@ impl SharedContextData<'_> {
     /// Get signal value by name
     fn signal(&self, name: &str) -> f64 {
         let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.as_scalar())
-            .unwrap_or(0.0)
+        match self.signals.get(&runtime_id) {
+            Some(v) => v.as_scalar().unwrap_or_else(|| {
+                panic!(
+                    "Signal '{}' exists but is not a scalar - cannot convert to f64",
+                    name
+                )
+            }),
+            None => panic!("Signal '{}' not found in storage", name),
+        }
     }
 
     /// Get signal component by name and component (x, y, z, w)
     fn signal_component(&self, name: &str, component: &str) -> f64 {
         let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.component(component))
-            .unwrap_or(0.0)
+        match self.signals.get(&runtime_id) {
+            Some(v) => v.component(component).unwrap_or_else(|| {
+                panic!(
+                    "Signal '{}' has no component '{}' - expected vector with x/y/z/w components",
+                    name, component
+                )
+            }),
+            None => panic!("Signal '{}' not found in storage", name),
+        }
     }
 
     /// Get constant value by name
     fn constant(&self, name: &str) -> f64 {
-        self.constants.get(name).copied().unwrap_or(0.0)
+        self.constants
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| panic!("Constant '{}' not defined", name))
     }
 
     /// Get config value by name
     fn config(&self, name: &str) -> f64 {
-        self.config.get(name).copied().unwrap_or(0.0)
+        self.config
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| panic!("Config value '{}' not defined", name))
     }
 }
 
@@ -66,7 +82,12 @@ pub(crate) struct ResolverContext<'a> {
 
 impl ExecutionContext for ResolverContext<'_> {
     fn prev(&self) -> f64 {
-        self.prev.as_scalar().unwrap_or(0.0)
+        self.prev.as_scalar().unwrap_or_else(|| {
+            panic!(
+                "prev value {:?} is not a scalar - cannot use prev on vector signals without component access",
+                self.prev
+            )
+        })
     }
 
     fn dt(&self) -> f64 {
@@ -94,10 +115,8 @@ impl ExecutionContext for ResolverContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
-            tracing::warn!("unknown function '{}'", name);
-            0.0
-        })
+        continuum_kernel_registry::eval(name, args, self.dt)
+            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
     }
 }
 
@@ -116,7 +135,12 @@ pub(crate) struct AssertionContext<'a> {
 impl ExecutionContext for AssertionContext<'_> {
     fn prev(&self) -> f64 {
         // In assertions, 'prev' refers to the current (post-resolve) value being asserted
-        self.current.as_scalar().unwrap_or(0.0)
+        self.current.as_scalar().unwrap_or_else(|| {
+            panic!(
+                "Assertion value {:?} is not a scalar - cannot assert on vector signals without component access",
+                self.current
+            )
+        })
     }
 
     fn dt(&self) -> f64 {
@@ -144,10 +168,8 @@ impl ExecutionContext for AssertionContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
-            tracing::warn!("unknown function '{}'", name);
-            0.0
-        })
+        continuum_kernel_registry::eval(name, args, 0.0)
+            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
     }
 }
 
@@ -189,10 +211,8 @@ impl ExecutionContext for TransitionContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
-            tracing::warn!("unknown function '{}'", name);
-            0.0
-        })
+        continuum_kernel_registry::eval(name, args, 0.0)
+            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
     }
 }
 
@@ -235,10 +255,8 @@ impl ExecutionContext for MeasureContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
-            tracing::warn!("unknown function '{}'", name);
-            0.0
-        })
+        continuum_kernel_registry::eval(name, args, self.dt)
+            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
     }
 }
 
@@ -281,9 +299,7 @@ impl ExecutionContext for FractureExecContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
-            tracing::warn!("unknown function '{}'", name);
-            0.0
-        })
+        continuum_kernel_registry::eval(name, args, self.dt)
+            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
     }
 }
