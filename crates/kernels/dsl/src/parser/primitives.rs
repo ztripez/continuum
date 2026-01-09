@@ -145,7 +145,7 @@ pub fn literal<'src>(
     choice((number(), string_lit().map(Literal::String)))
 }
 
-/// Unit in angle brackets: <K>, <W/m²>
+/// Unit in angle brackets: `<K>`, `<W/m²>`
 pub fn unit<'src>() -> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
     none_of(">")
         .repeated()

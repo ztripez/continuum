@@ -59,7 +59,7 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
     spanned_expr_inner().map(|spanned| spanned.node)
 }
 
-/// Internal spanned expression parser - produces Spanned<Expr> with proper spans throughout
+/// Internal spanned expression parser - produces `Spanned<Expr>` with proper spans throughout
 fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
     recursive(|expr| {
         // Box the recursive expr (which returns Spanned<Expr>) to prevent type explosion
