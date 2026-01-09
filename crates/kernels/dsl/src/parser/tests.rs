@@ -227,6 +227,71 @@ fn test_parse_type_def() {
 }
 
 #[test]
+fn test_parse_vector_with_magnitude_range() {
+    let source = r#"
+        type.OrbitalState {
+            position: Vec3<m, magnitude: 1e10..1e12>
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::TypeDef(def) => {
+            assert_eq!(def.fields.len(), 1);
+            match &def.fields[0].ty.node {
+                TypeExpr::Vector {
+                    dim,
+                    unit,
+                    magnitude,
+                } => {
+                    assert_eq!(*dim, 3);
+                    assert_eq!(unit, "m");
+                    let mag = magnitude.as_ref().expect("should have magnitude");
+                    assert_eq!(mag.min, 1e10);
+                    assert_eq!(mag.max, 1e12);
+                }
+                _ => panic!("expected Vector type"),
+            }
+        }
+        _ => panic!("expected TypeDef"),
+    }
+}
+
+#[test]
+fn test_parse_vec4_unit_quaternion() {
+    // Vec4<1, magnitude: 1> is a unit quaternion (magnitude exactly 1)
+    let source = r#"
+        type.Orientation {
+            rotation: Vec4<1, magnitude: 1>
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::TypeDef(def) => {
+            match &def.fields[0].ty.node {
+                TypeExpr::Vector {
+                    dim,
+                    unit,
+                    magnitude,
+                } => {
+                    assert_eq!(*dim, 4);
+                    assert_eq!(unit, "1");
+                    let mag = magnitude.as_ref().expect("should have magnitude constraint");
+                    // Single value 1 is converted to range 1..1
+                    assert_eq!(mag.min, 1.0);
+                    assert_eq!(mag.max, 1.0);
+                }
+                _ => panic!("expected Vector type"),
+            }
+        }
+        _ => panic!("expected TypeDef"),
+    }
+}
+
+#[test]
 fn test_parse_operator_def() {
     let source = r#"
         operator.terra.thermal.budget {

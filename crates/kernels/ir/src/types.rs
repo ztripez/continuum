@@ -626,6 +626,8 @@ pub enum ValueType {
         unit: Option<String>,
         /// Parsed dimensional representation for analysis.
         dimension: Option<crate::units::Unit>,
+        /// Optional magnitude constraint (e.g., magnitude: 1 for unit quaternions).
+        magnitude: Option<ValueRange>,
     },
     /// NxM tensor (matrices, stress/strain tensors).
     Tensor {
@@ -637,6 +639,8 @@ pub enum ValueType {
         unit: Option<String>,
         /// Parsed dimensional representation for analysis.
         dimension: Option<crate::units::Unit>,
+        /// Mathematical constraints (symmetric, positive_definite).
+        constraints: Vec<TensorConstraintIr>,
     },
     /// 2D grid of values (e.g., temperature maps, heightmaps).
     Grid {
@@ -651,6 +655,8 @@ pub enum ValueType {
     Seq {
         /// Element type.
         element_type: Box<ValueType>,
+        /// Aggregate constraints (each, sum).
+        constraints: Vec<SeqConstraintIr>,
     },
 }
 
@@ -666,6 +672,28 @@ pub struct ValueRange {
     pub min: f64,
     /// Maximum allowed value.
     pub max: f64,
+}
+
+/// Tensor mathematical constraint.
+///
+/// Tensors can have constraints that enforce mathematical properties.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TensorConstraintIr {
+    /// Matrix must be symmetric (A = A^T).
+    Symmetric,
+    /// Matrix must be positive definite (all eigenvalues > 0).
+    PositiveDefinite,
+}
+
+/// Sequence aggregate constraint.
+///
+/// Sequences can have constraints that enforce aggregate properties.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SeqConstraintIr {
+    /// Each element must be within the given range.
+    Each(ValueRange),
+    /// The sum of all elements must be within the given range.
+    Sum(ValueRange),
 }
 
 /// Spatial topology for field data distribution.

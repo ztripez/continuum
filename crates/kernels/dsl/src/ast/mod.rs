@@ -195,15 +195,21 @@ pub enum TypeExpr {
         range: Option<Range>,
     },
     /// Vector value: `Vec3<m>` (dimension, unit, optional magnitude bounds).
+    ///
+    /// Supports 2D, 3D, and 4D vectors. The magnitude constraint is useful for:
+    /// - Unit quaternions: `Vec4<1, magnitude: 1>` (normalized to unit length)
+    /// - Position bounds: `Vec3<m, magnitude: 1e6..1e9>`
     Vector {
-        /// Dimension (2 or 3).
+        /// Dimension (2, 3, or 4).
         dim: u8,
         /// Component unit.
         unit: String,
         /// Optional magnitude bounds.
         magnitude: Option<Range>,
     },
-    /// NxM tensor value: `Tensor<3,3,Pa>` (rows, cols, unit).
+    /// NxM tensor value: `Tensor<3,3,Pa>` (rows, cols, unit, constraints).
+    ///
+    /// Tensors can have mathematical constraints like symmetric or positive_definite.
     Tensor {
         /// Number of rows.
         rows: u8,
@@ -211,6 +217,8 @@ pub enum TypeExpr {
         cols: u8,
         /// Element unit.
         unit: String,
+        /// Mathematical constraints on the tensor.
+        constraints: Vec<TensorConstraint>,
     },
     /// 2D grid of values: `Grid<2048, 1024, Scalar<K>>`.
     Grid {
@@ -222,9 +230,13 @@ pub enum TypeExpr {
         element_type: Box<TypeExpr>,
     },
     /// Ordered sequence of values: `Seq<Scalar<kg>>`.
+    ///
+    /// Sequences can have aggregate constraints like each() and sum().
     Seq {
         /// Element type.
         element_type: Box<TypeExpr>,
+        /// Aggregate constraints on sequence elements.
+        constraints: Vec<SeqConstraint>,
     },
     /// Reference to a named type: `OrbitalElements`.
     Named(String),
@@ -239,4 +251,42 @@ pub struct Range {
     pub min: f64,
     /// Maximum allowed value (inclusive).
     pub max: f64,
+}
+
+/// Constraints for tensor types.
+///
+/// These constraints enforce mathematical properties of matrix values.
+///
+/// # Examples
+///
+/// ```text
+/// : Tensor<3,3,Pa>
+///   : symmetric
+///   : positive_definite
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TensorConstraint {
+    /// Matrix must be symmetric (A = A^T).
+    Symmetric,
+    /// Matrix must be positive definite (all eigenvalues > 0).
+    PositiveDefinite,
+}
+
+/// Constraints for sequence types.
+///
+/// These constraints enforce aggregate properties over sequence elements.
+///
+/// # Examples
+///
+/// ```text
+/// : Seq<Scalar<kg>>
+///   : each(1e20..1e28)
+///   : sum(1e25..1e30)
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub enum SeqConstraint {
+    /// Each element must be within the given range.
+    Each(Range),
+    /// The sum of all elements must be within the given range.
+    Sum(Range),
 }

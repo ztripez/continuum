@@ -52,7 +52,7 @@ pub fn type_expr<'src>(
                         .then_ignore(just('>').padded_by(ws())),
                 )
                 .map(|(unit, range)| TypeExpr::Scalar { unit, range }),
-            // Vec2/Vec3/Vec4<unit>
+            // Vec2/Vec3/Vec4<unit> or Vec2/Vec3/Vec4<unit, magnitude: range>
             choice((
                 text::keyword("Vec2").to(2u8),
                 text::keyword("Vec3").to(3u8),
@@ -62,12 +62,20 @@ pub fn type_expr<'src>(
                 just('<')
                     .padded_by(ws())
                     .ignore_then(unit_string())
+                    .then(
+                        just(',')
+                            .padded_by(ws())
+                            .ignore_then(text::keyword("magnitude"))
+                            .ignore_then(just(':').padded_by(ws()))
+                            .ignore_then(magnitude_value())
+                            .or_not(),
+                    )
                     .then_ignore(just('>').padded_by(ws())),
             )
-            .map(|(dim, unit)| TypeExpr::Vector {
+            .map(|(dim, (unit, magnitude))| TypeExpr::Vector {
                 dim,
                 unit,
-                magnitude: None,
+                magnitude,
             }),
             // Tensor<rows, cols, unit>
             text::keyword("Tensor")
@@ -89,7 +97,12 @@ pub fn type_expr<'src>(
                         .then(unit_string())
                         .then_ignore(just('>').padded_by(ws())),
                 )
-                .map(|((rows, cols), unit)| TypeExpr::Tensor { rows, cols, unit }),
+                .map(|((rows, cols), unit)| TypeExpr::Tensor {
+                    rows,
+                    cols,
+                    unit,
+                    constraints: Vec::new(),
+                }),
             // Grid<width, height, element_type>
             text::keyword("Grid")
                 .ignore_then(
@@ -125,6 +138,7 @@ pub fn type_expr<'src>(
                 )
                 .map(|element_type| TypeExpr::Seq {
                     element_type: Box::new(element_type),
+                    constraints: Vec::new(),
                 }),
             // Named type
             ident().map(TypeExpr::Named),
@@ -137,6 +151,21 @@ fn range<'src>() -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'s
         .then_ignore(just("..").padded_by(ws()))
         .then(float())
         .map(|(min, max)| Range { min, max })
+}
+
+/// Parses a magnitude value, which can be either a range (min..max) or a single value.
+/// A single value is converted to an exact range (value..value).
+fn magnitude_value<'src>(
+) -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> + Clone {
+    choice((
+        // Range: 1e10..1e12
+        float()
+            .then_ignore(just("..").padded_by(ws()))
+            .then(float())
+            .map(|(min, max)| Range { min, max }),
+        // Single value: 1 -> Range { min: 1, max: 1 }
+        float().map(|v| Range { min: v, max: v }),
+    ))
 }
 
 // === Function Definitions ===

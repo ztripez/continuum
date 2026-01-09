@@ -68,7 +68,11 @@ impl Lowerer {
                     }),
                 }
             }
-            TypeExpr::Vector { dim, unit, .. } => {
+            TypeExpr::Vector {
+                dim,
+                unit,
+                magnitude,
+            } => {
                 let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
                 match dim {
                     2 => ValueType::Vec2 {
@@ -82,6 +86,10 @@ impl Lowerer {
                     4 => ValueType::Vec4 {
                         unit: unit_str,
                         dimension,
+                        magnitude: magnitude.as_ref().map(|r| ValueRange {
+                            min: r.min,
+                            max: r.max,
+                        }),
                     },
                     _ => ValueType::Scalar {
                         unit: unit_str,
@@ -90,13 +98,22 @@ impl Lowerer {
                     },
                 }
             }
-            TypeExpr::Tensor { rows, cols, unit } => {
+            TypeExpr::Tensor {
+                rows,
+                cols,
+                unit,
+                constraints,
+            } => {
                 let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
                 ValueType::Tensor {
                     rows: *rows,
                     cols: *cols,
                     unit: unit_str,
                     dimension,
+                    constraints: constraints
+                        .iter()
+                        .map(|c| self.lower_tensor_constraint(*c))
+                        .collect(),
                 }
             }
             TypeExpr::Grid {
@@ -108,14 +125,42 @@ impl Lowerer {
                 height: *height,
                 element_type: Box::new(self.lower_type_expr(element_type)),
             },
-            TypeExpr::Seq { element_type } => ValueType::Seq {
+            TypeExpr::Seq {
+                element_type,
+                constraints,
+            } => ValueType::Seq {
                 element_type: Box::new(self.lower_type_expr(element_type)),
+                constraints: constraints
+                    .iter()
+                    .map(|c| self.lower_seq_constraint(c))
+                    .collect(),
             },
             TypeExpr::Named(_) => ValueType::Scalar {
                 unit: None,
                 dimension: None,
                 range: None,
             }, // resolve named types later
+        }
+    }
+
+    pub(crate) fn lower_tensor_constraint(
+        &self,
+        c: ast::TensorConstraint,
+    ) -> crate::TensorConstraintIr {
+        match c {
+            ast::TensorConstraint::Symmetric => crate::TensorConstraintIr::Symmetric,
+            ast::TensorConstraint::PositiveDefinite => crate::TensorConstraintIr::PositiveDefinite,
+        }
+    }
+
+    pub(crate) fn lower_seq_constraint(&self, c: &ast::SeqConstraint) -> crate::SeqConstraintIr {
+        match c {
+            ast::SeqConstraint::Each(r) => {
+                crate::SeqConstraintIr::Each(ValueRange { min: r.min, max: r.max })
+            }
+            ast::SeqConstraint::Sum(r) => {
+                crate::SeqConstraintIr::Sum(ValueRange { min: r.min, max: r.max })
+            }
         }
     }
 

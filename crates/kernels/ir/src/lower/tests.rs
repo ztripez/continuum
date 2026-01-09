@@ -1864,7 +1864,7 @@ fn test_tensor_type_ast_parsing() {
     assert_eq!(type_def.name.node, "stress");
     assert_eq!(type_def.fields.len(), 1);
     match &type_def.fields[0].ty.node {
-        TypeExpr::Tensor { rows, cols, unit } => {
+        TypeExpr::Tensor { rows, cols, unit, .. } => {
             assert_eq!(rows, &3);
             assert_eq!(cols, &3);
             assert_eq!(unit, "Pa");
@@ -1937,7 +1937,7 @@ fn test_seq_type_ast_parsing() {
 
     assert_eq!(type_def.name.node, "mass_list");
     match &type_def.fields[0].ty.node {
-        TypeExpr::Seq { element_type } => match element_type.as_ref() {
+        TypeExpr::Seq { element_type, .. } => match element_type.as_ref() {
             TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "kg"),
             other => panic!("expected Scalar element type, got {:?}", other),
         },
@@ -1968,7 +1968,7 @@ fn test_nested_grid_seq_type_parsing() {
         .expect("should have a type definition");
 
     match &type_def.fields[0].ty.node {
-        TypeExpr::Seq { element_type } => match element_type.as_ref() {
+        TypeExpr::Seq { element_type, .. } => match element_type.as_ref() {
             TypeExpr::Grid {
                 width,
                 height,
@@ -2115,7 +2115,7 @@ fn test_lower_typedef_with_seq() {
     assert_eq!(type_def.fields.len(), 1);
 
     match &type_def.fields[0].value_type {
-        ValueType::Seq { element_type } => match element_type.as_ref() {
+        ValueType::Seq { element_type, .. } => match element_type.as_ref() {
             ValueType::Scalar { unit, .. } => {
                 assert_eq!(unit.as_deref(), Some("kg"));
             }
