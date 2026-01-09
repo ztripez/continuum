@@ -111,17 +111,17 @@ See: `world.md`
 The manifest defines **how execution runs**, not simulation logic.
 
 It may define:
-- time strata
 - derived time units
-- eras (`dt`, gating, cadence)
-- era transitions (signal-only conditions)
 - fault and determinism policy
+- engine feature flags
 
 It must not define:
 - signals
 - operators
 - fields
 - impulses
+- strata (defined in DSL)
+- eras (defined in DSL)
 - observer logic
 
 Logic belongs exclusively in the DSL.
@@ -154,6 +154,8 @@ All simulation entities are declared in `*.cdsl`:
 - **Impulses** — external causal inputs
 - **Fractures** — emergent tension detectors
 - **Chronicles** — observer-only interpretation rules
+- **Strata** — execution lanes and cadence
+- **Eras** — time phases and execution policy
 
 Dependencies are **inferred**, never manually declared.
 

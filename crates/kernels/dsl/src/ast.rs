@@ -301,6 +301,8 @@ pub struct Range {
 pub struct FnDef {
     /// Function path (e.g., `physics.stefan_boltzmann_loss`)
     pub path: Spanned<Path>,
+    /// Generic type parameters (e.g. `<T>`)
+    pub generics: Vec<Spanned<String>>,
     /// Function parameters
     pub params: Vec<FnParam>,
     /// Return type (optional, can be inferred)
