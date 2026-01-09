@@ -196,8 +196,8 @@ signal.terra.orbit.position {
 
   resolve {
     // Symplectic Euler for energy conservation
-    let new_velocity = prev.velocity + signal.terra.gravity * dt
-    let new_position = prev.position + new_velocity * dt
+    let new_velocity = prev.velocity + signal.terra.gravity * dt in
+    let new_position = prev.position + new_velocity * dt in
     { position: new_position, velocity: new_velocity }
   }
 }
@@ -220,7 +220,7 @@ signal.terra.surface.temperature {
     let equilibrium = fn.radiative_equilibrium(
       signal.stellar.flux,
       signal.terra.albedo
-    )
+    ) in
     relax(prev, equilibrium, config.terra.thermal_tau)
   }
 }
@@ -248,7 +248,7 @@ signal.terra.orbit.true_anomaly {
   : dt_raw
 
   resolve {
-    let n = fn.mean_motion(signal.stellar.mass, signal.terra.orbit.semi_major)
+    let n = fn.mean_motion(signal.stellar.mass, signal.terra.orbit.semi_major) in
     advance_phase(prev, n)
   }
 }

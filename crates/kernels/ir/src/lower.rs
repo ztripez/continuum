@@ -6,18 +6,21 @@ use indexmap::IndexMap;
 use thiserror::Error;
 
 use continuum_dsl::ast::{
-    self, AssertBlock, AssertSeverity, BinaryOp, CompilationUnit, Expr, FnDef, Item, Literal,
-    OperatorBody, OperatorPhase, StrataStateKind, Topology, TypeExpr, UnaryOp,
+    self, AggregateOp, AssertBlock, AssertSeverity, BinaryOp, CompilationUnit, EntityDef, Expr,
+    FnDef, Item, Literal, OperatorBody, OperatorPhase, StrataStateKind, Topology, TypeExpr,
+    UnaryOp,
 };
 use continuum_foundation::{
-    EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId, StratumId,
+    EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId,
+    StratumId,
 };
 
 use crate::{
-    AssertionSeverity, BinaryOpIr, CompiledAssertion, CompiledEmit, CompiledEra, CompiledExpr,
-    CompiledField, CompiledFn, CompiledFracture, CompiledImpulse, CompiledOperator, CompiledSignal,
-    CompiledStratum, CompiledTransition, CompiledWarmup, CompiledWorld, OperatorPhaseIr,
-    StratumStateIr, TopologyIr, UnaryOpIr, ValueRange, ValueType,
+    AggregateOpIr, AssertionSeverity, BinaryOpIr, CompiledAssertion, CompiledEmit, CompiledEntity,
+    CompiledEntityField, CompiledEra, CompiledExpr, CompiledField, CompiledFn, CompiledFracture,
+    CompiledImpulse, CompiledOperator, CompiledSchemaField, CompiledSignal, CompiledStratum,
+    CompiledTransition, CompiledWarmup, CompiledWorld, OperatorPhaseIr, StratumStateIr, TopologyIr,
+    UnaryOpIr, ValueRange, ValueType,
 };
 
 /// Errors that can occur during lowering
@@ -60,6 +63,7 @@ struct Lowerer {
     operators: IndexMap<OperatorId, CompiledOperator>,
     impulses: IndexMap<ImpulseId, CompiledImpulse>,
     fractures: IndexMap<FractureId, CompiledFracture>,
+    entities: IndexMap<EntityId, CompiledEntity>,
 }
 
 impl Lowerer {
@@ -75,6 +79,7 @@ impl Lowerer {
             operators: IndexMap::new(),
             impulses: IndexMap::new(),
             fractures: IndexMap::new(),
+            entities: IndexMap::new(),
         }
     }
 
@@ -90,6 +95,7 @@ impl Lowerer {
             operators: self.operators,
             impulses: self.impulses,
             fractures: self.fractures,
+            entities: self.entities,
         }
     }
 
@@ -135,7 +141,7 @@ impl Lowerer {
             }
         }
 
-        // Third pass: signals, fields, operators, impulses, fractures
+        // Third pass: signals, fields, operators, impulses, fractures, entities
         for item in &unit.items {
             match &item.node {
                 Item::SignalDef(def) => self.lower_signal(def)?,
@@ -143,6 +149,7 @@ impl Lowerer {
                 Item::OperatorDef(def) => self.lower_operator(def)?,
                 Item::ImpulseDef(def) => self.lower_impulse(def)?,
                 Item::FractureDef(def) => self.lower_fracture(def)?,
+                Item::EntityDef(def) => self.lower_entity(def)?,
                 _ => {}
             }
         }
@@ -429,6 +436,96 @@ impl Lowerer {
         Ok(())
     }
 
+    fn lower_entity(&mut self, def: &EntityDef) -> Result<(), LowerError> {
+        let id = EntityId::from(def.path.node.join(".").as_str());
+
+        // Determine stratum
+        let stratum = def
+            .strata
+            .as_ref()
+            .map(|s| StratumId::from(s.node.join(".").as_str()))
+            .unwrap_or_else(|| StratumId::from("default"));
+
+        // Count source from config path
+        let count_source = def
+            .count_source
+            .as_ref()
+            .map(|p| p.node.join(".").replace("config.", ""));
+
+        // Count bounds
+        let count_bounds = def.count_bounds.as_ref().map(|b| (b.min, b.max));
+
+        // Schema fields
+        let schema = def
+            .schema
+            .iter()
+            .map(|f| CompiledSchemaField {
+                name: f.name.node.clone(),
+                value_type: self.lower_type_expr(&f.ty.node),
+            })
+            .collect();
+
+        // Collect signal reads from resolve and field measure blocks
+        let mut reads = Vec::new();
+        let mut entity_reads = Vec::new();
+        if let Some(resolve) = &def.resolve {
+            self.collect_signal_refs(&resolve.body.node, &mut reads);
+            self.collect_entity_refs(&resolve.body.node, &mut entity_reads);
+        }
+        for field in &def.fields {
+            if let Some(measure) = &field.measure {
+                self.collect_signal_refs(&measure.body.node, &mut reads);
+                self.collect_entity_refs(&measure.body.node, &mut entity_reads);
+            }
+        }
+
+        // Resolve expression
+        let resolve = def.resolve.as_ref().map(|r| self.lower_expr(&r.body.node));
+
+        // Assertions
+        let assertions = def
+            .assertions
+            .as_ref()
+            .map(|a| self.lower_assert_block(a))
+            .unwrap_or_default();
+
+        // Entity fields
+        let fields = def
+            .fields
+            .iter()
+            .map(|f| CompiledEntityField {
+                name: f.name.node.clone(),
+                value_type: f
+                    .ty
+                    .as_ref()
+                    .map(|t| self.lower_type_expr(&t.node))
+                    .unwrap_or(ValueType::Scalar { range: None }),
+                topology: f
+                    .topology
+                    .as_ref()
+                    .map(|t| self.lower_topology(&t.node))
+                    .unwrap_or(TopologyIr::PointCloud),
+                measure: f.measure.as_ref().map(|m| self.lower_expr(&m.body.node)),
+            })
+            .collect();
+
+        let entity = CompiledEntity {
+            id: id.clone(),
+            stratum,
+            count_source,
+            count_bounds,
+            schema,
+            reads,
+            entity_reads,
+            resolve,
+            assertions,
+            fields,
+        };
+
+        self.entities.insert(id, entity);
+        Ok(())
+    }
+
     fn lower_fn(&mut self, def: &FnDef) -> Result<(), LowerError> {
         let id = FnId::from(def.path.node.join(".").as_str());
 
@@ -597,6 +694,76 @@ impl Lowerer {
                     self.lower_expr_with_locals(&exprs.last().unwrap().node, locals)
                 }
             }
+
+            // === Entity expressions ===
+            Expr::SelfField(field) => CompiledExpr::SelfField(field.clone()),
+
+            Expr::EntityRef(_path) => {
+                // EntityRef by itself can't be evaluated to a value; it needs to be
+                // used in aggregation context. For now, treat as placeholder.
+                CompiledExpr::Literal(0.0)
+            }
+
+            Expr::EntityAccess { entity, instance } => {
+                // instance expression should be a string literal for the instance ID
+                let inst_id = match &instance.node {
+                    Expr::Literal(Literal::String(s)) => InstanceId::from(s.as_str()),
+                    _ => InstanceId::from("unknown"), // TODO: handle dynamic lookups
+                };
+                CompiledExpr::EntityAccess {
+                    entity: EntityId::from(entity.join(".").as_str()),
+                    instance: inst_id,
+                    field: String::new(), // Field access happens via FieldAccess wrapping this
+                }
+            }
+
+            Expr::Aggregate { op, entity, body } => CompiledExpr::Aggregate {
+                op: self.lower_aggregate_op(*op),
+                entity: EntityId::from(entity.join(".").as_str()),
+                body: Box::new(self.lower_expr_with_locals(&body.node, locals)),
+            },
+
+            Expr::Other(path) => {
+                // other() should only be used within aggregation context
+                CompiledExpr::Other {
+                    entity: EntityId::from(path.join(".").as_str()),
+                    body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+                }
+            }
+
+            Expr::Pairs(path) => CompiledExpr::Pairs {
+                entity: EntityId::from(path.join(".").as_str()),
+                body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+            },
+
+            Expr::Filter { entity, predicate } => CompiledExpr::Filter {
+                entity: EntityId::from(entity.join(".").as_str()),
+                predicate: Box::new(self.lower_expr_with_locals(&predicate.node, locals)),
+                body: Box::new(CompiledExpr::Literal(1.0)), // placeholder for nested body
+            },
+
+            Expr::First { entity, predicate } => CompiledExpr::First {
+                entity: EntityId::from(entity.join(".").as_str()),
+                predicate: Box::new(self.lower_expr_with_locals(&predicate.node, locals)),
+            },
+
+            Expr::Nearest { entity, position } => CompiledExpr::Nearest {
+                entity: EntityId::from(entity.join(".").as_str()),
+                position: Box::new(self.lower_expr_with_locals(&position.node, locals)),
+            },
+
+            Expr::Within {
+                entity,
+                position,
+                radius,
+            } => CompiledExpr::Within {
+                entity: EntityId::from(entity.join(".").as_str()),
+                position: Box::new(self.lower_expr_with_locals(&position.node, locals)),
+                radius: Box::new(self.lower_expr_with_locals(&radius.node, locals)),
+                body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+            },
+
+            // Remaining expressions that need more complex handling
             _ => CompiledExpr::Literal(0.0), // placeholder for complex expressions
         }
     }
@@ -680,6 +847,125 @@ impl Lowerer {
                     self.collect_signal_refs(&v.node, refs);
                 }
             }
+            // Entity expressions - recurse into their sub-expressions
+            Expr::SelfField(_) | Expr::EntityRef(_) | Expr::Other(_) | Expr::Pairs(_) => {}
+            Expr::EntityAccess { instance, .. } => {
+                self.collect_signal_refs(&instance.node, refs);
+            }
+            Expr::Aggregate { body, .. } => {
+                self.collect_signal_refs(&body.node, refs);
+            }
+            Expr::Filter { predicate, .. } => {
+                self.collect_signal_refs(&predicate.node, refs);
+            }
+            Expr::First { predicate, .. } => {
+                self.collect_signal_refs(&predicate.node, refs);
+            }
+            Expr::Nearest { position, .. } => {
+                self.collect_signal_refs(&position.node, refs);
+            }
+            Expr::Within {
+                position, radius, ..
+            } => {
+                self.collect_signal_refs(&position.node, refs);
+                self.collect_signal_refs(&radius.node, refs);
+            }
+            _ => {}
+        }
+    }
+
+    /// Collect entity references from an expression
+    fn collect_entity_refs(&self, expr: &Expr, refs: &mut Vec<EntityId>) {
+        match expr {
+            Expr::EntityRef(path) => {
+                let id = EntityId::from(path.join(".").as_str());
+                if !refs.contains(&id) {
+                    refs.push(id);
+                }
+            }
+            Expr::EntityAccess { entity, instance } => {
+                let id = EntityId::from(entity.join(".").as_str());
+                if !refs.contains(&id) {
+                    refs.push(id);
+                }
+                self.collect_entity_refs(&instance.node, refs);
+            }
+            Expr::Aggregate { entity, body, .. } => {
+                let id = EntityId::from(entity.join(".").as_str());
+                if !refs.contains(&id) {
+                    refs.push(id);
+                }
+                self.collect_entity_refs(&body.node, refs);
+            }
+            Expr::Other(path) | Expr::Pairs(path) => {
+                let id = EntityId::from(path.join(".").as_str());
+                if !refs.contains(&id) {
+                    refs.push(id);
+                }
+            }
+            Expr::Filter { entity, predicate } | Expr::First { entity, predicate } => {
+                let id = EntityId::from(entity.join(".").as_str());
+                if !refs.contains(&id) {
+                    refs.push(id);
+                }
+                self.collect_entity_refs(&predicate.node, refs);
+            }
+            Expr::Nearest { entity, position } => {
+                let id = EntityId::from(entity.join(".").as_str());
+                if !refs.contains(&id) {
+                    refs.push(id);
+                }
+                self.collect_entity_refs(&position.node, refs);
+            }
+            Expr::Within {
+                entity,
+                position,
+                radius,
+            } => {
+                let id = EntityId::from(entity.join(".").as_str());
+                if !refs.contains(&id) {
+                    refs.push(id);
+                }
+                self.collect_entity_refs(&position.node, refs);
+                self.collect_entity_refs(&radius.node, refs);
+            }
+            // Recurse into compound expressions
+            Expr::Binary { left, right, .. } => {
+                self.collect_entity_refs(&left.node, refs);
+                self.collect_entity_refs(&right.node, refs);
+            }
+            Expr::Unary { operand, .. } => {
+                self.collect_entity_refs(&operand.node, refs);
+            }
+            Expr::Call { function, args } => {
+                self.collect_entity_refs(&function.node, refs);
+                for arg in args {
+                    self.collect_entity_refs(&arg.node, refs);
+                }
+            }
+            Expr::FieldAccess { object, .. } => {
+                self.collect_entity_refs(&object.node, refs);
+            }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_entity_refs(&condition.node, refs);
+                self.collect_entity_refs(&then_branch.node, refs);
+                if let Some(eb) = else_branch {
+                    self.collect_entity_refs(&eb.node, refs);
+                }
+            }
+            Expr::Let { value, body, .. } => {
+                self.collect_entity_refs(&value.node, refs);
+                self.collect_entity_refs(&body.node, refs);
+            }
+            Expr::Block(exprs) => {
+                for e in exprs {
+                    self.collect_entity_refs(&e.node, refs);
+                }
+            }
             _ => {}
         }
     }
@@ -706,6 +992,20 @@ impl Lowerer {
         match op {
             UnaryOp::Neg => UnaryOpIr::Neg,
             UnaryOp::Not => UnaryOpIr::Not,
+        }
+    }
+
+    fn lower_aggregate_op(&self, op: AggregateOp) -> AggregateOpIr {
+        match op {
+            AggregateOp::Sum => AggregateOpIr::Sum,
+            AggregateOp::Product => AggregateOpIr::Product,
+            AggregateOp::Min => AggregateOpIr::Min,
+            AggregateOp::Max => AggregateOpIr::Max,
+            AggregateOp::Mean => AggregateOpIr::Mean,
+            AggregateOp::Count => AggregateOpIr::Count,
+            AggregateOp::Any => AggregateOpIr::Any,
+            AggregateOp::All => AggregateOpIr::All,
+            AggregateOp::None => AggregateOpIr::None,
         }
     }
 
@@ -812,6 +1112,16 @@ impl Lowerer {
                     || self.expr_uses_dt_raw(&init.node)
                     || self.expr_uses_dt_raw(&function.node)
             }
+            // Entity expressions
+            Expr::SelfField(_) | Expr::EntityRef(_) | Expr::Other(_) | Expr::Pairs(_) => false,
+            Expr::EntityAccess { instance, .. } => self.expr_uses_dt_raw(&instance.node),
+            Expr::Aggregate { body, .. } => self.expr_uses_dt_raw(&body.node),
+            Expr::Filter { predicate, .. } => self.expr_uses_dt_raw(&predicate.node),
+            Expr::First { predicate, .. } => self.expr_uses_dt_raw(&predicate.node),
+            Expr::Nearest { position, .. } => self.expr_uses_dt_raw(&position.node),
+            Expr::Within {
+                position, radius, ..
+            } => self.expr_uses_dt_raw(&position.node) || self.expr_uses_dt_raw(&radius.node),
             // These don't contain dt_raw
             Expr::Literal(_)
             | Expr::LiteralWithUnit { .. }
@@ -987,8 +1297,8 @@ mod tests {
             signal.test.sum {
                 : strata(test)
                 resolve {
-                    let a = 10.0
-                    let b = 20.0
+                    let a = 10.0 in
+                    let b = 20.0 in
                     a + b
                 }
             }
@@ -1336,7 +1646,7 @@ mod tests {
             signal.test.value {
                 : strata(test)
                 resolve {
-                    let factor = dt_raw * 2.0
+                    let factor = dt_raw * 2.0 in
                     prev + factor
                 }
             }

@@ -501,8 +501,8 @@ fn test_parse_let_expression() {
         signal.core.temp {
             : Scalar<K>
             resolve {
-                let a = 1.0
-                let b = 2.0
+                let a = 1.0 in
+                let b = 2.0 in
                 a + b
             }
         }
@@ -886,8 +886,8 @@ signal.rotation.state {
     : uses(dt_raw)
 
     resolve {
-        let phase = prev.x + prev.y * dt_raw
-        let omega = prev.y + sum(inputs)
+        let phase = prev.x + prev.y * dt_raw in
+        let omega = prev.y + sum(inputs) in
         vec2(mod(phase, 6.283185307), omega)
     }
 }
@@ -954,7 +954,7 @@ fn test_parse_nested_if_else() {
 signal.test.nested_if {
     : Scalar<1>
     resolve {
-        let raw_shear = sum(inputs)
+        let raw_shear = sum(inputs) in
         if raw_shear > 0.0 {
             raw_shear / 100.0
         } else {

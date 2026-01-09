@@ -77,14 +77,14 @@ config {
 # Tetens formula for saturation vapor pressure
 fn.atmosphere.saturation_vapor_pressure(temperature_k) {
     # e_sat(T) = 610.94 * exp((17.625 * T_C) / (T_C + 243.04))
-    let t_celsius = temperature_k - 273.15
+    let t_celsius = temperature_k - 273.15 in
     610.94 * exp((17.625 * t_celsius) / (t_celsius + 243.04))
 }
 
 # Equilibrium water vapor column mass
 fn.atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
-    let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k)
-    let rh = clamp(relative_humidity, 0.0, 1.0)
+    let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k) in
+    let rh = clamp(relative_humidity, 0.0, 1.0) in
     (e_sat * rh * scale_height_m) / (461.0 * surface_temp_k)
 }
 
@@ -137,13 +137,13 @@ signal.atmosphere.surface_temp {
         # dT/dt = (P_in - P_out) / C
         # P_out = epsilon_eff * sigma * A * T^4
 
-        let t_mean = prev.x
-        let epsilon_eff = atmosphere.effective_emissivity(config.atmosphere.surface_temp.emissivity, config.atmosphere.surface_temp.tau_greenhouse)
-        let radiative_loss = epsilon_eff * const.atmosphere.sigma * t_mean * t_mean * t_mean * t_mean
+        let t_mean = prev.x in
+        let epsilon_eff = atmosphere.effective_emissivity(config.atmosphere.surface_temp.emissivity, config.atmosphere.surface_temp.tau_greenhouse) in
+        let radiative_loss = epsilon_eff * const.atmosphere.sigma * t_mean * t_mean * t_mean * t_mean in
 
         # Simple energy balance (placeholder for full model)
-        let net_power = signal.atmosphere.external_power - radiative_loss * 1e14
-        let dt_temp = net_power / config.atmosphere.surface_temp.heat_capacity_j_k
+        let net_power = signal.atmosphere.external_power - radiative_loss * 1e14 in
+        let dt_temp = net_power / config.atmosphere.surface_temp.heat_capacity_j_k in
 
         vec3(
             clamp(t_mean + dt_temp * dt_raw, 50.0, 500.0),
@@ -178,8 +178,8 @@ signal.atmosphere.water_vapor {
 
     resolve {
         # Water vapor relaxes toward equilibrium determined by surface temperature
-        let t_surf = signal.atmosphere.surface_temp.x
-        let equilibrium = atmosphere.equilibrium_water_vapor(t_surf, config.atmosphere.water_vapor.relative_humidity, config.atmosphere.water_vapor.scale_height_m)
+        let t_surf = signal.atmosphere.surface_temp.x in
+        let equilibrium = atmosphere.equilibrium_water_vapor(t_surf, config.atmosphere.water_vapor.relative_humidity, config.atmosphere.water_vapor.scale_height_m) in
 
         relax_to(prev, equilibrium, config.atmosphere.water_vapor.relaxation_time_s)
     }
@@ -235,9 +235,9 @@ signal.atmosphere.cloud_cover {
 
     resolve {
         # Cloud cover depends on water vapor availability
-        let water_vapor = signal.atmosphere.water_vapor
+        let water_vapor = signal.atmosphere.water_vapor in
         let cloud_potential = (water_vapor - config.atmosphere.cloud_cover.min_water_vapor) /
-                             (config.atmosphere.cloud_cover.saturation_water_vapor - config.atmosphere.cloud_cover.min_water_vapor)
+                             (config.atmosphere.cloud_cover.saturation_water_vapor - config.atmosphere.cloud_cover.min_water_vapor) in
         clamp(cloud_potential + sum(inputs), 0.0, 1.0)
     }
 
@@ -265,8 +265,8 @@ signal.atmosphere.tau_greenhouse {
 
     resolve {
         # Optical depth from CO2 and water vapor
-        let co2_contribution = (signal.atmosphere.co2_ppmv - const.atmosphere.co2_ref_ppmv) * config.atmosphere.tau_greenhouse.co2_sensitivity
-        let wv_contribution = signal.atmosphere.water_vapor * config.atmosphere.tau_greenhouse.water_vapor_sensitivity
+        let co2_contribution = (signal.atmosphere.co2_ppmv - const.atmosphere.co2_ref_ppmv) * config.atmosphere.tau_greenhouse.co2_sensitivity in
+        let wv_contribution = signal.atmosphere.water_vapor * config.atmosphere.tau_greenhouse.water_vapor_sensitivity in
 
         config.atmosphere.tau_greenhouse.base_tau + co2_contribution + wv_contribution + sum(inputs)
     }

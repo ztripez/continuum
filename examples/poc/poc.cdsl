@@ -56,8 +56,8 @@ signal.core.temp {
 
     resolve {
         # Demonstrating let expressions for readable multi-step calculations
-        let decayed = decay(prev, config.thermal.decay_halflife)
-        let with_inputs = decayed + sum(inputs)
+        let decayed = decay(prev, config.thermal.decay_halflife) in
+        let with_inputs = decayed + sum(inputs) in
         with_inputs
     }
 
@@ -77,10 +77,10 @@ signal.surface.temp {
 
     resolve {
         # Heat transfer from core to surface using let for clarity
-        let temp_diff = signal.core.temp - prev
-        let heat_transfer = temp_diff * config.thermal.coupling_factor
-        let radiation_loss = (prev - const.thermal.ambient) * config.thermal.radiation_factor
-        let new_temp = prev + heat_transfer - radiation_loss + sum(inputs)
+        let temp_diff = signal.core.temp - prev in
+        let heat_transfer = temp_diff * config.thermal.coupling_factor in
+        let radiation_loss = (prev - const.thermal.ambient) * config.thermal.radiation_factor in
+        let new_temp = prev + heat_transfer - radiation_loss + sum(inputs) in
         clamp(new_temp, 100.0, 1000.0)
     }
 }
@@ -92,9 +92,9 @@ signal.thermal.gradient {
     : title("Core-Surface Gradient")
 
     resolve {
-        let core = signal.core.temp
-        let surface = signal.surface.temp
-        let gradient = core - surface
+        let core = signal.core.temp in
+        let surface = signal.surface.temp in
+        let gradient = core - surface in
         abs(gradient)
     }
 }

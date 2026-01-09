@@ -90,7 +90,7 @@ operator.validate_energy {
     : phase(resolve)
 
     collect {
-        let total = signal.kinetic + signal.potential
+        let total = signal.kinetic + signal.potential in
         emit_signal(signal.total_energy, total)
     }
 

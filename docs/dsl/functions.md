@@ -88,8 +88,8 @@ template.thermal_layer(name: String, depth: Scalar<m>, conductivity: Scalar<W/m/
     }
 
     resolve {
-      let flux_in = signal.terra.geophysics.{name}.flux_in
-      let flux_out = signal.terra.geophysics.{name}.flux_out
+      let flux_in = signal.terra.geophysics.{name}.flux_in in
+      let flux_out = signal.terra.geophysics.{name}.flux_out in
       relax(prev, prev + (flux_in - flux_out) / {conductivity}, config.terra.thermal.tau)
     }
   }
@@ -312,8 +312,9 @@ fn.math.clamp<T: Ordered>(value: T, min: T, max: T) -> T {
 }
 
 // Usage
-let temp = fn.math.lerp(200 <K>, 400 <K>, 0.5)  // 300 K
-let clamped = fn.math.clamp(signal.terra.pressure, 0 <Pa>, 1e5 <Pa>)
+let temp = fn.math.lerp(200 <K>, 400 <K>, 0.5) in  // 300 K
+let clamped = fn.math.clamp(signal.terra.pressure, 0 <Pa>, 1e5 <Pa>) in
+// use temp and clamped in body expression
 ```
 
 ---

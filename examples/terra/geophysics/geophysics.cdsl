@@ -223,8 +223,8 @@ signal.rotation.state {
     resolve {
         # Phase advances with angular velocity
         # phase += omega * dt
-        let phase = prev.x + prev.y * dt_raw
-        let omega = prev.y + sum(inputs)
+        let phase = prev.x + prev.y * dt_raw in
+        let omega = prev.y + sum(inputs) in
         vec2(mod(phase, 6.283185307), omega)
     }
 
@@ -342,7 +342,7 @@ signal.mantle.temp {
     }
 
     resolve {
-        let core_coupling = (signal.core.temp - prev) * config.mantle.temp.core_coupling_factor
+        let core_coupling = (signal.core.temp - prev) * config.mantle.temp.core_coupling_factor in
         clamp(prev + core_coupling + sum(inputs), config.mantle.temp.min_temp, config.mantle.temp.max_temp)
     }
 
@@ -383,7 +383,7 @@ signal.surface.heat_flow {
     }
 
     resolve {
-        let thermal_contribution = (signal.mantle.temp - signal.surface.temp) * 0.00001
+        let thermal_contribution = (signal.mantle.temp - signal.surface.temp) * 0.00001 in
         clamp(config.surface.heat_flow.baseline + thermal_contribution + sum(inputs), 0.01, 0.5)
     }
 
@@ -522,8 +522,8 @@ signal.topography.dynamic_offset {
     }
 
     resolve {
-        let thermal_gradient = (signal.mantle.temp - const.thermal.mantle_temp) / 1000.0
-        let uplift = thermal_gradient * const.topography.max_plume_uplift * config.topography.dynamic_offset.flow_coupling * config.topography.dynamic_offset.uplift_scale
+        let thermal_gradient = (signal.mantle.temp - const.thermal.mantle_temp) / 1000.0 in
+        let uplift = thermal_gradient * const.topography.max_plume_uplift * config.topography.dynamic_offset.flow_coupling * config.topography.dynamic_offset.uplift_scale in
         clamp(
             prev + uplift + sum(inputs),
             -const.topography.max_slab_depression,
@@ -641,8 +641,8 @@ signal.tectonics.boundary_stress {
     }
 
     resolve {
-        let thermal_stress = abs(signal.mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor
-        let thickness_stress = abs(signal.crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor
+        let thermal_stress = abs(signal.mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor in
+        let thickness_stress = abs(signal.crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor in
         clamp(prev + thermal_stress + thickness_stress + sum(inputs), 0.0, config.tectonics.boundary_stress.max_stress)
     }
 
@@ -665,7 +665,7 @@ signal.tectonics.activity {
 
     resolve {
         # Activity index normalized to 1.0 for Earth-like tectonics
-        let raw_shear = sum(inputs)
+        let raw_shear = sum(inputs) in
         if raw_shear > 0.0 {
             raw_shear / config.tectonics.activity.reference_shear
         } else {

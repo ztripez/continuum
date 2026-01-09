@@ -298,8 +298,8 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         // Box logical_or before using in if_expr to reduce type complexity
         let logical_or_boxed = logical_or.clone().boxed();
 
-        // Let expression: let name = value \n body
-        // Multiple lets chain together: let a = 1 \n let b = 2 \n a + b
+        // Let expression: let name = value in body
+        // Multiple lets chain together: let a = 1 in let b = 2 in a + b
         let let_expr = text::keyword("let")
             .padded_by(ws())
             .map_with(|_, extra| {
@@ -309,6 +309,7 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             .then(ident())
             .then_ignore(just('=').padded_by(ws()))
             .then(expr_boxed.clone())
+            .then_ignore(text::keyword("in").padded_by(ws()))
             .then(expr_boxed.clone())
             .map(|(((let_start, name), value), body)| {
                 let span = let_start..body.span.end;

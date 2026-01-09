@@ -82,8 +82,8 @@ signal.ecology.npp {
 
     resolve {
         # Simplified NPP based on temperature
-        let temp = signal.surface.temp
-        let t_factor = clamp((temp - config.ecology.npp.t_min_k) / (config.ecology.npp.t_opt_k - config.ecology.npp.t_min_k), 0.0, 1.0)
+        let temp = signal.surface.temp in
+        let t_factor = clamp((temp - config.ecology.npp.t_min_k) / (config.ecology.npp.t_opt_k - config.ecology.npp.t_min_k), 0.0, 1.0) in
         config.ecology.npp.npp_max * t_factor + sum(inputs)
     }
 
@@ -125,8 +125,8 @@ signal.ecology.biomass {
 
     resolve {
         # Biomass relaxes toward NPP-driven equilibrium
-        let npp = signal.ecology.npp
-        let equilibrium = npp * config.ecology.biomass.turnover_years
+        let npp = signal.ecology.npp in
+        let equilibrium = npp * config.ecology.biomass.turnover_years in
         relax_to(prev, equilibrium, config.ecology.biomass.turnover_years * 3.1536e7) + sum(inputs)
     }
 
@@ -148,7 +148,7 @@ signal.ecology.vegetation_cover {
 
     resolve {
         # Logistic function of biomass
-        let biomass = signal.ecology.biomass
+        let biomass = signal.ecology.biomass in
         biomass / (biomass + const.ecology.biomass_half_cover) + sum(inputs)
     }
 
@@ -174,9 +174,9 @@ signal.ecology.respiration_rate {
 
     resolve {
         # Respiration increases with temperature and biomass
-        let temp = signal.surface.temp
-        let biomass = signal.ecology.biomass
-        let q10_factor = pow(const.ecology.q10_respiration, (temp - const.ecology.t_ref_q10_k) / 10.0)
+        let temp = signal.surface.temp in
+        let biomass = signal.ecology.biomass in
+        let q10_factor = pow(const.ecology.q10_respiration, (temp - const.ecology.t_ref_q10_k) / 10.0) in
         config.ecology.respiration_rate.base_rate * biomass * q10_factor + sum(inputs)
     }
 

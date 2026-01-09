@@ -227,7 +227,7 @@ entity.stellar.moon {
     // Gravitational perturbation from other moons
     let perturbation = sum(other(entity.stellar.moon),
       fn.gravitational_acceleration(other.mass, distance(self.position, other.position))
-    )
+    ) in
     self.velocity = integrate(self.velocity, perturbation + signal.terra.gravity_at(self.position))
   }
 }
@@ -320,7 +320,7 @@ Entities can spawn via fractures:
 ```
 fracture.terra.tectonics.plate_split {
   when {
-    let plate = max(entity.terra.plate, self.area)
+    let plate = max(entity.terra.plate, self.area) in
     plate.area > config.terra.max_plate_area
     plate.rift_stress > config.terra.rift_threshold
   }
@@ -381,13 +381,13 @@ entity.stellar.moon {
     let planet_gravity = fn.gravitational_acceleration(
       signal.terra.mass,
       magnitude(self.position)
-    ) * -normalize(self.position)
+    ) * -normalize(self.position) in
 
     // Perturbations from other moons
     let perturbations = sum(other(entity.stellar.moon),
       fn.gravitational_acceleration(other.mass, distance(self.position, other.position))
       * normalize(other.position - self.position)
-    )
+    ) in
 
     self.velocity = integrate(self.velocity, planet_gravity + perturbations)
     self.position = integrate(self.position, self.velocity)

@@ -262,7 +262,7 @@ signal.terra.geophysics.core.temp_k {
   }
 
   resolve {
-    let radiation = const.physics.stefan_boltzmann * (prev ^ 4) * const.radiative_factor
+    let radiation = const.physics.stefan_boltzmann * (prev ^ 4) * const.radiative_factor in
     prev - radiation * config.decay_rate * dt
   }
 }
@@ -287,7 +287,7 @@ signal.terra.geophysics.core.temp_k {
 - `dt_raw` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
 - `sum(inputs)` — accumulated inputs from Collect phase
 - `kernel.fn(...)` — engine-provided functions
-- `let name = expr` — local bindings
+- `let name = expr in body` — local bindings (ML-style)
 
 ### Warmup Block
 
@@ -303,8 +303,8 @@ signal.terra.thermal.equilibrium {
     : convergence(1e-6)
 
     iterate {
-      let flux_in = kernel.radiogenic_heat(config.terra.core.budget)
-      let flux_out = kernel.surface_radiation(prev)
+      let flux_in = kernel.radiogenic_heat(config.terra.core.budget) in
+      let flux_out = kernel.surface_radiation(prev) in
       prev + (flux_in - flux_out) * 0.1
     }
   }
@@ -372,8 +372,8 @@ operator.terra.thermal.budget {
   : phase(collect)
 
   collect {
-    let radiogenic = kernel.radiogenic_power(config.terra.thermal.base, signal.time.age)
-    let loss = kernel.surface_heat_loss(signal.terra.geophysics.mantle.heat_j)
+    let radiogenic = kernel.radiogenic_power(config.terra.thermal.base, signal.time.age) in
+    let loss = kernel.surface_heat_loss(signal.terra.geophysics.mantle.heat_j) in
 
     signal.terra.geophysics.mantle.heat_j <- radiogenic - loss
   }
@@ -384,7 +384,7 @@ operator.terra.tectonics.boundary_capture {
   : phase(measure)
 
   measure {
-    let segments = signal.terra.tectonics.plate_boundaries
+    let segments = signal.terra.tectonics.plate_boundaries in
 
     for seg in segments {
       field.terra.plates.boundary_type <- seg.position, seg.kind
@@ -420,7 +420,7 @@ impulse.terra.impact.asteroid {
   }
 
   apply {
-    let crater = kernel.impact_physics(payload.mass, payload.velocity)
+    let crater = kernel.impact_physics(payload.mass, payload.velocity) in
     signal.terra.geophysics.surface.energy <- crater.thermal_energy
     signal.terra.atmosphere.dust <- crater.ejecta_mass
   }
@@ -450,7 +450,7 @@ fracture.terra.climate.runaway_greenhouse {
 
 fracture.terra.tectonics.subduction {
   when {
-    let age_diff = signal.terra.tectonics.plate_a.age - signal.terra.tectonics.plate_b.age
+    let age_diff = signal.terra.tectonics.plate_a.age - signal.terra.tectonics.plate_b.age in
     age_diff > 50e6 <s>
     signal.terra.tectonics.boundary.stress > config.subduction_threshold
   }
@@ -533,8 +533,11 @@ not a
 ### Locals
 
 ```
-let name = expr
+let name = expr in body
 ```
+
+The `in` keyword separates the value expression from the body where the binding is used.
+Multiple let bindings chain naturally: `let a = 1 in let b = 2 in a + b`
 
 ### Conditionals
 
