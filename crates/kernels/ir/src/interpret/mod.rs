@@ -63,7 +63,8 @@ use crate::{
 };
 
 use contexts::{
-    AssertionContext, FractureExecContext, MeasureContext, ResolverContext, TransitionContext,
+    AssertionContext, FractureExecContext, MeasureContext, ResolverContext, SharedContextData,
+    TransitionContext,
 };
 
 /// Builds runtime era configurations from a compiled world.
@@ -140,9 +141,11 @@ fn build_transition_fn(
         // First matching condition wins
         for (target_era, bytecode) in &transitions {
             let ctx = TransitionContext {
-                constants: &constants,
-                config: &config,
-                signals,
+                shared: SharedContextData {
+                    constants: &constants,
+                    config: &config,
+                    signals,
+                },
             };
             let result = execute(bytecode, &ctx);
             if result != 0.0 {
@@ -238,9 +241,11 @@ pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: b
             prev: ctx.prev,
             inputs: ctx.inputs,
             dt: ctx.dt.seconds(),
-            constants: &constants,
-            config: &config,
-            signals: ctx.signals,
+            shared: SharedContextData {
+                constants: &constants,
+                config: &config,
+                signals: ctx.signals,
+            },
         };
         let result = execute(&bytecode, &exec_ctx);
         Value::Scalar(result)
@@ -279,9 +284,11 @@ pub fn build_field_measure(
     Box::new(move |ctx| {
         let exec_ctx = MeasureContext {
             dt: ctx.dt.seconds(),
-            constants: &constants,
-            config: &config,
-            signals: ctx.signals,
+            shared: SharedContextData {
+                constants: &constants,
+                config: &config,
+                signals: ctx.signals,
+            },
         };
         let result = execute(&bytecode, &exec_ctx);
         ctx.fields.emit_scalar(field_id.clone(), result);
@@ -330,9 +337,11 @@ pub fn build_fracture(fracture: &CompiledFracture, world: &CompiledWorld) -> Fra
     Box::new(move |ctx| {
         let exec_ctx = FractureExecContext {
             dt: ctx.dt.seconds(),
-            constants: &constants,
-            config: &config,
-            signals: ctx.signals,
+            shared: SharedContextData {
+                constants: &constants,
+                config: &config,
+                signals: ctx.signals,
+            },
         };
 
         // Check all conditions - all must be non-zero
@@ -383,9 +392,11 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
             current: ctx.current,
             prev: ctx.prev,
             dt: ctx.dt.seconds(),
-            constants: &constants,
-            config: &config,
-            signals: ctx.signals,
+            shared: SharedContextData {
+                constants: &constants,
+                config: &config,
+                signals: ctx.signals,
+            },
         };
         let result = execute(&bytecode, &exec_ctx);
         result != 0.0
