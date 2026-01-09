@@ -128,7 +128,7 @@ impl PhaseExecutor {
             let stratum_state = strata_states
                 .get(&dag.stratum)
                 .copied()
-                .unwrap_or(StratumState::Active);
+                .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
 
             if !stratum_state.is_eligible(tick) {
                 trace!(stratum = %dag.stratum, "stratum gated");
@@ -173,7 +173,7 @@ impl PhaseExecutor {
             let stratum_state = strata_states
                 .get(&dag.stratum)
                 .copied()
-                .unwrap_or(StratumState::Active);
+                .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
 
             if !stratum_state.is_eligible(tick) {
                 trace!(stratum = %dag.stratum, "stratum gated");
@@ -303,7 +303,7 @@ impl PhaseExecutor {
             let stratum_state = strata_states
                 .get(&dag.stratum)
                 .copied()
-                .unwrap_or(StratumState::Active);
+                .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
 
             if !stratum_state.is_eligible(tick) {
                 trace!(stratum = %dag.stratum, "stratum gated");
