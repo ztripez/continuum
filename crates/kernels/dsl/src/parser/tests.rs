@@ -968,3 +968,47 @@ signal.test.nested_if {
     let unit = result.unwrap();
     assert_eq!(unit.items.len(), 1);
 }
+
+#[test]
+fn test_comparison_chaining_disallowed() {
+    // Comparison operators should NOT chain: a < b < c is disallowed
+    // This prevents confusing behavior where a < b < c would parse as (a < b) < c
+    let source = r#"
+signal.test.chained {
+    : Scalar<1>
+    resolve {
+        if 1 < 2 < 3 {
+            1.0
+        } else {
+            0.0
+        }
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    // Should produce parse errors because chaining is not allowed
+    assert!(
+        !errors.is_empty() || result.is_none(),
+        "comparison chaining should not be allowed, but parsing succeeded"
+    );
+}
+
+#[test]
+fn test_single_comparison_allowed() {
+    // Single comparisons should still work
+    let source = r#"
+signal.test.single_compare {
+    : Scalar<1>
+    resolve {
+        if prev > 0.0 {
+            1.0
+        } else {
+            0.0
+        }
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    assert!(result.is_some());
+}

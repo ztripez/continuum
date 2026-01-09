@@ -230,30 +230,37 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             },
         );
 
-        let comparison = sum.clone().foldl(
-            choice((
-                just("==").to(BinaryOp::Eq),
-                just("!=").to(BinaryOp::Ne),
-                just("<=").to(BinaryOp::Le),
-                just(">=").to(BinaryOp::Ge),
-                just('<').to(BinaryOp::Lt),
-                just('>').to(BinaryOp::Gt),
-            ))
-            .padded_by(ws())
-            .then(sum)
-            .repeated(),
-            |left, (op, right)| {
-                let span = span_union(&left, &right);
-                Spanned::new(
-                    Expr::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span,
-                )
-            },
-        );
+        // Comparison operators do NOT chain: a < b < c is disallowed
+        // Use .or_not() instead of .repeated() to prevent chaining
+        let comparison = sum
+            .clone()
+            .then(
+                choice((
+                    just("==").to(BinaryOp::Eq),
+                    just("!=").to(BinaryOp::Ne),
+                    just("<=").to(BinaryOp::Le),
+                    just(">=").to(BinaryOp::Ge),
+                    just('<').to(BinaryOp::Lt),
+                    just('>').to(BinaryOp::Gt),
+                ))
+                .padded_by(ws())
+                .then(sum)
+                .or_not(),
+            )
+            .map(|(left, maybe_op_right)| match maybe_op_right {
+                Some((op, right)) => {
+                    let span = span_union(&left, &right);
+                    Spanned::new(
+                        Expr::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        span,
+                    )
+                }
+                None => left,
+            });
 
         // Logical AND has lower precedence than comparison
         let logical_and = comparison.clone().foldl(
