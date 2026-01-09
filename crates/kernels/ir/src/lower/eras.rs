@@ -16,6 +16,11 @@ impl Lowerer {
     pub(crate) fn lower_era(&mut self, def: &ast::EraDef) -> Result<(), LowerError> {
         let id = EraId::from(def.name.node.as_str());
 
+        // Check for duplicate era definition
+        if self.eras.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("era.{}", id.0)));
+        }
+
         // Convert dt to seconds
         let dt_seconds = def
             .dt

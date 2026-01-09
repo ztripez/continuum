@@ -13,6 +13,11 @@ impl Lowerer {
     pub(crate) fn lower_impulse(&mut self, def: &ast::ImpulseDef) -> Result<(), LowerError> {
         let id = ImpulseId::from(def.path.node.join(".").as_str());
 
+        // Check for duplicate impulse definition
+        if self.impulses.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("impulse.{}", id.0)));
+        }
+
         let impulse = CompiledImpulse {
             id: id.clone(),
             payload_type: def
@@ -29,6 +34,14 @@ impl Lowerer {
 
     pub(crate) fn lower_fracture(&mut self, def: &ast::FractureDef) -> Result<(), LowerError> {
         let id = FractureId::from(def.path.node.join(".").as_str());
+
+        // Check for duplicate fracture definition
+        if self.fractures.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!(
+                "fracture.{}",
+                id.0
+            )));
+        }
 
         let mut reads = Vec::new();
         for cond in &def.conditions {

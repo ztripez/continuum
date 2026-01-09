@@ -15,12 +15,20 @@ impl Lowerer {
         let id = SignalId::from(def.path.node.join(".").as_str());
         let signal_path = def.path.node.join(".");
 
+        // Check for duplicate signal definition
+        if self.signals.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("signal.{}", id.0)));
+        }
+
         // Determine stratum
         let stratum = def
             .strata
             .as_ref()
             .map(|s| StratumId::from(s.node.join(".").as_str()))
             .unwrap_or_else(|| StratumId::from("default"));
+
+        // Validate stratum exists
+        self.validate_stratum(&stratum)?;
 
         // Process local const blocks - add to global constants with signal-prefixed keys
         for entry in &def.local_consts {
@@ -94,11 +102,19 @@ impl Lowerer {
     pub(crate) fn lower_field(&mut self, def: &ast::FieldDef) -> Result<(), LowerError> {
         let id = FieldId::from(def.path.node.join(".").as_str());
 
+        // Check for duplicate field definition
+        if self.fields.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("field.{}", id.0)));
+        }
+
         let stratum = def
             .strata
             .as_ref()
             .map(|s| StratumId::from(s.node.join(".").as_str()))
             .unwrap_or_else(|| StratumId::from("default"));
+
+        // Validate stratum exists
+        self.validate_stratum(&stratum)?;
 
         let mut reads = Vec::new();
         if let Some(measure) = &def.measure {

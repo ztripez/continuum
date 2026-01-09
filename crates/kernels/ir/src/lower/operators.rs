@@ -16,11 +16,19 @@ impl Lowerer {
     pub(crate) fn lower_operator(&mut self, def: &ast::OperatorDef) -> Result<(), LowerError> {
         let id = OperatorId::from(def.path.node.join(".").as_str());
 
+        // Check for duplicate operator definition
+        if self.operators.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("operator.{}", id.0)));
+        }
+
         let stratum = def
             .strata
             .as_ref()
             .map(|s| StratumId::from(s.node.join(".").as_str()))
             .unwrap_or_else(|| StratumId::from("default"));
+
+        // Validate stratum exists
+        self.validate_stratum(&stratum)?;
 
         let phase = def
             .phase
@@ -68,6 +76,11 @@ impl Lowerer {
 
     pub(crate) fn lower_fn(&mut self, def: &FnDef) -> Result<(), LowerError> {
         let id = FnId::from(def.path.node.join(".").as_str());
+
+        // Check for duplicate function definition
+        if self.functions.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("fn.{}", id.0)));
+        }
 
         // Collect parameter names
         let params: Vec<String> = def.params.iter().map(|p| p.name.node.clone()).collect();

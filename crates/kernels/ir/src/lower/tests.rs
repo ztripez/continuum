@@ -480,9 +480,188 @@ fn test_dt_raw_in_nested_expr_without_declaration_fails() {
 // Error Variant Tests
 // ============================================================================
 
-// NOTE: LowerError::UndefinedStratum and LowerError::DuplicateDefinition
-// are defined but never raised by the current implementation.
-// See: https://github.com/ztripez/continuum/issues/45 (dead code)
+#[test]
+fn test_duplicate_signal_definition() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : strata(test)
+            resolve { 1.0 }
+        }
+        signal.test.value {
+            : strata(test)
+            resolve { 2.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::DuplicateDefinition(name) => {
+            assert!(name.contains("test.value"), "got: {}", name);
+        }
+        e => panic!("expected DuplicateDefinition, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_duplicate_stratum_definition() {
+    let src = r#"
+        strata.test {}
+        strata.test {}
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::DuplicateDefinition(name) => {
+            assert!(name.contains("test"), "got: {}", name);
+        }
+        e => panic!("expected DuplicateDefinition, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_duplicate_era_definition() {
+    let src = r#"
+        era.main { : initial }
+        era.main { : terminal }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::DuplicateDefinition(name) => {
+            assert!(name.contains("main"), "got: {}", name);
+        }
+        e => panic!("expected DuplicateDefinition, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_duplicate_const_definition() {
+    let src = r#"
+        const {
+            physics.gravity: 9.81
+        }
+        const {
+            physics.gravity: 10.0
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::DuplicateDefinition(name) => {
+            assert!(name.contains("physics.gravity"), "got: {}", name);
+        }
+        e => panic!("expected DuplicateDefinition, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_undefined_stratum_in_signal() {
+    let src = r#"
+        era.main { : initial }
+        signal.test.value {
+            : strata(nonexistent)
+            resolve { 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::UndefinedStratum(name) => {
+            assert_eq!(name, "nonexistent");
+        }
+        e => panic!("expected UndefinedStratum, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_undefined_stratum_in_operator() {
+    let src = r#"
+        era.main { : initial }
+        operator.test.op {
+            : strata(missing)
+            collect { 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::UndefinedStratum(name) => {
+            assert_eq!(name, "missing");
+        }
+        e => panic!("expected UndefinedStratum, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_undefined_stratum_in_field() {
+    let src = r#"
+        era.main { : initial }
+        field.test.output {
+            : strata(undefined)
+            measure { 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::UndefinedStratum(name) => {
+            assert_eq!(name, "undefined");
+        }
+        e => panic!("expected UndefinedStratum, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_undefined_stratum_in_entity() {
+    let src = r#"
+        era.main { : initial }
+        entity.test.item {
+            : strata(ghost)
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::UndefinedStratum(name) => {
+            assert_eq!(name, "ghost");
+        }
+        e => panic!("expected UndefinedStratum, got: {:?}", e),
+    }
+}
 
 #[test]
 fn test_lower_error_display() {

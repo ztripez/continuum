@@ -14,12 +14,20 @@ impl Lowerer {
     pub(crate) fn lower_entity(&mut self, def: &EntityDef) -> Result<(), LowerError> {
         let id = EntityId::from(def.path.node.join(".").as_str());
 
+        // Check for duplicate entity definition
+        if self.entities.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("entity.{}", id.0)));
+        }
+
         // Determine stratum
         let stratum = def
             .strata
             .as_ref()
             .map(|s| StratumId::from(s.node.join(".").as_str()))
             .unwrap_or_else(|| StratumId::from("default"));
+
+        // Validate stratum exists
+        self.validate_stratum(&stratum)?;
 
         // Count source from config path
         let count_source = def

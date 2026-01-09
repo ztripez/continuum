@@ -186,6 +186,18 @@ impl Lowerer {
         }
     }
 
+    /// Validate that a stratum exists, returning UndefinedStratum error if not.
+    pub(crate) fn validate_stratum(&self, stratum: &StratumId) -> Result<(), LowerError> {
+        // "default" stratum is always valid (implicit)
+        if stratum.0 == "default" {
+            return Ok(());
+        }
+        if !self.strata.contains_key(stratum) {
+            return Err(LowerError::UndefinedStratum(stratum.0.clone()));
+        }
+        Ok(())
+    }
+
     fn finish(self) -> CompiledWorld {
         CompiledWorld {
             constants: self.constants,
@@ -209,6 +221,9 @@ impl Lowerer {
                 Item::ConstBlock(block) => {
                     for entry in &block.entries {
                         let key = entry.path.node.join(".");
+                        if self.constants.contains_key(&key) {
+                            return Err(LowerError::DuplicateDefinition(format!("const.{}", key)));
+                        }
                         let value = self.literal_to_f64(&entry.value.node)?;
                         self.constants.insert(key, value);
                     }
@@ -216,6 +231,9 @@ impl Lowerer {
                 Item::ConfigBlock(block) => {
                     for entry in &block.entries {
                         let key = entry.path.node.join(".");
+                        if self.config.contains_key(&key) {
+                            return Err(LowerError::DuplicateDefinition(format!("config.{}", key)));
+                        }
                         let value = self.literal_to_f64(&entry.value.node)?;
                         self.config.insert(key, value);
                     }
@@ -225,6 +243,9 @@ impl Lowerer {
                 }
                 Item::StrataDef(def) => {
                     let id = StratumId::from(def.path.node.join(".").as_str());
+                    if self.strata.contains_key(&id) {
+                        return Err(LowerError::DuplicateDefinition(format!("strata.{}", id.0)));
+                    }
                     let stratum = CompiledStratum {
                         id: id.clone(),
                         title: def.title.as_ref().map(|s| s.node.clone()),
