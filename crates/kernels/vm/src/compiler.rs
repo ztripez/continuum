@@ -272,12 +272,10 @@ impl Compiler {
             }
 
             Expr::Local(name) => {
-                if let Some(&slot) = self.locals.get(name) {
-                    self.chunk.emit(Op::LoadLocal(slot));
-                } else {
-                    // Unknown local - emit 0 as fallback
-                    self.chunk.emit(Op::Const(0.0));
-                }
+                let slot = *self.locals.get(name).unwrap_or_else(|| {
+                    panic!("compiler bug: unknown local variable '{name}'")
+                });
+                self.chunk.emit(Op::LoadLocal(slot));
             }
         }
     }
