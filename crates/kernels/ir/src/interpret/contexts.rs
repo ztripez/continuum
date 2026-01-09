@@ -1,0 +1,298 @@
+//! Execution contexts for VM evaluation.
+//!
+//! Each context implements `ExecutionContext` for the VM, providing access
+//! to the values needed during expression evaluation. Different phases have
+//! different available values (e.g., resolvers have `prev` and `inputs`,
+//! but measure contexts don't).
+
+use indexmap::IndexMap;
+
+use continuum_runtime::storage::SignalStorage;
+use continuum_runtime::types::Value;
+use continuum_runtime::SignalId;
+use continuum_vm::ExecutionContext;
+
+/// Execution context for signal resolution.
+///
+/// Provides access to previous value, accumulated inputs, time step,
+/// constants, config, and other signal values.
+pub(crate) struct ResolverContext<'a> {
+    pub(crate) prev: &'a Value,
+    pub(crate) inputs: f64,
+    pub(crate) dt: f64,
+    pub(crate) constants: &'a IndexMap<String, f64>,
+    pub(crate) config: &'a IndexMap<String, f64>,
+    pub(crate) signals: &'a SignalStorage,
+}
+
+impl ExecutionContext for ResolverContext<'_> {
+    fn prev(&self) -> f64 {
+        self.prev.as_scalar().unwrap_or(0.0)
+    }
+
+    fn dt(&self) -> f64 {
+        self.dt
+    }
+
+    fn inputs(&self) -> f64 {
+        self.inputs
+    }
+
+    fn signal(&self, name: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.as_scalar())
+            .unwrap_or(0.0)
+    }
+
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
+            .unwrap_or(0.0)
+    }
+
+    fn constant(&self, name: &str) -> f64 {
+        self.constants.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn config(&self, name: &str) -> f64 {
+        self.config.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
+        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            tracing::warn!("unknown function '{}'", name);
+            0.0
+        })
+    }
+}
+
+/// Execution context for assertion evaluation.
+///
+/// In assertions, `prev` returns the current (post-resolve) value being
+/// validated, not the previous tick's value.
+pub(crate) struct AssertionContext<'a> {
+    pub(crate) current: &'a Value,
+    #[allow(dead_code)] // May be used for future 'prev' semantics in assertions
+    pub(crate) prev: &'a Value,
+    pub(crate) dt: f64,
+    pub(crate) constants: &'a IndexMap<String, f64>,
+    pub(crate) config: &'a IndexMap<String, f64>,
+    pub(crate) signals: &'a SignalStorage,
+}
+
+impl ExecutionContext for AssertionContext<'_> {
+    fn prev(&self) -> f64 {
+        // In assertions, 'prev' refers to the current (post-resolve) value being asserted
+        self.current.as_scalar().unwrap_or(0.0)
+    }
+
+    fn dt(&self) -> f64 {
+        self.dt
+    }
+
+    fn inputs(&self) -> f64 {
+        0.0 // Not used in assertions
+    }
+
+    fn signal(&self, name: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.as_scalar())
+            .unwrap_or(0.0)
+    }
+
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
+            .unwrap_or(0.0)
+    }
+
+    fn constant(&self, name: &str) -> f64 {
+        self.constants.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn config(&self, name: &str) -> f64 {
+        self.config.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
+        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
+            tracing::warn!("unknown function '{}'", name);
+            0.0
+        })
+    }
+}
+
+/// Execution context for era transition evaluation.
+///
+/// Transitions only have access to signals, constants, and config.
+/// They cannot access `prev`, `dt`, or `inputs`.
+pub(crate) struct TransitionContext<'a> {
+    pub(crate) constants: &'a IndexMap<String, f64>,
+    pub(crate) config: &'a IndexMap<String, f64>,
+    pub(crate) signals: &'a SignalStorage,
+}
+
+impl ExecutionContext for TransitionContext<'_> {
+    fn prev(&self) -> f64 {
+        0.0 // Not used in transitions
+    }
+
+    fn dt(&self) -> f64 {
+        0.0 // Not used in transitions
+    }
+
+    fn inputs(&self) -> f64 {
+        0.0 // Not used in transitions
+    }
+
+    fn signal(&self, name: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.as_scalar())
+            .unwrap_or(0.0)
+    }
+
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
+            .unwrap_or(0.0)
+    }
+
+    fn constant(&self, name: &str) -> f64 {
+        self.constants.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn config(&self, name: &str) -> f64 {
+        self.config.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
+        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
+            tracing::warn!("unknown function '{}'", name);
+            0.0
+        })
+    }
+}
+
+/// Execution context for field measurement.
+///
+/// Measure contexts have access to signals (read-only), constants, config,
+/// and the current time step. They cannot access `prev` or `inputs`.
+pub(crate) struct MeasureContext<'a> {
+    pub(crate) dt: f64,
+    pub(crate) constants: &'a IndexMap<String, f64>,
+    pub(crate) config: &'a IndexMap<String, f64>,
+    pub(crate) signals: &'a SignalStorage,
+}
+
+impl ExecutionContext for MeasureContext<'_> {
+    fn prev(&self) -> f64 {
+        0.0 // Not used in measure
+    }
+
+    fn dt(&self) -> f64 {
+        self.dt
+    }
+
+    fn inputs(&self) -> f64 {
+        0.0 // Not used in measure
+    }
+
+    fn signal(&self, name: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.as_scalar())
+            .unwrap_or(0.0)
+    }
+
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
+            .unwrap_or(0.0)
+    }
+
+    fn constant(&self, name: &str) -> f64 {
+        self.constants.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn config(&self, name: &str) -> f64 {
+        self.config.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
+        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            tracing::warn!("unknown function '{}'", name);
+            0.0
+        })
+    }
+}
+
+/// Execution context for fracture condition and emission evaluation.
+///
+/// Fractures have access to signals (read-only), constants, config, and
+/// the current time step. They cannot access `prev` or `inputs`.
+pub(crate) struct FractureExecContext<'a> {
+    pub(crate) dt: f64,
+    pub(crate) constants: &'a IndexMap<String, f64>,
+    pub(crate) config: &'a IndexMap<String, f64>,
+    pub(crate) signals: &'a SignalStorage,
+}
+
+impl ExecutionContext for FractureExecContext<'_> {
+    fn prev(&self) -> f64 {
+        0.0 // Not used in fractures
+    }
+
+    fn dt(&self) -> f64 {
+        self.dt
+    }
+
+    fn inputs(&self) -> f64 {
+        0.0 // Not used in fractures
+    }
+
+    fn signal(&self, name: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.as_scalar())
+            .unwrap_or(0.0)
+    }
+
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
+            .unwrap_or(0.0)
+    }
+
+    fn constant(&self, name: &str) -> f64 {
+        self.constants.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn config(&self, name: &str) -> f64 {
+        self.config.get(name).copied().unwrap_or(0.0)
+    }
+
+    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
+        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            tracing::warn!("unknown function '{}'", name);
+            0.0
+        })
+    }
+}
