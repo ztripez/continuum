@@ -2,17 +2,23 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{BinaryOp, Expr, Literal, MathConst, Path, Spanned, UnaryOp};
+use crate::ast::{AggregateOp, BinaryOp, Expr, Literal, MathConst, Path, Spanned, UnaryOp};
 
 use super::primitives::{ident, number, path, string_lit, unit, ws};
 use super::ParseError;
+
+/// Type alias for parser Extra to ensure consistency across helper functions
+type Ex<'src> = extra::Err<ParseError<'src>>;
+
+/// Type alias for boxed expression parser
+type ExprBox<'src> = Boxed<'src, 'src, &'src str, Expr, Ex<'src>>;
 
 /// Expression parser
 ///
 /// Uses `.boxed()` at strategic points to reduce compile times by breaking the type chain.
 /// Without boxing, chumsky's parser combinators create deeply nested generic types that
 /// cause exponential compile time growth.
-pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<'src>>> + Clone {
+pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
     recursive(|expr| {
         // Box the recursive expr to prevent type explosion
         let expr_boxed = expr.clone().boxed();
@@ -29,7 +35,11 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
             .collect::<Vec<_>>()
             .delimited_by(just('(').padded_by(ws()), just(')').padded_by(ws()));
 
-        let atom = choice((
+        // Entity expression atoms - boxed to reduce type complexity
+        let entity_atoms = entity_expr_atoms(expr_boxed.clone()).boxed();
+
+        // Core atoms (non-entity)
+        let core_atoms = choice((
             text::keyword("prev").to(Expr::Prev),
             just("dt_raw").to(Expr::DtRaw),
             // Math constants (ASCII and Unicode)
@@ -63,6 +73,11 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
                 .ignore_then(just('.'))
                 .ignore_then(path())
                 .map(Expr::FieldRef),
+        ))
+        .boxed();
+
+        // Additional atoms (function calls, literals, paths)
+        let other_atoms = choice((
             // Function call: name(args) or path.to.func(args)
             path()
                 .then(args.clone())
@@ -84,8 +99,12 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
             // Plain path (must come after function call attempt)
             path().map(Expr::Path),
         ))
-        .padded_by(ws())
-        .boxed(); // Box atom to reduce type size
+        .boxed();
+
+        // Combine all atoms
+        let atom = choice((entity_atoms, core_atoms, other_atoms))
+            .padded_by(ws())
+            .boxed();
 
         // Method calls: expr.method(args)
         let postfix = atom.foldl(
@@ -254,8 +273,204 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, extra::Err<ParseError<
     })
 }
 
+/// Entity expression atoms - separated to reduce type complexity
+fn entity_expr_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
+    // Helper for spanned expressions
+    let spanned = |p: ExprBox<'src>| {
+        p.map_with(|e, extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            Spanned::new(e, span.start..span.end)
+        })
+    };
+
+    choice((
+        // self.field - current entity instance field access
+        text::keyword("self")
+            .ignore_then(just('.').padded_by(ws()))
+            .ignore_then(ident())
+            .map(Expr::SelfField),
+        // entity.path["name"] - entity instance access
+        text::keyword("entity")
+            .ignore_then(just('.'))
+            .ignore_then(path())
+            .then(
+                just('[')
+                    .padded_by(ws())
+                    .ignore_then(spanned(expr_boxed.clone()).padded_by(ws()))
+                    .then_ignore(just(']').padded_by(ws()))
+                    .or_not(),
+            )
+            .map(|(entity, instance)| match instance {
+                Some(inst) => Expr::EntityAccess {
+                    entity,
+                    instance: Box::new(inst),
+                },
+                None => Expr::EntityRef(entity),
+            }),
+        // count(entity.path) - special case, no body expression needed
+        text::keyword("count")
+            .ignore_then(
+                just('(')
+                    .padded_by(ws())
+                    .ignore_then(text::keyword("entity"))
+                    .ignore_then(just('.'))
+                    .ignore_then(path())
+                    .then_ignore(just(')').padded_by(ws())),
+            )
+            .map(|entity| Expr::Aggregate {
+                op: AggregateOp::Count,
+                entity,
+                body: Box::new(Spanned::new(Expr::Literal(Literal::Integer(1)), 0..0)),
+            }),
+        // other(entity.path) - self-exclusion for N-body
+        text::keyword("other")
+            .ignore_then(
+                just('(')
+                    .padded_by(ws())
+                    .ignore_then(text::keyword("entity"))
+                    .ignore_then(just('.'))
+                    .ignore_then(path())
+                    .then_ignore(just(')').padded_by(ws())),
+            )
+            .map(Expr::Other),
+        // pairs(entity.path) - pairwise iteration
+        text::keyword("pairs")
+            .ignore_then(
+                just('(')
+                    .padded_by(ws())
+                    .ignore_then(text::keyword("entity"))
+                    .ignore_then(just('.'))
+                    .ignore_then(path())
+                    .then_ignore(just(')').padded_by(ws())),
+            )
+            .map(Expr::Pairs),
+    ))
+    .or(entity_aggregate_atoms(expr_boxed))
+}
+
+/// Entity aggregate operations - further split to reduce type complexity
+fn entity_aggregate_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
+    // Helper for spanned expressions
+    let spanned = move |p: ExprBox<'src>| {
+        p.map_with(|e, extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            Spanned::new(e, span.start..span.end)
+        })
+    };
+
+    // Aggregate with body: sum(entity.path, expr)
+    let aggregate_with_body = aggregate_op_with_body()
+        .then(
+            just('(')
+                .padded_by(ws())
+                .ignore_then(text::keyword("entity"))
+                .ignore_then(just('.'))
+                .ignore_then(path())
+                .then_ignore(just(',').padded_by(ws()))
+                .then(spanned(expr_boxed.clone()))
+                .then_ignore(just(')').padded_by(ws())),
+        )
+        .map(|(op, (entity, body))| Expr::Aggregate {
+            op,
+            entity,
+            body: Box::new(body),
+        });
+
+    // filter(entity.path, predicate)
+    let filter_expr = text::keyword("filter")
+        .ignore_then(
+            just('(')
+                .padded_by(ws())
+                .ignore_then(text::keyword("entity"))
+                .ignore_then(just('.'))
+                .ignore_then(path())
+                .then_ignore(just(',').padded_by(ws()))
+                .then(spanned(expr_boxed.clone()))
+                .then_ignore(just(')').padded_by(ws())),
+        )
+        .map(|(entity, predicate)| Expr::Filter {
+            entity,
+            predicate: Box::new(predicate),
+        });
+
+    // first(entity.path, predicate)
+    let first_expr = text::keyword("first")
+        .ignore_then(
+            just('(')
+                .padded_by(ws())
+                .ignore_then(text::keyword("entity"))
+                .ignore_then(just('.'))
+                .ignore_then(path())
+                .then_ignore(just(',').padded_by(ws()))
+                .then(spanned(expr_boxed.clone()))
+                .then_ignore(just(')').padded_by(ws())),
+        )
+        .map(|(entity, predicate)| Expr::First {
+            entity,
+            predicate: Box::new(predicate),
+        });
+
+    // nearest(entity.path, position)
+    let nearest_expr = text::keyword("nearest")
+        .ignore_then(
+            just('(')
+                .padded_by(ws())
+                .ignore_then(text::keyword("entity"))
+                .ignore_then(just('.'))
+                .ignore_then(path())
+                .then_ignore(just(',').padded_by(ws()))
+                .then(spanned(expr_boxed.clone()))
+                .then_ignore(just(')').padded_by(ws())),
+        )
+        .map(|(entity, position)| Expr::Nearest {
+            entity,
+            position: Box::new(position),
+        });
+
+    // within(entity.path, position, radius)
+    let within_expr = text::keyword("within")
+        .ignore_then(
+            just('(')
+                .padded_by(ws())
+                .ignore_then(text::keyword("entity"))
+                .ignore_then(just('.'))
+                .ignore_then(path())
+                .then_ignore(just(',').padded_by(ws()))
+                .then(spanned(expr_boxed.clone()))
+                .then_ignore(just(',').padded_by(ws()))
+                .then(spanned(expr_boxed))
+                .then_ignore(just(')').padded_by(ws())),
+        )
+        .map(|((entity, position), radius)| Expr::Within {
+            entity,
+            position: Box::new(position),
+            radius: Box::new(radius),
+        });
+
+    choice((
+        aggregate_with_body,
+        filter_expr,
+        first_expr,
+        nearest_expr,
+        within_expr,
+    ))
+}
+
 /// Spanned expression
-pub fn spanned_expr<'src>(
-) -> impl Parser<'src, &'src str, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
+pub fn spanned_expr<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
     expr().map_with(|e, extra| Spanned::new(e, extra.span().into()))
+}
+
+/// Parser for aggregate operations that take a body expression
+fn aggregate_op_with_body<'src>() -> impl Parser<'src, &'src str, AggregateOp, Ex<'src>> + Clone {
+    choice((
+        text::keyword("sum").to(AggregateOp::Sum),
+        text::keyword("product").to(AggregateOp::Product),
+        text::keyword("min").to(AggregateOp::Min),
+        text::keyword("max").to(AggregateOp::Max),
+        text::keyword("mean").to(AggregateOp::Mean),
+        text::keyword("any").to(AggregateOp::Any),
+        text::keyword("all").to(AggregateOp::All),
+        text::keyword("none").to(AggregateOp::None),
+    ))
 }
