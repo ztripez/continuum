@@ -1,4 +1,35 @@
-//! Item parsers for top-level DSL constructs
+//! Item parsers for top-level DSL constructs.
+//!
+//! This module parses all top-level declarations in the Continuum DSL.
+//! Each declaration type has a dedicated parser function that produces
+//! the corresponding AST node.
+//!
+//! # Supported Items
+//!
+//! ## Configuration
+//! - [`ConstBlock`](crate::ast::ConstBlock) - `const { ... }` compile-time constants
+//! - [`ConfigBlock`](crate::ast::ConfigBlock) - `config { ... }` runtime parameters
+//!
+//! ## Types and Functions
+//! - [`TypeDef`](crate::ast::TypeDef) - `type.name { ... }` custom type definitions
+//! - [`FnDef`](crate::ast::FnDef) - `fn.name(...) -> Type { ... }` pure functions
+//!
+//! ## Simulation Structure
+//! - [`StrataDef`](crate::ast::StrataDef) - `strata.name { ... }` time strata
+//! - [`EraDef`](crate::ast::EraDef) - `era.name { ... }` simulation eras
+//!
+//! ## Core Simulation
+//! - [`SignalDef`](crate::ast::SignalDef) - `signal.name { ... }` authoritative state
+//! - [`FieldDef`](crate::ast::FieldDef) - `field.name { ... }` observer data
+//! - [`OperatorDef`](crate::ast::OperatorDef) - `operator.name { ... }` phase logic
+//!
+//! ## Events
+//! - [`ImpulseDef`](crate::ast::ImpulseDef) - `impulse.name { ... }` external inputs
+//! - [`FractureDef`](crate::ast::FractureDef) - `fracture.name { ... }` tension detectors
+//! - [`ChronicleDef`](crate::ast::ChronicleDef) - `chronicle.name { ... }` observers
+//!
+//! ## Collections
+//! - [`EntityDef`](crate::ast::EntityDef) - `entity.name { ... }` indexed state
 
 use chumsky::prelude::*;
 
@@ -13,7 +44,7 @@ use crate::ast::{
 
 use super::expr::spanned_expr;
 use super::primitives::{
-    attr_flag, attr_int, attr_path, attr_string, float, ident, literal, optional_unit,
+    attr_flag, attr_int, attr_path, attr_string, float, ident, literal, optional_unit, spanned,
     spanned_path, string_lit, unit, unit_string, ws,
 };
 use super::ParseError;
@@ -54,7 +85,7 @@ fn const_block<'src>() -> impl Parser<'src, &'src str, ConstBlock, extra::Err<Pa
 fn const_entry<'src>() -> impl Parser<'src, &'src str, ConstEntry, extra::Err<ParseError<'src>>> {
     spanned_path()
         .then_ignore(just(':').padded_by(ws()))
-        .then(literal().map_with(|l, e| Spanned::new(l, e.span().into())))
+        .then(spanned(literal()))
         .then(optional_unit().padded_by(ws()))
         .map(|((path, value), unit)| ConstEntry { path, value, unit })
 }
@@ -75,7 +106,7 @@ fn config_block<'src>() -> impl Parser<'src, &'src str, ConfigBlock, extra::Err<
 fn config_entry<'src>() -> impl Parser<'src, &'src str, ConfigEntry, extra::Err<ParseError<'src>>> {
     spanned_path()
         .then_ignore(just(':').padded_by(ws()))
-        .then(literal().map_with(|l, e| Spanned::new(l, e.span().into())))
+        .then(spanned(literal()))
         .then(optional_unit().padded_by(ws()))
         .map(|((path, value), unit)| ConfigEntry { path, value, unit })
 }
@@ -86,7 +117,7 @@ fn type_def<'src>() -> impl Parser<'src, &'src str, TypeDef, extra::Err<ParseErr
     text::keyword("type")
         .padded_by(ws())
         .ignore_then(just('.'))
-        .ignore_then(ident().map_with(|n, e| Spanned::new(n, e.span().into())))
+        .ignore_then(spanned(ident()))
         .padded_by(ws())
         .then(
             type_field()
@@ -99,10 +130,9 @@ fn type_def<'src>() -> impl Parser<'src, &'src str, TypeDef, extra::Err<ParseErr
 }
 
 fn type_field<'src>() -> impl Parser<'src, &'src str, TypeField, extra::Err<ParseError<'src>>> {
-    ident()
-        .map_with(|n, e| Spanned::new(n, e.span().into()))
+    spanned(ident())
         .then_ignore(just(':').padded_by(ws()))
-        .then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+        .then(spanned(type_expr()))
         .map(|(name, ty)| TypeField { name, ty })
 }
 
@@ -164,7 +194,7 @@ fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseError<'
         .then(
             just("->")
                 .padded_by(ws())
-                .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+                .ignore_then(spanned(type_expr()))
                 .or_not(),
         )
         .then(
@@ -182,12 +212,11 @@ fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseError<'
 
 /// Parse a function parameter: name or name: Type
 fn fn_param<'src>() -> impl Parser<'src, &'src str, FnParam, extra::Err<ParseError<'src>>> {
-    ident()
-        .map_with(|n, e| Spanned::new(n, e.span().into()))
+    spanned(ident())
         .then(
             just(':')
                 .padded_by(ws())
-                .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+                .ignore_then(spanned(type_expr()))
                 .or_not(),
         )
         .map(|(name, ty)| FnParam { name, ty })
@@ -247,7 +276,7 @@ fn era_def<'src>() -> impl Parser<'src, &'src str, EraDef, extra::Err<ParseError
     text::keyword("era")
         .padded_by(ws())
         .ignore_then(just('.'))
-        .ignore_then(ident().map_with(|n, e| Spanned::new(n, e.span().into())))
+        .ignore_then(spanned(ident()))
         .padded_by(ws())
         .then(
             era_content()
@@ -300,8 +329,7 @@ fn era_content<'src>() -> impl Parser<'src, &'src str, EraContent, extra::Err<Pa
             .padded_by(ws())
             .ignore_then(text::keyword("dt"))
             .ignore_then(
-                value_with_unit()
-                    .map_with(|v, e| Spanned::new(v, e.span().into()))
+                spanned(value_with_unit())
                     .padded_by(ws())
                     .delimited_by(just('('), just(')')),
             )
@@ -462,7 +490,7 @@ fn signal_content<'src>(
             .to(SignalContent::DtRaw),
         just(':')
             .padded_by(ws())
-            .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+            .ignore_then(spanned(type_expr()))
             .map(SignalContent::Type),
         text::keyword("const")
             .padded_by(ws())
@@ -553,8 +581,7 @@ fn field_content<'src>() -> impl Parser<'src, &'src str, FieldContent, extra::Er
             .padded_by(ws())
             .ignore_then(text::keyword("topology"))
             .ignore_then(
-                topology()
-                    .map_with(|t, e| Spanned::new(t, e.span().into()))
+                spanned(topology())
                     .padded_by(ws())
                     .delimited_by(just('('), just(')')),
             )
@@ -563,7 +590,7 @@ fn field_content<'src>() -> impl Parser<'src, &'src str, FieldContent, extra::Er
         attr_string("symbol").map(FieldContent::Symbol),
         just(':')
             .padded_by(ws())
-            .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+            .ignore_then(spanned(type_expr()))
             .map(FieldContent::Type),
         text::keyword("measure")
             .padded_by(ws())
@@ -711,7 +738,7 @@ fn impulse_content<'src>(
     choice((
         just(':')
             .padded_by(ws())
-            .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+            .ignore_then(spanned(type_expr()))
             .map(ImpulseContent::Type),
         text::keyword("apply")
             .padded_by(ws())
@@ -861,8 +888,7 @@ fn observe_handler<'src>(
 
 fn event_field<'src>(
 ) -> impl Parser<'src, &'src str, (Spanned<String>, Spanned<Expr>), extra::Err<ParseError<'src>>> {
-    ident()
-        .map_with(|n, e| Spanned::new(n, e.span().into()))
+    spanned(ident())
         .then_ignore(just(':').padded_by(ws()))
         .then(spanned_expr())
 }
@@ -895,7 +921,7 @@ fn assertion<'src>() -> impl Parser<'src, &'src str, Assertion, extra::Err<Parse
         .then(
             just(',')
                 .padded_by(ws())
-                .ignore_then(string_lit().map_with(|s, e| Spanned::new(s, e.span().into())))
+                .ignore_then(spanned(string_lit()))
                 .or_not(),
         )
         .map(|((condition, severity), message)| Assertion {
@@ -1045,10 +1071,9 @@ fn count_bounds<'src>() -> impl Parser<'src, &'src str, CountBounds, extra::Err<
 
 fn entity_schema_field<'src>(
 ) -> impl Parser<'src, &'src str, EntitySchemaField, extra::Err<ParseError<'src>>> {
-    ident()
-        .map_with(|n, e| Spanned::new(n, e.span().into()))
+    spanned(ident())
         .then_ignore(just(':').padded_by(ws()))
-        .then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+        .then(spanned(type_expr()))
         .map(|(name, ty)| EntitySchemaField { name, ty })
 }
 
@@ -1057,7 +1082,7 @@ fn entity_field_def<'src>(
     text::keyword("field")
         .padded_by(ws())
         .ignore_then(just('.'))
-        .ignore_then(ident().map_with(|n, e| Spanned::new(n, e.span().into())))
+        .ignore_then(spanned(ident()))
         .padded_by(ws())
         .then(
             entity_field_content()
@@ -1098,15 +1123,14 @@ fn entity_field_content<'src>(
             .padded_by(ws())
             .ignore_then(text::keyword("topology"))
             .ignore_then(
-                topology()
-                    .map_with(|t, e| Spanned::new(t, e.span().into()))
+                spanned(topology())
                     .padded_by(ws())
                     .delimited_by(just('('), just(')')),
             )
             .map(EntityFieldContent::Topology),
         just(':')
             .padded_by(ws())
-            .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+            .ignore_then(spanned(type_expr()))
             .map(EntityFieldContent::Type),
         text::keyword("measure")
             .padded_by(ws())

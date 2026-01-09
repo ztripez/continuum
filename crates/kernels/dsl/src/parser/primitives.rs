@@ -1,4 +1,22 @@
-//! Primitive parser combinators
+//! Primitive parser combinators for the Continuum DSL.
+//!
+//! This module provides low-level parsers for the fundamental tokens and
+//! patterns used throughout the DSL grammar. These primitives are composed
+//! by higher-level parsers in [`super::items`] and [`super::expr`].
+//!
+//! # Token Types
+//!
+//! - **Whitespace**: Spaces, newlines, and comments (`//`, `#`, `/* */`)
+//! - **Identifiers**: ASCII alphanumeric names (e.g., `terra`, `temperature`)
+//! - **Paths**: Dot-separated identifier sequences (e.g., `terra.surface.temp`)
+//! - **Literals**: Numbers and strings
+//! - **Units**: Physical unit annotations (e.g., `<K>`, `<W/m²>`)
+//!
+//! # Helper Functions
+//!
+//! The [`spanned`] function wraps any parser to add source span tracking,
+//! which is essential for error reporting. Attribute helpers ([`attr_string`],
+//! [`attr_path`], [`attr_flag`], [`attr_int`]) parse common attribute patterns.
 
 use chumsky::prelude::*;
 
@@ -6,7 +24,13 @@ use crate::ast::{Literal, Path, Spanned};
 
 use super::ParseError;
 
-/// Whitespace and comments
+/// Parses whitespace and comments, consuming all of them.
+///
+/// Recognized comment styles:
+/// - Line comments: `// text` and `# text`
+/// - Block comments: `/* text */`
+///
+/// Returns `()` since whitespace is typically ignored.
 pub fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src>>> + Clone {
     let line_comment = just("//")
         .then(any().and_is(just('\n').not()).repeated())
@@ -29,12 +53,19 @@ pub fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src
     .ignored()
 }
 
-/// Identifier
+/// Parses an ASCII identifier.
+///
+/// Identifiers start with a letter or underscore and contain alphanumeric
+/// characters or underscores. Examples: `terra`, `surface_temp`, `_internal`.
 pub fn ident<'src>() -> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
     text::ascii::ident().map(|s: &str| s.to_string())
 }
 
-/// Dot-separated path
+/// Parses a dot-separated path of identifiers.
+///
+/// Paths are used throughout the DSL to reference signals, strata, config
+/// values, and other named entities. Examples: `terra.surface.temperature`,
+/// `config.dt`, `const.physics.gravity`.
 pub fn path<'src>() -> impl Parser<'src, &'src str, Path, extra::Err<ParseError<'src>>> + Clone {
     ident()
         .separated_by(just('.'))
@@ -154,6 +185,26 @@ pub fn optional_unit<'src>(
     unit()
         .map_with(|u, e| Spanned::new(u, e.span().into()))
         .or_not()
+}
+
+// === Span helper (DRY for map_with span extraction) ===
+
+/// Wrap any parser to add span information.
+///
+/// This helper eliminates the verbose pattern:
+/// ```ignore
+/// parser.map_with(|x, e| Spanned::new(x, e.span().into()))
+/// ```
+///
+/// Note: The returned parser does NOT implement Clone. For parsers that need
+/// Clone (like those used in attr_* helpers), use the manual pattern above.
+pub fn spanned<'src, O, P>(
+    parser: P,
+) -> impl Parser<'src, &'src str, Spanned<O>, extra::Err<ParseError<'src>>>
+where
+    P: Parser<'src, &'src str, O, extra::Err<ParseError<'src>>>,
+{
+    parser.map_with(|val, e| Spanned::new(val, e.span().into()))
 }
 
 // === Common attribute parsers (DRY helpers) ===
