@@ -131,6 +131,12 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             .padded_by(ws())
             .boxed();
 
+        // Arguments with span end position for accurate MethodCall spans
+        let args_with_span = args.clone().map_with(|a, extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            (a, span.end)
+        });
+
         // Method calls: expr.method(args) - now works with Spanned<Expr>
         let postfix = atom.foldl(
             just('.')
@@ -139,21 +145,18 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     let span: chumsky::span::SimpleSpan = extra.span();
                     (m, span.start..span.end)
                 }))
-                .then(args.or_not())
+                .then(args_with_span.or_not())
                 .repeated(),
             |obj, ((method, method_span), maybe_args)| {
                 let (new_expr, span_end) = match maybe_args {
-                    Some(args) => {
-                        let end = args.last().map(|a| a.span.end).unwrap_or(method_span.end);
-                        (
-                            Expr::MethodCall {
-                                object: Box::new(obj.clone()),
-                                method,
-                                args,
-                            },
-                            end,
-                        )
-                    }
+                    Some((args, paren_end)) => (
+                        Expr::MethodCall {
+                            object: Box::new(obj.clone()),
+                            method,
+                            args,
+                        },
+                        paren_end,
+                    ),
                     None => (
                         Expr::FieldAccess {
                             object: Box::new(obj.clone()),

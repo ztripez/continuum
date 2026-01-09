@@ -25,17 +25,22 @@ impl std::error::Error for ValidationError {}
 pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
     let mut errors = Vec::new();
 
-    // Collect all user-defined function names
+    // Collect all user-defined function names (full path and last segment for method calls)
     let mut user_functions = std::collections::HashSet::new();
+    let mut user_function_names = std::collections::HashSet::new();
     for item in &unit.items {
         if let Item::FnDef(f) = &item.node {
             user_functions.insert(f.path.node.to_string());
+            // Also store just the function name for method call matching
+            if let Some(name) = f.path.node.segments.last() {
+                user_function_names.insert(name.clone());
+            }
         }
     }
 
     for item in &unit.items {
         // Check for unknown function calls in all expressions
-        collect_unknown_functions(&item.node, &user_functions, &mut errors);
+        collect_unknown_functions(&item.node, &user_functions, &user_function_names, &mut errors);
 
         match &item.node {
             Item::SignalDef(signal) => {
@@ -152,15 +157,16 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
 fn collect_unknown_functions(
     item: &Item,
     user_functions: &std::collections::HashSet<String>,
+    user_function_names: &std::collections::HashSet<String>,
     errors: &mut Vec<ValidationError>,
 ) {
     match item {
         Item::SignalDef(signal) => {
             if let Some(resolve) = &signal.resolve {
-                check_expr_for_unknown_functions(&resolve.body, user_functions, errors);
+                check_expr_for_unknown_functions(&resolve.body, user_functions, user_function_names, errors);
             }
             if let Some(warmup) = &signal.warmup {
-                check_expr_for_unknown_functions(&warmup.iterate, user_functions, errors);
+                check_expr_for_unknown_functions(&warmup.iterate, user_functions, user_function_names, errors);
             }
         }
         Item::OperatorDef(op) => {
@@ -170,37 +176,37 @@ fn collect_unknown_functions(
                     crate::ast::OperatorBody::Collect(e) => e,
                     crate::ast::OperatorBody::Measure(e) => e,
                 };
-                check_expr_for_unknown_functions(expr, user_functions, errors);
+                check_expr_for_unknown_functions(expr, user_functions, user_function_names, errors);
             }
         }
         Item::FieldDef(field) => {
             if let Some(measure) = &field.measure {
-                check_expr_for_unknown_functions(&measure.body, user_functions, errors);
+                check_expr_for_unknown_functions(&measure.body, user_functions, user_function_names, errors);
             }
         }
         Item::ImpulseDef(impulse) => {
             if let Some(apply) = &impulse.apply {
-                check_expr_for_unknown_functions(&apply.body, user_functions, errors);
+                check_expr_for_unknown_functions(&apply.body, user_functions, user_function_names, errors);
             }
         }
         Item::FractureDef(fracture) => {
             for condition in &fracture.conditions {
-                check_expr_for_unknown_functions(condition, user_functions, errors);
+                check_expr_for_unknown_functions(condition, user_functions, user_function_names, errors);
             }
             for emit in &fracture.emit {
-                check_expr_for_unknown_functions(&emit.value, user_functions, errors);
+                check_expr_for_unknown_functions(&emit.value, user_functions, user_function_names, errors);
             }
         }
         Item::FnDef(f) => {
-            check_expr_for_unknown_functions(&f.body, user_functions, errors);
+            check_expr_for_unknown_functions(&f.body, user_functions, user_function_names, errors);
         }
         Item::EntityDef(entity) => {
             if let Some(resolve) = &entity.resolve {
-                check_expr_for_unknown_functions(&resolve.body, user_functions, errors);
+                check_expr_for_unknown_functions(&resolve.body, user_functions, user_function_names, errors);
             }
             for field in &entity.fields {
                 if let Some(measure) = &field.measure {
-                    check_expr_for_unknown_functions(&measure.body, user_functions, errors);
+                    check_expr_for_unknown_functions(&measure.body, user_functions, user_function_names, errors);
                 }
             }
         }
@@ -214,8 +220,21 @@ fn is_known_function(name: &str, user_functions: &std::collections::HashSet<Stri
     if continuum_kernel_registry::is_known(name) {
         return true;
     }
-    // Check user-defined functions
+    // Check user-defined functions (full path)
     if user_functions.contains(name) {
+        return true;
+    }
+    false
+}
+
+/// Check if a method name is valid (kernel function or user-defined function name)
+fn is_known_method(name: &str, user_function_names: &std::collections::HashSet<String>) -> bool {
+    // Check kernel registry
+    if continuum_kernel_registry::is_known(name) {
+        return true;
+    }
+    // Check user-defined function names (just the name part, not full path)
+    if user_function_names.contains(name) {
         return true;
     }
     false
@@ -225,6 +244,7 @@ fn is_known_function(name: &str, user_functions: &std::collections::HashSet<Stri
 fn check_expr_for_unknown_functions(
     expr: &Spanned<Expr>,
     user_functions: &std::collections::HashSet<String>,
+    user_function_names: &std::collections::HashSet<String>,
     errors: &mut Vec<ValidationError>,
 ) {
     match &expr.node {
@@ -240,103 +260,106 @@ fn check_expr_for_unknown_functions(
                 }
             }
             // Recurse into function expression and arguments
-            check_expr_for_unknown_functions(function, user_functions, errors);
+            check_expr_for_unknown_functions(function, user_functions, user_function_names, errors);
             for arg in args {
-                check_expr_for_unknown_functions(arg, user_functions, errors);
+                check_expr_for_unknown_functions(arg, user_functions, user_function_names, errors);
             }
         }
         Expr::MethodCall { object, method, args } => {
-            // Check if method is a known function (method calls are also checked)
-            if !is_known_function(method, user_functions) {
-                // Methods might be built-in or user-defined, don't error for now
-                // as method resolution happens at lower/runtime
+            // Method calls are lowered to Call with object as first arg
+            // Validate method name against known functions and user function names
+            if !is_known_method(method, user_function_names) {
+                errors.push(ValidationError {
+                    message: format!("unknown method '{}'", method),
+                    span: expr.span.clone(),
+                });
             }
-            check_expr_for_unknown_functions(object, user_functions, errors);
+            check_expr_for_unknown_functions(object, user_functions, user_function_names, errors);
             for arg in args {
-                check_expr_for_unknown_functions(arg, user_functions, errors);
+                check_expr_for_unknown_functions(arg, user_functions, user_function_names, errors);
             }
         }
         Expr::Binary { left, right, .. } => {
-            check_expr_for_unknown_functions(left, user_functions, errors);
-            check_expr_for_unknown_functions(right, user_functions, errors);
+            check_expr_for_unknown_functions(left, user_functions, user_function_names, errors);
+            check_expr_for_unknown_functions(right, user_functions, user_function_names, errors);
         }
         Expr::Unary { operand, .. } => {
-            check_expr_for_unknown_functions(operand, user_functions, errors);
+            check_expr_for_unknown_functions(operand, user_functions, user_function_names, errors);
         }
         Expr::FieldAccess { object, .. } => {
-            check_expr_for_unknown_functions(object, user_functions, errors);
+            check_expr_for_unknown_functions(object, user_functions, user_function_names, errors);
         }
         Expr::Let { value, body, .. } => {
-            check_expr_for_unknown_functions(value, user_functions, errors);
-            check_expr_for_unknown_functions(body, user_functions, errors);
+            check_expr_for_unknown_functions(value, user_functions, user_function_names, errors);
+            check_expr_for_unknown_functions(body, user_functions, user_function_names, errors);
         }
         Expr::If {
             condition,
             then_branch,
             else_branch,
         } => {
-            check_expr_for_unknown_functions(condition, user_functions, errors);
-            check_expr_for_unknown_functions(then_branch, user_functions, errors);
+            check_expr_for_unknown_functions(condition, user_functions, user_function_names, errors);
+            check_expr_for_unknown_functions(then_branch, user_functions, user_function_names, errors);
             if let Some(e) = else_branch {
-                check_expr_for_unknown_functions(e, user_functions, errors);
+                check_expr_for_unknown_functions(e, user_functions, user_function_names, errors);
             }
         }
         Expr::For { iter, body, .. } => {
-            check_expr_for_unknown_functions(iter, user_functions, errors);
-            check_expr_for_unknown_functions(body, user_functions, errors);
+            check_expr_for_unknown_functions(iter, user_functions, user_function_names, errors);
+            check_expr_for_unknown_functions(body, user_functions, user_function_names, errors);
         }
         Expr::Block(exprs) => {
             for e in exprs {
-                check_expr_for_unknown_functions(e, user_functions, errors);
+                check_expr_for_unknown_functions(e, user_functions, user_function_names, errors);
             }
         }
         Expr::EmitSignal { value, .. } => {
-            check_expr_for_unknown_functions(value, user_functions, errors);
+            check_expr_for_unknown_functions(value, user_functions, user_function_names, errors);
         }
         Expr::EmitField { position, value, .. } => {
-            check_expr_for_unknown_functions(position, user_functions, errors);
-            check_expr_for_unknown_functions(value, user_functions, errors);
+            check_expr_for_unknown_functions(position, user_functions, user_function_names, errors);
+            check_expr_for_unknown_functions(value, user_functions, user_function_names, errors);
         }
         Expr::Struct(fields) => {
             for (_, e) in fields {
-                check_expr_for_unknown_functions(e, user_functions, errors);
+                check_expr_for_unknown_functions(e, user_functions, user_function_names, errors);
             }
         }
         Expr::Map { sequence, function } => {
-            check_expr_for_unknown_functions(sequence, user_functions, errors);
-            check_expr_for_unknown_functions(function, user_functions, errors);
+            check_expr_for_unknown_functions(sequence, user_functions, user_function_names, errors);
+            check_expr_for_unknown_functions(function, user_functions, user_function_names, errors);
         }
         Expr::Fold {
             sequence,
             init,
             function,
         } => {
-            check_expr_for_unknown_functions(sequence, user_functions, errors);
-            check_expr_for_unknown_functions(init, user_functions, errors);
-            check_expr_for_unknown_functions(function, user_functions, errors);
+            check_expr_for_unknown_functions(sequence, user_functions, user_function_names, errors);
+            check_expr_for_unknown_functions(init, user_functions, user_function_names, errors);
+            check_expr_for_unknown_functions(function, user_functions, user_function_names, errors);
         }
         // Entity expressions
         Expr::SelfField(_) | Expr::EntityRef(_) | Expr::Other(_) | Expr::Pairs(_) => {}
         Expr::EntityAccess { instance, .. } => {
-            check_expr_for_unknown_functions(instance, user_functions, errors);
+            check_expr_for_unknown_functions(instance, user_functions, user_function_names, errors);
         }
         Expr::Aggregate { body, .. } => {
-            check_expr_for_unknown_functions(body, user_functions, errors);
+            check_expr_for_unknown_functions(body, user_functions, user_function_names, errors);
         }
         Expr::Filter { predicate, .. } => {
-            check_expr_for_unknown_functions(predicate, user_functions, errors);
+            check_expr_for_unknown_functions(predicate, user_functions, user_function_names, errors);
         }
         Expr::First { predicate, .. } => {
-            check_expr_for_unknown_functions(predicate, user_functions, errors);
+            check_expr_for_unknown_functions(predicate, user_functions, user_function_names, errors);
         }
         Expr::Nearest { position, .. } => {
-            check_expr_for_unknown_functions(position, user_functions, errors);
+            check_expr_for_unknown_functions(position, user_functions, user_function_names, errors);
         }
         Expr::Within {
             position, radius, ..
         } => {
-            check_expr_for_unknown_functions(position, user_functions, errors);
-            check_expr_for_unknown_functions(radius, user_functions, errors);
+            check_expr_for_unknown_functions(position, user_functions, user_function_names, errors);
+            check_expr_for_unknown_functions(radius, user_functions, user_function_names, errors);
         }
         // These don't contain function calls
         Expr::Literal(_)
@@ -489,6 +512,51 @@ mod tests {
 
                 resolve {
                     prev * 0.99
+                }
+            }
+        "#;
+        let (result, parse_errors) = parse(source);
+        assert!(parse_errors.is_empty(), "parse errors: {:?}", parse_errors);
+        let unit = result.unwrap();
+        let errors = validate(&unit);
+        assert!(errors.is_empty(), "validation errors: {:?}", errors);
+    }
+
+    #[test]
+    fn test_unknown_method_call() {
+        // Method calls should be validated against known functions
+        let source = r#"
+            signal.core.temp {
+                : Scalar<K>
+                : strata(thermal)
+
+                resolve {
+                    prev.unknown_method()
+                }
+            }
+        "#;
+        let (result, parse_errors) = parse(source);
+        assert!(parse_errors.is_empty(), "parse errors: {:?}", parse_errors);
+        let unit = result.unwrap();
+        let errors = validate(&unit);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("unknown method 'unknown_method'"));
+    }
+
+    #[test]
+    fn test_known_method_call() {
+        // User-defined functions should not error when called as methods
+        let source = r#"
+            fn.math.double(val) {
+                val * 2.0
+            }
+
+            signal.core.temp {
+                : Scalar<K>
+                : strata(thermal)
+
+                resolve {
+                    prev.double()
                 }
             }
         "#;
