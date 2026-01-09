@@ -7,10 +7,10 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{FnDef, FnParam, Range, Spanned, TypeDef, TypeExpr, TypeField};
+use crate::ast::{FnDef, FnParam, Range, TypeDef, TypeExpr, TypeField};
 
 use super::super::expr::spanned_expr;
-use super::super::primitives::{float, ident, spanned_path, unit_string, ws};
+use super::super::primitives::{float, ident, spanned, spanned_path, unit_string, ws};
 use super::super::ParseError;
 
 // === Type Definitions ===
@@ -19,7 +19,7 @@ pub fn type_def<'src>() -> impl Parser<'src, &'src str, TypeDef, extra::Err<Pars
     text::keyword("type")
         .padded_by(ws())
         .ignore_then(just('.'))
-        .ignore_then(ident().map_with(|i, e| Spanned::new(i, e.span().into())))
+        .ignore_then(spanned(ident()))
         .padded_by(ws())
         .then(
             type_field()
@@ -32,10 +32,9 @@ pub fn type_def<'src>() -> impl Parser<'src, &'src str, TypeDef, extra::Err<Pars
 }
 
 fn type_field<'src>() -> impl Parser<'src, &'src str, TypeField, extra::Err<ParseError<'src>>> {
-    ident()
-        .map_with(|i, e| Spanned::new(i, e.span().into()))
+    spanned(ident())
         .then_ignore(just(':').padded_by(ws()))
-        .then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+        .then(spanned(type_expr()))
         .map(|(name, ty)| TypeField { name, ty })
 }
 
@@ -86,8 +85,7 @@ pub fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseErr
         .ignore_then(just('.'))
         .ignore_then(spanned_path())
         .then(
-            ident()
-                .map_with(|i, e| Spanned::new(i, e.span().into()))
+            spanned(ident())
                 .separated_by(just(',').padded_by(ws()))
                 .collect()
                 .delimited_by(just('<').padded_by(ws()), just('>').padded_by(ws()))
@@ -105,7 +103,7 @@ pub fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseErr
         .then(
             just("->")
                 .padded_by(ws())
-                .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+                .ignore_then(spanned(type_expr()))
                 .or_not(),
         )
         .then(
@@ -123,12 +121,11 @@ pub fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseErr
 }
 
 fn fn_param<'src>() -> impl Parser<'src, &'src str, FnParam, extra::Err<ParseError<'src>>> + Clone {
-    ident()
-        .map_with(|i, e| Spanned::new(i, e.span().into()))
+    spanned(ident())
         .then(
             just(':')
                 .padded_by(ws())
-                .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+                .ignore_then(spanned(type_expr()))
                 .or_not(),
         )
         .map(|(name, ty)| FnParam { name, ty })

@@ -11,7 +11,7 @@ use crate::ast::{
 };
 
 use super::super::expr::spanned_expr;
-use super::super::primitives::{attr_flag, attr_int, attr_string, ident, literal, spanned_path, unit, ws};
+use super::super::primitives::{attr_flag, attr_int, attr_string, ident, literal, spanned, spanned_path, unit, ws};
 use super::super::ParseError;
 
 // === Strata ===
@@ -69,7 +69,7 @@ pub fn era_def<'src>() -> impl Parser<'src, &'src str, EraDef, extra::Err<ParseE
     text::keyword("era")
         .padded_by(ws())
         .ignore_then(just('.'))
-        .ignore_then(ident().map_with(|i, e| Spanned::new(i, e.span().into())))
+        .ignore_then(spanned(ident()))
         .padded_by(ws())
         .then(
             era_content()
@@ -123,7 +123,7 @@ fn era_content<'src>(
             .padded_by(ws())
             .ignore_then(text::keyword("dt"))
             .ignore_then(
-                value_with_unit().map_with(|v, e| Spanned::new(v, e.span().into()))
+                spanned(value_with_unit())
                     .padded_by(ws())
                     .delimited_by(just('('), just(')')),
             )

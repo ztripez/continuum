@@ -1,0 +1,219 @@
+//! Abstract Syntax Tree (AST) for the Continuum DSL.
+//!
+//! This module defines the typed representation of parsed DSL source code.
+//! The AST preserves source spans for all nodes, enabling precise error
+//! reporting and IDE hover text.
+//!
+//! # Structure
+//!
+//! A [`CompilationUnit`] contains a list of top-level [`Item`]s, which include:
+//! - **Configuration**: [`ConstBlock`], [`ConfigBlock`] for compile-time values
+//! - **Types**: [`TypeDef`] for custom type declarations
+//! - **Functions**: [`FnDef`] for pure inlined expressions
+//! - **Simulation Structure**: [`StrataDef`], [`EraDef`] for time organization
+//! - **Signals**: [`SignalDef`] for authoritative state
+//! - **Observation**: [`FieldDef`] for derived measurements
+//! - **Operators**: [`OperatorDef`] for phase-specific logic
+//! - **Events**: [`ImpulseDef`], [`FractureDef`], [`ChronicleDef`]
+//! - **Collections**: [`EntityDef`] for indexed state
+//!
+//! # Module Organization
+//!
+//! The AST is split into three modules:
+//! - [`expr`] - Expression types for computations and data flow
+//! - [`items`] - Top-level definition types (signals, fields, etc.)
+//! - This module - Core types (Span, Spanned, Path) and the Item enum
+//!
+//! # Span Tracking
+//!
+//! All nodes are wrapped in [`Spanned<T>`] which associates the AST node
+//! with its byte range in the source file. This enables:
+//! - Precise error messages pointing to exact source locations
+//! - IDE features like go-to-definition and hover documentation
+//! - Source mapping for compiled IR
+//!
+//! # Example
+//!
+//! ```ignore
+//! use continuum_dsl::{parse, ast::*};
+//!
+//! let src = r#"
+//!     signal.terra.temperature {
+//!         : Scalar<K, 50..1000>
+//!         : strata(terra.thermal)
+//!         resolve { prev + 0.1 }
+//!     }
+//! "#;
+//!
+//! let (unit, errors) = parse(src);
+//! let unit = unit.unwrap();
+//! for item in &unit.items {
+//!     if let Item::SignalDef(sig) = &item.node {
+//!         println!("Signal: {}", sig.path.node);
+//!     }
+//! }
+//! ```
+
+pub mod expr;
+pub mod items;
+pub mod visitor;
+
+use std::ops::Range as StdRange;
+
+// Re-export all types for convenience
+pub use expr::*;
+pub use items::*;
+pub use visitor::{uses_dt_raw, walk_expr, ExprVisitor};
+
+/// Source span representing a byte range in the source file.
+///
+/// Used for error reporting and source mapping.
+pub type Span = StdRange<usize>;
+
+/// A spanned AST node that associates a value with its source location.
+///
+/// All significant AST nodes are wrapped in `Spanned` to preserve their
+/// position in the source file for error reporting and IDE features.
+///
+/// # Example
+///
+/// ```ignore
+/// let path = Spanned::new(
+///     Path::new(vec!["terra".into(), "temperature".into()]),
+///     0..18
+/// );
+/// assert_eq!(path.node.to_string(), "terra.temperature");
+/// assert_eq!(path.span, 0..18);
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct Spanned<T> {
+    /// The wrapped AST node.
+    pub node: T,
+    /// Byte range in source (start..end).
+    pub span: Span,
+}
+
+impl<T> Spanned<T> {
+    /// Creates a new spanned node.
+    pub fn new(node: T, span: Span) -> Self {
+        Self { node, span }
+    }
+}
+
+/// A complete DSL compilation unit representing a parsed source file.
+///
+/// Contains all top-level items defined in the source. Multiple compilation
+/// units from different files are merged during world loading.
+#[derive(Debug, Clone, Default)]
+pub struct CompilationUnit {
+    /// All top-level items in declaration order.
+    pub items: Vec<Spanned<Item>>,
+}
+
+/// Top-level items that can appear in DSL source files.
+///
+/// Each variant corresponds to a distinct declaration type in the DSL.
+/// Items are processed in a specific order during compilation regardless
+/// of their declaration order in source.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Item {
+    /// Compile-time constant definitions: `const { physics.g: 9.81 }`.
+    ConstBlock(ConstBlock),
+    /// Runtime configuration values: `config { thermal.tau: 1000.0 }`.
+    ConfigBlock(ConfigBlock),
+    /// Custom type declaration: `type Vec2 { x: Scalar<m>, y: Scalar<m> }`.
+    TypeDef(TypeDef),
+    /// User-defined function: `fn.math.lerp(a, b, t) { a + (b - a) * t }`.
+    FnDef(FnDef),
+    /// Time stratum definition: `strata.terra { : stride(10) }`.
+    StrataDef(StrataDef),
+    /// Era definition: `era.main { : initial : dt(1 <yr>) }`.
+    EraDef(EraDef),
+    /// Signal (authoritative state): `signal.terra.temp { resolve { prev } }`.
+    SignalDef(SignalDef),
+    /// Field (derived measurement): `field.terra.surface { measure { ... } }`.
+    FieldDef(FieldDef),
+    /// Operator (phase logic): `operator.terra.diffuse { collect { ... } }`.
+    OperatorDef(OperatorDef),
+    /// Impulse (external event): `impulse.stellar.flare { apply { ... } }`.
+    ImpulseDef(ImpulseDef),
+    /// Fracture (tension detector): `fracture.terra.quake { when { ... } }`.
+    FractureDef(FractureDef),
+    /// Chronicle (observer): `chronicle.stellar.events { observe { ... } }`.
+    ChronicleDef(ChronicleDef),
+    /// Entity (indexed collection): `entity.stellar.moon { schema { ... } }`.
+    EntityDef(EntityDef),
+}
+
+/// Dot-separated path identifying a named entity in the DSL.
+///
+/// Paths are used for signal references (`signal.terra.temperature`),
+/// function names (`fn.math.lerp`), strata (`strata.terra`), and other
+/// namespaced identifiers.
+///
+/// # Example
+///
+/// ```ignore
+/// let path = Path::new(vec!["terra".into(), "surface".into(), "temp".into()]);
+/// assert_eq!(path.to_string(), "terra.surface.temp");
+/// assert_eq!(path.join("/"), "terra/surface/temp");
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Path {
+    /// Individual path segments (e.g., `["terra", "surface", "temp"]`).
+    pub segments: Vec<String>,
+}
+
+impl Path {
+    /// Creates a new path from segments.
+    pub fn new(segments: Vec<String>) -> Self {
+        Self { segments }
+    }
+
+    /// Joins segments with a custom separator.
+    pub fn join(&self, sep: &str) -> String {
+        self.segments.join(sep)
+    }
+}
+
+impl std::fmt::Display for Path {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.segments.join("."))
+    }
+}
+
+// === Types ===
+
+/// Type expression representing a value's shape and constraints.
+#[derive(Debug, Clone, PartialEq)]
+pub enum TypeExpr {
+    /// Scalar value with unit and optional bounds: `Scalar<K, 0..1000>`.
+    Scalar {
+        /// Unit string (e.g., "K", "m/s", "W/m²").
+        unit: String,
+        /// Optional value bounds.
+        range: Option<Range>,
+    },
+    /// Vector value: `Vec3<m>` (dimension, unit, optional magnitude bounds).
+    Vector {
+        /// Dimension (2 or 3).
+        dim: u8,
+        /// Component unit.
+        unit: String,
+        /// Optional magnitude bounds.
+        magnitude: Option<Range>,
+    },
+    /// Reference to a named type: `OrbitalElements`.
+    Named(String),
+}
+
+/// Numeric range for value bounds validation.
+///
+/// Used in type expressions to constrain valid values.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Range {
+    /// Minimum allowed value (inclusive).
+    pub min: f64,
+    /// Maximum allowed value (inclusive).
+    pub max: f64,
+}

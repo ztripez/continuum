@@ -12,6 +12,47 @@ use continuum_runtime::types::Value;
 use continuum_runtime::SignalId;
 use continuum_vm::ExecutionContext;
 
+/// Shared data available to all execution contexts.
+///
+/// This struct holds the common data needed across all phases:
+/// signals, constants, and config values. Phase-specific contexts
+/// wrap this with additional phase-specific data.
+pub(crate) struct SharedContextData<'a> {
+    pub(crate) constants: &'a IndexMap<String, f64>,
+    pub(crate) config: &'a IndexMap<String, f64>,
+    pub(crate) signals: &'a SignalStorage,
+}
+
+impl SharedContextData<'_> {
+    /// Get signal value by name
+    fn signal(&self, name: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.as_scalar())
+            .unwrap_or(0.0)
+    }
+
+    /// Get signal component by name and component (x, y, z, w)
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        let runtime_id = SignalId(name.to_string());
+        self.signals
+            .get(&runtime_id)
+            .and_then(|v| v.component(component))
+            .unwrap_or(0.0)
+    }
+
+    /// Get constant value by name
+    fn constant(&self, name: &str) -> f64 {
+        self.constants.get(name).copied().unwrap_or(0.0)
+    }
+
+    /// Get config value by name
+    fn config(&self, name: &str) -> f64 {
+        self.config.get(name).copied().unwrap_or(0.0)
+    }
+}
+
 /// Execution context for signal resolution.
 ///
 /// Provides access to previous value, accumulated inputs, time step,
@@ -20,9 +61,7 @@ pub(crate) struct ResolverContext<'a> {
     pub(crate) prev: &'a Value,
     pub(crate) inputs: f64,
     pub(crate) dt: f64,
-    pub(crate) constants: &'a IndexMap<String, f64>,
-    pub(crate) config: &'a IndexMap<String, f64>,
-    pub(crate) signals: &'a SignalStorage,
+    pub(crate) shared: SharedContextData<'a>,
 }
 
 impl ExecutionContext for ResolverContext<'_> {
@@ -39,27 +78,19 @@ impl ExecutionContext for ResolverContext<'_> {
     }
 
     fn signal(&self, name: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.as_scalar())
-            .unwrap_or(0.0)
+        self.shared.signal(name)
     }
 
     fn signal_component(&self, name: &str, component: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.component(component))
-            .unwrap_or(0.0)
+        self.shared.signal_component(name, component)
     }
 
     fn constant(&self, name: &str) -> f64 {
-        self.constants.get(name).copied().unwrap_or(0.0)
+        self.shared.constant(name)
     }
 
     fn config(&self, name: &str) -> f64 {
-        self.config.get(name).copied().unwrap_or(0.0)
+        self.shared.config(name)
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
@@ -79,9 +110,7 @@ pub(crate) struct AssertionContext<'a> {
     #[allow(dead_code)] // May be used for future 'prev' semantics in assertions
     pub(crate) prev: &'a Value,
     pub(crate) dt: f64,
-    pub(crate) constants: &'a IndexMap<String, f64>,
-    pub(crate) config: &'a IndexMap<String, f64>,
-    pub(crate) signals: &'a SignalStorage,
+    pub(crate) shared: SharedContextData<'a>,
 }
 
 impl ExecutionContext for AssertionContext<'_> {
@@ -99,27 +128,19 @@ impl ExecutionContext for AssertionContext<'_> {
     }
 
     fn signal(&self, name: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.as_scalar())
-            .unwrap_or(0.0)
+        self.shared.signal(name)
     }
 
     fn signal_component(&self, name: &str, component: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.component(component))
-            .unwrap_or(0.0)
+        self.shared.signal_component(name, component)
     }
 
     fn constant(&self, name: &str) -> f64 {
-        self.constants.get(name).copied().unwrap_or(0.0)
+        self.shared.constant(name)
     }
 
     fn config(&self, name: &str) -> f64 {
-        self.config.get(name).copied().unwrap_or(0.0)
+        self.shared.config(name)
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
@@ -135,9 +156,7 @@ impl ExecutionContext for AssertionContext<'_> {
 /// Transitions only have access to signals, constants, and config.
 /// They cannot access `prev`, `dt`, or `inputs`.
 pub(crate) struct TransitionContext<'a> {
-    pub(crate) constants: &'a IndexMap<String, f64>,
-    pub(crate) config: &'a IndexMap<String, f64>,
-    pub(crate) signals: &'a SignalStorage,
+    pub(crate) shared: SharedContextData<'a>,
 }
 
 impl ExecutionContext for TransitionContext<'_> {
@@ -154,27 +173,19 @@ impl ExecutionContext for TransitionContext<'_> {
     }
 
     fn signal(&self, name: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.as_scalar())
-            .unwrap_or(0.0)
+        self.shared.signal(name)
     }
 
     fn signal_component(&self, name: &str, component: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.component(component))
-            .unwrap_or(0.0)
+        self.shared.signal_component(name, component)
     }
 
     fn constant(&self, name: &str) -> f64 {
-        self.constants.get(name).copied().unwrap_or(0.0)
+        self.shared.constant(name)
     }
 
     fn config(&self, name: &str) -> f64 {
-        self.config.get(name).copied().unwrap_or(0.0)
+        self.shared.config(name)
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
@@ -191,9 +202,7 @@ impl ExecutionContext for TransitionContext<'_> {
 /// and the current time step. They cannot access `prev` or `inputs`.
 pub(crate) struct MeasureContext<'a> {
     pub(crate) dt: f64,
-    pub(crate) constants: &'a IndexMap<String, f64>,
-    pub(crate) config: &'a IndexMap<String, f64>,
-    pub(crate) signals: &'a SignalStorage,
+    pub(crate) shared: SharedContextData<'a>,
 }
 
 impl ExecutionContext for MeasureContext<'_> {
@@ -210,27 +219,19 @@ impl ExecutionContext for MeasureContext<'_> {
     }
 
     fn signal(&self, name: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.as_scalar())
-            .unwrap_or(0.0)
+        self.shared.signal(name)
     }
 
     fn signal_component(&self, name: &str, component: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.component(component))
-            .unwrap_or(0.0)
+        self.shared.signal_component(name, component)
     }
 
     fn constant(&self, name: &str) -> f64 {
-        self.constants.get(name).copied().unwrap_or(0.0)
+        self.shared.constant(name)
     }
 
     fn config(&self, name: &str) -> f64 {
-        self.config.get(name).copied().unwrap_or(0.0)
+        self.shared.config(name)
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
@@ -247,9 +248,7 @@ impl ExecutionContext for MeasureContext<'_> {
 /// the current time step. They cannot access `prev` or `inputs`.
 pub(crate) struct FractureExecContext<'a> {
     pub(crate) dt: f64,
-    pub(crate) constants: &'a IndexMap<String, f64>,
-    pub(crate) config: &'a IndexMap<String, f64>,
-    pub(crate) signals: &'a SignalStorage,
+    pub(crate) shared: SharedContextData<'a>,
 }
 
 impl ExecutionContext for FractureExecContext<'_> {
@@ -266,27 +265,19 @@ impl ExecutionContext for FractureExecContext<'_> {
     }
 
     fn signal(&self, name: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.as_scalar())
-            .unwrap_or(0.0)
+        self.shared.signal(name)
     }
 
     fn signal_component(&self, name: &str, component: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
-        self.signals
-            .get(&runtime_id)
-            .and_then(|v| v.component(component))
-            .unwrap_or(0.0)
+        self.shared.signal_component(name, component)
     }
 
     fn constant(&self, name: &str) -> f64 {
-        self.constants.get(name).copied().unwrap_or(0.0)
+        self.shared.constant(name)
     }
 
     fn config(&self, name: &str) -> f64 {
-        self.config.get(name).copied().unwrap_or(0.0)
+        self.shared.config(name)
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {

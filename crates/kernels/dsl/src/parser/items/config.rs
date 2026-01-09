@@ -7,9 +7,7 @@ use chumsky::prelude::*;
 
 use crate::ast::{ConfigBlock, ConfigEntry, ConstBlock, ConstEntry};
 
-use crate::ast::Spanned;
-
-use super::super::primitives::{literal, optional_unit, spanned_path, ws};
+use super::super::primitives::{literal, optional_unit, spanned, spanned_path, ws};
 use super::super::ParseError;
 
 // === Const Block ===
@@ -32,7 +30,7 @@ pub fn const_entry<'src>(
 ) -> impl Parser<'src, &'src str, ConstEntry, extra::Err<ParseError<'src>>> + Clone {
     spanned_path()
         .then_ignore(just(':').padded_by(ws()))
-        .then(literal().map_with(|l, e| Spanned::new(l, e.span().into())))
+        .then(spanned(literal()))
         .then(optional_unit().padded_by(ws()))
         .map(|((path, value), unit)| ConstEntry { path, value, unit })
 }
@@ -57,7 +55,7 @@ pub fn config_entry<'src>(
 ) -> impl Parser<'src, &'src str, ConfigEntry, extra::Err<ParseError<'src>>> + Clone {
     spanned_path()
         .then_ignore(just(':').padded_by(ws()))
-        .then(literal().map_with(|l, e| Spanned::new(l, e.span().into())))
+        .then(spanned(literal()))
         .then(optional_unit().padded_by(ws()))
         .map(|((path, value), unit)| ConfigEntry { path, value, unit })
 }

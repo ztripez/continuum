@@ -12,17 +12,44 @@
 //! - **Literals**: Numbers and strings
 //! - **Units**: Physical unit annotations (e.g., `<K>`, `<W/m²>`)
 //!
-//! # Helper Functions
+//! # Span Tracking
 //!
-//! The [`spanned`] function wraps any parser to add source span tracking,
-//! which is essential for error reporting. Attribute helpers ([`attr_string`],
-//! [`attr_path`], [`attr_flag`], [`attr_int`]) parse common attribute patterns.
+//! The [`spanned`] function wraps any parser output in our [`Spanned`] wrapper
+//! with source location tracking. This is essential for error reporting and
+//! IDE features.
+//!
+//! ```ignore
+//! use crate::parser::primitives::spanned;
+//!
+//! // Instead of:
+//! parser().map_with(|v, e| Spanned::new(v, e.span().into()))
+//!
+//! // Use:
+//! spanned(parser())
+//! ```
 
 use chumsky::prelude::*;
 
 use crate::ast::{Literal, Path, Spanned};
 
 use super::ParseError;
+
+/// Wraps a parser's output in our [`Spanned`] with source location.
+///
+/// This helper function captures the source span during parsing and wraps
+/// the parsed value in a `Spanned` for error reporting and IDE features.
+///
+/// # Example
+///
+/// ```ignore
+/// // Parse an identifier and capture its span
+/// spanned(ident()) // Returns Parser<..., Spanned<String>, ...>
+/// ```
+pub fn spanned<'src, O>(
+    parser: impl Parser<'src, &'src str, O, extra::Err<ParseError<'src>>> + Clone,
+) -> impl Parser<'src, &'src str, Spanned<O>, extra::Err<ParseError<'src>>> + Clone {
+    parser.map_with(|value, extra| Spanned::new(value, extra.span().into()))
+}
 
 /// Parses whitespace and comments, consuming all of them.
 ///
@@ -77,7 +104,7 @@ pub fn path<'src>() -> impl Parser<'src, &'src str, Path, extra::Err<ParseError<
 /// Spanned path
 pub fn spanned_path<'src>(
 ) -> impl Parser<'src, &'src str, Spanned<Path>, extra::Err<ParseError<'src>>> + Clone {
-    path().map_with(|p, e| Spanned::new(p, e.span().into()))
+    spanned(path())
 }
 
 /// String literal
@@ -182,9 +209,7 @@ pub fn unit_string<'src>(
 /// Optional spanned unit
 pub fn optional_unit<'src>(
 ) -> impl Parser<'src, &'src str, Option<Spanned<String>>, extra::Err<ParseError<'src>>> + Clone {
-    unit()
-        .map_with(|u, e| Spanned::new(u, e.span().into()))
-        .or_not()
+    spanned(unit()).or_not()
 }
 
 // === Common attribute parsers (DRY helpers) ===
@@ -198,8 +223,7 @@ pub fn attr_string<'src>(
         .padded_by(ws())
         .ignore_then(text::keyword(keyword))
         .ignore_then(
-            string_lit()
-                .map_with(|s, e| Spanned::new(s, e.span().into()))
+            spanned(string_lit())
                 .padded_by(ws())
                 .delimited_by(just('('), just(')')),
         )
@@ -236,12 +260,7 @@ pub fn attr_int<'src>(
         .padded_by(ws())
         .ignore_then(text::keyword(keyword))
         .ignore_then(
-            text::int(10)
-                .map(|s: &str| s.parse::<u32>().unwrap_or(0))
-                .map_with(|n, e| {
-                    let span: chumsky::span::SimpleSpan = e.span();
-                    Spanned::new(n, span.start..span.end)
-                })
+            spanned(text::int(10).map(|s: &str| s.parse::<u32>().unwrap_or(0)))
                 .padded_by(ws())
                 .delimited_by(just('('), just(')')),
         )

@@ -13,7 +13,7 @@ use crate::ast::{
 };
 
 use super::super::expr::spanned_expr;
-use super::super::primitives::{ident, spanned_path, ws};
+use super::super::primitives::{ident, spanned, spanned_path, ws};
 use super::super::ParseError;
 use super::types::type_expr;
 
@@ -61,7 +61,7 @@ fn impulse_content<'src>(
     choice((
         just(':')
             .padded_by(ws())
-            .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+            .ignore_then(spanned(type_expr()))
             .map(ImpulseContent::Type),
         text::keyword("apply")
             .padded_by(ws())
@@ -212,8 +212,7 @@ fn observe_handler<'src>(
 
 fn event_field<'src>(
 ) -> impl Parser<'src, &'src str, (Spanned<String>, Spanned<Expr>), extra::Err<ParseError<'src>>> {
-    ident()
-        .map_with(|i, e| Spanned::new(i, e.span().into()))
+    spanned(ident())
         .then_ignore(just(':').padded_by(ws()))
         .then(spanned_expr())
 }
