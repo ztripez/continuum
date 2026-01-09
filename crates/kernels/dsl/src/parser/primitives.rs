@@ -155,3 +155,63 @@ pub fn optional_unit<'src>(
         .map_with(|u, e| Spanned::new(u, e.span().into()))
         .or_not()
 }
+
+// === Common attribute parsers (DRY helpers) ===
+
+/// Parse `: keyword(string_lit)` pattern used for title/symbol attributes
+/// Example: `: title("My Title")`
+pub fn attr_string<'src>(
+    keyword: &'static str,
+) -> impl Parser<'src, &'src str, Spanned<String>, extra::Err<ParseError<'src>>> + Clone {
+    just(':')
+        .padded_by(ws())
+        .ignore_then(text::keyword(keyword))
+        .ignore_then(
+            string_lit()
+                .map_with(|s, e| Spanned::new(s, e.span().into()))
+                .padded_by(ws())
+                .delimited_by(just('('), just(')')),
+        )
+}
+
+/// Parse `: keyword(path)` pattern used for strata attributes
+/// Example: `: strata(terra.crust)`
+pub fn attr_path<'src>(
+    keyword: &'static str,
+) -> impl Parser<'src, &'src str, Spanned<Path>, extra::Err<ParseError<'src>>> + Clone {
+    just(':')
+        .padded_by(ws())
+        .ignore_then(text::keyword(keyword))
+        .ignore_then(spanned_path().padded_by(ws()).delimited_by(just('('), just(')')))
+}
+
+/// Parse `: keyword` pattern (no value) used for flag attributes
+/// Example: `: initial`, `: terminal`
+pub fn attr_flag<'src>(
+    keyword: &'static str,
+) -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src>>> + Clone {
+    just(':')
+        .padded_by(ws())
+        .ignore_then(text::keyword(keyword))
+        .ignored()
+}
+
+/// Parse `: keyword(int)` pattern returning a spanned integer
+/// Example: `: stride(4)`
+pub fn attr_int<'src>(
+    keyword: &'static str,
+) -> impl Parser<'src, &'src str, Spanned<u32>, extra::Err<ParseError<'src>>> + Clone {
+    just(':')
+        .padded_by(ws())
+        .ignore_then(text::keyword(keyword))
+        .ignore_then(
+            text::int(10)
+                .map(|s: &str| s.parse::<u32>().unwrap_or(0))
+                .map_with(|n, e| {
+                    let span: chumsky::span::SimpleSpan = e.span();
+                    Spanned::new(n, span.start..span.end)
+                })
+                .padded_by(ws())
+                .delimited_by(just('('), just(')')),
+        )
+}

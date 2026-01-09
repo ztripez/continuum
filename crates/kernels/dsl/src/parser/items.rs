@@ -13,7 +13,8 @@ use crate::ast::{
 
 use super::expr::spanned_expr;
 use super::primitives::{
-    float, ident, literal, optional_unit, spanned_path, string_lit, unit, unit_string, ws,
+    attr_flag, attr_int, attr_path, attr_string, float, ident, literal, optional_unit,
+    spanned_path, string_lit, unit, unit_string, ws,
 };
 use super::ParseError;
 
@@ -233,36 +234,11 @@ enum StrataAttr {
 }
 
 fn strata_attr<'src>() -> impl Parser<'src, &'src str, StrataAttr, extra::Err<ParseError<'src>>> {
-    just(':').padded_by(ws()).ignore_then(choice((
-        text::keyword("title")
-            .ignore_then(
-                string_lit()
-                    .map_with(|s, e| Spanned::new(s, e.span().into()))
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
-            )
-            .map(StrataAttr::Title),
-        text::keyword("symbol")
-            .ignore_then(
-                string_lit()
-                    .map_with(|s, e| Spanned::new(s, e.span().into()))
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
-            )
-            .map(StrataAttr::Symbol),
-        text::keyword("stride")
-            .ignore_then(
-                text::int(10)
-                    .map(|s: &str| s.parse::<u32>().unwrap_or(1))
-                    .map_with(|n: u32, e| {
-                        let span: chumsky::span::SimpleSpan = e.span();
-                        Spanned::new(n, span.start..span.end)
-                    })
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
-            )
-            .map(StrataAttr::Stride),
-    )))
+    choice((
+        attr_string("title").map(StrataAttr::Title),
+        attr_string("symbol").map(StrataAttr::Symbol),
+        attr_int("stride").map(StrataAttr::Stride),
+    ))
 }
 
 // === Era ===
@@ -317,24 +293,9 @@ enum EraContent {
 
 fn era_content<'src>() -> impl Parser<'src, &'src str, EraContent, extra::Err<ParseError<'src>>> {
     choice((
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("initial"))
-            .to(EraContent::Initial),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("terminal"))
-            .to(EraContent::Terminal),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("title"))
-            .ignore_then(
-                string_lit()
-                    .map_with(|s, e| Spanned::new(s, e.span().into()))
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
-            )
-            .map(EraContent::Title),
+        attr_flag("initial").to(EraContent::Initial),
+        attr_flag("terminal").to(EraContent::Terminal),
+        attr_string("title").map(EraContent::Title),
         just(':')
             .padded_by(ws())
             .ignore_then(text::keyword("dt"))
@@ -485,35 +446,10 @@ enum SignalContent {
 fn signal_content<'src>(
 ) -> impl Parser<'src, &'src str, SignalContent, extra::Err<ParseError<'src>>> {
     choice((
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("strata"))
-            .ignore_then(spanned_path().padded_by(ws()).delimited_by(just('('), just(')')))
-            .map(SignalContent::Strata),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("title"))
-            .ignore_then(
-                string_lit()
-                    .map_with(|s, e| Spanned::new(s, e.span().into()))
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
-            )
-            .map(SignalContent::Title),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("symbol"))
-            .ignore_then(
-                string_lit()
-                    .map_with(|s, e| Spanned::new(s, e.span().into()))
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
-            )
-            .map(SignalContent::Symbol),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(just("dt_raw"))
-            .to(SignalContent::DtRaw),
+        attr_path("strata").map(SignalContent::Strata),
+        attr_string("title").map(SignalContent::Title),
+        attr_string("symbol").map(SignalContent::Symbol),
+        attr_flag("dt_raw").to(SignalContent::DtRaw),
         just(':')
             .padded_by(ws())
             .ignore_then(text::keyword("uses"))
@@ -612,11 +548,7 @@ enum FieldContent {
 fn field_content<'src>() -> impl Parser<'src, &'src str, FieldContent, extra::Err<ParseError<'src>>>
 {
     choice((
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("strata"))
-            .ignore_then(spanned_path().padded_by(ws()).delimited_by(just('('), just(')')))
-            .map(FieldContent::Strata),
+        attr_path("strata").map(FieldContent::Strata),
         just(':')
             .padded_by(ws())
             .ignore_then(text::keyword("topology"))
@@ -627,26 +559,8 @@ fn field_content<'src>() -> impl Parser<'src, &'src str, FieldContent, extra::Er
                     .delimited_by(just('('), just(')')),
             )
             .map(FieldContent::Topology),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("title"))
-            .ignore_then(
-                string_lit()
-                    .map_with(|s, e| Spanned::new(s, e.span().into()))
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
-            )
-            .map(FieldContent::Title),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("symbol"))
-            .ignore_then(
-                string_lit()
-                    .map_with(|s, e| Spanned::new(s, e.span().into()))
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
-            )
-            .map(FieldContent::Symbol),
+        attr_string("title").map(FieldContent::Title),
+        attr_string("symbol").map(FieldContent::Symbol),
         just(':')
             .padded_by(ws())
             .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
@@ -716,11 +630,7 @@ enum OperatorContent {
 fn operator_content<'src>(
 ) -> impl Parser<'src, &'src str, OperatorContent, extra::Err<ParseError<'src>>> {
     choice((
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("strata"))
-            .ignore_then(spanned_path().padded_by(ws()).delimited_by(just('('), just(')')))
-            .map(OperatorContent::Strata),
+        attr_path("strata").map(OperatorContent::Strata),
         just(':')
             .padded_by(ws())
             .ignore_then(text::keyword("phase"))
@@ -1063,11 +973,7 @@ fn entity_content<'src>(
 ) -> impl Parser<'src, &'src str, EntityContent, extra::Err<ParseError<'src>>> {
     choice((
         // : strata(path)
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("strata"))
-            .ignore_then(spanned_path().padded_by(ws()).delimited_by(just('('), just(')')))
-            .map(EntityContent::Strata),
+        attr_path("strata").map(EntityContent::Strata),
         // : count(config.path) - count from config
         just(':')
             .padded_by(ws())
