@@ -1,0 +1,422 @@
+{
+  "tick": 0,
+  "time_seconds": 0.0,
+  "signals": {
+    "surface.temp": {
+      "Scalar": 288.875
+    },
+    "ecology.limiting_factor": {
+      "Scalar": 0.0
+    },
+    "crust.density": {
+      "Scalar": 2700.0
+    },
+    "planet.gravity_mu": {
+      "Scalar": 398589196000000.0
+    },
+    "atmosphere.co2_ppmv": {
+      "Scalar": 280.0
+    },
+    "isostasy.elevation": {
+      "Scalar": 0.0
+    },
+    "topography.dynamic_offset": {
+      "Scalar": 68.0
+    },
+    "tectonics.activity": {
+      "Scalar": 1.0
+    },
+    "tectonics.boundary_stress": {
+      "Scalar": 34000.0
+    },
+    "hydrology.evaporation_rate": {
+      "Scalar": 0.000039403133330202675
+    },
+    "mantle.viscosity": {
+      "Scalar": 0.0
+    },
+    "atmosphere.external_power": {
+      "Scalar": 0.0
+    },
+    "planet.surface_gravity": {
+      "Scalar": 9.819973426224687
+    },
+    "mantle.heat_content": {
+      "Scalar": 8.012588066069887e+30
+    },
+    "crust.thickness": {
+      "Scalar": 35000.0
+    },
+    "ecology.npp": {
+      "Scalar": 1.0
+    },
+    "atmosphere.surface_temp": {
+      "Scalar": 50.0
+    },
+    "rotation.state": {
+      "Scalar": 0.0
+    },
+    "mantle.temp": {
+      "Scalar": 5000.0
+    },
+    "isostasy.reference_level": {
+      "Scalar": 6363.636363636362
+    },
+    "surface.heat_flow": {
+      "Scalar": 0.11211125000000001
+    },
+    "atmosphere.water_vapor": {
+      "Scalar": 15.235252466153431
+    },
+    "crust.total_thickness": {
+      "Scalar": 35000.0
+    },
+    "isostasy.factor": {
+      "Scalar": 0.18181818181818177
+    },
+    "rotation.spin_axis": {
+      "Scalar": 0.0
+    },
+    "planet.mass": {
+      "Scalar": 5.972e+24
+    },
+    "crust.moho_depth": {
+      "Scalar": 35000.0
+    },
+    "tectonics.plate_count": {
+      "Scalar": 12.0
+    },
+    "crust.pressure_base": {
+      "Scalar": 928087488.7782329
+    },
+    "crust.elevation": {
+      "Scalar": 68.0
+    },
+    "ecology.respiration_rate": {
+      "Scalar": 0.0
+    },
+    "hydrology.precipitation_rate": {
+      "Scalar": 0.00002523525246615343
+    },
+    "hydrology.runoff_accumulation": {
+      "Scalar": 0.0
+    },
+    "hydrology.sediment_load": {
+      "Scalar": 0.0
+    },
+    "hydrology.chemical_weathering": {
+      "Scalar": 0.010447211419526993
+    },
+    "core.temp": {
+      "Scalar": 5497.327153273695
+    },
+    "atmosphere.cloud_cover": {
+      "Scalar": 0.22745005480340957
+    },
+    "ecology.nee": {
+      "Scalar": 0.0
+    },
+    "planet.radius": {
+      "Scalar": 6371000.0
+    },
+    "core.heat_power": {
+      "Scalar": 39889174303137.695
+    },
+    "atmosphere.tau_greenhouse": {
+      "Scalar": 1.1523525246615343
+    },
+    "hydrology.ice_mass": {
+      "Scalar": 0.0
+    },
+    "ecology.vegetation_cover": {
+      "Scalar": 0.0
+    },
+    "ecology.biomass": {
+      "Scalar": 10.0
+    },
+    "crust.temp_base": {
+      "Scalar": 1163.0
+    },
+    "hydrology.water_mass": {
+      "Scalar": 0.0
+    }
+  },
+  "fields": {
+    "hydrology.sediment": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.0
+        }
+      }
+    ],
+    "atmosphere.cloud_map": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.22745005480340957
+        }
+      }
+    ],
+    "hydrology.water_presence": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.0
+        }
+      }
+    ],
+    "hydrology.runoff": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.0
+        }
+      }
+    ],
+    "thermal.core": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 5497.327153273695
+        }
+      }
+    ],
+    "hydrology.evaporation": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.000039403133330202675
+        }
+      }
+    ],
+    "hydrology.weathering": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.010447211419526993
+        }
+      }
+    ],
+    "thermal.heat_flow": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.11211125000000001
+        }
+      }
+    ],
+    "thermal.mantle": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 5000.0
+        }
+      }
+    ],
+    "atmosphere.water_vapor_map": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 15.235252466153431
+        }
+      }
+    ],
+    "thickness.map": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 35000.0
+        }
+      }
+    ],
+    "pressure.crustal": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 928087488.7782329
+        }
+      }
+    ],
+    "isostasy.elevation_field": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.0
+        }
+      }
+    ],
+    "hydrology.water_mass_map": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.0
+        }
+      }
+    ],
+    "hydrology.water_phase": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 1.0
+        }
+      }
+    ],
+    "elevation.map": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 68.0
+        }
+      }
+    ],
+    "hydrology.ice_map": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.0
+        }
+      }
+    ],
+    "hydrology.precipitation": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 0.00002523525246615343
+        }
+      }
+    ],
+    "atmosphere.co2_map": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 280.0
+        }
+      }
+    ],
+    "density.crustal": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 2700.0
+        }
+      }
+    ],
+    "atmosphere.temperature": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 50.0
+        }
+      }
+    ],
+    "topography.dynamic": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 68.0
+        }
+      }
+    ],
+    "stress.boundary": [
+      {
+        "position": [
+          0.0,
+          0.0,
+          0.0
+        ],
+        "value": {
+          "Scalar": 34000.0
+        }
+      }
+    ]
+  }
+}

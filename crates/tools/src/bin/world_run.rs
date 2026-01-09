@@ -5,9 +5,12 @@
 //! Usage: `world-run <world-dir> [--steps N] [--dt SECONDS]`
 
 use std::env;
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process;
 
+use chrono::Local;
+use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use continuum_dsl::load_world;
@@ -17,7 +20,27 @@ use continuum_ir::{
     compile, convert_assertion_severity, get_initial_signal_value, lower, validate,
 };
 use continuum_runtime::executor::Runtime;
+use continuum_runtime::storage::FieldSample;
 use continuum_runtime::types::{Dt, Value};
+
+#[derive(Serialize, Deserialize)]
+struct RunManifest {
+    run_id: String,
+    created_at: String,
+    seed: u64, // Not currently passed in args, defaulting to 0 for now or extracting if added
+    steps: u64,
+    stride: u64,
+    signals: Vec<String>,
+    fields: Vec<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct TickSnapshot {
+    tick: u64,
+    time_seconds: f64,
+    signals: std::collections::HashMap<String, Value>,
+    fields: std::collections::HashMap<String, Vec<FieldSample>>,
+}
 
 fn main() {
     continuum_tools::init_logging();
@@ -25,7 +48,10 @@ fn main() {
     let args: Vec<String> = env::args().collect();
 
     if args.len() < 2 {
-        eprintln!("Usage: {} <world-dir> [--steps N] [--dt SECONDS]", args[0]);
+        eprintln!(
+            "Usage: {} <world-dir> [--steps N] [--dt SECONDS] [--save <DIR>] [--stride N]",
+            args[0]
+        );
         process::exit(1);
     }
 
@@ -34,6 +60,8 @@ fn main() {
     // Parse optional arguments
     let mut num_steps: u64 = 10;
     let mut dt_override: Option<f64> = None;
+    let mut save_dir: Option<PathBuf> = None;
+    let mut save_stride: u64 = 10;
 
     let mut i = 2;
     while i < args.len() {
@@ -50,6 +78,17 @@ fn main() {
                     error!("Invalid dt value");
                     process::exit(1);
                 }));
+                i += 2;
+            }
+            "--save" | "--snapshot-dir" if i + 1 < args.len() => {
+                save_dir = Some(PathBuf::from(&args[i + 1]));
+                i += 2;
+            }
+            "--stride" | "--snapshot-stride" if i + 1 < args.len() => {
+                save_stride = args[i + 1].parse().unwrap_or_else(|_| {
+                    error!("Invalid stride value");
+                    process::exit(1);
+                });
                 i += 2;
             }
             _ => {
@@ -222,6 +261,31 @@ fn main() {
         }
     }
 
+    // Prepare snapshot directory if requested
+    let run_dir = if let Some(base_dir) = save_dir {
+        let run_id = Local::now().format("%Y%m%d_%H%M%S").to_string();
+        let dir = base_dir.join(&run_id);
+        fs::create_dir_all(&dir).expect("failed to create run directory");
+
+        // Write manifest
+        let manifest = RunManifest {
+            run_id: run_id.clone(),
+            created_at: Local::now().to_rfc3339(),
+            seed: 0, // TODO: threaded seed support
+            steps: num_steps,
+            stride: save_stride,
+            signals: world.signals.keys().map(|id| id.0.clone()).collect(),
+            fields: world.fields.keys().map(|id| id.0.clone()).collect(),
+        };
+        let manifest_json = serde_json::to_string_pretty(&manifest).expect("serialization failed");
+        fs::write(dir.join("run.json"), manifest_json).expect("failed to write run.json");
+
+        info!("Snapshot output enabled: {}", dir.display());
+        Some(dir)
+    } else {
+        None
+    };
+
     // Run simulation
     info!("Running {} steps...", num_steps);
 
@@ -250,20 +314,58 @@ fn main() {
                 }
                 println!(" (dt={:.2e}s)", ctx.dt.seconds());
 
-                // Print field values if any were emitted
-                let fields = runtime.drain_fields();
-                if !fields.is_empty() {
-                    for (field_id, samples) in &fields {
-                        for sample in samples {
-                            match &sample.value {
-                                Value::Scalar(v) => println!("  [field] {} = {:.4}", field_id, v),
-                                Value::Vec3(v) => {
-                                    println!(
-                                        "  [field] {} = [{:.2}, {:.2}, {:.2}]",
-                                        field_id, v[0], v[1], v[2]
-                                    )
+                // Capture snapshot if enabled
+                if let Some(ref dir) = run_dir {
+                    if step % save_stride == 0 {
+                        let mut signal_values = std::collections::HashMap::new();
+                        for id in world.signals.keys() {
+                            if let Some(val) = runtime.get_signal(&SignalId(id.0.clone())) {
+                                signal_values.insert(id.0.clone(), val.clone());
+                            }
+                        }
+
+                        let mut field_values = std::collections::HashMap::new();
+                        // Drain fields so they are captured (and cleared for next tick)
+                        let all_fields = runtime.drain_fields();
+                        for (id, samples) in &all_fields {
+                            field_values.insert(id.0.clone(), samples.clone());
+                        }
+
+                        let snapshot = TickSnapshot {
+                            tick: ctx.tick,
+                            time_seconds: ctx.tick as f64 * ctx.dt.0, // Approximation
+                            signals: signal_values,
+                            fields: field_values,
+                        };
+
+                        let snap_json = serde_json::to_string_pretty(&snapshot)
+                            .expect("serialization failed");
+                        let snap_path = dir.join(format!("tick_{:06}.json", step));
+                        if let Err(e) = fs::write(&snap_path, snap_json) {
+                            error!("Failed to write snapshot: {}", e);
+                        }
+                    } else {
+                        // Ensure fields are drained even if not snapshotting, to prevent buffer growth
+                        runtime.drain_fields();
+                    }
+                } else {
+                    // Print field values if any were emitted (legacy behavior)
+                    let fields = runtime.drain_fields();
+                    if !fields.is_empty() {
+                        for (field_id, samples) in &fields {
+                            for sample in samples {
+                                match &sample.value {
+                                    Value::Scalar(v) => {
+                                        println!("  [field] {} = {:.4}", field_id, v)
+                                    }
+                                    Value::Vec3(v) => {
+                                        println!(
+                                            "  [field] {} = [{:.2}, {:.2}, {:.2}]",
+                                            field_id, v[0], v[1], v[2]
+                                        )
+                                    }
+                                    _ => println!("  [field] {} = {:?}", field_id, sample.value),
                                 }
-                                _ => println!("  [field] {} = {:?}", field_id, sample.value),
                             }
                         }
                     }

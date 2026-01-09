@@ -2,6 +2,8 @@
 //!
 //! CLI tools for working with Continuum worlds.
 
+pub mod analyze;
+
 use tracing_subscriber::{fmt, EnvFilter};
 
 /// Initialize logging with a default filter.

@@ -2,4 +2,4 @@
 /reports
 .worktree
 .claude/.cache
-.claude/settings.local.json
+.claude/settings.local.jsonsnapshots/

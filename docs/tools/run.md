@@ -4,12 +4,10 @@ This document defines the **run** tool, the primary interface for executing Cont
 
 The run tool implements the lifecycle defined in `@execution/lifecycle.md`.
 
----
-
 ## Usage
 
 ```bash
-continuum run [OPTIONS] <WORLD_DIR>
+cargo run --bin world-run -- [OPTIONS] <WORLD_DIR>
 ```
 
 ## Arguments
@@ -18,52 +16,44 @@ continuum run [OPTIONS] <WORLD_DIR>
 
 ## Options
 
-### Scenario Selection
-- `--scenario <FILE>`: Path to a scenario YAML file.
-- `--scenario-name <NAME>`: Name of a scenario if bundled in the world.
-
 ### Execution Control
-- `--ticks <N>`: Run for exactly N causal ticks.
-- `--until <TIME>`: Run until simulated time reaches value (e.g., "1000 yr").
-- `--seed <INT>`: Explicit seed for deterministic execution.
+- `--steps <N>` (or `--ticks <N>`): Run for exactly N causal ticks (default: 10).
+- `--dt <SECONDS>`: Override the timestep (default: determined by Era).
 
-### Observer Output
-- `--output <DIR>`: Directory to write observer artifacts (fields, logs).
-- `--lens-port <PORT>`: Enable live Lens server on specified port.
-- `--quiet`: Suppress stdout logging.
+### Snapshot Output
+- `--save <DIR>` (or `--snapshot-dir <DIR>`): Directory to write snapshot artifacts (manifest and JSON states).
+- `--stride <N>` (or `--snapshot-stride <N>`): Interval for capturing snapshots (default: 10).
 
 ## Execution Flow
 
 The tool performs the following steps:
 
 1. **Load World**: Discovers and compiles `world.yaml` and `*.cdsl` from `<WORLD_DIR>`.
-2. **Load Scenario**: Applies the specified scenario configuration.
-3. **Warmup**: Executes the pre-causal warmup phase.
-4. **Loop**:
-   - Checks stop conditions (ticks, time, terminal era).
-   - Executes one tick (Configure -> Collect -> Resolve -> Fracture -> Measure).
-   - Notifies attached observers (Lens, disk writers).
-5. **Shutdown**: Flushes pending writes and exits.
+2. **Lower & Validate**: Lowers AST to IR and validates constraints.
+3. **Compile**: Builds execution DAGs for all (Era, Phase, Stratum) combinations.
+4. **Runtime**: Initializes the runtime with an initial Era.
+5. **Loop**:
+   - Executes tick phases: Configure -> Collect -> Resolve -> Fracture -> Measure.
+   - Captures snapshots if enabled (`--save` specified) and stride is met.
+   - Advances tick and processes era transitions.
 
-## Exit Codes
+## Snapshot Output
 
-- `0`: Run completed successfully (reached limit or terminal era).
-- `1`: Configuration or compilation error.
-- `2`: Runtime fault (assertion failure, divergence).
-- `3`: Determinism violation detected.
+When `--save` is used, the tool creates a subdirectory with a timestamp (e.g., `20260109_120000`) containing:
 
----
+- `run.json`: A manifest with run metadata (seed, steps, stride, signal list).
+- `tick_XXXXXX.json`: The full state of signals and fields for that tick.
 
 ## Examples
 
-Run the `terra` world with the `genesis` scenario for 1 million years:
+Run the `terra` world for 100 ticks, saving snapshots every 10 ticks:
 
 ```bash
-continuum run examples/terra --scenario scenarios/genesis.yaml --until "1 Myr"
+cargo run --bin world-run -- examples/terra --steps 100 --save ./snapshots --stride 10
 ```
 
-Run with a fixed seed and live visualization:
+Run with a custom timestep:
 
 ```bash
-continuum run examples/terra --seed 12345 --lens-port 8080
+cargo run --bin world-run -- examples/terra --dt 3.15e7
 ```

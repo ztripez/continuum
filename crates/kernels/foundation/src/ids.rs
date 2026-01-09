@@ -5,10 +5,12 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 macro_rules! define_id {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+        #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
         pub struct $name(pub String);
 
         impl fmt::Display for $name {
