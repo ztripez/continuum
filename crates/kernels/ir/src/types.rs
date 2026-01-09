@@ -726,6 +726,19 @@ pub enum CompiledExpr {
         /// Call arguments.
         args: Vec<CompiledExpr>,
     },
+    /// dt-robust operator call
+    ///
+    /// These operators provide numerically stable time integration with
+    /// implicit dt handling. They are distinguished from regular function
+    /// calls to enable special code generation and validation.
+    DtRobustCall {
+        /// The dt-robust operator being called.
+        operator: DtRobustOperator,
+        /// Call arguments (varies by operator).
+        args: Vec<CompiledExpr>,
+        /// Integration method (when applicable).
+        method: IntegrationMethod,
+    },
     /// Field access
     FieldAccess {
         /// Object to access.
@@ -902,4 +915,52 @@ pub enum UnaryOpIr {
     Neg,
     /// Logical NOT: `!x` (returns 1.0 if x is 0.0, otherwise 0.0)
     Not,
+}
+
+/// dt-robust operators that provide numerically stable time integration.
+///
+/// These operators implement time-step invariant calculations that:
+/// - Are deterministic (same inputs → same outputs)
+/// - Are stable (bounded output at any reasonable dt)
+/// - Are convergent (approach correct solution as dt → 0)
+/// - Are symmetric (dt=0.1 twice equals dt=0.2 once)
+///
+/// Unlike raw expressions like `prev + rate * dt`, these operators handle
+/// the implicit `dt` parameter correctly and can use higher-order methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DtRobustOperator {
+    /// Integrate a rate over time: `integrate(prev, rate)`
+    /// Raw equivalent: `prev + rate * dt`
+    Integrate,
+    /// Exponential decay toward zero: `decay(value, halflife)`
+    /// Raw equivalent: `prev * (1 - k * dt)` (but stable)
+    Decay,
+    /// Relax toward a target value: `relax(current, target, tau)`
+    /// Raw equivalent: `prev + (target - prev) * k * dt`
+    Relax,
+    /// Bounded accumulation: `accumulate(prev, delta, min, max)`
+    /// Raw equivalent: `clamp(prev + delta * dt, min, max)`
+    Accumulate,
+    /// Phase advancement with wrapping: `advance_phase(phase, omega)`
+    /// Raw equivalent: `wrap(prev + omega * dt, 0, TAU)`
+    AdvancePhase,
+    /// Exponential smoothing: `smooth(prev, input, tau)`
+    Smooth,
+    /// Spring-damper system: `damp(pos, vel, target, stiffness, damping)`
+    Damp,
+}
+
+/// Integration method for dt-robust operators.
+///
+/// Higher-order methods provide better accuracy at larger time steps
+/// but require more computation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IntegrationMethod {
+    /// First-order Euler integration (default)
+    #[default]
+    Euler,
+    /// Fourth-order Runge-Kutta
+    Rk4,
+    /// Velocity Verlet (for position-velocity systems)
+    Verlet,
 }

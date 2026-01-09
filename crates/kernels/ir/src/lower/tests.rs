@@ -381,6 +381,100 @@ fn test_fn_calling_kernel() {
 }
 
 #[test]
+fn test_dt_robust_operator_recognized() {
+    // dt-robust operators should be lowered to DtRobustCall, not regular Call
+    use crate::DtRobustOperator;
+
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : strata(test)
+            resolve {
+                decay(prev, 0.5)
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+    let resolve = signal.resolve.as_ref().unwrap();
+
+    // decay should be recognized as a dt-robust operator
+    match resolve {
+        CompiledExpr::DtRobustCall { operator, args, .. } => {
+            assert_eq!(*operator, DtRobustOperator::Decay);
+            assert_eq!(args.len(), 2);
+        }
+        _ => panic!("expected DtRobustCall, got {:?}", resolve),
+    }
+}
+
+#[test]
+fn test_integrate_is_dt_robust() {
+    // integrate is a dt-robust operator
+    use crate::DtRobustOperator;
+
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.pos {
+            : strata(test)
+            resolve {
+                integrate(prev, 1.0)
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.pos")).unwrap();
+    let resolve = signal.resolve.as_ref().unwrap();
+
+    match resolve {
+        CompiledExpr::DtRobustCall { operator, .. } => {
+            assert_eq!(*operator, DtRobustOperator::Integrate);
+        }
+        _ => panic!("expected DtRobustCall for integrate, got {:?}", resolve),
+    }
+}
+
+#[test]
+fn test_regular_function_not_dt_robust() {
+    // sin is not a dt-robust operator, should remain as regular Call
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : strata(test)
+            resolve {
+                sin(prev)
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+    let resolve = signal.resolve.as_ref().unwrap();
+
+    // sin should remain as a regular Call
+    match resolve {
+        CompiledExpr::Call { function, .. } => {
+            assert_eq!(function, "sin");
+        }
+        _ => panic!("expected Call for sin, got {:?}", resolve),
+    }
+}
+
+#[test]
 fn test_signal_local_config() {
     let src = r#"
         strata.test {}
