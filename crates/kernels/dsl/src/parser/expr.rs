@@ -200,8 +200,13 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             },
         );
 
-        // Unary operators: negation (-) and logical not (!)
-        let unary = choice((just('-').to(UnaryOp::Neg), just('!').to(UnaryOp::Not)))
+        // Unary operators: negation (-) and logical not (! or 'not')
+        // The 'not' keyword uses text::keyword to ensure proper word boundary handling
+        let unary = choice((
+            just('-').to(UnaryOp::Neg),
+            just('!').to(UnaryOp::Not),
+            text::keyword("not").to(UnaryOp::Not),
+        ))
             .map_with(|op, extra| {
                 let span: chumsky::span::SimpleSpan = extra.span();
                 (op, span.start)
@@ -288,9 +293,13 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             });
 
         // Logical AND has lower precedence than comparison
+        // Accept both '&&' and 'and' keyword
+        let and_op = choice((
+            just("&&").to(BinaryOp::And),
+            text::keyword("and").to(BinaryOp::And),
+        ));
         let logical_and = comparison.clone().foldl(
-            just("&&")
-                .to(BinaryOp::And)
+            and_op
                 .padded_by(ws())
                 .then(comparison)
                 .repeated(),
@@ -308,9 +317,13 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         );
 
         // Logical OR has lower precedence than AND
+        // Accept both '||' and 'or' keyword
+        let or_op = choice((
+            just("||").to(BinaryOp::Or),
+            text::keyword("or").to(BinaryOp::Or),
+        ));
         let logical_or = logical_and.clone().foldl(
-            just("||")
-                .to(BinaryOp::Or)
+            or_op
                 .padded_by(ws())
                 .then(logical_and)
                 .repeated(),

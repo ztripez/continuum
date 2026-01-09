@@ -297,9 +297,9 @@ pub enum BinaryOp {
     Gt,
     /// Greater than or equal: `a >= b`.
     Ge,
-    /// Logical and: `a && b`.
+    /// Logical and: `a and b` (also accepts `a && b`).
     And,
-    /// Logical or: `a || b`.
+    /// Logical or: `a or b` (also accepts `a || b`).
     Or,
 }
 
@@ -308,7 +308,7 @@ pub enum BinaryOp {
 pub enum UnaryOp {
     /// Numeric negation: `-x`.
     Neg,
-    /// Logical not: `!x`.
+    /// Logical not: `not x` (also accepts `!x`).
     Not,
 }
 

@@ -1318,3 +1318,166 @@ entity.stellar.moon {
         _ => panic!("expected EntityDef"),
     }
 }
+
+// === Logical operator keyword tests ===
+
+#[test]
+fn test_parse_and_keyword() {
+    // Tests that 'and' keyword is accepted as alternative to '&&'
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                let a = 1 in
+                let b = 2 in
+                a > 0 and b > 0
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            // Navigate through let expressions to the binary expression
+            fn find_binary(expr: &Expr) -> Option<&BinaryOp> {
+                match expr {
+                    Expr::Let { body, .. } => find_binary(&body.node),
+                    Expr::Binary { op, .. } => Some(op),
+                    _ => None,
+                }
+            }
+            let op = find_binary(&resolve.body.node).expect("expected Binary inside Let");
+            assert_eq!(op, &BinaryOp::And);
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_or_keyword() {
+    // Tests that 'or' keyword is accepted as alternative to '||'
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                let x = 0 in
+                x < -1 or x > 1
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            fn find_binary(expr: &Expr) -> Option<&BinaryOp> {
+                match expr {
+                    Expr::Let { body, .. } => find_binary(&body.node),
+                    Expr::Binary { op, .. } => Some(op),
+                    _ => None,
+                }
+            }
+            let op = find_binary(&resolve.body.node).expect("expected Binary inside Let");
+            assert_eq!(op, &BinaryOp::Or);
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_not_keyword() {
+    // Tests that 'not' keyword is accepted as alternative to '!'
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                let flag = 1 in
+                not flag
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            fn find_unary(expr: &Expr) -> Option<&UnaryOp> {
+                match expr {
+                    Expr::Let { body, .. } => find_unary(&body.node),
+                    Expr::Unary { op, .. } => Some(op),
+                    _ => None,
+                }
+            }
+            let op = find_unary(&resolve.body.node).expect("expected Unary inside Let");
+            assert_eq!(op, &UnaryOp::Not);
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_mixed_logical_operators() {
+    // Tests mixing symbol and keyword forms in the same expression
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                let a = 1 in
+                let b = 2 in
+                let c = 3 in
+                a > 0 && b > 0 or c > 0
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            // The top-level should be 'or' since it has lower precedence than 'and'
+            fn find_top_binary(expr: &Expr) -> Option<&BinaryOp> {
+                match expr {
+                    Expr::Let { body, .. } => find_top_binary(&body.node),
+                    Expr::Binary { op, .. } => Some(op),
+                    _ => None,
+                }
+            }
+            let op = find_top_binary(&resolve.body.node).expect("expected Binary");
+            assert_eq!(op, &BinaryOp::Or);
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_not_does_not_match_notation() {
+    // Ensures 'not' doesn't accidentally match the start of 'notation' or similar words
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                notation
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Path(path) => {
+                    assert_eq!(path.join("."), "notation");
+                }
+                other => panic!("expected Path, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
