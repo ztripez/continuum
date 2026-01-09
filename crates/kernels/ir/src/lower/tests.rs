@@ -738,3 +738,212 @@ fn test_signal_self_reference_via_prev() {
     // prev doesn't create a read dependency on other signals
     assert!(signal.reads.is_empty() || !signal.reads.contains(&SignalId::from("test.counter")));
 }
+
+// ============================================================================
+// Entity Lowering Tests
+// ============================================================================
+
+use continuum_foundation::EntityId;
+
+#[test]
+fn test_lower_entity_basic() {
+    let src = r#"
+        strata.stellar {}
+        era.main { : initial }
+        entity.stellar.moon {
+            : strata(stellar)
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
+    assert_eq!(entity.stratum, StratumId::from("stellar"));
+}
+
+#[test]
+fn test_lower_entity_with_schema() {
+    let src = r#"
+        strata.stellar {}
+        era.main { : initial }
+        entity.stellar.moon {
+            : strata(stellar)
+            schema {
+                mass: Scalar<kg>
+                position: Vec3<m>
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
+    assert_eq!(entity.schema.len(), 2);
+    assert_eq!(entity.schema[0].name, "mass");
+    assert_eq!(entity.schema[1].name, "position");
+}
+
+#[test]
+fn test_lower_entity_with_count_source() {
+    let src = r#"
+        strata.stellar {}
+        era.main { : initial }
+        entity.stellar.moon {
+            : strata(stellar)
+            : count(config.stellar.moon_count)
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
+    assert_eq!(entity.count_source, Some("stellar.moon_count".to_string()));
+}
+
+#[test]
+fn test_lower_entity_with_count_bounds() {
+    let src = r#"
+        strata.stellar {}
+        era.main { : initial }
+        entity.stellar.moon {
+            : strata(stellar)
+            : count(1..20)
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
+    assert_eq!(entity.count_bounds, Some((1, 20)));
+}
+
+#[test]
+fn test_lower_entity_with_resolve() {
+    let src = r#"
+        strata.stellar {}
+        era.main { : initial }
+        entity.stellar.moon {
+            : strata(stellar)
+            resolve {
+                self.position + self.velocity
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
+    assert!(entity.resolve.is_some());
+}
+
+#[test]
+fn test_lower_entity_with_field() {
+    let src = r#"
+        strata.stellar {}
+        era.main { : initial }
+        entity.stellar.moon {
+            : strata(stellar)
+            field.energy {
+                : Scalar<J>
+                measure { self.mass * 1000.0 }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
+    assert_eq!(entity.fields.len(), 1);
+    assert_eq!(entity.fields[0].name, "energy");
+    assert!(entity.fields[0].measure.is_some());
+}
+
+#[test]
+fn test_lower_entity_signal_reads() {
+    let src = r#"
+        strata.stellar {}
+        era.main { : initial }
+        signal.stellar.gravity {
+            : strata(stellar)
+            resolve { 9.81 }
+        }
+        entity.stellar.moon {
+            : strata(stellar)
+            resolve {
+                signal.stellar.gravity * self.mass
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
+    assert!(
+        entity.reads.contains(&SignalId::from("stellar.gravity")),
+        "entity reads: {:?}",
+        entity.reads
+    );
+}
+
+#[test]
+fn test_lower_entity_default_stratum() {
+    // Entity without explicit stratum should default to "default"
+    let src = r#"
+        era.main { : initial }
+        entity.test.item {}
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let entity = world.entities.get(&EntityId::from("test.item")).unwrap();
+    assert_eq!(entity.stratum, StratumId::from("default"));
+}
+
+#[test]
+fn test_lower_entity_multiple_fields() {
+    let src = r#"
+        strata.stellar {}
+        era.main { : initial }
+        entity.stellar.moon {
+            : strata(stellar)
+
+            field.position {
+                measure { self.position }
+            }
+
+            field.velocity {
+                measure { self.velocity }
+            }
+
+            field.energy {
+                measure { self.mass * 100.0 }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
+    assert_eq!(entity.fields.len(), 3);
+    assert_eq!(entity.fields[0].name, "position");
+    assert_eq!(entity.fields[1].name, "velocity");
+    assert_eq!(entity.fields[2].name, "energy");
+}
