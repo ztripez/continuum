@@ -56,12 +56,14 @@
 
 pub mod expr;
 pub mod items;
+pub mod visitor;
 
 use std::ops::Range as StdRange;
 
 // Re-export all types for convenience
 pub use expr::*;
 pub use items::*;
+pub use visitor::{uses_dt_raw, walk_expr, ExprVisitor};
 
 /// Source span representing a byte range in the source file.
 ///
