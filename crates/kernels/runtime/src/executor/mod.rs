@@ -907,4 +907,243 @@ mod tests {
         assert_eq!(ctx.dt.0, 10.0, "should now use era B's dt");
         assert_eq!(runtime.era(), &era_b);
     }
+
+    #[test]
+    fn test_stratum_gating() {
+        let era_id: EraId = "test".into();
+        let active_stratum: StratumId = "active".into();
+        let gated_stratum: StratumId = "gated".into();
+        let active_signal: SignalId = "active_counter".into();
+        let gated_signal: SignalId = "gated_counter".into();
+
+        // Build DAGs for both strata
+        let mut active_builder = DagBuilder::new(Phase::Resolve, active_stratum.clone());
+        active_builder.add_node(DagNode {
+            id: NodeId("active_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(active_signal.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: active_signal.clone(),
+                resolver_idx: 0,
+            },
+        });
+
+        let mut gated_builder = DagBuilder::new(Phase::Resolve, gated_stratum.clone());
+        gated_builder.add_node(DagNode {
+            id: NodeId("gated_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(gated_signal.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: gated_signal.clone(),
+                resolver_idx: 1,
+            },
+        });
+
+        let mut era_dags = EraDags::default();
+        era_dags.insert(active_builder.build().unwrap());
+        era_dags.insert(gated_builder.build().unwrap());
+
+        let mut dags = DagSet::default();
+        dags.insert_era(era_id.clone(), era_dags);
+
+        // Configure: active stratum is Active, gated stratum is Gated
+        let mut strata = HashMap::new();
+        strata.insert(active_stratum, StratumState::Active);
+        strata.insert(gated_stratum, StratumState::Gated);
+
+        let era_config = EraConfig {
+            dt: Dt(1.0),
+            strata,
+            transition: None,
+        };
+
+        let mut eras = HashMap::new();
+        eras.insert(era_id.clone(), era_config);
+
+        let mut runtime = Runtime::new(era_id, eras, dags);
+
+        // Register resolvers
+        runtime.register_resolver(Box::new(|ctx| {
+            let prev = ctx.prev.as_scalar().unwrap_or(0.0);
+            Value::Scalar(prev + 1.0)
+        }));
+        runtime.register_resolver(Box::new(|ctx| {
+            let prev = ctx.prev.as_scalar().unwrap_or(0.0);
+            Value::Scalar(prev + 10.0) // Gated signal would increment by 10
+        }));
+
+        runtime.init_signal(active_signal.clone(), Value::Scalar(0.0));
+        runtime.init_signal(gated_signal.clone(), Value::Scalar(0.0));
+
+        // Execute tick - only active stratum should run
+        runtime.execute_tick().unwrap();
+
+        // Active signal should have incremented
+        assert_eq!(
+            runtime.get_signal(&active_signal),
+            Some(&Value::Scalar(1.0))
+        );
+
+        // Gated signal should NOT have changed (gated stratum skipped)
+        assert_eq!(
+            runtime.get_signal(&gated_signal),
+            Some(&Value::Scalar(0.0))
+        );
+    }
+
+    #[test]
+    fn test_parallel_level_signals() {
+        // Two independent signals in the same level should both execute
+        let era_id: EraId = "test".into();
+        let stratum_id: StratumId = "default".into();
+        let signal_a: SignalId = "a".into();
+        let signal_b: SignalId = "b".into();
+
+        let mut builder = DagBuilder::new(Phase::Resolve, stratum_id.clone());
+        // Two nodes with no dependencies - same level
+        builder.add_node(DagNode {
+            id: NodeId("a_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(signal_a.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_a.clone(),
+                resolver_idx: 0,
+            },
+        });
+        builder.add_node(DagNode {
+            id: NodeId("b_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(signal_b.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_b.clone(),
+                resolver_idx: 1,
+            },
+        });
+
+        let dag = builder.build().unwrap();
+        // Verify they're in the same level
+        assert_eq!(dag.levels.len(), 1, "both should be in same level");
+        assert_eq!(dag.levels[0].nodes.len(), 2, "two nodes in level");
+
+        let mut era_dags = EraDags::default();
+        era_dags.insert(dag);
+
+        let mut dags = DagSet::default();
+        dags.insert_era(era_id.clone(), era_dags);
+
+        let mut strata = HashMap::new();
+        strata.insert(stratum_id, StratumState::Active);
+        let era_config = EraConfig {
+            dt: Dt(1.0),
+            strata,
+            transition: None,
+        };
+
+        let mut eras = HashMap::new();
+        eras.insert(era_id.clone(), era_config);
+
+        let mut runtime = Runtime::new(era_id, eras, dags);
+
+        runtime.register_resolver(Box::new(|ctx| {
+            Value::Scalar(ctx.prev.as_scalar().unwrap_or(0.0) + 1.0)
+        }));
+        runtime.register_resolver(Box::new(|ctx| {
+            Value::Scalar(ctx.prev.as_scalar().unwrap_or(0.0) + 100.0)
+        }));
+
+        runtime.init_signal(signal_a.clone(), Value::Scalar(0.0));
+        runtime.init_signal(signal_b.clone(), Value::Scalar(0.0));
+
+        runtime.execute_tick().unwrap();
+
+        // Both signals should have been resolved
+        assert_eq!(runtime.get_signal(&signal_a), Some(&Value::Scalar(1.0)));
+        assert_eq!(runtime.get_signal(&signal_b), Some(&Value::Scalar(100.0)));
+    }
+
+    #[test]
+    fn test_dependency_chain_levels() {
+        // Signal chain: A -> B -> C (three levels)
+        let era_id: EraId = "test".into();
+        let stratum_id: StratumId = "default".into();
+        let signal_a: SignalId = "a".into();
+        let signal_b: SignalId = "b".into();
+        let signal_c: SignalId = "c".into();
+
+        let mut builder = DagBuilder::new(Phase::Resolve, stratum_id.clone());
+        builder.add_node(DagNode {
+            id: NodeId("a_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(signal_a.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_a.clone(),
+                resolver_idx: 0,
+            },
+        });
+        builder.add_node(DagNode {
+            id: NodeId("b_resolve".to_string()),
+            reads: [signal_a.clone()].into_iter().collect(),
+            writes: Some(signal_b.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_b.clone(),
+                resolver_idx: 1,
+            },
+        });
+        builder.add_node(DagNode {
+            id: NodeId("c_resolve".to_string()),
+            reads: [signal_b.clone()].into_iter().collect(),
+            writes: Some(signal_c.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_c.clone(),
+                resolver_idx: 2,
+            },
+        });
+
+        let dag = builder.build().unwrap();
+        // Should have 3 levels
+        assert_eq!(dag.levels.len(), 3, "chain should produce 3 levels");
+
+        let mut era_dags = EraDags::default();
+        era_dags.insert(dag);
+
+        let mut dags = DagSet::default();
+        dags.insert_era(era_id.clone(), era_dags);
+
+        let mut strata = HashMap::new();
+        strata.insert(stratum_id, StratumState::Active);
+        let era_config = EraConfig {
+            dt: Dt(1.0),
+            strata,
+            transition: None,
+        };
+
+        let mut eras = HashMap::new();
+        eras.insert(era_id.clone(), era_config);
+
+        let mut runtime = Runtime::new(era_id, eras, dags);
+
+        // A: returns 10
+        runtime.register_resolver(Box::new(|_| Value::Scalar(10.0)));
+        // B: reads A and doubles it
+        runtime.register_resolver(Box::new(|ctx| {
+            let a = ctx.signals.get(&"a".into()).unwrap().as_scalar().unwrap();
+            Value::Scalar(a * 2.0)
+        }));
+        // C: reads B and doubles it
+        runtime.register_resolver(Box::new(|ctx| {
+            let b = ctx.signals.get(&"b".into()).unwrap().as_scalar().unwrap();
+            Value::Scalar(b * 2.0)
+        }));
+
+        runtime.init_signal(signal_a.clone(), Value::Scalar(0.0));
+        runtime.init_signal(signal_b.clone(), Value::Scalar(0.0));
+        runtime.init_signal(signal_c.clone(), Value::Scalar(0.0));
+
+        runtime.execute_tick().unwrap();
+
+        // Chain: A=10, B=20, C=40
+        assert_eq!(runtime.get_signal(&signal_a), Some(&Value::Scalar(10.0)));
+        assert_eq!(runtime.get_signal(&signal_b), Some(&Value::Scalar(20.0)));
+        assert_eq!(runtime.get_signal(&signal_c), Some(&Value::Scalar(40.0)));
+    }
 }
