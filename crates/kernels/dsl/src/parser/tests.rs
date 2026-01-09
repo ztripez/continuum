@@ -76,6 +76,90 @@ fn test_parse_signal_def() {
 }
 
 #[test]
+fn test_parse_signal_with_tensor_constraints() {
+    let source = r#"
+        signal.terra.stress_tensor {
+            : Tensor<3,3,Pa>
+            : symmetric
+            : positive_definite
+            : strata(terra.tectonics)
+
+            resolve {
+                prev
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().expect("should have type");
+            match &ty.node {
+                TypeExpr::Tensor { constraints, .. } => {
+                    assert_eq!(constraints.len(), 2);
+                    assert_eq!(
+                        constraints[0],
+                        crate::ast::TensorConstraint::Symmetric
+                    );
+                    assert_eq!(
+                        constraints[1],
+                        crate::ast::TensorConstraint::PositiveDefinite
+                    );
+                }
+                _ => panic!("expected Tensor type"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_signal_with_seq_constraints() {
+    let source = r#"
+        signal.terra.particle_masses {
+            : Seq<Scalar<kg>>
+            : each(1e20..1e28)
+            : sum(1e25..1e30)
+            : strata(terra.physics)
+
+            resolve {
+                prev
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let ty = def.ty.as_ref().expect("should have type");
+            match &ty.node {
+                TypeExpr::Seq { constraints, .. } => {
+                    assert_eq!(constraints.len(), 2);
+                    match &constraints[0] {
+                        crate::ast::SeqConstraint::Each(range) => {
+                            assert_eq!(range.min, 1e20);
+                            assert_eq!(range.max, 1e28);
+                        }
+                        _ => panic!("expected Each constraint"),
+                    }
+                    match &constraints[1] {
+                        crate::ast::SeqConstraint::Sum(range) => {
+                            assert_eq!(range.min, 1e25);
+                            assert_eq!(range.max, 1e30);
+                        }
+                        _ => panic!("expected Sum constraint"),
+                    }
+                }
+                _ => panic!("expected Seq type"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
 fn test_parse_expression() {
     let source = "signal.terra.temp { resolve { prev + 1.0 } }";
     let (result, errors) = parse(source);
