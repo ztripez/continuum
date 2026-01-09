@@ -63,15 +63,16 @@ mod tests;
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use continuum_dsl::ast::{CompilationUnit, Item};
+use continuum_dsl::ast::{CompilationUnit, Item, TypeDef};
 use continuum_foundation::{
     ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId,
-    StratumId,
+    StratumId, TypeId,
 };
 
 use crate::{
     CompiledChronicle, CompiledEntity, CompiledEra, CompiledField, CompiledFn, CompiledFracture,
-    CompiledImpulse, CompiledOperator, CompiledSignal, CompiledStratum, CompiledWorld,
+    CompiledImpulse, CompiledOperator, CompiledSignal, CompiledStratum, CompiledType,
+    CompiledTypeField, CompiledWorld,
 };
 
 /// Errors that can occur during the lowering phase.
@@ -170,6 +171,7 @@ pub(crate) struct Lowerer {
     pub(crate) fractures: IndexMap<FractureId, CompiledFracture>,
     pub(crate) entities: IndexMap<EntityId, CompiledEntity>,
     pub(crate) chronicles: IndexMap<ChronicleId, CompiledChronicle>,
+    pub(crate) types: IndexMap<TypeId, CompiledType>,
 }
 
 impl Lowerer {
@@ -187,6 +189,7 @@ impl Lowerer {
             fractures: IndexMap::new(),
             entities: IndexMap::new(),
             chronicles: IndexMap::new(),
+            types: IndexMap::new(),
         }
     }
 
@@ -199,6 +202,30 @@ impl Lowerer {
         if !self.strata.contains_key(stratum) {
             return Err(LowerError::UndefinedStratum(stratum.0.clone()));
         }
+        Ok(())
+    }
+
+    /// Lower a custom type definition to CompiledType.
+    fn lower_type_def(&mut self, def: &TypeDef) -> Result<(), LowerError> {
+        let id = TypeId::from(def.name.node.as_str());
+        if self.types.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("type.{}", id.0)));
+        }
+
+        let fields: Vec<CompiledTypeField> = def
+            .fields
+            .iter()
+            .map(|field| CompiledTypeField {
+                name: field.name.node.clone(),
+                value_type: self.lower_type_expr(&field.ty.node),
+            })
+            .collect();
+
+        let compiled_type = CompiledType {
+            id: id.clone(),
+            fields,
+        };
+        self.types.insert(id, compiled_type);
         Ok(())
     }
 
@@ -216,6 +243,7 @@ impl Lowerer {
             fractures: self.fractures,
             entities: self.entities,
             chronicles: self.chronicles,
+            types: self.types,
         }
     }
 
@@ -258,6 +286,9 @@ impl Lowerer {
                         default_stride: def.stride.as_ref().map(|s| s.node).unwrap_or(1),
                     };
                     self.strata.insert(id, stratum);
+                }
+                Item::TypeDef(def) => {
+                    self.lower_type_def(def)?;
                 }
                 _ => {}
             }

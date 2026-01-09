@@ -30,7 +30,7 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId};
+use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId, TypeId};
 
 /// The complete compiled simulation world, ready for DAG construction.
 ///
@@ -89,6 +89,8 @@ pub struct CompiledWorld {
     pub entities: IndexMap<EntityId, CompiledEntity>,
     /// Chronicle definitions (observer-only event recording)
     pub chronicles: IndexMap<ChronicleId, CompiledChronicle>,
+    /// Custom type definitions
+    pub types: IndexMap<TypeId, CompiledType>,
 }
 
 /// A compiled stratum definition representing a simulation layer.
@@ -986,4 +988,36 @@ pub enum IntegrationMethod {
     Rk4,
     /// Velocity Verlet (for position-velocity systems)
     Verlet,
+}
+
+/// A compiled custom type definition.
+///
+/// Custom types allow users to define composite types for signals,
+/// impulse payloads, and entity schemas. Each type consists of named
+/// fields with specific value types.
+///
+/// # Example DSL
+///
+/// ```cdsl
+/// type.PlateState {
+///   position: Vec3<m>
+///   velocity: Vec3<m/s>
+///   strain: Tensor<3,3,Pa>
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct CompiledType {
+    /// Unique identifier for this type.
+    pub id: TypeId,
+    /// Named fields with their value types.
+    pub fields: Vec<CompiledTypeField>,
+}
+
+/// A field within a compiled custom type.
+#[derive(Debug, Clone)]
+pub struct CompiledTypeField {
+    /// Field name (e.g., "position", "velocity").
+    pub name: String,
+    /// The resolved value type for this field.
+    pub value_type: ValueType,
 }

@@ -1828,3 +1828,193 @@ fn test_nested_grid_seq_type_parsing() {
         other => panic!("expected Seq, got {:?}", other),
     }
 }
+
+// ============================================================================
+// TypeDef Lowering Tests
+// ============================================================================
+
+use continuum_foundation::TypeId;
+
+#[test]
+fn test_lower_typedef_basic() {
+    let src = r#"
+        type.PlateState {
+            position: Vec3<m>
+            velocity: Vec3<m/s>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("PlateState")).unwrap();
+    assert_eq!(type_def.id.0, "PlateState");
+    assert_eq!(type_def.fields.len(), 2);
+    assert_eq!(type_def.fields[0].name, "position");
+    assert_eq!(type_def.fields[1].name, "velocity");
+}
+
+#[test]
+fn test_lower_typedef_with_scalar() {
+    let src = r#"
+        type.ParticleData {
+            mass: Scalar<kg>
+            charge: Scalar<C>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("ParticleData")).unwrap();
+    assert_eq!(type_def.fields.len(), 2);
+
+    // Check that units are preserved
+    match &type_def.fields[0].value_type {
+        ValueType::Scalar { unit, .. } => {
+            assert_eq!(unit.as_deref(), Some("kg"));
+        }
+        other => panic!("expected Scalar, got {:?}", other),
+    }
+    match &type_def.fields[1].value_type {
+        ValueType::Scalar { unit, .. } => {
+            assert_eq!(unit.as_deref(), Some("C"));
+        }
+        other => panic!("expected Scalar, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_lower_typedef_with_tensor() {
+    let src = r#"
+        type.StressTensor {
+            stress: Tensor<3, 3, Pa>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("StressTensor")).unwrap();
+    assert_eq!(type_def.fields.len(), 1);
+
+    match &type_def.fields[0].value_type {
+        ValueType::Tensor { rows, cols, unit } => {
+            assert_eq!(*rows, 3);
+            assert_eq!(*cols, 3);
+            assert_eq!(unit.as_deref(), Some("Pa"));
+        }
+        other => panic!("expected Tensor, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_lower_typedef_with_grid() {
+    let src = r#"
+        type.TemperatureField {
+            data: Grid<1024, 512, Scalar<K>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("TemperatureField")).unwrap();
+    assert_eq!(type_def.fields.len(), 1);
+
+    match &type_def.fields[0].value_type {
+        ValueType::Grid { width, height, element_type } => {
+            assert_eq!(*width, 1024);
+            assert_eq!(*height, 512);
+            match element_type.as_ref() {
+                ValueType::Scalar { unit, .. } => {
+                    assert_eq!(unit.as_deref(), Some("K"));
+                }
+                other => panic!("expected Scalar element, got {:?}", other),
+            }
+        }
+        other => panic!("expected Grid, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_lower_typedef_with_seq() {
+    let src = r#"
+        type.MassDistribution {
+            masses: Seq<Scalar<kg>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("MassDistribution")).unwrap();
+    assert_eq!(type_def.fields.len(), 1);
+
+    match &type_def.fields[0].value_type {
+        ValueType::Seq { element_type } => match element_type.as_ref() {
+            ValueType::Scalar { unit, .. } => {
+                assert_eq!(unit.as_deref(), Some("kg"));
+            }
+            other => panic!("expected Scalar element, got {:?}", other),
+        },
+        other => panic!("expected Seq, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_duplicate_typedef_definition() {
+    let src = r#"
+        type.MyType {
+            value: Scalar
+        }
+        type.MyType {
+            other: Scalar
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::DuplicateDefinition(name) => {
+            assert!(name.contains("MyType"), "got: {}", name);
+        }
+        e => panic!("expected DuplicateDefinition, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_lower_multiple_typedefs() {
+    let src = r#"
+        type.Position {
+            x: Scalar<m>
+            y: Scalar<m>
+            z: Scalar<m>
+        }
+        type.Velocity {
+            vx: Scalar<m/s>
+            vy: Scalar<m/s>
+            vz: Scalar<m/s>
+        }
+        type.Particle {
+            mass: Scalar<kg>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    assert_eq!(world.types.len(), 3);
+    assert!(world.types.contains_key(&TypeId::from("Position")));
+    assert!(world.types.contains_key(&TypeId::from("Velocity")));
+    assert!(world.types.contains_key(&TypeId::from("Particle")));
+}
