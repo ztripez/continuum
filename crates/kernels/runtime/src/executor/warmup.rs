@@ -15,8 +15,11 @@ pub type WarmupFn = Box<dyn Fn(&WarmupContext) -> Value + Send + Sync>;
 
 /// Registered warmup function with its configuration
 pub struct RegisteredWarmup {
+    /// The signal to warm up.
     pub signal: SignalId,
+    /// The function that computes the next value.
     pub function: WarmupFn,
+    /// Configuration for this warmup.
     pub config: WarmupConfig,
 }
 

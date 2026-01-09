@@ -507,6 +507,7 @@ pub struct ResolveBlock {
 /// An assertion block containing one or more assertions
 #[derive(Debug, Clone, PartialEq)]
 pub struct AssertBlock {
+    /// The individual assertions within the block.
     pub assertions: Vec<Assertion>,
 }
 

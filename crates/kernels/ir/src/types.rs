@@ -102,9 +102,13 @@ pub struct CompiledWorld {
 /// tick of the containing era.
 #[derive(Debug, Clone)]
 pub struct CompiledStratum {
+    /// Unique identifier for the stratum.
     pub id: StratumId,
+    /// Human-readable title for display.
     pub title: Option<String>,
+    /// Unicode symbol for visualization.
     pub symbol: Option<String>,
+    /// Default stride (ticks between updates).
     pub default_stride: u32,
 }
 
@@ -132,6 +136,7 @@ pub struct CompiledStratum {
 /// expressions binding arguments to parameters, followed by the function body.
 #[derive(Debug, Clone)]
 pub struct CompiledFn {
+    /// Unique identifier for the function.
     pub id: FnId,
     /// Parameter names in order
     pub params: Vec<String>,
@@ -160,9 +165,13 @@ pub struct CompiledFn {
 /// - `Gated`: Disabled (does not execute)
 #[derive(Debug, Clone)]
 pub struct CompiledEra {
+    /// Unique identifier for the era.
     pub id: EraId,
+    /// Whether this is the starting era.
     pub is_initial: bool,
+    /// Whether this era ends simulation.
     pub is_terminal: bool,
+    /// Human-readable title.
     pub title: Option<String>,
     /// Time step in seconds
     pub dt_seconds: f64,
@@ -177,8 +186,11 @@ pub struct CompiledEra {
 /// Controls whether and how often a stratum executes during an era.
 #[derive(Debug, Clone, Copy)]
 pub enum StratumStateIr {
+    /// Stratum executes every tick.
     Active,
+    /// Stratum executes every N ticks.
     ActiveWithStride(u32),
+    /// Stratum is suspended.
     Gated,
 }
 
@@ -192,7 +204,9 @@ pub enum StratumStateIr {
 /// the first matching transition is taken.
 #[derive(Debug, Clone)]
 pub struct CompiledTransition {
+    /// Target era to transition to.
     pub target_era: EraId,
+    /// Condition that must be true (non-zero) to transition.
     pub condition: CompiledExpr,
 }
 
@@ -221,11 +235,17 @@ pub struct CompiledTransition {
 /// establish initial equilibrium through iterative convergence.
 #[derive(Debug, Clone)]
 pub struct CompiledSignal {
+    /// Unique identifier for the signal.
     pub id: SignalId,
+    /// Stratum binding for scheduling.
     pub stratum: StratumId,
+    /// Human-readable title.
     pub title: Option<String>,
+    /// Unicode symbol for display.
     pub symbol: Option<String>,
+    /// Value type with optional bounds.
     pub value_type: ValueType,
+    /// Whether `dt_raw` is explicitly used.
     pub uses_dt_raw: bool,
     /// Signals this signal reads
     pub reads: Vec<SignalId>,
@@ -256,10 +276,15 @@ pub struct CompiledSignal {
 /// They may read any signal value but cannot affect signal resolution.
 #[derive(Debug, Clone)]
 pub struct CompiledField {
+    /// Unique identifier for the field.
     pub id: FieldId,
+    /// Stratum binding.
     pub stratum: StratumId,
+    /// Human-readable title.
     pub title: Option<String>,
+    /// Spatial topology for reconstruction.
     pub topology: TopologyIr,
+    /// Value type at each sample point.
     pub value_type: ValueType,
     /// Signals this field reads
     pub reads: Vec<SignalId>,
@@ -280,8 +305,11 @@ pub struct CompiledField {
 /// - `Measure`: Computes derived values during the observation phase
 #[derive(Debug, Clone)]
 pub struct CompiledOperator {
+    /// Unique identifier for the operator.
     pub id: OperatorId,
+    /// Stratum binding.
     pub stratum: StratumId,
+    /// Execution phase.
     pub phase: OperatorPhaseIr,
     /// Signals this operator reads
     pub reads: Vec<SignalId>,
@@ -299,13 +327,15 @@ pub struct CompiledOperator {
 ///
 /// # Usage
 ///
-/// Impulses are typically triggered by:
-/// - User interaction events
+/// Impulses are typically triggered by:-
+/// User interaction events
 /// - External system inputs
 /// - Scenario-driven event scripts
 #[derive(Debug, Clone)]
 pub struct CompiledImpulse {
+    /// Unique identifier for the impulse.
     pub id: ImpulseId,
+    /// Type of data carried by the impulse.
     pub payload_type: ValueType,
     /// The apply expression
     pub apply: Option<CompiledExpr>,
@@ -329,6 +359,7 @@ pub struct CompiledImpulse {
 /// but before measurement. This allows corrective actions before observation.
 #[derive(Debug, Clone)]
 pub struct CompiledFracture {
+    /// Unique identifier for the fracture.
     pub id: FractureId,
     /// Signals this fracture reads
     pub reads: Vec<SignalId>,
@@ -344,7 +375,9 @@ pub struct CompiledFracture {
 /// emit specifies a target signal and a value expression to compute.
 #[derive(Debug, Clone)]
 pub struct CompiledEmit {
+    /// Target signal path.
     pub target: SignalId,
+    /// Expression for the emitted value.
     pub value: CompiledExpr,
 }
 
@@ -372,7 +405,9 @@ pub struct CompiledEmit {
 /// dependency list, enabling cross-entity interactions.
 #[derive(Debug, Clone)]
 pub struct CompiledEntity {
+    /// Unique identifier for the entity type.
     pub id: EntityId,
+    /// Stratum binding.
     pub stratum: StratumId,
     /// Count source from config (e.g., "stellar.moon_count")
     pub count_source: Option<String>,
@@ -397,7 +432,9 @@ pub struct CompiledEntity {
 /// Each instance of the entity will have a value for this field.
 #[derive(Debug, Clone)]
 pub struct CompiledSchemaField {
+    /// Name of the field.
     pub name: String,
+    /// Type of the field value.
     pub value_type: ValueType,
 }
 
@@ -408,8 +445,11 @@ pub struct CompiledSchemaField {
 /// are derived for observation purposes only.
 #[derive(Debug, Clone)]
 pub struct CompiledEntityField {
+    /// Name of the field.
     pub name: String,
+    /// Type of the field value.
     pub value_type: ValueType,
+    /// Spatial topology for reconstruction.
     pub topology: TopologyIr,
     /// The measure expression
     pub measure: Option<CompiledExpr>,
@@ -427,8 +467,11 @@ pub struct CompiledEntityField {
 /// change between iterations falls below this threshold.
 #[derive(Debug, Clone)]
 pub struct CompiledWarmup {
+    /// Maximum iterations to run.
     pub iterations: u32,
+    /// Optional convergence threshold.
     pub convergence: Option<f64>,
+    /// Expression evaluated each warmup iteration.
     pub iterate: CompiledExpr,
 }
 
@@ -479,9 +522,16 @@ pub enum AssertionSeverity {
 /// - `Vec3`: 3D vector (e.g., position, velocity)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueType {
-    Scalar { range: Option<ValueRange> },
+    /// Single scalar value.
+    Scalar {
+        /// Optional value bounds.
+        range: Option<ValueRange>,
+    },
+    /// 2D vector.
     Vec2,
+    /// 3D vector.
     Vec3,
+    /// 4D vector.
     Vec4,
 }
 
@@ -493,7 +543,9 @@ pub enum ValueType {
 /// Both bounds are inclusive: a value `v` is valid if `min <= v <= max`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ValueRange {
+    /// Minimum allowed value.
     pub min: f64,
+    /// Maximum allowed value.
     pub max: f64,
 }
 
@@ -577,35 +629,50 @@ pub enum CompiledExpr {
     Config(String),
     /// Binary operation
     Binary {
+        /// The operator.
         op: BinaryOpIr,
+        /// Left operand.
         left: Box<CompiledExpr>,
+        /// Right operand.
         right: Box<CompiledExpr>,
     },
     /// Unary operation
     Unary {
+        /// The operator.
         op: UnaryOpIr,
+        /// Operand expression.
         operand: Box<CompiledExpr>,
     },
     /// Function call
     Call {
+        /// Name of the function.
         function: String,
+        /// Call arguments.
         args: Vec<CompiledExpr>,
     },
     /// Field access
     FieldAccess {
+        /// Object to access.
         object: Box<CompiledExpr>,
+        /// Field name.
         field: String,
     },
     /// Conditional
     If {
+        /// Condition to test.
         condition: Box<CompiledExpr>,
+        /// Expression if true.
         then_branch: Box<CompiledExpr>,
+        /// Expression if false.
         else_branch: Box<CompiledExpr>,
     },
     /// Let binding
     Let {
+        /// Variable name.
         name: String,
+        /// Value to bind.
         value: Box<CompiledExpr>,
+        /// Body where binding is visible.
         body: Box<CompiledExpr>,
     },
     /// Local variable reference
@@ -618,55 +685,76 @@ pub enum CompiledExpr {
 
     /// Access entity instance by ID: entity.moon["luna"].mass
     EntityAccess {
+        /// Entity type ID.
         entity: EntityId,
+        /// Instance identifier.
         instance: InstanceId,
+        /// Field name.
         field: String,
     },
 
     /// Aggregate operation over entity instances: sum(entity.moon, self.mass)
     Aggregate {
+        /// Aggregation operator.
         op: AggregateOpIr,
+        /// Entity type to aggregate over.
         entity: EntityId,
+        /// Expression evaluated per instance.
         body: Box<CompiledExpr>,
     },
 
     /// Other instances (self-exclusion): sum(other(entity.moon), ...)
     /// Used within entity resolve for N-body interactions
     Other {
+        /// Entity type.
         entity: EntityId,
+        /// Body expression.
         body: Box<CompiledExpr>,
     },
 
     /// Pairwise iteration: for (a, b) in pairs(entity.moon)
     Pairs {
+        /// Entity type.
         entity: EntityId,
+        /// Body expression.
         body: Box<CompiledExpr>,
     },
 
     /// Filter entity instances: filter(entity.moon, self.mass > 1e20)
     Filter {
+        /// Entity type.
         entity: EntityId,
+        /// Filter predicate.
         predicate: Box<CompiledExpr>,
+        /// Body expression.
         body: Box<CompiledExpr>,
     },
 
     /// First matching instance: first(entity.plate, self.type == Continental)
     First {
+        /// Entity type.
         entity: EntityId,
+        /// Filter predicate.
         predicate: Box<CompiledExpr>,
     },
 
     /// Nearest instance to position: nearest(entity.plate, position)
     Nearest {
+        /// Entity type.
         entity: EntityId,
+        /// Center position.
         position: Box<CompiledExpr>,
     },
 
     /// All instances within radius: within(entity.moon, pos, 1e9)
     Within {
+        /// Entity type.
         entity: EntityId,
+        /// Center position.
         position: Box<CompiledExpr>,
+        /// Search radius.
         radius: Box<CompiledExpr>,
+        /// Body expression.
         body: Box<CompiledExpr>,
     },
 }

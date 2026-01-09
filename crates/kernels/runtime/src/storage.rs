@@ -83,6 +83,7 @@ pub struct SignalStorage {
 }
 
 impl SignalStorage {
+    /// Initialize a signal with an initial value.
     pub fn init(&mut self, id: SignalId, value: Value) {
         self.previous.insert(id.clone(), value.clone());
         self.current.insert(id, value);
@@ -136,10 +137,12 @@ pub struct InputChannels {
 }
 
 impl InputChannels {
+    /// Accumulate an input value for a signal.
     pub fn accumulate(&mut self, id: &SignalId, value: f64) {
         self.channels.entry(id.clone()).or_default().push(value);
     }
 
+    /// Sum all accumulated values for a signal and remove them from the channels.
     pub fn drain_sum(&mut self, id: &SignalId) -> f64 {
         self.channels
             .shift_remove(id)
@@ -156,6 +159,7 @@ pub struct FractureQueue {
 }
 
 impl FractureQueue {
+    /// Add a signal emission to the next tick's queue.
     pub fn queue(&mut self, id: SignalId, value: f64) {
         self.queue.push((id, value));
     }

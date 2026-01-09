@@ -9,25 +9,40 @@ use crate::bytecode::{BytecodeChunk, Op, SlotId};
 /// Binary operator from IR
 #[derive(Debug, Clone, Copy)]
 pub enum BinaryOp {
+    /// Addition (+)
     Add,
+    /// Subtraction (-)
     Sub,
+    /// Multiplication (*)
     Mul,
+    /// Division (/)
     Div,
+    /// Power (^)
     Pow,
+    /// Equality (==)
     Eq,
+    /// Inequality (!=)
     Ne,
+    /// Less than (<)
     Lt,
+    /// Less than or equal (<=)
     Le,
+    /// Greater than (>)
     Gt,
+    /// Greater than or equal (>=)
     Ge,
+    /// Logical AND
     And,
+    /// Logical OR
     Or,
 }
 
 /// Unary operator from IR
 #[derive(Debug, Clone, Copy)]
 pub enum UnaryOp {
+    /// Negation (-)
     Neg,
+    /// Logical NOT (!)
     Not,
 }
 
@@ -37,38 +52,64 @@ pub enum UnaryOp {
 /// The actual IR types are converted to this before compilation.
 #[derive(Debug, Clone)]
 pub enum Expr {
+    /// A literal floating-point value
     Literal(f64),
+    /// Load the previous value of the current signal
     Prev,
+    /// Load the time step (dt)
     DtRaw,
+    /// Load the sum of inputs for the current signal
     Collected,
+    /// Load a signal value by name
     Signal(String),
     /// Access a component of a vector signal (e.g., signal.x, signal.y)
     SignalComponent(String, String),
+    /// Load a constant value by name
     Const(String),
+    /// Load a configuration value by name
     Config(String),
+    /// A binary operation
     Binary {
+        /// The operator to apply
         op: BinaryOp,
+        /// The left operand
         left: Box<Expr>,
+        /// The right operand
         right: Box<Expr>,
     },
+    /// A unary operation
     Unary {
+        /// The operator to apply
         op: UnaryOp,
+        /// The operand
         operand: Box<Expr>,
     },
+    /// A function call
     Call {
+        /// The name of the function to call
         function: String,
+        /// The arguments to the function
         args: Vec<Expr>,
     },
+    /// An if-else conditional expression
     If {
+        /// The condition to test (non-zero is true)
         condition: Box<Expr>,
+        /// The branch to execute if true
         then_branch: Box<Expr>,
+        /// The branch to execute if false
         else_branch: Box<Expr>,
     },
+    /// A let-binding (local variable)
     Let {
+        /// The name of the variable
         name: String,
+        /// The value to bind
         value: Box<Expr>,
+        /// The expression where the binding is active
         body: Box<Expr>,
     },
+    /// A reference to a local variable
     Local(String),
 }
 

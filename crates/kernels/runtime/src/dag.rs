@@ -129,6 +129,7 @@ pub struct EraDags {
 }
 
 impl EraDags {
+    /// Insert a DAG for a specific phase and stratum.
     pub fn insert(&mut self, dag: ExecutableDag) {
         let key = (dag.phase, dag.stratum.clone());
         self.dags.insert(key, dag);
@@ -139,7 +140,7 @@ impl EraDags {
         self.dags.get(&(phase, stratum.clone()))
     }
 
-    /// Iterate over all DAGs for a phase
+    /// Iterate over all DAGs for a phase.
     pub fn for_phase(&self, phase: Phase) -> impl Iterator<Item = &ExecutableDag> {
         self.dags
             .iter()
@@ -156,6 +157,7 @@ pub struct DagSet {
 }
 
 impl DagSet {
+    /// Register all DAGs for a specific era.
     pub fn insert_era(&mut self, era: EraId, dags: EraDags) {
         self.eras.insert(era, dags);
     }
@@ -184,6 +186,7 @@ pub struct DagBuilder {
 }
 
 impl DagBuilder {
+    /// Create a new builder for a specific phase and stratum.
     pub fn new(phase: Phase, stratum: StratumId) -> Self {
         Self {
             nodes: Vec::new(),
@@ -192,12 +195,12 @@ impl DagBuilder {
         }
     }
 
-    /// Add a node to the DAG
+    /// Add a node to the DAG.
     pub fn add_node(&mut self, node: DagNode) {
         self.nodes.push(node);
     }
 
-    /// Build the DAG with topological leveling
+    /// Build the DAG with topological leveling.
     pub fn build(self) -> Result<ExecutableDag, CycleError> {
         let levels = topological_levels(&self.nodes)?;
 

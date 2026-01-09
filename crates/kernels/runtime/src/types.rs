@@ -151,6 +151,7 @@ pub enum Value {
 }
 
 impl Value {
+    /// Attempt to get the value as a scalar.
     pub fn as_scalar(&self) -> Option<f64> {
         match self {
             Value::Scalar(v) => Some(*v),
@@ -158,6 +159,7 @@ impl Value {
         }
     }
 
+    /// Attempt to get the value as a 3D vector.
     pub fn as_vec3(&self) -> Option<[f64; 3]> {
         match self {
             Value::Vec3(v) => Some(*v),
@@ -194,6 +196,7 @@ impl Default for Value {
 pub struct Dt(pub f64);
 
 impl Dt {
+    /// Get the time step in seconds.
     pub fn seconds(&self) -> f64 {
         self.0
     }

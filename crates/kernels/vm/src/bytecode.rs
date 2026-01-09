@@ -47,24 +47,39 @@ pub enum Op {
     StoreLocal(SlotId),
 
     // === Arithmetic ===
+    /// Add top two stack values (pop b, pop a, push a + b)
     Add,
+    /// Subtract top two stack values (pop b, pop a, push a - b)
     Sub,
+    /// Multiply top two stack values (pop b, pop a, push a * b)
     Mul,
+    /// Divide top two stack values (pop b, pop a, push a / b)
     Div,
+    /// Raise a to power of b (pop b, pop a, push a^b)
     Pow,
+    /// Negate top of stack (pop a, push -a)
     Neg,
 
     // === Comparison (push 1.0 for true, 0.0 for false) ===
+    /// Check equality (pop b, pop a, push a == b)
     Eq,
+    /// Check inequality (pop b, pop a, push a != b)
     Ne,
+    /// Check less than (pop b, pop a, push a < b)
     Lt,
+    /// Check less than or equal (pop b, pop a, push a <= b)
     Le,
+    /// Check greater than (pop b, pop a, push a > b)
     Gt,
+    /// Check greater than or equal (pop b, pop a, push a >= b)
     Ge,
 
     // === Logical ===
+    /// Logical AND (pop b, pop a, push 1.0 if a != 0 and b != 0, else 0.0)
     And,
+    /// Logical OR (pop b, pop a, push 1.0 if a != 0 or b != 0, else 0.0)
     Or,
+    /// Logical NOT (pop a, push 1.0 if a == 0, else 0.0)
     Not,
 
     // === Control flow ===
@@ -76,7 +91,12 @@ pub enum Op {
 
     // === Function calls ===
     /// Call kernel function with N arguments (pops N, pushes 1)
-    Call { kernel: KernelId, arity: u8 },
+    Call {
+        /// The kernel function identifier
+        kernel: KernelId,
+        /// Number of arguments to pop
+        arity: u8,
+    },
 
     // === Stack manipulation ===
     /// Duplicate top of stack
@@ -112,6 +132,7 @@ pub struct BytecodeChunk {
 }
 
 impl BytecodeChunk {
+    /// Create a new, empty bytecode chunk.
     pub fn new() -> Self {
         Self::default()
     }
