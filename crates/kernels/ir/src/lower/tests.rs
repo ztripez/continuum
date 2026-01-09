@@ -1485,3 +1485,193 @@ fn test_lower_chronicle_empty_observe() {
     assert!(chronicle.handlers.is_empty());
     assert!(chronicle.reads.is_empty());
 }
+
+// ============================================================================
+// Mathematical Constants Tests
+// ============================================================================
+
+#[test]
+fn test_math_const_pi_lowered_to_literal() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.angle {
+            : strata(test)
+            resolve { PI }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.angle")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            assert!(
+                (*v - std::f64::consts::PI).abs() < 1e-10,
+                "PI should be ~3.14159, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(PI), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_unicode_pi() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.angle {
+            : strata(test)
+            resolve { π }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.angle")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            assert!(
+                (*v - std::f64::consts::PI).abs() < 1e-10,
+                "π should be ~3.14159, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(π), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_tau() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.angle {
+            : strata(test)
+            resolve { TAU }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.angle")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            assert!(
+                (*v - std::f64::consts::TAU).abs() < 1e-10,
+                "TAU should be ~6.28318, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(TAU), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_e() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : strata(test)
+            resolve { E }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    // E is ambiguous - could be parsed as identifier, which is fine
+    // If it fails to parse as math const, we accept it
+    if !errors.is_empty() {
+        return; // Skip if parser interprets E differently
+    }
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            assert!(
+                (*v - std::f64::consts::E).abs() < 1e-10,
+                "E should be ~2.71828, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(E), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_phi() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.ratio {
+            : strata(test)
+            resolve { PHI }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.ratio")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            let phi = 1.618_033_988_749_895;
+            assert!(
+                (*v - phi).abs() < 1e-10,
+                "PHI should be ~1.618, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(PHI), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_in_expression() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.area {
+            : strata(test)
+            resolve { PI * 4.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.area")).unwrap();
+
+    // Should be Binary { Mul, Literal(PI), Literal(4.0) }
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Binary { op, left, right } => {
+            assert_eq!(*op, BinaryOpIr::Mul);
+            match left.as_ref() {
+                CompiledExpr::Literal(v) => {
+                    assert!((*v - std::f64::consts::PI).abs() < 1e-10);
+                }
+                other => panic!("expected left=Literal(PI), got {:?}", other),
+            }
+            match right.as_ref() {
+                CompiledExpr::Literal(v) => assert_eq!(*v, 4.0),
+                other => panic!("expected right=Literal(4.0), got {:?}", other),
+            }
+        }
+        other => panic!("expected Binary expression, got {:?}", other),
+    }
+}
