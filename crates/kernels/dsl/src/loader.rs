@@ -280,4 +280,92 @@ mod tests {
         let result = load_world(dir.path());
         assert!(matches!(result, Err(LoadError::MissingWorldYaml(_))));
     }
+
+    #[test]
+    fn test_load_world_invalid_dir() {
+        let result = load_world(Path::new("/nonexistent/path/to/world"));
+        assert!(matches!(result, Err(LoadError::InvalidWorldDir(_))));
+    }
+
+    #[test]
+    fn test_load_file_parse_error() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("bad.cdsl");
+
+        let mut file = File::create(&path).unwrap();
+        writeln!(file, "this is not valid cdsl syntax {{{{").unwrap();
+
+        let result = load_file(&path);
+        assert!(matches!(result, Err(LoadError::ParseErrors { .. })));
+    }
+
+    #[test]
+    fn test_load_world_with_parse_error() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        File::create(root.join("world.yaml")).unwrap();
+
+        let mut file = File::create(root.join("bad.cdsl")).unwrap();
+        writeln!(file, "invalid syntax {{{{").unwrap();
+
+        let result = load_world(root);
+        assert!(matches!(result, Err(LoadError::ParseErrors { .. })));
+    }
+
+    #[test]
+    fn test_load_error_display() {
+        // Test Display impl for each error variant
+        let err = LoadError::InvalidWorldDir(PathBuf::from("/test"));
+        assert!(err.to_string().contains("not a valid directory"));
+
+        let err = LoadError::MissingWorldYaml(PathBuf::from("/test"));
+        assert!(err.to_string().contains("no world.yaml"));
+
+        let err = LoadError::ReadError {
+            path: PathBuf::from("/test"),
+            error: std::io::Error::new(std::io::ErrorKind::NotFound, "not found"),
+        };
+        assert!(err.to_string().contains("error reading"));
+
+        let err = LoadError::ParseErrors {
+            path: PathBuf::from("/test"),
+            errors: vec!["syntax error".to_string()],
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("parse errors"));
+        assert!(msg.contains("syntax error"));
+
+        let err = LoadError::ValidationErrors {
+            path: PathBuf::from("/test"),
+            errors: vec![],
+        };
+        assert!(err.to_string().contains("validation errors"));
+    }
+
+    #[test]
+    fn test_collect_cdsl_files_empty_dir() {
+        let dir = tempdir().unwrap();
+        let files = collect_cdsl_files(dir.path());
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_collect_cdsl_files_sorted() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        // Create files in non-alphabetical order
+        File::create(root.join("z.cdsl")).unwrap();
+        File::create(root.join("a.cdsl")).unwrap();
+        File::create(root.join("m.cdsl")).unwrap();
+
+        let files = collect_cdsl_files(root);
+
+        assert_eq!(files.len(), 3);
+        // Files should be sorted
+        assert!(files[0].ends_with("a.cdsl"));
+        assert!(files[1].ends_with("m.cdsl"));
+        assert!(files[2].ends_with("z.cdsl"));
+    }
 }
