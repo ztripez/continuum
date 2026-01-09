@@ -8,7 +8,11 @@ use std::env;
 use std::fs;
 use std::process;
 
+use tracing::{error, info};
+
 fn main() {
+    continuum_tools::init_logging();
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 {
@@ -21,23 +25,22 @@ fn main() {
     let source = match fs::read_to_string(file_path) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("Error reading file '{}': {}", file_path, e);
+            error!("Error reading file '{}': {}", file_path, e);
             process::exit(1);
         }
     };
 
-    println!("Linting: {}", file_path);
-    println!("File size: {} bytes, {} lines", source.len(), source.lines().count());
-    println!();
+    info!("Linting: {}", file_path);
+    info!("File size: {} bytes, {} lines", source.len(), source.lines().count());
 
     let (result, parse_errors) = continuum_dsl::parse(&source);
 
     if !parse_errors.is_empty() {
-        eprintln!("Parse errors found:");
+        error!("Parse errors found:");
         for err in &parse_errors {
             // Try to extract position from error
             let err_str = format!("{:?}", err);
-            eprintln!("  Error: {}", err);
+            error!("  Error: {}", err);
 
             // If we can extract a byte offset, show context
             if let Some(span) = extract_span_from_error(&err_str) {
@@ -49,25 +52,25 @@ fn main() {
 
     match result {
         Some(unit) => {
-            println!("Successfully parsed {} items:", unit.items.len());
+            info!("Successfully parsed {} items:", unit.items.len());
             for item in &unit.items {
-                println!("  - {}", describe_item(&item.node));
+                info!("  - {}", describe_item(&item.node));
             }
 
             // Run validation
             let validation_errors = continuum_dsl::validate(&unit);
             if !validation_errors.is_empty() {
-                eprintln!("\nValidation errors:");
+                error!("Validation errors:");
                 for err in &validation_errors {
-                    eprintln!("  - {}", err);
+                    error!("  - {}", err);
                 }
                 process::exit(1);
             }
 
-            println!("\nNo errors found.");
+            info!("No errors found.");
         }
         None => {
-            eprintln!("Failed to produce AST (no specific errors reported)");
+            error!("Failed to produce AST (no specific errors reported)");
             process::exit(1);
         }
     }
