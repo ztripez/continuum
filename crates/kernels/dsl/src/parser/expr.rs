@@ -10,35 +10,43 @@ use super::ParseError;
 /// Type alias for parser Extra to ensure consistency across helper functions
 type Ex<'src> = extra::Err<ParseError<'src>>;
 
-/// Type alias for boxed expression parser
-type ExprBox<'src> = Boxed<'src, 'src, &'src str, Expr, Ex<'src>>;
+/// Type alias for boxed spanned expression parser
+type SpannedExprBox<'src> = Boxed<'src, 'src, &'src str, Spanned<Expr>, Ex<'src>>;
 
-/// Expression parser
+/// Helper to create a span covering two spanned values
+fn span_union<T, U>(left: &Spanned<T>, right: &Spanned<U>) -> std::ops::Range<usize> {
+    left.span.start..right.span.end
+}
+
+/// Expression parser - returns just the expression without span info
 ///
 /// Uses `.boxed()` at strategic points to reduce compile times by breaking the type chain.
 /// Without boxing, chumsky's parser combinators create deeply nested generic types that
 /// cause exponential compile time growth.
+#[allow(dead_code)]
 pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
-    recursive(|expr| {
-        // Box the recursive expr to prevent type explosion
-        let expr_boxed = expr.clone().boxed();
+    spanned_expr_inner().map(|spanned| spanned.node)
+}
 
-        // Arguments list for function calls
+/// Internal spanned expression parser - produces Spanned<Expr> with proper spans throughout
+fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
+    recursive(|expr| {
+        // Box the recursive expr (which returns Spanned<Expr>) to prevent type explosion
+        let expr_boxed: SpannedExprBox<'src> = expr.clone().boxed();
+
+        // Arguments list for function calls - already produces Vec<Spanned<Expr>>
         let args = expr_boxed
             .clone()
-            .map_with(|e, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(e, span.start..span.end)
-            })
             .separated_by(just(',').padded_by(ws()))
             .allow_trailing()
             .collect::<Vec<_>>()
             .delimited_by(just('(').padded_by(ws()), just(')').padded_by(ws()));
 
         // Entity expression atoms - boxed to reduce type complexity
-        let entity_atoms = entity_expr_atoms(expr_boxed.clone()).boxed();
+        // Returns Spanned<Expr>
+        let entity_atoms = entity_expr_atoms_spanned(expr_boxed.clone()).boxed();
 
-        // Core atoms (non-entity)
+        // Core atoms (non-entity) - wrap with map_with to capture spans
         let core_atoms = choice((
             text::keyword("prev").to(Expr::Prev),
             just("dt_raw").to(Expr::DtRaw),
@@ -74,76 +82,133 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
                 .ignore_then(path())
                 .map(Expr::FieldRef),
         ))
+        .map_with(|e, extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            Spanned::new(e, span.start..span.end)
+        })
         .boxed();
 
         // Additional atoms (function calls, literals, paths)
         let other_atoms = choice((
             // Function call: name(args) or path.to.func(args)
             path()
+                .map_with(|p, extra| {
+                    let span: chumsky::span::SimpleSpan = extra.span();
+                    Spanned::new(Expr::Path(p), span.start..span.end)
+                })
                 .then(args.clone())
-                .map(|(p, args)| Expr::Call {
-                    function: Box::new(Spanned::new(Expr::Path(p), 0..0)),
-                    args,
+                .map_with(|(func, args), extra| {
+                    let span: chumsky::span::SimpleSpan = extra.span();
+                    Spanned::new(
+                        Expr::Call {
+                            function: Box::new(func),
+                            args,
+                        },
+                        span.start..span.end,
+                    )
                 }),
             number()
                 .then(unit().padded_by(ws()).or_not())
-                .map(|(lit, unit_opt)| match unit_opt {
-                    Some(u) => Expr::LiteralWithUnit { value: lit, unit: u },
-                    None => Expr::Literal(lit),
+                .map_with(|(lit, unit_opt), extra| {
+                    let span: chumsky::span::SimpleSpan = extra.span();
+                    let e = match unit_opt {
+                        Some(u) => Expr::LiteralWithUnit { value: lit, unit: u },
+                        None => Expr::Literal(lit),
+                    };
+                    Spanned::new(e, span.start..span.end)
                 }),
-            string_lit().map(|s| Expr::Literal(Literal::String(s))),
+            string_lit().map_with(|s, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(Expr::Literal(Literal::String(s)), span.start..span.end)
+            }),
             expr_boxed
                 .clone()
                 .padded_by(ws())
                 .delimited_by(just('('), just(')')),
             // Plain path (must come after function call attempt)
-            path().map(Expr::Path),
+            path().map_with(|p, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(Expr::Path(p), span.start..span.end)
+            }),
         ))
         .boxed();
 
-        // Combine all atoms
+        // Combine all atoms - all now return Spanned<Expr>
         let atom = choice((entity_atoms, core_atoms, other_atoms))
             .padded_by(ws())
             .boxed();
 
-        // Method calls: expr.method(args)
+        // Method calls: expr.method(args) - now works with Spanned<Expr>
         let postfix = atom.foldl(
             just('.')
                 .padded_by(ws())
-                .ignore_then(ident())
+                .ignore_then(ident().map_with(|m, extra| {
+                    let span: chumsky::span::SimpleSpan = extra.span();
+                    (m, span.start..span.end)
+                }))
                 .then(args.or_not())
                 .repeated(),
-            |obj, (method, maybe_args)| match maybe_args {
-                Some(args) => Expr::Call {
-                    function: Box::new(Spanned::new(
-                        Expr::Path(Path::new(vec![method])),
-                        0..0,
-                    )),
-                    args: std::iter::once(Spanned::new(obj, 0..0))
-                        .chain(args)
-                        .collect(),
-                },
-                None => Expr::FieldAccess {
-                    object: Box::new(Spanned::new(obj, 0..0)),
-                    field: method,
-                },
+            |obj, ((method, method_span), maybe_args)| {
+                let (new_expr, span_end) = match maybe_args {
+                    Some(args) => {
+                        let end = args.last().map(|a| a.span.end).unwrap_or(method_span.end);
+                        (
+                            Expr::Call {
+                                function: Box::new(Spanned::new(
+                                    Expr::Path(Path::new(vec![method])),
+                                    method_span,
+                                )),
+                                args: std::iter::once(obj.clone()).chain(args).collect(),
+                            },
+                            end,
+                        )
+                    }
+                    None => (
+                        Expr::FieldAccess {
+                            object: Box::new(obj.clone()),
+                            field: method,
+                        },
+                        method_span.end,
+                    ),
+                };
+                Spanned::new(new_expr, obj.span.start..span_end)
             },
         );
 
-        let unary = just('-').repeated().foldr(postfix, |_, operand| Expr::Unary {
-            op: UnaryOp::Neg,
-            operand: Box::new(Spanned::new(operand, 0..0)),
-        });
+        // Unary negation - now works with Spanned<Expr>
+        let unary = just('-')
+            .map_with(|_, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                span.start
+            })
+            .repeated()
+            .foldr(postfix, |neg_start, operand| {
+                let span = neg_start..operand.span.end;
+                Spanned::new(
+                    Expr::Unary {
+                        op: UnaryOp::Neg,
+                        operand: Box::new(operand),
+                    },
+                    span,
+                )
+            });
 
+        // Binary operators - helper macro to reduce repetition
         let product = unary.clone().foldl(
             choice((just('*').to(BinaryOp::Mul), just('/').to(BinaryOp::Div)))
                 .padded_by(ws())
                 .then(unary)
                 .repeated(),
-            |left, (op, right)| Expr::Binary {
-                op,
-                left: Box::new(Spanned::new(left, 0..0)),
-                right: Box::new(Spanned::new(right, 0..0)),
+            |left, (op, right)| {
+                let span = span_union(&left, &right);
+                Spanned::new(
+                    Expr::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    span,
+                )
             },
         );
 
@@ -152,10 +217,16 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
                 .padded_by(ws())
                 .then(product)
                 .repeated(),
-            |left, (op, right)| Expr::Binary {
-                op,
-                left: Box::new(Spanned::new(left, 0..0)),
-                right: Box::new(Spanned::new(right, 0..0)),
+            |left, (op, right)| {
+                let span = span_union(&left, &right);
+                Spanned::new(
+                    Expr::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    span,
+                )
             },
         );
 
@@ -171,10 +242,16 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
             .padded_by(ws())
             .then(sum)
             .repeated(),
-            |left, (op, right)| Expr::Binary {
-                op,
-                left: Box::new(Spanned::new(left, 0..0)),
-                right: Box::new(Spanned::new(right, 0..0)),
+            |left, (op, right)| {
+                let span = span_union(&left, &right);
+                Spanned::new(
+                    Expr::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    span,
+                )
             },
         );
 
@@ -185,10 +262,16 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
                 .padded_by(ws())
                 .then(comparison)
                 .repeated(),
-            |left, (op, right)| Expr::Binary {
-                op,
-                left: Box::new(Spanned::new(left, 0..0)),
-                right: Box::new(Spanned::new(right, 0..0)),
+            |left, (op, right)| {
+                let span = span_union(&left, &right);
+                Spanned::new(
+                    Expr::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    span,
+                )
             },
         );
 
@@ -199,10 +282,16 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
                 .padded_by(ws())
                 .then(logical_and)
                 .repeated(),
-            |left, (op, right)| Expr::Binary {
-                op,
-                left: Box::new(Spanned::new(left, 0..0)),
-                right: Box::new(Spanned::new(right, 0..0)),
+            |left, (op, right)| {
+                let span = span_union(&left, &right);
+                Spanned::new(
+                    Expr::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    span,
+                )
             },
         );
 
@@ -213,20 +302,24 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
         // Multiple lets chain together: let a = 1 \n let b = 2 \n a + b
         let let_expr = text::keyword("let")
             .padded_by(ws())
-            .ignore_then(ident())
+            .map_with(|_, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                span.start
+            })
+            .then(ident())
             .then_ignore(just('=').padded_by(ws()))
-            .then(expr_boxed.clone().map_with(|e, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(e, span.start..span.end)
-            }))
-            .then(expr_boxed.clone().map_with(|e, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(e, span.start..span.end)
-            }))
-            .map(|((name, value), body)| Expr::Let {
-                name,
-                value: Box::new(value),
-                body: Box::new(body),
+            .then(expr_boxed.clone())
+            .then(expr_boxed.clone())
+            .map(|(((let_start, name), value), body)| {
+                let span = let_start..body.span.end;
+                Spanned::new(
+                    Expr::Let {
+                        name,
+                        value: Box::new(value),
+                        body: Box::new(body),
+                    },
+                    span,
+                )
             });
 
         // If expression: if condition { then } else { else }
@@ -234,17 +327,14 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
         // (conditions shouldn't be let or if expressions without braces)
         let if_expr = text::keyword("if")
             .padded_by(ws())
-            .ignore_then(logical_or_boxed.map_with(|e, extra| {
+            .map_with(|_, extra| {
                 let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(e, span.start..span.end)
-            }))
+                span.start
+            })
+            .then(logical_or_boxed)
             .then(
                 expr_boxed
                     .clone()
-                    .map_with(|e, extra| {
-                        let span: chumsky::span::SimpleSpan = extra.span();
-                        Spanned::new(e, span.start..span.end)
-                    })
                     .padded_by(ws())
                     .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
             )
@@ -253,19 +343,24 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
                     .padded_by(ws())
                     .ignore_then(
                         expr_boxed
-                            .map_with(|e, extra| {
-                                let span: chumsky::span::SimpleSpan = extra.span();
-                                Spanned::new(e, span.start..span.end)
-                            })
                             .padded_by(ws())
                             .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
                     )
                     .or_not(),
             )
-            .map(|((condition, then_branch), else_branch)| Expr::If {
-                condition: Box::new(condition),
-                then_branch: Box::new(then_branch),
-                else_branch: else_branch.map(Box::new),
+            .map(|(((if_start, condition), then_branch), else_branch)| {
+                let span_end = else_branch
+                    .as_ref()
+                    .map(|e| e.span.end)
+                    .unwrap_or(then_branch.span.end);
+                Spanned::new(
+                    Expr::If {
+                        condition: Box::new(condition),
+                        then_branch: Box::new(then_branch),
+                        else_branch: else_branch.map(Box::new),
+                    },
+                    if_start..span_end,
+                )
             });
 
         // Let and if expressions have lowest precedence - they consume the rest as body
@@ -273,22 +368,19 @@ pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
     })
 }
 
-/// Entity expression atoms - separated to reduce type complexity
-fn entity_expr_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
-    // Helper for spanned expressions
-    let spanned = |p: ExprBox<'src>| {
-        p.map_with(|e, extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            Spanned::new(e, span.start..span.end)
-        })
-    };
-
+/// Entity expression atoms (spanned) - separated to reduce type complexity
+fn entity_expr_atoms_spanned<'src>(
+    expr_boxed: SpannedExprBox<'src>,
+) -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
     choice((
         // self.field - current entity instance field access
         text::keyword("self")
             .ignore_then(just('.').padded_by(ws()))
             .ignore_then(ident())
-            .map(Expr::SelfField),
+            .map_with(|field, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(Expr::SelfField(field), span.start..span.end)
+            }),
         // entity.path["name"] - entity instance access
         text::keyword("entity")
             .ignore_then(just('.'))
@@ -296,18 +388,22 @@ fn entity_expr_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, &'src
             .then(
                 just('[')
                     .padded_by(ws())
-                    .ignore_then(spanned(expr_boxed.clone()).padded_by(ws()))
+                    .ignore_then(expr_boxed.clone().padded_by(ws()))
                     .then_ignore(just(']').padded_by(ws()))
                     .or_not(),
             )
-            .map(|(entity, instance)| match instance {
-                Some(inst) => Expr::EntityAccess {
-                    entity,
-                    instance: Box::new(inst),
-                },
-                None => Expr::EntityRef(entity),
+            .map_with(|(entity, instance), extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                let e = match instance {
+                    Some(inst) => Expr::EntityAccess {
+                        entity,
+                        instance: Box::new(inst),
+                    },
+                    None => Expr::EntityRef(entity),
+                };
+                Spanned::new(e, span.start..span.end)
             }),
-        // count(entity.path) - special case, no body expression needed
+        // count(entity.path) - special case, body is implicit "1" with span from count keyword
         text::keyword("count")
             .ignore_then(
                 just('(')
@@ -317,10 +413,20 @@ fn entity_expr_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, &'src
                     .ignore_then(path())
                     .then_ignore(just(')').padded_by(ws())),
             )
-            .map(|entity| Expr::Aggregate {
-                op: AggregateOp::Count,
-                entity,
-                body: Box::new(Spanned::new(Expr::Literal(Literal::Integer(1)), 0..0)),
+            .map_with(|entity, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                // Use the full span for the implicit body since it's synthetic
+                Spanned::new(
+                    Expr::Aggregate {
+                        op: AggregateOp::Count,
+                        entity,
+                        body: Box::new(Spanned::new(
+                            Expr::Literal(Literal::Integer(1)),
+                            span.start..span.end,
+                        )),
+                    },
+                    span.start..span.end,
+                )
             }),
         // other(entity.path) - self-exclusion for N-body
         text::keyword("other")
@@ -332,7 +438,10 @@ fn entity_expr_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, &'src
                     .ignore_then(path())
                     .then_ignore(just(')').padded_by(ws())),
             )
-            .map(Expr::Other),
+            .map_with(|entity, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(Expr::Other(entity), span.start..span.end)
+            }),
         // pairs(entity.path) - pairwise iteration
         text::keyword("pairs")
             .ignore_then(
@@ -343,21 +452,18 @@ fn entity_expr_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, &'src
                     .ignore_then(path())
                     .then_ignore(just(')').padded_by(ws())),
             )
-            .map(Expr::Pairs),
+            .map_with(|entity, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                Spanned::new(Expr::Pairs(entity), span.start..span.end)
+            }),
     ))
-    .or(entity_aggregate_atoms(expr_boxed))
+    .or(entity_aggregate_atoms_spanned(expr_boxed))
 }
 
-/// Entity aggregate operations - further split to reduce type complexity
-fn entity_aggregate_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
-    // Helper for spanned expressions
-    let spanned = move |p: ExprBox<'src>| {
-        p.map_with(|e, extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            Spanned::new(e, span.start..span.end)
-        })
-    };
-
+/// Entity aggregate operations (spanned) - further split to reduce type complexity
+fn entity_aggregate_atoms_spanned<'src>(
+    expr_boxed: SpannedExprBox<'src>,
+) -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
     // Aggregate with body: sum(entity.path, expr)
     let aggregate_with_body = aggregate_op_with_body()
         .then(
@@ -367,13 +473,19 @@ fn entity_aggregate_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, 
                 .ignore_then(just('.'))
                 .ignore_then(path())
                 .then_ignore(just(',').padded_by(ws()))
-                .then(spanned(expr_boxed.clone()))
+                .then(expr_boxed.clone())
                 .then_ignore(just(')').padded_by(ws())),
         )
-        .map(|(op, (entity, body))| Expr::Aggregate {
-            op,
-            entity,
-            body: Box::new(body),
+        .map_with(|(op, (entity, body)), extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            Spanned::new(
+                Expr::Aggregate {
+                    op,
+                    entity,
+                    body: Box::new(body),
+                },
+                span.start..span.end,
+            )
         });
 
     // filter(entity.path, predicate)
@@ -385,12 +497,18 @@ fn entity_aggregate_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, 
                 .ignore_then(just('.'))
                 .ignore_then(path())
                 .then_ignore(just(',').padded_by(ws()))
-                .then(spanned(expr_boxed.clone()))
+                .then(expr_boxed.clone())
                 .then_ignore(just(')').padded_by(ws())),
         )
-        .map(|(entity, predicate)| Expr::Filter {
-            entity,
-            predicate: Box::new(predicate),
+        .map_with(|(entity, predicate), extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            Spanned::new(
+                Expr::Filter {
+                    entity,
+                    predicate: Box::new(predicate),
+                },
+                span.start..span.end,
+            )
         });
 
     // first(entity.path, predicate)
@@ -402,12 +520,18 @@ fn entity_aggregate_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, 
                 .ignore_then(just('.'))
                 .ignore_then(path())
                 .then_ignore(just(',').padded_by(ws()))
-                .then(spanned(expr_boxed.clone()))
+                .then(expr_boxed.clone())
                 .then_ignore(just(')').padded_by(ws())),
         )
-        .map(|(entity, predicate)| Expr::First {
-            entity,
-            predicate: Box::new(predicate),
+        .map_with(|(entity, predicate), extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            Spanned::new(
+                Expr::First {
+                    entity,
+                    predicate: Box::new(predicate),
+                },
+                span.start..span.end,
+            )
         });
 
     // nearest(entity.path, position)
@@ -419,12 +543,18 @@ fn entity_aggregate_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, 
                 .ignore_then(just('.'))
                 .ignore_then(path())
                 .then_ignore(just(',').padded_by(ws()))
-                .then(spanned(expr_boxed.clone()))
+                .then(expr_boxed.clone())
                 .then_ignore(just(')').padded_by(ws())),
         )
-        .map(|(entity, position)| Expr::Nearest {
-            entity,
-            position: Box::new(position),
+        .map_with(|(entity, position), extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            Spanned::new(
+                Expr::Nearest {
+                    entity,
+                    position: Box::new(position),
+                },
+                span.start..span.end,
+            )
         });
 
     // within(entity.path, position, radius)
@@ -436,15 +566,21 @@ fn entity_aggregate_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, 
                 .ignore_then(just('.'))
                 .ignore_then(path())
                 .then_ignore(just(',').padded_by(ws()))
-                .then(spanned(expr_boxed.clone()))
+                .then(expr_boxed.clone())
                 .then_ignore(just(',').padded_by(ws()))
-                .then(spanned(expr_boxed))
+                .then(expr_boxed)
                 .then_ignore(just(')').padded_by(ws())),
         )
-        .map(|((entity, position), radius)| Expr::Within {
-            entity,
-            position: Box::new(position),
-            radius: Box::new(radius),
+        .map_with(|((entity, position), radius), extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            Spanned::new(
+                Expr::Within {
+                    entity,
+                    position: Box::new(position),
+                    radius: Box::new(radius),
+                },
+                span.start..span.end,
+            )
         });
 
     choice((
@@ -456,9 +592,9 @@ fn entity_aggregate_atoms<'src>(expr_boxed: ExprBox<'src>) -> impl Parser<'src, 
     ))
 }
 
-/// Spanned expression
+/// Spanned expression - public API that uses the internal spanned parser
 pub fn spanned_expr<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
-    expr().map_with(|e, extra| Spanned::new(e, extra.span().into()))
+    spanned_expr_inner()
 }
 
 /// Parser for aggregate operations that take a body expression
