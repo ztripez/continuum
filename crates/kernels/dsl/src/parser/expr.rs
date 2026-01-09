@@ -2,7 +2,7 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{AggregateOp, BinaryOp, Expr, Literal, MathConst, Path, Spanned, UnaryOp};
+use crate::ast::{AggregateOp, BinaryOp, Expr, Literal, MathConst, Spanned, UnaryOp};
 
 use super::primitives::{ident, number, path, string_lit, unit, ws};
 use super::ParseError;
@@ -146,12 +146,10 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     Some(args) => {
                         let end = args.last().map(|a| a.span.end).unwrap_or(method_span.end);
                         (
-                            Expr::Call {
-                                function: Box::new(Spanned::new(
-                                    Expr::Path(Path::new(vec![method])),
-                                    method_span,
-                                )),
-                                args: std::iter::once(obj.clone()).chain(args).collect(),
+                            Expr::MethodCall {
+                                object: Box::new(obj.clone()),
+                                method,
+                                args,
                             },
                             end,
                         )

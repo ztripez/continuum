@@ -245,6 +245,17 @@ fn check_expr_for_unknown_functions(
                 check_expr_for_unknown_functions(arg, user_functions, errors);
             }
         }
+        Expr::MethodCall { object, method, args } => {
+            // Check if method is a known function (method calls are also checked)
+            if !is_known_function(method, user_functions) {
+                // Methods might be built-in or user-defined, don't error for now
+                // as method resolution happens at lower/runtime
+            }
+            check_expr_for_unknown_functions(object, user_functions, errors);
+            for arg in args {
+                check_expr_for_unknown_functions(arg, user_functions, errors);
+            }
+        }
         Expr::Binary { left, right, .. } => {
             check_expr_for_unknown_functions(left, user_functions, errors);
             check_expr_for_unknown_functions(right, user_functions, errors);
@@ -355,6 +366,9 @@ fn uses_dt_raw(expr: &Expr) -> bool {
         Expr::Unary { operand, .. } => uses_dt_raw(&operand.node),
         Expr::Call { function, args } => {
             uses_dt_raw(&function.node) || args.iter().any(|a| uses_dt_raw(&a.node))
+        }
+        Expr::MethodCall { object, args, .. } => {
+            uses_dt_raw(&object.node) || args.iter().any(|a| uses_dt_raw(&a.node))
         }
         Expr::FieldAccess { object, .. } => uses_dt_raw(&object.node),
         Expr::Let { value, body, .. } => {

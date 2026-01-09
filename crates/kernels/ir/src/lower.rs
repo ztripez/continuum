@@ -643,6 +643,19 @@ impl Lowerer {
                     }
                 }
             }
+            Expr::MethodCall { object, method, args } => {
+                // Method calls are lowered to function calls with object as first argument
+                // e.g., obj.method(a, b) -> method(obj, a, b)
+                let lowered_obj = self.lower_expr_with_locals(&object.node, locals);
+                let lowered_args: Vec<_> = std::iter::once(lowered_obj)
+                    .chain(args.iter().map(|a| self.lower_expr_with_locals(&a.node, locals)))
+                    .collect();
+
+                CompiledExpr::Call {
+                    function: method.clone(),
+                    args: lowered_args,
+                }
+            }
             Expr::FieldAccess { object, field } => CompiledExpr::FieldAccess {
                 object: Box::new(self.lower_expr_with_locals(&object.node, locals)),
                 field: field.clone(),
@@ -808,6 +821,12 @@ impl Lowerer {
                     self.collect_signal_refs(&arg.node, refs);
                 }
             }
+            Expr::MethodCall { object, args, .. } => {
+                self.collect_signal_refs(&object.node, refs);
+                for arg in args {
+                    self.collect_signal_refs(&arg.node, refs);
+                }
+            }
             Expr::FieldAccess { object, .. } => {
                 self.collect_signal_refs(&object.node, refs);
             }
@@ -943,6 +962,12 @@ impl Lowerer {
                     self.collect_entity_refs(&arg.node, refs);
                 }
             }
+            Expr::MethodCall { object, args, .. } => {
+                self.collect_entity_refs(&object.node, refs);
+                for arg in args {
+                    self.collect_entity_refs(&arg.node, refs);
+                }
+            }
             Expr::FieldAccess { object, .. } => {
                 self.collect_entity_refs(&object.node, refs);
             }
@@ -1073,6 +1098,10 @@ impl Lowerer {
             Expr::Unary { operand, .. } => self.expr_uses_dt_raw(&operand.node),
             Expr::Call { function, args } => {
                 self.expr_uses_dt_raw(&function.node)
+                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.node))
+            }
+            Expr::MethodCall { object, args, .. } => {
+                self.expr_uses_dt_raw(&object.node)
                     || args.iter().any(|a| self.expr_uses_dt_raw(&a.node))
             }
             Expr::Let { value, body, .. } => {

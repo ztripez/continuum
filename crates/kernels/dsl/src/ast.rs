@@ -437,6 +437,9 @@ pub enum Expr {
     Binary { op: BinaryOp, left: Box<Spanned<Expr>>, right: Box<Spanned<Expr>> },
     Unary { op: UnaryOp, operand: Box<Spanned<Expr>> },
     Call { function: Box<Spanned<Expr>>, args: Vec<Spanned<Expr>> },
+    /// Method call on an object: `obj.method(args...)`
+    /// Preserves the distinction between method calls and free function calls.
+    MethodCall { object: Box<Spanned<Expr>>, method: String, args: Vec<Spanned<Expr>> },
     FieldAccess { object: Box<Spanned<Expr>>, field: String },
     Let { name: String, value: Box<Spanned<Expr>>, body: Box<Spanned<Expr>> },
     If { condition: Box<Spanned<Expr>>, then_branch: Box<Spanned<Expr>>, else_branch: Option<Box<Spanned<Expr>>> },
