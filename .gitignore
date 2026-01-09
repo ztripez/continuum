@@ -1,2 +1,5 @@
 /target
 /reports
+.worktree
+.claude/.cache
+.claude/settings.local.json

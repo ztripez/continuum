@@ -1,6 +1,29 @@
-//! IR to Runtime DAG compilation
+//! IR to Runtime DAG Compilation.
 //!
-//! Transforms CompiledWorld into executable runtime DAGs.
+//! This module transforms a [`CompiledWorld`] (the typed intermediate
+//! representation) into executable runtime DAGs that can be scheduled
+//! and executed by the runtime.
+//!
+//! # Compilation Process
+//!
+//! 1. **Index assignment**: Each signal, operator, field, and fracture is
+//!    assigned a numeric index for efficient runtime lookup
+//! 2. **Era compilation**: For each era, DAGs are built for every (phase, stratum) pair
+//! 3. **DAG construction**: Nodes are added with their dependencies, then
+//!    topologically sorted to create execution levels
+//!
+//! # Output Structure
+//!
+//! The compilation produces a [`DagSet`] containing:
+//! - One [`EraDags`] per era
+//! - Each era contains multiple [`ExecutableDag`] instances
+//! - Each DAG represents a (phase, stratum) combination
+//!
+//! # Errors
+//!
+//! Compilation can fail with [`CompileError`] for issues like:
+//! - Cyclic signal dependencies that prevent topological ordering
+//! - References to undefined strata or eras
 
 use indexmap::IndexMap;
 use thiserror::Error;
@@ -13,15 +36,38 @@ use continuum_runtime::types::Phase;
 
 use crate::{CompiledWorld, OperatorPhaseIr};
 
-/// Errors during DAG compilation
+/// Errors that can occur during DAG compilation.
+///
+/// These errors represent problems converting the IR into executable DAGs.
+/// They typically indicate structural issues that prevent deterministic
+/// execution scheduling.
 #[derive(Debug, Error)]
 pub enum CompileError {
+    /// A cycle was detected in signal dependencies during DAG construction.
+    ///
+    /// The execution model requires signals to form a directed acyclic graph
+    /// (DAG) so that a valid execution order can be determined. Cycles make
+    /// this impossible.
+    ///
+    /// The `nodes` field contains the node IDs involved in the cycle,
+    /// which can help identify the problematic signals.
     #[error("cycle detected in signal dependencies: {nodes:?}")]
-    CycleDetected { nodes: Vec<String> },
+    CycleDetected {
+        /// Node identifiers involved in the dependency cycle.
+        nodes: Vec<String>,
+    },
 
+    /// A stratum referenced in a signal or operator was not defined.
+    ///
+    /// All strata must be declared before they can be referenced in
+    /// signal or operator definitions.
     #[error("undefined stratum: {0}")]
     UndefinedStratum(String),
 
+    /// An era referenced in a transition or configuration was not defined.
+    ///
+    /// All eras must be declared before they can be referenced in
+    /// era transitions or world configuration.
     #[error("undefined era: {0}")]
     UndefinedEra(String),
 }

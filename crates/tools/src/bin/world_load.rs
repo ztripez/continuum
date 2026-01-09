@@ -1,8 +1,8 @@
-//! World Loader
+//! World Loader.
 //!
 //! Loads and parses a Continuum world from a directory.
 //!
-//! Usage: world-load <world-dir>
+//! Usage: `world-load <world-dir>`
 
 // Link against functions crate to pull in kernel function registrations
 extern crate continuum_functions;

@@ -1,14 +1,28 @@
-//! Kernel Function Registry
+//! Kernel Function Registry.
 //!
-//! Provides distributed registration for kernel functions callable from DSL expressions.
+//! Provides distributed registration for kernel functions callable from DSL
+//! expressions. Kernels are mathematical operations like `sin`, `cos`, `clamp`,
+//! `integrate`, and `decay` that can be invoked from resolve blocks.
 //!
 //! # Architecture
 //!
-//! Functions anywhere in the codebase register themselves using `#[kernel_fn]`.
-//! At link time, all registrations are collected into a single slice.
-//! The registry provides lookup by name for validation and dispatch.
+//! The registry uses [`linkme::distributed_slice`] for compile-time registration:
 //!
-//! # Example
+//! 1. Functions register themselves using the `#[kernel_fn]` attribute macro
+//! 2. At link time, all registrations are collected into [`KERNELS`]
+//! 3. At runtime, the registry provides lookup by name for validation and dispatch
+//!
+//! This allows kernel functions to be defined anywhere in the codebase (including
+//! in downstream crates) while remaining discoverable by the DSL validator.
+//!
+//! # Kernel Types
+//!
+//! Kernels come in two flavors:
+//!
+//! - **Pure** ([`KernelImpl::Pure`]) - Takes only numeric arguments, e.g., `sin(x)`
+//! - **Dt-dependent** ([`KernelImpl::WithDt`]) - Also receives the time step, e.g., `integrate(prev, rate)`
+//!
+//! # Example Registration
 //!
 //! ```ignore
 //! use continuum_kernel_macros::kernel_fn;
@@ -17,6 +31,16 @@
 //! #[kernel_fn(name = "decay")]
 //! pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
 //!     value * 0.5_f64.powf(dt / halflife)
+//! }
+//! ```
+//!
+//! # Example Lookup
+//!
+//! ```ignore
+//! use continuum_kernel_registry::{get, eval, is_known};
+//!
+//! if is_known("sin") {
+//!     let result = eval("sin", &[3.14159], 0.0);
 //! }
 //! ```
 
@@ -65,7 +89,7 @@ pub enum Arity {
 }
 
 impl Arity {
-    /// Get as Option<usize> for compatibility
+    /// Get as `Option<usize>` for compatibility
     pub fn as_option(&self) -> Option<usize> {
         match self {
             Arity::Fixed(n) => Some(*n),

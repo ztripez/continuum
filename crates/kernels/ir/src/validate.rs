@@ -1,6 +1,42 @@
-//! IR validation
+//! IR Validation and Warning Generation
 //!
-//! Validates the compiled IR and emits warnings for potential issues.
+//! This module validates compiled IR and generates warnings for potential
+//! issues that don't prevent compilation but may indicate problems.
+//!
+//! # Overview
+//!
+//! Validation runs after lowering and checks for:
+//!
+//! - **Missing assertions**: Signals with range constraints but no runtime validation
+//! - **Undefined symbols**: References to signals, constants, or config that don't exist
+//! - **Unknown functions**: Calls to functions not registered in the kernel registry
+//!
+//! # Warning vs Error
+//!
+//! This module produces warnings, not errors. Warnings indicate potential issues
+//! but allow compilation to proceed. For example:
+//!
+//! - A signal with range `0..100` but no assertion may produce values outside that range
+//! - A reference to `signal.temp` when only `signal.temperature` exists is likely a typo
+//!
+//! # Usage
+//!
+//! ```ignore
+//! let world = lower(&compilation_unit)?;
+//! let warnings = validate(&world);
+//!
+//! for warning in &warnings {
+//!     eprintln!("[{:?}] {}: {}", warning.code, warning.entity, warning.message);
+//! }
+//! ```
+//!
+//! # Warning Codes
+//!
+//! Warnings are categorized by [`WarningCode`] for filtering and tooling:
+//!
+//! - `MissingRangeAssertion`: Compile with explicit assertions to fix
+//! - `UndefinedSymbol`: Check for typos in symbol names
+//! - `UnknownFunction`: Check function name or register new kernel
 
 use std::collections::HashSet;
 
@@ -11,7 +47,10 @@ use continuum_functions as _;
 
 use crate::{CompiledExpr, CompiledWorld, ValueType};
 
-/// A compilation warning
+/// A compilation warning indicating a potential issue in the IR.
+///
+/// Warnings do not prevent compilation but may indicate bugs or
+/// configuration issues that should be addressed.
 #[derive(Debug, Clone)]
 pub struct CompileWarning {
     /// Warning code for filtering/identification
@@ -22,18 +61,58 @@ pub struct CompileWarning {
     pub entity: String,
 }
 
-/// Warning codes for categorization
+/// Warning codes for categorization and filtering.
+///
+/// Each warning has a code that can be used by tooling to:
+/// - Filter warnings by category
+/// - Configure which warnings to treat as errors
+/// - Generate targeted fix suggestions
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WarningCode {
-    /// Signal has range constraint but no assertions to validate it
+    /// A signal declares a range constraint but has no assertions to validate it.
+    ///
+    /// This means the range is documentation-only and won't be checked at runtime.
+    /// Add an `assert` block to enforce the range.
     MissingRangeAssertion,
-    /// Reference to undefined symbol (likely typo)
+
+    /// A reference to a signal, constant, or config that doesn't exist.
+    ///
+    /// This usually indicates a typo in the symbol name. Check spelling and
+    /// ensure the referenced definition exists.
     UndefinedSymbol,
-    /// Unknown function call
+
+    /// A call to a function not registered in the kernel registry.
+    ///
+    /// This may indicate a typo in the function name or a missing kernel
+    /// registration.
     UnknownFunction,
 }
 
-/// Validate a compiled world and return any warnings
+/// Validates a compiled world and returns any warnings.
+///
+/// This is the main entry point for IR validation. It runs all validation
+/// checks and collects warnings into a single list.
+///
+/// # Checks Performed
+///
+/// 1. **Range assertions**: Signals with range types should have assertions
+/// 2. **Undefined symbols**: All referenced symbols should exist
+/// 3. **Unknown functions**: All called functions should be registered
+///
+/// # Logging
+///
+/// Warnings are also logged via `tracing::warn!` for immediate visibility.
+///
+/// # Example
+///
+/// ```ignore
+/// let world = lower(&unit)?;
+/// let warnings = validate(&world);
+///
+/// if !warnings.is_empty() {
+///     println!("Compilation produced {} warning(s)", warnings.len());
+/// }
+/// ```
 pub fn validate(world: &CompiledWorld) -> Vec<CompileWarning> {
     let mut warnings = Vec::new();
 
@@ -53,7 +132,11 @@ pub fn validate(world: &CompiledWorld) -> Vec<CompileWarning> {
     warnings
 }
 
-/// Check that signals with range types have assertions
+/// Checks that signals with range type constraints have runtime assertions.
+///
+/// A signal declared as `Scalar<K, 100..10000>` should have assertions to
+/// validate the range at runtime. Without assertions, the range is purely
+/// documentary and violations won't be detected.
 fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
     for (signal_id, signal) in &world.signals {
         // Check if the signal has a range constraint
@@ -72,12 +155,19 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
     }
 }
 
-/// Known built-in functions - sourced from the kernel registry
+/// Checks if a function name is registered in the kernel registry.
+///
+/// This delegates to `continuum_kernel_registry::is_known()` which tracks
+/// all registered kernel functions.
 fn is_known_function(name: &str) -> bool {
     continuum_kernel_registry::is_known(name)
 }
 
-/// Check for undefined symbols in expressions
+/// Checks for undefined symbols in all expressions.
+///
+/// Scans all resolve expressions, measure expressions, assertion conditions,
+/// transition conditions, and fracture expressions for references to
+/// undefined signals, constants, config values, or unknown functions.
 fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
     // Collect all defined symbols
     let mut defined_signals: HashSet<&str> = HashSet::new();
@@ -165,7 +255,13 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
     }
 }
 
-/// Check a single expression for undefined symbols
+/// Recursively checks an expression for undefined symbols.
+///
+/// Walks the expression tree and reports warnings for:
+/// - Signal references that don't exist in `defined_signals`
+/// - Constant references that don't exist in `defined_constants`
+/// - Config references that don't exist in `defined_config`
+/// - Function calls to unknown kernel functions
 fn check_expr_symbols(
     expr: &CompiledExpr,
     context: &str,

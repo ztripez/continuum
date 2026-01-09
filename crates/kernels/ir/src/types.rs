@@ -1,12 +1,68 @@
-//! IR types
+//! Intermediate Representation (IR) Types
 //!
-//! These types represent the compiled simulation before DAG construction.
+//! This module defines the typed intermediate representation produced by lowering
+//! DSL AST nodes. The IR is a simplified, executable form of the DSL that serves
+//! as input to DAG construction and runtime execution.
+//!
+//! # Overview
+//!
+//! The IR sits between the AST (parsing output) and the execution graph (runtime input).
+//! It performs several transformations:
+//!
+//! - **Type resolution**: All types are fully resolved with constraints
+//! - **Dependency analysis**: Signal dependencies are explicitly tracked via `reads` fields
+//! - **Function inlining**: User-defined functions are inlined at call sites
+//! - **Expression simplification**: Complex AST nodes are reduced to simpler IR forms
+//!
+//! # Key Types
+//!
+//! - [`CompiledWorld`]: The top-level container holding all compiled definitions
+//! - [`CompiledSignal`]: A signal with resolved expression and dependencies
+//! - [`CompiledExpr`]: Expression tree suitable for bytecode compilation
+//! - [`ValueType`]: Scalar or vector type with optional range constraints
+//!
+//! # Usage
+//!
+//! The IR is typically produced by the [`crate::lower()`] function and consumed by:
+//! - `crate::codegen` for bytecode compilation
+//! - `crate::interpret` for building runtime closures
+//! - `crate::validate` for warning generation
 
 use indexmap::IndexMap;
 
 use continuum_foundation::{EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId};
 
-/// Compiled world ready for DAG construction
+/// The complete compiled simulation world, ready for DAG construction.
+///
+/// `CompiledWorld` is the top-level IR container produced by [`crate::lower()`].
+/// It holds all definitions from all parsed `.cdsl` files in a single, unified
+/// representation with resolved dependencies and types.
+///
+/// # Structure
+///
+/// The world is organized into several categories:
+///
+/// - **Configuration**: Constants (compile-time) and config values (scenario-time)
+/// - **Time structure**: Strata (simulation layers) and eras (time phases)
+/// - **Causal entities**: Signals, operators, and fractures that affect simulation state
+/// - **Observation**: Fields for data extraction (non-causal)
+/// - **External input**: Impulses for external causal events
+/// - **Structured data**: Entities for collections of similar instances
+///
+/// # Ordering
+///
+/// All maps use [`IndexMap`] to preserve insertion order, which ensures
+/// deterministic iteration for graph construction and execution scheduling.
+///
+/// # Example
+///
+/// ```ignore
+/// let world = lower(&compilation_unit)?;
+/// println!("Signals defined: {}", world.signals.len());
+/// for (id, signal) in &world.signals {
+///     println!("  {} reads {:?}", id.0, signal.reads);
+/// }
+/// ```
 #[derive(Debug)]
 pub struct CompiledWorld {
     /// Global constants (evaluated at compile time)
@@ -33,7 +89,17 @@ pub struct CompiledWorld {
     pub entities: IndexMap<EntityId, CompiledEntity>,
 }
 
-/// Compiled stratum
+/// A compiled stratum definition representing a simulation layer.
+///
+/// Strata partition the simulation into independent layers that can execute
+/// at different cadences. Each signal, field, and operator belongs to exactly
+/// one stratum.
+///
+/// # Stride
+///
+/// The `default_stride` controls how often this stratum executes relative to
+/// the base tick rate. A stride of 10 means the stratum executes every 10th
+/// tick of the containing era.
 #[derive(Debug, Clone)]
 pub struct CompiledStratum {
     pub id: StratumId,
@@ -42,10 +108,28 @@ pub struct CompiledStratum {
     pub default_stride: u32,
 }
 
-/// Compiled user-defined function
+/// A compiled user-defined function declaration.
 ///
-/// Functions are pure, inlined at call sites. They cannot access `prev`, `dt`, or write to signals.
-/// They can access `const.*` and `config.*`, and call other functions.
+/// Functions in the DSL are pure and are inlined at their call sites during
+/// lowering. This struct stores the function definition for reference during
+/// inlining.
+///
+/// # Restrictions
+///
+/// User-defined functions have strict purity requirements:
+///
+/// - **No `prev` access**: Cannot reference the previous value of any signal
+/// - **No `dt` access**: Cannot depend on the current time step
+/// - **No signal writes**: Cannot emit or modify signal values
+/// - **Allowed**: `const.*` and `config.*` references, calling other functions
+///
+/// These restrictions ensure functions can be safely inlined without changing
+/// semantics or introducing hidden dependencies.
+///
+/// # Inlining
+///
+/// When a function call is lowered, it becomes a nested sequence of `Let`
+/// expressions binding arguments to parameters, followed by the function body.
 #[derive(Debug, Clone)]
 pub struct CompiledFn {
     pub id: FnId,
@@ -55,7 +139,25 @@ pub struct CompiledFn {
     pub body: CompiledExpr,
 }
 
-/// Compiled era
+/// A compiled era definition representing a distinct time phase.
+///
+/// Eras partition simulation time into phases with different characteristics.
+/// Each era specifies its own time step (`dt`), stratum activation states,
+/// and transition conditions to other eras.
+///
+/// # Era Lifecycle
+///
+/// 1. Simulation starts in the era marked `is_initial = true`
+/// 2. Each tick, transition conditions are evaluated in order
+/// 3. First matching transition moves to that era
+/// 4. Simulation ends when reaching an era with `is_terminal = true`
+///
+/// # Strata States
+///
+/// The `strata_states` map controls which strata are active in this era:
+/// - `Active`: Executes every tick
+/// - `ActiveWithStride(n)`: Executes every nth tick
+/// - `Gated`: Disabled (does not execute)
 #[derive(Debug, Clone)]
 pub struct CompiledEra {
     pub id: EraId,
@@ -70,7 +172,9 @@ pub struct CompiledEra {
     pub transitions: Vec<CompiledTransition>,
 }
 
-/// Stratum state in an era
+/// The activation state of a stratum within a specific era.
+///
+/// Controls whether and how often a stratum executes during an era.
 #[derive(Debug, Clone, Copy)]
 pub enum StratumStateIr {
     Active,
@@ -78,14 +182,43 @@ pub enum StratumStateIr {
     Gated,
 }
 
-/// Transition condition
+/// A compiled transition between eras.
+///
+/// Transitions define conditions under which the simulation moves from the
+/// current era to a target era. The condition expression is evaluated each
+/// tick; if it returns a non-zero value, the transition fires.
+///
+/// When multiple transitions are defined, they are evaluated in order and
+/// the first matching transition is taken.
 #[derive(Debug, Clone)]
 pub struct CompiledTransition {
     pub target_era: EraId,
     pub condition: CompiledExpr,
 }
 
-/// Compiled signal
+/// A compiled signal definition representing authoritative simulation state.
+///
+/// Signals are the primary state-carrying entities in Continuum. Each signal
+/// has a resolve expression that computes its next value based on its previous
+/// value, other signals, and constants/config.
+///
+/// # Dependencies
+///
+/// The `reads` field lists all signals this signal depends on, enabling the
+/// DAG builder to determine execution order. Circular dependencies are not
+/// allowed and should be detected during validation.
+///
+/// # dt-robustness
+///
+/// Signals that use `dt_raw` must declare this explicitly via `uses_dt_raw = true`.
+/// This enables dt-robustness auditing: signals using raw dt values may produce
+/// different results with different time steps, which is sometimes intentional
+/// (e.g., physical integration) but should be tracked.
+///
+/// # Warmup
+///
+/// Signals may define a warmup phase that runs before normal simulation to
+/// establish initial equilibrium through iterative convergence.
 #[derive(Debug, Clone)]
 pub struct CompiledSignal {
     pub id: SignalId,
@@ -104,7 +237,23 @@ pub struct CompiledSignal {
     pub assertions: Vec<CompiledAssertion>,
 }
 
-/// Compiled field
+/// A compiled field definition for observable (non-causal) data.
+///
+/// Fields are derived measurements computed from signal values. Unlike signals,
+/// fields do not affect the causal simulation - they exist purely for observation
+/// and data extraction. Removing all fields from a world must not change the
+/// simulation outcome.
+///
+/// # Topology
+///
+/// Fields may have spatial topology (e.g., `SphereSurface`, `PointCloud`) that
+/// describes how their data is distributed in space, which affects visualization
+/// and analysis.
+///
+/// # Phase
+///
+/// Fields are computed during the Measure phase, after all signals have resolved.
+/// They may read any signal value but cannot affect signal resolution.
 #[derive(Debug, Clone)]
 pub struct CompiledField {
     pub id: FieldId,
@@ -118,7 +267,17 @@ pub struct CompiledField {
     pub measure: Option<CompiledExpr>,
 }
 
-/// Compiled operator
+/// A compiled operator definition for phase-specific computation.
+///
+/// Operators are execution units that run during specific simulation phases.
+/// Unlike signals (which resolve state), operators perform side-effect actions
+/// like collecting inputs, running warmup iterations, or measuring outputs.
+///
+/// # Phases
+///
+/// - `Warmup`: Runs during the warmup phase before main simulation
+/// - `Collect`: Gathers and accumulates inputs for signal resolution
+/// - `Measure`: Computes derived values during the observation phase
 #[derive(Debug, Clone)]
 pub struct CompiledOperator {
     pub id: OperatorId,
@@ -132,7 +291,18 @@ pub struct CompiledOperator {
     pub assertions: Vec<CompiledAssertion>,
 }
 
-/// Compiled impulse
+/// A compiled impulse definition for external causal input.
+///
+/// Impulses provide a mechanism for external systems to inject causal events
+/// into the simulation. Each impulse has a typed payload and an apply
+/// expression that determines how the payload affects signal state.
+///
+/// # Usage
+///
+/// Impulses are typically triggered by:
+/// - User interaction events
+/// - External system inputs
+/// - Scenario-driven event scripts
 #[derive(Debug, Clone)]
 pub struct CompiledImpulse {
     pub id: ImpulseId,
@@ -141,7 +311,22 @@ pub struct CompiledImpulse {
     pub apply: Option<CompiledExpr>,
 }
 
-/// Compiled fracture
+/// A compiled fracture definition for emergent tension detection.
+///
+/// Fractures detect when simulation state reaches critical thresholds and
+/// trigger corrective emissions to other signals. They represent emergent
+/// phenomena that occur when certain conditions are met.
+///
+/// # Evaluation
+///
+/// All conditions must evaluate to non-zero for the fracture to trigger.
+/// When triggered, all emit expressions are evaluated and their values
+/// are applied to the target signals.
+///
+/// # Ordering
+///
+/// Fractures execute during the Fracture phase, after signal resolution
+/// but before measurement. This allows corrective actions before observation.
 #[derive(Debug, Clone)]
 pub struct CompiledFracture {
     pub id: FractureId,
@@ -153,14 +338,38 @@ pub struct CompiledFracture {
     pub emits: Vec<CompiledEmit>,
 }
 
-/// Compiled emit statement
+/// A signal emission from a fracture.
+///
+/// When a fracture triggers, it emits values to one or more signals. Each
+/// emit specifies a target signal and a value expression to compute.
 #[derive(Debug, Clone)]
 pub struct CompiledEmit {
     pub target: SignalId,
     pub value: CompiledExpr,
 }
 
-/// Compiled entity - a collection of structured instances
+/// A compiled entity definition representing a collection of structured instances.
+///
+/// Entities model collections of similar objects (e.g., moons, tectonic plates)
+/// where each instance has the same schema but different values. This enables
+/// N-body interactions and aggregate computations.
+///
+/// # Schema
+///
+/// Each entity defines a schema of fields that every instance must have.
+/// The schema is fixed at compile time, though instance count may vary.
+///
+/// # Instance Count
+///
+/// The number of instances can be:
+/// - Fixed: Determined at compile time
+/// - Config-driven: Read from scenario configuration via `count_source`
+/// - Bounded: Validated against `count_bounds` at runtime
+///
+/// # Cross-Entity Access
+///
+/// Entity resolve expressions can access other entities via the `entity_reads`
+/// dependency list, enabling cross-entity interactions.
 #[derive(Debug, Clone)]
 pub struct CompiledEntity {
     pub id: EntityId,
@@ -183,14 +392,20 @@ pub struct CompiledEntity {
     pub fields: Vec<CompiledEntityField>,
 }
 
-/// A field in an entity schema
+/// A field definition within an entity's schema.
+///
+/// Each instance of the entity will have a value for this field.
 #[derive(Debug, Clone)]
 pub struct CompiledSchemaField {
     pub name: String,
     pub value_type: ValueType,
 }
 
-/// A field definition nested within an entity (for observation)
+/// An observable field nested within an entity (for observation/measurement).
+///
+/// Entity fields are computed during the Measure phase and provide per-instance
+/// observable data. Unlike schema fields (which are causal state), these fields
+/// are derived for observation purposes only.
 #[derive(Debug, Clone)]
 pub struct CompiledEntityField {
     pub name: String,
@@ -200,7 +415,16 @@ pub struct CompiledEntityField {
     pub measure: Option<CompiledExpr>,
 }
 
-/// Warmup configuration
+/// Warmup configuration for signal initialization.
+///
+/// Warmup runs a signal's iterate expression repeatedly until convergence
+/// or the maximum iteration count is reached. This establishes initial
+/// equilibrium before the main simulation begins.
+///
+/// # Convergence
+///
+/// If `convergence` is specified, iteration stops early when the absolute
+/// change between iterations falls below this threshold.
 #[derive(Debug, Clone)]
 pub struct CompiledWarmup {
     pub iterations: u32,
@@ -208,7 +432,16 @@ pub struct CompiledWarmup {
     pub iterate: CompiledExpr,
 }
 
-/// Compiled assertion
+/// A compiled assertion for runtime validation.
+///
+/// Assertions validate signal invariants after resolution. They do not modify
+/// values - they only check conditions and emit faults when violated.
+///
+/// # Severity Levels
+///
+/// - `Warn`: Logs a warning but continues execution
+/// - `Error`: May halt execution based on policy configuration
+/// - `Fatal`: Always halts execution immediately
 #[derive(Debug, Clone)]
 pub struct CompiledAssertion {
     /// The condition that must be true
@@ -219,7 +452,10 @@ pub struct CompiledAssertion {
     pub message: Option<String>,
 }
 
-/// Severity of an assertion failure
+/// The severity level of an assertion failure.
+///
+/// Determines how the runtime responds when an assertion condition evaluates
+/// to false (zero).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AssertionSeverity {
     /// Warning only, execution continues
@@ -231,7 +467,16 @@ pub enum AssertionSeverity {
     Fatal,
 }
 
-/// Value types
+/// The type of a signal or field value.
+///
+/// Values can be scalars or fixed-size vectors. Scalar values may optionally
+/// have range constraints that define valid bounds.
+///
+/// # Examples
+///
+/// - `Scalar { range: None }`: Unbounded scalar (any f64 value)
+/// - `Scalar { range: Some(ValueRange { min: 0.0, max: 1.0 }) }`: Normalized scalar
+/// - `Vec3`: 3D vector (e.g., position, velocity)
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueType {
     Scalar { range: Option<ValueRange> },
@@ -240,30 +485,80 @@ pub enum ValueType {
     Vec4,
 }
 
-/// Value range constraint
+/// A numeric range constraint for scalar values.
+///
+/// Defines the valid bounds for a scalar value. Values outside this range
+/// may trigger assertions or validation warnings depending on configuration.
+///
+/// Both bounds are inclusive: a value `v` is valid if `min <= v <= max`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ValueRange {
     pub min: f64,
     pub max: f64,
 }
 
-/// Topology types
+/// Spatial topology for field data distribution.
+///
+/// Describes how field data is organized in space, affecting how it can be
+/// visualized, sampled, and analyzed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TopologyIr {
+    /// Data distributed on a spherical surface (e.g., planetary data)
     SphereSurface,
+    /// Discrete point samples in 3D space
     PointCloud,
+    /// Volumetric data in 3D space
     Volume,
 }
 
-/// Operator phases
+/// The execution phase for an operator.
+///
+/// Determines when in the tick lifecycle the operator runs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperatorPhaseIr {
+    /// Runs during warmup initialization
     Warmup,
+    /// Runs during input collection before signal resolution
     Collect,
+    /// Runs during the measurement/observation phase
     Measure,
 }
 
-/// Compiled expression - simplified for execution
+/// A compiled expression tree ready for bytecode generation or interpretation.
+///
+/// `CompiledExpr` is a simplified representation of DSL expressions with all
+/// syntactic sugar removed and user-defined functions inlined. It serves as
+/// the input to both the bytecode compiler and the closure-based interpreter.
+///
+/// # Expression Categories
+///
+/// - **Literals and references**: `Literal`, `Prev`, `DtRaw`, `Signal`, `Const`, `Config`
+/// - **Operators**: `Binary`, `Unary`
+/// - **Control flow**: `If`, `Let`, `Local`
+/// - **Function calls**: `Call` (for kernel functions)
+/// - **Entity operations**: `SelfField`, `Aggregate`, `Filter`, etc.
+///
+/// # Entity Expressions
+///
+/// Entity-related variants (`SelfField`, `EntityAccess`, `Aggregate`, etc.) are
+/// not compiled to bytecode directly. They are handled by the entity executor
+/// at runtime, which has access to entity storage for iteration and aggregation.
+///
+/// # Example
+///
+/// The DSL expression `prev + signal.heat * 0.5` becomes:
+///
+/// ```ignore
+/// CompiledExpr::Binary {
+///     op: BinaryOpIr::Add,
+///     left: Box::new(CompiledExpr::Prev),
+///     right: Box::new(CompiledExpr::Binary {
+///         op: BinaryOpIr::Mul,
+///         left: Box::new(CompiledExpr::Signal(SignalId::from("heat"))),
+///         right: Box::new(CompiledExpr::Literal(0.5)),
+///     }),
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub enum CompiledExpr {
     /// Literal value
@@ -376,41 +671,71 @@ pub enum CompiledExpr {
     },
 }
 
-/// Aggregate operations over entity instances
+/// Aggregate operations over collections of entity instances.
+///
+/// These operations reduce a collection of values to a single value.
+/// They are used with entity iteration constructs like `sum(entity.moon, ...)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggregateOpIr {
+    /// Sum of all values
     Sum,
+    /// Product of all values
     Product,
+    /// Minimum value
     Min,
+    /// Maximum value
     Max,
+    /// Arithmetic mean
     Mean,
+    /// Number of instances
     Count,
+    /// True (1.0) if any value is non-zero
     Any,
+    /// True (1.0) if all values are non-zero
     All,
+    /// True (1.0) if no values are non-zero
     None,
 }
 
-/// Binary operators
+/// Binary operators for two-operand expressions.
+///
+/// All comparison operators return 1.0 for true and 0.0 for false.
+/// Logical operators treat any non-zero value as true.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOpIr {
+    /// Addition: `a + b`
     Add,
+    /// Subtraction: `a - b`
     Sub,
+    /// Multiplication: `a * b`
     Mul,
+    /// Division: `a / b`
     Div,
+    /// Exponentiation: `a ^ b`
     Pow,
+    /// Equality: `a == b`
     Eq,
+    /// Inequality: `a != b`
     Ne,
+    /// Less than: `a < b`
     Lt,
+    /// Less than or equal: `a <= b`
     Le,
+    /// Greater than: `a > b`
     Gt,
+    /// Greater than or equal: `a >= b`
     Ge,
+    /// Logical AND: `a && b`
     And,
+    /// Logical OR: `a || b`
     Or,
 }
 
-/// Unary operators
+/// Unary operators for single-operand expressions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnaryOpIr {
+    /// Numeric negation: `-x`
     Neg,
+    /// Logical NOT: `!x` (returns 1.0 if x is 0.0, otherwise 0.0)
     Not,
 }

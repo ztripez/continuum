@@ -1,20 +1,57 @@
-//! Core runtime types
+//! Core runtime types for simulation execution.
 //!
-//! These types represent the execution model at runtime.
-//! They are populated from the compiled IR.
+//! This module defines the fundamental types used during simulation runtime.
+//! These types represent the execution model and are populated from compiled IR.
+//!
+//! # Key Types
+//!
+//! - [`Phase`] - The five execution phases (Configure, Collect, Resolve, Fracture, Measure)
+//! - [`Value`] - Runtime signal values (Scalar, Vec2, Vec3, Vec4)
+//! - [`StratumState`] - Stratum activation within an era (Active, Gated, Strided)
+//! - [`Dt`] - Time step wrapper for the current tick
+//! - [`TickContext`] - Execution context for a single tick
+//!
+//! # ID Types
+//!
+//! This module re-exports foundational ID types from [`continuum_foundation`]:
+//! [`SignalId`], [`FieldId`], [`EraId`], [`StratumId`], etc.
 
 // Re-export foundational ID types
 pub use continuum_foundation::{
     EntityId, EraId, FieldId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId,
 };
 
-/// Execution phases in order
+/// The five execution phases that occur each simulation tick.
+///
+/// Phases execute in strict order and define what operations are permitted
+/// at each stage. This ensures deterministic execution regardless of how
+/// signals and operators are declared.
+///
+/// # Phase Order
+///
+/// 1. **Configure** - Freeze execution context (dt, era, tick number)
+/// 2. **Collect** - Accumulate impulse inputs and inter-signal contributions
+/// 3. **Resolve** - Compute new signal values from expressions
+/// 4. **Fracture** - Detect tension conditions and emit responses
+/// 5. **Measure** - Emit field values for observer consumption
+///
+/// # Phase Boundaries
+///
+/// Operations are restricted by phase:
+/// - Signal writes only occur during Resolve
+/// - Field emission only occurs during Measure
+/// - Fracture detection only occurs during Fracture
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Phase {
+    /// Freeze execution context for the tick.
     Configure,
+    /// Accumulate inputs from impulses and other sources.
     Collect,
+    /// Compute new signal values from resolver expressions.
     Resolve,
+    /// Detect tension conditions and emit fracture responses.
     Fracture,
+    /// Emit field values for external observation.
     Measure,
 }
 
@@ -29,14 +66,34 @@ impl Phase {
     ];
 }
 
-/// Stratum activation state within an era
+/// Stratum activation state within an era.
+///
+/// Strata can be configured to run at different rates or be paused entirely.
+/// This allows multi-rate simulation where fast-changing phenomena (weather)
+/// run every tick while slow phenomena (geology) run less frequently.
+///
+/// # Example
+///
+/// ```
+/// use continuum_runtime::StratumState;
+///
+/// let fast = StratumState::Active;
+/// let slow = StratumState::ActiveWithStride(100);
+/// let paused = StratumState::Gated;
+///
+/// // Check if stratum runs on a given tick
+/// assert!(fast.is_eligible(42));
+/// assert!(slow.is_eligible(100));  // Multiple of 100
+/// assert!(!slow.is_eligible(42));  // Not a multiple
+/// assert!(!paused.is_eligible(42)); // Never runs
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StratumState {
-    /// Executes every tick
+    /// Executes every tick. Use for fast-changing phenomena.
     Active,
-    /// Executes every N ticks
+    /// Executes every N ticks. Use for slower phenomena.
     ActiveWithStride(u32),
-    /// Paused, state preserved
+    /// Paused entirely; state is preserved but not updated.
     Gated,
 }
 
@@ -51,15 +108,44 @@ impl StratumState {
     }
 }
 
-/// Runtime value types
+/// Runtime value types for simulation signals.
 ///
-/// For now, using f64 for everything. The DSL type system
-/// handles units at compile time; at runtime we just have numbers.
+/// Values are the fundamental data type stored in signals and passed between
+/// resolvers. The DSL type system handles units at compile time; at runtime
+/// we work with dimensionless numbers.
+///
+/// # Variants
+///
+/// - `Scalar` - A single floating-point value (temperature, pressure, etc.)
+/// - `Vec2` - 2D vector (texture coordinates, 2D positions)
+/// - `Vec3` - 3D vector (position, velocity, RGB color)
+/// - `Vec4` - 4D vector (RGBA color, quaternion components)
+///
+/// # Example
+///
+/// ```
+/// use continuum_runtime::Value;
+///
+/// // Creating values
+/// let temp = Value::Scalar(300.0);
+/// let pos = Value::Vec3([1.0, 2.0, 3.0]);
+///
+/// // Extracting scalars
+/// assert_eq!(temp.as_scalar(), Some(300.0));
+///
+/// // Component access
+/// assert_eq!(pos.component("x"), Some(1.0));
+/// assert_eq!(pos.component("z"), Some(3.0));
+/// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
+    /// Single scalar value (e.g., temperature, pressure, density).
     Scalar(f64),
+    /// 2D vector (e.g., UV coordinates, 2D position).
     Vec2([f64; 2]),
+    /// 3D vector (e.g., position, velocity, force).
     Vec3([f64; 3]),
+    /// 4D vector (e.g., quaternion, RGBA color).
     Vec4([f64; 4]),
     // TODO: Mat4, Tensor, Grid, Seq
 }

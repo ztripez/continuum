@@ -2,13 +2,20 @@
 
 use std::ops::Range as StdRange;
 
-/// Source span (byte range)
+/// Source location as a byte range into the source text.
+///
+/// Used to map AST nodes back to their original source for error reporting.
 pub type Span = StdRange<usize>;
 
-/// A spanned AST node
+/// An AST node with its source location attached.
+///
+/// Wraps any AST type `T` with the span where it appeared in the source code.
+/// This enables precise error messages pointing to the exact location of issues.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Spanned<T> {
+    /// The AST node payload.
     pub node: T,
+    /// The byte range in source where this node appeared.
     pub span: Span,
 }
 
@@ -18,13 +25,24 @@ impl<T> Spanned<T> {
     }
 }
 
-/// A complete DSL compilation unit
+/// The root AST node representing a parsed DSL source file.
+///
+/// A compilation unit contains all top-level declarations from a single
+/// `.cdsl` file. Multiple units are merged when loading a world.
 #[derive(Debug, Clone, Default)]
 pub struct CompilationUnit {
+    /// All top-level items declared in this file.
     pub items: Vec<Spanned<Item>>,
 }
 
-/// Top-level items
+/// Top-level DSL declarations that can appear in a source file.
+///
+/// Each variant represents a different kind of declaration:
+/// - Configuration: [`ConstBlock`], [`ConfigBlock`], [`TypeDef`]
+/// - Structure: [`StrataDef`], [`EraDef`], [`EntityDef`]
+/// - Signals: [`SignalDef`], [`FieldDef`], [`OperatorDef`]
+/// - Events: [`ImpulseDef`], [`FractureDef`], [`ChronicleDef`]
+/// - Functions: [`FnDef`]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
     ConstBlock(ConstBlock),
@@ -42,9 +60,13 @@ pub enum Item {
     EntityDef(EntityDef),
 }
 
-/// Dot-separated path
+/// A dot-separated identifier path for referencing DSL entities.
+///
+/// Paths are used throughout the DSL to name signals, strata, config values,
+/// and other entities. Examples: `terra.surface.temp`, `config.dt`, `const.physics.gravity`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Path {
+    /// The individual name segments, e.g., `["terra", "surface", "temp"]`.
     pub segments: Vec<String>,
 }
 

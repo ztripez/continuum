@@ -1,4 +1,35 @@
-//! Expression parser
+//! Expression parser for the Continuum DSL.
+//!
+//! This module implements the expression grammar with proper operator precedence.
+//! Expressions can appear in resolve blocks, measure blocks, assertions, and
+//! other executable contexts.
+//!
+//! # Operator Precedence (lowest to highest)
+//!
+//! 1. **Ternary**: `if cond { then } else { else }`
+//! 2. **Logical OR**: `or`
+//! 3. **Logical AND**: `and`
+//! 4. **Comparison**: `<`, `<=`, `>`, `>=`, `==`, `!=`
+//! 5. **Addition/Subtraction**: `+`, `-`
+//! 6. **Multiplication/Division**: `*`, `/`, `%`
+//! 7. **Exponentiation**: `^`
+//! 8. **Unary**: `-`, `!`
+//! 9. **Primary**: Literals, identifiers, function calls, parentheses
+//!
+//! # Expression Types
+//!
+//! - **Literals**: `42`, `3.14`, `"string"`
+//! - **References**: `signal.name`, `config.value`, `const.physics.g`
+//! - **Keywords**: `prev`, `dt_raw`, `collected`, `payload`
+//! - **Math constants**: `PI` / `π`, `TAU` / `τ`, `E` / `ℯ`, `PHI` / `φ`
+//! - **Function calls**: `sin(x)`, `clamp(v, 0, 1)`, `integrate(prev, rate)`
+//! - **Let bindings**: `let x = expr in body`
+//! - **Conditionals**: `if cond { a } else { b }`
+//!
+//! # Compile Time Optimization
+//!
+//! The parser uses strategic `.boxed()` calls to prevent exponential compile
+//! time growth from deeply nested generic types.
 
 use chumsky::prelude::*;
 

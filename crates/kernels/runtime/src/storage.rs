@@ -1,6 +1,26 @@
-//! Signal and entity storage
+//! Signal and entity storage for simulation state.
 //!
-//! Manages current and previous tick values, plus input channel accumulation.
+//! This module provides storage types for managing simulation state across
+//! ticks. The storage system maintains both current and previous tick values,
+//! enabling the `prev` keyword in DSL expressions.
+//!
+//! # Key Types
+//!
+//! - [`SignalStorage`] - Double-buffered signal values with tick advancement
+//! - [`InputChannels`] - Accumulator for signal inputs during Collect phase
+//! - [`FractureQueue`] - Queue for fracture outputs to be processed next tick
+//! - [`FieldBuffer`] - Collector for measured field values
+//! - [`EntityStorage`] - Storage for entity instances and their field values
+//!
+//! # Tick Lifecycle
+//!
+//! Each tick follows this storage pattern:
+//!
+//! 1. **Collect** - Inputs accumulated via [`InputChannels::accumulate`]
+//! 2. **Resolve** - Signals read via [`SignalStorage::get`], written via `set_current`
+//! 3. **Fracture** - Emissions queued via [`FractureQueue::queue`]
+//! 4. **Measure** - Fields emitted via [`FieldBuffer::emit_scalar`]
+//! 5. **Advance** - [`SignalStorage::advance_tick`] swaps current ↔ previous
 
 use indexmap::IndexMap;
 
@@ -10,12 +30,55 @@ use crate::types::{EntityId, FieldId, InstanceId, SignalId, Value};
 type EntityInstancesRef<'a> = &'a EntityInstances;
 type InstanceDataRef<'a> = &'a InstanceData;
 
-/// Storage for signal values across ticks
+/// Double-buffered storage for signal values across ticks.
+///
+/// SignalStorage maintains two value maps: `current` (being resolved this tick)
+/// and `previous` (resolved last tick). This enables the `prev` keyword in DSL
+/// expressions to access last tick's values while computing new ones.
+///
+/// # Tick Lifecycle
+///
+/// 1. **Resolve phase**: Read from `previous` via `get_prev()`, write to `current` via `set_current()`
+/// 2. **Advance**: After tick completes, `current` becomes `previous` for next tick
+///
+/// # Gated Signals
+///
+/// When a stratum is gated (not executing), its signals are not resolved.
+/// `advance_tick()` copies forward any unresolved signals from `previous`
+/// to maintain state continuity.
+///
+/// # Example
+///
+/// ```
+/// use continuum_runtime::storage::SignalStorage;
+/// use continuum_runtime::{SignalId, Value};
+///
+/// let mut storage = SignalStorage::default();
+/// let temp: SignalId = "terra.temp".into();
+///
+/// // Initialize signal
+/// storage.init(temp.clone(), Value::Scalar(300.0));
+///
+/// // Resolve new value
+/// storage.set_current(temp.clone(), Value::Scalar(301.0));
+///
+/// // Current tick sees new value
+/// assert_eq!(storage.get(&temp), Some(&Value::Scalar(301.0)));
+///
+/// // Previous tick value still accessible
+/// assert_eq!(storage.get_prev(&temp), Some(&Value::Scalar(300.0)));
+///
+/// // Advance to next tick
+/// storage.advance_tick();
+///
+/// // Now 301.0 is the previous value
+/// assert_eq!(storage.get_prev(&temp), Some(&Value::Scalar(301.0)));
+/// ```
 #[derive(Debug, Default)]
 pub struct SignalStorage {
-    /// Values resolved in the current tick
+    /// Values resolved in the current tick.
     current: IndexMap<SignalId, Value>,
-    /// Values from the previous tick (for `prev` access)
+    /// Values from the previous tick (for `prev` access).
     previous: IndexMap<SignalId, Value>,
 }
 

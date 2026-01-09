@@ -1,6 +1,34 @@
-//! World Loading
+//! World Loading.
 //!
-//! Collects and parses .cdsl files from a world directory.
+//! This module provides functions to load Continuum worlds from the filesystem.
+//! A world is a directory containing a `world.yaml` manifest and one or more
+//! `.cdsl` files with DSL declarations.
+//!
+//! # World Structure
+//!
+//! A valid world directory must contain:
+//! - `world.yaml` - The world manifest (execution policy)
+//! - One or more `*.cdsl` files - DSL source files (can be nested in subdirectories)
+//!
+//! # Loading Process
+//!
+//! 1. Validate that the directory exists and contains `world.yaml`
+//! 2. Recursively collect all `.cdsl` files, sorted by path for determinism
+//! 3. Parse and validate each file individually
+//! 4. Merge all compilation units into a single [`CompilationUnit`]
+//!
+//! # Example
+//!
+//! ```ignore
+//! use continuum_dsl::loader::load_world;
+//! use std::path::Path;
+//!
+//! let result = load_world(Path::new("worlds/earth"))?;
+//! println!("Loaded {} files with {} items",
+//!     result.files.len(),
+//!     result.unit.items.len()
+//! );
+//! ```
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,20 +36,55 @@ use std::path::{Path, PathBuf};
 use crate::ast::CompilationUnit;
 use crate::{parse, validate, ValidationError};
 
-/// Errors that can occur during world loading
+/// Errors that can occur during world loading.
+///
+/// These errors cover the full loading pipeline: filesystem access, parsing,
+/// and semantic validation. Each variant preserves the file path where the
+/// error occurred to aid debugging.
 #[derive(Debug)]
 pub enum LoadError {
-    /// World directory doesn't exist or isn't a directory
+    /// The specified world directory doesn't exist or isn't a directory.
+    ///
+    /// The path passed to [`load_world`] must be an existing directory.
     InvalidWorldDir(PathBuf),
-    /// No world.yaml found in the world directory
+
+    /// No `world.yaml` manifest was found in the world directory.
+    ///
+    /// Every valid world must have a `world.yaml` file at its root.
+    /// This file defines execution policy (time strata, eras, etc.).
     MissingWorldYaml(PathBuf),
-    /// Failed to read a file
-    ReadError { path: PathBuf, error: std::io::Error },
-    /// Parse errors in a file
-    ParseErrors { path: PathBuf, errors: Vec<String> },
-    /// Validation errors in a file
-    ValidationErrors {
+
+    /// Failed to read a file from disk.
+    ///
+    /// This wraps I/O errors from the filesystem, such as permission
+    /// denied or file not found (for files discovered but then deleted).
+    ReadError {
+        /// Path to the file that couldn't be read.
         path: PathBuf,
+        /// The underlying I/O error.
+        error: std::io::Error,
+    },
+
+    /// Syntax errors occurred while parsing a `.cdsl` file.
+    ///
+    /// Parse errors indicate malformed DSL syntax that the parser
+    /// couldn't understand. Each error message includes location information.
+    ParseErrors {
+        /// Path to the file with parse errors.
+        path: PathBuf,
+        /// Human-readable parse error messages.
+        errors: Vec<String>,
+    },
+
+    /// Semantic validation errors in a parsed file.
+    ///
+    /// Validation errors indicate well-formed syntax that violates
+    /// semantic rules, such as referencing undefined functions or
+    /// having inconsistent type usage.
+    ValidationErrors {
+        /// Path to the file with validation errors.
+        path: PathBuf,
+        /// The validation errors found.
         errors: Vec<ValidationError>,
     },
 }

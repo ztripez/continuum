@@ -1,6 +1,28 @@
-//! Execution DAG
+//! Execution DAG for Simulation Scheduling.
 //!
-//! Represents the execution graph with topological levels.
+//! This module defines the directed acyclic graph (DAG) structure used to
+//! schedule signal resolution and operator execution within each tick.
+//!
+//! # Structure
+//!
+//! - [`DagNode`] - A single execution unit (signal resolver, operator, field emitter)
+//! - [`Level`] - A set of nodes with no inter-dependencies (can execute in parallel)
+//! - [`ExecutableDag`] - A complete DAG for one (phase, stratum) combination
+//! - [`EraDags`] - All DAGs for a single era
+//! - [`DagSet`] - All DAGs across all eras
+//!
+//! # Execution Model
+//!
+//! DAGs are organized into topological levels. Within a level, all nodes can
+//! execute in parallel since they have no dependencies on each other. Levels
+//! are separated by barriers—all nodes in level N must complete before any
+//! node in level N+1 begins.
+//!
+//! # Building DAGs
+//!
+//! Use [`DagBuilder`] to construct DAGs. Nodes are added with their dependencies,
+//! then [`DagBuilder::build`] performs topological sorting to create levels.
+//! If a cycle is detected, [`CycleError`] is returned.
 
 use std::collections::HashSet;
 
@@ -8,55 +30,71 @@ use indexmap::IndexMap;
 
 use crate::types::{SignalId, StratumId, EraId, Phase};
 
-/// A node in the execution DAG
+/// A single execution unit in the dependency graph.
+///
+/// Each node represents work to be done (signal resolution, operator execution,
+/// etc.) along with its dependencies (signals it reads) and outputs (signals it writes).
 #[derive(Debug, Clone)]
 pub struct DagNode {
-    /// Unique node identifier
+    /// Unique identifier for this node (e.g., `"sig.terra.temp"`).
     pub id: NodeId,
-    /// Signals this node reads
+    /// Signal IDs this node reads during execution.
     pub reads: HashSet<SignalId>,
-    /// Signal this node writes (for signal resolve nodes)
+    /// Signal ID this node writes, if any (only for resolve nodes).
     pub writes: Option<SignalId>,
-    /// The node's execution behavior
+    /// The kind of work this node performs.
     pub kind: NodeKind,
 }
 
-/// Unique identifier for a DAG node
+/// Unique identifier for a node within a DAG.
+///
+/// Node IDs follow conventions like `"sig.terra.temp"` for signals,
+/// `"op.collect_heat"` for operators, `"frac.overheat"` for fractures.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct NodeId(pub String);
 
-/// The kind of work a node performs
+/// The type of work a DAG node performs during execution.
+///
+/// Different node kinds execute in different phases and have different
+/// effects on simulation state.
 #[derive(Debug, Clone)]
 pub enum NodeKind {
-    /// Resolve a signal value
+    /// Compute a new signal value from its resolver expression.
     SignalResolve {
+        /// The signal being resolved.
         signal: SignalId,
-        /// Index into the resolver function table
+        /// Index into the resolver function table.
         resolver_idx: usize,
     },
-    /// Execute a collect-phase operator
+    /// Execute a collect-phase operator that accumulates inputs.
     OperatorCollect {
-        /// Index into the operator function table
+        /// Index into the operator function table.
         operator_idx: usize,
     },
-    /// Execute a measure-phase operator
+    /// Execute a measure-phase operator that emits observations.
     OperatorMeasure {
+        /// Index into the operator function table.
         operator_idx: usize,
     },
-    /// Emit a field value
+    /// Emit a field value for external observation.
     FieldEmit {
+        /// Index into the field emitter table.
         field_idx: usize,
     },
-    /// Evaluate and potentially emit fracture
+    /// Evaluate a fracture condition and potentially emit a response.
     Fracture {
+        /// Index into the fracture detector table.
         fracture_idx: usize,
     },
 }
 
-/// A topological level - nodes that can execute in parallel
+/// A set of DAG nodes with no inter-dependencies that can execute in parallel.
+///
+/// Levels are the output of topological sorting. All nodes in a level can
+/// run concurrently because none depends on another within the same level.
 #[derive(Debug, Clone)]
 pub struct Level {
-    /// Nodes in this level (no dependencies between them)
+    /// Nodes in this level, all of which can execute in parallel.
     pub nodes: Vec<DagNode>,
 }
 
@@ -171,9 +209,22 @@ impl DagBuilder {
     }
 }
 
-/// Error when a cycle is detected
+/// Error returned when a dependency cycle is detected during DAG construction.
+///
+/// Cycles prevent topological sorting, which is required for deterministic
+/// execution ordering. This error contains the node IDs involved in the cycle
+/// to help diagnose the circular dependency.
+///
+/// # Example
+///
+/// If signal A depends on signal B, and signal B depends on signal A,
+/// both nodes will appear in `involved_nodes`.
 #[derive(Debug)]
 pub struct CycleError {
+    /// Node identifiers involved in the dependency cycle.
+    ///
+    /// These are the nodes that could not be scheduled because they
+    /// form a circular dependency chain.
     pub involved_nodes: Vec<NodeId>,
 }
 

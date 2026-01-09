@@ -1,0 +1,2 @@
+when working on an epic or similar larget topics always create a new worktree in the .worktree folder and branch of to a epic/feature/chore branch, do all edits in the worktree.
+when the epic/topic is done/closed remove the worktree

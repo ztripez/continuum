@@ -1,6 +1,42 @@
-//! IR Interpretation
+//! IR Interpretation and Runtime Function Building
 //!
-//! Compiles expressions to bytecode and executes them at runtime.
+//! This module builds runtime closures from compiled IR expressions. These
+//! closures capture the necessary context (constants, config, bytecode) and
+//! can be invoked during simulation execution.
+//!
+//! # Overview
+//!
+//! The interpreter bridges the gap between compiled IR and runtime execution:
+//!
+//! 1. **Pre-compile to bytecode**: Expressions are compiled once at startup
+//! 2. **Capture context**: Constants and config are cloned into closures
+//! 3. **Build execution closures**: Returns boxed functions for runtime use
+//!
+//! # Closure Types
+//!
+//! Several closure types are built for different purposes:
+//!
+//! - [`ResolverFn`]: Computes new signal values from previous values and inputs
+//! - [`MeasureFn`]: Computes field values for observation
+//! - [`FractureFn`]: Evaluates fracture conditions and computes emissions
+//! - [`TransitionFn`]: Evaluates era transition conditions
+//! - [`AssertionFn`]: Validates signal invariants after resolution
+//!
+//! # Execution Contexts
+//!
+//! Each closure type has a corresponding context struct that implements
+//! [`ExecutionContext`] for the VM. These contexts provide access to:
+//!
+//! - Previous signal value (`prev`)
+//! - Current time step (`dt`)
+//! - Signal storage
+//! - Constants and config
+//! - Kernel function dispatch
+//!
+//! # Thread Safety
+//!
+//! Built closures are `Send + Sync` and can be used across threads. They
+//! hold owned copies of constants and config, avoiding shared state.
 
 use std::collections::HashMap;
 
@@ -21,7 +57,17 @@ use crate::{
     CompiledWorld, StratumStateIr, ValueType,
 };
 
-/// Build era configurations from compiled world
+/// Builds runtime era configurations from a compiled world.
+///
+/// Creates an [`EraConfig`] for each era in the world, including:
+/// - Time step (`dt`) in seconds
+/// - Stratum activation states
+/// - Transition function (if transitions are defined)
+///
+/// # Returns
+///
+/// A map from era IDs to their runtime configurations, suitable for use
+/// by the simulation executor.
 pub fn build_era_configs(world: &CompiledWorld) -> HashMap<EraId, EraConfig> {
     let mut configs = HashMap::new();
 
@@ -52,7 +98,16 @@ pub fn build_era_configs(world: &CompiledWorld) -> HashMap<EraId, EraConfig> {
     configs
 }
 
-/// Build a transition function for an era
+/// Builds a transition function for evaluating era change conditions.
+///
+/// The returned function evaluates all transition conditions in order and
+/// returns the target era ID for the first condition that evaluates to
+/// non-zero.
+///
+/// # Returns
+///
+/// - `Some(TransitionFn)` if the era has transitions
+/// - `None` if the era has no transitions (terminal or stuck)
 fn build_transition_fn(
     era: &CompiledEra,
     constants: &IndexMap<String, f64>,
@@ -89,7 +144,16 @@ fn build_transition_fn(
     }))
 }
 
-/// Get initial value for a signal from config
+/// Gets the initial scalar value for a signal from config.
+///
+/// Searches for a config key matching the pattern `initial_<signal_name>`
+/// for the given signal path. Returns 0.0 if no matching config is found.
+///
+/// # Example
+///
+/// For signal `terra.temp`, this looks for config keys like:
+/// - `terra.initial_temp`
+/// - `initial_temp`
 pub fn get_initial_value(world: &CompiledWorld, signal_id: &SignalId) -> f64 {
     let signal_name = &signal_id.0;
     let parts: Vec<&str> = signal_name.split('.').collect();
@@ -110,7 +174,10 @@ pub fn get_initial_value(world: &CompiledWorld, signal_id: &SignalId) -> f64 {
     0.0
 }
 
-/// Get initial value for a signal based on its type
+/// Gets the initial value for a signal with proper type wrapping.
+///
+/// Returns a [`Value`] matching the signal's declared type (Scalar, Vec2,
+/// Vec3, or Vec4), initialized from config or defaulting to zero.
 pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> Value {
     let initial_value = get_initial_value(world, signal_id);
 
@@ -126,7 +193,30 @@ pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> 
     }
 }
 
-/// Build a resolver function from a compiled expression
+/// Builds a resolver function from a compiled expression.
+///
+/// The resolver computes the next value for a signal based on its previous
+/// value, accumulated inputs, current time step, and other signal values.
+///
+/// # Closure Capture
+///
+/// The returned closure captures:
+/// - Pre-compiled bytecode for the expression
+/// - Cloned constants and config maps
+///
+/// # Arguments
+///
+/// - `expr`: The compiled resolve expression
+/// - `world`: The compiled world (for constants and config)
+/// - `uses_dt_raw`: Whether this signal uses raw dt (currently unused, both
+///   paths use the same dt value)
+///
+/// # Example
+///
+/// ```ignore
+/// let resolver = build_resolver(&signal.resolve.unwrap(), &world, signal.uses_dt_raw);
+/// let new_value = resolver(&resolver_context);
+/// ```
 pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: bool) -> ResolverFn {
     // Pre-compile to bytecode
     let bytecode = codegen::compile(expr);
@@ -148,9 +238,24 @@ pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: b
     })
 }
 
-/// Build a measure function for a field
+/// Builds a measure function for computing field values.
 ///
-/// Field measure expressions evaluate against current signal values and emit to the field buffer.
+/// Field measure functions evaluate expressions against current signal values
+/// and emit results to the field buffer. They run during the Measure phase
+/// and have no effect on causal simulation.
+///
+/// # Closure Capture
+///
+/// The returned closure captures:
+/// - The field ID for emission
+/// - Pre-compiled bytecode for the measure expression
+/// - Cloned constants and config maps
+///
+/// # Arguments
+///
+/// - `field_id`: The ID of the field to emit to
+/// - `expr`: The compiled measure expression
+/// - `world`: The compiled world (for constants and config)
 pub fn build_field_measure(
     field_id: &FieldId,
     expr: &CompiledExpr,
@@ -174,10 +279,30 @@ pub fn build_field_measure(
     })
 }
 
-/// Build a fracture detection function
+/// Builds a fracture detection function.
 ///
-/// Fractures check conditions and emit to signals when triggered.
-/// Returns `Some(emits)` if all conditions pass, `None` otherwise.
+/// Fractures monitor simulation state and trigger emissions when conditions
+/// are met. The returned function evaluates all conditions and, if all pass,
+/// returns the computed emission values.
+///
+/// # Condition Evaluation
+///
+/// All conditions must evaluate to non-zero for the fracture to trigger.
+/// Conditions are evaluated in order; early exit occurs on the first zero.
+///
+/// # Returns
+///
+/// The built function returns:
+/// - `Some(Vec<(SignalId, f64)>)` if all conditions pass, with emission values
+/// - `None` if any condition fails
+///
+/// # Closure Capture
+///
+/// The returned closure captures:
+/// - Pre-compiled bytecode for all condition expressions
+/// - Pre-compiled bytecode for all emit value expressions
+/// - Target signal IDs for emissions
+/// - Cloned constants and config maps
 pub fn build_fracture(fracture: &CompiledFracture, world: &CompiledWorld) -> FractureFn {
     // Pre-compile all conditions and emit expressions
     let conditions: Vec<BytecodeChunk> = fracture
@@ -222,7 +347,22 @@ pub fn build_fracture(fracture: &CompiledFracture, world: &CompiledWorld) -> Fra
     })
 }
 
-/// Build an assertion function from a compiled expression
+/// Builds an assertion function for validating signal invariants.
+///
+/// Assertion functions check conditions after signal resolution and return
+/// a boolean indicating whether the assertion passed.
+///
+/// # Returns
+///
+/// The built function returns:
+/// - `true` if the assertion condition evaluates to non-zero
+/// - `false` if the condition evaluates to zero (assertion failed)
+///
+/// # Note
+///
+/// The assertion function does not handle the failure response (warn, error,
+/// fatal) - that is determined by the assertion's severity and handled by
+/// the caller.
 pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionFn {
     // Pre-compile to bytecode
     let bytecode = codegen::compile(expr);
@@ -243,7 +383,10 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
     })
 }
 
-/// Convert IR assertion severity to runtime severity
+/// Converts IR assertion severity to runtime assertion severity.
+///
+/// This is a direct mapping between the IR and runtime representations
+/// of assertion severity levels.
 pub fn convert_assertion_severity(severity: IrAssertionSeverity) -> AssertionSeverity {
     match severity {
         IrAssertionSeverity::Warn => AssertionSeverity::Warn,
@@ -253,8 +396,16 @@ pub fn convert_assertion_severity(severity: IrAssertionSeverity) -> AssertionSev
 }
 
 // === Execution Contexts ===
+//
+// Each context implements `ExecutionContext` for the VM, providing access
+// to the values needed during expression evaluation. Different phases have
+// different available values (e.g., resolvers have `prev` and `inputs`,
+// but measure contexts don't).
 
-/// Context for resolver execution
+/// Execution context for signal resolution.
+///
+/// Provides access to previous value, accumulated inputs, time step,
+/// constants, config, and other signal values.
 struct ResolverContext<'a> {
     prev: &'a Value,
     inputs: f64,
@@ -309,7 +460,10 @@ impl ExecutionContext for ResolverContext<'_> {
     }
 }
 
-/// Context for assertion execution
+/// Execution context for assertion evaluation.
+///
+/// In assertions, `prev` returns the current (post-resolve) value being
+/// validated, not the previous tick's value.
 struct AssertionContext<'a> {
     current: &'a Value,
     #[allow(dead_code)] // May be used for future 'prev' semantics in assertions
@@ -366,7 +520,10 @@ impl ExecutionContext for AssertionContext<'_> {
     }
 }
 
-/// Context for transition execution
+/// Execution context for era transition evaluation.
+///
+/// Transitions only have access to signals, constants, and config.
+/// They cannot access `prev`, `dt`, or `inputs`.
 struct TransitionContext<'a> {
     constants: &'a IndexMap<String, f64>,
     config: &'a IndexMap<String, f64>,
@@ -418,7 +575,10 @@ impl ExecutionContext for TransitionContext<'_> {
     }
 }
 
-/// Context for measure execution
+/// Execution context for field measurement.
+///
+/// Measure contexts have access to signals (read-only), constants, config,
+/// and the current time step. They cannot access `prev` or `inputs`.
 struct MeasureContext<'a> {
     dt: f64,
     constants: &'a IndexMap<String, f64>,
@@ -471,7 +631,10 @@ impl ExecutionContext for MeasureContext<'_> {
     }
 }
 
-/// Context for fracture execution
+/// Execution context for fracture condition and emission evaluation.
+///
+/// Fractures have access to signals (read-only), constants, config, and
+/// the current time step. They cannot access `prev` or `inputs`.
 struct FractureExecContext<'a> {
     dt: f64,
     constants: &'a IndexMap<String, f64>,

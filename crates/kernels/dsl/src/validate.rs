@@ -1,15 +1,47 @@
-//! Validation pass for Continuum DSL
+//! Semantic Validation for Continuum DSL.
 //!
-//! Performs semantic checks after parsing, including:
-//! - dt_raw usage requires : dt_raw declaration on signal
-//! - function calls reference known kernel functions
+//! This module performs semantic validation on parsed ASTs before lowering
+//! to IR. It catches errors that are syntactically valid but semantically
+//! incorrect, such as:
+//!
+//! - Using `dt_raw` without the required `: uses(dt_raw)` declaration
+//! - Calling functions that don't exist (neither user-defined nor kernel)
+//! - Using `dt_raw` in contexts where it's not allowed (operators, impulses)
+//!
+//! # Validation vs Lowering Errors
+//!
+//! Validation errors are caught here, before lowering begins. This provides
+//! better error messages with source spans. Lowering errors (`LowerError`
+//! from `continuum_ir`) catch issues that require resolved symbol tables.
+//!
+//! # Usage
+//!
+//! ```ignore
+//! use continuum_dsl::{parse, validate};
+//!
+//! let (unit, parse_errors) = parse(source);
+//! if let Some(unit) = unit {
+//!     let validation_errors = validate(&unit);
+//!     if !validation_errors.is_empty() {
+//!         for err in &validation_errors {
+//!             eprintln!("{}", err);
+//!         }
+//!     }
+//! }
+//! ```
 
 use crate::ast::{CompilationUnit, Expr, Item, Spanned};
 
-/// Validation error
+/// A semantic validation error with source location.
+///
+/// Validation errors indicate that the parsed AST violates semantic rules
+/// that can be checked without full symbol resolution. The span points to
+/// the source location where the error was detected.
 #[derive(Debug, Clone)]
 pub struct ValidationError {
+    /// Human-readable description of the validation error.
     pub message: String,
+    /// Byte range in the source where the error occurred.
     pub span: std::ops::Range<usize>,
 }
 
@@ -21,7 +53,14 @@ impl std::fmt::Display for ValidationError {
 
 impl std::error::Error for ValidationError {}
 
-/// Validate a compilation unit
+/// Validate a compilation unit for semantic correctness.
+///
+/// Performs checks that can be done without full symbol resolution:
+/// - `dt_raw` usage requires explicit declaration
+/// - Function calls must reference known functions
+/// - `dt_raw` is not allowed in operators, impulses, or fractures
+///
+/// Returns a vector of validation errors. An empty vector means validation passed.
 pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
     let mut errors = Vec::new();
 

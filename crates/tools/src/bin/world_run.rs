@@ -1,8 +1,8 @@
-//! World Runner
+//! World Runner.
 //!
 //! Loads, compiles, and executes a Continuum world.
 //!
-//! Usage: world-run <world-dir> [--steps N] [--dt SECONDS]
+//! Usage: `world-run <world-dir> [--steps N] [--dt SECONDS]`
 
 use std::env;
 use std::path::Path;

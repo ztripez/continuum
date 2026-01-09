@@ -1,13 +1,58 @@
-//! Bytecode code generation
+//! Bytecode Code Generation
 //!
-//! Converts CompiledExpr to VM bytecode.
+//! This module converts IR expressions ([`CompiledExpr`]) into executable
+//! bytecode for the Continuum virtual machine.
+//!
+//! # Overview
+//!
+//! The code generator performs a straightforward recursive translation from
+//! IR expression nodes to VM expression nodes, then delegates to the VM
+//! compiler to produce actual bytecode.
+//!
+//! # Expression Mapping
+//!
+//! Most IR expression types map directly to VM equivalents:
+//!
+//! | IR Type | VM Type |
+//! |---------|---------|
+//! | `Literal(f64)` | `Literal(f64)` |
+//! | `Prev` | `Prev` |
+//! | `DtRaw` | `DtRaw` |
+//! | `Signal(id)` | `Signal(name)` |
+//! | `Binary { op, left, right }` | `Binary { op, left, right }` |
+//! | etc. | etc. |
+//!
+//! # Entity Expressions
+//!
+//! Entity-related expressions (`SelfField`, `Aggregate`, `Filter`, etc.) are
+//! **not** converted to bytecode. They return placeholder `Literal(0.0)` values
+//! because entity operations require runtime access to entity storage, which
+//! the bytecode VM does not have. Entity execution uses a separate interpreter.
+//!
+//! # Usage
+//!
+//! ```ignore
+//! use continuum_ir::codegen::compile;
+//!
+//! let expr = CompiledExpr::Binary {
+//!     op: BinaryOpIr::Add,
+//!     left: Box::new(CompiledExpr::Prev),
+//!     right: Box::new(CompiledExpr::Literal(1.0)),
+//! };
+//!
+//! let bytecode = compile(&expr);
+//! // Execute with: continuum_vm::execute(&bytecode, &context)
+//! ```
 
 use continuum_vm::compiler::{BinaryOp, Expr, UnaryOp};
 use continuum_vm::BytecodeChunk;
 
 use crate::{BinaryOpIr, CompiledExpr, UnaryOpIr};
 
-/// Convert IR binary operator to VM binary operator
+/// Converts an IR binary operator to its VM equivalent.
+///
+/// This is a direct 1:1 mapping as both representations use the same
+/// operator semantics.
 fn convert_binary_op(op: BinaryOpIr) -> BinaryOp {
     match op {
         BinaryOpIr::Add => BinaryOp::Add,
@@ -26,7 +71,7 @@ fn convert_binary_op(op: BinaryOpIr) -> BinaryOp {
     }
 }
 
-/// Convert IR unary operator to VM unary operator
+/// Converts an IR unary operator to its VM equivalent.
 fn convert_unary_op(op: UnaryOpIr) -> UnaryOp {
     match op {
         UnaryOpIr::Neg => UnaryOp::Neg,
@@ -34,7 +79,16 @@ fn convert_unary_op(op: UnaryOpIr) -> UnaryOp {
     }
 }
 
-/// Convert CompiledExpr to VM Expr
+/// Recursively converts a [`CompiledExpr`] to a VM [`Expr`].
+///
+/// This function handles the translation of all expression types. Most types
+/// map directly to VM equivalents, but entity expressions are not supported
+/// and return placeholder values.
+///
+/// # Field Access
+///
+/// Field access on signals (e.g., `signal.pos.x`) is converted to
+/// `SignalComponent` for vector component extraction.
 fn convert_expr(expr: &CompiledExpr) -> Expr {
     match expr {
         CompiledExpr::Literal(v) => Expr::Literal(*v),
@@ -104,7 +158,29 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
     }
 }
 
-/// Compile a CompiledExpr to bytecode
+/// Compiles a [`CompiledExpr`] to executable bytecode.
+///
+/// This is the main entry point for bytecode generation. It converts the IR
+/// expression to a VM expression tree, then delegates to the VM compiler to
+/// produce the final bytecode chunk.
+///
+/// # Returns
+///
+/// A [`BytecodeChunk`] that can be executed by the VM with an execution context
+/// providing signal values, constants, config, and kernel functions.
+///
+/// # Example
+///
+/// ```ignore
+/// let expr = CompiledExpr::Binary {
+///     op: BinaryOpIr::Add,
+///     left: Box::new(CompiledExpr::Prev),
+///     right: Box::new(CompiledExpr::Literal(1.0)),
+/// };
+///
+/// let chunk = compile(&expr);
+/// let result = continuum_vm::execute(&chunk, &my_context);
+/// ```
 pub fn compile(expr: &CompiledExpr) -> BytecodeChunk {
     let vm_expr = convert_expr(expr);
     continuum_vm::compile_expr(&vm_expr)

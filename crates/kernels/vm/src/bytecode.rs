@@ -176,7 +176,15 @@ impl BytecodeChunk {
         self.ops.len()
     }
 
-    /// Patch a jump instruction at the given offset
+    /// Patch a jump instruction at the given offset with a new target.
+    ///
+    /// This is used during bytecode generation to backpatch forward jumps
+    /// once the target offset is known (e.g., for if-else branches).
+    ///
+    /// # Panics
+    ///
+    /// Panics if the instruction at `offset` is not a jump instruction
+    /// (`JumpIfZero` or `Jump`).
     pub fn patch_jump(&mut self, offset: usize, target: u16) {
         match &mut self.ops[offset] {
             Op::JumpIfZero(t) | Op::Jump(t) => *t = target,
