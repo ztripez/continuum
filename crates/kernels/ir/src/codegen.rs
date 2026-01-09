@@ -126,6 +126,15 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
             function: function.clone(),
             args: args.iter().map(convert_expr).collect(),
         },
+        CompiledExpr::KernelCall { function, args } => {
+            // Kernel functions are converted to regular calls for the VM.
+            // The VM dispatches by name; the distinction is kept in IR for
+            // semantic analysis and potential GPU dispatch in the future.
+            Expr::Call {
+                function: format!("kernel.{}", function),
+                args: args.iter().map(convert_expr).collect(),
+            }
+        }
         CompiledExpr::DtRobustCall {
             operator,
             args,

@@ -328,6 +328,13 @@ fn check_expr_symbols(
                 check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
             }
         }
+        CompiledExpr::KernelCall { args, .. } => {
+            // Kernel functions are engine-provided, just check args
+            // TODO: Could validate that specific kernel function names are known
+            for arg in args {
+                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+            }
+        }
         CompiledExpr::Binary { left, right, .. } => {
             check_expr_symbols(left, context, defined_signals, defined_constants, defined_config, warnings);
             check_expr_symbols(right, context, defined_signals, defined_constants, defined_config, warnings);

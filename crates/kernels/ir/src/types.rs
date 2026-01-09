@@ -762,9 +762,23 @@ pub enum CompiledExpr {
         /// Operand expression.
         operand: Box<CompiledExpr>,
     },
-    /// Function call
+    /// User-defined function call
+    ///
+    /// This is kept for user-defined functions that couldn't be inlined.
+    /// Most user functions get inlined during lowering.
     Call {
         /// Name of the function.
+        function: String,
+        /// Call arguments.
+        args: Vec<CompiledExpr>,
+    },
+    /// Kernel function call (engine-provided)
+    ///
+    /// These are engine-provided primitives called via `kernel.*` syntax.
+    /// They may be GPU-accelerated and have guaranteed determinism properties.
+    /// Examples: `kernel.sqrt`, `kernel.sin`, `kernel.gravity_acceleration`.
+    KernelCall {
+        /// Name of the kernel function (without the `kernel.` prefix).
         function: String,
         /// Call arguments.
         args: Vec<CompiledExpr>,

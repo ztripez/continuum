@@ -470,13 +470,71 @@ fn test_fn_calling_kernel() {
     let signal = world.signals.get(&SignalId::from("test.result")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
 
-    // Kernel call should remain as a Call, not inlined
+    // Kernel call should be lowered to KernelCall, not inlined
     match resolve {
-        CompiledExpr::Call { function, args } => {
-            assert_eq!(function, "kernel.abs");
+        CompiledExpr::KernelCall { function, args } => {
+            assert_eq!(function, "abs");
             assert_eq!(args.len(), 1);
         }
-        _ => panic!("expected Call, got {:?}", resolve),
+        _ => panic!("expected KernelCall, got {:?}", resolve),
+    }
+}
+
+#[test]
+fn test_kernel_function_various_names() {
+    // Kernel functions with various names should all become KernelCall
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+
+        signal.test.a {
+            : strata(test)
+            resolve { kernel.sqrt(4.0) }
+        }
+
+        signal.test.b {
+            : strata(test)
+            resolve { kernel.gravity_acceleration(signal.test.a, 6e6) }
+        }
+
+        signal.test.c {
+            : strata(test)
+            resolve { kernel.mat_vec_mul(signal.test.a, signal.test.b) }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    // Check kernel.sqrt -> KernelCall("sqrt", ...)
+    let signal_a = world.signals.get(&SignalId::from("test.a")).unwrap();
+    match signal_a.resolve.as_ref().unwrap() {
+        CompiledExpr::KernelCall { function, args } => {
+            assert_eq!(function, "sqrt");
+            assert_eq!(args.len(), 1);
+        }
+        other => panic!("expected KernelCall for sqrt, got {:?}", other),
+    }
+
+    // Check kernel.gravity_acceleration -> KernelCall("gravity_acceleration", ...)
+    let signal_b = world.signals.get(&SignalId::from("test.b")).unwrap();
+    match signal_b.resolve.as_ref().unwrap() {
+        CompiledExpr::KernelCall { function, args } => {
+            assert_eq!(function, "gravity_acceleration");
+            assert_eq!(args.len(), 2);
+        }
+        other => panic!("expected KernelCall for gravity_acceleration, got {:?}", other),
+    }
+
+    // Check kernel.mat_vec_mul -> KernelCall("mat_vec_mul", ...)
+    let signal_c = world.signals.get(&SignalId::from("test.c")).unwrap();
+    match signal_c.resolve.as_ref().unwrap() {
+        CompiledExpr::KernelCall { function, args } => {
+            assert_eq!(function, "mat_vec_mul");
+            assert_eq!(args.len(), 2);
+        }
+        other => panic!("expected KernelCall for mat_vec_mul, got {:?}", other),
     }
 }
 

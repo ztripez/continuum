@@ -88,6 +88,16 @@ impl Lowerer {
                         args: lowered_args,
                         method: IntegrationMethod::default(),
                     }
+                } else if func_name.starts_with("kernel.") {
+                    // Kernel function - engine-provided primitive
+                    let kernel_name = func_name.strip_prefix("kernel.").unwrap().to_string();
+                    CompiledExpr::KernelCall {
+                        function: kernel_name,
+                        args: args
+                            .iter()
+                            .map(|a| self.lower_expr_with_locals(&a.node, locals))
+                            .collect(),
+                    }
                 } else {
                     let fn_id = FnId::from(func_name.as_str());
 
@@ -111,7 +121,7 @@ impl Lowerer {
                         }
                         result
                     } else {
-                        // Kernel function - leave as a call
+                        // Unknown function - leave as a call (will generate warning during validation)
                         CompiledExpr::Call {
                             function: func_name,
                             args: args
