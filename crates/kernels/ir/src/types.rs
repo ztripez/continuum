@@ -609,6 +609,29 @@ pub enum ValueType {
         /// Component unit (typically "1" for quaternions).
         unit: Option<String>,
     },
+    /// NxM tensor (matrices, stress/strain tensors).
+    Tensor {
+        /// Number of rows.
+        rows: u8,
+        /// Number of columns.
+        cols: u8,
+        /// Element unit (e.g., "Pa" for stress tensors).
+        unit: Option<String>,
+    },
+    /// 2D grid of values (e.g., temperature maps, heightmaps).
+    Grid {
+        /// Grid width.
+        width: u32,
+        /// Grid height.
+        height: u32,
+        /// Element type.
+        element_type: Box<ValueType>,
+    },
+    /// Ordered sequence of values.
+    Seq {
+        /// Element type.
+        element_type: Box<ValueType>,
+    },
 }
 
 /// A numeric range constraint for scalar values.

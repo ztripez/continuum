@@ -1675,3 +1675,156 @@ fn test_math_const_in_expression() {
         other => panic!("expected Binary expression, got {:?}", other),
     }
 }
+
+// ============================================================================
+// Tensor, Grid, Seq Type Tests
+// ============================================================================
+
+#[test]
+fn test_tensor_type_ast_parsing() {
+    // Test that Tensor<rows, cols, unit> is parsed correctly in AST
+    use continuum_dsl::ast::{Item, TypeExpr};
+    let src = r#"
+        type.stress {
+            tensor: Tensor<3, 3, Pa>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+
+    // Find the TypeDef in items
+    let type_def = unit
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            Item::TypeDef(td) => Some(td),
+            _ => None,
+        })
+        .expect("should have a type definition");
+
+    assert_eq!(type_def.name.node, "stress");
+    assert_eq!(type_def.fields.len(), 1);
+    match &type_def.fields[0].ty.node {
+        TypeExpr::Tensor { rows, cols, unit } => {
+            assert_eq!(rows, &3);
+            assert_eq!(cols, &3);
+            assert_eq!(unit, "Pa");
+        }
+        other => panic!("expected Tensor, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_grid_type_ast_parsing() {
+    // Test that Grid<width, height, element_type> is parsed correctly in AST
+    use continuum_dsl::ast::{Item, TypeExpr};
+    let src = r#"
+        type.temperature_map {
+            data: Grid<2048, 1024, Scalar<K>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+
+    let type_def = unit
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            Item::TypeDef(td) => Some(td),
+            _ => None,
+        })
+        .expect("should have a type definition");
+
+    assert_eq!(type_def.name.node, "temperature_map");
+    match &type_def.fields[0].ty.node {
+        TypeExpr::Grid {
+            width,
+            height,
+            element_type,
+        } => {
+            assert_eq!(width, &2048);
+            assert_eq!(height, &1024);
+            match element_type.as_ref() {
+                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "K"),
+                other => panic!("expected Scalar element type, got {:?}", other),
+            }
+        }
+        other => panic!("expected Grid, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_seq_type_ast_parsing() {
+    // Test that Seq<element_type> is parsed correctly in AST
+    use continuum_dsl::ast::{Item, TypeExpr};
+    let src = r#"
+        type.mass_list {
+            masses: Seq<Scalar<kg>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+
+    let type_def = unit
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            Item::TypeDef(td) => Some(td),
+            _ => None,
+        })
+        .expect("should have a type definition");
+
+    assert_eq!(type_def.name.node, "mass_list");
+    match &type_def.fields[0].ty.node {
+        TypeExpr::Seq { element_type } => match element_type.as_ref() {
+            TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "kg"),
+            other => panic!("expected Scalar element type, got {:?}", other),
+        },
+        other => panic!("expected Seq, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_nested_grid_seq_type_parsing() {
+    // Test nested type expressions: Seq<Grid<...>>
+    use continuum_dsl::ast::{Item, TypeExpr};
+    let src = r#"
+        type.layered_data {
+            layers: Seq<Grid<128, 128, Scalar<m>>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+
+    let type_def = unit
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            Item::TypeDef(td) => Some(td),
+            _ => None,
+        })
+        .expect("should have a type definition");
+
+    match &type_def.fields[0].ty.node {
+        TypeExpr::Seq { element_type } => match element_type.as_ref() {
+            TypeExpr::Grid {
+                width,
+                height,
+                element_type: inner,
+            } => {
+                assert_eq!(width, &128);
+                assert_eq!(height, &128);
+                match inner.as_ref() {
+                    TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "m"),
+                    other => panic!("expected Scalar, got {:?}", other),
+                }
+            }
+            other => panic!("expected Grid, got {:?}", other),
+        },
+        other => panic!("expected Seq, got {:?}", other),
+    }
+}

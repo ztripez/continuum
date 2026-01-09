@@ -81,6 +81,27 @@ impl Lowerer {
                     _ => ValueType::Scalar { unit, range: None },
                 }
             }
+            TypeExpr::Tensor { rows, cols, unit } => ValueType::Tensor {
+                rows: *rows,
+                cols: *cols,
+                unit: if unit.is_empty() {
+                    None
+                } else {
+                    Some(unit.clone())
+                },
+            },
+            TypeExpr::Grid {
+                width,
+                height,
+                element_type,
+            } => ValueType::Grid {
+                width: *width,
+                height: *height,
+                element_type: Box::new(self.lower_type_expr(element_type)),
+            },
+            TypeExpr::Seq { element_type } => ValueType::Seq {
+                element_type: Box::new(self.lower_type_expr(element_type)),
+            },
             TypeExpr::Named(_) => ValueType::Scalar {
                 unit: None,
                 range: None,

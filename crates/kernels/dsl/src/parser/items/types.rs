@@ -40,34 +40,96 @@ fn type_field<'src>() -> impl Parser<'src, &'src str, TypeField, extra::Err<Pars
 
 pub fn type_expr<'src>(
 ) -> impl Parser<'src, &'src str, TypeExpr, extra::Err<ParseError<'src>>> + Clone {
-    choice((
-        text::keyword("Scalar")
-            .ignore_then(
+    recursive(|type_expr_recurse| {
+        choice((
+            // Scalar<unit, range>
+            text::keyword("Scalar")
+                .ignore_then(
+                    just('<')
+                        .padded_by(ws())
+                        .ignore_then(unit_string())
+                        .then(just(',').padded_by(ws()).ignore_then(range()).or_not())
+                        .then_ignore(just('>').padded_by(ws())),
+                )
+                .map(|(unit, range)| TypeExpr::Scalar { unit, range }),
+            // Vec2/Vec3/Vec4<unit>
+            choice((
+                text::keyword("Vec2").to(2u8),
+                text::keyword("Vec3").to(3u8),
+                text::keyword("Vec4").to(4u8),
+            ))
+            .then(
                 just('<')
                     .padded_by(ws())
                     .ignore_then(unit_string())
-                    .then(just(',').padded_by(ws()).ignore_then(range()).or_not())
                     .then_ignore(just('>').padded_by(ws())),
             )
-            .map(|(unit, range)| TypeExpr::Scalar { unit, range }),
-        choice((
-            text::keyword("Vec2").to(2u8),
-            text::keyword("Vec3").to(3u8),
-            text::keyword("Vec4").to(4u8),
+            .map(|(dim, unit)| TypeExpr::Vector {
+                dim,
+                unit,
+                magnitude: None,
+            }),
+            // Tensor<rows, cols, unit>
+            text::keyword("Tensor")
+                .ignore_then(
+                    just('<')
+                        .padded_by(ws())
+                        .ignore_then(
+                            text::int(10)
+                                .map(|s: &str| s.parse::<u8>().unwrap_or(0))
+                                .padded_by(ws()),
+                        )
+                        .then_ignore(just(',').padded_by(ws()))
+                        .then(
+                            text::int(10)
+                                .map(|s: &str| s.parse::<u8>().unwrap_or(0))
+                                .padded_by(ws()),
+                        )
+                        .then_ignore(just(',').padded_by(ws()))
+                        .then(unit_string())
+                        .then_ignore(just('>').padded_by(ws())),
+                )
+                .map(|((rows, cols), unit)| TypeExpr::Tensor { rows, cols, unit }),
+            // Grid<width, height, element_type>
+            text::keyword("Grid")
+                .ignore_then(
+                    just('<')
+                        .padded_by(ws())
+                        .ignore_then(
+                            text::int(10)
+                                .map(|s: &str| s.parse::<u32>().unwrap_or(0))
+                                .padded_by(ws()),
+                        )
+                        .then_ignore(just(',').padded_by(ws()))
+                        .then(
+                            text::int(10)
+                                .map(|s: &str| s.parse::<u32>().unwrap_or(0))
+                                .padded_by(ws()),
+                        )
+                        .then_ignore(just(',').padded_by(ws()))
+                        .then(type_expr_recurse.clone())
+                        .then_ignore(just('>').padded_by(ws())),
+                )
+                .map(|((width, height), element_type)| TypeExpr::Grid {
+                    width,
+                    height,
+                    element_type: Box::new(element_type),
+                }),
+            // Seq<element_type>
+            text::keyword("Seq")
+                .ignore_then(
+                    just('<')
+                        .padded_by(ws())
+                        .ignore_then(type_expr_recurse)
+                        .then_ignore(just('>').padded_by(ws())),
+                )
+                .map(|element_type| TypeExpr::Seq {
+                    element_type: Box::new(element_type),
+                }),
+            // Named type
+            ident().map(TypeExpr::Named),
         ))
-        .then(
-            just('<')
-                .padded_by(ws())
-                .ignore_then(unit_string())
-                .then_ignore(just('>').padded_by(ws())),
-        )
-        .map(|(dim, unit)| TypeExpr::Vector {
-            dim,
-            unit,
-            magnitude: None,
-        }),
-        ident().map(TypeExpr::Named),
-    ))
+    })
 }
 
 fn range<'src>() -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> + Clone {

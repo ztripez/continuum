@@ -203,6 +203,29 @@ pub enum TypeExpr {
         /// Optional magnitude bounds.
         magnitude: Option<Range>,
     },
+    /// NxM tensor value: `Tensor<3,3,Pa>` (rows, cols, unit).
+    Tensor {
+        /// Number of rows.
+        rows: u8,
+        /// Number of columns.
+        cols: u8,
+        /// Element unit.
+        unit: String,
+    },
+    /// 2D grid of values: `Grid<2048, 1024, Scalar<K>>`.
+    Grid {
+        /// Grid width.
+        width: u32,
+        /// Grid height.
+        height: u32,
+        /// Element type.
+        element_type: Box<TypeExpr>,
+    },
+    /// Ordered sequence of values: `Seq<Scalar<kg>>`.
+    Seq {
+        /// Element type.
+        element_type: Box<TypeExpr>,
+    },
     /// Reference to a named type: `OrbitalElements`.
     Named(String),
 }
