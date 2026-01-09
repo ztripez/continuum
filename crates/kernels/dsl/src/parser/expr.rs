@@ -175,18 +175,18 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             },
         );
 
-        // Unary negation - now works with Spanned<Expr>
-        let unary = just('-')
-            .map_with(|_, extra| {
+        // Unary operators: negation (-) and logical not (!)
+        let unary = choice((just('-').to(UnaryOp::Neg), just('!').to(UnaryOp::Not)))
+            .map_with(|op, extra| {
                 let span: chumsky::span::SimpleSpan = extra.span();
-                span.start
+                (op, span.start)
             })
             .repeated()
-            .foldr(postfix, |neg_start, operand| {
-                let span = neg_start..operand.span.end;
+            .foldr(postfix, |(op, op_start), operand| {
+                let span = op_start..operand.span.end;
                 Spanned::new(
                     Expr::Unary {
-                        op: UnaryOp::Neg,
+                        op,
                         operand: Box::new(operand),
                     },
                     span,

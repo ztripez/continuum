@@ -1,5 +1,5 @@
 use super::*;
-use crate::ast::{BinaryOp, Expr, Item, Literal, TypeExpr};
+use crate::ast::{BinaryOp, Expr, Item, Literal, TypeExpr, UnaryOp};
 
 #[test]
 fn test_parse_const_block() {
@@ -1011,4 +1011,76 @@ signal.test.single_compare {
     let (result, errors) = parse(source);
     assert!(errors.is_empty(), "errors: {:?}", errors);
     assert!(result.is_some());
+}
+
+#[test]
+fn test_parse_logical_not_operator() {
+    // Test logical not (!) operator
+    let source = r#"
+signal.test.not_op {
+    : Scalar<1>
+    resolve {
+        if !condition {
+            1.0
+        } else {
+            0.0
+        }
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::If { condition, .. } => {
+                    // Verify condition is a unary Not expression
+                    match &condition.node {
+                        Expr::Unary { op, .. } => {
+                            assert_eq!(*op, UnaryOp::Not);
+                        }
+                        _ => panic!("expected Unary, got {:?}", condition.node),
+                    }
+                }
+                _ => panic!("expected If expression"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_double_negation() {
+    // Test double negation (--)
+    let source = r#"
+signal.test.double_neg {
+    : Scalar<1>
+    resolve {
+        --prev
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Unary { op: outer_op, operand } => {
+                    assert_eq!(*outer_op, UnaryOp::Neg);
+                    match &operand.node {
+                        Expr::Unary { op: inner_op, .. } => {
+                            assert_eq!(*inner_op, UnaryOp::Neg);
+                        }
+                        _ => panic!("expected inner Unary"),
+                    }
+                }
+                _ => panic!("expected outer Unary"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
 }
