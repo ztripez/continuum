@@ -5,10 +5,10 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{AssertBlock, AssertSeverity, Assertion, Spanned, Topology};
+use crate::ast::{AssertBlock, AssertSeverity, Assertion, Topology};
 
 use super::super::expr::spanned_expr;
-use super::super::primitives::{string_lit, ws};
+use super::super::primitives::{spanned, string_lit, ws};
 use super::super::ParseError;
 
 // === Assertions ===
@@ -41,9 +41,7 @@ fn assertion<'src>() -> impl Parser<'src, &'src str, Assertion, extra::Err<Parse
         .then(
             just(',')
                 .padded_by(ws())
-                .ignore_then(
-                    string_lit().map_with(|s, e| Spanned::new(s, e.span().into())),
-                )
+                .ignore_then(spanned(string_lit()))
                 .or_not(),
         )
         .map(|((condition, severity), message)| Assertion {

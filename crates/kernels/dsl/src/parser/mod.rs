@@ -52,7 +52,8 @@ mod primitives;
 
 use chumsky::prelude::*;
 
-use crate::ast::{CompilationUnit, Spanned};
+use crate::ast::CompilationUnit;
+use crate::ast::Spanned;
 use primitives::ws;
 
 /// A rich parse error with span and context information.
@@ -94,8 +95,9 @@ pub fn parse(source: &str) -> (Option<CompilationUnit>, Vec<ParseError<'_>>) {
 fn compilation_unit<'src>(
 ) -> impl Parser<'src, &'src str, CompilationUnit, extra::Err<ParseError<'src>>> {
     ws().ignore_then(
+        // Note: items::item() doesn't impl Clone, so we use map_with directly here
         items::item()
-            .map_with(|i, e| Spanned::new(i, e.span().into()))
+            .map_with(|item, extra| Spanned::new(item, extra.span().into()))
             .padded_by(ws())
             .repeated()
             .collect()

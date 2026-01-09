@@ -21,6 +21,8 @@ pub use continuum_foundation::{
     EntityId, EraId, FieldId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId,
 };
 
+use serde::{Deserialize, Serialize};
+
 /// The five execution phases that occur each simulation tick.
 ///
 /// Phases execute in strict order and define what operations are permitted
@@ -41,7 +43,7 @@ pub use continuum_foundation::{
 /// - Signal writes only occur during Resolve
 /// - Field emission only occurs during Measure
 /// - Fracture detection only occurs during Fracture
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Phase {
     /// Freeze execution context for the tick.
     Configure,
@@ -87,7 +89,7 @@ impl Phase {
 /// assert!(!slow.is_eligible(42));  // Not a multiple
 /// assert!(!paused.is_eligible(42)); // Never runs
 /// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StratumState {
     /// Executes every tick. Use for fast-changing phenomena.
     Active,
@@ -137,7 +139,7 @@ impl StratumState {
 /// assert_eq!(pos.component("x"), Some(1.0));
 /// assert_eq!(pos.component("z"), Some(3.0));
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     /// Single scalar value (e.g., temperature, pressure, density).
     Scalar(f64),
@@ -192,7 +194,7 @@ impl Default for Value {
 }
 
 /// Time step for the current tick
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Dt(pub f64);
 
 impl Dt {
@@ -203,7 +205,7 @@ impl Dt {
 }
 
 /// Context available during tick execution
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TickContext {
     /// Current tick number
     pub tick: u64,

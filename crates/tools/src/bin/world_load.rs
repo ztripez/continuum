@@ -12,7 +12,11 @@ use std::fs;
 use std::path::Path;
 use std::process;
 
+use tracing::{error, info};
+
 fn main() {
+    continuum_tools::init_logging();
+
     let args: Vec<String> = env::args().collect();
 
     if args.len() != 2 {
@@ -23,26 +27,23 @@ fn main() {
     let world_dir = Path::new(&args[1]);
 
     if !world_dir.exists() {
-        eprintln!("Error: directory '{}' does not exist", world_dir.display());
+        error!("Directory '{}' does not exist", world_dir.display());
         process::exit(1);
     }
 
     if !world_dir.is_dir() {
-        eprintln!("Error: '{}' is not a directory", world_dir.display());
+        error!("'{}' is not a directory", world_dir.display());
         process::exit(1);
     }
 
     // Check for world.yaml
     let world_yaml = world_dir.join("world.yaml");
     if !world_yaml.exists() {
-        eprintln!(
-            "Error: no world.yaml found in '{}'",
-            world_dir.display()
-        );
+        error!("No world.yaml found in '{}'", world_dir.display());
         process::exit(1);
     }
 
-    println!("Loading world from: {}", world_dir.display());
+    info!("Loading world from: {}", world_dir.display());
 
     // Find all .cdsl files recursively
     let mut cdsl_files = Vec::new();
@@ -51,9 +52,9 @@ fn main() {
     // Sort lexicographically for deterministic ordering
     cdsl_files.sort();
 
-    println!("Found {} .cdsl file(s):", cdsl_files.len());
+    info!("Found {} .cdsl file(s)", cdsl_files.len());
     for file in &cdsl_files {
-        println!("  - {}", file.display());
+        info!("  - {}", file.display());
     }
 
     // Parse each file
@@ -62,12 +63,12 @@ fn main() {
 
     for file in &cdsl_files {
         let rel_path = file.strip_prefix(world_dir).unwrap_or(file);
-        println!("\nParsing: {}", rel_path.display());
+        info!("Parsing: {}", rel_path.display());
 
         let source = match fs::read_to_string(file) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("  Error reading file: {}", e);
+                error!("Error reading file: {}", e);
                 has_errors = true;
                 continue;
             }
@@ -76,9 +77,9 @@ fn main() {
         let (result, parse_errors) = continuum_dsl::parse(&source);
 
         if !parse_errors.is_empty() {
-            println!("  Parse errors:");
+            error!("Parse errors in {}:", rel_path.display());
             for err in &parse_errors {
-                println!("    - {}", err);
+                error!("  - {}", err);
             }
             has_errors = true;
             continue;
@@ -87,7 +88,7 @@ fn main() {
         let unit = match result {
             Some(u) => u,
             None => {
-                println!("  Failed to produce AST");
+                error!("Failed to produce AST for {}", rel_path.display());
                 has_errors = true;
                 continue;
             }
@@ -96,29 +97,28 @@ fn main() {
         // Run validation
         let validation_errors = continuum_dsl::validate(&unit);
         if !validation_errors.is_empty() {
-            println!("  Validation errors:");
+            error!("Validation errors in {}:", rel_path.display());
             for err in &validation_errors {
-                println!("    - {}", err);
+                error!("  - {}", err);
             }
             has_errors = true;
             continue;
         }
 
-        println!("  Parsed {} item(s):", unit.items.len());
+        info!("Parsed {} item(s) in {}", unit.items.len(), rel_path.display());
         for item in &unit.items {
             let desc = describe_item(&item.node);
-            println!("    - {}", desc);
+            info!("    - {}", desc);
         }
 
         total_items += unit.items.len();
     }
 
-    println!("\n{}", "=".repeat(50));
     if has_errors {
-        println!("Completed with errors");
+        error!("Completed with errors");
         process::exit(1);
     } else {
-        println!("Successfully parsed {} total items", total_items);
+        info!("Successfully parsed {} total items", total_items);
     }
 }
 

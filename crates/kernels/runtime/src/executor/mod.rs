@@ -168,6 +168,16 @@ impl Runtime {
         &self.field_buffer
     }
 
+    /// Get current tick context (tick, dt, era)
+    pub fn tick_context(&self) -> TickContext {
+        let dt = self.eras.get(&self.current_era).map(|c| c.dt).unwrap_or(Dt(0.0));
+        TickContext {
+            tick: self.tick,
+            dt,
+            era: self.current_era.clone(),
+        }
+    }
+
     /// Drain the field buffer (for observer consumption)
     pub fn drain_fields(&mut self) -> indexmap::IndexMap<FieldId, Vec<FieldSample>> {
         self.field_buffer.drain()

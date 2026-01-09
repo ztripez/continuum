@@ -3,3 +3,4 @@
 .worktree
 .claude/.cache
 .claude/settings.local.json
+snapshots/

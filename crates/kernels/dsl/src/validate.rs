@@ -30,7 +30,7 @@
 //! }
 //! ```
 
-use crate::ast::{CompilationUnit, Expr, Item, Spanned};
+use crate::ast::{uses_dt_raw, CompilationUnit, Expr, Item, Spanned};
 
 /// A semantic validation error with source location.
 ///
@@ -279,8 +279,22 @@ fn is_known_method(name: &str, user_function_names: &std::collections::HashSet<S
     false
 }
 
-/// Recursively check an expression for unknown function calls
+/// Check an expression for unknown function calls.
+///
+/// Note: This uses manual recursion rather than the ExprVisitor pattern
+/// because it needs parent-child context (Call -> Path) for proper error
+/// spans. The visitor pattern works well for simpler checks like `uses_dt_raw`.
 fn check_expr_for_unknown_functions(
+    expr: &Spanned<Expr>,
+    user_functions: &std::collections::HashSet<String>,
+    user_function_names: &std::collections::HashSet<String>,
+    errors: &mut Vec<ValidationError>,
+) {
+    // For Call expressions, we need special handling to get the function span
+    check_expr_recursive(expr, user_functions, user_function_names, errors);
+}
+
+fn check_expr_recursive(
     expr: &Spanned<Expr>,
     user_functions: &std::collections::HashSet<String>,
     user_function_names: &std::collections::HashSet<String>,
@@ -298,201 +312,96 @@ fn check_expr_for_unknown_functions(
                     });
                 }
             }
-            // Recurse into function expression and arguments
-            check_expr_for_unknown_functions(function, user_functions, user_function_names, errors);
+            // Recurse
+            check_expr_recursive(function, user_functions, user_function_names, errors);
             for arg in args {
-                check_expr_for_unknown_functions(arg, user_functions, user_function_names, errors);
+                check_expr_recursive(arg, user_functions, user_function_names, errors);
             }
         }
         Expr::MethodCall { object, method, args } => {
-            // Method calls are lowered to Call with object as first arg
-            // Validate method name against known functions and user function names
             if !is_known_method(method, user_function_names) {
                 errors.push(ValidationError {
                     message: format!("unknown method '{}'", method),
                     span: expr.span.clone(),
                 });
             }
-            check_expr_for_unknown_functions(object, user_functions, user_function_names, errors);
+            check_expr_recursive(object, user_functions, user_function_names, errors);
             for arg in args {
-                check_expr_for_unknown_functions(arg, user_functions, user_function_names, errors);
+                check_expr_recursive(arg, user_functions, user_function_names, errors);
             }
         }
-        Expr::Binary { left, right, .. } => {
-            check_expr_for_unknown_functions(left, user_functions, user_function_names, errors);
-            check_expr_for_unknown_functions(right, user_functions, user_function_names, errors);
-        }
-        Expr::Unary { operand, .. } => {
-            check_expr_for_unknown_functions(operand, user_functions, user_function_names, errors);
-        }
-        Expr::FieldAccess { object, .. } => {
-            check_expr_for_unknown_functions(object, user_functions, user_function_names, errors);
-        }
-        Expr::Let { value, body, .. } => {
-            check_expr_for_unknown_functions(value, user_functions, user_function_names, errors);
-            check_expr_for_unknown_functions(body, user_functions, user_function_names, errors);
-        }
-        Expr::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            check_expr_for_unknown_functions(condition, user_functions, user_function_names, errors);
-            check_expr_for_unknown_functions(then_branch, user_functions, user_function_names, errors);
-            if let Some(e) = else_branch {
-                check_expr_for_unknown_functions(e, user_functions, user_function_names, errors);
-            }
-        }
-        Expr::For { iter, body, .. } => {
-            check_expr_for_unknown_functions(iter, user_functions, user_function_names, errors);
-            check_expr_for_unknown_functions(body, user_functions, user_function_names, errors);
-        }
-        Expr::Block(exprs) => {
-            for e in exprs {
-                check_expr_for_unknown_functions(e, user_functions, user_function_names, errors);
-            }
-        }
-        Expr::EmitSignal { value, .. } => {
-            check_expr_for_unknown_functions(value, user_functions, user_function_names, errors);
-        }
-        Expr::EmitField { position, value, .. } => {
-            check_expr_for_unknown_functions(position, user_functions, user_function_names, errors);
-            check_expr_for_unknown_functions(value, user_functions, user_function_names, errors);
-        }
-        Expr::Struct(fields) => {
-            for (_, e) in fields {
-                check_expr_for_unknown_functions(e, user_functions, user_function_names, errors);
-            }
-        }
-        Expr::Map { sequence, function } => {
-            check_expr_for_unknown_functions(sequence, user_functions, user_function_names, errors);
-            check_expr_for_unknown_functions(function, user_functions, user_function_names, errors);
-        }
-        Expr::Fold {
-            sequence,
-            init,
-            function,
-        } => {
-            check_expr_for_unknown_functions(sequence, user_functions, user_function_names, errors);
-            check_expr_for_unknown_functions(init, user_functions, user_function_names, errors);
-            check_expr_for_unknown_functions(function, user_functions, user_function_names, errors);
-        }
-        // Entity expressions
-        Expr::SelfField(_) | Expr::EntityRef(_) | Expr::Other(_) | Expr::Pairs(_) => {}
-        Expr::EntityAccess { instance, .. } => {
-            check_expr_for_unknown_functions(instance, user_functions, user_function_names, errors);
-        }
-        Expr::Aggregate { body, .. } => {
-            check_expr_for_unknown_functions(body, user_functions, user_function_names, errors);
-        }
-        Expr::Filter { predicate, .. } => {
-            check_expr_for_unknown_functions(predicate, user_functions, user_function_names, errors);
-        }
-        Expr::First { predicate, .. } => {
-            check_expr_for_unknown_functions(predicate, user_functions, user_function_names, errors);
-        }
-        Expr::Nearest { position, .. } => {
-            check_expr_for_unknown_functions(position, user_functions, user_function_names, errors);
-        }
-        Expr::Within {
-            position, radius, ..
-        } => {
-            check_expr_for_unknown_functions(position, user_functions, user_function_names, errors);
-            check_expr_for_unknown_functions(radius, user_functions, user_function_names, errors);
-        }
-        // These don't contain function calls
-        Expr::Literal(_)
-        | Expr::LiteralWithUnit { .. }
-        | Expr::Path(_)
-        | Expr::Prev
-        | Expr::PrevField(_)
-        | Expr::DtRaw
-        | Expr::Payload
-        | Expr::PayloadField(_)
-        | Expr::SignalRef(_)
-        | Expr::ConstRef(_)
-        | Expr::ConfigRef(_)
-        | Expr::FieldRef(_)
-        | Expr::Collected
-        | Expr::MathConst(_) => {}
-    }
-}
-
-/// Check if an expression uses dt_raw
-fn uses_dt_raw(expr: &Expr) -> bool {
-    match expr {
-        Expr::DtRaw => true,
-        Expr::Binary { left, right, .. } => {
-            uses_dt_raw(&left.node) || uses_dt_raw(&right.node)
-        }
-        Expr::Unary { operand, .. } => uses_dt_raw(&operand.node),
-        Expr::Call { function, args } => {
-            uses_dt_raw(&function.node) || args.iter().any(|a| uses_dt_raw(&a.node))
-        }
-        Expr::MethodCall { object, args, .. } => {
-            uses_dt_raw(&object.node) || args.iter().any(|a| uses_dt_raw(&a.node))
-        }
-        Expr::FieldAccess { object, .. } => uses_dt_raw(&object.node),
-        Expr::Let { value, body, .. } => {
-            uses_dt_raw(&value.node) || uses_dt_raw(&body.node)
-        }
-        Expr::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            uses_dt_raw(&condition.node)
-                || uses_dt_raw(&then_branch.node)
-                || else_branch
-                    .as_ref()
-                    .map(|e| uses_dt_raw(&e.node))
-                    .unwrap_or(false)
-        }
-        Expr::For { iter, body, .. } => {
-            uses_dt_raw(&iter.node) || uses_dt_raw(&body.node)
-        }
-        Expr::Block(exprs) => exprs.iter().any(|e| uses_dt_raw(&e.node)),
-        Expr::EmitSignal { value, .. } => uses_dt_raw(&value.node),
-        Expr::EmitField { position, value, .. } => {
-            uses_dt_raw(&position.node) || uses_dt_raw(&value.node)
-        }
-        Expr::Struct(fields) => fields.iter().any(|(_, e)| uses_dt_raw(&e.node)),
-        Expr::Map { sequence, function } => {
-            uses_dt_raw(&sequence.node) || uses_dt_raw(&function.node)
-        }
-        Expr::Fold {
-            sequence,
-            init,
-            function,
-        } => {
-            uses_dt_raw(&sequence.node)
-                || uses_dt_raw(&init.node)
-                || uses_dt_raw(&function.node)
-        }
-        // Entity expressions
-        Expr::SelfField(_) | Expr::EntityRef(_) | Expr::Other(_) | Expr::Pairs(_) => false,
-        Expr::EntityAccess { instance, .. } => uses_dt_raw(&instance.node),
-        Expr::Aggregate { body, .. } => uses_dt_raw(&body.node),
-        Expr::Filter { predicate, .. } => uses_dt_raw(&predicate.node),
-        Expr::First { predicate, .. } => uses_dt_raw(&predicate.node),
-        Expr::Nearest { position, .. } => uses_dt_raw(&position.node),
-        Expr::Within {
-            position, radius, ..
-        } => uses_dt_raw(&position.node) || uses_dt_raw(&radius.node),
-        // These don't contain dt_raw
-        Expr::Literal(_)
-        | Expr::LiteralWithUnit { .. }
-        | Expr::Path(_)
-        | Expr::Prev
-        | Expr::PrevField(_)
-        | Expr::Payload
-        | Expr::PayloadField(_)
-        | Expr::SignalRef(_)
-        | Expr::ConstRef(_)
-        | Expr::ConfigRef(_)
-        | Expr::FieldRef(_)
-        | Expr::Collected
-        | Expr::MathConst(_) => false,
+        // For other expressions, just recurse into children
+        _ => match &expr.node {
+                Expr::Binary { left, right, .. } => {
+                    check_expr_recursive(left, user_functions, user_function_names, errors);
+                    check_expr_recursive(right, user_functions, user_function_names, errors);
+                }
+                Expr::Unary { operand, .. } => {
+                    check_expr_recursive(operand, user_functions, user_function_names, errors);
+                }
+                Expr::FieldAccess { object, .. } => {
+                    check_expr_recursive(object, user_functions, user_function_names, errors);
+                }
+                Expr::Let { value, body, .. } => {
+                    check_expr_recursive(value, user_functions, user_function_names, errors);
+                    check_expr_recursive(body, user_functions, user_function_names, errors);
+                }
+                Expr::If { condition, then_branch, else_branch } => {
+                    check_expr_recursive(condition, user_functions, user_function_names, errors);
+                    check_expr_recursive(then_branch, user_functions, user_function_names, errors);
+                    if let Some(e) = else_branch {
+                        check_expr_recursive(e, user_functions, user_function_names, errors);
+                    }
+                }
+                Expr::For { iter, body, .. } => {
+                    check_expr_recursive(iter, user_functions, user_function_names, errors);
+                    check_expr_recursive(body, user_functions, user_function_names, errors);
+                }
+                Expr::Block(exprs) => {
+                    for e in exprs {
+                        check_expr_recursive(e, user_functions, user_function_names, errors);
+                    }
+                }
+                Expr::EmitSignal { value, .. } => {
+                    check_expr_recursive(value, user_functions, user_function_names, errors);
+                }
+                Expr::EmitField { position, value, .. } => {
+                    check_expr_recursive(position, user_functions, user_function_names, errors);
+                    check_expr_recursive(value, user_functions, user_function_names, errors);
+                }
+                Expr::Struct(fields) => {
+                    for (_, e) in fields {
+                        check_expr_recursive(e, user_functions, user_function_names, errors);
+                    }
+                }
+                Expr::Map { sequence, function } => {
+                    check_expr_recursive(sequence, user_functions, user_function_names, errors);
+                    check_expr_recursive(function, user_functions, user_function_names, errors);
+                }
+                Expr::Fold { sequence, init, function } => {
+                    check_expr_recursive(sequence, user_functions, user_function_names, errors);
+                    check_expr_recursive(init, user_functions, user_function_names, errors);
+                    check_expr_recursive(function, user_functions, user_function_names, errors);
+                }
+                Expr::EntityAccess { instance, .. } => {
+                    check_expr_recursive(instance, user_functions, user_function_names, errors);
+                }
+                Expr::Aggregate { body, .. } => {
+                    check_expr_recursive(body, user_functions, user_function_names, errors);
+                }
+                Expr::Filter { predicate, .. } | Expr::First { predicate, .. } => {
+                    check_expr_recursive(predicate, user_functions, user_function_names, errors);
+                }
+                Expr::Nearest { position, .. } => {
+                    check_expr_recursive(position, user_functions, user_function_names, errors);
+                }
+                Expr::Within { position, radius, .. } => {
+                    check_expr_recursive(position, user_functions, user_function_names, errors);
+                    check_expr_recursive(radius, user_functions, user_function_names, errors);
+                }
+                // Leaf nodes - no children
+                _ => {}
+            },
     }
 }
 

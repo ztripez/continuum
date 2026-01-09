@@ -11,7 +11,7 @@ use crate::ast::{
 };
 
 use super::super::expr::spanned_expr;
-use super::super::primitives::{attr_path, ident, spanned_path, ws};
+use super::super::primitives::{attr_path, ident, spanned, spanned_path, ws};
 use super::super::ParseError;
 use super::common::{assert_block, topology};
 use super::config::config_entry;
@@ -149,10 +149,9 @@ fn count_bounds<'src>(
 
 fn entity_schema_field<'src>(
 ) -> impl Parser<'src, &'src str, EntitySchemaField, extra::Err<ParseError<'src>>> + Clone {
-    ident()
-        .map_with(|i, e| Spanned::new(i, e.span().into()))
+    spanned(ident())
         .then_ignore(just(':').padded_by(ws()))
-        .then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+        .then(spanned(type_expr()))
         .map(|(name, ty)| EntitySchemaField { name, ty })
 }
 
@@ -161,7 +160,7 @@ fn entity_field_def<'src>(
     text::keyword("field")
         .padded_by(ws())
         .ignore_then(just('.'))
-        .ignore_then(ident().map_with(|i, e| Spanned::new(i, e.span().into())))
+        .ignore_then(spanned(ident()))
         .padded_by(ws())
         .then(
             entity_field_content()
@@ -202,15 +201,14 @@ fn entity_field_content<'src>(
             .padded_by(ws())
             .ignore_then(text::keyword("topology"))
             .ignore_then(
-                topology()
-                    .map_with(|t, e| Spanned::new(t, e.span().into()))
+                spanned(topology())
                     .padded_by(ws())
                     .delimited_by(just('('), just(')')),
             )
             .map(EntityFieldContent::Topology),
         just(':')
             .padded_by(ws())
-            .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+            .ignore_then(spanned(type_expr()))
             .map(EntityFieldContent::Type),
         text::keyword("measure")
             .padded_by(ws())

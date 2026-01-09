@@ -26,6 +26,8 @@ use indexmap::IndexMap;
 
 use crate::types::{EntityId, FieldId, InstanceId, SignalId, Value};
 
+use serde::{Deserialize, Serialize};
+
 /// Double-buffered storage for signal values across ticks.
 ///
 /// SignalStorage maintains two value maps: `current` (being resolved this tick)
@@ -70,7 +72,7 @@ use crate::types::{EntityId, FieldId, InstanceId, SignalId, Value};
 /// // Now 301.0 is the previous value
 /// assert_eq!(storage.get_prev(&temp), Some(&Value::Scalar(301.0)));
 /// ```
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct SignalStorage {
     /// Values resolved in the current tick.
     current: IndexMap<SignalId, Value>,
@@ -126,7 +128,7 @@ impl SignalStorage {
 }
 
 /// Accumulator for signal inputs during Collect phase
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct InputChannels {
     /// Accumulated inputs per signal
     channels: IndexMap<SignalId, Vec<f64>>,
@@ -148,7 +150,7 @@ impl InputChannels {
 }
 
 /// Queued fracture outputs for next tick
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct FractureQueue {
     /// Outputs queued for next tick's Collect
     queue: Vec<(SignalId, f64)>,
@@ -169,7 +171,7 @@ impl FractureQueue {
 }
 
 /// A single field sample (position + value)
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldSample {
     /// Position in field's coordinate space
     pub position: [f64; 3],
@@ -178,7 +180,7 @@ pub struct FieldSample {
 }
 
 /// Storage for field samples emitted during Measure phase
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct FieldBuffer {
     /// Samples per field, collected during Measure phase
     samples: IndexMap<FieldId, Vec<FieldSample>>,
@@ -225,7 +227,7 @@ impl FieldBuffer {
 }
 
 /// Data for a single entity instance
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InstanceData {
     /// Field values for this instance
     pub fields: IndexMap<String, Value>,
@@ -249,7 +251,7 @@ impl InstanceData {
 }
 
 /// All instances of a single entity type, keyed by stable InstanceId
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EntityInstances {
     /// Map from instance ID to instance data (deterministic ordering via IndexMap)
     pub instances: IndexMap<InstanceId, InstanceData>,
@@ -303,7 +305,7 @@ impl EntityInstances {
 ///
 /// Uses stable InstanceIds (not numeric indexes) for deterministic iteration
 /// across serialization/deserialization and parallel execution.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct EntityStorage {
     /// Instances resolved in the current tick
     current: IndexMap<EntityId, EntityInstances>,
