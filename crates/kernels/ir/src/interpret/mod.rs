@@ -25,7 +25,7 @@
 //! # Execution Contexts
 //!
 //! Each closure type has a corresponding context struct that implements
-//! [`ExecutionContext`] for the VM. These contexts provide access to:
+//! `ExecutionContext` for the VM. These contexts provide access to:
 //!
 //! - Previous signal value (`prev`)
 //! - Current time step (`dt`)
