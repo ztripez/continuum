@@ -176,11 +176,11 @@ impl Lowerer {
             Expr::Unary { operand, .. } => self.expr_uses_dt_raw(&operand.node),
             Expr::Call { function, args } => {
                 self.expr_uses_dt_raw(&function.node)
-                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.node))
+                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.value.node))
             }
             Expr::MethodCall { object, args, .. } => {
                 self.expr_uses_dt_raw(&object.node)
-                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.node))
+                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.value.node))
             }
             Expr::Let { value, body, .. } => {
                 self.expr_uses_dt_raw(&value.node) || self.expr_uses_dt_raw(&body.node)

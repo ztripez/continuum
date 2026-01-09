@@ -33,7 +33,7 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{AggregateOp, BinaryOp, Expr, Literal, MathConst, Spanned, UnaryOp};
+use crate::ast::{AggregateOp, BinaryOp, CallArg, Expr, Literal, MathConst, Spanned, UnaryOp};
 
 use super::primitives::{ident, number, path, string_lit, unit, ws};
 use super::ParseError;
@@ -65,9 +65,21 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         // Box the recursive expr (which returns Spanned<Expr>) to prevent type explosion
         let expr_boxed: SpannedExprBox<'src> = expr.clone().boxed();
 
-        // Arguments list for function calls - already produces Vec<Spanned<Expr>>
-        let args = expr_boxed
-            .clone()
+        // Single argument parser - handles both named (name: expr) and positional (expr)
+        // Named arguments use `name: value` syntax
+        let call_arg = choice((
+            // Named argument: name: value
+            // Use look-ahead to distinguish from a path expression followed by comparison
+            ident()
+                .then_ignore(just(':').padded_by(ws()))
+                .then(expr_boxed.clone())
+                .map(|(name, value)| CallArg::named(name, value)),
+            // Positional argument: just an expression
+            expr_boxed.clone().map(CallArg::positional),
+        ));
+
+        // Arguments list for function calls - produces Vec<CallArg>
+        let args = call_arg
             .separated_by(just(',').padded_by(ws()))
             .allow_trailing()
             .collect::<Vec<_>>()

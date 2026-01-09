@@ -6,6 +6,47 @@
 
 use super::{Path, Spanned};
 
+/// A function call argument, which can be positional or named.
+///
+/// Named arguments use the syntax `name: value`, e.g., `method: rk4`.
+/// Positional arguments are just bare expressions.
+///
+/// # Examples
+///
+/// ```text
+/// integrate(prev, rate, method: rk4)  // 'prev' and 'rate' positional, 'method' named
+/// decay(value, tau)                    // both positional
+/// relax(current, target, method: exp) // 'method' is named
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallArg {
+    /// Optional parameter name for named arguments.
+    /// `None` for positional arguments.
+    pub name: Option<String>,
+    /// The argument value expression.
+    pub value: Spanned<Expr>,
+}
+
+impl CallArg {
+    /// Creates a positional (unnamed) argument.
+    pub fn positional(value: Spanned<Expr>) -> Self {
+        Self { name: None, value }
+    }
+
+    /// Creates a named argument.
+    pub fn named(name: String, value: Spanned<Expr>) -> Self {
+        Self {
+            name: Some(name),
+            value,
+        }
+    }
+
+    /// Returns true if this is a named argument.
+    pub fn is_named(&self) -> bool {
+        self.name.is_some()
+    }
+}
+
 /// Expression node representing computations and data flow.
 ///
 /// Expressions form the core of DSL computation. They appear in resolve
@@ -71,22 +112,27 @@ pub enum Expr {
         operand: Box<Spanned<Expr>>,
     },
 
-    /// Function call: `lerp(a, b, t)`, `sin(angle)`.
+    /// Function call: `lerp(a, b, t)`, `sin(angle)`, `integrate(prev, rate, method: rk4)`.
+    ///
+    /// Arguments can be positional or named. Named arguments use `name: value` syntax
+    /// and must come after all positional arguments.
     Call {
         /// Function being called.
         function: Box<Spanned<Expr>>,
-        /// Call arguments.
-        args: Vec<Spanned<Expr>>,
+        /// Call arguments (positional and/or named).
+        args: Vec<CallArg>,
     },
 
     /// Method call on an object: `vec.normalize()`, `signal.clamp(0, 1)`.
+    ///
+    /// Arguments can be positional or named, same as function calls.
     MethodCall {
         /// Object receiving the method call.
         object: Box<Spanned<Expr>>,
         /// Method name.
         method: String,
-        /// Method arguments.
-        args: Vec<Spanned<Expr>>,
+        /// Method arguments (positional and/or named).
+        args: Vec<CallArg>,
     },
 
     /// Field access on a struct: `orbital.semi_major`, `state.position`.

@@ -405,7 +405,7 @@ fn test_parse_function_call_nested() {
                     }
                     assert_eq!(args.len(), 2);
                     // First arg should be min(prev, 1000)
-                    match &args[0].node {
+                    match &args[0].value.node {
                         Expr::Call { function, args: inner_args } => {
                             match &function.node {
                                 Expr::Path(p) => assert_eq!(p.join("."), "min"),
@@ -1476,6 +1476,147 @@ fn test_parse_not_does_not_match_notation() {
                     assert_eq!(path.join("."), "notation");
                 }
                 other => panic!("expected Path, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+// ============================================================================
+// Named Parameter Tests (#68)
+// ============================================================================
+
+#[test]
+fn test_parse_named_argument_basic() {
+    // Test single named argument: func(a, method: rk4)
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                integrate(prev, rate, method: rk4)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 3);
+                    // First two args are positional
+                    assert!(args[0].name.is_none());
+                    assert!(args[1].name.is_none());
+                    // Third arg is named
+                    assert_eq!(args[2].name.as_ref().unwrap(), "method");
+                    match &args[2].value.node {
+                        Expr::Path(p) => assert_eq!(p.join("."), "rk4"),
+                        _ => panic!("expected Path for named arg value"),
+                    }
+                }
+                other => panic!("expected Call, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_multiple_named_arguments() {
+    // Test multiple named arguments
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                relax(current, target, tau: 0.5, method: exp)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 4);
+                    // First two args are positional
+                    assert!(args[0].name.is_none());
+                    assert!(args[1].name.is_none());
+                    // Third and fourth args are named
+                    assert_eq!(args[2].name.as_ref().unwrap(), "tau");
+                    assert_eq!(args[3].name.as_ref().unwrap(), "method");
+                }
+                other => panic!("expected Call, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_only_named_arguments() {
+    // Test function call with only named arguments
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                configure(x: 1.0, y: 2.0, z: 3.0)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 3);
+                    assert_eq!(args[0].name.as_ref().unwrap(), "x");
+                    assert_eq!(args[1].name.as_ref().unwrap(), "y");
+                    assert_eq!(args[2].name.as_ref().unwrap(), "z");
+                }
+                other => panic!("expected Call, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_named_argument_with_expression_value() {
+    // Test named argument with complex expression as value
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                decay(prev, rate: config.physics.tau * 2.0)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 2);
+                    assert!(args[0].name.is_none()); // prev is positional
+                    assert_eq!(args[1].name.as_ref().unwrap(), "rate");
+                    // Value should be a binary multiplication
+                    match &args[1].value.node {
+                        Expr::Binary { op, .. } => assert_eq!(*op, BinaryOp::Mul),
+                        other => panic!("expected Binary, got {:?}", other),
+                    }
+                }
+                other => panic!("expected Call, got {:?}", other),
             }
         }
         _ => panic!("expected SignalDef"),

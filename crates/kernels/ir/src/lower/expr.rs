@@ -81,7 +81,7 @@ impl Lowerer {
                 if let Some(operator) = self.parse_dt_robust_operator(&func_name) {
                     let lowered_args: Vec<_> = args
                         .iter()
-                        .map(|a| self.lower_expr_with_locals(&a.node, locals))
+                        .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
                         .collect();
                     CompiledExpr::DtRobustCall {
                         operator,
@@ -95,7 +95,7 @@ impl Lowerer {
                         function: kernel_name,
                         args: args
                             .iter()
-                            .map(|a| self.lower_expr_with_locals(&a.node, locals))
+                            .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
                             .collect(),
                     }
                 } else {
@@ -106,7 +106,7 @@ impl Lowerer {
                         // Inline the function by wrapping body in let bindings for each param
                         let lowered_args: Vec<_> = args
                             .iter()
-                            .map(|a| self.lower_expr_with_locals(&a.node, locals))
+                            .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
                             .collect();
 
                         // Build nested let expressions: let param1 = arg1 in let param2 = arg2 in body
@@ -126,7 +126,7 @@ impl Lowerer {
                             function: func_name,
                             args: args
                                 .iter()
-                                .map(|a| self.lower_expr_with_locals(&a.node, locals))
+                                .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
                                 .collect(),
                         }
                     }
@@ -137,7 +137,7 @@ impl Lowerer {
                 // e.g., obj.method(a, b) -> method(obj, a, b)
                 let lowered_obj = self.lower_expr_with_locals(&object.node, locals);
                 let lowered_args: Vec<_> = std::iter::once(lowered_obj)
-                    .chain(args.iter().map(|a| self.lower_expr_with_locals(&a.node, locals)))
+                    .chain(args.iter().map(|a| self.lower_expr_with_locals(&a.value.node, locals)))
                     .collect();
 
                 CompiledExpr::Call {
