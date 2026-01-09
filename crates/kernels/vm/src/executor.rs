@@ -85,100 +85,100 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> f64 {
             }
 
             Op::StoreLocal(slot) => {
-                let v = *stack.last().unwrap_or(&0.0);
+                let v = *stack.last().expect("vm bug: stack underflow");
                 locals[slot as usize] = v;
             }
 
             Op::Add => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(l + r);
             }
 
             Op::Sub => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(l - r);
             }
 
             Op::Mul => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(l * r);
             }
 
             Op::Div => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(l / r);
             }
 
             Op::Pow => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(l.powf(r));
             }
 
             Op::Neg => {
-                let v = stack.pop().unwrap_or(0.0);
+                let v = stack.pop().expect("vm bug: stack underflow");
                 stack.push(-v);
             }
 
             Op::Eq => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(if (l - r).abs() < f64::EPSILON { 1.0 } else { 0.0 });
             }
 
             Op::Ne => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(if (l - r).abs() >= f64::EPSILON { 1.0 } else { 0.0 });
             }
 
             Op::Lt => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(if l < r { 1.0 } else { 0.0 });
             }
 
             Op::Le => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(if l <= r { 1.0 } else { 0.0 });
             }
 
             Op::Gt => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(if l > r { 1.0 } else { 0.0 });
             }
 
             Op::Ge => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(if l >= r { 1.0 } else { 0.0 });
             }
 
             Op::And => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(if l != 0.0 && r != 0.0 { 1.0 } else { 0.0 });
             }
 
             Op::Or => {
-                let r = stack.pop().unwrap_or(0.0);
-                let l = stack.pop().unwrap_or(0.0);
+                let r = stack.pop().expect("vm bug: stack underflow");
+                let l = stack.pop().expect("vm bug: stack underflow");
                 stack.push(if l != 0.0 || r != 0.0 { 1.0 } else { 0.0 });
             }
 
             Op::Not => {
-                let v = stack.pop().unwrap_or(0.0);
+                let v = stack.pop().expect("vm bug: stack underflow");
                 stack.push(if v == 0.0 { 1.0 } else { 0.0 });
             }
 
             Op::JumpIfZero(offset) => {
-                let v = stack.pop().unwrap_or(0.0);
+                let v = stack.pop().expect("vm bug: stack underflow");
                 if v == 0.0 {
                     ip += offset as usize;
                 }
@@ -197,7 +197,7 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> f64 {
             }
 
             Op::Dup => {
-                let v = *stack.last().unwrap_or(&0.0);
+                let v = *stack.last().expect("vm bug: stack underflow");
                 stack.push(v);
             }
 
@@ -208,7 +208,7 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> f64 {
         ip += 1;
     }
 
-    stack.pop().unwrap_or(0.0)
+    stack.pop().expect("vm bug: stack underflow")
 }
 
 #[cfg(test)]
