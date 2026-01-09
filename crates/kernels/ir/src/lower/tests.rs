@@ -475,3 +475,266 @@ fn test_dt_raw_in_nested_expr_without_declaration_fails() {
     assert!(result.is_err());
     assert!(matches!(result.unwrap_err(), LowerError::UndeclaredDtRawUsage(_)));
 }
+
+// ============================================================================
+// Error Variant Tests
+// ============================================================================
+
+// NOTE: LowerError::UndefinedStratum and LowerError::DuplicateDefinition
+// are defined but never raised by the current implementation.
+// See: https://github.com/ztripez/continuum/issues/45 (dead code)
+
+#[test]
+fn test_lower_error_display() {
+    // Test Display impl for all error variants
+    let err = LowerError::UndefinedStratum("terra".to_string());
+    assert!(err.to_string().contains("undefined stratum"));
+    assert!(err.to_string().contains("terra"));
+
+    let err = LowerError::UndefinedSignal("test.value".to_string());
+    assert!(err.to_string().contains("undefined signal"));
+    assert!(err.to_string().contains("test.value"));
+
+    let err = LowerError::DuplicateDefinition("signal.test".to_string());
+    assert!(err.to_string().contains("duplicate definition"));
+
+    let err = LowerError::MissingRequiredField("stratum".to_string());
+    assert!(err.to_string().contains("missing required field"));
+
+    let err = LowerError::InvalidExpression("bad expr".to_string());
+    assert!(err.to_string().contains("invalid expression"));
+
+    let err = LowerError::UndeclaredDtRawUsage("test.value".to_string());
+    assert!(err.to_string().contains("dt_raw"));
+    assert!(err.to_string().contains("test.value"));
+}
+
+// ============================================================================
+// Operator Lowering Tests
+// ============================================================================
+
+#[test]
+fn test_lower_operator_collect_phase() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : strata(test)
+            resolve { 0.0 }
+        }
+        operator.test.collector {
+            : strata(test)
+            collect {
+                let x = signal.test.value in
+                x
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    assert!(!world.operators.is_empty(), "operators should not be empty");
+}
+
+#[test]
+fn test_lower_operator_measure_phase() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : strata(test)
+            resolve { 0.0 }
+        }
+        operator.test.measurer {
+            : strata(test)
+            measure {
+                signal.test.value * 2.0
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    assert!(!world.operators.is_empty());
+}
+
+// ============================================================================
+// Expression Lowering Tests
+// ============================================================================
+
+#[test]
+fn test_lower_unary_negation() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.neg {
+            : strata(test)
+            resolve { -5.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.neg")).unwrap();
+    let resolve = signal.resolve.as_ref().unwrap();
+    match resolve {
+        CompiledExpr::Unary { .. } | CompiledExpr::Literal(_) => {}
+        _ => panic!("expected Unary or Literal, got {:?}", resolve),
+    }
+}
+
+#[test]
+fn test_lower_comparison_ops() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.compare {
+            : strata(test)
+            resolve {
+                if 5.0 > 3.0 { 1.0 } else { 0.0 }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.compare")).unwrap();
+    assert!(signal.resolve.is_some());
+}
+
+#[test]
+fn test_lower_nested_if() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.nested {
+            : strata(test)
+            resolve {
+                if 1.0 > 0.0 {
+                    if 2.0 > 1.0 { 100.0 } else { 50.0 }
+                } else {
+                    0.0
+                }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.nested")).unwrap();
+    assert!(signal.resolve.is_some());
+}
+
+#[test]
+fn test_lower_all_binary_ops() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.ops {
+            : strata(test)
+            resolve {
+                let a = 10.0 in
+                let b = 3.0 in
+                let add = a + b in
+                let sub = a - b in
+                let mul = a * b in
+                let div = a / b in
+                div
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.ops")).unwrap();
+    assert!(signal.resolve.is_some());
+}
+
+#[test]
+fn test_lower_prev_reference() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.accumulator {
+            : strata(test)
+            resolve { prev + 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.accumulator")).unwrap();
+    let resolve = signal.resolve.as_ref().unwrap();
+    match resolve {
+        CompiledExpr::Binary { left, .. } => {
+            assert!(matches!(left.as_ref(), CompiledExpr::Prev));
+        }
+        _ => panic!("expected Binary with Prev, got {:?}", resolve),
+    }
+}
+
+// ============================================================================
+// Complex Signal Dependencies
+// ============================================================================
+
+#[test]
+fn test_multi_signal_dependency_chain() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.a {
+            : strata(test)
+            resolve { 1.0 }
+        }
+        signal.test.b {
+            : strata(test)
+            resolve { signal.test.a * 2.0 }
+        }
+        signal.test.c {
+            : strata(test)
+            resolve { signal.test.a + signal.test.b }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let c = world.signals.get(&SignalId::from("test.c")).unwrap();
+    assert!(c.reads.contains(&SignalId::from("test.a")));
+    assert!(c.reads.contains(&SignalId::from("test.b")));
+}
+
+#[test]
+fn test_signal_self_reference_via_prev() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.counter {
+            : strata(test)
+            resolve { prev + 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.counter")).unwrap();
+    // prev doesn't create a read dependency on other signals
+    assert!(signal.reads.is_empty() || !signal.reads.contains(&SignalId::from("test.counter")));
+}
