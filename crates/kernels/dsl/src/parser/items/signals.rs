@@ -13,7 +13,7 @@ use crate::ast::{
 };
 
 use super::super::expr::spanned_expr;
-use super::super::primitives::{attr_flag, attr_path, attr_string, spanned_path, ws};
+use super::super::primitives::{attr_flag, attr_path, attr_string, spanned, spanned_path, ws};
 use super::super::ParseError;
 use super::common::{assert_block, topology};
 use super::config::{config_entry, const_entry};
@@ -97,7 +97,7 @@ fn signal_content<'src>(
             .to(SignalContent::DtRaw),
         just(':')
             .padded_by(ws())
-            .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+            .ignore_then(spanned(type_expr()))
             .map(SignalContent::Type),
         text::keyword("const")
             .padded_by(ws())
@@ -188,8 +188,7 @@ fn field_content<'src>() -> impl Parser<'src, &'src str, FieldContent, extra::Er
             .padded_by(ws())
             .ignore_then(text::keyword("topology"))
             .ignore_then(
-                topology()
-                    .map_with(|t, e| Spanned::new(t, e.span().into()))
+                spanned(topology())
                     .padded_by(ws())
                     .delimited_by(just('('), just(')')),
             )
@@ -198,7 +197,7 @@ fn field_content<'src>() -> impl Parser<'src, &'src str, FieldContent, extra::Er
         attr_string("symbol").map(FieldContent::Symbol),
         just(':')
             .padded_by(ws())
-            .ignore_then(type_expr().map_with(|t, e| Spanned::new(t, e.span().into())))
+            .ignore_then(spanned(type_expr()))
             .map(FieldContent::Type),
         text::keyword("measure")
             .padded_by(ws())
@@ -263,15 +262,11 @@ fn operator_content<'src>(
             .padded_by(ws())
             .ignore_then(text::keyword("phase"))
             .ignore_then(
-                choice((
+                spanned(choice((
                     text::keyword("warmup").to(OperatorPhase::Warmup),
                     text::keyword("collect").to(OperatorPhase::Collect),
                     text::keyword("measure").to(OperatorPhase::Measure),
-                ))
-                .map_with(|p, e| {
-                    let span: chumsky::span::SimpleSpan = e.span();
-                    Spanned::new(p, span.start..span.end)
-                })
+                )))
                 .padded_by(ws())
                 .delimited_by(just('('), just(')')),
             )
