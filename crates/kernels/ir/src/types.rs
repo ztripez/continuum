@@ -30,7 +30,7 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId};
+use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId};
 
 /// The complete compiled simulation world, ready for DAG construction.
 ///
@@ -87,6 +87,8 @@ pub struct CompiledWorld {
     pub fractures: IndexMap<FractureId, CompiledFracture>,
     /// Entity definitions
     pub entities: IndexMap<EntityId, CompiledEntity>,
+    /// Chronicle definitions (observer-only event recording)
+    pub chronicles: IndexMap<ChronicleId, CompiledChronicle>,
 }
 
 /// A compiled stratum definition representing a simulation layer.
@@ -453,6 +455,60 @@ pub struct CompiledEntityField {
     pub topology: TopologyIr,
     /// The measure expression
     pub measure: Option<CompiledExpr>,
+}
+
+/// A compiled chronicle definition for observer-only event recording.
+///
+/// Chronicles observe simulation state and emit events for logging, analytics,
+/// or user notification. They are strictly non-causal - removing all chronicles
+/// must not change simulation results.
+///
+/// # Observer Boundary
+///
+/// Chronicles execute during the Measure phase and can only read signal values.
+/// They cannot:
+/// - Write to signals
+/// - Emit impulses
+/// - Affect any causal state
+///
+/// # Event Emission
+///
+/// When an observation handler's condition evaluates to true (non-zero), the
+/// chronicle emits a structured event with the specified name and payload fields.
+#[derive(Debug, Clone)]
+pub struct CompiledChronicle {
+    /// Unique identifier for the chronicle.
+    pub id: ChronicleId,
+    /// Signals this chronicle reads for its observation handlers.
+    pub reads: Vec<SignalId>,
+    /// Observation handlers that emit events when conditions are met.
+    pub handlers: Vec<CompiledObserveHandler>,
+}
+
+/// An observation handler within a chronicle.
+///
+/// Each handler watches for a specific condition and emits a named event
+/// with structured payload when the condition is met.
+#[derive(Debug, Clone)]
+pub struct CompiledObserveHandler {
+    /// Condition that must be true (non-zero) to emit the event.
+    pub condition: CompiledExpr,
+    /// Name of the event to emit (e.g., "supercontinent_formed").
+    pub event_name: String,
+    /// Payload fields for the emitted event.
+    pub event_fields: Vec<CompiledEventField>,
+}
+
+/// A field within a chronicle event payload.
+///
+/// Each field has a name and an expression that computes its value
+/// when the event is emitted.
+#[derive(Debug, Clone)]
+pub struct CompiledEventField {
+    /// Name of the field in the event payload.
+    pub name: String,
+    /// Expression to compute the field value.
+    pub value: CompiledExpr,
 }
 
 /// Warmup configuration for signal initialization.

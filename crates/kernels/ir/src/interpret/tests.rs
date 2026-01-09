@@ -72,6 +72,7 @@ fn test_build_fracture() {
         impulses: IndexMap::new(),
         fractures: IndexMap::new(),
         entities: IndexMap::new(),
+        chronicles: IndexMap::new(),
     };
 
     // Create a fracture that triggers when temp > 100 and emits to energy

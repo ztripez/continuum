@@ -47,6 +47,7 @@
 //! with `: uses(dt_raw)`. This enables dt-robustness auditing to track signals
 //! whose behavior depends on the time step size.
 
+mod chronicles;
 mod convert;
 mod deps;
 mod entities;
@@ -64,12 +65,13 @@ use thiserror::Error;
 
 use continuum_dsl::ast::{CompilationUnit, Item};
 use continuum_foundation::{
-    EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId, StratumId,
+    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId,
+    StratumId,
 };
 
 use crate::{
-    CompiledEntity, CompiledEra, CompiledField, CompiledFn, CompiledFracture, CompiledImpulse,
-    CompiledOperator, CompiledSignal, CompiledStratum, CompiledWorld,
+    CompiledChronicle, CompiledEntity, CompiledEra, CompiledField, CompiledFn, CompiledFracture,
+    CompiledImpulse, CompiledOperator, CompiledSignal, CompiledStratum, CompiledWorld,
 };
 
 /// Errors that can occur during the lowering phase.
@@ -167,6 +169,7 @@ pub(crate) struct Lowerer {
     pub(crate) impulses: IndexMap<ImpulseId, CompiledImpulse>,
     pub(crate) fractures: IndexMap<FractureId, CompiledFracture>,
     pub(crate) entities: IndexMap<EntityId, CompiledEntity>,
+    pub(crate) chronicles: IndexMap<ChronicleId, CompiledChronicle>,
 }
 
 impl Lowerer {
@@ -183,6 +186,7 @@ impl Lowerer {
             impulses: IndexMap::new(),
             fractures: IndexMap::new(),
             entities: IndexMap::new(),
+            chronicles: IndexMap::new(),
         }
     }
 
@@ -211,6 +215,7 @@ impl Lowerer {
             impulses: self.impulses,
             fractures: self.fractures,
             entities: self.entities,
+            chronicles: self.chronicles,
         }
     }
 
@@ -265,7 +270,7 @@ impl Lowerer {
             }
         }
 
-        // Third pass: signals, fields, operators, impulses, fractures, entities
+        // Third pass: signals, fields, operators, impulses, fractures, entities, chronicles
         for item in &unit.items {
             match &item.node {
                 Item::SignalDef(def) => self.lower_signal(def)?,
@@ -274,6 +279,7 @@ impl Lowerer {
                 Item::ImpulseDef(def) => self.lower_impulse(def)?,
                 Item::FractureDef(def) => self.lower_fracture(def)?,
                 Item::EntityDef(def) => self.lower_entity(def)?,
+                Item::ChronicleDef(def) => self.lower_chronicle(def)?,
                 _ => {}
             }
         }

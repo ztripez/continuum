@@ -9,8 +9,8 @@ pub mod stable_hash;
 
 // Re-export ID types at crate root
 pub use ids::{
-    EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId,
-    StratumId,
+    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId,
+    SignalId, StratumId,
 };
 
 // Re-export stable hash items at crate root

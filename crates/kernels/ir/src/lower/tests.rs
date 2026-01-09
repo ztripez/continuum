@@ -1126,3 +1126,180 @@ fn test_lower_entity_multiple_fields() {
     assert_eq!(entity.fields[1].name, "velocity");
     assert_eq!(entity.fields[2].name, "energy");
 }
+
+// ============================================================================
+// Chronicle Lowering Tests
+// ============================================================================
+
+use continuum_foundation::ChronicleId;
+
+#[test]
+fn test_lower_chronicle_basic() {
+    let src = r#"
+        strata.thermal {}
+        era.main { : initial }
+        signal.thermal.temp {
+            : strata(thermal)
+            resolve { prev + 1.0 }
+        }
+        chronicle.thermal.events {
+            observe {
+                when { signal.thermal.temp > 100.0 } {
+                    event.overheating {
+                        temp: signal.thermal.temp
+                    }
+                }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    assert_eq!(chronicle.id.0, "thermal.events");
+    assert_eq!(chronicle.handlers.len(), 1);
+}
+
+#[test]
+fn test_lower_chronicle_with_multiple_handlers() {
+    let src = r#"
+        strata.thermal {}
+        era.main { : initial }
+        signal.thermal.temp {
+            : strata(thermal)
+            resolve { prev }
+        }
+        chronicle.thermal.events {
+            observe {
+                when { signal.thermal.temp > 500.0 } {
+                    event.critical_temp {
+                        temp: signal.thermal.temp
+                    }
+                }
+                when { signal.thermal.temp < 100.0 } {
+                    event.cold_snap {
+                        temp: signal.thermal.temp
+                    }
+                }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    assert_eq!(chronicle.handlers.len(), 2);
+    assert_eq!(chronicle.handlers[0].event_name, "critical_temp");
+    assert_eq!(chronicle.handlers[1].event_name, "cold_snap");
+}
+
+#[test]
+fn test_lower_chronicle_collects_signal_reads() {
+    let src = r#"
+        strata.thermal {}
+        era.main { : initial }
+        signal.thermal.temp {
+            : strata(thermal)
+            resolve { prev }
+        }
+        signal.thermal.pressure {
+            : strata(thermal)
+            resolve { prev }
+        }
+        chronicle.thermal.events {
+            observe {
+                when { signal.thermal.temp > 100.0 } {
+                    event.status {
+                        temp: signal.thermal.temp
+                        pressure: signal.thermal.pressure
+                    }
+                }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    assert!(chronicle.reads.contains(&SignalId::from("thermal.temp")));
+    assert!(chronicle.reads.contains(&SignalId::from("thermal.pressure")));
+}
+
+#[test]
+fn test_lower_chronicle_event_fields() {
+    let src = r#"
+        strata.thermal {}
+        era.main { : initial }
+        signal.thermal.temp {
+            : strata(thermal)
+            resolve { prev }
+        }
+        chronicle.thermal.events {
+            observe {
+                when { signal.thermal.temp > 100.0 } {
+                    event.reading {
+                        temperature: signal.thermal.temp
+                        doubled: signal.thermal.temp * 2.0
+                    }
+                }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    let handler = &chronicle.handlers[0];
+    assert_eq!(handler.event_fields.len(), 2);
+    assert_eq!(handler.event_fields[0].name, "temperature");
+    assert_eq!(handler.event_fields[1].name, "doubled");
+}
+
+#[test]
+fn test_duplicate_chronicle_definition() {
+    let src = r#"
+        era.main { : initial }
+        chronicle.thermal.events {
+            observe {}
+        }
+        chronicle.thermal.events {
+            observe {}
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::DuplicateDefinition(name) => {
+            assert!(name.contains("thermal.events"), "got: {}", name);
+        }
+        e => panic!("expected DuplicateDefinition, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_lower_chronicle_empty_observe() {
+    let src = r#"
+        era.main { : initial }
+        chronicle.thermal.events {}
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    assert!(chronicle.handlers.is_empty());
+    assert!(chronicle.reads.is_empty());
+}
