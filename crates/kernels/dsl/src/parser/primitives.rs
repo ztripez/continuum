@@ -187,26 +187,6 @@ pub fn optional_unit<'src>(
         .or_not()
 }
 
-// === Span helper (DRY for map_with span extraction) ===
-
-/// Wrap any parser to add span information.
-///
-/// This helper eliminates the verbose pattern:
-/// ```ignore
-/// parser.map_with(|x, e| Spanned::new(x, e.span().into()))
-/// ```
-///
-/// Note: The returned parser does NOT implement Clone. For parsers that need
-/// Clone (like those used in attr_* helpers), use the manual pattern above.
-pub fn spanned<'src, O, P>(
-    parser: P,
-) -> impl Parser<'src, &'src str, Spanned<O>, extra::Err<ParseError<'src>>>
-where
-    P: Parser<'src, &'src str, O, extra::Err<ParseError<'src>>>,
-{
-    parser.map_with(|val, e| Spanned::new(val, e.span().into()))
-}
-
 // === Common attribute parsers (DRY helpers) ===
 
 /// Parse `: keyword(string_lit)` pattern used for title/symbol attributes
