@@ -1068,6 +1068,8 @@ pub struct RefinementRequestSpec {
 mod tests {
     use super::*;
     use continuum_foundation::Value;
+    #[cfg(feature = "gpu")]
+    use continuum_gpu::GpuContext;
 
     fn sample(v: f64) -> FieldSample {
         FieldSample {
@@ -1485,6 +1487,47 @@ mod tests {
             .query_vector(&field_id, [0.0, 0.0, 0.0], 1.5)
             .expect("query vector");
         assert_eq!(vec, [0.0, 0.0, 0.0]);
+    }
+
+    #[cfg(feature = "gpu")]
+    #[test]
+    #[ignore = "requires GPU"]
+    fn gpu_batch_matches_cpu() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.temp".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![
+                FieldSample {
+                    position: [0.0, 0.0, 0.0],
+                    value: Value::Scalar(10.0),
+                },
+                FieldSample {
+                    position: [1.0, 0.0, 0.0],
+                    value: Value::Scalar(20.0),
+                },
+            ],
+        });
+
+        let cpu = lens
+            .query_batch(&field_id, &[[0.1, 0.0, 0.0], [0.9, 0.0, 0.0]], 1)
+            .expect("cpu batch");
+
+        let mut lens_gpu = lens;
+        let backend = super::gpu::GpuLensBackend::new(GpuContext::new().unwrap());
+        lens_gpu.set_gpu_backend(backend);
+        let gpu = lens_gpu
+            .query_batch(&field_id, &[[0.1, 0.0, 0.0], [0.9, 0.0, 0.0]], 1)
+            .expect("gpu batch");
+
+        assert_eq!(cpu, gpu);
     }
 
     #[test]
