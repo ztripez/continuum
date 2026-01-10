@@ -226,4 +226,111 @@ mod tests {
 
         assert!(validate_ssa(&func).is_ok());
     }
+
+    #[test]
+    fn test_validate_duplicate_definition() {
+        let mut func = SsaFunction::new();
+        // Manually create a function where VReg(0) is defined twice
+        let reg = VReg(0);
+        func.vreg_count = 1;
+
+        // First definition
+        func.block_mut(BlockId(0))
+            .push(SsaInstruction::LoadConst { dst: reg, value: 1.0 });
+        // Second definition of same register (violation)
+        func.block_mut(BlockId(0))
+            .push(SsaInstruction::LoadConst { dst: reg, value: 2.0 });
+        func.block_mut(BlockId(0))
+            .terminate(Terminator::Return(reg));
+
+        let errors = validate_ssa(&func).unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| matches!(e, SsaValidationError::DuplicateDefinition { reg: r } if *r == reg)));
+    }
+
+    #[test]
+    fn test_validate_incomplete_phi() {
+        let mut func = SsaFunction::new();
+
+        // Block 0: branch to blocks 1 and 2
+        let cond = func.alloc_vreg();
+        func.block_mut(BlockId(0))
+            .push(SsaInstruction::LoadConst { dst: cond, value: 1.0 });
+
+        let then_block = func.alloc_block();
+        let else_block = func.alloc_block();
+        let merge_block = func.alloc_block();
+
+        func.block_mut(BlockId(0)).terminate(Terminator::Branch {
+            cond,
+            then_block,
+            else_block,
+        });
+
+        // Block 1 (then): jump to merge
+        let then_val = func.alloc_vreg();
+        func.block_mut(then_block)
+            .push(SsaInstruction::LoadConst {
+                dst: then_val,
+                value: 1.0,
+            });
+        func.block_mut(then_block)
+            .terminate(Terminator::Jump(merge_block));
+
+        // Block 2 (else): jump to merge
+        let else_val = func.alloc_vreg();
+        func.block_mut(else_block)
+            .push(SsaInstruction::LoadConst {
+                dst: else_val,
+                value: 2.0,
+            });
+        func.block_mut(else_block)
+            .terminate(Terminator::Jump(merge_block));
+
+        // Block 3 (merge): phi missing arm for else_block (violation)
+        let result = func.alloc_vreg();
+        func.block_mut(merge_block).push(SsaInstruction::Phi {
+            dst: result,
+            // Only arm for then_block, missing else_block
+            arms: vec![(then_block, then_val)],
+        });
+        func.block_mut(merge_block)
+            .terminate(Terminator::Return(result));
+
+        let errors = validate_ssa(&func).unwrap_err();
+        assert!(errors.iter().any(|e| matches!(
+            e,
+            SsaValidationError::IncompletePhi { block, missing_pred }
+            if *block == merge_block && *missing_pred == else_block
+        )));
+    }
+
+    #[test]
+    fn test_validate_unreachable_block() {
+        let mut func = SsaFunction::new();
+
+        // Block 0: return immediately
+        let val = func.alloc_vreg();
+        func.block_mut(BlockId(0))
+            .push(SsaInstruction::LoadConst { dst: val, value: 1.0 });
+        func.block_mut(BlockId(0))
+            .terminate(Terminator::Return(val));
+
+        // Block 1: unreachable (no predecessors, not entry block)
+        let unreachable_block = func.alloc_block();
+        let unreachable_val = func.alloc_vreg();
+        func.block_mut(unreachable_block)
+            .push(SsaInstruction::LoadConst {
+                dst: unreachable_val,
+                value: 999.0,
+            });
+        func.block_mut(unreachable_block)
+            .terminate(Terminator::Return(unreachable_val));
+
+        let errors = validate_ssa(&func).unwrap_err();
+        assert!(errors.iter().any(
+            |e| matches!(e, SsaValidationError::UnreachableBlock { block } if *block == unreachable_block)
+        ));
+    }
 }
