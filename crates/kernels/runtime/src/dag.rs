@@ -1126,6 +1126,154 @@ mod tests {
         assert!(verify_barrier_semantics(&dag).is_ok());
     }
 
+    #[test]
+    fn test_verify_barrier_semantics_rejects_aggregate_before_member() {
+        // Manually construct a DAG where aggregate is at the SAME level
+        // as member signal resolve (violation: aggregate should be AFTER member)
+        // The member node must appear first in the level so it's registered
+        // before the aggregate is processed.
+        let member_signal = MemberSignalId {
+            entity_id: EntityId("entity".to_string()),
+            signal_name: "value".to_string(),
+        };
+        let output_signal = SignalId("sum".to_string());
+
+        // Member signal resolve - processed first within level 0
+        let member_node = DagNode {
+            id: NodeId("member.entity.value".to_string()),
+            reads: HashSet::new(),
+            writes: None,
+            kind: NodeKind::MemberSignalResolve {
+                member_signal: member_signal.clone(),
+                kernel_idx: 0,
+            },
+        };
+
+        // Aggregate at same level - WRONG: should be at a later level
+        let aggregate_node = DagNode {
+            id: NodeId("agg.sum".to_string()),
+            reads: HashSet::new(),
+            writes: Some(output_signal.clone()),
+            kind: NodeKind::PopulationAggregate {
+                entity_id: EntityId("entity".to_string()),
+                member_signal: member_signal.clone(),
+                reduction_op: ReductionOp::Sum,
+                output_signal: output_signal.clone(),
+                aggregate_idx: 0,
+            },
+        };
+
+        let dag = ExecutableDag {
+            phase: Phase::Resolve,
+            stratum: StratumId("test".to_string()),
+            levels: vec![Level {
+                // Member first so it's registered before aggregate is checked
+                nodes: vec![member_node, aggregate_node],
+            }],
+        };
+
+        let result = verify_barrier_semantics(&dag);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            BarrierViolation::AggregateBeforeMemberSignal {
+                aggregate_signal,
+                member_signal: err_member,
+                aggregate_level,
+                member_level,
+            } => {
+                assert_eq!(aggregate_signal, output_signal);
+                assert_eq!(err_member, member_signal);
+                // Both at level 0 - aggregate is not AFTER member
+                assert_eq!(aggregate_level, 0);
+                assert_eq!(member_level, 0);
+            }
+            other => panic!("Expected AggregateBeforeMemberSignal, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_verify_barrier_semantics_rejects_signal_before_aggregate() {
+        // Construct a DAG where a signal reading from aggregate
+        // is at the same level as the aggregate (wrong order)
+        let member_signal = MemberSignalId {
+            entity_id: EntityId("entity".to_string()),
+            signal_name: "value".to_string(),
+        };
+        let aggregate_signal = SignalId("sum".to_string());
+        let derived_signal = SignalId("derived".to_string());
+
+        // Level 0: Member signal resolve
+        let member_node = DagNode {
+            id: NodeId("member.entity.value".to_string()),
+            reads: HashSet::new(),
+            writes: None,
+            kind: NodeKind::MemberSignalResolve {
+                member_signal: member_signal.clone(),
+                kernel_idx: 0,
+            },
+        };
+
+        // Level 1: Both aggregate AND signal reading aggregate (WRONG - signal should be after)
+        let aggregate_node = DagNode {
+            id: NodeId("agg.sum".to_string()),
+            reads: HashSet::new(),
+            writes: Some(aggregate_signal.clone()),
+            kind: NodeKind::PopulationAggregate {
+                entity_id: EntityId("entity".to_string()),
+                member_signal: member_signal.clone(),
+                reduction_op: ReductionOp::Sum,
+                output_signal: aggregate_signal.clone(),
+                aggregate_idx: 0,
+            },
+        };
+
+        let derived_node = DagNode {
+            id: NodeId("sig.derived".to_string()),
+            reads: {
+                let mut reads = HashSet::new();
+                reads.insert(aggregate_signal.clone());
+                reads
+            },
+            writes: Some(derived_signal.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: derived_signal.clone(),
+                resolver_idx: 0,
+            },
+        };
+
+        let dag = ExecutableDag {
+            phase: Phase::Resolve,
+            stratum: StratumId("test".to_string()),
+            levels: vec![
+                Level {
+                    nodes: vec![member_node],
+                },
+                Level {
+                    nodes: vec![aggregate_node, derived_node],
+                },
+            ],
+        };
+
+        let result = verify_barrier_semantics(&dag);
+        assert!(result.is_err());
+
+        match result.unwrap_err() {
+            BarrierViolation::SignalBeforeAggregate {
+                signal,
+                aggregate_signal: err_agg,
+                signal_level,
+                aggregate_level,
+            } => {
+                assert_eq!(signal, derived_signal);
+                assert_eq!(err_agg, aggregate_signal);
+                assert_eq!(signal_level, 1);
+                assert_eq!(aggregate_level, 1);
+            }
+            other => panic!("Expected SignalBeforeAggregate, got {:?}", other),
+        }
+    }
+
     // ========================================================================
     // Stratum Eligibility Tests
     // ========================================================================
