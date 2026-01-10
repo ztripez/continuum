@@ -78,11 +78,11 @@ use contexts::{
 ///
 /// A map from era IDs to their runtime configurations, suitable for use
 /// by the simulation executor.
-pub fn build_era_configs(world: &CompiledWorld) -> HashMap<EraId, EraConfig> {
-    let mut configs = HashMap::new();
+pub fn build_era_configs(world: &CompiledWorld) -> IndexMap<EraId, EraConfig> {
+    let mut configs = IndexMap::new();
 
     for (era_id, era) in &world.eras {
-        let mut strata = HashMap::new();
+        let mut strata = IndexMap::new();
         for (stratum_id, state) in &era.strata_states {
             let runtime_state = match state {
                 StratumStateIr::Active => StratumState::Active,
