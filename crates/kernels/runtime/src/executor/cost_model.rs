@@ -578,4 +578,276 @@ mod tests {
         assert!(score.total_score > 0.0);
         assert_eq!(strategy, LoweringStrategy::VectorKernel);
     }
+
+    // ========================================================================
+    // L1/L2/L3 Strategy Boundary Tests
+    // ========================================================================
+
+    #[test]
+    fn test_l2_boundary_at_threshold() {
+        let model = CostModel::default();
+        let bytecode = compile_simple_expr();
+        let score = model.analyze(&bytecode);
+
+        // Verify threshold value
+        assert_eq!(model.l2_population_threshold, 50_000);
+
+        // Exactly at L2 threshold with simple expr = L2
+        let strategy = model.select_strategy(&score, 50_000);
+        assert_eq!(
+            strategy,
+            LoweringStrategy::VectorKernel,
+            "At L2 threshold with simple expr should select L2"
+        );
+
+        // Just below L2 threshold = L1 (mid-range)
+        let strategy = model.select_strategy(&score, 49_999);
+        assert_eq!(
+            strategy,
+            LoweringStrategy::InstanceParallel,
+            "Just below L2 threshold should select L1"
+        );
+    }
+
+    #[test]
+    fn test_l3_boundary_at_threshold() {
+        // Create model with low heavy threshold to ensure complex expr qualifies
+        let model = CostModel {
+            thresholds: ComplexityThresholds {
+                heavy_score_threshold: 10.0, // Low threshold so complex expr is heavy
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let bytecode = compile_complex_expr();
+        let score = model.analyze(&bytecode);
+
+        // Verify threshold value
+        assert_eq!(model.l3_population_threshold, 2_000);
+
+        // Confirm the expression is heavy
+        assert!(
+            score.is_heavy(&model.thresholds),
+            "Complex expr should be heavy"
+        );
+
+        // At L3 threshold with heavy expr = L3
+        let strategy = model.select_strategy(&score, 2_000);
+        assert_eq!(
+            strategy,
+            LoweringStrategy::SubDag,
+            "At L3 threshold with heavy expr should select L3"
+        );
+
+        // Just above L3 threshold = L1 (mid-range)
+        let strategy = model.select_strategy(&score, 2_001);
+        assert_eq!(
+            strategy,
+            LoweringStrategy::InstanceParallel,
+            "Just above L3 threshold should select L1 (mid-range)"
+        );
+    }
+
+    #[test]
+    fn test_strategy_all_combinations() {
+        // Document all population x complexity combinations
+        let model = CostModel {
+            thresholds: ComplexityThresholds {
+                heavy_score_threshold: 10.0, // Ensure complex expr is "heavy"
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let simple_bytecode = compile_simple_expr();
+        let simple_score = model.analyze(&simple_bytecode);
+
+        let complex_bytecode = compile_complex_expr();
+        let complex_score = model.analyze(&complex_bytecode);
+
+        // Verify classification
+        assert!(simple_score.is_simple(&model.thresholds), "simple should be simple");
+        assert!(!complex_score.is_simple(&model.thresholds), "complex should not be simple");
+        assert!(complex_score.is_heavy(&model.thresholds), "complex should be heavy");
+
+        // === Large population (>= 50k) ===
+        // Simple → L2
+        assert_eq!(
+            model.select_strategy(&simple_score, 100_000),
+            LoweringStrategy::VectorKernel,
+            "Large + Simple = L2"
+        );
+        // Complex → L1
+        assert_eq!(
+            model.select_strategy(&complex_score, 100_000),
+            LoweringStrategy::InstanceParallel,
+            "Large + Complex = L1"
+        );
+
+        // === Mid-range population (2k-50k) ===
+        // Simple → L1
+        assert_eq!(
+            model.select_strategy(&simple_score, 10_000),
+            LoweringStrategy::InstanceParallel,
+            "Mid-range + Simple = L1"
+        );
+        // Complex → L1
+        assert_eq!(
+            model.select_strategy(&complex_score, 10_000),
+            LoweringStrategy::InstanceParallel,
+            "Mid-range + Complex = L1"
+        );
+
+        // === Small population (<= 2k) ===
+        // Simple + Light → L1
+        assert_eq!(
+            model.select_strategy(&simple_score, 500),
+            LoweringStrategy::InstanceParallel,
+            "Small + Light = L1"
+        );
+        // Complex + Heavy → L3
+        assert_eq!(
+            model.select_strategy(&complex_score, 500),
+            LoweringStrategy::SubDag,
+            "Small + Heavy = L3"
+        );
+    }
+
+    #[test]
+    fn test_l2_unavailable_falls_back_to_l1() {
+        let model = CostModel {
+            l2_available: false,
+            ..Default::default()
+        };
+
+        let bytecode = compile_simple_expr();
+        let score = model.analyze(&bytecode);
+
+        // Large population + simple expr but L2 unavailable = L1
+        let strategy = model.select_strategy(&score, 100_000);
+        assert_eq!(
+            strategy,
+            LoweringStrategy::InstanceParallel,
+            "L2 unavailable should fall back to L1"
+        );
+    }
+
+    #[test]
+    fn test_l3_unavailable_falls_back_to_l1() {
+        let model = CostModel {
+            l3_available: false,
+            thresholds: ComplexityThresholds {
+                heavy_score_threshold: 10.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let bytecode = compile_complex_expr();
+        let score = model.analyze(&bytecode);
+
+        // Small population + heavy expr but L3 unavailable = L1
+        let strategy = model.select_strategy(&score, 500);
+        assert_eq!(
+            strategy,
+            LoweringStrategy::InstanceParallel,
+            "L3 unavailable should fall back to L1"
+        );
+    }
+
+    #[test]
+    fn test_custom_population_thresholds() {
+        let model = CostModel::with_thresholds(
+            10_000, // L2 threshold
+            1_000,  // L3 threshold
+            true,
+            true,
+        );
+
+        let bytecode = compile_simple_expr();
+        let score = model.analyze(&bytecode);
+
+        // With custom L2 threshold of 10k
+        assert_eq!(
+            model.select_strategy(&score, 10_000),
+            LoweringStrategy::VectorKernel,
+            "At custom L2 threshold"
+        );
+        assert_eq!(
+            model.select_strategy(&score, 9_999),
+            LoweringStrategy::InstanceParallel,
+            "Below custom L2 threshold"
+        );
+    }
+
+    #[test]
+    fn test_population_zero_and_one() {
+        // Edge case: population = 0 or 1 should still work
+        let model = CostModel {
+            thresholds: ComplexityThresholds {
+                heavy_score_threshold: 10.0,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let complex_bytecode = compile_complex_expr();
+        let complex_score = model.analyze(&complex_bytecode);
+
+        // Population 0: small + heavy = L3
+        assert_eq!(
+            model.select_strategy(&complex_score, 0),
+            LoweringStrategy::SubDag,
+            "Population 0 with heavy expr = L3"
+        );
+
+        // Population 1: small + heavy = L3
+        assert_eq!(
+            model.select_strategy(&complex_score, 1),
+            LoweringStrategy::SubDag,
+            "Population 1 with heavy expr = L3"
+        );
+
+        let simple_bytecode = compile_simple_expr();
+        let simple_score = model.analyze(&simple_bytecode);
+
+        // Population 1 + simple = L1 (not heavy)
+        assert_eq!(
+            model.select_strategy(&simple_score, 1),
+            LoweringStrategy::InstanceParallel,
+            "Population 1 with light expr = L1"
+        );
+    }
+
+    #[test]
+    fn test_regression_default_thresholds() {
+        // Guard against accidental threshold changes
+        let model = CostModel::default();
+
+        // Document expected default values
+        assert_eq!(model.l2_population_threshold, 50_000, "L2 threshold regression");
+        assert_eq!(model.l3_population_threshold, 2_000, "L3 threshold regression");
+        assert!(model.l2_available, "L2 should be available by default");
+        assert!(model.l3_available, "L3 should be available by default");
+
+        // Document expected complexity thresholds
+        let thresholds = &model.thresholds;
+        assert_eq!(
+            thresholds.max_branches_for_simple, 0,
+            "max_branches regression"
+        );
+        assert_eq!(
+            thresholds.max_call_cost_for_simple, 15.0,
+            "max_call_cost regression"
+        );
+        assert_eq!(
+            thresholds.max_signal_reads_for_simple, 5,
+            "max_signal_reads regression"
+        );
+        assert_eq!(
+            thresholds.heavy_score_threshold, 100.0,
+            "heavy_threshold regression"
+        );
+    }
 }
