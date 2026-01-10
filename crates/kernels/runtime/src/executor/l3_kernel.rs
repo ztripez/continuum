@@ -30,6 +30,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
+use indexmap::IndexMap;
+
 use rayon::prelude::*;
 use tracing::{debug, instrument, trace};
 
@@ -404,10 +406,10 @@ pub struct L3Kernel {
     primary_member: MemberSignalId,
     /// The member dependency DAG
     dag: MemberDag,
-    /// Scalar resolvers keyed by signal name
-    scalar_resolvers: HashMap<String, ScalarL3ResolverFn>,
-    /// Vec3 resolvers keyed by signal name
-    vec3_resolvers: HashMap<String, Vec3L3ResolverFn>,
+    /// Scalar resolvers keyed by signal name (IndexMap for deterministic iteration)
+    scalar_resolvers: IndexMap<String, ScalarL3ResolverFn>,
+    /// Vec3 resolvers keyed by signal name (IndexMap for deterministic iteration)
+    vec3_resolvers: IndexMap<String, Vec3L3ResolverFn>,
     /// Expected population size
     population_hint: usize,
     /// Threshold for hybrid L1+L3 execution
@@ -420,8 +422,8 @@ impl L3Kernel {
         Self {
             primary_member,
             dag,
-            scalar_resolvers: HashMap::new(),
-            vec3_resolvers: HashMap::new(),
+            scalar_resolvers: IndexMap::new(),
+            vec3_resolvers: IndexMap::new(),
             population_hint,
             hybrid_threshold: 100, // Default: use hybrid above 100 instances
         }
@@ -686,8 +688,8 @@ impl LaneKernel for L3Kernel {
 pub struct L3KernelBuilder {
     primary_member: Option<MemberSignalId>,
     dag: MemberDag,
-    scalar_resolvers: HashMap<String, ScalarL3ResolverFn>,
-    vec3_resolvers: HashMap<String, Vec3L3ResolverFn>,
+    scalar_resolvers: IndexMap<String, ScalarL3ResolverFn>,
+    vec3_resolvers: IndexMap<String, Vec3L3ResolverFn>,
     population_hint: usize,
     hybrid_threshold: usize,
 }
@@ -698,8 +700,8 @@ impl L3KernelBuilder {
         Self {
             primary_member: None,
             dag: MemberDag::new(),
-            scalar_resolvers: HashMap::new(),
-            vec3_resolvers: HashMap::new(),
+            scalar_resolvers: IndexMap::new(),
+            vec3_resolvers: IndexMap::new(),
             population_hint: 100,
             hybrid_threshold: 100,
         }

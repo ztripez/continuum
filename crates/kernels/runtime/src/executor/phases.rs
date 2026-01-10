@@ -2,7 +2,7 @@
 //!
 //! Executes individual simulation phases: Collect, Resolve, Fracture, Measure.
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use rayon::prelude::*;
 use tracing::{debug, error, instrument, trace};
@@ -165,7 +165,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
-        strata_states: &HashMap<StratumId, StratumState>,
+        strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
         input_channels: &mut InputChannels,
@@ -222,7 +222,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
-        strata_states: &HashMap<StratumId, StratumState>,
+        strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &mut SignalStorage,
         input_channels: &mut InputChannels,
@@ -411,7 +411,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
-        strata_states: &HashMap<StratumId, StratumState>,
+        strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
         field_buffer: &mut FieldBuffer,
