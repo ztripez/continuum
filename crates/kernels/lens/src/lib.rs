@@ -1393,6 +1393,104 @@ mod tests {
     }
 
     #[test]
+    fn query_at_exact_tick_matches_fractional() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 3,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.temp".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![sample(2.0)],
+        });
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 2,
+            samples: vec![sample(4.0)],
+        });
+
+        let exact = lens
+            .query_at_tick(&field_id, [0.0, 0.0, 0.0], 1)
+            .expect("query works");
+        let fractional = lens
+            .query(&field_id, [0.0, 0.0, 0.0], 1.0)
+            .expect("query works");
+        assert_eq!(exact, fractional);
+    }
+
+    #[test]
+    fn query_batch_empty_positions_returns_empty() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.missing".into();
+        let values = lens
+            .query_batch(&field_id, &[], 1)
+            .expect("empty batch should succeed");
+        assert!(values.is_empty());
+    }
+
+    #[test]
+    fn query_at_tick_errors_on_empty_samples() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.empty".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: Vec::new(),
+        });
+
+        let err = lens
+            .query_at_tick(&field_id, [0.0, 0.0, 0.0], 1)
+            .expect_err("should error");
+
+        match err {
+            LensError::NoSamplesAtTick { .. } => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_at_exact_sample_position_returns_value() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.nn".into();
+        let position = [1.0, 2.0, 3.0];
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![FieldSample {
+                position,
+                value: Value::Scalar(7.0),
+            }],
+        });
+
+        let value = lens
+            .query_at_tick(&field_id, position, 1)
+            .expect("query works");
+        assert_eq!(value, 7.0);
+    }
+
+    #[test]
     fn topology_tile_at_is_deterministic() {
         let topo = CubedSphereTopology::default();
         let pos = [1.0, 0.2, -0.3];
