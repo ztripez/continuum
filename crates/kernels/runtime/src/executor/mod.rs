@@ -5,8 +5,11 @@
 mod assertions;
 mod context;
 pub mod cost_model;
+pub mod kernel_registry;
+pub mod l1_kernels;
 pub mod l3_kernel;
 pub mod lane_kernel;
+pub mod lowering_strategy;
 pub mod member_executor;
 mod phases;
 mod warmup;
@@ -38,10 +41,10 @@ pub use l3_kernel::{
     ScalarL3MemberResolver, ScalarL3ResolveContext, ScalarL3ResolverFn, Vec3L3MemberResolver,
     Vec3L3ResolveContext, Vec3L3ResolverFn,
 };
-pub use lane_kernel::{
-    LaneKernel, LaneKernelError, LaneKernelRegistry, LaneKernelResult, LoweringHeuristics,
-    LoweringStrategy, ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel,
-};
+pub use kernel_registry::LaneKernelRegistry;
+pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
+pub use lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
+pub use lowering_strategy::{LoweringHeuristics, LoweringStrategy};
 pub use phases::{CollectFn, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn, MeasureParallelConfig, PhaseExecutor, ResolverFn};
 pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
 
