@@ -12,6 +12,7 @@
 //! - [`storage`] - Signal and entity storage with tick management
 //! - [`soa_storage`] - SoA (Struct-of-Arrays) storage for vectorized execution
 //! - [`reductions`] - Deterministic reduction operations for entity aggregates
+//! - [`vectorized`] - Unified vectorized primitive abstraction
 //! - [`executor`] - Phase executors and the main [`Runtime`] type
 //! - [`dag`] - Execution graph construction and scheduling
 //! - [`error`] - Error types for runtime failures
@@ -46,6 +47,7 @@ pub mod reductions;
 pub mod soa_storage;
 pub mod storage;
 pub mod types;
+pub mod vectorized;
 
 pub use error::{Error, Result};
 pub use executor::{
@@ -59,3 +61,8 @@ pub use soa_storage::{
     TypedBuffer, ValueType, SIMD_ALIGNMENT,
 };
 pub use types::*;
+pub use vectorized::{
+    Cardinality, EntityIndex, FieldPrimitive, FieldSampleIdentity, FractureIdentity,
+    FracturePrimitive, GlobalSignal, IndexSpace, MemberSignal, MemberSignalId,
+    MemberSignalIdentity, SampleIndex, VectorizedPrimitive,
+};
