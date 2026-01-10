@@ -221,10 +221,17 @@ impl Default for MemberDag {
     }
 }
 
-/// Errors during MemberDag construction.
+/// Errors that can occur during MemberDag construction or validation.
+///
+/// These errors typically indicate problems with the dependency graph structure
+/// that would prevent correct topological execution ordering.
 #[derive(Debug, Clone)]
 pub enum MemberDagError {
-    /// Cycle detected in dependencies
+    /// Cycle detected in member signal dependencies.
+    ///
+    /// A cycle means signal A depends on signal B which depends on A (or through
+    /// a longer chain). This makes topological ordering impossible. The contained
+    /// string lists the signals involved in the cycle.
     CycleDetected(String),
 }
 

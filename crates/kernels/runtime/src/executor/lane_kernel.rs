@@ -57,12 +57,15 @@ pub use super::lowering_strategy::LoweringStrategy;
 // Lane Kernel Trait
 // ============================================================================
 
-/// Result of lane kernel execution.
+/// Execution statistics returned after a lane kernel completes processing all entity instances.
+///
+/// Lane kernels execute member signal resolution across an entity population,
+/// and this structure reports how many instances were processed and timing information.
 #[derive(Debug)]
 pub struct LaneKernelResult {
-    /// Number of instances processed.
+    /// Total number of entity instances that were processed by this kernel execution.
     pub instances_processed: usize,
-    /// Execution time in nanoseconds (if profiled).
+    /// Execution duration in nanoseconds if profiling was enabled, `None` otherwise.
     pub execution_ns: Option<u64>,
 }
 
@@ -111,14 +114,33 @@ pub trait LaneKernel: Send + Sync {
     ) -> Result<LaneKernelResult, LaneKernelError>;
 }
 
-/// Error during lane kernel execution.
+/// Errors that can occur during lane kernel execution.
+///
+/// Lane kernel errors indicate failures during member signal resolution,
+/// which can occur due to missing data, numeric instability, or internal
+/// kernel failures.
 #[derive(Debug)]
 pub enum LaneKernelError {
     /// Member signal buffer not found in population storage.
+    ///
+    /// This occurs when the kernel attempts to read or write a member signal
+    /// that hasn't been registered with the population storage. The contained
+    /// string is the signal name that was not found.
     SignalNotFound(String),
     /// Numeric error during computation (NaN, Inf).
-    NumericError { index: usize, message: String },
-    /// Kernel execution failed.
+    ///
+    /// Occurs when a resolver produces a non-finite value. The kernel tracks
+    /// which entity instance caused the error for debugging.
+    NumericError {
+        /// Entity instance index where the error occurred.
+        index: usize,
+        /// Description of the numeric error (e.g., "NaN", "Infinity").
+        message: String,
+    },
+    /// Kernel execution failed due to an internal error.
+    ///
+    /// This is a catch-all for execution failures that don't fit other categories,
+    /// such as missing resolvers for member signals in the DAG.
     ExecutionFailed(String),
 }
 

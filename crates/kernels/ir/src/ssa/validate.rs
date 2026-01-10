@@ -10,22 +10,57 @@ use std::collections::{HashMap, HashSet};
 
 use super::{BlockId, SsaFunction, SsaInstruction, VReg};
 
-/// SSA validation error.
+/// Errors detected during SSA IR validation.
+///
+/// These errors indicate violations of SSA form constraints or structural
+/// problems in the control flow graph that would cause incorrect code generation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SsaValidationError {
     /// A register is used before being defined.
-    UndefinedRegister { reg: VReg, block: BlockId },
-    /// A block has no terminator.
-    MissingTerminator { block: BlockId },
-    /// A phi node is missing an arm for a predecessor.
-    IncompletePhi {
+    ///
+    /// In SSA form, every register must be defined exactly once before any use.
+    /// This error indicates a use of a register that has no preceding definition.
+    UndefinedRegister {
+        /// The virtual register that was used without a definition.
+        reg: VReg,
+        /// The block where the undefined use occurred.
         block: BlockId,
+    },
+    /// A basic block has no terminator instruction.
+    ///
+    /// Every block must end with a terminator (Return, Jump, or Branch).
+    /// A missing terminator indicates incomplete code generation.
+    MissingTerminator {
+        /// The block missing its terminator.
+        block: BlockId,
+    },
+    /// A phi node is missing an arm for one of its predecessor blocks.
+    ///
+    /// Phi nodes must have exactly one arm for each predecessor block.
+    /// This ensures the correct value is selected regardless of which
+    /// path led to the phi node.
+    IncompletePhi {
+        /// The block containing the incomplete phi node.
+        block: BlockId,
+        /// The predecessor block that has no corresponding phi arm.
         missing_pred: BlockId,
     },
     /// A register is defined multiple times.
-    DuplicateDefinition { reg: VReg },
-    /// Block has no predecessors (unreachable) except for entry block.
-    UnreachableBlock { block: BlockId },
+    ///
+    /// SSA form requires each register to be defined exactly once.
+    /// Multiple definitions violate this invariant.
+    DuplicateDefinition {
+        /// The register that was defined more than once.
+        reg: VReg,
+    },
+    /// A block has no predecessors and is not the entry block.
+    ///
+    /// Unreachable blocks indicate dead code that should be eliminated.
+    /// The entry block (block 0) is the only block allowed to have no predecessors.
+    UnreachableBlock {
+        /// The unreachable block.
+        block: BlockId,
+    },
 }
 
 /// Validate an SSA function.
