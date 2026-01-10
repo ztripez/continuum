@@ -4,6 +4,7 @@
 //! It is observer-only and must not influence execution.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use continuum_runtime::storage::FieldSample;
 use continuum_runtime::types::FieldId;
@@ -75,6 +76,10 @@ impl FieldStorage {
 pub enum LensError {
     #[error("Invalid lens config: {0}")]
     InvalidConfig(String),
+    #[error("Field not found: {0}")]
+    FieldNotFound(FieldId),
+    #[error("No samples for field {field} at tick {tick}")]
+    NoSamplesAtTick { field: FieldId, tick: u64 },
 }
 
 /// Canonical observer boundary for field history.
@@ -82,6 +87,72 @@ pub enum LensError {
 pub struct FieldLens {
     config: FieldLensConfig,
     fields: IndexMap<FieldId, FieldStorage>,
+}
+
+/// Reconstructed field interface (observer-only).
+pub trait FieldReconstruction: Send + Sync {
+    /// Query scalar value at position.
+    fn query(&self, position: [f64; 3]) -> f64;
+    /// Query vector value at position (default: scalar -> zero vector).
+    fn query_vector(&self, position: [f64; 3]) -> [f64; 3] {
+        let v = self.query(position);
+        [v, 0.0, 0.0]
+    }
+    /// Underlying samples (debug/diagnostics only).
+    fn samples(&self) -> &[FieldSample];
+}
+
+/// Nearest-neighbor reconstruction (MVP).
+pub struct NearestNeighborReconstruction {
+    samples: Vec<FieldSample>,
+}
+
+impl NearestNeighborReconstruction {
+    pub fn new(samples: Vec<FieldSample>) -> Self {
+        Self { samples }
+    }
+}
+
+impl FieldReconstruction for NearestNeighborReconstruction {
+    fn query(&self, position: [f64; 3]) -> f64 {
+        let mut best_dist = f64::MAX;
+        let mut best_value = 0.0;
+        for sample in &self.samples {
+            let dx = sample.position[0] - position[0];
+            let dy = sample.position[1] - position[1];
+            let dz = sample.position[2] - position[2];
+            let dist = dx * dx + dy * dy + dz * dz;
+            if dist < best_dist {
+                best_dist = dist;
+                best_value = sample.value.as_scalar().unwrap_or(0.0);
+            }
+        }
+        best_value
+    }
+
+    fn query_vector(&self, position: [f64; 3]) -> [f64; 3] {
+        let mut best_dist = f64::MAX;
+        let mut best_value = [0.0, 0.0, 0.0];
+        for sample in &self.samples {
+            let dx = sample.position[0] - position[0];
+            let dy = sample.position[1] - position[1];
+            let dz = sample.position[2] - position[2];
+            let dist = dx * dx + dy * dy + dz * dz;
+            if dist < best_dist {
+                best_dist = dist;
+                best_value = sample
+                    .value
+                    .as_vec3()
+                    .map(|v| [v[0], v[1], v[2]])
+                    .unwrap_or([0.0, 0.0, 0.0]);
+            }
+        }
+        best_value
+    }
+
+    fn samples(&self) -> &[FieldSample] {
+        &self.samples
+    }
 }
 
 impl FieldLens {
@@ -124,6 +195,73 @@ impl FieldLens {
     /// Get the latest frame for a field.
     pub fn latest(&self, field_id: &FieldId) -> Option<&FieldFrame> {
         self.fields.get(field_id).and_then(FieldStorage::latest)
+    }
+
+    /// Get reconstruction for a specific tick (nearest-neighbor MVP).
+    pub fn at(
+        &self,
+        field_id: &FieldId,
+        tick: u64,
+    ) -> Result<Arc<dyn FieldReconstruction>, LensError> {
+        let storage = self
+            .fields
+            .get(field_id)
+            .ok_or_else(|| LensError::FieldNotFound(field_id.clone()))?;
+
+        let frame = storage
+            .history
+            .iter()
+            .find(|frame| frame.tick == tick)
+            .ok_or_else(|| LensError::NoSamplesAtTick {
+                field: field_id.clone(),
+                tick,
+            })?;
+
+        if frame.samples.is_empty() {
+            return Err(LensError::NoSamplesAtTick {
+                field: field_id.clone(),
+                tick,
+            });
+        }
+
+        Ok(Arc::new(NearestNeighborReconstruction::new(
+            frame.samples.clone(),
+        )))
+    }
+
+    /// Get reconstruction for latest tick (nearest-neighbor MVP).
+    pub fn latest_reconstruction(
+        &self,
+        field_id: &FieldId,
+    ) -> Result<Arc<dyn FieldReconstruction>, LensError> {
+        let storage = self
+            .fields
+            .get(field_id)
+            .ok_or_else(|| LensError::FieldNotFound(field_id.clone()))?;
+        let frame = storage.latest().ok_or_else(|| LensError::NoSamplesAtTick {
+            field: field_id.clone(),
+            tick: 0,
+        })?;
+        if frame.samples.is_empty() {
+            return Err(LensError::NoSamplesAtTick {
+                field: field_id.clone(),
+                tick: frame.tick,
+            });
+        }
+        Ok(Arc::new(NearestNeighborReconstruction::new(
+            frame.samples.clone(),
+        )))
+    }
+
+    /// Query scalar at a specific tick (spatial only, no temporal interpolation).
+    pub fn query_at_tick(
+        &self,
+        field_id: &FieldId,
+        position: [f64; 3],
+        tick: u64,
+    ) -> Result<f64, LensError> {
+        let reconstruction = self.at(field_id, tick)?;
+        Ok(reconstruction.query(position))
     }
 
     /// Get bounded history for a field.
@@ -198,5 +336,77 @@ mod tests {
 
         let ids: Vec<String> = lens.field_ids().map(|id| id.to_string()).collect();
         assert_eq!(ids, vec!["field.a", "field.b"]);
+    }
+
+    #[test]
+    fn query_at_tick_returns_nearest_sample() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.elevation".into();
+        let samples = vec![
+            FieldSample {
+                position: [0.0, 0.0, 0.0],
+                value: Value::Scalar(10.0),
+            },
+            FieldSample {
+                position: [10.0, 0.0, 0.0],
+                value: Value::Scalar(20.0),
+            },
+        ];
+
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 5,
+            samples,
+        });
+
+        let value = lens
+            .query_at_tick(&field_id, [1.0, 0.0, 0.0], 5)
+            .expect("query works");
+        assert_eq!(value, 10.0);
+    }
+
+    #[test]
+    fn query_at_tick_errors_on_missing_field() {
+        let lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+        })
+        .expect("config valid");
+
+        let err = lens
+            .query_at_tick(&"missing.field".into(), [0.0, 0.0, 0.0], 0)
+            .expect_err("should error");
+
+        match err {
+            LensError::FieldNotFound(_) => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn query_at_tick_errors_on_missing_tick() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.elevation".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![sample(1.0)],
+        });
+
+        let err = lens
+            .query_at_tick(&field_id, [0.0, 0.0, 0.0], 2)
+            .expect_err("should error");
+
+        match err {
+            LensError::NoSamplesAtTick { .. } => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
     }
 }
