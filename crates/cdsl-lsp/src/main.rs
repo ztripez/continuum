@@ -120,6 +120,49 @@ fn position_to_offset(text: &str, position: Position) -> usize {
     offset
 }
 
+/// Get the completion prefix (the text being typed before the cursor).
+///
+/// Returns the text from the start of the current "word" to the cursor position.
+/// A word includes alphanumeric characters, underscores, and dots.
+fn get_completion_prefix(text: &str, position: Position) -> String {
+    let offset = position_to_offset(text, position);
+    let before_cursor = &text[..offset];
+
+    // Find the start of the current word (including dots for paths)
+    let start = before_cursor
+        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+
+    before_cursor[start..].to_string()
+}
+
+/// Detect if the prefix starts with a symbol kind (e.g., "signal.", "field.").
+///
+/// Returns the kind and prefix length if found.
+fn detect_kind_prefix(prefix: &str) -> Option<(CdslSymbolKind, usize)> {
+    let prefixes = [
+        ("signal.", CdslSymbolKind::Signal),
+        ("field.", CdslSymbolKind::Field),
+        ("operator.", CdslSymbolKind::Operator),
+        ("fn.", CdslSymbolKind::Function),
+        ("type.", CdslSymbolKind::Type),
+        ("strata.", CdslSymbolKind::Strata),
+        ("era.", CdslSymbolKind::Era),
+        ("impulse.", CdslSymbolKind::Impulse),
+        ("fracture.", CdslSymbolKind::Fracture),
+        ("chronicle.", CdslSymbolKind::Chronicle),
+        ("entity.", CdslSymbolKind::Entity),
+    ];
+
+    for (pat, kind) in prefixes {
+        if prefix.starts_with(pat) {
+            return Some((kind, pat.len()));
+        }
+    }
+    None
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
@@ -185,87 +228,126 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
 
-        // Check if we have the document
-        if self.documents.get(uri).is_none() {
-            return Ok(None);
-        }
+        // Get document text
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
 
-        // Start with keywords and built-ins
-        let mut items = vec![
-            // Top-level declarations
-            completion_item("signal", CompletionItemKind::KEYWORD, "Signal declaration"),
-            completion_item("field", CompletionItemKind::KEYWORD, "Field declaration"),
-            completion_item("fracture", CompletionItemKind::KEYWORD, "Fracture declaration"),
-            completion_item("impulse", CompletionItemKind::KEYWORD, "Impulse declaration"),
-            completion_item("chronicle", CompletionItemKind::KEYWORD, "Chronicle declaration"),
-            completion_item("entity", CompletionItemKind::KEYWORD, "Entity declaration"),
-            completion_item("operator", CompletionItemKind::KEYWORD, "Operator declaration"),
-            completion_item("strata", CompletionItemKind::KEYWORD, "Strata declaration"),
-            completion_item("era", CompletionItemKind::KEYWORD, "Era declaration"),
-            completion_item("const", CompletionItemKind::KEYWORD, "Const block"),
-            completion_item("config", CompletionItemKind::KEYWORD, "Config block"),
-            completion_item("fn", CompletionItemKind::KEYWORD, "Function definition"),
-            completion_item("type", CompletionItemKind::KEYWORD, "Type definition"),
-            // Block keywords
-            completion_item("resolve", CompletionItemKind::KEYWORD, "Resolve block"),
-            completion_item("measure", CompletionItemKind::KEYWORD, "Measure block"),
-            completion_item("when", CompletionItemKind::KEYWORD, "When condition"),
-            completion_item("emit", CompletionItemKind::KEYWORD, "Emit block"),
-            completion_item("assert", CompletionItemKind::KEYWORD, "Assert block"),
-            // Expression keywords
-            completion_item("if", CompletionItemKind::KEYWORD, "Conditional expression"),
-            completion_item("else", CompletionItemKind::KEYWORD, "Else branch"),
-            completion_item("let", CompletionItemKind::KEYWORD, "Let binding"),
-            completion_item("in", CompletionItemKind::KEYWORD, "In expression"),
-            completion_item("prev", CompletionItemKind::VARIABLE, "Previous value"),
-            completion_item("dt_raw", CompletionItemKind::VARIABLE, "Raw time delta"),
-            completion_item("collected", CompletionItemKind::VARIABLE, "Collected value"),
-            completion_item("payload", CompletionItemKind::VARIABLE, "Impulse payload"),
-            // Types
-            completion_item("Scalar", CompletionItemKind::TYPE_PARAMETER, "Scalar type"),
-            completion_item("Vector", CompletionItemKind::TYPE_PARAMETER, "Vector type"),
-            completion_item("Tensor", CompletionItemKind::TYPE_PARAMETER, "Tensor type"),
-            // Built-in functions
-            completion_item("clamp", CompletionItemKind::FUNCTION, "Clamp value to range"),
-            completion_item("min", CompletionItemKind::FUNCTION, "Minimum of values"),
-            completion_item("max", CompletionItemKind::FUNCTION, "Maximum of values"),
-            completion_item("abs", CompletionItemKind::FUNCTION, "Absolute value"),
-            completion_item("exp", CompletionItemKind::FUNCTION, "Exponential"),
-            completion_item("ln", CompletionItemKind::FUNCTION, "Natural logarithm"),
-            completion_item("log", CompletionItemKind::FUNCTION, "Logarithm"),
-            completion_item("sqrt", CompletionItemKind::FUNCTION, "Square root"),
-            completion_item("sin", CompletionItemKind::FUNCTION, "Sine"),
-            completion_item("cos", CompletionItemKind::FUNCTION, "Cosine"),
-            completion_item("tan", CompletionItemKind::FUNCTION, "Tangent"),
-        ];
+        // Get the prefix being typed (text from start of word to cursor)
+        let prefix = get_completion_prefix(&doc, position);
 
-        // Add document symbols
-        if let Some(index) = self.symbol_indices.get(uri) {
-            for info in index.get_completions() {
-                let lsp_kind = cdsl_kind_to_completion_kind(info.kind);
-                let label = format!("{}.{}", info.kind.display_name(), info.path);
+        // Check if prefix matches a symbol kind (e.g., "signal.", "field.")
+        let kind_filter = detect_kind_prefix(&prefix);
 
-                // Build detail string with type and title
-                let detail = match (info.ty, info.title) {
-                    (Some(ty), Some(title)) => format!("{} - {}", ty, title),
-                    (Some(ty), None) => ty.to_string(),
-                    (None, Some(title)) => title.to_string(),
-                    (None, None) => info.kind.display_name().to_string(),
-                };
+        let mut items = Vec::new();
 
-                items.push(CompletionItem {
-                    label,
-                    kind: Some(lsp_kind),
-                    detail: Some(detail),
-                    documentation: info.doc.map(|d| {
-                        Documentation::MarkupContent(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: d.to_string(),
-                        })
-                    }),
-                    ..Default::default()
-                });
+        // If we have a kind prefix, only show symbols of that kind
+        if let Some((kind, _prefix_len)) = kind_filter {
+            if let Some(index) = self.symbol_indices.get(uri) {
+                for info in index.get_completions().filter(|c| c.kind == kind) {
+                    let lsp_kind = cdsl_kind_to_completion_kind(info.kind);
+
+                    // Build detail string with type and title
+                    let detail = match (info.ty, info.title) {
+                        (Some(ty), Some(title)) => format!("{} - {}", ty, title),
+                        (Some(ty), None) => ty.to_string(),
+                        (None, Some(title)) => title.to_string(),
+                        (None, None) => info.kind.display_name().to_string(),
+                    };
+
+                    items.push(CompletionItem {
+                        label: info.path.to_string(),
+                        kind: Some(lsp_kind),
+                        detail: Some(detail),
+                        documentation: info.doc.map(|d| {
+                            Documentation::MarkupContent(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: d.to_string(),
+                            })
+                        }),
+                        ..Default::default()
+                    });
+                }
+            }
+        } else {
+            // No kind prefix - show keywords and all symbols
+            items.extend(vec![
+                // Top-level declarations
+                completion_item("signal", CompletionItemKind::KEYWORD, "Signal declaration"),
+                completion_item("field", CompletionItemKind::KEYWORD, "Field declaration"),
+                completion_item("fracture", CompletionItemKind::KEYWORD, "Fracture declaration"),
+                completion_item("impulse", CompletionItemKind::KEYWORD, "Impulse declaration"),
+                completion_item("chronicle", CompletionItemKind::KEYWORD, "Chronicle declaration"),
+                completion_item("entity", CompletionItemKind::KEYWORD, "Entity declaration"),
+                completion_item("operator", CompletionItemKind::KEYWORD, "Operator declaration"),
+                completion_item("strata", CompletionItemKind::KEYWORD, "Strata declaration"),
+                completion_item("era", CompletionItemKind::KEYWORD, "Era declaration"),
+                completion_item("const", CompletionItemKind::KEYWORD, "Const block"),
+                completion_item("config", CompletionItemKind::KEYWORD, "Config block"),
+                completion_item("fn", CompletionItemKind::KEYWORD, "Function definition"),
+                completion_item("type", CompletionItemKind::KEYWORD, "Type definition"),
+                // Block keywords
+                completion_item("resolve", CompletionItemKind::KEYWORD, "Resolve block"),
+                completion_item("measure", CompletionItemKind::KEYWORD, "Measure block"),
+                completion_item("when", CompletionItemKind::KEYWORD, "When condition"),
+                completion_item("emit", CompletionItemKind::KEYWORD, "Emit block"),
+                completion_item("assert", CompletionItemKind::KEYWORD, "Assert block"),
+                // Expression keywords
+                completion_item("if", CompletionItemKind::KEYWORD, "Conditional expression"),
+                completion_item("else", CompletionItemKind::KEYWORD, "Else branch"),
+                completion_item("let", CompletionItemKind::KEYWORD, "Let binding"),
+                completion_item("in", CompletionItemKind::KEYWORD, "In expression"),
+                completion_item("prev", CompletionItemKind::VARIABLE, "Previous value"),
+                completion_item("dt_raw", CompletionItemKind::VARIABLE, "Raw time delta"),
+                completion_item("collected", CompletionItemKind::VARIABLE, "Collected value"),
+                completion_item("payload", CompletionItemKind::VARIABLE, "Impulse payload"),
+                // Types
+                completion_item("Scalar", CompletionItemKind::TYPE_PARAMETER, "Scalar type"),
+                completion_item("Vector", CompletionItemKind::TYPE_PARAMETER, "Vector type"),
+                completion_item("Tensor", CompletionItemKind::TYPE_PARAMETER, "Tensor type"),
+                // Built-in functions
+                completion_item("clamp", CompletionItemKind::FUNCTION, "Clamp value to range"),
+                completion_item("min", CompletionItemKind::FUNCTION, "Minimum of values"),
+                completion_item("max", CompletionItemKind::FUNCTION, "Maximum of values"),
+                completion_item("abs", CompletionItemKind::FUNCTION, "Absolute value"),
+                completion_item("exp", CompletionItemKind::FUNCTION, "Exponential"),
+                completion_item("ln", CompletionItemKind::FUNCTION, "Natural logarithm"),
+                completion_item("log", CompletionItemKind::FUNCTION, "Logarithm"),
+                completion_item("sqrt", CompletionItemKind::FUNCTION, "Square root"),
+                completion_item("sin", CompletionItemKind::FUNCTION, "Sine"),
+                completion_item("cos", CompletionItemKind::FUNCTION, "Cosine"),
+                completion_item("tan", CompletionItemKind::FUNCTION, "Tangent"),
+            ]);
+
+            // Add all document symbols with full path
+            if let Some(index) = self.symbol_indices.get(uri) {
+                for info in index.get_completions() {
+                    let lsp_kind = cdsl_kind_to_completion_kind(info.kind);
+                    let label = format!("{}.{}", info.kind.display_name(), info.path);
+
+                    let detail = match (info.ty, info.title) {
+                        (Some(ty), Some(title)) => format!("{} - {}", ty, title),
+                        (Some(ty), None) => ty.to_string(),
+                        (None, Some(title)) => title.to_string(),
+                        (None, None) => info.kind.display_name().to_string(),
+                    };
+
+                    items.push(CompletionItem {
+                        label,
+                        kind: Some(lsp_kind),
+                        detail: Some(detail),
+                        documentation: info.doc.map(|d| {
+                            Documentation::MarkupContent(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: d.to_string(),
+                            })
+                        }),
+                        ..Default::default()
+                    });
+                }
             }
         }
 
