@@ -2,12 +2,13 @@
 //!
 //! Lowers DSL AST into typed IR that can be compiled to runtime DAGs.
 //!
-//! Pipeline: DSL AST -> IR -> Bytecode -> Runtime DAGs
+//! Pipeline: DSL AST -> IR -> SSA -> Bytecode -> Runtime DAGs
 
 mod codegen;
 mod compile;
 mod interpret;
 mod lower;
+pub mod ssa;
 mod types;
 pub mod units;
 mod validate;
