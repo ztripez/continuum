@@ -33,6 +33,13 @@ const {
 
     # Turnover
     ecology.biomass_turnover_years: 20.0
+
+    # Soil Carbon
+    ecology.humification_fraction: 0.3         # Portion of litter -> stable SOC
+    ecology.k_decomp_base: 0.02                # Base decomposition rate (1/yr)
+    ecology.q10_decomp: 2.0                    # Q10 for decomposition
+    ecology.t_ref_decomp_k: 288.0              # Reference temp for decomposition (K)
+    ecology.soc_max: 100.0                     # Maximum soil carbon (kg C/m²)
 }
 
 # =============================================================================
@@ -198,6 +205,93 @@ signal.ecology.nee {
 }
 
 # =============================================================================
+# Soil Carbon
+# =============================================================================
+
+# Soil organic carbon reservoir
+signal.ecology.soil_carbon {
+    : Scalar<kg/m², 0..100>
+    : strata(ecology)
+    : title("Soil Carbon")
+    : symbol("SOC")
+    : uses(dt_raw)
+
+    config {
+        initial: 10.0                         # Initial SOC (kg C/m²)
+        min: 0.0
+        max: 100.0
+    }
+
+    resolve {
+        # Carbon balance: dSOC/dt = litter_input - decomposition
+        # litter_input = mortality_flux * humification_fraction
+        # decomposition = SOC * k_decomp * f_temp * f_moisture
+
+        let biomass = signal.ecology.biomass in
+        let temp = signal.surface.temp in
+
+        # Temperature factor (Q10 response)
+        let q10_factor = pow(const.ecology.q10_decomp, (temp - const.ecology.t_ref_decomp_k) / 10.0) in
+        let k_decomp = const.ecology.k_decomp_base * q10_factor in
+
+        # Moisture factor (simplified - assume 70% average)
+        let f_moisture = 0.7 in
+
+        # Litter input from biomass mortality
+        let turnover_years = const.ecology.biomass_turnover_years in
+        let mortality_flux = biomass / turnover_years in
+        let litter_input = mortality_flux * const.ecology.humification_fraction in
+
+        # Decomposition rate
+        let decomp_rate = k_decomp * f_moisture in
+
+        # Equilibrium SOC
+        let soc_eq = if decomp_rate > 1e-10 {
+            min(litter_input / decomp_rate, const.ecology.soc_max)
+        } else {
+            const.ecology.soc_max
+        } in
+
+        # Relaxation timescale (inverse of decomposition rate in years -> seconds)
+        let tau_years = if decomp_rate > 1e-10 { 1.0 / decomp_rate } else { 1000.0 } in
+        let tau_s = tau_years * 3.1536e7 in
+
+        relax_to(prev, soc_eq, tau_s) + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Soil carbon cannot be negative"
+        prev <= const.ecology.soc_max : warn, "Soil carbon exceeds maximum"
+    }
+}
+
+# Decomposition rate (derived)
+signal.ecology.decomposition_rate {
+    : Scalar<kg/m²/yr, 0..10>
+    : strata(ecology)
+    : title("Decomposition Rate")
+    : symbol("D")
+
+    resolve {
+        let temp = signal.surface.temp in
+        let soc = signal.ecology.soil_carbon in
+
+        # Q10 response for decomposition
+        let q10_factor = pow(const.ecology.q10_decomp, (temp - const.ecology.t_ref_decomp_k) / 10.0) in
+        let k_decomp = const.ecology.k_decomp_base * q10_factor in
+
+        # Moisture factor (simplified)
+        let f_moisture = 0.7 in
+
+        soc * k_decomp * f_moisture + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Decomposition rate cannot be negative"
+    }
+}
+
+# =============================================================================
 # Ecology Fractures
 # =============================================================================
 
@@ -269,5 +363,27 @@ field.ecology.nee_map {
 
     measure {
         signal.ecology.nee
+    }
+}
+
+field.ecology.soil_carbon_map {
+    : Scalar<kg/m²>
+    : strata(ecology)
+    : topology(sphere_surface)
+    : title("Soil Carbon Field")
+
+    measure {
+        signal.ecology.soil_carbon
+    }
+}
+
+field.ecology.decomposition_map {
+    : Scalar<kg/m²/yr>
+    : strata(ecology)
+    : topology(sphere_surface)
+    : title("Decomposition Rate Field")
+
+    measure {
+        signal.ecology.decomposition_rate
     }
 }
