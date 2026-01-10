@@ -3,7 +3,7 @@
 //! Lens ingests field emissions and stores latest + bounded history per field.
 //! It is observer-only and must not influence execution.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use continuum_runtime::storage::FieldSample;
@@ -16,6 +16,8 @@ use thiserror::Error;
 pub struct FieldLensConfig {
     /// Maximum number of frames to retain per field.
     pub max_frames_per_field: usize,
+    /// Maximum cached reconstructions per field.
+    pub max_cached_per_field: usize,
 }
 
 impl FieldLensConfig {
@@ -26,6 +28,11 @@ impl FieldLensConfig {
                 "max_frames_per_field must be > 0".to_string(),
             ));
         }
+        if self.max_cached_per_field == 0 {
+            return Err(LensError::InvalidConfig(
+                "max_cached_per_field must be > 0".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -34,6 +41,7 @@ impl Default for FieldLensConfig {
     fn default() -> Self {
         Self {
             max_frames_per_field: 1000,
+            max_cached_per_field: 32,
         }
     }
 }
@@ -53,21 +61,51 @@ pub struct FieldSnapshot {
     pub samples: Vec<FieldSample>,
 }
 
-#[derive(Debug, Default)]
 struct FieldStorage {
     history: VecDeque<FieldFrame>,
+    cache: VecDeque<(u64, Arc<dyn FieldReconstruction>)>,
 }
 
 impl FieldStorage {
+    fn new() -> Self {
+        Self {
+            history: VecDeque::new(),
+            cache: VecDeque::new(),
+        }
+    }
+
     fn push(&mut self, frame: FieldFrame, max_frames: usize) {
         if self.history.len() == max_frames {
             self.history.pop_front();
         }
         self.history.push_back(frame);
+        self.cache.clear();
     }
 
     fn latest(&self) -> Option<&FieldFrame> {
         self.history.back()
+    }
+
+    fn cache_get(&self, tick: u64) -> Option<Arc<dyn FieldReconstruction>> {
+        self.cache
+            .iter()
+            .find(|(cached_tick, _)| *cached_tick == tick)
+            .map(|(_, recon)| Arc::clone(recon))
+    }
+
+    fn cache_insert(
+        &mut self,
+        tick: u64,
+        recon: Arc<dyn FieldReconstruction>,
+        max_cached: usize,
+    ) {
+        if let Some(pos) = self.cache.iter().position(|(t, _)| *t == tick) {
+            self.cache.remove(pos);
+        }
+        if self.cache.len() == max_cached {
+            self.cache.pop_front();
+        }
+        self.cache.push_back((tick, recon));
     }
 }
 
@@ -164,6 +202,7 @@ pub struct FieldLens {
     config: FieldLensConfig,
     fields: IndexMap<FieldId, FieldStorage>,
     topology: Arc<dyn VirtualTopology>,
+    field_configs: HashMap<FieldId, FieldConfig>,
 }
 
 /// Playback clock for observer queries (fractional tick time).
@@ -282,12 +321,16 @@ impl FieldLens {
             config,
             fields: IndexMap::new(),
             topology: Arc::new(CubedSphereTopology::default()),
+            field_configs: HashMap::new(),
         })
     }
 
     /// Record a single field snapshot.
     pub fn record(&mut self, snapshot: FieldSnapshot) {
-        let storage = self.fields.entry(snapshot.field_id).or_default();
+        let storage = self
+            .fields
+            .entry(snapshot.field_id)
+            .or_insert_with(FieldStorage::new);
         storage.push(
             FieldFrame {
                 tick: snapshot.tick,
@@ -319,7 +362,7 @@ impl FieldLens {
 
     /// Get reconstruction for a specific tick (nearest-neighbor MVP).
     pub fn at(
-        &self,
+        &mut self,
         field_id: &FieldId,
         tick: u64,
     ) -> Result<Arc<dyn FieldReconstruction>, LensError> {
@@ -327,6 +370,10 @@ impl FieldLens {
             .fields
             .get(field_id)
             .ok_or_else(|| LensError::FieldNotFound(field_id.clone()))?;
+
+        if let Some(cached) = storage.cache_get(tick) {
+            return Ok(cached);
+        }
 
         let frame = storage
             .history
@@ -344,14 +391,26 @@ impl FieldLens {
             });
         }
 
-        Ok(Arc::new(NearestNeighborReconstruction::new(
+        let recon = Arc::new(NearestNeighborReconstruction::new(
             frame.samples.clone(),
-        )))
+        ));
+        let recon: Arc<dyn FieldReconstruction> = recon;
+
+        let max_cached = self
+            .field_configs
+            .get(field_id)
+            .and_then(|cfg| cfg.max_cached_per_field)
+            .unwrap_or(self.config.max_cached_per_field);
+
+        let storage = self.fields.get_mut(field_id).expect("storage exists");
+        storage.cache_insert(tick, Arc::clone(&recon), max_cached);
+
+        Ok(recon)
     }
 
     /// Get reconstruction for latest tick (nearest-neighbor MVP).
     pub fn latest_reconstruction(
-        &self,
+        &mut self,
         field_id: &FieldId,
     ) -> Result<Arc<dyn FieldReconstruction>, LensError> {
         let storage = self
@@ -368,9 +427,7 @@ impl FieldLens {
                 tick: frame.tick,
             });
         }
-        Ok(Arc::new(NearestNeighborReconstruction::new(
-            frame.samples.clone(),
-        )))
+        self.at(field_id, frame.tick)
     }
 
     /// Get reconstruction for a specific tile at tick.
@@ -420,7 +477,7 @@ impl FieldLens {
 
     /// Query scalar at a specific tick (spatial only, no temporal interpolation).
     pub fn query_at_tick(
-        &self,
+        &mut self,
         field_id: &FieldId,
         position: [f64; 3],
         tick: u64,
@@ -431,7 +488,7 @@ impl FieldLens {
 
     /// Query scalar value at fractional time (temporal interpolation).
     pub fn query(
-        &self,
+        &mut self,
         field_id: &FieldId,
         position: [f64; 3],
         time: f64,
@@ -451,7 +508,7 @@ impl FieldLens {
 
     /// Query scalar value using playback clock.
     pub fn query_playback(
-        &self,
+        &mut self,
         field_id: &FieldId,
         position: [f64; 3],
         playback: &PlaybackClock,
@@ -461,7 +518,7 @@ impl FieldLens {
 
     /// Query vector value at fractional time (temporal interpolation).
     pub fn query_vector(
-        &self,
+        &mut self,
         field_id: &FieldId,
         position: [f64; 3],
         time: f64,
@@ -501,6 +558,17 @@ impl FieldLens {
     pub fn field_ids(&self) -> impl Iterator<Item = &FieldId> {
         self.fields.keys()
     }
+
+    /// Configure per-field overrides.
+    pub fn configure_field(&mut self, field_id: FieldId, config: FieldConfig) {
+        self.field_configs.insert(field_id, config);
+    }
+}
+
+/// Per-field overrides for Lens behavior.
+#[derive(Debug, Clone, Default)]
+pub struct FieldConfig {
+    pub max_cached_per_field: Option<usize>,
 }
 
 #[cfg(test)]
@@ -519,6 +587,7 @@ mod tests {
     fn record_eviction_is_bounded() {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
+            max_cached_per_field: 4,
         })
         .expect("config valid");
 
@@ -553,6 +622,7 @@ mod tests {
     fn record_many_preserves_field_order() {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
+            max_cached_per_field: 4,
         })
         .expect("config valid");
 
@@ -567,9 +637,39 @@ mod tests {
     }
 
     #[test]
+    fn cache_clears_on_new_record() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 3,
+            max_cached_per_field: 2,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.temp".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![sample(1.0)],
+        });
+
+        let _ = lens
+            .query_at_tick(&field_id, [0.0, 0.0, 0.0], 1)
+            .expect("query works");
+
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 2,
+            samples: vec![sample(2.0)],
+        });
+
+        let storage = lens.fields.get(&field_id).expect("storage exists");
+        assert!(storage.cache.is_empty());
+    }
+
+    #[test]
     fn query_at_tick_returns_nearest_sample() {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
+            max_cached_per_field: 4,
         })
         .expect("config valid");
 
@@ -599,8 +699,9 @@ mod tests {
 
     #[test]
     fn query_at_tick_errors_on_missing_field() {
-        let lens = FieldLens::new(FieldLensConfig {
+        let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
+            max_cached_per_field: 4,
         })
         .expect("config valid");
 
@@ -618,6 +719,7 @@ mod tests {
     fn query_at_tick_errors_on_missing_tick() {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
+            max_cached_per_field: 4,
         })
         .expect("config valid");
 
@@ -658,6 +760,7 @@ mod tests {
     fn query_interpolates_between_ticks() {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 3,
+            max_cached_per_field: 4,
         })
         .expect("config valid");
 
