@@ -328,11 +328,11 @@ impl LanguageServer for Backend {
         if let Some((kind, prefix_len)) = kind_filter {
             // Get the path part after "signal." etc.
             let path_prefix = &prefix[prefix_len..];
-            let prefix_segments: Vec<&str> = if path_prefix.is_empty() {
-                vec![]
-            } else {
-                path_prefix.split('.').collect()
-            };
+            // Split by dots, filtering empty segments (from trailing dots like "core.")
+            let prefix_segments: Vec<&str> = path_prefix
+                .split('.')
+                .filter(|s| !s.is_empty())
+                .collect();
             let prefix_depth = prefix_segments.len();
 
             // Track unique next segments and their info for deduplication
