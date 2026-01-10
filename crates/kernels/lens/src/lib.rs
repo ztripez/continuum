@@ -1306,6 +1306,66 @@ mod tests {
     }
 
     #[test]
+    fn playback_clock_speed_affects_advance() {
+        let mut clock = PlaybackClock::new(1.0);
+        clock.set_speed(2.0);
+        clock.advance(10);
+        assert_eq!(clock.current_time(), 18.0);
+    }
+
+    #[test]
+    fn playback_clock_negative_speed_is_clamped() {
+        let mut clock = PlaybackClock::new(0.0);
+        clock.set_speed(-2.0);
+        clock.advance(10);
+        assert_eq!(clock.current_time(), 0.0);
+    }
+
+    #[test]
+    fn playback_clock_seek_clamps_negative() {
+        let mut clock = PlaybackClock::new(0.0);
+        clock.seek(-4.0);
+        assert_eq!(clock.current_time(), 0.0);
+    }
+
+    #[test]
+    fn playback_clock_lag_offsets_time() {
+        let mut clock = PlaybackClock::new(2.0);
+        clock.advance(10);
+        assert_eq!(clock.current_time(), 8.0);
+    }
+
+    #[test]
+    fn query_playback_uses_clock_time() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 3,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.temp".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![sample(0.0)],
+        });
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 2,
+            samples: vec![sample(10.0)],
+        });
+
+        let mut clock = PlaybackClock::new(0.0);
+        clock.seek(1.5);
+
+        let value = lens
+            .query_playback(&field_id, [0.0, 0.0, 0.0], &clock)
+            .expect("query works");
+        assert_eq!(value, 5.0);
+    }
+
+    #[test]
     fn query_interpolates_between_ticks() {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 3,
