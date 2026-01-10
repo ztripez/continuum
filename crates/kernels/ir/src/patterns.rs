@@ -33,13 +33,25 @@
 //!
 //! Batched resolution produces bitwise-identical results to sequential resolution.
 //! Signals within a batch are processed in stable ID order.
+//!
+//! # L2 Kernel Generation
+//!
+//! The module provides functions to generate L2 kernels from compiled expressions:
+//!
+//! - [`generate_l2_kernel`]: Creates a ScalarL2Kernel from a member signal's resolve expression
+//! - [`should_use_l2`]: Heuristic to determine if L2 is beneficial for a given pattern/population
 
 use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 use indexmap::IndexMap;
 
 use continuum_foundation::{SignalId, StratumId};
+use continuum_runtime::types::EntityId;
+use continuum_runtime::vectorized::MemberSignalId;
 
+use crate::ssa::lower_to_ssa;
+use crate::vectorized::ScalarL2Kernel;
 use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, DtRobustOperator, ValueType};
 
 /// Minimum batch size for SIMD vectorization (matches typical SIMD width).
@@ -807,6 +819,151 @@ pub fn analyze_pattern_coverage(world: &CompiledWorld) -> PatternCoverage {
     coverage
 }
 
+// ============================================================================
+// L2 Kernel Generation
+// ============================================================================
+
+/// Default population threshold above which L2 vectorized execution is preferred.
+///
+/// This value is tuned based on typical SIMD break-even points:
+/// - Below this threshold, the overhead of L2 setup outweighs benefits
+/// - Above this threshold, vectorized execution provides speedups
+pub const L2_POPULATION_THRESHOLD: usize = 50_000;
+
+/// Minimum population for L2 to be considered at all.
+///
+/// Very small populations should always use L1 for lower overhead.
+pub const L2_MINIMUM_POPULATION: usize = 1000;
+
+/// Determines if L2 vectorized execution should be used for a given pattern and population.
+///
+/// # Arguments
+///
+/// * `pattern` - The expression pattern extracted from the resolve expression
+/// * `population` - Expected population size for the entity
+///
+/// # Returns
+///
+/// `true` if L2 execution is recommended, `false` for L1 (instance-parallel).
+///
+/// # Heuristics
+///
+/// L2 is preferred when:
+/// 1. Population exceeds `L2_POPULATION_THRESHOLD` (50k)
+/// 2. Pattern supports vectorization (not Custom)
+/// 3. Pattern has High or Medium vectorization benefit
+///
+/// L2 is forced even for smaller populations (above L2_MINIMUM_POPULATION) when:
+/// - Pattern has High vectorization benefit
+pub fn should_use_l2(pattern: &ExpressionPattern, population: usize) -> bool {
+    // Below minimum, always use L1
+    if population < L2_MINIMUM_POPULATION {
+        return false;
+    }
+
+    // Custom patterns don't benefit from vectorization
+    if !pattern.supports_batching() {
+        return false;
+    }
+
+    match pattern.vectorization_benefit() {
+        VectorizationBenefit::High => {
+            // High benefit: use L2 for populations above minimum threshold
+            population >= L2_MINIMUM_POPULATION
+        }
+        VectorizationBenefit::Medium => {
+            // Medium benefit: only use L2 for large populations
+            population >= L2_POPULATION_THRESHOLD
+        }
+        VectorizationBenefit::None => {
+            // No benefit from vectorization
+            false
+        }
+    }
+}
+
+/// Generates an L2 vectorized kernel for a member signal's resolve expression.
+///
+/// This function:
+/// 1. Lowers the expression to SSA IR
+/// 2. Wraps it in a ScalarL2Kernel that implements LaneKernel
+///
+/// # Arguments
+///
+/// * `entity_id` - The entity this member belongs to
+/// * `signal_name` - The name of the member signal
+/// * `resolve_expr` - The resolve expression to compile
+/// * `population_hint` - Expected population for capacity pre-allocation
+///
+/// # Returns
+///
+/// A `ScalarL2Kernel` that can be registered with the `LaneKernelRegistry`.
+///
+/// # Example
+///
+/// ```ignore
+/// let kernel = generate_l2_kernel(
+///     &entity_id,
+///     "temperature",
+///     &resolve_expr,
+///     10000,
+/// );
+/// registry.register(kernel);
+/// ```
+pub fn generate_l2_kernel(
+    entity_id: &EntityId,
+    signal_name: &str,
+    resolve_expr: &CompiledExpr,
+    population_hint: usize,
+) -> ScalarL2Kernel {
+    // Lower the expression to SSA IR
+    let ssa = lower_to_ssa(resolve_expr);
+
+    // Create the member signal ID
+    let member_signal_id = MemberSignalId::new(entity_id.clone(), signal_name.to_string());
+
+    // Create the L2 kernel
+    ScalarL2Kernel::new(
+        member_signal_id,
+        signal_name.to_string(),
+        Arc::new(ssa),
+        population_hint,
+    )
+}
+
+/// Result of analyzing a member signal for L2 execution suitability.
+#[derive(Debug, Clone)]
+pub struct L2AnalysisResult {
+    /// The expression pattern detected.
+    pub pattern: ExpressionPattern,
+    /// Whether L2 execution is recommended.
+    pub use_l2: bool,
+    /// Vectorization benefit level.
+    pub benefit: VectorizationBenefit,
+}
+
+/// Analyzes a member signal's resolve expression for L2 execution suitability.
+///
+/// # Arguments
+///
+/// * `resolve_expr` - The resolve expression to analyze
+/// * `population_hint` - Expected population size
+///
+/// # Returns
+///
+/// Analysis result containing pattern, L2 recommendation, and benefit level.
+pub fn analyze_for_l2(resolve_expr: &CompiledExpr, population_hint: usize) -> L2AnalysisResult {
+    let pattern = extract_pattern(resolve_expr);
+    let benefit = pattern.vectorization_benefit();
+    let use_l2 = should_use_l2(&pattern, population_hint);
+
+    L2AnalysisResult {
+        pattern,
+        use_l2,
+        benefit,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -986,5 +1143,149 @@ mod tests {
         };
 
         assert_ne!(compute_expr_hash(&expr1), compute_expr_hash(&expr2));
+    }
+
+    // ========================================================================
+    // L2 Kernel Generation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_should_use_l2_below_minimum() {
+        // Below L2_MINIMUM_POPULATION (1000), should always return false
+        let pattern = ExpressionPattern::SimpleAccumulator;
+        assert!(!should_use_l2(&pattern, 0));
+        assert!(!should_use_l2(&pattern, 500));
+        assert!(!should_use_l2(&pattern, 999));
+    }
+
+    #[test]
+    fn test_should_use_l2_high_benefit() {
+        // High benefit patterns should use L2 above minimum threshold
+        let pattern = ExpressionPattern::SimpleAccumulator;
+        assert_eq!(pattern.vectorization_benefit(), VectorizationBenefit::High);
+
+        // At minimum threshold
+        assert!(should_use_l2(&pattern, L2_MINIMUM_POPULATION));
+
+        // Above minimum
+        assert!(should_use_l2(&pattern, 5000));
+        assert!(should_use_l2(&pattern, L2_POPULATION_THRESHOLD));
+        assert!(should_use_l2(&pattern, 100_000));
+    }
+
+    #[test]
+    fn test_should_use_l2_medium_benefit() {
+        // Medium benefit patterns need larger population
+        // DecayAccumulator is a Medium benefit pattern
+        let pattern = ExpressionPattern::DecayAccumulator { has_collected: true };
+        assert_eq!(pattern.vectorization_benefit(), VectorizationBenefit::Medium);
+
+        // Below threshold: should not use L2
+        assert!(!should_use_l2(&pattern, L2_MINIMUM_POPULATION));
+        assert!(!should_use_l2(&pattern, 10_000));
+        assert!(!should_use_l2(&pattern, 49_999));
+
+        // At and above threshold: should use L2
+        assert!(should_use_l2(&pattern, L2_POPULATION_THRESHOLD));
+        assert!(should_use_l2(&pattern, 100_000));
+    }
+
+    #[test]
+    fn test_should_use_l2_custom_pattern() {
+        // Custom patterns don't support batching
+        let pattern = ExpressionPattern::Custom(12345);
+        assert!(!pattern.supports_batching());
+        assert_eq!(pattern.vectorization_benefit(), VectorizationBenefit::None);
+
+        // Should never use L2 regardless of population
+        assert!(!should_use_l2(&pattern, L2_MINIMUM_POPULATION));
+        assert!(!should_use_l2(&pattern, L2_POPULATION_THRESHOLD));
+        assert!(!should_use_l2(&pattern, 1_000_000));
+    }
+
+    #[test]
+    fn test_should_use_l2_constant_pattern() {
+        // Constant patterns have High benefit (trivial copy operations)
+        let pattern = ExpressionPattern::Constant;
+        assert_eq!(pattern.vectorization_benefit(), VectorizationBenefit::High);
+
+        // Above minimum threshold: should use L2
+        assert!(should_use_l2(&pattern, L2_MINIMUM_POPULATION));
+        assert!(should_use_l2(&pattern, L2_POPULATION_THRESHOLD));
+        assert!(should_use_l2(&pattern, 1_000_000));
+    }
+
+    #[test]
+    fn test_analyze_for_l2_simple_accumulator() {
+        // Simple accumulator with large population should recommend L2
+        let expr = CompiledExpr::Binary {
+            op: BinaryOpIr::Add,
+            left: Box::new(CompiledExpr::Prev),
+            right: Box::new(CompiledExpr::Collected),
+        };
+
+        let result = analyze_for_l2(&expr, 100_000);
+
+        assert_eq!(result.pattern, ExpressionPattern::SimpleAccumulator);
+        assert_eq!(result.benefit, VectorizationBenefit::High);
+        assert!(result.use_l2);
+    }
+
+    #[test]
+    fn test_analyze_for_l2_small_population() {
+        // Same pattern but small population should not recommend L2
+        let expr = CompiledExpr::Binary {
+            op: BinaryOpIr::Add,
+            left: Box::new(CompiledExpr::Prev),
+            right: Box::new(CompiledExpr::Collected),
+        };
+
+        let result = analyze_for_l2(&expr, 500);
+
+        assert_eq!(result.pattern, ExpressionPattern::SimpleAccumulator);
+        assert_eq!(result.benefit, VectorizationBenefit::High);
+        assert!(!result.use_l2); // Population too small
+    }
+
+    #[test]
+    fn test_analyze_for_l2_decay() {
+        // Decay pattern with collected has Medium benefit (involves transcendentals)
+        let expr = CompiledExpr::Binary {
+            op: BinaryOpIr::Add,
+            left: Box::new(CompiledExpr::DtRobustCall {
+                operator: DtRobustOperator::Decay,
+                args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0)],
+                method: crate::IntegrationMethod::Euler,
+            }),
+            right: Box::new(CompiledExpr::Collected),
+        };
+
+        let result = analyze_for_l2(&expr, L2_POPULATION_THRESHOLD);
+
+        assert_eq!(
+            result.pattern,
+            ExpressionPattern::DecayAccumulator { has_collected: true }
+        );
+        assert_eq!(result.benefit, VectorizationBenefit::Medium);
+        assert!(result.use_l2); // Large population enables L2 for medium benefit
+    }
+
+    #[test]
+    fn test_generate_l2_kernel() {
+        use continuum_runtime::LaneKernel;
+
+        // Test that we can generate an L2 kernel from an expression
+        let expr = CompiledExpr::Binary {
+            op: BinaryOpIr::Add,
+            left: Box::new(CompiledExpr::Prev),
+            right: Box::new(CompiledExpr::Collected),
+        };
+
+        let entity_id = EntityId("test_entity".to_string());
+        let kernel = generate_l2_kernel(&entity_id, "temperature", &expr, 10_000);
+
+        // Verify kernel properties via LaneKernel trait
+        assert_eq!(kernel.member_signal_id().signal_name, "temperature");
+        assert_eq!(kernel.population_hint(), 10_000);
     }
 }
