@@ -13,22 +13,310 @@ use thiserror::Error;
 
 #[cfg(feature = "gpu")]
 pub mod gpu {
+    use std::borrow::Cow;
+
+    use bytemuck::{Pod, Zeroable};
     use continuum_gpu::GpuContext;
+    use wgpu::util::DeviceExt;
 
     /// GPU backend handle for Lens reconstruction.
     pub struct GpuLensBackend {
         context: GpuContext,
+        pipeline: Option<NearestNeighborPipeline>,
     }
 
     impl GpuLensBackend {
         pub fn new(context: GpuContext) -> Self {
-            Self { context }
+            Self {
+                context,
+                pipeline: None,
+            }
         }
 
         pub fn context(&self) -> &GpuContext {
             &self.context
         }
+
+        pub fn query_scalar_batch(
+            &mut self,
+            samples: &[( [f64; 3], f64 )],
+            positions: &[[f64; 3]],
+        ) -> Result<Vec<f64>, String> {
+            if samples.is_empty() || positions.is_empty() {
+                return Ok(Vec::new());
+            }
+
+            if self.pipeline.is_none() {
+                self.pipeline = Some(NearestNeighborPipeline::new(&self.context));
+            }
+            let pipeline = self.pipeline.as_ref().expect("pipeline exists");
+            let device = self.context.device();
+
+            let sample_count = samples.len() as u32;
+            let query_count = positions.len() as u32;
+
+            let sample_positions: Vec<[f32; 4]> = samples
+                .iter()
+                .map(|(pos, _)| [pos[0] as f32, pos[1] as f32, pos[2] as f32, 0.0])
+                .collect();
+            let sample_values: Vec<f32> = samples.iter().map(|(_, v)| *v as f32).collect();
+            let query_positions: Vec<[f32; 4]> = positions
+                .iter()
+                .map(|pos| [pos[0] as f32, pos[1] as f32, pos[2] as f32, 0.0])
+                .collect();
+
+            let sample_pos_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("lens_samples_pos"),
+                contents: bytemuck::cast_slice(&sample_positions),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+            let sample_val_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("lens_samples_val"),
+                contents: bytemuck::cast_slice(&sample_values),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+            let query_pos_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("lens_query_pos"),
+                contents: bytemuck::cast_slice(&query_positions),
+                usage: wgpu::BufferUsages::STORAGE,
+            });
+
+            let output_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("lens_output"),
+                size: (query_count as u64) * 4,
+                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+                mapped_at_creation: false,
+            });
+
+            let params = Params {
+                sample_count,
+                query_count,
+                _pad: [0; 2],
+            };
+            let params_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("lens_params"),
+                contents: bytemuck::bytes_of(&params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+
+            let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("lens_bind_group"),
+                layout: &pipeline.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: sample_pos_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: sample_val_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: query_pos_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: output_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 4,
+                        resource: params_buffer.as_entire_binding(),
+                    },
+                ],
+            });
+
+            let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("lens_query_encoder"),
+            });
+            {
+                let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("lens_query_pass"),
+                    timestamp_writes: None,
+                });
+                pass.set_pipeline(&pipeline.pipeline);
+                pass.set_bind_group(0, &bind_group, &[]);
+                let workgroup_size = 64;
+                let workgroups = (query_count + workgroup_size - 1) / workgroup_size;
+                pass.dispatch_workgroups(workgroups, 1, 1);
+            }
+
+            let staging = device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("lens_output_staging"),
+                size: (query_count as u64) * 4,
+                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+            encoder.copy_buffer_to_buffer(&output_buffer, 0, &staging, 0, (query_count as u64) * 4);
+            self.context.queue().submit(Some(encoder.finish()));
+            let _ = self.context.device().poll(wgpu::PollType::wait_indefinitely());
+
+            let buffer_slice = staging.slice(..);
+            let (sender, receiver) = std::sync::mpsc::channel();
+            buffer_slice.map_async(wgpu::MapMode::Read, move |result| {
+                let _ = sender.send(result);
+            });
+            let _ = self
+                .context
+                .device()
+                .poll(wgpu::PollType::wait_indefinitely());
+            receiver
+                .recv()
+                .map_err(|e| format!("gpu map recv error: {e}"))?
+                .map_err(|e| format!("gpu map error: {e:?}"))?;
+
+            let data = buffer_slice.get_mapped_range();
+            let out_f32: Vec<f32> = bytemuck::cast_slice(&data).to_vec();
+            drop(data);
+            staging.unmap();
+
+            Ok(out_f32.into_iter().map(|v| v as f64).collect())
+        }
+
     }
+
+    #[derive(Clone, Copy, Pod, Zeroable)]
+    #[repr(C)]
+    struct Params {
+        sample_count: u32,
+        query_count: u32,
+        _pad: [u32; 2],
+    }
+
+    struct NearestNeighborPipeline {
+        pipeline: wgpu::ComputePipeline,
+        bind_group_layout: wgpu::BindGroupLayout,
+    }
+
+    impl NearestNeighborPipeline {
+        fn new(context: &GpuContext) -> Self {
+            let device = context.device();
+            let shader_source = Cow::Borrowed(SHADER_SOURCE);
+            let shader_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("lens_nearest_neighbor_shader"),
+                source: wgpu::ShaderSource::Wgsl(shader_source),
+            });
+
+            let bind_group_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("lens_bind_group_layout"),
+                    entries: &[
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 2,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: true },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 3,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Storage { read_only: false },
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                        wgpu::BindGroupLayoutEntry {
+                            binding: 4,
+                            visibility: wgpu::ShaderStages::COMPUTE,
+                            ty: wgpu::BindingType::Buffer {
+                                ty: wgpu::BufferBindingType::Uniform,
+                                has_dynamic_offset: false,
+                                min_binding_size: None,
+                            },
+                            count: None,
+                        },
+                    ],
+                });
+
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("lens_pipeline_layout"),
+                bind_group_layouts: &[&bind_group_layout],
+                immediate_size: 0,
+            });
+
+            let pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("lens_nearest_neighbor_pipeline"),
+                layout: Some(&pipeline_layout),
+                module: &shader_module,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
+
+            Self {
+                pipeline,
+                bind_group_layout,
+            }
+        }
+    }
+
+    const SHADER_SOURCE: &str = r#"
+struct Params {
+    sample_count: u32,
+    query_count: u32,
+    _pad0: u32,
+    _pad1: u32,
+};
+
+@group(0) @binding(0) var<storage, read> samples_pos: array<vec4<f32>>;
+@group(0) @binding(1) var<storage, read> samples_val: array<f32>;
+@group(0) @binding(2) var<storage, read> query_pos: array<vec4<f32>>;
+@group(0) @binding(3) var<storage, read_write> out_val: array<f32>;
+@group(0) @binding(4) var<uniform> params: Params;
+
+@compute @workgroup_size(64)
+fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
+    let idx: u32 = gid.x;
+    if (idx >= params.query_count) {
+        return;
+    }
+
+    let q = query_pos[idx].xyz;
+    var best_dist: f32 = 1e30;
+    var best_val: f32 = 0.0;
+
+    var i: u32 = 0u;
+    loop {
+        if (i >= params.sample_count) { break; }
+        let s = samples_pos[i].xyz;
+        let d = s - q;
+        let dist = dot(d, d);
+        if (dist < best_dist) {
+            best_dist = dist;
+            best_val = samples_val[i];
+        }
+        i = i + 1u;
+    }
+
+    out_val[idx] = best_val;
+}
+"#;
 }
 
 /// Lens configuration.
@@ -148,6 +436,12 @@ pub enum LensError {
     NoSamplesAtTick { field: FieldId, tick: u64 },
     #[error("Refinement queue full")]
     RefinementQueueFull,
+    #[error("GPU backend not configured")]
+    GpuUnavailable,
+    #[error("GPU query failed: {0}")]
+    GpuQuery(String),
+    #[error("Non-scalar sample encountered for GPU query: {0}")]
+    NonScalarSample(FieldId),
 }
 
 /// Tile identifier for virtual topology.
@@ -607,6 +901,43 @@ impl FieldLens {
     #[cfg(feature = "gpu")]
     pub fn set_gpu_backend(&mut self, backend: gpu::GpuLensBackend) {
         self.gpu_backend = Some(backend);
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn query_batch_gpu(
+        &mut self,
+        field_id: &FieldId,
+        positions: &[[f64; 3]],
+        tick: u64,
+    ) -> Result<Vec<f64>, LensError> {
+        let backend = self.gpu_backend.as_mut().ok_or(LensError::GpuUnavailable)?;
+
+        let storage = self
+            .fields
+            .get(field_id)
+            .ok_or_else(|| LensError::FieldNotFound(field_id.clone()))?;
+
+        let frame = storage
+            .history
+            .iter()
+            .find(|frame| frame.tick == tick)
+            .ok_or_else(|| LensError::NoSamplesAtTick {
+                field: field_id.clone(),
+                tick,
+            })?;
+
+        let mut samples = Vec::with_capacity(frame.samples.len());
+        for sample in &frame.samples {
+            let value = sample
+                .value
+                .as_scalar()
+                .ok_or_else(|| LensError::NonScalarSample(field_id.clone()))?;
+            samples.push((sample.position, value));
+        }
+
+        backend
+            .query_scalar_batch(&samples, positions)
+            .map_err(LensError::GpuQuery)
     }
 
     /// Request refinement of a field region.
