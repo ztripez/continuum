@@ -9,16 +9,20 @@
 //! - **Go-to-definition**: Jump to signal/field/operator definitions (F12 or Ctrl+Click)
 //! - **Find references**: Find all usages of a symbol (Shift+F12)
 //! - **Document symbols**: Navigate to any symbol in the file (Ctrl+Shift+O)
-//! - **Completion**: Keywords, built-ins, and document symbols with docs
+//! - **Completion**: World-aware completion with all signals, fields, etc.
 //! - **Formatting**: Code formatting on save or on demand
 
 mod formatter;
 mod symbols;
 
+use std::path::Path;
+
 use dashmap::DashMap;
+use tokio::sync::RwLock;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
+use walkdir::WalkDir;
 
 use continuum_dsl::parse;
 use symbols::{format_hover_markdown, SymbolIndex, SymbolKind as CdslSymbolKind};
@@ -27,9 +31,11 @@ use symbols::{format_hover_markdown, SymbolIndex, SymbolKind as CdslSymbolKind};
 struct Backend {
     /// LSP client for sending notifications.
     client: Client,
-    /// Cached document contents.
+    /// Workspace root folders.
+    workspace_roots: RwLock<Vec<Url>>,
+    /// Cached document contents (for open documents).
     documents: DashMap<Url, String>,
-    /// Cached symbol indices for each document.
+    /// Cached symbol indices for ALL world files (not just open ones).
     symbol_indices: DashMap<Url, SymbolIndex>,
 }
 
@@ -70,6 +76,58 @@ impl Backend {
             .publish_diagnostics(uri, diagnostics, None)
             .await;
     }
+
+    /// Scan workspace for all .cdsl files and index them.
+    async fn scan_workspace(&self) {
+        let roots = self.workspace_roots.read().await;
+
+        for root in roots.iter() {
+            if let Ok(path) = root.to_file_path() {
+                self.scan_directory(&path).await;
+            }
+        }
+    }
+
+    /// Scan a directory recursively for .cdsl files.
+    async fn scan_directory(&self, dir: &Path) {
+        for entry in WalkDir::new(dir)
+            .follow_links(true)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if path.extension().map(|e| e == "cdsl").unwrap_or(false) {
+                self.index_file(path).await;
+            }
+        }
+    }
+
+    /// Index a single .cdsl file (without publishing diagnostics).
+    async fn index_file(&self, path: &Path) {
+        let uri = match Url::from_file_path(path) {
+            Ok(uri) => uri,
+            Err(_) => return,
+        };
+
+        // Skip if already indexed from an open document
+        if self.documents.contains_key(&uri) {
+            return;
+        }
+
+        // Read and parse the file
+        let text = match std::fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(_) => return,
+        };
+
+        let (ast, _errors) = parse(&text);
+
+        if let Some(ref ast) = ast {
+            let index = SymbolIndex::from_ast(ast);
+            self.symbol_indices.insert(uri, index);
+        }
+    }
+
 }
 
 /// Convert a byte offset to line/column position.
@@ -165,7 +223,18 @@ fn detect_kind_prefix(prefix: &str) -> Option<(CdslSymbolKind, usize)> {
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
-    async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
+    async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
+        // Store workspace roots for scanning
+        let mut roots = self.workspace_roots.write().await;
+        if let Some(folders) = params.workspace_folders {
+            for folder in folders {
+                roots.push(folder.uri);
+            }
+        } else if let Some(root_uri) = params.root_uri {
+            roots.push(root_uri);
+        }
+        drop(roots);
+
         Ok(InitializeResult {
             capabilities: ServerCapabilities {
                 text_document_sync: Some(TextDocumentSyncCapability::Kind(
@@ -192,6 +261,17 @@ impl LanguageServer for Backend {
     async fn initialized(&self, _: InitializedParams) {
         self.client
             .log_message(MessageType::INFO, "CDSL language server initialized")
+            .await;
+
+        // Scan workspace for all .cdsl files
+        self.scan_workspace().await;
+
+        let count = self.symbol_indices.len();
+        self.client
+            .log_message(
+                MessageType::INFO,
+                format!("Indexed {} .cdsl files in workspace", count),
+            )
             .await;
     }
 
@@ -244,10 +324,11 @@ impl LanguageServer for Backend {
 
         let mut items = Vec::new();
 
-        // If we have a kind prefix, only show symbols of that kind
+        // If we have a kind prefix, only show symbols of that kind from ALL files
         if let Some((kind, _prefix_len)) = kind_filter {
-            if let Some(index) = self.symbol_indices.get(uri) {
-                for info in index.get_completions().filter(|c| c.kind == kind) {
+            // Collect completions from ALL indexed files in the world
+            for entry in self.symbol_indices.iter() {
+                for info in entry.value().get_completions().filter(|c| c.kind == kind) {
                     let lsp_kind = cdsl_kind_to_completion_kind(info.kind);
 
                     // Build detail string with type and title
@@ -322,9 +403,9 @@ impl LanguageServer for Backend {
                 completion_item("tan", CompletionItemKind::FUNCTION, "Tangent"),
             ]);
 
-            // Add all document symbols with full path
-            if let Some(index) = self.symbol_indices.get(uri) {
-                for info in index.get_completions() {
+            // Add all world symbols with full path
+            for entry in self.symbol_indices.iter() {
+                for info in entry.value().get_completions() {
                     let lsp_kind = cdsl_kind_to_completion_kind(info.kind);
                     let label = format!("{}.{}", info.kind.display_name(), info.path);
 
@@ -591,6 +672,7 @@ async fn main() {
 
     let (service, socket) = LspService::new(|client| Backend {
         client,
+        workspace_roots: RwLock::new(Vec::new()),
         documents: DashMap::new(),
         symbol_indices: DashMap::new(),
     });
