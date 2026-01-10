@@ -327,6 +327,7 @@ dependencies = [
  "continuum-runtime",
  "indexmap",
  "pollster",
+ "rayon",
  "thiserror",
  "tracing",
  "wgpu",

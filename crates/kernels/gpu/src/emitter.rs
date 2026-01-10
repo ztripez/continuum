@@ -5,6 +5,7 @@
 //! and configuration.
 
 use indexmap::IndexMap;
+use rayon::prelude::*;
 
 use continuum_foundation::FieldId;
 use continuum_runtime::storage::{FieldBuffer, FieldSample};
@@ -17,6 +18,8 @@ use crate::error::GpuError;
 pub struct FieldEmitterConfig {
     /// Minimum sample count to use GPU (below this, CPU is faster).
     pub gpu_threshold: usize,
+    /// Minimum sample count to use parallel CPU iteration.
+    pub cpu_parallel_threshold: usize,
     /// Workgroup size for compute shaders.
     pub workgroup_size: u32,
     /// Whether to prefer GPU when available.
@@ -27,6 +30,7 @@ impl Default for FieldEmitterConfig {
     fn default() -> Self {
         Self {
             gpu_threshold: 1000,
+            cpu_parallel_threshold: 256,
             workgroup_size: 64,
             prefer_gpu: true,
         }
@@ -170,6 +174,8 @@ impl FieldEmitter {
     }
 
     /// CPU-based field emission.
+    ///
+    /// For spatial fields with many samples, uses parallel iteration via rayon.
     fn emit_cpu(&self, emission: FieldEmission) -> Result<EmissionResult, GpuError> {
         let start = std::time::Instant::now();
 
@@ -179,8 +185,18 @@ impl FieldEmitter {
                 position: [0.0, 0.0, 0.0],
                 value: self.evaluate_expression_cpu(&emission.signal_inputs, emission.expression_id),
             }]
+        } else if emission.positions.len() >= self.config.cpu_parallel_threshold {
+            // Spatial field with many samples - parallel iteration
+            emission
+                .positions
+                .par_iter()
+                .map(|&pos| FieldSample {
+                    position: pos,
+                    value: self.evaluate_expression_cpu(&emission.signal_inputs, emission.expression_id),
+                })
+                .collect()
         } else {
-            // Spatial field - sample at each position
+            // Spatial field with few samples - sequential iteration
             emission
                 .positions
                 .iter()
@@ -250,6 +266,7 @@ mod tests {
     fn test_config_defaults() {
         let config = FieldEmitterConfig::default();
         assert_eq!(config.gpu_threshold, 1000);
+        assert_eq!(config.cpu_parallel_threshold, 256);
         assert_eq!(config.workgroup_size, 64);
         assert!(config.prefer_gpu);
     }
@@ -300,6 +317,37 @@ mod tests {
         assert_eq!(result.samples.len(), 3);
         for sample in &result.samples {
             assert_eq!(sample.value, Value::Scalar(10.0));
+        }
+    }
+
+    #[test]
+    fn test_cpu_parallel_spatial_emission() {
+        // Create emitter with low threshold to test parallel path
+        let config = FieldEmitterConfig {
+            cpu_parallel_threshold: 10,
+            ..Default::default()
+        };
+        let emitter = FieldEmitter::with_config(config);
+
+        // Generate positions above threshold
+        let positions: Vec<[f64; 3]> = (0..100)
+            .map(|i| [i as f64, 0.0, 0.0])
+            .collect();
+
+        let emission = FieldEmission {
+            field_id: FieldId::from("test.parallel"),
+            positions,
+            signal_inputs: vec![5.0, 3.0],
+            expression_id: 0,
+        };
+
+        let result = emitter.emit_cpu(emission).unwrap();
+
+        assert_eq!(result.backend, EmitterBackend::Cpu);
+        assert_eq!(result.samples.len(), 100);
+        // All samples should have sum of inputs (5+3=8)
+        for sample in &result.samples {
+            assert_eq!(sample.value, Value::Scalar(8.0));
         }
     }
 

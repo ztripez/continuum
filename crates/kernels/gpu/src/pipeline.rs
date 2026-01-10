@@ -400,6 +400,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {{
 #[cfg(test)]
 mod tests {
     use super::*;
+    use continuum_foundation::FieldId;
 
     #[test]
     #[ignore = "requires GPU"]
