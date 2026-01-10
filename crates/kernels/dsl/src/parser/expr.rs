@@ -381,45 +381,85 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             });
 
         // If expression: if condition { then } else { else }
-        // The condition uses logical_or (not expr) to avoid infinite recursion
-        // (conditions shouldn't be let or if expressions without braces)
-        let if_expr = text::keyword("if")
-            .padded_by(ws())
-            .map_with(|_, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                span.start
-            })
-            .then(logical_or_boxed)
-            .then(
-                expr_boxed
-                    .clone()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
-            .then(
-                text::keyword("else")
-                    .padded_by(ws())
-                    .ignore_then(
-                        expr_boxed
-                            .padded_by(ws())
-                            .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+        // Also supports: if cond { a } else if cond2 { b } else { c }
+        //
+        // Uses iterative parsing of else-if chains to avoid recursive parser issues.
+        // Pattern: if COND { BLOCK } (else if COND { BLOCK })* (else { BLOCK })?
+        let if_expr = {
+            // Braced expression: { expr }
+            let braced = just('{')
+                .padded_by(ws())
+                .ignore_then(expr_boxed.clone().padded_by(ws()))
+                .then_ignore(just('}').padded_by(ws()));
+
+            // Initial if clause: if COND { BLOCK }
+            let if_head = text::keyword("if")
+                .map_with(|_, e| {
+                    let span: chumsky::span::SimpleSpan = e.span();
+                    span.start
+                })
+                .then_ignore(ws())
+                .then(logical_or_boxed.clone())
+                .then_ignore(ws())
+                .then(braced.clone());
+
+            // Else-if clause: else if COND { BLOCK }
+            // We match "else" + whitespace + "if" as a sequence, then condition + block
+            let else_if_clause = text::keyword("else")
+                .then_ignore(ws())
+                .then(text::keyword("if"))
+                .then_ignore(ws())
+                .ignore_then(logical_or_boxed.clone())
+                .then_ignore(ws())
+                .then(braced.clone());
+
+            // Final else clause: else { BLOCK }
+            let else_final = text::keyword("else")
+                .then_ignore(ws())
+                .ignore_then(braced.clone());
+
+            // Combine: if + (else-if)* + (else)?
+            // The nested tuples come from chained .then() calls:
+            // if_head produces ((usize, Spanned), Spanned)
+            if_head
+                .then(else_if_clause.repeated().collect::<Vec<_>>())
+                .then(else_final.or_not())
+                .map(|((((if_start, cond), then_block), else_ifs), else_final)| {
+                    // Build nested If expressions from right to left
+                    let mut else_branch = else_final;
+
+                    // Fold else-if clauses from right to left
+                    for (ei_cond, ei_block) in else_ifs.into_iter().rev() {
+                        let span_start = ei_cond.span.start;
+                        let span_end = else_branch
+                            .as_ref()
+                            .map(|e| e.span.end)
+                            .unwrap_or(ei_block.span.end);
+                        else_branch = Some(Spanned::new(
+                            Expr::If {
+                                condition: Box::new(ei_cond),
+                                then_branch: Box::new(ei_block),
+                                else_branch: else_branch.map(Box::new),
+                            },
+                            span_start..span_end,
+                        ));
+                    }
+
+                    let final_span_end = else_branch
+                        .as_ref()
+                        .map(|e| e.span.end)
+                        .unwrap_or(then_block.span.end);
+
+                    Spanned::new(
+                        Expr::If {
+                            condition: Box::new(cond),
+                            then_branch: Box::new(then_block),
+                            else_branch: else_branch.map(Box::new),
+                        },
+                        if_start..final_span_end,
                     )
-                    .or_not(),
-            )
-            .map(|(((if_start, condition), then_branch), else_branch)| {
-                let span_end = else_branch
-                    .as_ref()
-                    .map(|e| e.span.end)
-                    .unwrap_or(then_branch.span.end);
-                Spanned::new(
-                    Expr::If {
-                        condition: Box::new(condition),
-                        then_branch: Box::new(then_branch),
-                        else_branch: else_branch.map(Box::new),
-                    },
-                    if_start..span_end,
-                )
-            });
+                })
+        };
 
         // Let and if expressions have lowest precedence - they consume the rest as body
         choice((let_expr, if_expr, logical_or))

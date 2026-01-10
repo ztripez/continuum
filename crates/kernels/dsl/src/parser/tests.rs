@@ -1028,7 +1028,6 @@ fn test_parse_vec2_and_mod_calls() {
 signal.rotation.state {
     : Vec2<rad>
     : strata(rotation)
-    : uses(dt_raw)
 
     resolve {
         let phase = prev.x + prev.y * dt_raw in
@@ -1112,6 +1111,73 @@ signal.test.nested_if {
     assert!(errors.is_empty(), "errors: {:?}", errors);
     let unit = result.unwrap();
     assert_eq!(unit.items.len(), 1);
+}
+
+#[test]
+fn test_parse_else_if_chain() {
+    // Test else-if chain parsing
+    let source = r#"
+signal.test.else_if {
+    : Scalar<1>
+    resolve {
+        if prev > 100.0 {
+            3.0
+        } else if prev > 50.0 {
+            2.0
+        } else if prev > 0.0 {
+            1.0
+        } else {
+            0.0
+        }
+    }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            assert!(def.resolve.is_some());
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::If { condition, then_branch: _, else_branch } => {
+                    // First condition: prev > 100.0
+                    match &condition.node {
+                        Expr::Binary { op, .. } => {
+                            assert_eq!(*op, BinaryOp::Gt);
+                        }
+                        _ => panic!("expected Binary comparison"),
+                    }
+                    // Else branch should be another If (the else-if)
+                    let else_if = else_branch.as_ref().expect("should have else branch");
+                    match &else_if.node {
+                        Expr::If { condition: cond2, else_branch: else2, .. } => {
+                            // Second condition: prev > 50.0
+                            match &cond2.node {
+                                Expr::Binary { op, .. } => {
+                                    assert_eq!(*op, BinaryOp::Gt);
+                                }
+                                _ => panic!("expected Binary comparison in else-if"),
+                            }
+                            // Should have another else-if or else
+                            let else_if2 = else2.as_ref().expect("should have second else branch");
+                            match &else_if2.node {
+                                Expr::If { else_branch: else3, .. } => {
+                                    // Final else should exist
+                                    assert!(else3.is_some(), "should have final else");
+                                }
+                                _ => panic!("expected nested If in second else-if"),
+                            }
+                        }
+                        _ => panic!("expected If in else branch (else-if)"),
+                    }
+                }
+                _ => panic!("expected If expression, got {:?}", resolve.body.node),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
 }
 
 #[test]
@@ -1492,7 +1558,7 @@ fn test_parse_named_argument_basic() {
     // Test single named argument: func(a, method: rk4)
     let source = r#"
         signal.test {
-            : Scalar
+            : Scalar<1>
             resolve {
                 integrate(prev, rate, method: rk4)
             }
