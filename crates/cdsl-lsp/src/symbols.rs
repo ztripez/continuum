@@ -24,9 +24,9 @@
 use std::ops::Range;
 
 use continuum_dsl::ast::{
-    ChronicleDef, CompilationUnit, EntityDef, EraDef, Expr, FieldDef, FnDef, FractureDef,
-    ImpulseDef, Item, OperatorBody, OperatorDef, Path, SignalDef, Spanned, SpannedExprVisitor,
-    StrataDef, TypeDef, TypeExpr,
+    ChronicleDef, CompilationUnit, ConfigBlock, ConfigEntry, ConstBlock, ConstEntry, EntityDef,
+    EraDef, Expr, FieldDef, FnDef, FractureDef, ImpulseDef, Item, Literal, OperatorBody,
+    OperatorDef, Path, SignalDef, Spanned, SpannedExprVisitor, StrataDef, TypeDef, TypeExpr,
 };
 
 /// Information about a symbol for hover display.
@@ -64,6 +64,8 @@ pub enum SymbolKind {
     Fracture,
     Chronicle,
     Entity,
+    Const,
+    Config,
 }
 
 impl SymbolKind {
@@ -81,6 +83,8 @@ impl SymbolKind {
             SymbolKind::Fracture => "fracture",
             SymbolKind::Chronicle => "chronicle",
             SymbolKind::Entity => "entity",
+            SymbolKind::Const => "const",
+            SymbolKind::Config => "config",
         }
     }
 }
@@ -149,6 +153,17 @@ pub struct FunctionSignature {
     pub return_type: Option<String>,
 }
 
+/// Reference validation info for undefined reference diagnostics.
+#[derive(Debug, Clone)]
+pub struct ReferenceValidationInfo {
+    /// The span of the reference in source.
+    pub span: Range<usize>,
+    /// The kind of symbol being referenced.
+    pub kind: SymbolKind,
+    /// The target path (e.g., "core.temp").
+    pub target_path: String,
+}
+
 /// Symbol index for a document.
 #[derive(Debug, Default)]
 pub struct SymbolIndex {
@@ -214,6 +229,21 @@ impl SymbolIndex {
             .filter(|r| r.span.contains(&offset))
             .min_by_key(|r| r.span.end - r.span.start)
             .map(|r| (r.kind, r.target_path.as_str()))
+    }
+
+    /// Get all references for validation (undefined reference diagnostics).
+    ///
+    /// Returns all references in this file that need to be checked against
+    /// defined symbols across the workspace.
+    pub fn get_references_for_validation(&self) -> Vec<ReferenceValidationInfo> {
+        self.references
+            .iter()
+            .map(|r| ReferenceValidationInfo {
+                span: r.span.clone(),
+                kind: r.kind,
+                target_path: r.target_path.clone(),
+            })
+            .collect()
     }
 
     /// Find the definition span for the symbol at the given offset.
@@ -345,9 +375,8 @@ impl SymbolIndex {
             Item::FractureDef(def) => self.index_fracture(def, item.span.clone()),
             Item::ChronicleDef(def) => self.index_chronicle(def, item.span.clone()),
             Item::EntityDef(def) => self.index_entity(def, item.span.clone()),
-            Item::ConstBlock(_) | Item::ConfigBlock(_) => {
-                // Config blocks don't have individual symbol identity
-            }
+            Item::ConstBlock(block) => self.index_const_block(block),
+            Item::ConfigBlock(block) => self.index_config_block(block),
         }
     }
 
@@ -740,12 +769,84 @@ impl SymbolIndex {
         });
     }
 
+    fn index_const_block(&mut self, block: &ConstBlock) {
+        for entry in &block.entries {
+            self.index_const_entry(entry);
+        }
+    }
+
+    fn index_const_entry(&mut self, entry: &ConstEntry) {
+        // Format value for display
+        let value_str = format_literal(&entry.value.node);
+        let type_str = if let Some(ref unit) = entry.unit {
+            format!("{} <{}>", value_str, unit.node)
+        } else {
+            value_str
+        };
+
+        self.symbols.push(IndexedSymbol {
+            span: entry.path.span.clone(),
+            path_span: entry.path.span.clone(),
+            info: SymbolInfo {
+                kind: SymbolKind::Const,
+                path: entry.path.node.to_string(),
+                doc: entry.doc.clone(),
+                ty: Some(type_str),
+                title: None,
+                symbol: None,
+                strata: None,
+                extra: vec![],
+            },
+        });
+    }
+
+    fn index_config_block(&mut self, block: &ConfigBlock) {
+        for entry in &block.entries {
+            self.index_config_entry(entry);
+        }
+    }
+
+    fn index_config_entry(&mut self, entry: &ConfigEntry) {
+        // Format value for display
+        let value_str = format_literal(&entry.value.node);
+        let type_str = if let Some(ref unit) = entry.unit {
+            format!("{} <{}>", value_str, unit.node)
+        } else {
+            value_str
+        };
+
+        self.symbols.push(IndexedSymbol {
+            span: entry.path.span.clone(),
+            path_span: entry.path.span.clone(),
+            info: SymbolInfo {
+                kind: SymbolKind::Config,
+                path: entry.path.node.to_string(),
+                doc: entry.doc.clone(),
+                ty: Some(type_str),
+                title: None,
+                symbol: None,
+                strata: None,
+                extra: vec![],
+            },
+        });
+    }
+
     /// Index references within an expression using the visitor pattern.
     fn index_expr(&mut self, expr: &Spanned<Expr>) {
         let mut collector = RefCollector {
             references: &mut self.references,
         };
         collector.walk(expr);
+    }
+}
+
+/// Format a literal value for display.
+fn format_literal(lit: &Literal) -> String {
+    match lit {
+        Literal::Integer(i) => format!("{}", i),
+        Literal::Float(f) => format!("{}", f),
+        Literal::String(s) => format!("\"{}\"", s),
+        Literal::Bool(b) => format!("{}", b),
     }
 }
 
@@ -778,11 +879,10 @@ impl SpannedExprVisitor for RefCollector<'_> {
     }
 
     fn visit_const_ref(&mut self, span: Range<usize>, path: &Path) -> bool {
-        // Consts don't have definitions we can look up yet, but index anyway
         self.references.push(SymbolReference {
             span,
-            kind: SymbolKind::Signal, // We use Signal as a fallback
-            target_path: format!("const.{}", path),
+            kind: SymbolKind::Const,
+            target_path: path.to_string(),
         });
         true
     }
@@ -790,8 +890,8 @@ impl SpannedExprVisitor for RefCollector<'_> {
     fn visit_config_ref(&mut self, span: Range<usize>, path: &Path) -> bool {
         self.references.push(SymbolReference {
             span,
-            kind: SymbolKind::Signal,
-            target_path: format!("config.{}", path),
+            kind: SymbolKind::Config,
+            target_path: path.to_string(),
         });
         true
     }
@@ -1381,5 +1481,50 @@ fn.math.double(x) { x * 2 }
         assert!(clamp_hover.contains("clamp"));
         assert!(clamp_hover.contains("(built-in)"));
         assert!(clamp_hover.contains("value, min, max"));
+    }
+
+    #[test]
+    fn test_get_references_for_validation() {
+        let src = r#"
+signal.core.temp {
+    : Scalar<K>
+    resolve { prev }
+}
+
+signal.thermal.gradient {
+    : Scalar<K>
+    resolve {
+        let t = signal.core.temp in
+        let x = signal.undefined.signal in
+        let c = const.some.value in
+        t + x + c
+    }
+}
+"#;
+        let (ast, errors) = continuum_dsl::parse(src);
+        assert!(errors.is_empty(), "Parse errors: {:?}", errors);
+
+        let index = SymbolIndex::from_ast(&ast.unwrap());
+        let refs = index.get_references_for_validation();
+
+        // Should have references to core.temp, undefined.signal, and some.value (const)
+        assert!(
+            refs.iter().any(|r| r.target_path == "core.temp" && r.kind == SymbolKind::Signal),
+            "Should have signal reference to core.temp"
+        );
+        assert!(
+            refs.iter().any(|r| r.target_path == "undefined.signal" && r.kind == SymbolKind::Signal),
+            "Should have signal reference to undefined.signal"
+        );
+        // const references now have kind=Const and path without prefix
+        assert!(
+            refs.iter().any(|r| r.target_path == "some.value" && r.kind == SymbolKind::Const),
+            "Should have const reference to some.value"
+        );
+
+        // All references should have valid spans
+        for r in &refs {
+            assert!(!r.span.is_empty(), "Reference should have non-empty span");
+        }
     }
 }

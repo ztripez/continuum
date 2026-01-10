@@ -26,7 +26,10 @@ use walkdir::WalkDir;
 
 use continuum_dsl::ast::{CompilationUnit, Expr, Item, Spanned};
 use continuum_dsl::parse;
-use symbols::{format_hover_markdown, get_builtin_hover, SymbolIndex, SymbolKind as CdslSymbolKind};
+use symbols::{
+    format_hover_markdown, get_builtin_hover, ReferenceValidationInfo, SymbolIndex,
+    SymbolKind as CdslSymbolKind,
+};
 
 /// Semantic token types for syntax highlighting.
 /// These indices must match the order in the legend.
@@ -46,6 +49,8 @@ const SEMANTIC_TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::NUMBER,    // 12: number
     SemanticTokenType::STRING,    // 13: string/unit
     SemanticTokenType::COMMENT,   // 14: comment
+    SemanticTokenType::PARAMETER, // 15: const
+    SemanticTokenType::PARAMETER, // 16: config
 ];
 
 /// Semantic token modifiers.
@@ -95,6 +100,10 @@ impl Backend {
         // Build symbol index from AST and collect hints
         if let Some(ref ast) = ast {
             let index = SymbolIndex::from_ast(ast);
+
+            // Get references for validation before inserting
+            let refs_to_validate = index.get_references_for_validation();
+
             self.symbol_indices.insert(uri.clone(), index);
 
             // Collect clamp usage hints
@@ -114,6 +123,28 @@ impl Backend {
                         Clamping can hide simulation errors by silently correcting values."
                         .to_string(),
                     tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                    ..Default::default()
+                });
+            }
+
+            // Check for undefined references
+            let undefined = self.find_undefined_references(&refs_to_validate);
+            for undef in undefined {
+                let (start_line, start_char) = offset_to_position(text, undef.span.start);
+                let (end_line, end_char) = offset_to_position(text, undef.span.end);
+
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    source: Some("cdsl".to_string()),
+                    message: format!(
+                        "Undefined {}: '{}'",
+                        undef.kind.display_name(),
+                        undef.target_path
+                    ),
                     ..Default::default()
                 });
             }
@@ -176,6 +207,24 @@ impl Backend {
         }
     }
 
+    /// Find undefined references by checking against all indexed symbols.
+    ///
+    /// Returns references that don't have a corresponding definition in any
+    /// indexed file.
+    fn find_undefined_references(
+        &self,
+        refs: &[ReferenceValidationInfo],
+    ) -> Vec<ReferenceValidationInfo> {
+        refs.iter()
+            .filter(|r| {
+                // Check if definition exists in any indexed file
+                !self.symbol_indices.iter().any(|entry| {
+                    entry.value().find_definition(r.kind, &r.target_path).is_some()
+                })
+            })
+            .cloned()
+            .collect()
+    }
 }
 
 /// Convert a byte offset to line/column position.
@@ -1198,6 +1247,8 @@ impl LanguageServer for Backend {
                 CdslSymbolKind::Fracture => 8,
                 CdslSymbolKind::Chronicle => 9,
                 CdslSymbolKind::Entity => 10,
+                CdslSymbolKind::Const => 15,
+                CdslSymbolKind::Config => 16,
             };
             // Mark as definition
             tokens.push((span.start, span.end - span.start, token_type, 0b11));
@@ -1217,6 +1268,8 @@ impl LanguageServer for Backend {
                 CdslSymbolKind::Fracture => 8,
                 CdslSymbolKind::Chronicle => 9,
                 CdslSymbolKind::Entity => 10,
+                CdslSymbolKind::Const => 15,
+                CdslSymbolKind::Config => 16,
             };
             tokens.push((span.start, span.end - span.start, token_type, 0));
         }
@@ -1346,6 +1399,8 @@ fn symbol_kind_to_lsp(kind: symbols::SymbolKind) -> SymbolKind {
         symbols::SymbolKind::Fracture => SymbolKind::EVENT,
         symbols::SymbolKind::Chronicle => SymbolKind::CLASS,
         symbols::SymbolKind::Entity => SymbolKind::CLASS,
+        symbols::SymbolKind::Const => SymbolKind::CONSTANT,
+        symbols::SymbolKind::Config => SymbolKind::PROPERTY,
     }
 }
 
@@ -1363,6 +1418,8 @@ fn cdsl_kind_to_completion_kind(kind: CdslSymbolKind) -> CompletionItemKind {
         CdslSymbolKind::Fracture => CompletionItemKind::EVENT,
         CdslSymbolKind::Chronicle => CompletionItemKind::CLASS,
         CdslSymbolKind::Entity => CompletionItemKind::CLASS,
+        CdslSymbolKind::Const => CompletionItemKind::CONSTANT,
+        CdslSymbolKind::Config => CompletionItemKind::PROPERTY,
     }
 }
 
