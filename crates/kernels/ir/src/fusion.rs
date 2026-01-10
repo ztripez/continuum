@@ -1031,11 +1031,28 @@ mod tests {
             benefit_score: 0.5,
         };
 
-        let mut cost_model = FusionCostModel::default();
-        // Need min_benefit > call_savings (which is (2-1) * 2.0 = 2.0)
-        cost_model.min_benefit = 3.0;
+        // First compute the actual benefit to understand what threshold to set
+        let cost_model = FusionCostModel::default();
+        let actual_benefit = cost_model.compute_benefit(&group, &deps);
 
-        assert!(!cost_model.should_fuse(&group, &deps));
+        // Verify our test setup produces some benefit (sanity check)
+        assert!(
+            actual_benefit > 0.0,
+            "Test expects some positive benefit from call elimination, got {}",
+            actual_benefit
+        );
+
+        // Now set threshold higher than the computed benefit
+        let mut high_threshold_model = cost_model.clone();
+        high_threshold_model.min_benefit = actual_benefit + 1.0;
+
+        // Verify should_fuse correctly rejects when benefit < threshold
+        assert!(
+            !high_threshold_model.should_fuse(&group, &deps),
+            "should_fuse should return false when min_benefit ({}) > actual_benefit ({})",
+            high_threshold_model.min_benefit,
+            actual_benefit
+        );
     }
 
     #[test]

@@ -43,8 +43,6 @@ mod contexts;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
-
 use indexmap::IndexMap;
 
 use continuum_foundation::{EraId, FieldId, SignalId, StratumId};
