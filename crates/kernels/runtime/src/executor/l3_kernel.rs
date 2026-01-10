@@ -39,7 +39,6 @@ use crate::types::Dt;
 use crate::vectorized::{EntityIndex, MemberSignalId};
 
 use super::lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult, LoweringStrategy};
-use super::member_executor::{ScalarResolveContext, Vec3ResolveContext};
 
 // ============================================================================
 // Member DAG
