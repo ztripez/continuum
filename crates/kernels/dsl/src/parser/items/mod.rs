@@ -32,12 +32,14 @@
 //! - [`ChronicleDef`](crate::ast::ChronicleDef) - `chronicle.name { ... }` observers
 //!
 //! ## Collections
-//! - [`EntityDef`](crate::ast::EntityDef) - `entity.name { ... }` indexed state
+//! - [`EntityDef`](crate::ast::EntityDef) - `entity.name { ... }` index spaces
+//! - [`MemberDef`](crate::ast::MemberDef) - `member.entity.field { ... }` per-entity state
 
 mod common;
 mod config;
 mod entity;
 mod events;
+mod member;
 mod signals;
 mod time;
 mod types;
@@ -53,6 +55,7 @@ use super::ParseError;
 pub use config::{config_block, const_block};
 pub use entity::entity_def;
 pub use events::{chronicle_def, fracture_def, impulse_def};
+pub use member::member_def;
 pub use signals::{field_def, operator_def, signal_def};
 pub use time::{era_def, strata_def};
 pub use types::{fn_def, type_def};
@@ -75,5 +78,6 @@ pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<
         fracture_def().map(Item::FractureDef),
         chronicle_def().map(Item::ChronicleDef),
         entity_def().map(Item::EntityDef),
+        member_def().map(Item::MemberDef),
     ))
 }

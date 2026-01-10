@@ -12,10 +12,11 @@
 //! - **Functions**: [`FnDef`] for pure inlined expressions
 //! - **Simulation Structure**: [`StrataDef`], [`EraDef`] for time organization
 //! - **Signals**: [`SignalDef`] for authoritative state
+//! - **Member Signals**: [`MemberDef`] for per-entity authoritative state
 //! - **Observation**: [`FieldDef`] for derived measurements
 //! - **Operators**: [`OperatorDef`] for phase-specific logic
 //! - **Events**: [`ImpulseDef`], [`FractureDef`], [`ChronicleDef`]
-//! - **Collections**: [`EntityDef`] for indexed state
+//! - **Collections**: [`EntityDef`] for index spaces
 //!
 //! # Module Organization
 //!
@@ -143,8 +144,10 @@ pub enum Item {
     FractureDef(FractureDef),
     /// Chronicle (observer): `chronicle.stellar.events { observe { ... } }`.
     ChronicleDef(ChronicleDef),
-    /// Entity (indexed collection): `entity.stellar.moon { schema { ... } }`.
+    /// Entity (index space): `entity.stellar.moon { : count(config.n) }`.
     EntityDef(EntityDef),
+    /// Member signal (per-entity state): `member.stellar.moon.mass { resolve { ... } }`.
+    MemberDef(MemberDef),
 }
 
 /// Dot-separated path identifying a named entity in the DSL.

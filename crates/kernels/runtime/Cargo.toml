@@ -10,3 +10,12 @@ rayon = "1"
 continuum-foundation = { version = "0.1.0", path = "../foundation" }
 tracing = "0.1.44"
 serde = { version = "1.0", features = ["derive"] }
+thread_local = "1.1.9"
+continuum-vm = { version = "0.1.0", path = "../vm" }
+
+[dev-dependencies]
+criterion = { version = "0.8.1", features = ["html_reports"] }
+
+[[bench]]
+name = "chunking_strategies"
+harness = false

@@ -28,13 +28,15 @@
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use continuum_foundation::{EraId, SignalId, StratumId};
+use continuum_foundation::{EraId, EntityId as FoundationEntityId, MemberId, MemberSignalId, SignalId, StratumId};
 use continuum_runtime::dag::{
-    CycleError, DagBuilder, DagNode, DagSet, EraDags, ExecutableDag, NodeId, NodeKind,
+    AggregateBarrier, BarrierDagBuilder, CycleError, DagBuilder, DagNode, DagSet, EraDags,
+    ExecutableDag, NodeId, NodeKind,
 };
-use continuum_runtime::types::Phase;
+use continuum_runtime::reductions::ReductionOp;
+use continuum_runtime::types::{EntityId as RuntimeEntityId, Phase};
 
-use crate::{CompiledWorld, OperatorPhaseIr};
+use crate::{AggregateOpIr, CompiledExpr, CompiledWorld, OperatorPhaseIr};
 
 /// Errors that can occur during DAG compilation.
 ///
@@ -86,12 +88,16 @@ pub struct CompilationResult {
     pub dags: DagSet,
     /// Resolver function indices (signal_id -> index)
     pub resolver_indices: IndexMap<SignalId, usize>,
+    /// Member signal resolver indices (member_id -> kernel index)
+    pub member_indices: IndexMap<MemberId, usize>,
     /// Operator function indices
     pub operator_indices: IndexMap<String, usize>,
     /// Field emitter indices
     pub field_indices: IndexMap<String, usize>,
     /// Fracture detector indices
     pub fracture_indices: IndexMap<String, usize>,
+    /// Aggregate function indices (aggregate_id -> index)
+    pub aggregate_indices: IndexMap<String, usize>,
 }
 
 /// Compile a world to executable DAGs
@@ -103,9 +109,22 @@ pub fn compile(world: &CompiledWorld) -> Result<CompilationResult, CompileError>
 struct Compiler<'a> {
     world: &'a CompiledWorld,
     resolver_indices: IndexMap<SignalId, usize>,
+    member_indices: IndexMap<MemberId, usize>,
     operator_indices: IndexMap<String, usize>,
     field_indices: IndexMap<String, usize>,
     fracture_indices: IndexMap<String, usize>,
+    aggregate_indices: IndexMap<String, usize>,
+}
+
+/// Information about an aggregate operation found in an expression.
+#[derive(Debug, Clone)]
+struct AggregateInfo {
+    /// The entity being aggregated over.
+    entity_id: FoundationEntityId,
+    /// The reduction operation.
+    op: AggregateOpIr,
+    /// The body expression to evaluate per instance.
+    body: CompiledExpr,
 }
 
 impl<'a> Compiler<'a> {
@@ -113,9 +132,11 @@ impl<'a> Compiler<'a> {
         Self {
             world,
             resolver_indices: IndexMap::new(),
+            member_indices: IndexMap::new(),
             operator_indices: IndexMap::new(),
             field_indices: IndexMap::new(),
             fracture_indices: IndexMap::new(),
+            aggregate_indices: IndexMap::new(),
         }
     }
 
@@ -134,9 +155,11 @@ impl<'a> Compiler<'a> {
         Ok(CompilationResult {
             dags: dag_set,
             resolver_indices: self.resolver_indices,
+            member_indices: self.member_indices,
             operator_indices: self.operator_indices,
             field_indices: self.field_indices,
             fracture_indices: self.fracture_indices,
+            aggregate_indices: self.aggregate_indices,
         })
     }
 
@@ -144,6 +167,11 @@ impl<'a> Compiler<'a> {
         // Assign resolver indices
         for (idx, (signal_id, _)) in self.world.signals.iter().enumerate() {
             self.resolver_indices.insert(signal_id.clone(), idx);
+        }
+
+        // Assign member signal indices
+        for (idx, (member_id, _)) in self.world.members.iter().enumerate() {
+            self.member_indices.insert(member_id.clone(), idx);
         }
 
         // Assign operator indices
@@ -166,7 +194,121 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    fn compile_era(&self, _era_id: &EraId) -> Result<EraDags, CompileError> {
+    /// Convert an IR aggregate operation to a runtime reduction operation.
+    ///
+    /// Note: Boolean aggregates (Any, All, None) are not directly supported by
+    /// the runtime's ReductionOp. They would need special handling (e.g., mapping
+    /// Any -> Max after converting to 0/1, All -> Min, None -> complement of Any).
+    /// For now, these panic as they require runtime support.
+    fn aggregate_op_to_reduction_op(op: &AggregateOpIr) -> ReductionOp {
+        match op {
+            AggregateOpIr::Sum => ReductionOp::Sum,
+            AggregateOpIr::Product => ReductionOp::Product,
+            AggregateOpIr::Min => ReductionOp::Min,
+            AggregateOpIr::Max => ReductionOp::Max,
+            AggregateOpIr::Mean => ReductionOp::Mean,
+            AggregateOpIr::Count => ReductionOp::Count,
+            // Boolean aggregates need special runtime support
+            AggregateOpIr::Any | AggregateOpIr::All | AggregateOpIr::None => {
+                panic!(
+                    "Boolean aggregate {:?} not yet supported in DAG compilation",
+                    op
+                )
+            }
+        }
+    }
+
+    /// Extract all aggregate operations from an expression recursively.
+    ///
+    /// Returns a vector of `AggregateInfo` containing the entity, operation, and body
+    /// for each aggregate found in the expression tree.
+    fn extract_aggregates(expr: &CompiledExpr) -> Vec<AggregateInfo> {
+        let mut aggregates = Vec::new();
+        Self::extract_aggregates_recursive(expr, &mut aggregates);
+        aggregates
+    }
+
+    fn extract_aggregates_recursive(expr: &CompiledExpr, aggregates: &mut Vec<AggregateInfo>) {
+        match expr {
+            CompiledExpr::Aggregate { op, entity, body } => {
+                aggregates.push(AggregateInfo {
+                    entity_id: FoundationEntityId(entity.0.clone()),
+                    op: *op,
+                    body: (**body).clone(),
+                });
+                // Also check inside the body for nested aggregates
+                Self::extract_aggregates_recursive(body, aggregates);
+            }
+            CompiledExpr::Binary { left, right, .. } => {
+                Self::extract_aggregates_recursive(left, aggregates);
+                Self::extract_aggregates_recursive(right, aggregates);
+            }
+            CompiledExpr::Unary { operand, .. } => {
+                Self::extract_aggregates_recursive(operand, aggregates);
+            }
+            CompiledExpr::Let { value, body, .. } => {
+                Self::extract_aggregates_recursive(value, aggregates);
+                Self::extract_aggregates_recursive(body, aggregates);
+            }
+            CompiledExpr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                Self::extract_aggregates_recursive(condition, aggregates);
+                Self::extract_aggregates_recursive(then_branch, aggregates);
+                Self::extract_aggregates_recursive(else_branch, aggregates);
+            }
+            CompiledExpr::Call { args, .. }
+            | CompiledExpr::KernelCall { args, .. }
+            | CompiledExpr::DtRobustCall { args, .. } => {
+                for arg in args {
+                    Self::extract_aggregates_recursive(arg, aggregates);
+                }
+            }
+            CompiledExpr::FieldAccess { object, .. } => {
+                Self::extract_aggregates_recursive(object, aggregates);
+            }
+            CompiledExpr::Other { body, .. } | CompiledExpr::Pairs { body, .. } => {
+                Self::extract_aggregates_recursive(body, aggregates);
+            }
+            CompiledExpr::Filter {
+                predicate, body, ..
+            } => {
+                Self::extract_aggregates_recursive(predicate, aggregates);
+                Self::extract_aggregates_recursive(body, aggregates);
+            }
+            CompiledExpr::First { predicate, .. } => {
+                Self::extract_aggregates_recursive(predicate, aggregates);
+            }
+            CompiledExpr::Nearest { position, .. } => {
+                Self::extract_aggregates_recursive(position, aggregates);
+            }
+            CompiledExpr::Within {
+                position,
+                radius,
+                body,
+                ..
+            } => {
+                Self::extract_aggregates_recursive(position, aggregates);
+                Self::extract_aggregates_recursive(radius, aggregates);
+                Self::extract_aggregates_recursive(body, aggregates);
+            }
+            // Leaf nodes - no recursion needed
+            CompiledExpr::Literal(_)
+            | CompiledExpr::Prev
+            | CompiledExpr::DtRaw
+            | CompiledExpr::Collected
+            | CompiledExpr::SelfField(_)
+            | CompiledExpr::EntityAccess { .. }
+            | CompiledExpr::Signal(_)
+            | CompiledExpr::Config(_)
+            | CompiledExpr::Const(_)
+            | CompiledExpr::Local(_) => {}
+        }
+    }
+
+    fn compile_era(&mut self, _era_id: &EraId) -> Result<EraDags, CompileError> {
         let mut era_dags = EraDags::default();
 
         // Collect active strata for this era
@@ -237,11 +379,39 @@ impl<'a> Compiler<'a> {
     }
 
     fn build_resolve_dag(
+        &mut self,
+        stratum_id: &StratumId,
+    ) -> Result<Option<ExecutableDag>, CompileError> {
+        // First, check if any signals in this stratum use aggregates
+        let mut has_aggregates = false;
+        for (_, signal) in &self.world.signals {
+            if signal.stratum != *stratum_id {
+                continue;
+            }
+            if let Some(ref resolve) = signal.resolve {
+                if !Self::extract_aggregates(resolve).is_empty() {
+                    has_aggregates = true;
+                    break;
+                }
+            }
+        }
+
+        // Use BarrierDagBuilder if aggregates are present, otherwise use DagBuilder
+        if has_aggregates {
+            self.build_resolve_dag_with_aggregates(stratum_id)
+        } else {
+            self.build_resolve_dag_simple(stratum_id)
+        }
+    }
+
+    /// Build resolve DAG without aggregate handling (simpler path).
+    fn build_resolve_dag_simple(
         &self,
         stratum_id: &StratumId,
     ) -> Result<Option<ExecutableDag>, CompileError> {
         let mut builder = DagBuilder::new(Phase::Resolve, (*stratum_id).clone());
 
+        // Add regular signal resolve nodes
         for (signal_id, signal) in &self.world.signals {
             if signal.stratum != *stratum_id {
                 continue;
@@ -268,12 +438,217 @@ impl<'a> Compiler<'a> {
             builder.add_node(node);
         }
 
+        // Add member signal resolve nodes
+        for (member_id, member) in &self.world.members {
+            if member.stratum != *stratum_id {
+                continue;
+            }
+
+            // Skip members without resolve expressions
+            if member.resolve.is_none() {
+                continue;
+            }
+
+            let member_signal_id = MemberSignalId::new(
+                continuum_runtime::types::EntityId(member.entity_id.0.clone()),
+                member.signal_name.clone(),
+            );
+
+            let node = DagNode {
+                id: NodeId(format!("member.{}", member_id.0)),
+                reads: member
+                    .reads
+                    .iter()
+                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                    .collect(),
+                writes: None, // Member signals don't write to global signal namespace
+                kind: NodeKind::MemberSignalResolve {
+                    member_signal: member_signal_id,
+                    kernel_idx: self.member_indices[member_id],
+                },
+            };
+            builder.add_node(node);
+        }
+
         let dag = builder.build()?;
         if dag.is_empty() {
             Ok(None)
         } else {
             Ok(Some(dag))
         }
+    }
+
+    /// Build resolve DAG with aggregate barrier handling.
+    ///
+    /// This uses `BarrierDagBuilder` to properly sequence:
+    /// 1. Member signal resolution (all instances)
+    /// 2. Aggregate barriers (population reduction)
+    /// 3. Signal resolution (may depend on aggregate outputs)
+    fn build_resolve_dag_with_aggregates(
+        &mut self,
+        stratum_id: &StratumId,
+    ) -> Result<Option<ExecutableDag>, CompileError> {
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, (*stratum_id).clone());
+
+        // Track which member signals need to be added
+        let mut member_signals_added: std::collections::HashSet<MemberSignalId> =
+            std::collections::HashSet::new();
+
+        // First pass: collect all aggregates and the member signals they depend on
+        let mut signal_aggregates: Vec<(SignalId, Vec<AggregateInfo>)> = Vec::new();
+
+        for (signal_id, signal) in &self.world.signals {
+            if signal.stratum != *stratum_id {
+                continue;
+            }
+
+            if let Some(ref resolve) = signal.resolve {
+                let aggregates = Self::extract_aggregates(resolve);
+                if !aggregates.is_empty() {
+                    signal_aggregates.push((signal_id.clone(), aggregates));
+                }
+            }
+        }
+
+        // Add member signal resolve nodes for members in this stratum
+        for (member_id, member) in &self.world.members {
+            if member.stratum != *stratum_id {
+                continue;
+            }
+
+            // Skip members without resolve expressions
+            if member.resolve.is_none() {
+                continue;
+            }
+
+            let member_signal_id = MemberSignalId::new(
+                RuntimeEntityId(member.entity_id.0.clone()),
+                member.signal_name.clone(),
+            );
+
+            builder.add_member_signal_resolve(
+                member_signal_id.clone(),
+                self.member_indices[member_id],
+            );
+            member_signals_added.insert(member_signal_id);
+        }
+
+        // Add aggregate barriers for each aggregate found
+        let mut aggregate_counter = 0usize;
+
+        for (signal_id, aggregates) in &signal_aggregates {
+            for (agg_idx, agg_info) in aggregates.iter().enumerate() {
+                // Extract the member signal name from the aggregate body
+                // For count with literal body, find any member signal of the entity
+                // For other aggregates, expect a self.X reference
+                let member_name = match (&agg_info.op, &agg_info.body) {
+                    (AggregateOpIr::Count, CompiledExpr::Literal(_)) => {
+                        // Count with literal body - find any member of this entity
+                        self.find_any_member_of_entity(&agg_info.entity_id)
+                            .unwrap_or_else(|| {
+                                panic!(
+                                    "Entity '{}' has no member signals for count aggregate",
+                                    agg_info.entity_id.0
+                                )
+                            })
+                    }
+                    _ => Self::extract_member_name_from_body(&agg_info.body).unwrap_or_else(|| {
+                        panic!(
+                            "Aggregate body must be a simple self.X reference, got: {:?}",
+                            agg_info.body
+                        )
+                    }),
+                };
+
+                let member_signal_id = MemberSignalId::new(
+                    RuntimeEntityId(agg_info.entity_id.0.clone()),
+                    member_name.clone(),
+                );
+
+                // Create the aggregate ID
+                let agg_id = format!("agg.{}.{}", signal_id.0, agg_idx);
+
+                // The output signal is the signal that contains this aggregate
+                // For now, assume the entire resolve expression is just the aggregate
+                let output_signal = continuum_runtime::SignalId(signal_id.0.clone());
+
+                let barrier = AggregateBarrier {
+                    id: NodeId(agg_id.clone()),
+                    member_signal: member_signal_id,
+                    reduction_op: Self::aggregate_op_to_reduction_op(&agg_info.op),
+                    output_signal,
+                    aggregate_idx: aggregate_counter,
+                };
+
+                builder.add_aggregate_barrier(barrier);
+
+                // Track this aggregate's index
+                self.aggregate_indices.insert(agg_id, aggregate_counter);
+                aggregate_counter += 1;
+            }
+        }
+
+        // Add regular signal resolve nodes (those without aggregates)
+        for (signal_id, signal) in &self.world.signals {
+            if signal.stratum != *stratum_id {
+                continue;
+            }
+
+            // Skip signals without resolve expressions
+            if signal.resolve.is_none() {
+                continue;
+            }
+
+            // Skip signals that ARE aggregates (they're handled by aggregate barriers)
+            if let Some(ref resolve) = signal.resolve {
+                if !Self::extract_aggregates(resolve).is_empty() {
+                    continue;
+                }
+            }
+
+            let reads: Vec<continuum_runtime::SignalId> = signal
+                .reads
+                .iter()
+                .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                .collect();
+
+            builder.add_signal_resolve(
+                continuum_runtime::SignalId(signal_id.0.clone()),
+                self.resolver_indices[signal_id],
+                &reads,
+            );
+        }
+
+        let dag = builder.build()?;
+        if dag.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(dag))
+        }
+    }
+
+    /// Extract the member signal name from an aggregate body expression.
+    ///
+    /// Returns `Some(name)` if the body is a simple `self.X` reference,
+    /// `None` otherwise.
+    fn extract_member_name_from_body(body: &CompiledExpr) -> Option<String> {
+        match body {
+            CompiledExpr::SelfField(field_name) => Some(field_name.clone()),
+            _ => None,
+        }
+    }
+
+    /// Find any member signal belonging to the given entity.
+    ///
+    /// This is used for count aggregates where we need a member signal to iterate
+    /// over entities but don't need a specific one.
+    fn find_any_member_of_entity(&self, entity_id: &FoundationEntityId) -> Option<String> {
+        for (_member_id, member) in &self.world.members {
+            if member.entity_id.0 == entity_id.0 {
+                return Some(member.signal_name.clone());
+            }
+        }
+        None
     }
 
     fn build_fracture_dag(
@@ -405,6 +780,7 @@ mod tests {
             impulses: IndexMap::new(),
             fractures: IndexMap::new(),
             entities: IndexMap::new(),
+            members: IndexMap::new(),
             chronicles: IndexMap::new(),
             types: IndexMap::new(),
         };
@@ -472,5 +848,200 @@ mod tests {
         // Check that signal c depends on both a and b
         let sig_c = world.signals.get(&SignalId::from("terra.c")).unwrap();
         assert_eq!(sig_c.reads.len(), 2);
+    }
+
+    #[test]
+    fn test_compile_member_signal() {
+        let src = r#"
+            strata.human {}
+
+            era.main {
+                : initial
+            }
+
+            entity.human.person {
+                : count(1..100)
+            }
+
+            member.human.person.age {
+                : Scalar
+                : strata(human)
+                resolve { prev + 1.0 }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let result = compile(&world).unwrap();
+
+        // Should have one era
+        assert_eq!(result.dags.era_count(), 1);
+
+        // Member should have index
+        let member_id = continuum_foundation::MemberId::from("human.person.age");
+        assert!(result.member_indices.contains_key(&member_id));
+        assert_eq!(result.member_indices[&member_id], 0);
+    }
+
+    #[test]
+    fn test_compile_multiple_member_signals_same_entity() {
+        let src = r#"
+            strata.stellar {}
+
+            era.main {
+                : initial
+            }
+
+            entity.stellar.moon {
+                : count(1..10)
+            }
+
+            member.stellar.moon.mass {
+                : Scalar<kg>
+                : strata(stellar)
+                resolve { prev }
+            }
+
+            member.stellar.moon.radius {
+                : Scalar<m>
+                : strata(stellar)
+                resolve { prev * 1.01 }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let result = compile(&world).unwrap();
+
+        // Both members should have indices
+        assert_eq!(result.member_indices.len(), 2);
+
+        let mass_id = continuum_foundation::MemberId::from("stellar.moon.mass");
+        let radius_id = continuum_foundation::MemberId::from("stellar.moon.radius");
+
+        assert!(result.member_indices.contains_key(&mass_id));
+        assert!(result.member_indices.contains_key(&radius_id));
+    }
+
+    #[test]
+    fn test_compile_aggregate_sum() {
+        let src = r#"
+            strata.stellar {}
+
+            era.main {
+                : initial
+            }
+
+            entity.stellar.moon {
+                : count(1..10)
+            }
+
+            member.stellar.moon.mass {
+                : Scalar<kg>
+                : strata(stellar)
+                resolve { prev }
+            }
+
+            signal.stellar.total_mass {
+                : strata(stellar)
+                resolve { sum(entity.stellar.moon, self.mass) }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let result = compile(&world).unwrap();
+
+        // Should have one era
+        assert_eq!(result.dags.era_count(), 1);
+
+        // Member should have index
+        let member_id = continuum_foundation::MemberId::from("stellar.moon.mass");
+        assert!(result.member_indices.contains_key(&member_id));
+
+        // Aggregate should have been assigned an index
+        assert!(!result.aggregate_indices.is_empty());
+        assert!(result.aggregate_indices.contains_key("agg.stellar.total_mass.0"));
+    }
+
+    #[test]
+    fn test_compile_aggregate_count() {
+        // Note: count(entity.X) is a special syntax that just counts instances
+        // It doesn't take a body/predicate - the body is implicitly "1"
+        // For count aggregates, we need at least one member signal to iterate over
+        let src = r#"
+            strata.human {}
+
+            era.main {
+                : initial
+            }
+
+            entity.human.person {
+                : count(1..100)
+            }
+
+            member.human.person.age {
+                : Scalar<s>
+                : strata(human)
+                resolve { prev }
+            }
+
+            signal.human.person_count {
+                : strata(human)
+                resolve { count(entity.human.person) }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let result = compile(&world).unwrap();
+
+        // Should have aggregates
+        assert!(!result.aggregate_indices.is_empty());
+        assert!(result.aggregate_indices.contains_key("agg.human.person_count.0"));
+    }
+
+    #[test]
+    fn test_compile_multiple_aggregates_in_stratum() {
+        let src = r#"
+            strata.stellar {}
+
+            era.main {
+                : initial
+            }
+
+            entity.stellar.planet {
+                : count(1..20)
+            }
+
+            member.stellar.planet.mass {
+                : Scalar<kg>
+                : strata(stellar)
+                resolve { prev }
+            }
+
+            member.stellar.planet.radius {
+                : Scalar<m>
+                : strata(stellar)
+                resolve { prev }
+            }
+
+            signal.stellar.total_mass {
+                : strata(stellar)
+                resolve { sum(entity.stellar.planet, self.mass) }
+            }
+
+            signal.stellar.max_radius {
+                : strata(stellar)
+                resolve { max(entity.stellar.planet, self.radius) }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let result = compile(&world).unwrap();
+
+        // Should have two aggregates
+        assert_eq!(result.aggregate_indices.len(), 2);
+        assert!(result.aggregate_indices.contains_key("agg.stellar.total_mass.0"));
+        assert!(result.aggregate_indices.contains_key("agg.stellar.max_radius.0"));
+
+        // Should have two member signals
+        assert_eq!(result.member_indices.len(), 2);
     }
 }

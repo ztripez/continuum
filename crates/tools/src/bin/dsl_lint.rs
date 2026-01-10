@@ -155,5 +155,6 @@ fn describe_item(item: &continuum_dsl::Item) -> String {
         continuum_dsl::Item::FractureDef(f) => format!("fracture {}", f.path.node),
         continuum_dsl::Item::ChronicleDef(c) => format!("chronicle {}", c.path.node),
         continuum_dsl::Item::EntityDef(e) => format!("entity {}", e.path.node),
+        continuum_dsl::Item::MemberDef(m) => format!("member {}", m.path.node),
     }
 }

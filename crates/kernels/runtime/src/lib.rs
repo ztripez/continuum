@@ -10,6 +10,9 @@
 //!
 //! - [`types`] - Core types: [`Phase`], [`Value`], [`StratumState`], [`Dt`]
 //! - [`storage`] - Signal and entity storage with tick management
+//! - [`soa_storage`] - SoA (Struct-of-Arrays) storage for vectorized execution
+//! - [`reductions`] - Deterministic reduction operations for entity aggregates
+//! - [`vectorized`] - Unified vectorized primitive abstraction
 //! - [`executor`] - Phase executors and the main [`Runtime`] type
 //! - [`dag`] - Execution graph construction and scheduling
 //! - [`error`] - Error types for runtime failures
@@ -40,14 +43,32 @@
 pub mod dag;
 pub mod error;
 pub mod executor;
+pub mod reductions;
+pub mod soa_storage;
 pub mod storage;
 pub mod types;
+pub mod vectorized;
 
 pub use error::{Error, Result};
 pub use executor::{
-    AssertContext, AssertionChecker, AssertionFn, AssertionSeverity, CollectContext, CollectFn,
-    EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, MeasureContext, MeasureFn,
-    PhaseExecutor, ResolveContext, ResolverFn, Runtime, TransitionFn, WarmupContext,
-    WarmupExecutor, WarmupFn,
+    AssertContext, AssertionChecker, AssertionFn, AssertionSeverity, ChunkConfig, CollectContext,
+    CollectFn, EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, LaneKernel,
+    LaneKernelError, LaneKernelRegistry, LaneKernelResult, LoweringHeuristics, LoweringStrategy,
+    MeasureContext, MeasureFn, MemberResolveContext, MemberSignalResolver, PhaseExecutor,
+    ResolveContext, ResolverFn, Runtime, ScalarKernelFn, ScalarL1Kernel, ScalarL1Resolver,
+    ScalarResolveContext, ScalarResolverFn, TransitionFn, Vec3KernelFn, Vec3L1Kernel,
+    Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn, WarmupContext, WarmupExecutor, WarmupFn,
+};
+pub use executor::cost_model::{
+    ComplexityScore, ComplexityThresholds, CostModel, CostWeights,
+};
+pub use soa_storage::{
+    AlignedBuffer, MemberSignalBuffer, MemberSignalMeta, MemberSignalRegistry, PopulationStorage,
+    TypedBuffer, ValueType, SIMD_ALIGNMENT,
 };
 pub use types::*;
+pub use vectorized::{
+    Cardinality, EntityIndex, FieldPrimitive, FieldSampleIdentity, FractureIdentity,
+    FracturePrimitive, GlobalSignal, IndexSpace, MemberSignal, MemberSignalId,
+    MemberSignalIdentity, SampleIndex, VectorizedPrimitive,
+};

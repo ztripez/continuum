@@ -2,7 +2,7 @@
 //!
 //! Executes individual simulation phases: Collect, Resolve, Fracture, Measure.
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use rayon::prelude::*;
 use tracing::{debug, error, instrument, trace};
@@ -30,6 +30,40 @@ pub type MeasureFn = Box<dyn Fn(&mut MeasureContext) + Send + Sync>;
 /// Function that applies an impulse with a typed payload
 pub type ImpulseFn = Box<dyn Fn(&mut ImpulseContext, &Value) + Send + Sync>;
 
+/// Configuration for Measure phase parallelism
+#[derive(Debug, Clone)]
+pub struct MeasureParallelConfig {
+    /// Minimum number of operators to trigger parallel execution.
+    /// Below this threshold, operators execute sequentially to avoid overhead.
+    pub parallel_threshold: usize,
+}
+
+impl Default for MeasureParallelConfig {
+    fn default() -> Self {
+        Self {
+            // Default: parallelize when there are 2+ operators
+            parallel_threshold: 2,
+        }
+    }
+}
+
+/// Configuration for Fracture phase parallelism
+#[derive(Debug, Clone)]
+pub struct FractureParallelConfig {
+    /// Minimum number of fractures to trigger parallel evaluation.
+    /// Below this threshold, fractures evaluate sequentially to avoid overhead.
+    pub parallel_threshold: usize,
+}
+
+impl Default for FractureParallelConfig {
+    fn default() -> Self {
+        Self {
+            // Default: parallelize when there are 2+ fractures
+            parallel_threshold: 2,
+        }
+    }
+}
+
 /// Phase executor handles individual phase execution
 pub struct PhaseExecutor {
     /// Resolver functions indexed by resolver_idx
@@ -42,6 +76,10 @@ pub struct PhaseExecutor {
     pub fractures: Vec<FractureFn>,
     /// Impulse handler functions
     pub impulse_handlers: Vec<ImpulseFn>,
+    /// Configuration for Measure phase parallelism
+    pub measure_config: MeasureParallelConfig,
+    /// Configuration for Fracture phase parallelism
+    pub fracture_config: FractureParallelConfig,
 }
 
 impl Default for PhaseExecutor {
@@ -51,14 +89,37 @@ impl Default for PhaseExecutor {
 }
 
 impl PhaseExecutor {
-    /// Create a new phase executor
+    /// Create a new phase executor with default configuration
     pub fn new() -> Self {
+        Self::with_configs(
+            MeasureParallelConfig::default(),
+            FractureParallelConfig::default(),
+        )
+    }
+
+    /// Create a new phase executor with custom Measure phase configuration
+    pub fn with_measure_config(measure_config: MeasureParallelConfig) -> Self {
+        Self::with_configs(measure_config, FractureParallelConfig::default())
+    }
+
+    /// Create a new phase executor with custom Fracture phase configuration
+    pub fn with_fracture_config(fracture_config: FractureParallelConfig) -> Self {
+        Self::with_configs(MeasureParallelConfig::default(), fracture_config)
+    }
+
+    /// Create a new phase executor with custom configurations for both phases
+    pub fn with_configs(
+        measure_config: MeasureParallelConfig,
+        fracture_config: FractureParallelConfig,
+    ) -> Self {
         Self {
             resolvers: Vec::new(),
             collect_ops: Vec::new(),
             measure_ops: Vec::new(),
             fractures: Vec::new(),
             impulse_handlers: Vec::new(),
+            measure_config,
+            fracture_config,
         }
     }
 
@@ -104,7 +165,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
-        strata_states: &HashMap<StratumId, StratumState>,
+        strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
         input_channels: &mut InputChannels,
@@ -161,7 +222,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
-        strata_states: &HashMap<StratumId, StratumState>,
+        strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &mut SignalStorage,
         input_channels: &mut InputChannels,
@@ -255,6 +316,10 @@ impl PhaseExecutor {
     }
 
     /// Execute the Fracture phase
+    ///
+    /// Fracture condition evaluation is read-only, so we can parallelize it.
+    /// Results are sorted by fracture index before emitting to maintain
+    /// deterministic ordering.
     #[instrument(skip_all, name = "fracture")]
     pub fn execute_fracture(
         &self,
@@ -266,73 +331,169 @@ impl PhaseExecutor {
     ) -> Result<()> {
         let era_dags = dags.get_era(era).unwrap();
 
-        for dag in era_dags.for_phase(Phase::Fracture) {
-            for level in &dag.levels {
-                for node in &level.nodes {
-                    if let NodeKind::Fracture { fracture_idx } = &node.kind {
-                        let fracture = &self.fractures[*fracture_idx];
-                        let ctx = FractureContext { signals, dt };
-                        if let Some(outputs) = fracture(&ctx) {
-                            debug!(outputs = outputs.len(), "fracture emitted");
-                            for (signal, value) in outputs {
-                                fracture_queue.queue(signal, value);
-                            }
-                        }
+        // Collect all fracture indices across all DAGs and levels
+        let all_fracture_indices: Vec<usize> = era_dags
+            .for_phase(Phase::Fracture)
+            .flat_map(|dag| {
+                dag.levels.iter().flat_map(|level| {
+                    level.nodes.iter().filter_map(|node| match &node.kind {
+                        NodeKind::Fracture { fracture_idx } => Some(*fracture_idx),
+                        _ => None,
+                    })
+                })
+            })
+            .collect();
+
+        let total_fractures = all_fracture_indices.len();
+
+        if total_fractures == 0 {
+            return Ok(());
+        }
+
+        trace!(
+            fractures = total_fractures,
+            threshold = self.fracture_config.parallel_threshold,
+            "fracture evaluation"
+        );
+
+        if total_fractures < self.fracture_config.parallel_threshold {
+            // Below threshold - evaluate sequentially to avoid parallelism overhead
+            for &fracture_idx in &all_fracture_indices {
+                let fracture = &self.fractures[fracture_idx];
+                let ctx = FractureContext { signals, dt };
+                if let Some(outputs) = fracture(&ctx) {
+                    debug!(fracture_idx, outputs = outputs.len(), "fracture emitted");
+                    for (signal, value) in outputs {
+                        fracture_queue.queue(signal, value);
                     }
                 }
             }
+        } else {
+            // At or above threshold - evaluate all in parallel
+            // Results include fracture index for deterministic ordering
+            let mut triggered: Vec<(usize, Vec<(SignalId, f64)>)> = all_fracture_indices
+                .par_iter()
+                .filter_map(|&fracture_idx| {
+                    let fracture = &self.fractures[fracture_idx];
+                    let ctx = FractureContext { signals, dt };
+                    fracture(&ctx).map(|outputs| (fracture_idx, outputs))
+                })
+                .collect();
+
+            // Sort by fracture index for deterministic emit ordering
+            triggered.sort_by_key(|(idx, _)| *idx);
+
+            // Sequential emit to maintain determinism
+            for (fracture_idx, outputs) in triggered {
+                debug!(fracture_idx, outputs = outputs.len(), "fracture emitted");
+                for (signal, value) in outputs {
+                    fracture_queue.queue(signal, value);
+                }
+            }
         }
+
         Ok(())
     }
 
     /// Execute the Measure phase
+    ///
+    /// Since Measure is non-causal (observers only read signals), we can use
+    /// aggressive parallelism:
+    /// - All strata execute in parallel
+    /// - All levels within a stratum execute in parallel (no barriers)
+    /// - All operators within a level execute in parallel
+    ///
+    /// Each parallel task writes to its own local buffer, which are merged
+    /// after all execution completes.
     #[instrument(skip_all, name = "measure")]
     pub fn execute_measure(
         &self,
         era: &EraId,
         tick: u64,
         dt: Dt,
-        strata_states: &HashMap<StratumId, StratumState>,
+        strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
         field_buffer: &mut FieldBuffer,
     ) -> Result<()> {
         let era_dags = dags.get_era(era).unwrap();
 
-        for dag in era_dags.for_phase(Phase::Measure) {
-            let stratum_state = strata_states
-                .get(&dag.stratum)
-                .copied()
-                .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+        // Collect all eligible DAGs for parallel execution
+        let eligible_dags: Vec<_> = era_dags
+            .for_phase(Phase::Measure)
+            .filter(|dag| {
+                let stratum_state = strata_states
+                    .get(&dag.stratum)
+                    .copied()
+                    .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+                stratum_state.is_eligible(tick)
+            })
+            .collect();
 
-            if !stratum_state.is_eligible(tick) {
-                trace!(stratum = %dag.stratum, "stratum gated");
-                continue;
+        if eligible_dags.is_empty() {
+            return Ok(());
+        }
+
+        // Collect all measure operators across all strata and levels
+        let all_operator_indices: Vec<usize> = eligible_dags
+            .iter()
+            .flat_map(|dag| {
+                dag.levels.iter().flat_map(|level| {
+                    level.nodes.iter().filter_map(|node| match &node.kind {
+                        NodeKind::OperatorMeasure { operator_idx } => Some(*operator_idx),
+                        _ => None,
+                    })
+                })
+            })
+            .collect();
+
+        let total_operators = all_operator_indices.len();
+
+        if total_operators == 0 {
+            return Ok(());
+        }
+
+        trace!(
+            strata = eligible_dags.len(),
+            operators = total_operators,
+            threshold = self.measure_config.parallel_threshold,
+            "measure execution"
+        );
+
+        if total_operators < self.measure_config.parallel_threshold {
+            // Below threshold - execute sequentially to avoid parallelism overhead
+            for &operator_idx in &all_operator_indices {
+                let op = &self.measure_ops[operator_idx];
+                let mut ctx = MeasureContext {
+                    signals,
+                    fields: field_buffer,
+                    dt,
+                };
+                op(&mut ctx);
             }
+        } else {
+            // At or above threshold - execute all in parallel
+            let local_buffers: Vec<FieldBuffer> = all_operator_indices
+                .par_iter()
+                .map(|&operator_idx| {
+                    let mut local_buffer = FieldBuffer::default();
+                    let op = &self.measure_ops[operator_idx];
+                    let mut ctx = MeasureContext {
+                        signals,
+                        fields: &mut local_buffer,
+                        dt,
+                    };
+                    op(&mut ctx);
+                    local_buffer
+                })
+                .collect();
 
-            trace!(stratum = %dag.stratum, nodes = dag.node_count(), "measuring stratum");
-
-            for level in &dag.levels {
-                for node in &level.nodes {
-                    match &node.kind {
-                        NodeKind::OperatorMeasure { operator_idx } => {
-                            let op = &self.measure_ops[*operator_idx];
-                            let mut ctx = MeasureContext {
-                                signals,
-                                fields: field_buffer,
-                                dt,
-                            };
-                            op(&mut ctx);
-                        }
-                        NodeKind::FieldEmit { field_idx: _ } => {
-                            // FieldEmit nodes are placeholders for dependency tracking
-                            // The actual emission happens via MeasureContext.fields.emit()
-                        }
-                        _ => {}
-                    }
-                }
+            // Merge all local buffers into the main buffer
+            for buffer in local_buffers {
+                field_buffer.merge(buffer);
             }
         }
+
         Ok(())
     }
 }

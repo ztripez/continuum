@@ -619,47 +619,100 @@ pub struct ObserveHandler {
     pub event_fields: Vec<(Spanned<String>, Spanned<Expr>)>,
 }
 
+// === Member Signal ===
+
+/// Member signal definition - per-entity authoritative state as top-level primitive.
+///
+/// Member signals are signals indexed over an entity's index space, with each
+/// instance having its own value. Unlike embedded entity schema fields, member
+/// signals are declared separately as top-level primitives with their own
+/// resolve blocks. This enables:
+///
+/// - **Multi-rate scheduling**: Different member signals on the same entity
+///   can be in different strata
+/// - **Independent dependencies**: Each member signal has its own reads
+/// - **Snapshot semantics**: All `self.*` reads see previous tick values
+///
+/// # DSL Syntax
+///
+/// ```cdsl
+/// member.human.person.age {
+///     : Scalar
+///     : strata(human.physiology)
+///     resolve { integrate(prev, 1) }
+/// }
+///
+/// member.human.person.homeostasis {
+///     : Scalar<1, 0..1>
+///     : strata(human.physiology)
+///     resolve { clamp(prev + collected, 0.0, 1.0) }
+/// }
+/// ```
+///
+/// # Path Structure
+///
+/// The member path follows the pattern `entity_path.signal_name`:
+/// - `human.person.age` → entity `human.person`, signal `age`
+/// - `stellar.moon.velocity` → entity `stellar.moon`, signal `velocity`
+#[derive(Debug, Clone, PartialEq)]
+pub struct MemberDef {
+    /// Full member path (e.g., `human.person.age`).
+    /// The last segment is the signal name, preceding segments form the entity path.
+    pub path: Spanned<Path>,
+    /// Value type with optional bounds.
+    pub ty: Option<Spanned<TypeExpr>>,
+    /// Stratum binding for scheduling.
+    pub strata: Option<Spanned<Path>>,
+    /// Human-readable title.
+    pub title: Option<Spanned<String>>,
+    /// Unicode symbol for display.
+    pub symbol: Option<Spanned<String>>,
+    /// Member-local config with defaults.
+    pub local_config: Vec<ConfigEntry>,
+    /// Resolution expression evaluated each tick (per instance).
+    pub resolve: Option<ResolveBlock>,
+    /// Assertions validated after resolution.
+    pub assertions: Option<AssertBlock>,
+}
+
 // === Entity ===
 
-/// Entity definition - a named, indexed collection of structured state
+/// Entity definition - defines an index space over which member signals are indexed.
 ///
-/// Example:
+/// Entities are pure index spaces that provide:
+/// - **Identity**: How instances are identified (key type)
+/// - **Ordering**: Deterministic instance ordering
+/// - **Lifecycle**: Instance count from config
+///
+/// Entities do NOT define dynamics - that's the role of member signals.
+///
+/// # DSL Syntax
+///
 /// ```cdsl
-/// entity.stellar.moon {
-///   : strata(stellar.orbital)
-///   : count(config.stellar.moon_count)
-///   : count(1..20)
+/// entity.human.person {
+///     : key(String)
+///     : count(config.human.pop_size)
+///     : count(1..1000)
+/// }
+/// ```
 ///
-///   schema {
-///     mass: Scalar<kg, 1e18..1e24>
-///     radius: Scalar<m, 1e5..1e7>
-///   }
+/// Member signals are then declared separately:
 ///
-///   resolve {
-///     self.velocity = integrate(self.velocity, acceleration)
-///   }
+/// ```cdsl
+/// member.human.person.age {
+///     : Scalar
+///     : strata(human.physiology)
+///     resolve { prev + 1 }
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntityDef {
     /// Entity path (e.g., `stellar.moon`)
     pub path: Spanned<Path>,
-    /// Stratum binding
-    pub strata: Option<Spanned<Path>>,
     /// Count source from config (e.g., `config.stellar.moon_count`)
     pub count_source: Option<Spanned<Path>>,
     /// Count validation bounds (e.g., `1..20`)
     pub count_bounds: Option<CountBounds>,
-    /// Schema fields for each instance
-    pub schema: Vec<EntitySchemaField>,
-    /// Default config values for schema fields
-    pub config_defaults: Vec<ConfigEntry>,
-    /// Resolution logic (executed per instance)
-    pub resolve: Option<ResolveBlock>,
-    /// Entity-level assertions
-    pub assertions: Option<AssertBlock>,
-    /// Nested field definitions for observation
-    pub fields: Vec<EntityFieldDef>,
 }
 
 /// Count validation bounds for entity instances.
@@ -671,29 +724,4 @@ pub struct CountBounds {
     pub min: u32,
     /// Maximum allowed instances.
     pub max: u32,
-}
-
-/// A field in an entity schema defining per-instance state.
-#[derive(Debug, Clone, PartialEq)]
-pub struct EntitySchemaField {
-    /// Field name (e.g., `mass`, `position`).
-    pub name: Spanned<String>,
-    /// Field type with constraints.
-    pub ty: Spanned<TypeExpr>,
-}
-
-/// A field definition nested within an entity for observation.
-///
-/// These fields exist purely for measurement and visualization,
-/// not for simulation state.
-#[derive(Debug, Clone, PartialEq)]
-pub struct EntityFieldDef {
-    /// Field name.
-    pub name: Spanned<String>,
-    /// Optional type annotation.
-    pub ty: Option<Spanned<TypeExpr>>,
-    /// Spatial topology for reconstruction.
-    pub topology: Option<Spanned<Topology>>,
-    /// Measurement expression.
-    pub measure: Option<MeasureBlock>,
 }

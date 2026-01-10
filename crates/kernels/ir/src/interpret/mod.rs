@@ -43,8 +43,6 @@ mod contexts;
 #[cfg(test)]
 mod tests;
 
-use std::collections::HashMap;
-
 use indexmap::IndexMap;
 
 use continuum_foundation::{EraId, FieldId, SignalId, StratumId};
@@ -54,12 +52,12 @@ use continuum_runtime::executor::{
 // Import functions crate to ensure kernels are registered
 use continuum_functions as _;
 use continuum_runtime::storage::SignalStorage;
-use continuum_runtime::types::{Dt, StratumState, Value};
+use continuum_runtime::types::{Dt, Value};
 use continuum_vm::{execute, BytecodeChunk};
 
 use crate::{
     codegen, AssertionSeverity as IrAssertionSeverity, CompiledEra, CompiledExpr, CompiledFracture,
-    CompiledWorld, StratumStateIr, ValueType,
+    CompiledWorld, ValueType,
 };
 
 use contexts::{
@@ -78,19 +76,16 @@ use contexts::{
 ///
 /// A map from era IDs to their runtime configurations, suitable for use
 /// by the simulation executor.
-pub fn build_era_configs(world: &CompiledWorld) -> HashMap<EraId, EraConfig> {
-    let mut configs = HashMap::new();
+pub fn build_era_configs(world: &CompiledWorld) -> IndexMap<EraId, EraConfig> {
+    let mut configs = IndexMap::new();
 
     for (era_id, era) in &world.eras {
-        let mut strata = HashMap::new();
-        for (stratum_id, state) in &era.strata_states {
-            let runtime_state = match state {
-                StratumStateIr::Active => StratumState::Active,
-                StratumStateIr::ActiveWithStride(s) => StratumState::ActiveWithStride(*s),
-                StratumStateIr::Gated => StratumState::Gated,
-            };
-            strata.insert(StratumId(stratum_id.0.clone()), runtime_state);
-        }
+        // Clone strata states directly - both IR and runtime use the same type from foundation
+        let strata: IndexMap<_, _> = era
+            .strata_states
+            .iter()
+            .map(|(stratum_id, state)| (StratumId(stratum_id.0.clone()), *state))
+            .collect();
 
         // Build transition function if there are transitions
         let transition = build_transition_fn(era, &world.constants, &world.config);

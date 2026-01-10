@@ -199,14 +199,19 @@ for level in resolve_dag.levels:
 
 Within a level, nodes are independent and may parallelize.
 
-### 5.3 Entity Resolution
+### 5.3 Member Signal Resolution
 
-Entity instances resolve as normal signals:
+Member signals resolve per-entity instance. All instances within a stratum
+resolve as part of the same DAG level (parallelizable):
 
 ```
-for instance in entity.instances:
-    resolve(instance)  // follows dependency ordering
+for member_signal in stratum.member_signals:
+    for instance in member_signal.entity.instances:
+        resolve(instance)  // snapshot semantics enable parallel execution
 ```
+
+Member signals use snapshot semantics: all `self.X` reads see previous-tick
+values, enabling full parallelism within a stratum.
 
 ### 5.4 Phase Barrier
 

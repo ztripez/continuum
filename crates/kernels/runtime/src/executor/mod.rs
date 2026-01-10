@@ -4,10 +4,17 @@
 
 mod assertions;
 mod context;
+pub mod cost_model;
+pub mod kernel_registry;
+pub mod l1_kernels;
+pub mod l3_kernel;
+pub mod lane_kernel;
+pub mod lowering_strategy;
+pub mod member_executor;
 mod phases;
 mod warmup;
 
-use std::collections::HashMap;
+use indexmap::IndexMap;
 
 use tracing::{error, info, instrument, trace};
 
@@ -25,7 +32,20 @@ pub use context::{
     AssertContext, CollectContext, FractureContext, ImpulseContext, MeasureContext,
     ResolveContext, WarmupContext,
 };
-pub use phases::{CollectFn, FractureFn, ImpulseFn, MeasureFn, PhaseExecutor, ResolverFn};
+pub use member_executor::{
+    ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver, ScalarResolveContext,
+    ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
+};
+pub use l3_kernel::{
+    L3Kernel, L3KernelBuilder, L3MemberResolver, MemberDag, MemberDagError, MemberEdge,
+    ScalarL3MemberResolver, ScalarL3ResolveContext, ScalarL3ResolverFn, Vec3L3MemberResolver,
+    Vec3L3ResolveContext, Vec3L3ResolverFn,
+};
+pub use kernel_registry::LaneKernelRegistry;
+pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
+pub use lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
+pub use lowering_strategy::{LoweringHeuristics, LoweringStrategy};
+pub use phases::{CollectFn, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn, MeasureParallelConfig, PhaseExecutor, ResolverFn};
 pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
 
 /// Function that evaluates era transition conditions
@@ -35,8 +55,8 @@ pub type TransitionFn = Box<dyn Fn(&SignalStorage) -> Option<EraId> + Send + Syn
 pub struct EraConfig {
     /// Time step for this era
     pub dt: Dt,
-    /// Stratum states in this era
-    pub strata: HashMap<StratumId, StratumState>,
+    /// Stratum states in this era (IndexMap for deterministic iteration order)
+    pub strata: IndexMap<StratumId, StratumState>,
     /// Transition condition (returns Some(next_era) if should transition)
     pub transition: Option<TransitionFn>,
 }
@@ -55,8 +75,8 @@ pub struct Runtime {
     tick: u64,
     /// Current era
     current_era: EraId,
-    /// Era configurations
-    eras: HashMap<EraId, EraConfig>,
+    /// Era configurations (IndexMap for deterministic iteration order)
+    eras: IndexMap<EraId, EraConfig>,
     /// Execution DAGs
     dags: DagSet,
     /// Phase executor
@@ -71,7 +91,7 @@ pub struct Runtime {
 
 impl Runtime {
     /// Create a new runtime
-    pub fn new(initial_era: EraId, eras: HashMap<EraId, EraConfig>, dags: DagSet) -> Self {
+    pub fn new(initial_era: EraId, eras: IndexMap<EraId, EraConfig>, dags: DagSet) -> Self {
         info!(era = %initial_era, "runtime created");
         Self {
             signals: SignalStorage::default(),
@@ -338,7 +358,7 @@ mod tests {
         dags.insert_era(era_id.clone(), era_dags);
 
         // Create era config
-        let mut strata = HashMap::new();
+        let mut strata = IndexMap::new();
         strata.insert(stratum_id, StratumState::Active);
         let era_config = EraConfig {
             dt: Dt(1.0),
@@ -346,7 +366,7 @@ mod tests {
             transition: None,
         };
 
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
         // Create runtime
@@ -406,7 +426,7 @@ mod tests {
         dags.insert_era(era_id.clone(), era_dags);
 
         // Stratum executes every 2 ticks
-        let mut strata = HashMap::new();
+        let mut strata = IndexMap::new();
         strata.insert(stratum_id, StratumState::ActiveWithStride(2));
         let era_config = EraConfig {
             dt: Dt(1.0),
@@ -414,7 +434,7 @@ mod tests {
             transition: None,
         };
 
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
         let mut runtime = Runtime::new(era_id, eras, dags);
@@ -439,12 +459,12 @@ mod tests {
 
     fn create_minimal_runtime(era_id: EraId) -> Runtime {
         let dags = DagSet::default();
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(
             era_id.clone(),
             EraConfig {
                 dt: Dt(1.0),
-                strata: HashMap::new(),
+                strata: IndexMap::new(),
                 transition: None,
             },
         );
@@ -631,7 +651,7 @@ mod tests {
         let mut dags = DagSet::default();
         dags.insert_era(era_id.clone(), era_dags);
 
-        let mut strata = HashMap::new();
+        let mut strata = IndexMap::new();
         strata.insert(stratum_id, StratumState::Active);
         let era_config = EraConfig {
             dt: Dt(1.0),
@@ -639,7 +659,7 @@ mod tests {
             transition: None,
         };
 
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
         let mut runtime = Runtime::new(era_id, eras, dags);
@@ -705,7 +725,7 @@ mod tests {
         let mut dags = DagSet::default();
         dags.insert_era(era_id.clone(), era_dags);
 
-        let mut strata = HashMap::new();
+        let mut strata = IndexMap::new();
         strata.insert(stratum_id, StratumState::Active);
         let era_config = EraConfig {
             dt: Dt(1.0),
@@ -713,7 +733,7 @@ mod tests {
             transition: None,
         };
 
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
         let mut runtime = Runtime::new(era_id, eras, dags);
@@ -781,7 +801,7 @@ mod tests {
         let mut dags = DagSet::default();
         dags.insert_era(era_id.clone(), era_dags);
 
-        let mut strata = HashMap::new();
+        let mut strata = IndexMap::new();
         strata.insert(stratum_id, StratumState::Active);
         let era_config = EraConfig {
             dt: Dt(1.0),
@@ -789,7 +809,7 @@ mod tests {
             transition: None,
         };
 
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
         let mut runtime = Runtime::new(era_id, eras, dags);
@@ -867,7 +887,7 @@ mod tests {
         dags.insert_era(era_b.clone(), era_dags_b);
 
         // Era A transitions to Era B when counter >= 5
-        let mut strata_a = HashMap::new();
+        let mut strata_a = IndexMap::new();
         strata_a.insert(stratum_id.clone(), StratumState::Active);
 
         let era_b_clone = era_b.clone();
@@ -891,7 +911,7 @@ mod tests {
             transition: None,
         };
 
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(era_a.clone(), era_a_config);
         eras.insert(era_b.clone(), era_b_config);
 
@@ -962,7 +982,7 @@ mod tests {
         dags.insert_era(era_id.clone(), era_dags);
 
         // Configure: active stratum is Active, gated stratum is Gated
-        let mut strata = HashMap::new();
+        let mut strata = IndexMap::new();
         strata.insert(active_stratum, StratumState::Active);
         strata.insert(gated_stratum, StratumState::Gated);
 
@@ -972,7 +992,7 @@ mod tests {
             transition: None,
         };
 
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
         let mut runtime = Runtime::new(era_id, eras, dags);
@@ -1046,7 +1066,7 @@ mod tests {
         let mut dags = DagSet::default();
         dags.insert_era(era_id.clone(), era_dags);
 
-        let mut strata = HashMap::new();
+        let mut strata = IndexMap::new();
         strata.insert(stratum_id, StratumState::Active);
         let era_config = EraConfig {
             dt: Dt(1.0),
@@ -1054,7 +1074,7 @@ mod tests {
             transition: None,
         };
 
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
         let mut runtime = Runtime::new(era_id, eras, dags);
@@ -1124,7 +1144,7 @@ mod tests {
         let mut dags = DagSet::default();
         dags.insert_era(era_id.clone(), era_dags);
 
-        let mut strata = HashMap::new();
+        let mut strata = IndexMap::new();
         strata.insert(stratum_id, StratumState::Active);
         let era_config = EraConfig {
             dt: Dt(1.0),
@@ -1132,7 +1152,7 @@ mod tests {
             transition: None,
         };
 
-        let mut eras = HashMap::new();
+        let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
         let mut runtime = Runtime::new(era_id, eras, dags);
