@@ -455,34 +455,8 @@ impl LanguageServer for Backend {
                 completion_item("cos", CompletionItemKind::FUNCTION, "Cosine"),
                 completion_item("tan", CompletionItemKind::FUNCTION, "Tangent"),
             ]);
-
-            // Add all world symbols with full path
-            for entry in self.symbol_indices.iter() {
-                for info in entry.value().get_completions() {
-                    let lsp_kind = cdsl_kind_to_completion_kind(info.kind);
-                    let label = format!("{}.{}", info.kind.display_name(), info.path);
-
-                    let detail = match (info.ty, info.title) {
-                        (Some(ty), Some(title)) => format!("{} - {}", ty, title),
-                        (Some(ty), None) => ty.to_string(),
-                        (None, Some(title)) => title.to_string(),
-                        (None, None) => info.kind.display_name().to_string(),
-                    };
-
-                    items.push(CompletionItem {
-                        label,
-                        kind: Some(lsp_kind),
-                        detail: Some(detail),
-                        documentation: info.doc.map(|d| {
-                            Documentation::MarkupContent(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: d.to_string(),
-                            })
-                        }),
-                        ..Default::default()
-                    });
-                }
-            }
+            // Note: Full symbol paths are NOT shown here.
+            // Type "signal.", "field.", etc. to get hierarchical path completion.
         }
 
         Ok(Some(CompletionResponse::Array(items)))
