@@ -345,8 +345,17 @@ impl Drop for AlignedBuffer {
     }
 }
 
-// SAFETY: AlignedBuffer manages owned memory that doesn't have thread-local semantics
+// SAFETY: AlignedBuffer is Send because:
+// - It owns the memory pointed to by `ptr` (allocated via std::alloc)
+// - No references to thread-local storage
+// - Drop deallocates owned memory, safe from any thread
 unsafe impl Send for AlignedBuffer {}
+
+// SAFETY: AlignedBuffer is Sync because:
+// - Shared references (&AlignedBuffer) provide read-only access
+// - No interior mutability (no Cell, RefCell, etc.)
+// - The `as_slice` method returns immutable slices safe for concurrent reads
+// - Mutable access (`as_slice_mut`, `push_raw`, etc.) requires &mut self
 unsafe impl Sync for AlignedBuffer {}
 
 // ============================================================================
