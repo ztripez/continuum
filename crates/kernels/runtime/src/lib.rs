@@ -51,10 +51,11 @@ pub mod vectorized;
 
 pub use error::{Error, Result};
 pub use executor::{
-    AssertContext, AssertionChecker, AssertionFn, AssertionSeverity, CollectContext, CollectFn,
-    EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, MeasureContext, MeasureFn,
-    PhaseExecutor, ResolveContext, ResolverFn, Runtime, TransitionFn, WarmupContext,
-    WarmupExecutor, WarmupFn,
+    AssertContext, AssertionChecker, AssertionFn, AssertionSeverity, ChunkConfig, CollectContext,
+    CollectFn, EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, MeasureContext,
+    MeasureFn, MemberResolveContext, MemberSignalResolver, PhaseExecutor, ResolveContext,
+    ResolverFn, Runtime, ScalarL1Resolver, ScalarResolveContext, ScalarResolverFn, TransitionFn,
+    Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn, WarmupContext, WarmupExecutor, WarmupFn,
 };
 pub use soa_storage::{
     AlignedBuffer, MemberSignalBuffer, MemberSignalMeta, MemberSignalRegistry, PopulationStorage,
