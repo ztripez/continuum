@@ -1491,6 +1491,39 @@ mod tests {
     }
 
     #[test]
+    fn refinement_queue_full_returns_error() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 1,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.refine".into();
+        let request = RefinementRequestSpec {
+            field_id: field_id.clone(),
+            region: Region::SphereCap {
+                center: [1.0, 0.0, 0.0],
+                radius_rad: 0.5,
+            },
+            target_lod: 2,
+            priority: 1,
+        };
+
+        lens.request_refinement(request.clone())
+            .expect("first request ok");
+
+        let err = lens
+            .request_refinement(request)
+            .expect_err("queue should be full");
+
+        match err {
+            LensError::RefinementQueueFull => {}
+            other => panic!("unexpected error: {other:?}"),
+        }
+    }
+
+    #[test]
     fn topology_tile_at_is_deterministic() {
         let topo = CubedSphereTopology::default();
         let pos = [1.0, 0.2, -0.3];
