@@ -22,3 +22,29 @@ pub use stable_hash::{
 ///
 /// Kernel functions that need dt take this as their last parameter.
 pub type Dt = f64;
+
+/// Stratum activation state within an era.
+///
+/// Strata can be configured to run at different rates or be paused entirely.
+/// This allows multi-rate simulation where fast-changing phenomena (weather)
+/// run every tick while slow phenomena (geology) run less frequently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum StratumState {
+    /// Executes every tick. Use for fast-changing phenomena.
+    Active,
+    /// Executes every N ticks. Use for slower phenomena.
+    ActiveWithStride(u32),
+    /// Paused entirely; state is preserved but not updated.
+    Gated,
+}
+
+impl StratumState {
+    /// Check if stratum should execute on given tick.
+    pub fn is_eligible(&self, tick: u64) -> bool {
+        match self {
+            StratumState::Active => true,
+            StratumState::ActiveWithStride(stride) => tick.is_multiple_of(*stride as u64),
+            StratumState::Gated => false,
+        }
+    }
+}

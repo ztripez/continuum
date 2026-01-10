@@ -32,6 +32,9 @@ use indexmap::IndexMap;
 
 use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId, OperatorId, SignalId, StratumId, TypeId};
 
+// Re-export StratumState from foundation for backwards compatibility
+pub use continuum_foundation::StratumState;
+
 /// The complete compiled simulation world, ready for DAG construction.
 ///
 /// `CompiledWorld` is the top-level IR container produced by [`crate::lower()`].
@@ -182,22 +185,9 @@ pub struct CompiledEra {
     /// Time step in seconds
     pub dt_seconds: f64,
     /// Stratum states for this era
-    pub strata_states: IndexMap<StratumId, StratumStateIr>,
+    pub strata_states: IndexMap<StratumId, StratumState>,
     /// Transitions to other eras
     pub transitions: Vec<CompiledTransition>,
-}
-
-/// The activation state of a stratum within a specific era.
-///
-/// Controls whether and how often a stratum executes during an era.
-#[derive(Debug, Clone, Copy)]
-pub enum StratumStateIr {
-    /// Stratum executes every tick.
-    Active,
-    /// Stratum executes every N ticks.
-    ActiveWithStride(u32),
-    /// Stratum is suspended.
-    Gated,
 }
 
 /// A compiled transition between eras.

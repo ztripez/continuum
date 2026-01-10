@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use continuum_dsl::ast::{self, StrataStateKind};
 use continuum_foundation::{EraId, StratumId};
 
-use crate::{BinaryOpIr, CompiledEra, CompiledExpr, CompiledTransition, StratumStateIr};
+use crate::{BinaryOpIr, CompiledEra, CompiledExpr, CompiledTransition, StratumState};
 
 use super::{LowerError, Lowerer};
 
@@ -33,9 +33,9 @@ impl Lowerer {
         for state in &def.strata_states {
             let stratum_id = StratumId::from(state.strata.node.join(".").as_str());
             let ir_state = match &state.state {
-                StrataStateKind::Active => StratumStateIr::Active,
-                StrataStateKind::ActiveWithStride(s) => StratumStateIr::ActiveWithStride(*s),
-                StrataStateKind::Gated => StratumStateIr::Gated,
+                StrataStateKind::Active => StratumState::Active,
+                StrataStateKind::ActiveWithStride(s) => StratumState::ActiveWithStride(*s),
+                StrataStateKind::Gated => StratumState::Gated,
             };
             strata_states.insert(stratum_id, ir_state);
         }
