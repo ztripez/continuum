@@ -883,6 +883,31 @@ impl FieldLens {
         }
     }
 
+    /// Query a batch of positions at a specific tick.
+    ///
+    /// If GPU is enabled and configured, uses GPU batch query automatically.
+    pub fn query_batch(
+        &mut self,
+        field_id: &FieldId,
+        positions: &[[f64; 3]],
+        tick: u64,
+    ) -> Result<Vec<f64>, LensError> {
+        if positions.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        #[cfg(feature = "gpu")]
+        if self.gpu_backend.is_some() {
+            return self.query_batch_gpu(field_id, positions, tick);
+        }
+
+        let reconstruction = self.at(field_id, tick)?;
+        Ok(positions
+            .iter()
+            .map(|pos| reconstruction.query(*pos))
+            .collect())
+    }
+
     /// Get bounded history for a field.
     pub fn history(&self, field_id: &FieldId) -> Option<&VecDeque<FieldFrame>> {
         self.fields.get(field_id).map(|storage| &storage.history)
