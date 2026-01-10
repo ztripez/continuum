@@ -298,32 +298,6 @@ pub fn count_all<T>(values: &[T]) -> usize {
 }
 
 // ============================================================================
-// Parallel-Ready Reduction (for future rayon integration)
-// ============================================================================
-
-/// Marker trait for reductions that can be safely parallelized.
-///
-/// A reduction is parallelizable if:
-/// 1. The operation is associative (for correctness after tree flattening)
-/// 2. The tree structure is fixed by index (which our implementation ensures)
-pub trait ParallelReducible {
-    /// Identity element for the reduction
-    fn identity() -> Self;
-}
-
-impl ParallelReducible for f64 {
-    fn identity() -> Self {
-        0.0
-    }
-}
-
-impl ParallelReducible for [f64; 3] {
-    fn identity() -> Self {
-        [0.0, 0.0, 0.0]
-    }
-}
-
-// ============================================================================
 // Reduction Builder (for DSL integration)
 // ============================================================================
 
