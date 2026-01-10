@@ -962,15 +962,20 @@ pub(crate) fn record(&mut self, snapshot: FieldSnapshot) {
     /// Request refinement of a field region.
     pub fn request_refinement(
         &mut self,
-        mut request: RefinementRequest,
+        request: RefinementRequestSpec,
     ) -> Result<RefinementHandle, LensError> {
         if self.refinement_queue.len() >= self.config.max_refinement_queue {
             return Err(LensError::RefinementQueueFull);
         }
         let handle = RefinementHandle(self.next_refinement_id);
         self.next_refinement_id += 1;
-        request.handle = handle;
-        self.refinement_queue.push_back(request);
+        self.refinement_queue.push_back(RefinementRequest {
+            handle,
+            field_id: request.field_id,
+            region: request.region,
+            target_lod: request.target_lod,
+            priority: request.priority,
+        });
         self.refinement_status
             .insert(handle, RefinementStatus::Pending);
         Ok(handle)
@@ -1025,7 +1030,16 @@ pub enum RefinementStatus {
 /// Refinement request (observer-only).
 #[derive(Debug, Clone)]
 pub struct RefinementRequest {
-    pub handle: RefinementHandle,
+    pub(crate) handle: RefinementHandle,
+    pub field_id: FieldId,
+    pub region: Region,
+    pub target_lod: u8,
+    pub priority: u32,
+}
+
+/// Public refinement request spec (handle assigned by Lens).
+#[derive(Debug, Clone)]
+pub struct RefinementRequestSpec {
     pub field_id: FieldId,
     pub region: Region,
     pub target_lod: u8,
@@ -1264,8 +1278,7 @@ mod tests {
         .expect("config valid");
 
         let handle = lens
-            .request_refinement(RefinementRequest {
-                handle: RefinementHandle(0),
+            .request_refinement(RefinementRequestSpec {
                 field_id: "field.temp".into(),
                 region: Region::Tile(TileId::from_parts(0, 1, 0)),
                 target_lod: 2,
