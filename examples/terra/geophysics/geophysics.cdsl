@@ -1265,6 +1265,235 @@ fracture.core.decay_heat {
     }
 }
 
+# -----------------------------------------------------------------------------
+# Thermal-Mechanical Coupling (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Thermal-mechanical coupling: modulate mantle flow vigor based on heat content.
+# Higher mantle heat -> more vigorous convection -> faster plate motion.
+fracture.thermal.mechanical_coupling {
+    : strata(thermal)
+
+    config {
+        reference_heat_j: 8.0e30          # Earth-like mantle heat content (J)
+        coupling_strength: 0.1            # 0.0 = no coupling, 1.0 = full coupling
+        base_flow_strength: 5.0           # cm/yr reference
+    }
+
+    when {
+        # Activate when heat content deviates significantly from reference
+        abs(signal.mantle.heat_content - config.fracture.thermal.mechanical_coupling.reference_heat_j) > 1e29
+    }
+
+    emit {
+        # Compute heat ratio: >1 means hotter, <1 means cooler
+        let ratio = signal.mantle.heat_content / config.fracture.thermal.mechanical_coupling.reference_heat_j in
+        let delta = (ratio - 1.0) * config.fracture.thermal.mechanical_coupling.coupling_strength * config.fracture.thermal.mechanical_coupling.base_flow_strength in
+        signal.mantle.flow_strength <- delta
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Mantle Heat Budget (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Mantle heat budget: models long-term thermal evolution via:
+# - Radiogenic heating (decays with time)
+# - Core-mantle boundary heat flux
+# - Surface heat loss (temperature-dependent)
+fracture.thermal.heat_budget {
+    : strata(thermal)
+
+    config {
+        radiogenic_power_w: 2.0e13        # Initial radiogenic power (W)
+        radiogenic_halflife_gyr: 2.5      # Radiogenic decay half-life
+        surface_loss_coefficient: 1.0e-17 # Surface loss scaling
+        core_transfer_efficiency: 0.5     # Core heat transfer efficiency
+    }
+
+    when {
+        # Always active - continuous heat budget
+        signal.mantle.heat_content > 0.0
+    }
+
+    emit {
+        # Radiogenic heating contribution
+        let radiogenic = config.fracture.thermal.heat_budget.radiogenic_power_w in
+
+        # Core heat contribution (from core.heat_power with efficiency)
+        let core_contribution = signal.core.heat_power * config.fracture.thermal.heat_budget.core_transfer_efficiency in
+
+        # Surface heat loss (proportional to heat content above reference)
+        let reference = 8.0e30 in
+        let excess_ratio = signal.mantle.heat_content / reference in
+        let surface_loss = excess_ratio * config.fracture.thermal.heat_budget.surface_loss_coefficient * signal.mantle.heat_content in
+
+        # Net power to heat content: P_in - P_out
+        # Note: actual integration happens in signal resolve via dt_raw
+        signal.core.heat_power <- radiogenic + core_contribution - surface_loss
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Tectonic Uplift/Subsidence (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Convergent boundary uplift: plate collision drives crustal thickening
+fracture.tectonics.convergent_uplift {
+    : strata(tectonics)
+
+    config {
+        uplift_m_per_myr: 500.0           # Uplift rate at full convergence
+        thicken_m_per_myr: 200.0          # Thickening rate
+        convergence_threshold: 0.01       # Boundary shear threshold for activation
+    }
+
+    when {
+        signal.plates.boundary_shear > config.fracture.tectonics.convergent_uplift.convergence_threshold
+        signal.tectonics.activity > 0.5
+    }
+
+    emit {
+        # Normalized convergence factor
+        let conv_factor = signal.plates.boundary_shear / 0.1 in
+        let dt_myr = 0.001 in  # Approximate dt in Myr
+
+        signal.crust.thickness <- conv_factor * config.fracture.tectonics.convergent_uplift.thicken_m_per_myr * dt_myr
+        signal.crust.elevation <- conv_factor * config.fracture.tectonics.convergent_uplift.uplift_m_per_myr * dt_myr * 0.001
+    }
+}
+
+# Divergent boundary subsidence: plate separation drives crustal thinning
+fracture.tectonics.divergent_subsidence {
+    : strata(tectonics)
+
+    config {
+        subside_m_per_myr: 300.0          # Subsidence rate at full divergence
+        thin_m_per_myr: 150.0             # Thinning rate
+        divergence_threshold: 0.005       # Minimum activity for divergence
+    }
+
+    when {
+        signal.mantle.flow_strength > 3.0
+        signal.crust.thickness > 10000
+    }
+
+    emit {
+        # Divergence driven by mantle upwelling
+        let div_factor = signal.mantle.flow_strength / 10.0 in
+        let dt_myr = 0.001 in
+
+        signal.crust.thickness <- -div_factor * config.fracture.tectonics.divergent_subsidence.thin_m_per_myr * dt_myr
+        signal.topography.dynamic_offset <- div_factor * 50.0
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Wilson Cycle Dynamics (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Plate fragmentation: high boundary shear can rift plates apart
+# Creates new oceanic basins between continental fragments
+fracture.tectonics.wilson_fragmentation {
+    : strata(tectonics)
+
+    config {
+        fragmentation_period_myr: 400.0   # Mean time between fragmentations
+        shear_threshold: 0.1              # Minimum shear for fragmentation
+    }
+
+    when {
+        # High boundary shear indicates internal strain accumulation
+        signal.plates.boundary_shear > config.fracture.tectonics.wilson_fragmentation.shear_threshold
+        signal.plates.count > 1
+        signal.plates.count < 50
+    }
+
+    emit {
+        # Fragmentation releases boundary stress and creates new oceanic crust
+        signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.5
+        signal.topography.dynamic_offset <- 100.0
+        # Note: actual plate creation requires entity mutation (not yet in CDSL)
+    }
+}
+
+# Plate merger (supercontinent formation): continental collision merges plates
+fracture.tectonics.wilson_merger {
+    : strata(tectonics)
+
+    config {
+        merger_period_myr: 30.0           # Mean time for collision merger
+        convergence_threshold: 50.0       # mm/yr equivalent threshold
+    }
+
+    when {
+        # Continental collision at high convergence rate
+        signal.plates.boundary_shear > 0.15
+        signal.plates.continental_count > 2
+        signal.tectonics.activity > 1.5
+    }
+
+    emit {
+        # Merger builds mountains and thickens crust
+        signal.crust.thickness <- 2000.0
+        signal.crust.elevation <- 500.0
+        signal.tectonics.boundary_stress <- signal.tectonics.boundary_stress * 0.3
+        # Note: actual plate merger requires entity mutation
+    }
+}
+
+# Subduction recycling: old oceanic plates sink into mantle
+fracture.tectonics.wilson_subduction {
+    : strata(tectonics)
+
+    config {
+        subduction_age_threshold_myr: 180.0   # Age at which oceanic crust subducts
+        subduction_probability_per_myr: 0.01  # 1% per Myr chance
+    }
+
+    when {
+        # Old oceanic crust becomes negatively buoyant
+        signal.plates.mean_age > config.fracture.tectonics.wilson_subduction.subduction_age_threshold_myr
+        signal.plates.oceanic_count > 0
+    }
+
+    emit {
+        # Subduction releases heat and volatiles to mantle
+        signal.mantle.temp <- 10.0
+        signal.tectonics.volcanism <- 5.0
+        # Note: actual plate removal requires entity mutation
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Motion from Mantle Flow (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Derive plate motion from mantle convection
+# Mantle flow vortices drive plate angular velocities
+fracture.tectonics.derive_motion {
+    : strata(tectonics)
+
+    config {
+        omega_scale: 1e-15               # rad/s per unit flow
+        flow_coupling: 0.8               # Coupling strength to mantle
+    }
+
+    when {
+        signal.mantle.flow_strength > 0.1
+        signal.plates.count > 0
+    }
+
+    emit {
+        # Plate motion derived from mantle flow
+        let flow_factor = signal.mantle.flow_strength * config.fracture.tectonics.derive_motion.flow_coupling in
+
+        # Update tectonic activity based on flow-induced motion
+        signal.tectonics.activity <- flow_factor * 0.1
+        signal.plates.boundary_shear <- flow_factor * 1e-3
+    }
+}
+
 # =============================================================================
 # Geophysics Fields (Observer Data)
 # =============================================================================
