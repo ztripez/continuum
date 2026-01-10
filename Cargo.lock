@@ -417,6 +417,7 @@ dependencies = [
 name = "continuum-lens"
 version = "0.1.0"
 dependencies = [
+ "continuum-gpu",
  "continuum-runtime",
  "indexmap",
  "thiserror",

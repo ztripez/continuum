@@ -11,6 +11,26 @@ use continuum_runtime::types::FieldId;
 use indexmap::IndexMap;
 use thiserror::Error;
 
+#[cfg(feature = "gpu")]
+pub mod gpu {
+    use continuum_gpu::GpuContext;
+
+    /// GPU backend handle for Lens reconstruction.
+    pub struct GpuLensBackend {
+        context: GpuContext,
+    }
+
+    impl GpuLensBackend {
+        pub fn new(context: GpuContext) -> Self {
+            Self { context }
+        }
+
+        pub fn context(&self) -> &GpuContext {
+            &self.context
+        }
+    }
+}
+
 /// Lens configuration.
 #[derive(Debug, Clone, Copy)]
 pub struct FieldLensConfig {
@@ -216,6 +236,8 @@ pub struct FieldLens {
     refinement_queue: VecDeque<RefinementRequest>,
     refinement_status: HashMap<RefinementHandle, RefinementStatus>,
     next_refinement_id: u64,
+    #[cfg(feature = "gpu")]
+    gpu_backend: Option<gpu::GpuLensBackend>,
 }
 
 /// Playback clock for observer queries (fractional tick time).
@@ -338,6 +360,8 @@ impl FieldLens {
             refinement_queue: VecDeque::new(),
             refinement_status: HashMap::new(),
             next_refinement_id: 1,
+            #[cfg(feature = "gpu")]
+            gpu_backend: None,
         })
     }
 
@@ -578,6 +602,11 @@ impl FieldLens {
     /// Configure per-field overrides.
     pub fn configure_field(&mut self, field_id: FieldId, config: FieldConfig) {
         self.field_configs.insert(field_id, config);
+    }
+
+    #[cfg(feature = "gpu")]
+    pub fn set_gpu_backend(&mut self, backend: gpu::GpuLensBackend) {
+        self.gpu_backend = Some(backend);
     }
 
     /// Request refinement of a field region.
