@@ -9,6 +9,7 @@ mod compile;
 mod interpret;
 mod lower;
 mod types;
+pub mod units;
 mod validate;
 
 pub use codegen::compile as compile_to_bytecode;

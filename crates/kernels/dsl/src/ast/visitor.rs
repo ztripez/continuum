@@ -315,7 +315,7 @@ pub fn walk_expr<V: ExprVisitor + ?Sized>(visitor: &mut V, expr: &Expr) {
             if visitor.visit_call() {
                 visitor.walk_spanned(function);
                 for arg in args {
-                    visitor.walk_spanned(arg);
+                    visitor.walk_spanned(&arg.value);
                 }
             }
         }
@@ -327,7 +327,7 @@ pub fn walk_expr<V: ExprVisitor + ?Sized>(visitor: &mut V, expr: &Expr) {
             if visitor.visit_method_call(method) {
                 visitor.walk_spanned(object);
                 for arg in args {
-                    visitor.walk_spanned(arg);
+                    visitor.walk_spanned(&arg.value);
                 }
             }
         }

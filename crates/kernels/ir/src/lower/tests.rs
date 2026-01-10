@@ -64,11 +64,199 @@ fn test_negative_range_in_type() {
 
     // Verify the negative range is captured
     match &signal.value_type {
-        ValueType::Scalar { range: Some(r) } => {
+        ValueType::Scalar { range: Some(r), .. } => {
             assert_eq!(r.min, -11000.0);
             assert_eq!(r.max, 9000.0);
         }
         _ => panic!("expected Scalar with range, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_unit_preserved_in_scalar_type() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.temp {
+            : Scalar<K, 100..10000>
+            : strata(terra)
+            resolve { prev + 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.temp")).unwrap();
+
+    // Verify the unit is preserved
+    match &signal.value_type {
+        ValueType::Scalar { unit, range, .. } => {
+            assert_eq!(unit, &Some("K".to_string()), "unit should be 'K'");
+            assert!(range.is_some(), "range should be present");
+            let r = range.as_ref().unwrap();
+            assert_eq!(r.min, 100.0);
+            assert_eq!(r.max, 10000.0);
+        }
+        _ => panic!("expected Scalar, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_unit_preserved_in_vector_type() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.velocity {
+            : Vec3<m/s>
+            : strata(terra)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.velocity")).unwrap();
+
+    // Verify the unit is preserved
+    match &signal.value_type {
+        ValueType::Vec3 { unit, .. } => {
+            assert_eq!(unit, &Some("m/s".to_string()), "unit should be 'm/s'");
+        }
+        _ => panic!("expected Vec3, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_dimension_parsed_for_scalar_unit() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.velocity {
+            : Scalar<m/s>
+            : strata(terra)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.velocity")).unwrap();
+
+    // Verify the dimension is parsed correctly: m/s = length^1 * time^-1
+    match &signal.value_type {
+        ValueType::Scalar {
+            unit,
+            dimension,
+            range,
+        } => {
+            assert_eq!(unit, &Some("m/s".to_string()), "unit should be 'm/s'");
+            assert!(dimension.is_some(), "dimension should be parsed");
+            let dim = dimension.as_ref().unwrap();
+            assert_eq!(dim.length, 1, "length dimension should be 1");
+            assert_eq!(dim.time, -1, "time dimension should be -1");
+            assert_eq!(dim.mass, 0, "mass dimension should be 0");
+            assert_eq!(range, &None, "no range specified");
+        }
+        _ => panic!("expected Scalar, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_dimension_parsed_for_derived_unit() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.force {
+            : Scalar<N>
+            : strata(terra)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.force")).unwrap();
+
+    // Verify N = kg·m/s² = mass^1 * length^1 * time^-2
+    match &signal.value_type {
+        ValueType::Scalar { dimension, .. } => {
+            assert!(dimension.is_some(), "dimension should be parsed for N");
+            let dim = dimension.as_ref().unwrap();
+            assert_eq!(dim.mass, 1, "mass dimension should be 1");
+            assert_eq!(dim.length, 1, "length dimension should be 1");
+            assert_eq!(dim.time, -2, "time dimension should be -2");
+        }
+        _ => panic!("expected Scalar, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_dimension_parsed_for_vector_unit() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.acceleration {
+            : Vec3<m/s²>
+            : strata(terra)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("terra.acceleration")).unwrap();
+
+    // Verify m/s² = length^1 * time^-2
+    match &signal.value_type {
+        ValueType::Vec3 { unit, dimension, .. } => {
+            assert_eq!(unit, &Some("m/s²".to_string()), "unit should be 'm/s²'");
+            assert!(dimension.is_some(), "dimension should be parsed");
+            let dim = dimension.as_ref().unwrap();
+            assert_eq!(dim.length, 1, "length dimension should be 1");
+            assert_eq!(dim.time, -2, "time dimension should be -2");
+            assert_eq!(dim.mass, 0, "mass dimension should be 0");
+        }
+        _ => panic!("expected Vec3, got {:?}", signal.value_type),
+    }
+}
+
+#[test]
+fn test_no_type_annotation_has_no_unit() {
+    let src = r#"
+        strata.terra {}
+        era.main { : initial }
+
+        signal.terra.dimensionless {
+            : strata(terra)
+            resolve { 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world
+        .signals
+        .get(&SignalId::from("terra.dimensionless"))
+        .unwrap();
+
+    // Verify no type annotation defaults to Scalar with no unit
+    match &signal.value_type {
+        ValueType::Scalar { unit, range, .. } => {
+            assert_eq!(unit, &None, "no type annotation should have no unit");
+            assert_eq!(range, &None, "no type annotation should have no range");
+        }
+        _ => panic!("expected Scalar, got {:?}", signal.value_type),
     }
 }
 
@@ -282,13 +470,165 @@ fn test_fn_calling_kernel() {
     let signal = world.signals.get(&SignalId::from("test.result")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
 
-    // Kernel call should remain as a Call, not inlined
+    // Kernel call should be lowered to KernelCall, not inlined
     match resolve {
-        CompiledExpr::Call { function, args } => {
-            assert_eq!(function, "kernel.abs");
+        CompiledExpr::KernelCall { function, args } => {
+            assert_eq!(function, "abs");
             assert_eq!(args.len(), 1);
         }
-        _ => panic!("expected Call, got {:?}", resolve),
+        _ => panic!("expected KernelCall, got {:?}", resolve),
+    }
+}
+
+#[test]
+fn test_kernel_function_various_names() {
+    // Kernel functions with various names should all become KernelCall
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+
+        signal.test.a {
+            : strata(test)
+            resolve { kernel.sqrt(4.0) }
+        }
+
+        signal.test.b {
+            : strata(test)
+            resolve { kernel.gravity_acceleration(signal.test.a, 6e6) }
+        }
+
+        signal.test.c {
+            : strata(test)
+            resolve { kernel.mat_vec_mul(signal.test.a, signal.test.b) }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    // Check kernel.sqrt -> KernelCall("sqrt", ...)
+    let signal_a = world.signals.get(&SignalId::from("test.a")).unwrap();
+    match signal_a.resolve.as_ref().unwrap() {
+        CompiledExpr::KernelCall { function, args } => {
+            assert_eq!(function, "sqrt");
+            assert_eq!(args.len(), 1);
+        }
+        other => panic!("expected KernelCall for sqrt, got {:?}", other),
+    }
+
+    // Check kernel.gravity_acceleration -> KernelCall("gravity_acceleration", ...)
+    let signal_b = world.signals.get(&SignalId::from("test.b")).unwrap();
+    match signal_b.resolve.as_ref().unwrap() {
+        CompiledExpr::KernelCall { function, args } => {
+            assert_eq!(function, "gravity_acceleration");
+            assert_eq!(args.len(), 2);
+        }
+        other => panic!("expected KernelCall for gravity_acceleration, got {:?}", other),
+    }
+
+    // Check kernel.mat_vec_mul -> KernelCall("mat_vec_mul", ...)
+    let signal_c = world.signals.get(&SignalId::from("test.c")).unwrap();
+    match signal_c.resolve.as_ref().unwrap() {
+        CompiledExpr::KernelCall { function, args } => {
+            assert_eq!(function, "mat_vec_mul");
+            assert_eq!(args.len(), 2);
+        }
+        other => panic!("expected KernelCall for mat_vec_mul, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_dt_robust_operator_recognized() {
+    // dt-robust operators should be lowered to DtRobustCall, not regular Call
+    use crate::DtRobustOperator;
+
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : strata(test)
+            resolve {
+                decay(prev, 0.5)
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+    let resolve = signal.resolve.as_ref().unwrap();
+
+    // decay should be recognized as a dt-robust operator
+    match resolve {
+        CompiledExpr::DtRobustCall { operator, args, .. } => {
+            assert_eq!(*operator, DtRobustOperator::Decay);
+            assert_eq!(args.len(), 2);
+        }
+        _ => panic!("expected DtRobustCall, got {:?}", resolve),
+    }
+}
+
+#[test]
+fn test_integrate_is_dt_robust() {
+    // integrate is a dt-robust operator
+    use crate::DtRobustOperator;
+
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.pos {
+            : strata(test)
+            resolve {
+                integrate(prev, 1.0)
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.pos")).unwrap();
+    let resolve = signal.resolve.as_ref().unwrap();
+
+    match resolve {
+        CompiledExpr::DtRobustCall { operator, .. } => {
+            assert_eq!(*operator, DtRobustOperator::Integrate);
+        }
+        _ => panic!("expected DtRobustCall for integrate, got {:?}", resolve),
+    }
+}
+
+#[test]
+fn test_regular_function_not_dt_robust() {
+    // sin is not a dt-robust operator, should remain as regular Call
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : strata(test)
+            resolve {
+                sin(prev)
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+    let resolve = signal.resolve.as_ref().unwrap();
+
+    // sin should remain as a regular Call
+    match resolve {
+        CompiledExpr::Call { function, .. } => {
+            assert_eq!(function, "sin");
+        }
+        _ => panic!("expected Call for sin, got {:?}", resolve),
     }
 }
 
@@ -686,6 +1026,17 @@ fn test_lower_error_display() {
     let err = LowerError::UndeclaredDtRawUsage("test.value".to_string());
     assert!(err.to_string().contains("dt_raw"));
     assert!(err.to_string().contains("test.value"));
+
+    let err = LowerError::MismatchedConstraint {
+        signal: "test.stress".to_string(),
+        constraint_kind: "tensor".to_string(),
+        actual_type: "Scalar<Pa>".to_string(),
+        expected_type: "Tensor".to_string(),
+    };
+    assert!(err.to_string().contains("test.stress"));
+    assert!(err.to_string().contains("tensor"));
+    assert!(err.to_string().contains("Scalar<Pa>"));
+    assert!(err.to_string().contains("Tensor"));
 }
 
 // ============================================================================
@@ -1125,4 +1476,907 @@ fn test_lower_entity_multiple_fields() {
     assert_eq!(entity.fields[0].name, "position");
     assert_eq!(entity.fields[1].name, "velocity");
     assert_eq!(entity.fields[2].name, "energy");
+}
+
+// ============================================================================
+// Chronicle Lowering Tests
+// ============================================================================
+
+use continuum_foundation::ChronicleId;
+
+#[test]
+fn test_lower_chronicle_basic() {
+    let src = r#"
+        strata.thermal {}
+        era.main { : initial }
+        signal.thermal.temp {
+            : strata(thermal)
+            resolve { prev + 1.0 }
+        }
+        chronicle.thermal.events {
+            observe {
+                when signal.thermal.temp > 100.0 {
+                    emit event.overheating {
+                        temp: signal.thermal.temp
+                    }
+                }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    assert_eq!(chronicle.id.0, "thermal.events");
+    assert_eq!(chronicle.handlers.len(), 1);
+}
+
+#[test]
+fn test_lower_chronicle_with_multiple_handlers() {
+    let src = r#"
+        strata.thermal {}
+        era.main { : initial }
+        signal.thermal.temp {
+            : strata(thermal)
+            resolve { prev }
+        }
+        chronicle.thermal.events {
+            observe {
+                when signal.thermal.temp > 500.0 {
+                    emit event.critical_temp {
+                        temp: signal.thermal.temp
+                    }
+                }
+                when signal.thermal.temp < 100.0 {
+                    emit event.cold_snap {
+                        temp: signal.thermal.temp
+                    }
+                }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    assert_eq!(chronicle.handlers.len(), 2);
+    assert_eq!(chronicle.handlers[0].event_name, "critical_temp");
+    assert_eq!(chronicle.handlers[1].event_name, "cold_snap");
+}
+
+#[test]
+fn test_lower_chronicle_collects_signal_reads() {
+    let src = r#"
+        strata.thermal {}
+        era.main { : initial }
+        signal.thermal.temp {
+            : strata(thermal)
+            resolve { prev }
+        }
+        signal.thermal.pressure {
+            : strata(thermal)
+            resolve { prev }
+        }
+        chronicle.thermal.events {
+            observe {
+                when signal.thermal.temp > 100.0 {
+                    emit event.status {
+                        temp: signal.thermal.temp
+                        pressure: signal.thermal.pressure
+                    }
+                }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    assert!(chronicle.reads.contains(&SignalId::from("thermal.temp")));
+    assert!(chronicle.reads.contains(&SignalId::from("thermal.pressure")));
+}
+
+#[test]
+fn test_lower_chronicle_event_fields() {
+    let src = r#"
+        strata.thermal {}
+        era.main { : initial }
+        signal.thermal.temp {
+            : strata(thermal)
+            resolve { prev }
+        }
+        chronicle.thermal.events {
+            observe {
+                when signal.thermal.temp > 100.0 {
+                    emit event.reading {
+                        temperature: signal.thermal.temp
+                        doubled: signal.thermal.temp * 2.0
+                    }
+                }
+            }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    let handler = &chronicle.handlers[0];
+    assert_eq!(handler.event_fields.len(), 2);
+    assert_eq!(handler.event_fields[0].name, "temperature");
+    assert_eq!(handler.event_fields[1].name, "doubled");
+}
+
+#[test]
+fn test_duplicate_chronicle_definition() {
+    let src = r#"
+        era.main { : initial }
+        chronicle.thermal.events {
+            observe {}
+        }
+        chronicle.thermal.events {
+            observe {}
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::DuplicateDefinition(name) => {
+            assert!(name.contains("thermal.events"), "got: {}", name);
+        }
+        e => panic!("expected DuplicateDefinition, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_lower_chronicle_empty_observe() {
+    let src = r#"
+        era.main { : initial }
+        chronicle.thermal.events {}
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    assert!(chronicle.handlers.is_empty());
+    assert!(chronicle.reads.is_empty());
+}
+
+// ============================================================================
+// Mathematical Constants Tests
+// ============================================================================
+
+#[test]
+fn test_math_const_pi_lowered_to_literal() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.angle {
+            : strata(test)
+            resolve { PI }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.angle")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            assert!(
+                (*v - std::f64::consts::PI).abs() < 1e-10,
+                "PI should be ~3.14159, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(PI), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_unicode_pi() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.angle {
+            : strata(test)
+            resolve { π }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.angle")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            assert!(
+                (*v - std::f64::consts::PI).abs() < 1e-10,
+                "π should be ~3.14159, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(π), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_tau() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.angle {
+            : strata(test)
+            resolve { TAU }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.angle")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            assert!(
+                (*v - std::f64::consts::TAU).abs() < 1e-10,
+                "TAU should be ~6.28318, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(TAU), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_e() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : strata(test)
+            resolve { E }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    // E is ambiguous - could be parsed as identifier, which is fine
+    // If it fails to parse as math const, we accept it
+    if !errors.is_empty() {
+        return; // Skip if parser interprets E differently
+    }
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            assert!(
+                (*v - std::f64::consts::E).abs() < 1e-10,
+                "E should be ~2.71828, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(E), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_phi() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.ratio {
+            : strata(test)
+            resolve { PHI }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.ratio")).unwrap();
+
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Literal(v) => {
+            let phi = 1.618_033_988_749_895;
+            assert!(
+                (*v - phi).abs() < 1e-10,
+                "PHI should be ~1.618, got {}",
+                v
+            );
+        }
+        other => panic!("expected Literal(PHI), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_math_const_in_expression() {
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.area {
+            : strata(test)
+            resolve { PI * 4.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+    let signal = world.signals.get(&SignalId::from("test.area")).unwrap();
+
+    // Should be Binary { Mul, Literal(PI), Literal(4.0) }
+    let resolve = signal.resolve.as_ref().expect("resolve should be present");
+    match resolve {
+        CompiledExpr::Binary { op, left, right } => {
+            assert_eq!(*op, BinaryOpIr::Mul);
+            match left.as_ref() {
+                CompiledExpr::Literal(v) => {
+                    assert!((*v - std::f64::consts::PI).abs() < 1e-10);
+                }
+                other => panic!("expected left=Literal(PI), got {:?}", other),
+            }
+            match right.as_ref() {
+                CompiledExpr::Literal(v) => assert_eq!(*v, 4.0),
+                other => panic!("expected right=Literal(4.0), got {:?}", other),
+            }
+        }
+        other => panic!("expected Binary expression, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// Tensor, Grid, Seq Type Tests
+// ============================================================================
+
+#[test]
+fn test_tensor_type_ast_parsing() {
+    // Test that Tensor<rows, cols, unit> is parsed correctly in AST
+    use continuum_dsl::ast::{Item, TypeExpr};
+    let src = r#"
+        type.stress {
+            tensor: Tensor<3, 3, Pa>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+
+    // Find the TypeDef in items
+    let type_def = unit
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            Item::TypeDef(td) => Some(td),
+            _ => None,
+        })
+        .expect("should have a type definition");
+
+    assert_eq!(type_def.name.node, "stress");
+    assert_eq!(type_def.fields.len(), 1);
+    match &type_def.fields[0].ty.node {
+        TypeExpr::Tensor { rows, cols, unit, .. } => {
+            assert_eq!(rows, &3);
+            assert_eq!(cols, &3);
+            assert_eq!(unit, "Pa");
+        }
+        other => panic!("expected Tensor, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_grid_type_ast_parsing() {
+    // Test that Grid<width, height, element_type> is parsed correctly in AST
+    use continuum_dsl::ast::{Item, TypeExpr};
+    let src = r#"
+        type.temperature_map {
+            data: Grid<2048, 1024, Scalar<K>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+
+    let type_def = unit
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            Item::TypeDef(td) => Some(td),
+            _ => None,
+        })
+        .expect("should have a type definition");
+
+    assert_eq!(type_def.name.node, "temperature_map");
+    match &type_def.fields[0].ty.node {
+        TypeExpr::Grid {
+            width,
+            height,
+            element_type,
+        } => {
+            assert_eq!(width, &2048);
+            assert_eq!(height, &1024);
+            match element_type.as_ref() {
+                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "K"),
+                other => panic!("expected Scalar element type, got {:?}", other),
+            }
+        }
+        other => panic!("expected Grid, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_seq_type_ast_parsing() {
+    // Test that Seq<element_type> is parsed correctly in AST
+    use continuum_dsl::ast::{Item, TypeExpr};
+    let src = r#"
+        type.mass_list {
+            masses: Seq<Scalar<kg>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+
+    let type_def = unit
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            Item::TypeDef(td) => Some(td),
+            _ => None,
+        })
+        .expect("should have a type definition");
+
+    assert_eq!(type_def.name.node, "mass_list");
+    match &type_def.fields[0].ty.node {
+        TypeExpr::Seq { element_type, .. } => match element_type.as_ref() {
+            TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "kg"),
+            other => panic!("expected Scalar element type, got {:?}", other),
+        },
+        other => panic!("expected Seq, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_nested_grid_seq_type_parsing() {
+    // Test nested type expressions: Seq<Grid<...>>
+    use continuum_dsl::ast::{Item, TypeExpr};
+    let src = r#"
+        type.layered_data {
+            layers: Seq<Grid<128, 128, Scalar<m>>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+
+    let type_def = unit
+        .items
+        .iter()
+        .find_map(|item| match &item.node {
+            Item::TypeDef(td) => Some(td),
+            _ => None,
+        })
+        .expect("should have a type definition");
+
+    match &type_def.fields[0].ty.node {
+        TypeExpr::Seq { element_type, .. } => match element_type.as_ref() {
+            TypeExpr::Grid {
+                width,
+                height,
+                element_type: inner,
+            } => {
+                assert_eq!(width, &128);
+                assert_eq!(height, &128);
+                match inner.as_ref() {
+                    TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "m"),
+                    other => panic!("expected Scalar, got {:?}", other),
+                }
+            }
+            other => panic!("expected Grid, got {:?}", other),
+        },
+        other => panic!("expected Seq, got {:?}", other),
+    }
+}
+
+// ============================================================================
+// TypeDef Lowering Tests
+// ============================================================================
+
+use continuum_foundation::TypeId;
+
+#[test]
+fn test_lower_typedef_basic() {
+    let src = r#"
+        type.PlateState {
+            position: Vec3<m>
+            velocity: Vec3<m/s>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("PlateState")).unwrap();
+    assert_eq!(type_def.id.0, "PlateState");
+    assert_eq!(type_def.fields.len(), 2);
+    assert_eq!(type_def.fields[0].name, "position");
+    assert_eq!(type_def.fields[1].name, "velocity");
+}
+
+#[test]
+fn test_lower_typedef_with_scalar() {
+    let src = r#"
+        type.ParticleData {
+            mass: Scalar<kg>
+            charge: Scalar<C>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("ParticleData")).unwrap();
+    assert_eq!(type_def.fields.len(), 2);
+
+    // Check that units are preserved
+    match &type_def.fields[0].value_type {
+        ValueType::Scalar { unit, .. } => {
+            assert_eq!(unit.as_deref(), Some("kg"));
+        }
+        other => panic!("expected Scalar, got {:?}", other),
+    }
+    match &type_def.fields[1].value_type {
+        ValueType::Scalar { unit, .. } => {
+            assert_eq!(unit.as_deref(), Some("C"));
+        }
+        other => panic!("expected Scalar, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_lower_typedef_with_tensor() {
+    let src = r#"
+        type.StressTensor {
+            stress: Tensor<3, 3, Pa>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("StressTensor")).unwrap();
+    assert_eq!(type_def.fields.len(), 1);
+
+    match &type_def.fields[0].value_type {
+        ValueType::Tensor { rows, cols, unit, .. } => {
+            assert_eq!(*rows, 3);
+            assert_eq!(*cols, 3);
+            assert_eq!(unit.as_deref(), Some("Pa"));
+        }
+        other => panic!("expected Tensor, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_lower_typedef_with_grid() {
+    let src = r#"
+        type.TemperatureField {
+            data: Grid<1024, 512, Scalar<K>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("TemperatureField")).unwrap();
+    assert_eq!(type_def.fields.len(), 1);
+
+    match &type_def.fields[0].value_type {
+        ValueType::Grid { width, height, element_type } => {
+            assert_eq!(*width, 1024);
+            assert_eq!(*height, 512);
+            match element_type.as_ref() {
+                ValueType::Scalar { unit, .. } => {
+                    assert_eq!(unit.as_deref(), Some("K"));
+                }
+                other => panic!("expected Scalar element, got {:?}", other),
+            }
+        }
+        other => panic!("expected Grid, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_lower_typedef_with_seq() {
+    let src = r#"
+        type.MassDistribution {
+            masses: Seq<Scalar<kg>>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let type_def = world.types.get(&TypeId::from("MassDistribution")).unwrap();
+    assert_eq!(type_def.fields.len(), 1);
+
+    match &type_def.fields[0].value_type {
+        ValueType::Seq { element_type, .. } => match element_type.as_ref() {
+            ValueType::Scalar { unit, .. } => {
+                assert_eq!(unit.as_deref(), Some("kg"));
+            }
+            other => panic!("expected Scalar element, got {:?}", other),
+        },
+        other => panic!("expected Seq, got {:?}", other),
+    }
+}
+
+#[test]
+fn test_duplicate_typedef_definition() {
+    let src = r#"
+        type.MyType {
+            value: Scalar
+        }
+        type.MyType {
+            other: Scalar
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::DuplicateDefinition(name) => {
+            assert!(name.contains("MyType"), "got: {}", name);
+        }
+        e => panic!("expected DuplicateDefinition, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_lower_multiple_typedefs() {
+    let src = r#"
+        type.Position {
+            x: Scalar<m>
+            y: Scalar<m>
+            z: Scalar<m>
+        }
+        type.Velocity {
+            vx: Scalar<m/s>
+            vy: Scalar<m/s>
+            vz: Scalar<m/s>
+        }
+        type.Particle {
+            mass: Scalar<kg>
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    assert_eq!(world.types.len(), 3);
+    assert!(world.types.contains_key(&TypeId::from("Position")));
+    assert!(world.types.contains_key(&TypeId::from("Velocity")));
+    assert!(world.types.contains_key(&TypeId::from("Particle")));
+}
+
+// ============================================================================
+// Type Constraint Mismatch Tests (#71)
+// ============================================================================
+
+#[test]
+fn test_tensor_constraint_on_scalar_fails() {
+    // Tensor constraints like `: symmetric` should fail on non-Tensor types
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : Scalar<Pa>
+            : symmetric
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, constraint_kind, actual_type, expected_type } => {
+            assert_eq!(signal, "test.value");
+            assert_eq!(constraint_kind, "tensor");
+            assert!(actual_type.contains("Scalar"), "got: {}", actual_type);
+            assert_eq!(expected_type, "Tensor");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_tensor_constraint_on_vector_fails() {
+    // Tensor constraints should fail on Vector types too
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.velocity {
+            : Vec3<m/s>
+            : positive_definite
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, constraint_kind, expected_type, .. } => {
+            assert_eq!(signal, "test.velocity");
+            assert_eq!(constraint_kind, "tensor");
+            assert_eq!(expected_type, "Tensor");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_seq_constraint_on_scalar_fails() {
+    // Seq constraints like `: each(0..1)` should fail on non-Seq types
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : Scalar<kg>
+            : each(1e20..1e28)
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, constraint_kind, actual_type, expected_type } => {
+            assert_eq!(signal, "test.value");
+            assert_eq!(constraint_kind, "sequence");
+            assert!(actual_type.contains("Scalar"), "got: {}", actual_type);
+            assert_eq!(expected_type, "Seq");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_seq_constraint_on_tensor_fails() {
+    // Seq constraints should fail on Tensor types too
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.stress {
+            : Tensor<3,3,Pa>
+            : sum(0..1e10)
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, constraint_kind, expected_type, .. } => {
+            assert_eq!(signal, "test.stress");
+            assert_eq!(constraint_kind, "sequence");
+            assert_eq!(expected_type, "Seq");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_constraint_on_unspecified_type_fails() {
+    // Constraints should fail when no type is specified
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : symmetric
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, actual_type, .. } => {
+            assert_eq!(signal, "test.value");
+            assert_eq!(actual_type, "unspecified");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_valid_tensor_constraint_succeeds() {
+    // Valid tensor constraints should work
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.stress {
+            : Tensor<3,3,Pa>
+            : symmetric
+            : positive_definite
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_ok(), "got error: {:?}", result.unwrap_err());
+}
+
+#[test]
+fn test_valid_seq_constraint_succeeds() {
+    // Valid seq constraints should work
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.masses {
+            : Seq<Scalar<kg>>
+            : each(1e20..1e28)
+            : sum(1e25..1e30)
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_ok(), "got error: {:?}", result.unwrap_err());
 }

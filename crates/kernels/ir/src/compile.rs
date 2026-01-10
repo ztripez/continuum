@@ -405,6 +405,8 @@ mod tests {
             impulses: IndexMap::new(),
             fractures: IndexMap::new(),
             entities: IndexMap::new(),
+            chronicles: IndexMap::new(),
+            types: IndexMap::new(),
         };
 
         let result = compile(&world).unwrap();

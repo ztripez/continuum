@@ -47,6 +47,7 @@
 //! with `: uses(dt_raw)`. This enables dt-robustness auditing to track signals
 //! whose behavior depends on the time step size.
 
+mod chronicles;
 mod convert;
 mod deps;
 mod entities;
@@ -62,14 +63,16 @@ mod tests;
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use continuum_dsl::ast::{CompilationUnit, Item};
+use continuum_dsl::ast::{CompilationUnit, Item, TypeDef};
 use continuum_foundation::{
-    EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId, StratumId,
+    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId,
+    StratumId, TypeId,
 };
 
 use crate::{
-    CompiledEntity, CompiledEra, CompiledField, CompiledFn, CompiledFracture, CompiledImpulse,
-    CompiledOperator, CompiledSignal, CompiledStratum, CompiledWorld,
+    CompiledChronicle, CompiledEntity, CompiledEra, CompiledField, CompiledFn, CompiledFracture,
+    CompiledImpulse, CompiledOperator, CompiledSignal, CompiledStratum, CompiledType,
+    CompiledTypeField, CompiledWorld,
 };
 
 /// Errors that can occur during the lowering phase.
@@ -119,6 +122,23 @@ pub enum LowerError {
     /// which signals may behave differently with different time steps.
     #[error("signal '{0}' uses dt_raw without explicit `: uses(dt_raw)` declaration - this is required for dt-robustness auditing")]
     UndeclaredDtRawUsage(String),
+
+    /// Type constraints were applied to an incompatible type.
+    ///
+    /// Tensor constraints (`:symmetric`, `:positive_definite`) can only be applied
+    /// to Tensor types. Sequence constraints (`:each()`, `:sum()`) can only be
+    /// applied to Seq types.
+    #[error("signal '{signal}' has {constraint_kind} constraint but type is {actual_type}, not {expected_type}")]
+    MismatchedConstraint {
+        /// The signal path where the mismatch occurred.
+        signal: String,
+        /// The kind of constraint (e.g., "tensor" or "sequence").
+        constraint_kind: String,
+        /// The actual type found.
+        actual_type: String,
+        /// The expected type for this constraint.
+        expected_type: String,
+    },
 }
 
 /// Lower a parsed compilation unit to the typed intermediate representation.
@@ -167,6 +187,8 @@ pub(crate) struct Lowerer {
     pub(crate) impulses: IndexMap<ImpulseId, CompiledImpulse>,
     pub(crate) fractures: IndexMap<FractureId, CompiledFracture>,
     pub(crate) entities: IndexMap<EntityId, CompiledEntity>,
+    pub(crate) chronicles: IndexMap<ChronicleId, CompiledChronicle>,
+    pub(crate) types: IndexMap<TypeId, CompiledType>,
 }
 
 impl Lowerer {
@@ -183,6 +205,8 @@ impl Lowerer {
             impulses: IndexMap::new(),
             fractures: IndexMap::new(),
             entities: IndexMap::new(),
+            chronicles: IndexMap::new(),
+            types: IndexMap::new(),
         }
     }
 
@@ -195,6 +219,30 @@ impl Lowerer {
         if !self.strata.contains_key(stratum) {
             return Err(LowerError::UndefinedStratum(stratum.0.clone()));
         }
+        Ok(())
+    }
+
+    /// Lower a custom type definition to CompiledType.
+    fn lower_type_def(&mut self, def: &TypeDef) -> Result<(), LowerError> {
+        let id = TypeId::from(def.name.node.as_str());
+        if self.types.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("type.{}", id.0)));
+        }
+
+        let fields: Vec<CompiledTypeField> = def
+            .fields
+            .iter()
+            .map(|field| CompiledTypeField {
+                name: field.name.node.clone(),
+                value_type: self.lower_type_expr(&field.ty.node),
+            })
+            .collect();
+
+        let compiled_type = CompiledType {
+            id: id.clone(),
+            fields,
+        };
+        self.types.insert(id, compiled_type);
         Ok(())
     }
 
@@ -211,6 +259,8 @@ impl Lowerer {
             impulses: self.impulses,
             fractures: self.fractures,
             entities: self.entities,
+            chronicles: self.chronicles,
+            types: self.types,
         }
     }
 
@@ -254,6 +304,9 @@ impl Lowerer {
                     };
                     self.strata.insert(id, stratum);
                 }
+                Item::TypeDef(def) => {
+                    self.lower_type_def(def)?;
+                }
                 _ => {}
             }
         }
@@ -265,7 +318,7 @@ impl Lowerer {
             }
         }
 
-        // Third pass: signals, fields, operators, impulses, fractures, entities
+        // Third pass: signals, fields, operators, impulses, fractures, entities, chronicles
         for item in &unit.items {
             match &item.node {
                 Item::SignalDef(def) => self.lower_signal(def)?,
@@ -274,6 +327,7 @@ impl Lowerer {
                 Item::ImpulseDef(def) => self.lower_impulse(def)?,
                 Item::FractureDef(def) => self.lower_fracture(def)?,
                 Item::EntityDef(def) => self.lower_entity(def)?,
+                Item::ChronicleDef(def) => self.lower_chronicle(def)?,
                 _ => {}
             }
         }

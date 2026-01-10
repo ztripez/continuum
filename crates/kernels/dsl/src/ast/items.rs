@@ -288,6 +288,12 @@ pub struct SignalDef {
     pub resolve: Option<ResolveBlock>,
     /// Assertions validated after resolution.
     pub assertions: Option<AssertBlock>,
+    /// Tensor constraints declared as child clauses (e.g., `: symmetric`).
+    /// These are validated against the type during lowering.
+    pub tensor_constraints: Vec<super::TensorConstraint>,
+    /// Sequence constraints declared as child clauses (e.g., `: each(0..1)`).
+    /// These are validated against the type during lowering.
+    pub seq_constraints: Vec<super::SeqConstraint>,
 }
 
 /// Warmup block for iterative signal initialization.
@@ -542,8 +548,8 @@ pub struct EmitStatement {
 /// ```cdsl
 /// chronicle.stellar.events {
 ///     observe {
-///         when { signal.terra.temp < 273.0 } {
-///             event.ice_age {
+///         when signal.terra.temp < 273.0 {
+///             emit event.ice_age {
 ///                 temp: signal.terra.temp
 ///                 tick: tick
 ///             }

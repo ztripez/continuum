@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use continuum_dsl::ast::{self, Expr, Literal};
 use continuum_foundation::{EntityId, FnId, InstanceId, SignalId};
 
-use crate::CompiledExpr;
+use crate::{CompiledExpr, DtRobustOperator, IntegrationMethod};
 
 use super::Lowerer;
 
@@ -76,34 +76,59 @@ impl Lowerer {
             },
             Expr::Call { function, args } => {
                 let func_name = self.expr_to_function_name(&function.node);
-                let fn_id = FnId::from(func_name.as_str());
 
-                // Check if this is a user-defined function
-                if let Some(user_fn) = self.functions.get(&fn_id) {
-                    // Inline the function by wrapping body in let bindings for each param
+                // Check if this is a dt-robust operator
+                if let Some(operator) = self.parse_dt_robust_operator(&func_name) {
                     let lowered_args: Vec<_> = args
                         .iter()
-                        .map(|a| self.lower_expr_with_locals(&a.node, locals))
+                        .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
                         .collect();
-
-                    // Build nested let expressions: let param1 = arg1 in let param2 = arg2 in body
-                    let mut result = user_fn.body.clone();
-                    for (param, arg) in user_fn.params.iter().rev().zip(lowered_args.iter().rev()) {
-                        result = CompiledExpr::Let {
-                            name: param.clone(),
-                            value: Box::new(arg.clone()),
-                            body: Box::new(result),
-                        };
+                    CompiledExpr::DtRobustCall {
+                        operator,
+                        args: lowered_args,
+                        method: IntegrationMethod::default(),
                     }
-                    result
-                } else {
-                    // Kernel function - leave as a call
-                    CompiledExpr::Call {
-                        function: func_name,
+                } else if func_name.starts_with("kernel.") {
+                    // Kernel function - engine-provided primitive
+                    let kernel_name = func_name.strip_prefix("kernel.").unwrap().to_string();
+                    CompiledExpr::KernelCall {
+                        function: kernel_name,
                         args: args
                             .iter()
-                            .map(|a| self.lower_expr_with_locals(&a.node, locals))
+                            .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
                             .collect(),
+                    }
+                } else {
+                    let fn_id = FnId::from(func_name.as_str());
+
+                    // Check if this is a user-defined function
+                    if let Some(user_fn) = self.functions.get(&fn_id) {
+                        // Inline the function by wrapping body in let bindings for each param
+                        let lowered_args: Vec<_> = args
+                            .iter()
+                            .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
+                            .collect();
+
+                        // Build nested let expressions: let param1 = arg1 in let param2 = arg2 in body
+                        let mut result = user_fn.body.clone();
+                        for (param, arg) in user_fn.params.iter().rev().zip(lowered_args.iter().rev())
+                        {
+                            result = CompiledExpr::Let {
+                                name: param.clone(),
+                                value: Box::new(arg.clone()),
+                                body: Box::new(result),
+                            };
+                        }
+                        result
+                    } else {
+                        // Unknown function - leave as a call (will generate warning during validation)
+                        CompiledExpr::Call {
+                            function: func_name,
+                            args: args
+                                .iter()
+                                .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
+                                .collect(),
+                        }
                     }
                 }
             }
@@ -112,7 +137,7 @@ impl Lowerer {
                 // e.g., obj.method(a, b) -> method(obj, a, b)
                 let lowered_obj = self.lower_expr_with_locals(&object.node, locals);
                 let lowered_args: Vec<_> = std::iter::once(lowered_obj)
-                    .chain(args.iter().map(|a| self.lower_expr_with_locals(&a.node, locals)))
+                    .chain(args.iter().map(|a| self.lower_expr_with_locals(&a.value.node, locals)))
                     .collect();
 
                 CompiledExpr::Call {
@@ -265,6 +290,24 @@ impl Lowerer {
                 "Cannot extract function name from expression: {:?} - expected Path or FieldAccess",
                 other
             ),
+        }
+    }
+
+    /// Parse a function name into a dt-robust operator if it matches.
+    ///
+    /// dt-robust operators are special functions that provide numerically stable
+    /// time integration. They are recognized by name and converted to a dedicated
+    /// IR variant for special code generation.
+    pub(crate) fn parse_dt_robust_operator(&self, name: &str) -> Option<DtRobustOperator> {
+        match name {
+            "integrate" => Some(DtRobustOperator::Integrate),
+            "decay" => Some(DtRobustOperator::Decay),
+            "relax" => Some(DtRobustOperator::Relax),
+            "accumulate" => Some(DtRobustOperator::Accumulate),
+            "advance_phase" => Some(DtRobustOperator::AdvancePhase),
+            "smooth" => Some(DtRobustOperator::Smooth),
+            "damp" => Some(DtRobustOperator::Damp),
+            _ => None,
         }
     }
 }

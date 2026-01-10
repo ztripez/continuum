@@ -47,7 +47,7 @@
 use continuum_vm::compiler::{BinaryOp, Expr, UnaryOp};
 use continuum_vm::BytecodeChunk;
 
-use crate::{BinaryOpIr, CompiledExpr, UnaryOpIr};
+use crate::{BinaryOpIr, CompiledExpr, DtRobustOperator, UnaryOpIr};
 
 /// Converts an IR binary operator to its VM equivalent.
 ///
@@ -76,6 +76,21 @@ fn convert_unary_op(op: UnaryOpIr) -> UnaryOp {
     match op {
         UnaryOpIr::Neg => UnaryOp::Neg,
         UnaryOpIr::Not => UnaryOp::Not,
+    }
+}
+
+/// Converts a dt-robust operator to its function name for VM execution.
+///
+/// The function implementations are registered in the functions crate.
+fn dt_robust_operator_name(op: DtRobustOperator) -> String {
+    match op {
+        DtRobustOperator::Integrate => "integrate".to_string(),
+        DtRobustOperator::Decay => "decay".to_string(),
+        DtRobustOperator::Relax => "relax".to_string(),
+        DtRobustOperator::Accumulate => "accumulate".to_string(),
+        DtRobustOperator::AdvancePhase => "advance_phase".to_string(),
+        DtRobustOperator::Smooth => "smooth".to_string(),
+        DtRobustOperator::Damp => "damp".to_string(),
     }
 }
 
@@ -111,6 +126,29 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
             function: function.clone(),
             args: args.iter().map(convert_expr).collect(),
         },
+        CompiledExpr::KernelCall { function, args } => {
+            // Kernel functions are converted to regular calls for the VM.
+            // The VM dispatches by name; the distinction is kept in IR for
+            // semantic analysis and potential GPU dispatch in the future.
+            Expr::Call {
+                function: format!("kernel.{}", function),
+                args: args.iter().map(convert_expr).collect(),
+            }
+        }
+        CompiledExpr::DtRobustCall {
+            operator,
+            args,
+            method: _,
+        } => {
+            // Convert dt-robust operators to function calls for the VM.
+            // The function name matches the operator, and the implementation
+            // is provided by the functions registry.
+            let function = dt_robust_operator_name(*operator);
+            Expr::Call {
+                function,
+                args: args.iter().map(convert_expr).collect(),
+            }
+        }
         CompiledExpr::If {
             condition,
             then_branch,

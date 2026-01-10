@@ -143,3 +143,23 @@ field.thermal.gradient_field {
         signal.thermal.gradient
     }
 }
+
+# Chronicle for recording significant thermal events
+# Chronicles are observer-only and cannot affect causality
+chronicle.thermal.events {
+    observe {
+        when { signal.core.temp < 4500 } {
+            event.significant_cooling {
+                core_temp: signal.core.temp
+                surface_temp: signal.surface.temp
+                gradient: signal.thermal.gradient
+            }
+        }
+
+        when { signal.surface.temp < 300 } {
+            event.surface_cooled {
+                surface_temp: signal.surface.temp
+            }
+        }
+    }
+}

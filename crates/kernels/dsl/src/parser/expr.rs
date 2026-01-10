@@ -33,7 +33,7 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{AggregateOp, BinaryOp, Expr, Literal, MathConst, Spanned, UnaryOp};
+use crate::ast::{AggregateOp, BinaryOp, CallArg, Expr, Literal, MathConst, Spanned, UnaryOp};
 
 use super::primitives::{ident, number, path, string_lit, unit, ws};
 use super::ParseError;
@@ -65,9 +65,21 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         // Box the recursive expr (which returns Spanned<Expr>) to prevent type explosion
         let expr_boxed: SpannedExprBox<'src> = expr.clone().boxed();
 
-        // Arguments list for function calls - already produces Vec<Spanned<Expr>>
-        let args = expr_boxed
-            .clone()
+        // Single argument parser - handles both named (name: expr) and positional (expr)
+        // Named arguments use `name: value` syntax
+        let call_arg = choice((
+            // Named argument: name: value
+            // Use look-ahead to distinguish from a path expression followed by comparison
+            ident()
+                .then_ignore(just(':').padded_by(ws()))
+                .then(expr_boxed.clone())
+                .map(|(name, value)| CallArg::named(name, value)),
+            // Positional argument: just an expression
+            expr_boxed.clone().map(CallArg::positional),
+        ));
+
+        // Arguments list for function calls - produces Vec<CallArg>
+        let args = call_arg
             .separated_by(just(',').padded_by(ws()))
             .allow_trailing()
             .collect::<Vec<_>>()
@@ -200,8 +212,13 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             },
         );
 
-        // Unary operators: negation (-) and logical not (!)
-        let unary = choice((just('-').to(UnaryOp::Neg), just('!').to(UnaryOp::Not)))
+        // Unary operators: negation (-) and logical not (! or 'not')
+        // The 'not' keyword uses text::keyword to ensure proper word boundary handling
+        let unary = choice((
+            just('-').to(UnaryOp::Neg),
+            just('!').to(UnaryOp::Not),
+            text::keyword("not").to(UnaryOp::Not),
+        ))
             .map_with(|op, extra| {
                 let span: chumsky::span::SimpleSpan = extra.span();
                 (op, span.start)
@@ -288,9 +305,13 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             });
 
         // Logical AND has lower precedence than comparison
+        // Accept both '&&' and 'and' keyword
+        let and_op = choice((
+            just("&&").to(BinaryOp::And),
+            text::keyword("and").to(BinaryOp::And),
+        ));
         let logical_and = comparison.clone().foldl(
-            just("&&")
-                .to(BinaryOp::And)
+            and_op
                 .padded_by(ws())
                 .then(comparison)
                 .repeated(),
@@ -308,9 +329,13 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         );
 
         // Logical OR has lower precedence than AND
+        // Accept both '||' and 'or' keyword
+        let or_op = choice((
+            just("||").to(BinaryOp::Or),
+            text::keyword("or").to(BinaryOp::Or),
+        ));
         let logical_or = logical_and.clone().foldl(
-            just("||")
-                .to(BinaryOp::Or)
+            or_op
                 .padded_by(ws())
                 .then(logical_and)
                 .repeated(),

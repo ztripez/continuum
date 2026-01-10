@@ -315,7 +315,7 @@ fn check_expr_recursive(
             // Recurse
             check_expr_recursive(function, user_functions, user_function_names, errors);
             for arg in args {
-                check_expr_recursive(arg, user_functions, user_function_names, errors);
+                check_expr_recursive(&arg.value, user_functions, user_function_names, errors);
             }
         }
         Expr::MethodCall { object, method, args } => {
@@ -327,7 +327,7 @@ fn check_expr_recursive(
             }
             check_expr_recursive(object, user_functions, user_function_names, errors);
             for arg in args {
-                check_expr_recursive(arg, user_functions, user_function_names, errors);
+                check_expr_recursive(&arg.value, user_functions, user_function_names, errors);
             }
         }
         // For other expressions, just recurse into children

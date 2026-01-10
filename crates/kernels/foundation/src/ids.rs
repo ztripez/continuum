@@ -76,3 +76,13 @@ define_id!(
     /// Unique identifier for an entity instance within an entity type (e.g., "luna")
     InstanceId
 );
+
+define_id!(
+    /// Unique identifier for a chronicle (observer-only event recording)
+    ChronicleId
+);
+
+define_id!(
+    /// Unique identifier for a custom type definition
+    TypeId
+);

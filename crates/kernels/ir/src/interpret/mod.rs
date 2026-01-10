@@ -196,9 +196,14 @@ pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> 
     if let Some(signal) = world.signals.get(signal_id) {
         match signal.value_type {
             ValueType::Scalar { .. } => Value::Scalar(initial_value),
-            ValueType::Vec2 => Value::Vec2([initial_value; 2]),
-            ValueType::Vec3 => Value::Vec3([initial_value; 3]),
-            ValueType::Vec4 => Value::Vec4([initial_value; 4]),
+            ValueType::Vec2 { .. } => Value::Vec2([initial_value; 2]),
+            ValueType::Vec3 { .. } => Value::Vec3([initial_value; 3]),
+            ValueType::Vec4 { .. } => Value::Vec4([initial_value; 4]),
+            // Tensor, Grid, and Seq types are not yet fully supported in the interpreter.
+            // For now, treat them as scalar placeholders.
+            ValueType::Tensor { .. } | ValueType::Grid { .. } | ValueType::Seq { .. } => {
+                Value::Scalar(initial_value)
+            }
         }
     } else {
         Value::Scalar(initial_value)

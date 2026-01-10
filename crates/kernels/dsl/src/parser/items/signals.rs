@@ -9,11 +9,12 @@ use chumsky::prelude::*;
 
 use crate::ast::{
     ConfigEntry, ConstEntry, FieldDef, MeasureBlock, OperatorBody, OperatorDef, OperatorPhase,
-    Path, ResolveBlock, SignalDef, Spanned, Topology, TypeExpr,
+    Path, Range, ResolveBlock, SeqConstraint, SignalDef, Spanned, TensorConstraint, Topology,
+    TypeExpr,
 };
 
 use super::super::expr::spanned_expr;
-use super::super::primitives::{attr_flag, attr_path, attr_string, spanned, spanned_path, ws};
+use super::super::primitives::{attr_flag, attr_path, attr_string, float, spanned, spanned_path, ws};
 use super::super::ParseError;
 use super::common::{assert_block, topology};
 use super::config::{config_entry, const_entry};
@@ -47,6 +48,8 @@ pub fn signal_def<'src>() -> impl Parser<'src, &'src str, SignalDef, extra::Err<
                 warmup: None,
                 resolve: None,
                 assertions: None,
+                tensor_constraints: vec![],
+                seq_constraints: vec![],
             };
             for content in contents {
                 match content {
@@ -59,6 +62,8 @@ pub fn signal_def<'src>() -> impl Parser<'src, &'src str, SignalDef, extra::Err<
                     SignalContent::LocalConfig(c) => def.local_config.extend(c),
                     SignalContent::Resolve(r) => def.resolve = Some(r),
                     SignalContent::Assert(a) => def.assertions = Some(a),
+                    SignalContent::TensorConstraint(c) => def.tensor_constraints.push(c),
+                    SignalContent::SeqConstraint(c) => def.seq_constraints.push(c),
                 }
             }
             def
@@ -76,6 +81,10 @@ enum SignalContent {
     LocalConfig(Vec<ConfigEntry>),
     Resolve(ResolveBlock),
     Assert(crate::ast::AssertBlock),
+    /// Tensor constraint: `: symmetric` or `: positive_definite`
+    TensorConstraint(TensorConstraint),
+    /// Sequence constraint: `: each(min..max)` or `: sum(min..max)`
+    SeqConstraint(SeqConstraint),
 }
 
 fn signal_content<'src>(
@@ -95,6 +104,39 @@ fn signal_content<'src>(
                     .then_ignore(just(')').padded_by(ws())),
             )
             .to(SignalContent::DtRaw),
+        // Tensor constraints: `: symmetric`, `: positive_definite`
+        just(':')
+            .padded_by(ws())
+            .ignore_then(text::keyword("symmetric"))
+            .to(SignalContent::TensorConstraint(TensorConstraint::Symmetric)),
+        just(':')
+            .padded_by(ws())
+            .ignore_then(text::keyword("positive_definite"))
+            .to(SignalContent::TensorConstraint(
+                TensorConstraint::PositiveDefinite,
+            )),
+        // Sequence constraints: `: each(min..max)`, `: sum(min..max)`
+        just(':')
+            .padded_by(ws())
+            .ignore_then(text::keyword("each"))
+            .ignore_then(
+                just('(')
+                    .padded_by(ws())
+                    .ignore_then(constraint_range())
+                    .then_ignore(just(')').padded_by(ws())),
+            )
+            .map(|r| SignalContent::SeqConstraint(SeqConstraint::Each(r))),
+        just(':')
+            .padded_by(ws())
+            .ignore_then(text::keyword("sum"))
+            .ignore_then(
+                just('(')
+                    .padded_by(ws())
+                    .ignore_then(constraint_range())
+                    .then_ignore(just(')').padded_by(ws())),
+            )
+            .map(|r| SignalContent::SeqConstraint(SeqConstraint::Sum(r))),
+        // Type expression: `: TypeExpr`
         just(':')
             .padded_by(ws())
             .ignore_then(spanned(type_expr()))
@@ -129,6 +171,14 @@ fn signal_content<'src>(
             .map(|body| SignalContent::Resolve(ResolveBlock { body })),
         assert_block().map(SignalContent::Assert),
     ))
+}
+
+/// Parses a range for constraint values: `min..max`
+fn constraint_range<'src>() -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> {
+    float()
+        .then_ignore(just("..").padded_by(ws()))
+        .then(float())
+        .map(|(min, max)| Range { min, max })
 }
 
 // === Field ===

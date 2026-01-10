@@ -140,7 +140,7 @@ pub fn validate(world: &CompiledWorld) -> Vec<CompileWarning> {
 fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
     for (signal_id, signal) in &world.signals {
         // Check if the signal has a range constraint
-        let has_range = matches!(&signal.value_type, ValueType::Scalar { range: Some(_) });
+        let has_range = matches!(&signal.value_type, ValueType::Scalar { range: Some(_), .. });
 
         if has_range && signal.assertions.is_empty() {
             warnings.push(CompileWarning {
@@ -318,6 +318,19 @@ fn check_expr_symbols(
                     entity: context.to_string(),
                 });
             }
+            for arg in args {
+                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+            }
+        }
+        CompiledExpr::DtRobustCall { args, .. } => {
+            // dt-robust operators are known by definition, just check args
+            for arg in args {
+                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+            }
+        }
+        CompiledExpr::KernelCall { args, .. } => {
+            // Kernel functions are engine-provided, just check args
+            // TODO: Could validate that specific kernel function names are known
             for arg in args {
                 check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
             }

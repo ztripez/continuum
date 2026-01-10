@@ -57,19 +57,129 @@ impl Lowerer {
 
     pub(crate) fn lower_type_expr(&self, ty: &TypeExpr) -> ValueType {
         match ty {
-            TypeExpr::Scalar { range, .. } => ValueType::Scalar {
-                range: range.as_ref().map(|r| ValueRange {
-                    min: r.min,
-                    max: r.max,
-                }),
+            TypeExpr::Scalar { unit, range } => {
+                let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
+                ValueType::Scalar {
+                    unit: unit_str,
+                    dimension,
+                    range: range.as_ref().map(|r| ValueRange {
+                        min: r.min,
+                        max: r.max,
+                    }),
+                }
+            }
+            TypeExpr::Vector {
+                dim,
+                unit,
+                magnitude,
+            } => {
+                let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
+                match dim {
+                    2 => ValueType::Vec2 {
+                        unit: unit_str,
+                        dimension,
+                        magnitude: magnitude.as_ref().map(|r| ValueRange {
+                            min: r.min,
+                            max: r.max,
+                        }),
+                    },
+                    3 => ValueType::Vec3 {
+                        unit: unit_str,
+                        dimension,
+                        magnitude: magnitude.as_ref().map(|r| ValueRange {
+                            min: r.min,
+                            max: r.max,
+                        }),
+                    },
+                    4 => ValueType::Vec4 {
+                        unit: unit_str,
+                        dimension,
+                        magnitude: magnitude.as_ref().map(|r| ValueRange {
+                            min: r.min,
+                            max: r.max,
+                        }),
+                    },
+                    _ => ValueType::Scalar {
+                        unit: unit_str,
+                        dimension,
+                        range: None,
+                    },
+                }
+            }
+            TypeExpr::Tensor {
+                rows,
+                cols,
+                unit,
+                constraints,
+            } => {
+                let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
+                ValueType::Tensor {
+                    rows: *rows,
+                    cols: *cols,
+                    unit: unit_str,
+                    dimension,
+                    constraints: constraints
+                        .iter()
+                        .map(|c| self.lower_tensor_constraint(*c))
+                        .collect(),
+                }
+            }
+            TypeExpr::Grid {
+                width,
+                height,
+                element_type,
+            } => ValueType::Grid {
+                width: *width,
+                height: *height,
+                element_type: Box::new(self.lower_type_expr(element_type)),
             },
-            TypeExpr::Vector { dim, .. } => match dim {
-                2 => ValueType::Vec2,
-                3 => ValueType::Vec3,
-                4 => ValueType::Vec4,
-                _ => ValueType::Scalar { range: None },
+            TypeExpr::Seq {
+                element_type,
+                constraints,
+            } => ValueType::Seq {
+                element_type: Box::new(self.lower_type_expr(element_type)),
+                constraints: constraints
+                    .iter()
+                    .map(|c| self.lower_seq_constraint(c))
+                    .collect(),
             },
-            TypeExpr::Named(_) => ValueType::Scalar { range: None }, // resolve named types later
+            TypeExpr::Named(_) => ValueType::Scalar {
+                unit: None,
+                dimension: None,
+                range: None,
+            }, // resolve named types later
+        }
+    }
+
+    pub(crate) fn lower_tensor_constraint(
+        &self,
+        c: ast::TensorConstraint,
+    ) -> crate::TensorConstraintIr {
+        match c {
+            ast::TensorConstraint::Symmetric => crate::TensorConstraintIr::Symmetric,
+            ast::TensorConstraint::PositiveDefinite => crate::TensorConstraintIr::PositiveDefinite,
+        }
+    }
+
+    pub(crate) fn lower_seq_constraint(&self, c: &ast::SeqConstraint) -> crate::SeqConstraintIr {
+        match c {
+            ast::SeqConstraint::Each(r) => {
+                crate::SeqConstraintIr::Each(ValueRange { min: r.min, max: r.max })
+            }
+            ast::SeqConstraint::Sum(r) => {
+                crate::SeqConstraintIr::Sum(ValueRange { min: r.min, max: r.max })
+            }
+        }
+    }
+
+    /// Parses a unit string and returns both the string representation and
+    /// the structured dimensional representation.
+    fn parse_unit_with_dimension(&self, unit: &str) -> (Option<String>, Option<crate::units::Unit>) {
+        if unit.is_empty() {
+            (None, None)
+        } else {
+            let dimension = crate::units::Unit::parse(unit);
+            (Some(unit.to_string()), dimension)
         }
     }
 
@@ -119,11 +229,11 @@ impl Lowerer {
             Expr::Unary { operand, .. } => self.expr_uses_dt_raw(&operand.node),
             Expr::Call { function, args } => {
                 self.expr_uses_dt_raw(&function.node)
-                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.node))
+                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.value.node))
             }
             Expr::MethodCall { object, args, .. } => {
                 self.expr_uses_dt_raw(&object.node)
-                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.node))
+                    || args.iter().any(|a| self.expr_uses_dt_raw(&a.value.node))
             }
             Expr::Let { value, body, .. } => {
                 self.expr_uses_dt_raw(&value.node) || self.expr_uses_dt_raw(&body.node)

@@ -61,6 +61,9 @@ impl Lowerer {
             }
         }
 
+        // Validate type constraints match the declared type
+        self.validate_type_constraints(def, &signal_path)?;
+
         // Lower warmup if present
         let warmup = def.warmup.as_ref().map(|w| CompiledWarmup {
             iterations: w.iterations.node,
@@ -78,16 +81,15 @@ impl Lowerer {
             .map(|a| self.lower_assert_block(a))
             .unwrap_or_default();
 
+        // Lower the type, applying any constraints
+        let value_type = self.lower_signal_type(def);
+
         let signal = CompiledSignal {
             id: id.clone(),
             stratum,
             title: def.title.as_ref().map(|s| s.node.clone()),
             symbol: def.symbol.as_ref().map(|s| s.node.clone()),
-            value_type: def
-                .ty
-                .as_ref()
-                .map(|t| self.lower_type_expr(&t.node))
-                .unwrap_or(ValueType::Scalar { range: None }),
+            value_type,
             uses_dt_raw: def.dt_raw,
             reads,
             resolve,
@@ -134,12 +136,115 @@ impl Lowerer {
                 .ty
                 .as_ref()
                 .map(|t| self.lower_type_expr(&t.node))
-                .unwrap_or(ValueType::Scalar { range: None }),
+                .unwrap_or(ValueType::Scalar {
+                    unit: None,
+                    dimension: None,
+                    range: None,
+                }),
             reads,
             measure: def.measure.as_ref().map(|m| self.lower_expr(&m.body.node)),
         };
 
         self.fields.insert(id, field);
         Ok(())
+    }
+
+    /// Validates that type constraints on a signal match the declared type.
+    ///
+    /// Tensor constraints (`:symmetric`, `:positive_definite`) require a Tensor type.
+    /// Sequence constraints (`:each()`, `:sum()`) require a Seq type.
+    fn validate_type_constraints(
+        &self,
+        def: &ast::SignalDef,
+        signal_path: &str,
+    ) -> Result<(), LowerError> {
+        // Check tensor constraints
+        if !def.tensor_constraints.is_empty() {
+            let is_tensor = def.ty.as_ref().is_some_and(|t| {
+                matches!(t.node, ast::TypeExpr::Tensor { .. })
+            });
+            if !is_tensor {
+                let actual_type = def
+                    .ty
+                    .as_ref()
+                    .map(|t| self.type_expr_name(&t.node))
+                    .unwrap_or_else(|| "unspecified".to_string());
+                return Err(LowerError::MismatchedConstraint {
+                    signal: signal_path.to_string(),
+                    constraint_kind: "tensor".to_string(),
+                    actual_type,
+                    expected_type: "Tensor".to_string(),
+                });
+            }
+        }
+
+        // Check sequence constraints
+        if !def.seq_constraints.is_empty() {
+            let is_seq = def.ty.as_ref().is_some_and(|t| {
+                matches!(t.node, ast::TypeExpr::Seq { .. })
+            });
+            if !is_seq {
+                let actual_type = def
+                    .ty
+                    .as_ref()
+                    .map(|t| self.type_expr_name(&t.node))
+                    .unwrap_or_else(|| "unspecified".to_string());
+                return Err(LowerError::MismatchedConstraint {
+                    signal: signal_path.to_string(),
+                    constraint_kind: "sequence".to_string(),
+                    actual_type,
+                    expected_type: "Seq".to_string(),
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Returns a human-readable name for a TypeExpr.
+    fn type_expr_name(&self, ty: &ast::TypeExpr) -> String {
+        match ty {
+            ast::TypeExpr::Scalar { unit, .. } => {
+                if unit.is_empty() {
+                    "Scalar".to_string()
+                } else {
+                    format!("Scalar<{}>", unit)
+                }
+            }
+            ast::TypeExpr::Vector { dim, unit, .. } => format!("Vec{}<{}>", dim, unit),
+            ast::TypeExpr::Tensor { rows, cols, unit, .. } => {
+                format!("Tensor<{},{},{}>", rows, cols, unit)
+            }
+            ast::TypeExpr::Grid { width, height, .. } => format!("Grid<{},{}>", width, height),
+            ast::TypeExpr::Seq { .. } => "Seq<...>".to_string(),
+            ast::TypeExpr::Named(name) => name.clone(),
+        }
+    }
+
+    /// Lowers a signal's type, applying any constraints from the signal definition.
+    fn lower_signal_type(&self, def: &ast::SignalDef) -> ValueType {
+        match &def.ty {
+            None => ValueType::Scalar {
+                unit: None,
+                dimension: None,
+                range: None,
+            },
+            Some(spanned_ty) => {
+                // Clone the type and apply constraints before lowering
+                let mut ty = spanned_ty.node.clone();
+
+                // Apply tensor constraints
+                if let ast::TypeExpr::Tensor { ref mut constraints, .. } = ty {
+                    *constraints = def.tensor_constraints.clone();
+                }
+
+                // Apply sequence constraints
+                if let ast::TypeExpr::Seq { ref mut constraints, .. } = ty {
+                    *constraints = def.seq_constraints.clone();
+                }
+
+                self.lower_type_expr(&ty)
+            }
+        }
     }
 }

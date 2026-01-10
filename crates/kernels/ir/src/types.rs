@@ -30,7 +30,7 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId};
+use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId, TypeId};
 
 /// The complete compiled simulation world, ready for DAG construction.
 ///
@@ -87,6 +87,10 @@ pub struct CompiledWorld {
     pub fractures: IndexMap<FractureId, CompiledFracture>,
     /// Entity definitions
     pub entities: IndexMap<EntityId, CompiledEntity>,
+    /// Chronicle definitions (observer-only event recording)
+    pub chronicles: IndexMap<ChronicleId, CompiledChronicle>,
+    /// Custom type definitions
+    pub types: IndexMap<TypeId, CompiledType>,
 }
 
 /// A compiled stratum definition representing a simulation layer.
@@ -455,6 +459,60 @@ pub struct CompiledEntityField {
     pub measure: Option<CompiledExpr>,
 }
 
+/// A compiled chronicle definition for observer-only event recording.
+///
+/// Chronicles observe simulation state and emit events for logging, analytics,
+/// or user notification. They are strictly non-causal - removing all chronicles
+/// must not change simulation results.
+///
+/// # Observer Boundary
+///
+/// Chronicles execute during the Measure phase and can only read signal values.
+/// They cannot:
+/// - Write to signals
+/// - Emit impulses
+/// - Affect any causal state
+///
+/// # Event Emission
+///
+/// When an observation handler's condition evaluates to true (non-zero), the
+/// chronicle emits a structured event with the specified name and payload fields.
+#[derive(Debug, Clone)]
+pub struct CompiledChronicle {
+    /// Unique identifier for the chronicle.
+    pub id: ChronicleId,
+    /// Signals this chronicle reads for its observation handlers.
+    pub reads: Vec<SignalId>,
+    /// Observation handlers that emit events when conditions are met.
+    pub handlers: Vec<CompiledObserveHandler>,
+}
+
+/// An observation handler within a chronicle.
+///
+/// Each handler watches for a specific condition and emits a named event
+/// with structured payload when the condition is met.
+#[derive(Debug, Clone)]
+pub struct CompiledObserveHandler {
+    /// Condition that must be true (non-zero) to emit the event.
+    pub condition: CompiledExpr,
+    /// Name of the event to emit (e.g., "supercontinent_formed").
+    pub event_name: String,
+    /// Payload fields for the emitted event.
+    pub event_fields: Vec<CompiledEventField>,
+}
+
+/// A field within a chronicle event payload.
+///
+/// Each field has a name and an expression that computes its value
+/// when the event is emitted.
+#[derive(Debug, Clone)]
+pub struct CompiledEventField {
+    /// Name of the field in the event payload.
+    pub name: String,
+    /// Expression to compute the field value.
+    pub value: CompiledExpr,
+}
+
 /// Warmup configuration for signal initialization.
 ///
 /// Warmup runs a signal's iterate expression repeatedly until convergence
@@ -512,27 +570,98 @@ pub enum AssertionSeverity {
 
 /// The type of a signal or field value.
 ///
-/// Values can be scalars or fixed-size vectors. Scalar values may optionally
-/// have range constraints that define valid bounds.
+/// Values can be scalars or fixed-size vectors. Types may optionally carry
+/// unit information (e.g., "K" for Kelvin, "m/s" for velocity) and range
+/// constraints.
+///
+/// # Unit Representation
+///
+/// Units are stored in two forms:
+/// - `unit: Option<String>`: The original unit string for display and serialization
+/// - `dimension: Option<Unit>`: Parsed dimensional representation for analysis
+///
+/// The string form is used for:
+/// - Error message clarity (e.g., "expected K, got m/s")
+/// - Observer output formatting
+/// - Documentation generation
+///
+/// The structured form (`Unit`) enables:
+/// - Dimensional analysis at compile time
+/// - Unit algebra for expression type checking
+/// - Physics safety validation
 ///
 /// # Examples
 ///
-/// - `Scalar { range: None }`: Unbounded scalar (any f64 value)
-/// - `Scalar { range: Some(ValueRange { min: 0.0, max: 1.0 }) }`: Normalized scalar
-/// - `Vec3`: 3D vector (e.g., position, velocity)
+/// - `Scalar { unit: None, dimension: None, range: None }`: Unbounded dimensionless scalar
+/// - `Scalar { unit: Some("K"), dimension: Some(Unit::temperature()), ... }`: Temperature
+/// - `Vec3 { unit: Some("m/s"), dimension: Some(Unit::velocity()) }`: Velocity vector
 #[derive(Debug, Clone, PartialEq)]
 pub enum ValueType {
     /// Single scalar value.
     Scalar {
+        /// Unit string (e.g., "K", "Pa", "W/m²").
+        unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
         /// Optional value bounds.
         range: Option<ValueRange>,
     },
     /// 2D vector.
-    Vec2,
+    Vec2 {
+        /// Component unit (e.g., "m", "m/s").
+        unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
+        /// Optional magnitude constraint.
+        magnitude: Option<ValueRange>,
+    },
     /// 3D vector.
-    Vec3,
-    /// 4D vector.
-    Vec4,
+    Vec3 {
+        /// Component unit (e.g., "m", "m/s").
+        unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
+        /// Optional magnitude constraint (e.g., for position bounds).
+        magnitude: Option<ValueRange>,
+    },
+    /// 4D vector (quaternions, homogeneous coordinates).
+    Vec4 {
+        /// Component unit (typically "1" for quaternions).
+        unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
+        /// Optional magnitude constraint (e.g., magnitude: 1 for unit quaternions).
+        magnitude: Option<ValueRange>,
+    },
+    /// NxM tensor (matrices, stress/strain tensors).
+    Tensor {
+        /// Number of rows.
+        rows: u8,
+        /// Number of columns.
+        cols: u8,
+        /// Element unit (e.g., "Pa" for stress tensors).
+        unit: Option<String>,
+        /// Parsed dimensional representation for analysis.
+        dimension: Option<crate::units::Unit>,
+        /// Mathematical constraints (symmetric, positive_definite).
+        constraints: Vec<TensorConstraintIr>,
+    },
+    /// 2D grid of values (e.g., temperature maps, heightmaps).
+    Grid {
+        /// Grid width.
+        width: u32,
+        /// Grid height.
+        height: u32,
+        /// Element type.
+        element_type: Box<ValueType>,
+    },
+    /// Ordered sequence of values.
+    Seq {
+        /// Element type.
+        element_type: Box<ValueType>,
+        /// Aggregate constraints (each, sum).
+        constraints: Vec<SeqConstraintIr>,
+    },
 }
 
 /// A numeric range constraint for scalar values.
@@ -547,6 +676,28 @@ pub struct ValueRange {
     pub min: f64,
     /// Maximum allowed value.
     pub max: f64,
+}
+
+/// Tensor mathematical constraint.
+///
+/// Tensors can have constraints that enforce mathematical properties.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TensorConstraintIr {
+    /// Matrix must be symmetric (A = A^T).
+    Symmetric,
+    /// Matrix must be positive definite (all eigenvalues > 0).
+    PositiveDefinite,
+}
+
+/// Sequence aggregate constraint.
+///
+/// Sequences can have constraints that enforce aggregate properties.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SeqConstraintIr {
+    /// Each element must be within the given range.
+    Each(ValueRange),
+    /// The sum of all elements must be within the given range.
+    Sum(ValueRange),
 }
 
 /// Spatial topology for field data distribution.
@@ -643,12 +794,39 @@ pub enum CompiledExpr {
         /// Operand expression.
         operand: Box<CompiledExpr>,
     },
-    /// Function call
+    /// User-defined function call
+    ///
+    /// This is kept for user-defined functions that couldn't be inlined.
+    /// Most user functions get inlined during lowering.
     Call {
         /// Name of the function.
         function: String,
         /// Call arguments.
         args: Vec<CompiledExpr>,
+    },
+    /// Kernel function call (engine-provided)
+    ///
+    /// These are engine-provided primitives called via `kernel.*` syntax.
+    /// They may be GPU-accelerated and have guaranteed determinism properties.
+    /// Examples: `kernel.sqrt`, `kernel.sin`, `kernel.gravity_acceleration`.
+    KernelCall {
+        /// Name of the kernel function (without the `kernel.` prefix).
+        function: String,
+        /// Call arguments.
+        args: Vec<CompiledExpr>,
+    },
+    /// dt-robust operator call
+    ///
+    /// These operators provide numerically stable time integration with
+    /// implicit dt handling. They are distinguished from regular function
+    /// calls to enable special code generation and validation.
+    DtRobustCall {
+        /// The dt-robust operator being called.
+        operator: DtRobustOperator,
+        /// Call arguments (varies by operator).
+        args: Vec<CompiledExpr>,
+        /// Integration method (when applicable).
+        method: IntegrationMethod,
     },
     /// Field access
     FieldAccess {
@@ -826,4 +1004,84 @@ pub enum UnaryOpIr {
     Neg,
     /// Logical NOT: `!x` (returns 1.0 if x is 0.0, otherwise 0.0)
     Not,
+}
+
+/// dt-robust operators that provide numerically stable time integration.
+///
+/// These operators implement time-step invariant calculations that:
+/// - Are deterministic (same inputs → same outputs)
+/// - Are stable (bounded output at any reasonable dt)
+/// - Are convergent (approach correct solution as dt → 0)
+/// - Are symmetric (dt=0.1 twice equals dt=0.2 once)
+///
+/// Unlike raw expressions like `prev + rate * dt`, these operators handle
+/// the implicit `dt` parameter correctly and can use higher-order methods.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DtRobustOperator {
+    /// Integrate a rate over time: `integrate(prev, rate)`
+    /// Raw equivalent: `prev + rate * dt`
+    Integrate,
+    /// Exponential decay toward zero: `decay(value, halflife)`
+    /// Raw equivalent: `prev * (1 - k * dt)` (but stable)
+    Decay,
+    /// Relax toward a target value: `relax(current, target, tau)`
+    /// Raw equivalent: `prev + (target - prev) * k * dt`
+    Relax,
+    /// Bounded accumulation: `accumulate(prev, delta, min, max)`
+    /// Raw equivalent: `clamp(prev + delta * dt, min, max)`
+    Accumulate,
+    /// Phase advancement with wrapping: `advance_phase(phase, omega)`
+    /// Raw equivalent: `wrap(prev + omega * dt, 0, TAU)`
+    AdvancePhase,
+    /// Exponential smoothing: `smooth(prev, input, tau)`
+    Smooth,
+    /// Spring-damper system: `damp(pos, vel, target, stiffness, damping)`
+    Damp,
+}
+
+/// Integration method for dt-robust operators.
+///
+/// Higher-order methods provide better accuracy at larger time steps
+/// but require more computation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum IntegrationMethod {
+    /// First-order Euler integration (default)
+    #[default]
+    Euler,
+    /// Fourth-order Runge-Kutta
+    Rk4,
+    /// Velocity Verlet (for position-velocity systems)
+    Verlet,
+}
+
+/// A compiled custom type definition.
+///
+/// Custom types allow users to define composite types for signals,
+/// impulse payloads, and entity schemas. Each type consists of named
+/// fields with specific value types.
+///
+/// # Example DSL
+///
+/// ```cdsl
+/// type.PlateState {
+///   position: Vec3<m>
+///   velocity: Vec3<m/s>
+///   strain: Tensor<3,3,Pa>
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct CompiledType {
+    /// Unique identifier for this type.
+    pub id: TypeId,
+    /// Named fields with their value types.
+    pub fields: Vec<CompiledTypeField>,
+}
+
+/// A field within a compiled custom type.
+#[derive(Debug, Clone)]
+pub struct CompiledTypeField {
+    /// Field name (e.g., "position", "velocity").
+    pub name: String,
+    /// The resolved value type for this field.
+    pub value_type: ValueType,
 }

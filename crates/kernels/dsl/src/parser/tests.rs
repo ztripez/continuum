@@ -76,6 +76,86 @@ fn test_parse_signal_def() {
 }
 
 #[test]
+fn test_parse_signal_with_tensor_constraints() {
+    let source = r#"
+        signal.terra.stress_tensor {
+            : Tensor<3,3,Pa>
+            : symmetric
+            : positive_definite
+            : strata(terra.tectonics)
+
+            resolve {
+                prev
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            // Verify the type is Tensor
+            let ty = def.ty.as_ref().expect("should have type");
+            assert!(matches!(ty.node, TypeExpr::Tensor { .. }));
+            // Constraints are now stored on SignalDef, not TypeExpr
+            assert_eq!(def.tensor_constraints.len(), 2);
+            assert_eq!(
+                def.tensor_constraints[0],
+                crate::ast::TensorConstraint::Symmetric
+            );
+            assert_eq!(
+                def.tensor_constraints[1],
+                crate::ast::TensorConstraint::PositiveDefinite
+            );
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_signal_with_seq_constraints() {
+    let source = r#"
+        signal.terra.particle_masses {
+            : Seq<Scalar<kg>>
+            : each(1e20..1e28)
+            : sum(1e25..1e30)
+            : strata(terra.physics)
+
+            resolve {
+                prev
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            // Verify the type is Seq
+            let ty = def.ty.as_ref().expect("should have type");
+            assert!(matches!(ty.node, TypeExpr::Seq { .. }));
+            // Constraints are now stored on SignalDef, not TypeExpr
+            assert_eq!(def.seq_constraints.len(), 2);
+            match &def.seq_constraints[0] {
+                crate::ast::SeqConstraint::Each(range) => {
+                    assert_eq!(range.min, 1e20);
+                    assert_eq!(range.max, 1e28);
+                }
+                _ => panic!("expected Each constraint"),
+            }
+            match &def.seq_constraints[1] {
+                crate::ast::SeqConstraint::Sum(range) => {
+                    assert_eq!(range.min, 1e25);
+                    assert_eq!(range.max, 1e30);
+                }
+                _ => panic!("expected Sum constraint"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
 fn test_parse_expression() {
     let source = "signal.terra.temp { resolve { prev + 1.0 } }";
     let (result, errors) = parse(source);
@@ -221,6 +301,71 @@ fn test_parse_type_def() {
         Item::TypeDef(def) => {
             assert_eq!(def.name.node, "ThermalState");
             assert_eq!(def.fields.len(), 2);
+        }
+        _ => panic!("expected TypeDef"),
+    }
+}
+
+#[test]
+fn test_parse_vector_with_magnitude_range() {
+    let source = r#"
+        type.OrbitalState {
+            position: Vec3<m, magnitude: 1e10..1e12>
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::TypeDef(def) => {
+            assert_eq!(def.fields.len(), 1);
+            match &def.fields[0].ty.node {
+                TypeExpr::Vector {
+                    dim,
+                    unit,
+                    magnitude,
+                } => {
+                    assert_eq!(*dim, 3);
+                    assert_eq!(unit, "m");
+                    let mag = magnitude.as_ref().expect("should have magnitude");
+                    assert_eq!(mag.min, 1e10);
+                    assert_eq!(mag.max, 1e12);
+                }
+                _ => panic!("expected Vector type"),
+            }
+        }
+        _ => panic!("expected TypeDef"),
+    }
+}
+
+#[test]
+fn test_parse_vec4_unit_quaternion() {
+    // Vec4<1, magnitude: 1> is a unit quaternion (magnitude exactly 1)
+    let source = r#"
+        type.Orientation {
+            rotation: Vec4<1, magnitude: 1>
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::TypeDef(def) => {
+            match &def.fields[0].ty.node {
+                TypeExpr::Vector {
+                    dim,
+                    unit,
+                    magnitude,
+                } => {
+                    assert_eq!(*dim, 4);
+                    assert_eq!(unit, "1");
+                    let mag = magnitude.as_ref().expect("should have magnitude constraint");
+                    // Single value 1 is converted to range 1..1
+                    assert_eq!(mag.min, 1.0);
+                    assert_eq!(mag.max, 1.0);
+                }
+                _ => panic!("expected Vector type"),
+            }
         }
         _ => panic!("expected TypeDef"),
     }
@@ -405,7 +550,7 @@ fn test_parse_function_call_nested() {
                     }
                     assert_eq!(args.len(), 2);
                     // First arg should be min(prev, 1000)
-                    match &args[0].node {
+                    match &args[0].value.node {
                         Expr::Call { function, args: inner_args } => {
                             match &function.node {
                                 Expr::Path(p) => assert_eq!(p.join("."), "min"),
@@ -1316,5 +1461,309 @@ entity.stellar.moon {
             assert_eq!(def.fields[2].name.node, "distance");
         }
         _ => panic!("expected EntityDef"),
+    }
+}
+
+// === Logical operator keyword tests ===
+
+#[test]
+fn test_parse_and_keyword() {
+    // Tests that 'and' keyword is accepted as alternative to '&&'
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                let a = 1 in
+                let b = 2 in
+                a > 0 and b > 0
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            // Navigate through let expressions to the binary expression
+            fn find_binary(expr: &Expr) -> Option<&BinaryOp> {
+                match expr {
+                    Expr::Let { body, .. } => find_binary(&body.node),
+                    Expr::Binary { op, .. } => Some(op),
+                    _ => None,
+                }
+            }
+            let op = find_binary(&resolve.body.node).expect("expected Binary inside Let");
+            assert_eq!(op, &BinaryOp::And);
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_or_keyword() {
+    // Tests that 'or' keyword is accepted as alternative to '||'
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                let x = 0 in
+                x < -1 or x > 1
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            fn find_binary(expr: &Expr) -> Option<&BinaryOp> {
+                match expr {
+                    Expr::Let { body, .. } => find_binary(&body.node),
+                    Expr::Binary { op, .. } => Some(op),
+                    _ => None,
+                }
+            }
+            let op = find_binary(&resolve.body.node).expect("expected Binary inside Let");
+            assert_eq!(op, &BinaryOp::Or);
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_not_keyword() {
+    // Tests that 'not' keyword is accepted as alternative to '!'
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                let flag = 1 in
+                not flag
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            fn find_unary(expr: &Expr) -> Option<&UnaryOp> {
+                match expr {
+                    Expr::Let { body, .. } => find_unary(&body.node),
+                    Expr::Unary { op, .. } => Some(op),
+                    _ => None,
+                }
+            }
+            let op = find_unary(&resolve.body.node).expect("expected Unary inside Let");
+            assert_eq!(op, &UnaryOp::Not);
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_mixed_logical_operators() {
+    // Tests mixing symbol and keyword forms in the same expression
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                let a = 1 in
+                let b = 2 in
+                let c = 3 in
+                a > 0 && b > 0 or c > 0
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            // The top-level should be 'or' since it has lower precedence than 'and'
+            fn find_top_binary(expr: &Expr) -> Option<&BinaryOp> {
+                match expr {
+                    Expr::Let { body, .. } => find_top_binary(&body.node),
+                    Expr::Binary { op, .. } => Some(op),
+                    _ => None,
+                }
+            }
+            let op = find_top_binary(&resolve.body.node).expect("expected Binary");
+            assert_eq!(op, &BinaryOp::Or);
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_not_does_not_match_notation() {
+    // Ensures 'not' doesn't accidentally match the start of 'notation' or similar words
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                notation
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Path(path) => {
+                    assert_eq!(path.join("."), "notation");
+                }
+                other => panic!("expected Path, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+// ============================================================================
+// Named Parameter Tests (#68)
+// ============================================================================
+
+#[test]
+fn test_parse_named_argument_basic() {
+    // Test single named argument: func(a, method: rk4)
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                integrate(prev, rate, method: rk4)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 3);
+                    // First two args are positional
+                    assert!(args[0].name.is_none());
+                    assert!(args[1].name.is_none());
+                    // Third arg is named
+                    assert_eq!(args[2].name.as_ref().unwrap(), "method");
+                    match &args[2].value.node {
+                        Expr::Path(p) => assert_eq!(p.join("."), "rk4"),
+                        _ => panic!("expected Path for named arg value"),
+                    }
+                }
+                other => panic!("expected Call, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_multiple_named_arguments() {
+    // Test multiple named arguments
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                relax(current, target, tau: 0.5, method: exp)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 4);
+                    // First two args are positional
+                    assert!(args[0].name.is_none());
+                    assert!(args[1].name.is_none());
+                    // Third and fourth args are named
+                    assert_eq!(args[2].name.as_ref().unwrap(), "tau");
+                    assert_eq!(args[3].name.as_ref().unwrap(), "method");
+                }
+                other => panic!("expected Call, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_only_named_arguments() {
+    // Test function call with only named arguments
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                configure(x: 1.0, y: 2.0, z: 3.0)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 3);
+                    assert_eq!(args[0].name.as_ref().unwrap(), "x");
+                    assert_eq!(args[1].name.as_ref().unwrap(), "y");
+                    assert_eq!(args[2].name.as_ref().unwrap(), "z");
+                }
+                other => panic!("expected Call, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_named_argument_with_expression_value() {
+    // Test named argument with complex expression as value
+    let source = r#"
+        signal.test {
+            : Scalar
+            resolve {
+                decay(prev, rate: config.physics.tau * 2.0)
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Call { args, .. } => {
+                    assert_eq!(args.len(), 2);
+                    assert!(args[0].name.is_none()); // prev is positional
+                    assert_eq!(args[1].name.as_ref().unwrap(), "rate");
+                    // Value should be a binary multiplication
+                    match &args[1].value.node {
+                        Expr::Binary { op, .. } => assert_eq!(*op, BinaryOp::Mul),
+                        other => panic!("expected Binary, got {:?}", other),
+                    }
+                }
+                other => panic!("expected Call, got {:?}", other),
+            }
+        }
+        _ => panic!("expected SignalDef"),
     }
 }
