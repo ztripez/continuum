@@ -414,6 +414,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "continuum-lens"
+version = "0.1.0"
+dependencies = [
+ "continuum-runtime",
+ "indexmap",
+ "thiserror",
+]
+
+[[package]]
 name = "continuum-runtime"
 version = "0.1.0"
 dependencies = [
