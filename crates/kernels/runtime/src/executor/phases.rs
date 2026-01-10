@@ -30,6 +30,23 @@ pub type MeasureFn = Box<dyn Fn(&mut MeasureContext) + Send + Sync>;
 /// Function that applies an impulse with a typed payload
 pub type ImpulseFn = Box<dyn Fn(&mut ImpulseContext, &Value) + Send + Sync>;
 
+/// Configuration for Measure phase parallelism
+#[derive(Debug, Clone)]
+pub struct MeasureParallelConfig {
+    /// Minimum number of operators to trigger parallel execution.
+    /// Below this threshold, operators execute sequentially to avoid overhead.
+    pub parallel_threshold: usize,
+}
+
+impl Default for MeasureParallelConfig {
+    fn default() -> Self {
+        Self {
+            // Default: parallelize when there are 2+ operators
+            parallel_threshold: 2,
+        }
+    }
+}
+
 /// Phase executor handles individual phase execution
 pub struct PhaseExecutor {
     /// Resolver functions indexed by resolver_idx
@@ -42,6 +59,8 @@ pub struct PhaseExecutor {
     pub fractures: Vec<FractureFn>,
     /// Impulse handler functions
     pub impulse_handlers: Vec<ImpulseFn>,
+    /// Configuration for Measure phase parallelism
+    pub measure_config: MeasureParallelConfig,
 }
 
 impl Default for PhaseExecutor {
@@ -51,14 +70,20 @@ impl Default for PhaseExecutor {
 }
 
 impl PhaseExecutor {
-    /// Create a new phase executor
+    /// Create a new phase executor with default configuration
     pub fn new() -> Self {
+        Self::with_measure_config(MeasureParallelConfig::default())
+    }
+
+    /// Create a new phase executor with custom Measure phase configuration
+    pub fn with_measure_config(measure_config: MeasureParallelConfig) -> Self {
         Self {
             resolvers: Vec::new(),
             collect_ops: Vec::new(),
             measure_ops: Vec::new(),
             fractures: Vec::new(),
             impulse_handlers: Vec::new(),
+            measure_config,
         }
     }
 
@@ -287,9 +312,14 @@ impl PhaseExecutor {
 
     /// Execute the Measure phase
     ///
-    /// When a level contains multiple measure operators, they are executed in
-    /// parallel using rayon. Each parallel task writes to its own local buffer,
-    /// which are then merged into the main field buffer.
+    /// Since Measure is non-causal (observers only read signals), we can use
+    /// aggressive parallelism:
+    /// - All strata execute in parallel
+    /// - All levels within a stratum execute in parallel (no barriers)
+    /// - All operators within a level execute in parallel
+    ///
+    /// Each parallel task writes to its own local buffer, which are merged
+    /// after all execution completes.
     #[instrument(skip_all, name = "measure")]
     pub fn execute_measure(
         &self,
@@ -303,79 +333,82 @@ impl PhaseExecutor {
     ) -> Result<()> {
         let era_dags = dags.get_era(era).unwrap();
 
-        for dag in era_dags.for_phase(Phase::Measure) {
-            let stratum_state = strata_states
-                .get(&dag.stratum)
-                .copied()
-                .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+        // Collect all eligible DAGs for parallel execution
+        let eligible_dags: Vec<_> = era_dags
+            .for_phase(Phase::Measure)
+            .filter(|dag| {
+                let stratum_state = strata_states
+                    .get(&dag.stratum)
+                    .copied()
+                    .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+                stratum_state.is_eligible(tick)
+            })
+            .collect();
 
-            if !stratum_state.is_eligible(tick) {
-                trace!(stratum = %dag.stratum, "stratum gated");
-                continue;
-            }
+        if eligible_dags.is_empty() {
+            return Ok(());
+        }
 
-            trace!(stratum = %dag.stratum, nodes = dag.node_count(), "measuring stratum");
-
-            for level in &dag.levels {
-                // Collect operator indices for this level
-                let operator_indices: Vec<usize> = level
-                    .nodes
-                    .iter()
-                    .filter_map(|node| match &node.kind {
+        // Collect all measure operators across all strata and levels
+        let all_operator_indices: Vec<usize> = eligible_dags
+            .iter()
+            .flat_map(|dag| {
+                dag.levels.iter().flat_map(|level| {
+                    level.nodes.iter().filter_map(|node| match &node.kind {
                         NodeKind::OperatorMeasure { operator_idx } => Some(*operator_idx),
                         _ => None,
                     })
-                    .collect();
+                })
+            })
+            .collect();
 
-                if operator_indices.len() > 1 {
-                    // Parallel execution for multiple operators
-                    trace!(
-                        operators = operator_indices.len(),
-                        "parallel measure execution"
-                    );
+        let total_operators = all_operator_indices.len();
 
-                    let local_buffers: Vec<FieldBuffer> = operator_indices
-                        .par_iter()
-                        .map(|&operator_idx| {
-                            let mut local_buffer = FieldBuffer::default();
-                            let op = &self.measure_ops[operator_idx];
-                            let mut ctx = MeasureContext {
-                                signals,
-                                fields: &mut local_buffer,
-                                dt,
-                            };
-                            op(&mut ctx);
-                            local_buffer
-                        })
-                        .collect();
+        if total_operators == 0 {
+            return Ok(());
+        }
 
-                    // Merge all local buffers into the main buffer
-                    for buffer in local_buffers {
-                        field_buffer.merge(buffer);
-                    }
-                } else {
-                    // Sequential execution for single operator or non-measure nodes
-                    for node in &level.nodes {
-                        match &node.kind {
-                            NodeKind::OperatorMeasure { operator_idx } => {
-                                let op = &self.measure_ops[*operator_idx];
-                                let mut ctx = MeasureContext {
-                                    signals,
-                                    fields: field_buffer,
-                                    dt,
-                                };
-                                op(&mut ctx);
-                            }
-                            NodeKind::FieldEmit { field_idx: _ } => {
-                                // FieldEmit nodes are placeholders for dependency tracking
-                                // The actual emission happens via MeasureContext.fields.emit()
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+        trace!(
+            strata = eligible_dags.len(),
+            operators = total_operators,
+            threshold = self.measure_config.parallel_threshold,
+            "measure execution"
+        );
+
+        if total_operators < self.measure_config.parallel_threshold {
+            // Below threshold - execute sequentially to avoid parallelism overhead
+            for &operator_idx in &all_operator_indices {
+                let op = &self.measure_ops[operator_idx];
+                let mut ctx = MeasureContext {
+                    signals,
+                    fields: field_buffer,
+                    dt,
+                };
+                op(&mut ctx);
+            }
+        } else {
+            // At or above threshold - execute all in parallel
+            let local_buffers: Vec<FieldBuffer> = all_operator_indices
+                .par_iter()
+                .map(|&operator_idx| {
+                    let mut local_buffer = FieldBuffer::default();
+                    let op = &self.measure_ops[operator_idx];
+                    let mut ctx = MeasureContext {
+                        signals,
+                        fields: &mut local_buffer,
+                        dt,
+                    };
+                    op(&mut ctx);
+                    local_buffer
+                })
+                .collect();
+
+            // Merge all local buffers into the main buffer
+            for buffer in local_buffers {
+                field_buffer.merge(buffer);
             }
         }
+
         Ok(())
     }
 }

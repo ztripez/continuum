@@ -35,7 +35,7 @@ pub use lane_kernel::{
     LaneKernel, LaneKernelError, LaneKernelRegistry, LaneKernelResult, LoweringHeuristics,
     LoweringStrategy, ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel,
 };
-pub use phases::{CollectFn, FractureFn, ImpulseFn, MeasureFn, PhaseExecutor, ResolverFn};
+pub use phases::{CollectFn, FractureFn, ImpulseFn, MeasureFn, MeasureParallelConfig, PhaseExecutor, ResolverFn};
 pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
 
 /// Function that evaluates era transition conditions
