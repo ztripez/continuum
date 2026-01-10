@@ -1178,4 +1178,231 @@ mod tests {
             Some(Value::Scalar(100.0))
         );
     }
+
+    // ========================================================================
+    // Double-buffered tick semantics tests
+    // ========================================================================
+
+    #[test]
+    fn test_double_buffer_tick_isolation() {
+        // Verifies that writes to current buffer don't affect prev buffer
+        let mut buf = MemberSignalBuffer::new();
+        buf.register_signal("energy".to_string(), ValueType::Scalar);
+        buf.init_instances(3);
+
+        // Write initial values to current tick
+        buf.set_current("energy", 0, Value::Scalar(100.0));
+        buf.set_current("energy", 1, Value::Scalar(200.0));
+        buf.set_current("energy", 2, Value::Scalar(300.0));
+
+        // Advance tick: current becomes previous
+        buf.advance_tick();
+
+        // Verify prev has the old values
+        assert_eq!(buf.get_previous("energy", 0), Some(Value::Scalar(100.0)));
+        assert_eq!(buf.get_previous("energy", 1), Some(Value::Scalar(200.0)));
+        assert_eq!(buf.get_previous("energy", 2), Some(Value::Scalar(300.0)));
+
+        // Write completely new values to current - SHOULD NOT affect prev
+        buf.set_current("energy", 0, Value::Scalar(999.0));
+        buf.set_current("energy", 1, Value::Scalar(888.0));
+        buf.set_current("energy", 2, Value::Scalar(777.0));
+
+        // Verify current has new values
+        assert_eq!(buf.get_current("energy", 0), Some(Value::Scalar(999.0)));
+        assert_eq!(buf.get_current("energy", 1), Some(Value::Scalar(888.0)));
+        assert_eq!(buf.get_current("energy", 2), Some(Value::Scalar(777.0)));
+
+        // CRITICAL: prev must still have original values (tick isolation)
+        assert_eq!(buf.get_previous("energy", 0), Some(Value::Scalar(100.0)));
+        assert_eq!(buf.get_previous("energy", 1), Some(Value::Scalar(200.0)));
+        assert_eq!(buf.get_previous("energy", 2), Some(Value::Scalar(300.0)));
+    }
+
+    #[test]
+    fn test_resolver_reads_prev_writes_current() {
+        // Simulates a resolver operation:
+        // - Read from prev_tick (snapshot of previous state)
+        // - Compute new value based on prev
+        // - Write to current_tick
+        // - Verify reads from prev remain stable throughout
+        let mut buf = MemberSignalBuffer::new();
+        buf.register_signal("population".to_string(), ValueType::Scalar);
+        buf.init_instances(4);
+
+        // Set initial population values
+        buf.set_current("population", 0, Value::Scalar(1000.0));
+        buf.set_current("population", 1, Value::Scalar(2000.0));
+        buf.set_current("population", 2, Value::Scalar(3000.0));
+        buf.set_current("population", 3, Value::Scalar(4000.0));
+
+        // Advance tick to make these the "previous" values
+        buf.advance_tick();
+
+        // Simulate resolver: read prev, compute new, write current
+        // Growth rate: 10% per tick
+        let growth_rate = 0.1;
+
+        for i in 0..4 {
+            // Read from prev (snapshot semantics)
+            let prev_value = match buf.get_previous("population", i) {
+                Some(Value::Scalar(v)) => v,
+                _ => panic!("Expected scalar"),
+            };
+
+            // Compute new value
+            let new_value = prev_value * (1.0 + growth_rate);
+
+            // Write to current
+            buf.set_current("population", i, Value::Scalar(new_value));
+
+            // CRITICAL: Reading prev again must return the SAME value
+            // (snapshot isolation - writes to current don't affect prev reads)
+            let prev_again = match buf.get_previous("population", i) {
+                Some(Value::Scalar(v)) => v,
+                _ => panic!("Expected scalar"),
+            };
+            assert_eq!(
+                prev_value, prev_again,
+                "Prev value changed after write to current!"
+            );
+        }
+
+        // Verify final state
+        assert_eq!(
+            buf.get_current("population", 0),
+            Some(Value::Scalar(1100.0))
+        );
+        assert_eq!(
+            buf.get_current("population", 1),
+            Some(Value::Scalar(2200.0))
+        );
+        assert_eq!(
+            buf.get_previous("population", 0),
+            Some(Value::Scalar(1000.0))
+        );
+        assert_eq!(
+            buf.get_previous("population", 1),
+            Some(Value::Scalar(2000.0))
+        );
+    }
+
+    #[test]
+    fn test_double_buffer_slice_isolation() {
+        // Tests that slice access also maintains tick isolation
+        let mut buf = MemberSignalBuffer::new();
+        buf.register_signal("velocity".to_string(), ValueType::Scalar);
+        buf.init_instances(4);
+
+        // Set initial velocities
+        {
+            let slice = buf.scalar_slice_mut("velocity").unwrap();
+            slice[0] = 10.0;
+            slice[1] = 20.0;
+            slice[2] = 30.0;
+            slice[3] = 40.0;
+        }
+
+        buf.advance_tick();
+
+        // Verify prev slice has old values
+        {
+            let prev_slice = buf.prev_scalar_slice("velocity").unwrap();
+            assert_eq!(prev_slice, &[10.0, 20.0, 30.0, 40.0]);
+        }
+
+        // Modify current slice
+        {
+            let current_slice = buf.scalar_slice_mut("velocity").unwrap();
+            current_slice[0] = 100.0;
+            current_slice[1] = 200.0;
+            current_slice[2] = 300.0;
+            current_slice[3] = 400.0;
+        }
+
+        // CRITICAL: prev slice must still have original values
+        {
+            let prev_slice = buf.prev_scalar_slice("velocity").unwrap();
+            assert_eq!(prev_slice, &[10.0, 20.0, 30.0, 40.0]);
+        }
+
+        // Verify current slice has new values
+        {
+            let current_slice = buf.scalar_slice("velocity").unwrap();
+            assert_eq!(current_slice, &[100.0, 200.0, 300.0, 400.0]);
+        }
+    }
+
+    #[test]
+    fn test_multiple_tick_advances() {
+        // Tests that multiple tick advances maintain correct state progression
+        let mut buf = MemberSignalBuffer::new();
+        buf.register_signal("counter".to_string(), ValueType::Scalar);
+        buf.init_instances(1);
+
+        // Tick 0: counter = 1
+        buf.set_current("counter", 0, Value::Scalar(1.0));
+
+        // Tick 1: counter = 2
+        buf.advance_tick();
+        assert_eq!(buf.get_previous("counter", 0), Some(Value::Scalar(1.0)));
+        buf.set_current("counter", 0, Value::Scalar(2.0));
+
+        // Tick 2: counter = 3
+        buf.advance_tick();
+        assert_eq!(buf.get_previous("counter", 0), Some(Value::Scalar(2.0)));
+        buf.set_current("counter", 0, Value::Scalar(3.0));
+
+        // Tick 3: counter = 4
+        buf.advance_tick();
+        assert_eq!(buf.get_previous("counter", 0), Some(Value::Scalar(3.0)));
+        buf.set_current("counter", 0, Value::Scalar(4.0));
+
+        // Verify current state
+        assert_eq!(buf.get_current("counter", 0), Some(Value::Scalar(4.0)));
+        assert_eq!(buf.get_previous("counter", 0), Some(Value::Scalar(3.0)));
+    }
+
+    #[test]
+    fn test_vec3_double_buffer_isolation() {
+        // Tests tick isolation for Vec3 type (not just scalars)
+        let mut buf = MemberSignalBuffer::new();
+        buf.register_signal("position".to_string(), ValueType::Vec3);
+        buf.init_instances(2);
+
+        buf.set_current("position", 0, Value::Vec3([1.0, 2.0, 3.0]));
+        buf.set_current("position", 1, Value::Vec3([4.0, 5.0, 6.0]));
+
+        buf.advance_tick();
+
+        // Verify prev has old positions
+        assert_eq!(
+            buf.get_previous("position", 0),
+            Some(Value::Vec3([1.0, 2.0, 3.0]))
+        );
+        assert_eq!(
+            buf.get_previous("position", 1),
+            Some(Value::Vec3([4.0, 5.0, 6.0]))
+        );
+
+        // Update current positions
+        buf.set_current("position", 0, Value::Vec3([10.0, 20.0, 30.0]));
+        buf.set_current("position", 1, Value::Vec3([40.0, 50.0, 60.0]));
+
+        // CRITICAL: prev must be unchanged
+        assert_eq!(
+            buf.get_previous("position", 0),
+            Some(Value::Vec3([1.0, 2.0, 3.0]))
+        );
+        assert_eq!(
+            buf.get_previous("position", 1),
+            Some(Value::Vec3([4.0, 5.0, 6.0]))
+        );
+
+        // Current has new values
+        assert_eq!(
+            buf.get_current("position", 0),
+            Some(Value::Vec3([10.0, 20.0, 30.0]))
+        );
+    }
 }
