@@ -127,11 +127,13 @@ pub struct CompletionInfo<'a> {
     pub title: Option<&'a str>,
 }
 
-/// Reference info for semantic tokens.
+/// Reference info for semantic tokens and code lens.
 #[derive(Debug, Clone)]
 pub struct ReferenceInfo {
     /// The kind of symbol being referenced.
     pub kind: SymbolKind,
+    /// The target path being referenced.
+    pub target_path: String,
 }
 
 /// A function parameter for signature help.
@@ -320,9 +322,15 @@ impl SymbolIndex {
     ///
     /// Returns reference info with kind and span for syntax highlighting.
     pub fn get_all_references(&self) -> impl Iterator<Item = (ReferenceInfo, &Range<usize>)> {
-        self.references
-            .iter()
-            .map(|r| (ReferenceInfo { kind: r.kind }, &r.span))
+        self.references.iter().map(|r| {
+            (
+                ReferenceInfo {
+                    kind: r.kind,
+                    target_path: r.target_path.clone(),
+                },
+                &r.span,
+            )
+        })
     }
 
     /// Get symbol path spans for semantic tokens.
