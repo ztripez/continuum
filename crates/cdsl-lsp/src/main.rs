@@ -7,7 +7,9 @@
 //! - **Diagnostics**: Real-time parse error reporting
 //! - **Hover**: Symbol information with documentation
 //! - **Go-to-definition**: Jump to signal/field/operator definitions (F12 or Ctrl+Click)
-//! - **Completion**: Keyword and built-in function completion
+//! - **Find references**: Find all usages of a symbol (Shift+F12)
+//! - **Document symbols**: Navigate to any symbol in the file (Ctrl+Shift+O)
+//! - **Completion**: Keywords, built-ins, and document symbols with docs
 //! - **Formatting**: Code formatting on save or on demand
 
 mod formatter;
@@ -19,7 +21,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
 use continuum_dsl::parse;
-use symbols::{format_hover_markdown, SymbolIndex};
+use symbols::{format_hover_markdown, SymbolIndex, SymbolKind as CdslSymbolKind};
 
 /// The CDSL language server backend.
 struct Backend {
@@ -183,16 +185,14 @@ impl LanguageServer for Backend {
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
         let uri = &params.text_document_position.text_document.uri;
-        let _position = params.text_document_position.position;
 
         // Check if we have the document
-        let _doc = match self.documents.get(uri) {
-            Some(doc) => doc,
-            None => return Ok(None),
-        };
+        if self.documents.get(uri).is_none() {
+            return Ok(None);
+        }
 
-        // Basic completion items for CDSL keywords
-        let items = vec![
+        // Start with keywords and built-ins
+        let mut items = vec![
             // Top-level declarations
             completion_item("signal", CompletionItemKind::KEYWORD, "Signal declaration"),
             completion_item("field", CompletionItemKind::KEYWORD, "Field declaration"),
@@ -239,6 +239,35 @@ impl LanguageServer for Backend {
             completion_item("cos", CompletionItemKind::FUNCTION, "Cosine"),
             completion_item("tan", CompletionItemKind::FUNCTION, "Tangent"),
         ];
+
+        // Add document symbols
+        if let Some(index) = self.symbol_indices.get(uri) {
+            for info in index.get_completions() {
+                let lsp_kind = cdsl_kind_to_completion_kind(info.kind);
+                let label = format!("{}.{}", info.kind.display_name(), info.path);
+
+                // Build detail string with type and title
+                let detail = match (info.ty, info.title) {
+                    (Some(ty), Some(title)) => format!("{} - {}", ty, title),
+                    (Some(ty), None) => ty.to_string(),
+                    (None, Some(title)) => title.to_string(),
+                    (None, None) => info.kind.display_name().to_string(),
+                };
+
+                items.push(CompletionItem {
+                    label,
+                    kind: Some(lsp_kind),
+                    detail: Some(detail),
+                    documentation: info.doc.map(|d| {
+                        Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: d.to_string(),
+                        })
+                    }),
+                    ..Default::default()
+                });
+            }
+        }
 
         Ok(Some(CompletionResponse::Array(items)))
     }
@@ -444,6 +473,23 @@ fn symbol_kind_to_lsp(kind: symbols::SymbolKind) -> SymbolKind {
         symbols::SymbolKind::Fracture => SymbolKind::EVENT,
         symbols::SymbolKind::Chronicle => SymbolKind::CLASS,
         symbols::SymbolKind::Entity => SymbolKind::CLASS,
+    }
+}
+
+/// Convert our SymbolKind to LSP CompletionItemKind.
+fn cdsl_kind_to_completion_kind(kind: CdslSymbolKind) -> CompletionItemKind {
+    match kind {
+        CdslSymbolKind::Signal => CompletionItemKind::VARIABLE,
+        CdslSymbolKind::Field => CompletionItemKind::FIELD,
+        CdslSymbolKind::Operator => CompletionItemKind::METHOD,
+        CdslSymbolKind::Function => CompletionItemKind::FUNCTION,
+        CdslSymbolKind::Type => CompletionItemKind::STRUCT,
+        CdslSymbolKind::Strata => CompletionItemKind::MODULE,
+        CdslSymbolKind::Era => CompletionItemKind::MODULE,
+        CdslSymbolKind::Impulse => CompletionItemKind::EVENT,
+        CdslSymbolKind::Fracture => CompletionItemKind::EVENT,
+        CdslSymbolKind::Chronicle => CompletionItemKind::CLASS,
+        CdslSymbolKind::Entity => CompletionItemKind::CLASS,
     }
 }
 

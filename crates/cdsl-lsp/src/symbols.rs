@@ -100,6 +100,21 @@ struct SymbolReference {
     target_path: String,
 }
 
+/// Completion info for a symbol.
+#[derive(Debug, Clone)]
+pub struct CompletionInfo<'a> {
+    /// The kind of symbol.
+    pub kind: SymbolKind,
+    /// The full path of the symbol (e.g., "terra.surface.temp").
+    pub path: &'a str,
+    /// Documentation from `///` comments.
+    pub doc: Option<&'a str>,
+    /// Type expression string.
+    pub ty: Option<&'a str>,
+    /// Human-readable title.
+    pub title: Option<&'a str>,
+}
+
 /// Symbol index for a document.
 #[derive(Debug, Default)]
 pub struct SymbolIndex {
@@ -190,6 +205,19 @@ impl SymbolIndex {
     /// Returns symbol info with spans for the document symbols provider.
     pub fn get_all_symbols(&self) -> impl Iterator<Item = (&SymbolInfo, &Range<usize>)> {
         self.symbols.iter().map(|s| (&s.info, &s.span))
+    }
+
+    /// Get all symbols for completion.
+    ///
+    /// Returns tuples of (kind, path, doc, type_info) for each defined symbol.
+    pub fn get_completions(&self) -> impl Iterator<Item = CompletionInfo<'_>> {
+        self.symbols.iter().map(|s| CompletionInfo {
+            kind: s.info.kind,
+            path: &s.info.path,
+            doc: s.info.doc.as_deref(),
+            ty: s.info.ty.as_deref(),
+            title: s.info.title.as_deref(),
+        })
     }
 
     /// Find all references to the symbol at the given offset.
@@ -1020,5 +1048,51 @@ strata.thermal {
         assert!(paths.contains(&&"core.temp".to_string()));
         assert!(paths.contains(&&"thermal.display".to_string()));
         assert!(paths.contains(&&"thermal".to_string()));
+    }
+
+    #[test]
+    fn test_get_completions() {
+        let src = r#"
+/// Temperature of the core.
+signal.core.temp {
+    : Scalar<K>
+    : title("Core Temperature")
+    resolve { prev }
+}
+
+/// Surface temperature display.
+field.thermal.display {
+    : Scalar<K>
+    measure { signal.core.temp }
+}
+
+fn.math.double(x) { x * 2 }
+"#;
+        let (ast, errors) = continuum_dsl::parse(src);
+        assert!(errors.is_empty(), "Parse errors: {:?}", errors);
+
+        let index = SymbolIndex::from_ast(&ast.unwrap());
+        let completions: Vec<_> = index.get_completions().collect();
+
+        assert_eq!(completions.len(), 3, "Should have 3 completions");
+
+        // Check signal completion
+        let signal = completions.iter().find(|c| c.path == "core.temp").unwrap();
+        assert_eq!(signal.kind, SymbolKind::Signal);
+        assert_eq!(signal.doc, Some("Temperature of the core."));
+        assert_eq!(signal.ty, Some("Scalar<K>"));
+        assert_eq!(signal.title, Some("Core Temperature"));
+
+        // Check field completion
+        let field = completions
+            .iter()
+            .find(|c| c.path == "thermal.display")
+            .unwrap();
+        assert_eq!(field.kind, SymbolKind::Field);
+        assert_eq!(field.doc, Some("Surface temperature display."));
+
+        // Check function completion
+        let func = completions.iter().find(|c| c.path == "math.double").unwrap();
+        assert_eq!(func.kind, SymbolKind::Function);
     }
 }
