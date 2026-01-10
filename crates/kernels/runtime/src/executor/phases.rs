@@ -286,6 +286,10 @@ impl PhaseExecutor {
     }
 
     /// Execute the Measure phase
+    ///
+    /// When a level contains multiple measure operators, they are executed in
+    /// parallel using rayon. Each parallel task writes to its own local buffer,
+    /// which are then merged into the main field buffer.
     #[instrument(skip_all, name = "measure")]
     pub fn execute_measure(
         &self,
@@ -313,22 +317,61 @@ impl PhaseExecutor {
             trace!(stratum = %dag.stratum, nodes = dag.node_count(), "measuring stratum");
 
             for level in &dag.levels {
-                for node in &level.nodes {
-                    match &node.kind {
-                        NodeKind::OperatorMeasure { operator_idx } => {
-                            let op = &self.measure_ops[*operator_idx];
+                // Collect operator indices for this level
+                let operator_indices: Vec<usize> = level
+                    .nodes
+                    .iter()
+                    .filter_map(|node| match &node.kind {
+                        NodeKind::OperatorMeasure { operator_idx } => Some(*operator_idx),
+                        _ => None,
+                    })
+                    .collect();
+
+                if operator_indices.len() > 1 {
+                    // Parallel execution for multiple operators
+                    trace!(
+                        operators = operator_indices.len(),
+                        "parallel measure execution"
+                    );
+
+                    let local_buffers: Vec<FieldBuffer> = operator_indices
+                        .par_iter()
+                        .map(|&operator_idx| {
+                            let mut local_buffer = FieldBuffer::default();
+                            let op = &self.measure_ops[operator_idx];
                             let mut ctx = MeasureContext {
                                 signals,
-                                fields: field_buffer,
+                                fields: &mut local_buffer,
                                 dt,
                             };
                             op(&mut ctx);
+                            local_buffer
+                        })
+                        .collect();
+
+                    // Merge all local buffers into the main buffer
+                    for buffer in local_buffers {
+                        field_buffer.merge(buffer);
+                    }
+                } else {
+                    // Sequential execution for single operator or non-measure nodes
+                    for node in &level.nodes {
+                        match &node.kind {
+                            NodeKind::OperatorMeasure { operator_idx } => {
+                                let op = &self.measure_ops[*operator_idx];
+                                let mut ctx = MeasureContext {
+                                    signals,
+                                    fields: field_buffer,
+                                    dt,
+                                };
+                                op(&mut ctx);
+                            }
+                            NodeKind::FieldEmit { field_idx: _ } => {
+                                // FieldEmit nodes are placeholders for dependency tracking
+                                // The actual emission happens via MeasureContext.fields.emit()
+                            }
+                            _ => {}
                         }
-                        NodeKind::FieldEmit { field_idx: _ } => {
-                            // FieldEmit nodes are placeholders for dependency tracking
-                            // The actual emission happens via MeasureContext.fields.emit()
-                        }
-                        _ => {}
                     }
                 }
             }
