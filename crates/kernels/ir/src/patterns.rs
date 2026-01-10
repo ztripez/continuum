@@ -783,6 +783,36 @@ pub struct PatternCoverage {
     pub vectorizable_batches: usize,
     /// Total number of batches.
     pub total_batches: usize,
+    /// Signals by vectorization benefit level.
+    pub benefit_counts: BenefitCounts,
+    /// Signals recommended for L2 execution (based on pattern + population).
+    pub l2_signal_count: usize,
+    /// Signals recommended for L1 execution.
+    pub l1_signal_count: usize,
+    /// Per-stratum coverage breakdown.
+    pub stratum_coverage: IndexMap<StratumId, StratumCoverage>,
+}
+
+/// Count of signals by vectorization benefit level.
+#[derive(Debug, Clone, Default)]
+pub struct BenefitCounts {
+    /// Signals with High vectorization benefit.
+    pub high: usize,
+    /// Signals with Medium vectorization benefit.
+    pub medium: usize,
+    /// Signals with No vectorization benefit (custom patterns).
+    pub none: usize,
+}
+
+/// Coverage statistics for a single stratum.
+#[derive(Debug, Clone, Default)]
+pub struct StratumCoverage {
+    /// Total signals in this stratum.
+    pub total_signals: usize,
+    /// Vectorizable signals in this stratum.
+    pub vectorizable_signals: usize,
+    /// Number of batches in this stratum.
+    pub batch_count: usize,
 }
 
 impl PatternCoverage {
@@ -794,25 +824,168 @@ impl PatternCoverage {
             (self.vectorizable_signals as f64 / self.total_signals as f64) * 100.0
         }
     }
+
+    /// Calculate L2 coverage percentage.
+    pub fn l2_coverage(&self) -> f64 {
+        if self.total_signals == 0 {
+            0.0
+        } else {
+            (self.l2_signal_count as f64 / self.total_signals as f64) * 100.0
+        }
+    }
+
+    /// Calculate high-benefit pattern percentage.
+    pub fn high_benefit_coverage(&self) -> f64 {
+        if self.total_signals == 0 {
+            0.0
+        } else {
+            (self.benefit_counts.high as f64 / self.total_signals as f64) * 100.0
+        }
+    }
+}
+
+impl std::fmt::Display for PatternCoverage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "=== Pattern Coverage Analysis ===")?;
+        writeln!(f)?;
+
+        // Summary
+        writeln!(f, "Summary:")?;
+        writeln!(f, "  Total signals:     {}", self.total_signals)?;
+        writeln!(f, "  Total batches:     {}", self.total_batches)?;
+        writeln!(
+            f,
+            "  Vectorizable:      {} signals ({:.1}%)",
+            self.vectorizable_signals,
+            self.vectorization_coverage()
+        )?;
+        writeln!(
+            f,
+            "  L2 recommended:    {} signals ({:.1}%)",
+            self.l2_signal_count,
+            self.l2_coverage()
+        )?;
+        writeln!(f)?;
+
+        // Benefit breakdown
+        writeln!(f, "Vectorization Benefit:")?;
+        writeln!(
+            f,
+            "  High:   {} ({:.1}%)",
+            self.benefit_counts.high,
+            self.high_benefit_coverage()
+        )?;
+        writeln!(
+            f,
+            "  Medium: {} ({:.1}%)",
+            self.benefit_counts.medium,
+            if self.total_signals > 0 {
+                (self.benefit_counts.medium as f64 / self.total_signals as f64) * 100.0
+            } else {
+                0.0
+            }
+        )?;
+        writeln!(
+            f,
+            "  None:   {} ({:.1}%)",
+            self.benefit_counts.none,
+            if self.total_signals > 0 {
+                (self.benefit_counts.none as f64 / self.total_signals as f64) * 100.0
+            } else {
+                0.0
+            }
+        )?;
+        writeln!(f)?;
+
+        // Pattern distribution
+        writeln!(f, "Pattern Distribution:")?;
+        for (pattern, count) in &self.pattern_counts {
+            let pct = if self.total_signals > 0 {
+                (*count as f64 / self.total_signals as f64) * 100.0
+            } else {
+                0.0
+            };
+            writeln!(f, "  {:<25} {:>5} ({:>5.1}%)", pattern, count, pct)?;
+        }
+        writeln!(f)?;
+
+        // Stratum breakdown (if multiple strata)
+        if self.stratum_coverage.len() > 1 {
+            writeln!(f, "Per-Stratum Coverage:")?;
+            for (stratum, coverage) in &self.stratum_coverage {
+                let pct = if coverage.total_signals > 0 {
+                    (coverage.vectorizable_signals as f64 / coverage.total_signals as f64) * 100.0
+                } else {
+                    0.0
+                };
+                writeln!(
+                    f,
+                    "  {}: {} signals, {} batches, {:.1}% vectorizable",
+                    stratum.0, coverage.total_signals, coverage.batch_count, pct
+                )?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 /// Analyze pattern coverage for a compiled world.
 ///
 /// Returns metrics about pattern distribution and vectorization potential.
 pub fn analyze_pattern_coverage(world: &CompiledWorld) -> PatternCoverage {
+    analyze_pattern_coverage_with_population(world, L2_POPULATION_THRESHOLD)
+}
+
+/// Analyze pattern coverage with a specific population hint.
+///
+/// The population hint is used to determine L2 vs L1 recommendations.
+pub fn analyze_pattern_coverage_with_population(
+    world: &CompiledWorld,
+    population_hint: usize,
+) -> PatternCoverage {
     let batches = group_signals_by_pattern(world);
 
     let mut coverage = PatternCoverage::default();
     coverage.total_batches = batches.len();
 
     for batch in &batches {
+        let signal_count = batch.signal_ids.len();
         let pattern_name = format!("{:?}", batch.pattern);
-        *coverage.pattern_counts.entry(pattern_name).or_insert(0) += batch.signal_ids.len();
-        coverage.total_signals += batch.signal_ids.len();
 
+        // Pattern counts
+        *coverage.pattern_counts.entry(pattern_name).or_insert(0) += signal_count;
+        coverage.total_signals += signal_count;
+
+        // Benefit level counts
+        match batch.pattern.vectorization_benefit() {
+            VectorizationBenefit::High => coverage.benefit_counts.high += signal_count,
+            VectorizationBenefit::Medium => coverage.benefit_counts.medium += signal_count,
+            VectorizationBenefit::None => coverage.benefit_counts.none += signal_count,
+        }
+
+        // L2 vs L1 recommendation
+        if should_use_l2(&batch.pattern, population_hint) {
+            coverage.l2_signal_count += signal_count;
+        } else {
+            coverage.l1_signal_count += signal_count;
+        }
+
+        // Vectorizable batch check
         if batch.is_vectorizable() {
-            coverage.vectorizable_signals += batch.signal_ids.len();
+            coverage.vectorizable_signals += signal_count;
             coverage.vectorizable_batches += 1;
+        }
+
+        // Per-stratum coverage
+        let stratum_entry = coverage
+            .stratum_coverage
+            .entry(batch.stratum.clone())
+            .or_default();
+        stratum_entry.total_signals += signal_count;
+        stratum_entry.batch_count += 1;
+        if batch.is_vectorizable() {
+            stratum_entry.vectorizable_signals += signal_count;
         }
     }
 
@@ -962,6 +1135,250 @@ pub fn analyze_for_l2(resolve_expr: &CompiledExpr, population_hint: usize) -> L2
         use_l2,
         benefit,
     }
+}
+
+// ============================================================================
+// Fallback Handling for Ungroupable Signals
+// ============================================================================
+
+/// Reason why a signal falls back from L2 to L1 execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FallbackReason {
+    /// Population is below the minimum threshold for L2 (< 1000).
+    PopulationBelowMinimum { population: usize },
+    /// Population is below the threshold for medium-benefit patterns (< 50000).
+    PopulationBelowThreshold { population: usize, threshold: usize },
+    /// Pattern is a Custom (unrecognized) expression that doesn't support vectorization.
+    CustomPattern { hash: u64 },
+    /// Batch size is below the SIMD minimum (< 4 signals).
+    BatchTooSmall { batch_size: usize },
+}
+
+impl std::fmt::Display for FallbackReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FallbackReason::PopulationBelowMinimum { population } => {
+                write!(
+                    f,
+                    "population {} below minimum threshold {}",
+                    population, L2_MINIMUM_POPULATION
+                )
+            }
+            FallbackReason::PopulationBelowThreshold {
+                population,
+                threshold,
+            } => {
+                write!(
+                    f,
+                    "population {} below threshold {} for medium-benefit pattern",
+                    population, threshold
+                )
+            }
+            FallbackReason::CustomPattern { hash } => {
+                write!(f, "custom pattern (hash: 0x{:016x}) not vectorizable", hash)
+            }
+            FallbackReason::BatchTooSmall { batch_size } => {
+                write!(
+                    f,
+                    "batch size {} below SIMD minimum {}",
+                    batch_size, MIN_BATCH_SIZE
+                )
+            }
+        }
+    }
+}
+
+/// A signal that has been marked for L1 fallback execution.
+#[derive(Debug, Clone)]
+pub struct FallbackSignal {
+    /// The signal ID.
+    pub signal_id: SignalId,
+    /// The pattern that was detected.
+    pub pattern: ExpressionPattern,
+    /// Reason for falling back to L1.
+    pub reason: FallbackReason,
+}
+
+/// Execution level assignment for a batch.
+#[derive(Debug, Clone)]
+pub enum ExecutionLevel {
+    /// L2 vectorized execution - signals can be batched together.
+    L2 { batch: SignalBatch },
+    /// L1 instance-parallel execution - each signal processed individually.
+    L1 { signals: Vec<FallbackSignal> },
+}
+
+/// Partitions signal batches into L2 (vectorized) and L1 (fallback) groups.
+///
+/// This function explicitly handles ungroupable signals by assigning them
+/// to L1 execution with a documented reason for the fallback.
+///
+/// # Arguments
+///
+/// * `batches` - Signal batches from `group_signals_by_pattern`
+/// * `population_hint` - Expected population for L2/L1 threshold decisions
+///
+/// # Returns
+///
+/// A vector of `ExecutionLevel` assignments, preserving deterministic ordering.
+pub fn partition_by_execution_level(
+    batches: Vec<SignalBatch>,
+    population_hint: usize,
+) -> Vec<ExecutionLevel> {
+    let mut result = Vec::with_capacity(batches.len());
+
+    for batch in batches {
+        // Check if this batch should use L2 or fall back to L1
+        let fallback_reason = determine_fallback_reason(&batch, population_hint);
+
+        match fallback_reason {
+            Some(reason) => {
+                // This batch falls back to L1 - create FallbackSignal for each signal
+                let fallback_signals: Vec<FallbackSignal> = batch
+                    .signal_ids
+                    .iter()
+                    .map(|signal_id| FallbackSignal {
+                        signal_id: signal_id.clone(),
+                        pattern: batch.pattern.clone(),
+                        reason: reason.clone(),
+                    })
+                    .collect();
+
+                result.push(ExecutionLevel::L1 {
+                    signals: fallback_signals,
+                });
+            }
+            None => {
+                // This batch can use L2 vectorized execution
+                result.push(ExecutionLevel::L2 { batch });
+            }
+        }
+    }
+
+    result
+}
+
+/// Determines why a batch would fall back to L1, if at all.
+///
+/// Returns `None` if the batch can use L2, or `Some(reason)` if it must fall back.
+fn determine_fallback_reason(batch: &SignalBatch, population_hint: usize) -> Option<FallbackReason> {
+    // Check batch size first (independent of population)
+    if batch.signal_ids.len() < MIN_BATCH_SIZE {
+        return Some(FallbackReason::BatchTooSmall {
+            batch_size: batch.signal_ids.len(),
+        });
+    }
+
+    // Check if pattern is custom (unsupported)
+    if let ExpressionPattern::Custom(hash) = &batch.pattern {
+        return Some(FallbackReason::CustomPattern { hash: *hash });
+    }
+
+    // Check population thresholds based on benefit level
+    if population_hint < L2_MINIMUM_POPULATION {
+        return Some(FallbackReason::PopulationBelowMinimum {
+            population: population_hint,
+        });
+    }
+
+    match batch.pattern.vectorization_benefit() {
+        VectorizationBenefit::High => {
+            // High benefit uses L2 above minimum threshold
+            None
+        }
+        VectorizationBenefit::Medium => {
+            // Medium benefit requires the full L2_POPULATION_THRESHOLD
+            if population_hint < L2_POPULATION_THRESHOLD {
+                Some(FallbackReason::PopulationBelowThreshold {
+                    population: population_hint,
+                    threshold: L2_POPULATION_THRESHOLD,
+                })
+            } else {
+                None
+            }
+        }
+        VectorizationBenefit::None => {
+            // No benefit - should have been caught by Custom check above
+            Some(FallbackReason::CustomPattern { hash: 0 })
+        }
+    }
+}
+
+/// Summary of execution level partitioning.
+#[derive(Debug, Clone, Default)]
+pub struct PartitionSummary {
+    /// Number of batches assigned to L2.
+    pub l2_batches: usize,
+    /// Total signals in L2 batches.
+    pub l2_signals: usize,
+    /// Number of fallback groups (one per original batch).
+    pub l1_groups: usize,
+    /// Total signals falling back to L1.
+    pub l1_signals: usize,
+    /// Fallback reasons with counts.
+    pub fallback_reasons: IndexMap<String, usize>,
+}
+
+impl std::fmt::Display for PartitionSummary {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        writeln!(f, "=== Execution Level Partition ===")?;
+        writeln!(f)?;
+        writeln!(
+            f,
+            "L2 (Vectorized):  {} batches, {} signals",
+            self.l2_batches, self.l2_signals
+        )?;
+        writeln!(
+            f,
+            "L1 (Instance):    {} groups, {} signals",
+            self.l1_groups, self.l1_signals
+        )?;
+        writeln!(f)?;
+
+        if !self.fallback_reasons.is_empty() {
+            writeln!(f, "Fallback Reasons:")?;
+            for (reason, count) in &self.fallback_reasons {
+                writeln!(f, "  {}: {}", reason, count)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+/// Summarize execution level partitioning.
+pub fn summarize_partition(levels: &[ExecutionLevel]) -> PartitionSummary {
+    let mut summary = PartitionSummary::default();
+
+    for level in levels {
+        match level {
+            ExecutionLevel::L2 { batch } => {
+                summary.l2_batches += 1;
+                summary.l2_signals += batch.signal_ids.len();
+            }
+            ExecutionLevel::L1 { signals } => {
+                summary.l1_groups += 1;
+                summary.l1_signals += signals.len();
+
+                // Count fallback reasons
+                for signal in signals {
+                    let reason_key = match &signal.reason {
+                        FallbackReason::PopulationBelowMinimum { .. } => {
+                            "Population below minimum".to_string()
+                        }
+                        FallbackReason::PopulationBelowThreshold { .. } => {
+                            "Population below threshold".to_string()
+                        }
+                        FallbackReason::CustomPattern { .. } => "Custom pattern".to_string(),
+                        FallbackReason::BatchTooSmall { .. } => "Batch too small".to_string(),
+                    };
+                    *summary.fallback_reasons.entry(reason_key).or_insert(0) += 1;
+                }
+            }
+        }
+    }
+
+    summary
 }
 
 #[cfg(test)]
@@ -1287,5 +1704,345 @@ mod tests {
         // Verify kernel properties via LaneKernel trait
         assert_eq!(kernel.member_signal_id().signal_name, "temperature");
         assert_eq!(kernel.population_hint(), 10_000);
+    }
+
+    // ========================================================================
+    // Pattern Coverage Analysis Tests
+    // ========================================================================
+
+    #[test]
+    fn test_benefit_counts_default() {
+        let counts = BenefitCounts::default();
+        assert_eq!(counts.high, 0);
+        assert_eq!(counts.medium, 0);
+        assert_eq!(counts.none, 0);
+    }
+
+    #[test]
+    fn test_stratum_coverage_default() {
+        let coverage = StratumCoverage::default();
+        assert_eq!(coverage.total_signals, 0);
+        assert_eq!(coverage.vectorizable_signals, 0);
+        assert_eq!(coverage.batch_count, 0);
+    }
+
+    #[test]
+    fn test_pattern_coverage_empty() {
+        let coverage = PatternCoverage::default();
+        assert_eq!(coverage.total_signals, 0);
+        assert_eq!(coverage.vectorization_coverage(), 0.0);
+        assert_eq!(coverage.l2_coverage(), 0.0);
+        assert_eq!(coverage.high_benefit_coverage(), 0.0);
+    }
+
+    #[test]
+    fn test_pattern_coverage_percentages() {
+        let mut coverage = PatternCoverage::default();
+        coverage.total_signals = 100;
+        coverage.vectorizable_signals = 75;
+        coverage.l2_signal_count = 50;
+        coverage.benefit_counts.high = 60;
+        coverage.benefit_counts.medium = 30;
+        coverage.benefit_counts.none = 10;
+
+        assert!((coverage.vectorization_coverage() - 75.0).abs() < 0.01);
+        assert!((coverage.l2_coverage() - 50.0).abs() < 0.01);
+        assert!((coverage.high_benefit_coverage() - 60.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_pattern_coverage_display() {
+        let mut coverage = PatternCoverage::default();
+        coverage.total_signals = 100;
+        coverage.total_batches = 5;
+        coverage.vectorizable_signals = 80;
+        coverage.vectorizable_batches = 4;
+        coverage.l2_signal_count = 60;
+        coverage.l1_signal_count = 40;
+        coverage.benefit_counts.high = 70;
+        coverage.benefit_counts.medium = 20;
+        coverage.benefit_counts.none = 10;
+        coverage
+            .pattern_counts
+            .insert("SimpleAccumulator".to_string(), 50);
+        coverage
+            .pattern_counts
+            .insert("ClampedAccumulator".to_string(), 30);
+
+        let output = format!("{}", coverage);
+
+        // Verify key sections are present
+        assert!(output.contains("Pattern Coverage Analysis"));
+        assert!(output.contains("Total signals:     100"));
+        assert!(output.contains("Total batches:     5"));
+        assert!(output.contains("Vectorizable:      80 signals"));
+        assert!(output.contains("L2 recommended:    60 signals"));
+        assert!(output.contains("High:   70"));
+        assert!(output.contains("Medium: 20"));
+        assert!(output.contains("None:   10"));
+        assert!(output.contains("SimpleAccumulator"));
+        assert!(output.contains("ClampedAccumulator"));
+    }
+
+    #[test]
+    fn test_pattern_coverage_stratum_display() {
+        let mut coverage = PatternCoverage::default();
+        coverage.total_signals = 100;
+        coverage.total_batches = 5;
+
+        // Add two strata
+        coverage.stratum_coverage.insert(
+            StratumId("stratum_a".to_string()),
+            StratumCoverage {
+                total_signals: 60,
+                vectorizable_signals: 50,
+                batch_count: 3,
+            },
+        );
+        coverage.stratum_coverage.insert(
+            StratumId("stratum_b".to_string()),
+            StratumCoverage {
+                total_signals: 40,
+                vectorizable_signals: 30,
+                batch_count: 2,
+            },
+        );
+
+        let output = format!("{}", coverage);
+
+        // Verify stratum section appears with multiple strata
+        assert!(output.contains("Per-Stratum Coverage"));
+        assert!(output.contains("stratum_a"));
+        assert!(output.contains("stratum_b"));
+    }
+
+    // ========================================================================
+    // Fallback Handling Tests
+    // ========================================================================
+
+    #[test]
+    fn test_fallback_reason_display() {
+        let reason1 = FallbackReason::PopulationBelowMinimum { population: 500 };
+        let output1 = format!("{}", reason1);
+        assert!(output1.contains("500"));
+        assert!(output1.contains("below minimum"));
+
+        let reason2 = FallbackReason::PopulationBelowThreshold {
+            population: 10000,
+            threshold: 50000,
+        };
+        let output2 = format!("{}", reason2);
+        assert!(output2.contains("10000"));
+        assert!(output2.contains("50000"));
+
+        let reason3 = FallbackReason::CustomPattern { hash: 0xDEADBEEF };
+        let output3 = format!("{}", reason3);
+        assert!(output3.contains("custom pattern"));
+        assert!(output3.contains("deadbeef"));
+
+        let reason4 = FallbackReason::BatchTooSmall { batch_size: 2 };
+        let output4 = format!("{}", reason4);
+        assert!(output4.contains("batch size 2"));
+    }
+
+    #[test]
+    fn test_partition_l2_batch() {
+        // Create a batch that qualifies for L2
+        let batch = SignalBatch {
+            pattern: ExpressionPattern::SimpleAccumulator,
+            stratum: StratumId("test".to_string()),
+            value_type: ValueTypeCategory::Scalar,
+            signal_ids: vec![
+                SignalId::from("a"),
+                SignalId::from("b"),
+                SignalId::from("c"),
+                SignalId::from("d"),
+            ],
+        };
+
+        let levels = partition_by_execution_level(vec![batch], L2_POPULATION_THRESHOLD);
+
+        assert_eq!(levels.len(), 1);
+        assert!(matches!(levels[0], ExecutionLevel::L2 { .. }));
+    }
+
+    #[test]
+    fn test_partition_l1_batch_too_small() {
+        // Create a batch that's too small for SIMD
+        let batch = SignalBatch {
+            pattern: ExpressionPattern::SimpleAccumulator,
+            stratum: StratumId("test".to_string()),
+            value_type: ValueTypeCategory::Scalar,
+            signal_ids: vec![SignalId::from("a"), SignalId::from("b")], // Only 2 signals
+        };
+
+        let levels = partition_by_execution_level(vec![batch], L2_POPULATION_THRESHOLD);
+
+        assert_eq!(levels.len(), 1);
+        match &levels[0] {
+            ExecutionLevel::L1 { signals } => {
+                assert_eq!(signals.len(), 2);
+                assert!(matches!(
+                    signals[0].reason,
+                    FallbackReason::BatchTooSmall { batch_size: 2 }
+                ));
+            }
+            _ => panic!("Expected L1"),
+        }
+    }
+
+    #[test]
+    fn test_partition_l1_custom_pattern() {
+        // Create a batch with custom pattern
+        let batch = SignalBatch {
+            pattern: ExpressionPattern::Custom(12345),
+            stratum: StratumId("test".to_string()),
+            value_type: ValueTypeCategory::Scalar,
+            signal_ids: vec![
+                SignalId::from("a"),
+                SignalId::from("b"),
+                SignalId::from("c"),
+                SignalId::from("d"),
+            ],
+        };
+
+        let levels = partition_by_execution_level(vec![batch], L2_POPULATION_THRESHOLD);
+
+        assert_eq!(levels.len(), 1);
+        match &levels[0] {
+            ExecutionLevel::L1 { signals } => {
+                assert_eq!(signals.len(), 4);
+                assert!(matches!(
+                    signals[0].reason,
+                    FallbackReason::CustomPattern { hash: 12345 }
+                ));
+            }
+            _ => panic!("Expected L1"),
+        }
+    }
+
+    #[test]
+    fn test_partition_l1_population_below_minimum() {
+        // Create a batch with population below minimum
+        let batch = SignalBatch {
+            pattern: ExpressionPattern::SimpleAccumulator,
+            stratum: StratumId("test".to_string()),
+            value_type: ValueTypeCategory::Scalar,
+            signal_ids: vec![
+                SignalId::from("a"),
+                SignalId::from("b"),
+                SignalId::from("c"),
+                SignalId::from("d"),
+            ],
+        };
+
+        let levels = partition_by_execution_level(vec![batch], 500); // Below minimum
+
+        assert_eq!(levels.len(), 1);
+        match &levels[0] {
+            ExecutionLevel::L1 { signals } => {
+                assert_eq!(signals.len(), 4);
+                assert!(matches!(
+                    signals[0].reason,
+                    FallbackReason::PopulationBelowMinimum { population: 500 }
+                ));
+            }
+            _ => panic!("Expected L1"),
+        }
+    }
+
+    #[test]
+    fn test_partition_mixed_batches() {
+        // Create multiple batches with different outcomes
+        let l2_batch = SignalBatch {
+            pattern: ExpressionPattern::SimpleAccumulator,
+            stratum: StratumId("test".to_string()),
+            value_type: ValueTypeCategory::Scalar,
+            signal_ids: vec![
+                SignalId::from("a"),
+                SignalId::from("b"),
+                SignalId::from("c"),
+                SignalId::from("d"),
+            ],
+        };
+
+        let l1_batch = SignalBatch {
+            pattern: ExpressionPattern::Custom(999),
+            stratum: StratumId("test".to_string()),
+            value_type: ValueTypeCategory::Scalar,
+            signal_ids: vec![
+                SignalId::from("e"),
+                SignalId::from("f"),
+                SignalId::from("g"),
+                SignalId::from("h"),
+            ],
+        };
+
+        let levels = partition_by_execution_level(vec![l2_batch, l1_batch], L2_POPULATION_THRESHOLD);
+
+        assert_eq!(levels.len(), 2);
+        assert!(matches!(levels[0], ExecutionLevel::L2 { .. }));
+        assert!(matches!(levels[1], ExecutionLevel::L1 { .. }));
+    }
+
+    #[test]
+    fn test_summarize_partition() {
+        let l2_batch = SignalBatch {
+            pattern: ExpressionPattern::SimpleAccumulator,
+            stratum: StratumId("test".to_string()),
+            value_type: ValueTypeCategory::Scalar,
+            signal_ids: vec![
+                SignalId::from("a"),
+                SignalId::from("b"),
+                SignalId::from("c"),
+                SignalId::from("d"),
+                SignalId::from("e"),
+            ],
+        };
+
+        // Custom pattern batch with enough signals to avoid "batch too small"
+        let l1_batch = SignalBatch {
+            pattern: ExpressionPattern::Custom(999),
+            stratum: StratumId("test".to_string()),
+            value_type: ValueTypeCategory::Scalar,
+            signal_ids: vec![
+                SignalId::from("f"),
+                SignalId::from("g"),
+                SignalId::from("h"),
+                SignalId::from("i"),
+            ],
+        };
+
+        let levels = partition_by_execution_level(vec![l2_batch, l1_batch], L2_POPULATION_THRESHOLD);
+        let summary = summarize_partition(&levels);
+
+        assert_eq!(summary.l2_batches, 1);
+        assert_eq!(summary.l2_signals, 5);
+        assert_eq!(summary.l1_groups, 1);
+        assert_eq!(summary.l1_signals, 4);
+        assert!(summary.fallback_reasons.contains_key("Custom pattern"));
+    }
+
+    #[test]
+    fn test_partition_summary_display() {
+        let mut summary = PartitionSummary::default();
+        summary.l2_batches = 3;
+        summary.l2_signals = 100;
+        summary.l1_groups = 2;
+        summary.l1_signals = 10;
+        summary
+            .fallback_reasons
+            .insert("Custom pattern".to_string(), 6);
+        summary
+            .fallback_reasons
+            .insert("Batch too small".to_string(), 4);
+
+        let output = format!("{}", summary);
+
+        assert!(output.contains("Execution Level Partition"));
+        assert!(output.contains("L2 (Vectorized):  3 batches, 100 signals"));
+        assert!(output.contains("L1 (Instance):    2 groups, 10 signals"));
+        assert!(output.contains("Custom pattern: 6"));
+        assert!(output.contains("Batch too small: 4"));
     }
 }

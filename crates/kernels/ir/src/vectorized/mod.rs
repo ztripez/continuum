@@ -25,6 +25,13 @@
 //!
 //! 3. **Cache-Friendly Access**: SoA layout ensures sequential memory access
 //!    patterns for maximum cache utilization
+//!
+//! # SIMD Intrinsics
+//!
+//! The [`simd`] submodule provides hand-optimized implementations of common
+//! expression patterns structured for maximum SIMD auto-vectorization.
+
+pub mod simd;
 
 #[cfg(test)]
 mod tests;
