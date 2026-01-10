@@ -27,6 +27,32 @@ use walkdir::WalkDir;
 use continuum_dsl::parse;
 use symbols::{format_hover_markdown, SymbolIndex, SymbolKind as CdslSymbolKind};
 
+/// Semantic token types for syntax highlighting.
+/// These indices must match the order in the legend.
+const SEMANTIC_TOKEN_TYPES: &[SemanticTokenType] = &[
+    SemanticTokenType::VARIABLE,  // 0: signal
+    SemanticTokenType::PROPERTY,  // 1: field
+    SemanticTokenType::METHOD,    // 2: operator
+    SemanticTokenType::FUNCTION,  // 3: function
+    SemanticTokenType::TYPE,      // 4: type
+    SemanticTokenType::NAMESPACE, // 5: strata
+    SemanticTokenType::NAMESPACE, // 6: era
+    SemanticTokenType::EVENT,     // 7: impulse
+    SemanticTokenType::EVENT,     // 8: fracture
+    SemanticTokenType::CLASS,     // 9: chronicle
+    SemanticTokenType::CLASS,     // 10: entity
+    SemanticTokenType::KEYWORD,   // 11: keyword
+    SemanticTokenType::NUMBER,    // 12: number
+    SemanticTokenType::STRING,    // 13: string/unit
+    SemanticTokenType::COMMENT,   // 14: comment
+];
+
+/// Semantic token modifiers.
+const SEMANTIC_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
+    SemanticTokenModifier::DEFINITION,
+    SemanticTokenModifier::DECLARATION,
+];
+
 /// The CDSL language server backend.
 struct Backend {
     /// LSP client for sending notifications.
@@ -249,6 +275,17 @@ impl LanguageServer for Backend {
                 document_formatting_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
+                semantic_tokens_provider: Some(
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
+                        legend: SemanticTokensLegend {
+                            token_types: SEMANTIC_TOKEN_TYPES.to_vec(),
+                            token_modifiers: SEMANTIC_TOKEN_MODIFIERS.to_vec(),
+                        },
+                        full: Some(SemanticTokensFullOptions::Bool(true)),
+                        range: None,
+                        ..Default::default()
+                    }),
+                ),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -677,6 +714,171 @@ impl LanguageServer for Backend {
             .collect();
 
         Ok(Some(locations))
+    }
+
+    async fn semantic_tokens_full(
+        &self,
+        params: SemanticTokensParams,
+    ) -> Result<Option<SemanticTokensResult>> {
+        let uri = &params.text_document.uri;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let index = match self.symbol_indices.get(uri) {
+            Some(index) => index,
+            None => return Ok(None),
+        };
+
+        let mut tokens: Vec<(usize, usize, u32, u32)> = Vec::new(); // (start, len, type, modifiers)
+
+        // Collect tokens from symbol definitions
+        for (info, span) in index.get_all_symbols() {
+            let token_type = match info.kind {
+                CdslSymbolKind::Signal => 0,
+                CdslSymbolKind::Field => 1,
+                CdslSymbolKind::Operator => 2,
+                CdslSymbolKind::Function => 3,
+                CdslSymbolKind::Type => 4,
+                CdslSymbolKind::Strata => 5,
+                CdslSymbolKind::Era => 6,
+                CdslSymbolKind::Impulse => 7,
+                CdslSymbolKind::Fracture => 8,
+                CdslSymbolKind::Chronicle => 9,
+                CdslSymbolKind::Entity => 10,
+            };
+            // Mark as definition
+            tokens.push((span.start, span.end - span.start, token_type, 0b11));
+        }
+
+        // Collect tokens from references
+        for (info, span) in index.get_all_references() {
+            let token_type = match info.kind {
+                CdslSymbolKind::Signal => 0,
+                CdslSymbolKind::Field => 1,
+                CdslSymbolKind::Operator => 2,
+                CdslSymbolKind::Function => 3,
+                CdslSymbolKind::Type => 4,
+                CdslSymbolKind::Strata => 5,
+                CdslSymbolKind::Era => 6,
+                CdslSymbolKind::Impulse => 7,
+                CdslSymbolKind::Fracture => 8,
+                CdslSymbolKind::Chronicle => 9,
+                CdslSymbolKind::Entity => 10,
+            };
+            tokens.push((span.start, span.end - span.start, token_type, 0));
+        }
+
+        // Add keyword tokens
+        let keywords = [
+            ("signal", 11),
+            ("field", 11),
+            ("operator", 11),
+            ("strata", 11),
+            ("era", 11),
+            ("fn", 11),
+            ("type", 11),
+            ("const", 11),
+            ("config", 11),
+            ("impulse", 11),
+            ("fracture", 11),
+            ("chronicle", 11),
+            ("entity", 11),
+            ("resolve", 11),
+            ("measure", 11),
+            ("collect", 11),
+            ("when", 11),
+            ("emit", 11),
+            ("apply", 11),
+            ("assert", 11),
+            ("observe", 11),
+            ("schema", 11),
+            ("transition", 11),
+            ("if", 11),
+            ("else", 11),
+            ("let", 11),
+            ("in", 11),
+        ];
+
+        for (kw, token_type) in keywords {
+            let mut search_start = 0;
+            while let Some(pos) = doc[search_start..].find(kw) {
+                let abs_pos = search_start + pos;
+                // Check this is a whole word (not part of identifier)
+                let before_ok = abs_pos == 0
+                    || !doc[..abs_pos]
+                        .chars()
+                        .last()
+                        .map(|c| c.is_alphanumeric() || c == '_')
+                        .unwrap_or(false);
+                let after_ok = abs_pos + kw.len() >= doc.len()
+                    || !doc[abs_pos + kw.len()..]
+                        .chars()
+                        .next()
+                        .map(|c| c.is_alphanumeric() || c == '_')
+                        .unwrap_or(false);
+
+                if before_ok && after_ok {
+                    // Check not inside a comment or string
+                    let line_start = doc[..abs_pos].rfind('\n').map(|p| p + 1).unwrap_or(0);
+                    let line_before = &doc[line_start..abs_pos];
+                    if !line_before.contains("//") {
+                        tokens.push((abs_pos, kw.len(), token_type, 0));
+                    }
+                }
+                search_start = abs_pos + kw.len();
+            }
+        }
+
+        // Add comment tokens
+        let mut in_doc_comment = false;
+        for (line_idx, line) in doc.lines().enumerate() {
+            let line_start = doc.lines().take(line_idx).map(|l| l.len() + 1).sum::<usize>();
+            if let Some(pos) = line.find("//") {
+                let comment_start = line_start + pos;
+                let comment_len = line.len() - pos;
+                tokens.push((comment_start, comment_len, 14, 0));
+                in_doc_comment = line[pos..].starts_with("//!");
+            }
+        }
+        let _ = in_doc_comment; // silence warning
+
+        // Sort tokens by position
+        tokens.sort_by_key(|t| t.0);
+
+        // Convert to delta encoding
+        let mut data = Vec::new();
+        let mut prev_line = 0u32;
+        let mut prev_start = 0u32;
+
+        for (start, len, token_type, modifiers) in tokens {
+            let (line, col) = offset_to_position(&doc, start);
+
+            let delta_line = line - prev_line;
+            let delta_start = if delta_line == 0 {
+                col - prev_start
+            } else {
+                col
+            };
+
+            data.push(SemanticToken {
+                delta_line,
+                delta_start,
+                length: len as u32,
+                token_type,
+                token_modifiers_bitset: modifiers,
+            });
+
+            prev_line = line;
+            prev_start = col;
+        }
+
+        Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
+            result_id: None,
+            data,
+        })))
     }
 }
 

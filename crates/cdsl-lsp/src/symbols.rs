@@ -115,11 +115,19 @@ pub struct CompletionInfo<'a> {
     pub title: Option<&'a str>,
 }
 
+/// Reference info for semantic tokens.
+#[derive(Debug, Clone)]
+pub struct ReferenceInfo {
+    /// The kind of symbol being referenced.
+    pub kind: SymbolKind,
+}
+
 /// Symbol index for a document.
 #[derive(Debug, Default)]
 pub struct SymbolIndex {
     symbols: Vec<IndexedSymbol>,
     references: Vec<SymbolReference>,
+    #[allow(dead_code)]
     module_doc: Option<String>,
 }
 
@@ -196,6 +204,7 @@ impl SymbolIndex {
     }
 
     /// Get the module documentation.
+    #[allow(dead_code)]
     pub fn module_doc(&self) -> Option<&str> {
         self.module_doc.as_deref()
     }
@@ -218,6 +227,15 @@ impl SymbolIndex {
             ty: s.info.ty.as_deref(),
             title: s.info.title.as_deref(),
         })
+    }
+
+    /// Get all references for semantic tokens.
+    ///
+    /// Returns reference info with kind and span for syntax highlighting.
+    pub fn get_all_references(&self) -> impl Iterator<Item = (ReferenceInfo, &Range<usize>)> {
+        self.references
+            .iter()
+            .map(|r| (ReferenceInfo { kind: r.kind }, &r.span))
     }
 
     /// Find all references to the symbol at the given offset.
@@ -780,17 +798,17 @@ fn format_type_expr(ty: &TypeExpr) -> String {
 /// Debug: get all indexed references (for testing).
 #[cfg(test)]
 impl SymbolIndex {
-    pub fn get_references(&self) -> &[SymbolReference] {
+    fn get_references(&self) -> &[SymbolReference] {
         &self.references
     }
 }
 
 #[cfg(test)]
 impl SymbolReference {
-    pub fn span(&self) -> &Range<usize> {
+    fn span(&self) -> &Range<usize> {
         &self.span
     }
-    pub fn target_path(&self) -> &str {
+    fn target_path(&self) -> &str {
         &self.target_path
     }
 }
