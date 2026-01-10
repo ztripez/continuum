@@ -11,6 +11,14 @@
     "comments": {
       "patterns": [
         {
+          "name": "comment.line.documentation.cdsl",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.module-documentation.cdsl",
+          "match": "//!.*$"
+        },
+        {
           "name": "comment.line.double-slash.cdsl",
           "match": "//.*$"
         },

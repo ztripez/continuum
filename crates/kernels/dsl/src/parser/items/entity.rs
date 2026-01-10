@@ -34,6 +34,7 @@ pub fn entity_def<'src>() -> impl Parser<'src, &'src str, EntityDef, extra::Err<
         )
         .map(|(path, contents)| {
             let mut def = EntityDef {
+                doc: None,
                 path,
                 strata: None,
                 count_source: None,

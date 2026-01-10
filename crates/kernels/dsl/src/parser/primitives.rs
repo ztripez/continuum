@@ -54,13 +54,19 @@ pub fn spanned<'src, O>(
 /// Parses whitespace and comments, consuming all of them.
 ///
 /// Recognized comment styles:
-/// - Line comments: `// text` and `# text`
+/// - Line comments: `// text` and `# text` (but NOT `///` or `//!` doc comments)
 /// - Block comments: `/* text */`
 ///
 /// Returns `()` since whitespace is typically ignored.
 pub fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src>>> + Clone {
+    // Regular line comment: // but NOT /// or //!
+    // We match // then capture the rest of the line, filtering out doc comments
     let line_comment = just("//")
-        .then(any().and_is(just('\n').not()).repeated())
+        .ignore_then(any().and_is(just('\n').not()).repeated().to_slice())
+        .filter(|rest: &&str| {
+            // Keep only if rest is empty (//\n) or doesn't start with / or !
+            rest.is_empty() || (!rest.starts_with('/') && !rest.starts_with('!'))
+        })
         .padded();
     let hash_comment = just("#")
         .then(any().and_is(just('\n').not()).repeated())
@@ -78,6 +84,44 @@ pub fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src
     ))
     .repeated()
     .ignored()
+}
+
+/// Parses item documentation comments (`///`).
+///
+/// Captures consecutive `///` lines and returns them as a single string
+/// with the `///` prefix stripped. Returns `None` if no doc comments found.
+pub fn doc_comment<'src>(
+) -> impl Parser<'src, &'src str, Option<String>, extra::Err<ParseError<'src>>> + Clone {
+    just("///")
+        .ignore_then(any().and_is(just('\n').not()).repeated().to_slice())
+        .then_ignore(just('\n').or(end().to('\n')))
+        .map(|s: &str| s.trim().to_string())
+        .separated_by(text::whitespace().at_most(1000))
+        .at_least(1)
+        .collect::<Vec<_>>()
+        .map(|lines| Some(lines.join("\n")))
+        .or(empty().to(None))
+}
+
+/// Parses module-level documentation comments (`//!`).
+///
+/// Captures consecutive `//!` lines at the start of a file and returns them
+/// as a single string with the `//!` prefix stripped.
+pub fn module_doc<'src>(
+) -> impl Parser<'src, &'src str, Option<String>, extra::Err<ParseError<'src>>> + Clone {
+    // Allow leading whitespace before the first //!
+    text::whitespace()
+        .ignore_then(
+            just("//!")
+                .ignore_then(any().and_is(just('\n').not()).repeated().to_slice())
+                .then_ignore(just('\n').or(end().to('\n')))
+                .map(|s: &str| s.trim().to_string())
+                .separated_by(text::whitespace().at_most(1000))
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .map(|lines| Some(lines.join("\n"))),
+        )
+        .or(empty().to(None))
 }
 
 /// Parses an ASCII identifier.

@@ -84,6 +84,8 @@ pub struct ConfigEntry {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Type name (e.g., `OrbitalElements`).
     pub name: Spanned<String>,
     /// Struct fields.
@@ -106,6 +108,8 @@ pub struct TypeField {
 /// Example: `fn.physics.stefan_boltzmann_loss(temp: Scalar<K>) -> Scalar<W/m²> { ... }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Function path (e.g., `physics.stefan_boltzmann_loss`)
     pub path: Spanned<Path>,
     /// Generic type parameters (e.g. `<T>`)
@@ -145,6 +149,8 @@ pub struct FnParam {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct StrataDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Stratum path (e.g., `terra.thermal`).
     pub path: Spanned<Path>,
     /// Human-readable title for display.
@@ -180,6 +186,8 @@ pub struct StrataDef {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct EraDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Era identifier.
     pub name: Spanned<String>,
     /// Whether this is the starting era.
@@ -266,6 +274,8 @@ pub struct Transition {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct SignalDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Signal path (e.g., `terra.surface.temperature`).
     pub path: Spanned<Path>,
     /// Value type with optional bounds.
@@ -372,6 +382,8 @@ pub enum AssertSeverity {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Field path.
     pub path: Spanned<Path>,
     /// Value type at each sample point.
@@ -427,6 +439,8 @@ pub struct MeasureBlock {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct OperatorDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Operator path.
     pub path: Spanned<Path>,
     /// Stratum binding.
@@ -481,6 +495,8 @@ pub enum OperatorBody {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImpulseDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Impulse path.
     pub path: Spanned<Path>,
     /// Type of data carried by the impulse.
@@ -519,6 +535,8 @@ pub struct ApplyBlock {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct FractureDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Fracture path.
     pub path: Spanned<Path>,
     /// Trigger conditions.
@@ -559,6 +577,8 @@ pub struct EmitStatement {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChronicleDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Chronicle path.
     pub path: Spanned<Path>,
     /// Observation handlers.
@@ -606,6 +626,8 @@ pub struct ObserveHandler {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntityDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Entity path (e.g., `stellar.moon`)
     pub path: Spanned<Path>,
     /// Stratum binding

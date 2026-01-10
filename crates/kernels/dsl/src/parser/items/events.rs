@@ -35,6 +35,7 @@ pub fn impulse_def<'src>(
         )
         .map(|(path, contents)| {
             let mut def = ImpulseDef {
+                doc: None,
                 path,
                 payload_type: None,
                 local_config: vec![],
@@ -100,6 +101,7 @@ pub fn fracture_def<'src>(
                 }
             }
             FractureDef {
+                doc: None,
                 path,
                 conditions,
                 emit,
@@ -165,7 +167,7 @@ pub fn chronicle_def<'src>(
                 .or_not()
                 .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
         )
-        .map(|(path, observe)| ChronicleDef { path, observe })
+        .map(|(path, observe)| ChronicleDef { doc: None, path, observe })
 }
 
 fn observe_block<'src>(

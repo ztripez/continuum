@@ -1767,3 +1767,177 @@ fn test_parse_named_argument_with_expression_value() {
         _ => panic!("expected SignalDef"),
     }
 }
+
+// ============================================================================
+// Doc Comment Tests (#99)
+// ============================================================================
+
+#[test]
+fn test_parse_doc_comment_signal() {
+    let source = r#"
+/// This signal tracks temperature in Kelvin.
+/// It is resolved by adding collected thermal energy.
+signal.test.temperature {
+    : Scalar<K>
+    resolve { prev + collected }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            assert!(def.doc.is_some());
+            let doc = def.doc.as_ref().unwrap();
+            assert!(doc.contains("temperature in Kelvin"));
+            assert!(doc.contains("thermal energy"));
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_doc_comment_function() {
+    let source = r#"
+/// Linear interpolation between two values.
+/// Returns a + (b - a) * t
+fn.math.lerp(a, b, t) {
+    a + (b - a) * t
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::FnDef(def) => {
+            assert!(def.doc.is_some());
+            let doc = def.doc.as_ref().unwrap();
+            assert!(doc.contains("Linear interpolation"));
+        }
+        _ => panic!("expected FnDef"),
+    }
+}
+
+#[test]
+fn test_parse_module_doc() {
+    let source = r#"
+//! Module for thermal physics simulation.
+//! This file defines temperature signals.
+
+signal.test.temp {
+    : Scalar<K>
+    resolve { prev }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert!(unit.module_doc.is_some());
+    let doc = unit.module_doc.as_ref().unwrap();
+    assert!(doc.contains("thermal physics"));
+    assert!(doc.contains("temperature signals"));
+}
+
+#[test]
+fn test_parse_no_doc_comment() {
+    // Items without doc comments should have doc: None
+    let source = r#"
+signal.test.nodoc {
+    : Scalar<1>
+    resolve { prev }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            assert!(def.doc.is_none());
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_regular_comment_not_doc() {
+    // Regular comments (// without third /) should not be captured as doc
+    let source = r#"
+// This is a regular comment, not a doc comment
+signal.test.regular {
+    : Scalar<1>
+    resolve { prev }
+}
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            assert!(def.doc.is_none(), "regular comment should not become doc");
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_poc_file_parses() {
+    // Navigate from crate root to workspace root
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent() // kernels
+        .unwrap()
+        .parent() // crates
+        .unwrap()
+        .parent() // workspace root
+        .unwrap();
+    let poc_path = workspace_root.join("examples/poc/poc.cdsl");
+    let content = std::fs::read_to_string(&poc_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {}", poc_path.display(), e));
+    let (ast, errors) = crate::parse(&content);
+
+    if !errors.is_empty() {
+        for err in &errors {
+            let span = err.span();
+            let line_num = content[..span.start].matches('\n').count() + 1;
+            eprintln!("Line {}: {}", line_num, err);
+        }
+    }
+
+    assert!(errors.is_empty(), "poc.cdsl should parse without errors");
+    assert!(ast.is_some(), "poc.cdsl should produce an AST");
+    let ast = ast.unwrap();
+    assert!(ast.items.len() > 0, "poc.cdsl should have items");
+    // Verify module doc was captured
+    assert!(ast.module_doc.is_some(), "poc.cdsl should have module doc");
+}
+
+#[test]
+fn test_terra_file_parses() {
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let terra_path = workspace_root.join("examples/terra/terra.cdsl");
+    let content = std::fs::read_to_string(&terra_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {}", terra_path.display(), e));
+    let (ast, errors) = crate::parse(&content);
+
+    if !errors.is_empty() {
+        for err in &errors {
+            let span = err.span();
+            let line_num = content[..span.start].matches('\n').count() + 1;
+            eprintln!("Line {}: {}", line_num, err);
+        }
+    }
+
+    assert!(errors.is_empty(), "terra.cdsl should parse without errors");
+    assert!(ast.is_some(), "terra.cdsl should produce an AST");
+    let ast = ast.unwrap();
+    assert!(ast.items.len() > 0, "terra.cdsl should have items");
+    // Verify module doc was captured
+    assert!(ast.module_doc.is_some(), "terra.cdsl should have module doc");
+}

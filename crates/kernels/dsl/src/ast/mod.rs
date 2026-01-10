@@ -63,7 +63,7 @@ use std::ops::Range as StdRange;
 // Re-export all types for convenience
 pub use expr::*;
 pub use items::*;
-pub use visitor::{uses_dt_raw, walk_expr, ExprVisitor};
+pub use visitor::{uses_dt_raw, walk_expr, walk_spanned_expr, ExprVisitor, SpannedExprVisitor};
 
 /// Source span representing a byte range in the source file.
 ///
@@ -106,6 +106,8 @@ impl<T> Spanned<T> {
 /// units from different files are merged during world loading.
 #[derive(Debug, Clone, Default)]
 pub struct CompilationUnit {
+    /// Module-level documentation from `//!` comments at the top of the file.
+    pub module_doc: Option<String>,
     /// All top-level items in declaration order.
     pub items: Vec<Spanned<Item>>,
 }

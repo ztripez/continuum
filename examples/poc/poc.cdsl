@@ -1,5 +1,5 @@
-# Minimal Thermal Simulation
-# A simple cooling simulation demonstrating the DSL and let expressions
+//! Minimal Thermal Simulation
+//! A simple cooling simulation demonstrating the DSL and let expressions.
 
 const {
     physics.stefan_boltzmann: 5.67e-8
@@ -8,19 +8,21 @@ const {
 }
 
 config {
-    # Halflife in seconds (~4.5 billion years, like U-238)
+    // Halflife in seconds (~4.5 billion years, like U-238)
     thermal.decay_halflife: 1.42e17 <s>
     thermal.initial_temp: 5500 <K>
     thermal.coupling_factor: 0.01
     thermal.radiation_factor: 0.0001
 }
 
+/// Thermal stratum for heat-related calculations.
 strata.thermal {
     : title("Thermal")
     : symbol("Q")
     : stride(1)
 }
 
+/// Early cooling era with rapid heat loss.
 era.early {
     : initial
     : title("Early Cooling")
@@ -38,6 +40,7 @@ era.early {
     }
 }
 
+/// Stable era after initial cooling phase.
 era.stable {
     : terminal
     : title("Stable")
@@ -48,6 +51,8 @@ era.stable {
     }
 }
 
+/// Core temperature signal tracking planetary interior heat.
+/// Uses radioactive decay model for heat generation.
 signal.core.temp {
     : Scalar<K, 100..10000>
     : strata(thermal)
@@ -55,7 +60,7 @@ signal.core.temp {
     : symbol("T_core")
 
     resolve {
-        # Demonstrating let expressions for readable multi-step calculations
+        // Demonstrating let expressions for readable multi-step calculations
         let decayed = decay(prev, config.thermal.decay_halflife) in
         let with_inputs = decayed + collected in
         with_inputs
@@ -68,7 +73,8 @@ signal.core.temp {
     }
 }
 
-# Surface temperature with let expressions for heat transfer calculation
+/// Surface temperature with heat transfer from core.
+/// Models conductive heat transfer and radiative cooling to space.
 signal.surface.temp {
     : Scalar<K, 100..1000>
     : strata(thermal)
@@ -76,7 +82,7 @@ signal.surface.temp {
     : symbol("T_surf")
 
     resolve {
-        # Heat transfer from core to surface using let for clarity
+        // Heat transfer from core to surface using let for clarity
         let temp_diff = signal.core.temp - prev in
         let heat_transfer = temp_diff * config.thermal.coupling_factor in
         let radiation_loss = (prev - const.thermal.ambient) * config.thermal.radiation_factor in
@@ -85,7 +91,8 @@ signal.surface.temp {
     }
 }
 
-# Derived signal showing temperature gradient
+/// Temperature gradient between core and surface.
+/// Useful for understanding heat flow dynamics.
 signal.thermal.gradient {
     : Scalar<K, 0..10000>
     : strata(thermal)
@@ -99,8 +106,8 @@ signal.thermal.gradient {
     }
 }
 
-# Radioactive heating events - when temp drops below threshold,
-# decay heat from radioactive elements provides a burst of energy
+/// Radioactive decay heat fracture.
+/// Triggers when core temperature drops, simulating decay heat bursts.
 fracture.core.decay_heat {
     when {
         signal.core.temp < 5498 <K>
@@ -111,6 +118,7 @@ fracture.core.decay_heat {
     }
 }
 
+/// Core temperature observation field.
 field.core.temp_field {
     : Scalar<K>
     : strata(thermal)
@@ -122,6 +130,7 @@ field.core.temp_field {
     }
 }
 
+/// Surface temperature observation field.
 field.surface.temp_field {
     : Scalar<K>
     : strata(thermal)
@@ -133,6 +142,7 @@ field.surface.temp_field {
     }
 }
 
+/// Thermal gradient observation field.
 field.thermal.gradient_field {
     : Scalar<K>
     : strata(thermal)
@@ -144,20 +154,20 @@ field.thermal.gradient_field {
     }
 }
 
-# Chronicle for recording significant thermal events
-# Chronicles are observer-only and cannot affect causality
+/// Chronicle for recording significant thermal events.
+/// Chronicles are observer-only and cannot affect causality.
 chronicle.thermal.events {
     observe {
-        when { signal.core.temp < 4500 } {
-            event.significant_cooling {
+        when signal.core.temp < 4500 {
+            emit event.significant_cooling {
                 core_temp: signal.core.temp
                 surface_temp: signal.surface.temp
                 gradient: signal.thermal.gradient
             }
         }
 
-        when { signal.surface.temp < 300 } {
-            event.surface_cooled {
+        when signal.surface.temp < 300 {
+            emit event.surface_cooled {
                 surface_temp: signal.surface.temp
             }
         }

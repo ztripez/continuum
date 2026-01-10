@@ -1,77 +1,77 @@
-# Terra World - Root Configuration
-# =============================================================================
-# This file defines the shared strata, eras, and time configuration
-# that all domain modules (geophysics, atmosphere, hydrology, ecology) use.
-#
-# Domain-specific signals, fields, fractures, and their local configs are
-# defined in their respective module files:
-#   - geophysics/geophysics.cdsl: Planetary physics, crust, tectonics
-#   - atmosphere/atmosphere.cdsl: Radiative transfer, water vapor, clouds
-#   - hydrology/hydrology.cdsl: Water cycle, precipitation, runoff
-#   - ecology/ecology.cdsl: Biosphere, carbon cycling, productivity
-# =============================================================================
+//! Terra World - Root Configuration
+//!
+//! This file defines the shared strata, eras, and time configuration
+//! that all domain modules (geophysics, atmosphere, hydrology, ecology) use.
+//!
+//! Domain-specific signals, fields, fractures, and their local configs are
+//! defined in their respective module files:
+//!   - geophysics/geophysics.cdsl: Planetary physics, crust, tectonics
+//!   - atmosphere/atmosphere.cdsl: Radiative transfer, water vapor, clouds
+//!   - hydrology/hydrology.cdsl: Water cycle, precipitation, runoff
+//!   - ecology/ecology.cdsl: Biosphere, carbon cycling, productivity
 
-# =============================================================================
-# Strata Definitions
-# =============================================================================
-# Strata define the temporal resolution layers of the simulation.
-# Each stratum can have signals that resolve at different rates.
+// =============================================================================
+// Strata Definitions
+// =============================================================================
+// Strata define the temporal resolution layers of the simulation.
+// Each stratum can have signals that resolve at different rates.
 
-# Genesis stratum - one-time planetary formation
+/// Genesis stratum for one-time planetary formation events.
 strata.genesis {
     : title("Genesis")
     : symbol("G")
     : stride(1)
 }
 
-# Rotation stratum - planetary rotation dynamics
+/// Rotation stratum for planetary rotation dynamics.
 strata.rotation {
     : title("Rotation")
     : symbol("R")
     : stride(1)
 }
 
-# Thermal stratum - heat flow and temperature
+/// Thermal stratum for heat flow and temperature calculations.
 strata.thermal {
     : title("Thermal")
     : symbol("Q")
     : stride(1)
 }
 
-# Tectonics stratum - plate motion and crustal dynamics
+/// Tectonics stratum for plate motion and crustal dynamics.
 strata.tectonics {
     : title("Tectonics")
     : symbol("T")
     : stride(10)
 }
 
-# Atmosphere stratum - atmospheric processes
+/// Atmosphere stratum for atmospheric processes.
 strata.atmosphere {
     : title("Atmosphere")
     : symbol("A")
     : stride(1)
 }
 
-# Hydrology stratum - water cycle
+/// Hydrology stratum for water cycle processes.
 strata.hydrology {
     : title("Hydrology")
     : symbol("H")
     : stride(1)
 }
 
-# Ecology stratum - biosphere dynamics
+/// Ecology stratum for biosphere dynamics.
 strata.ecology {
     : title("Ecology")
     : symbol("E")
     : stride(10)
 }
 
-# =============================================================================
-# Era Definitions
-# =============================================================================
-# Eras define phases of planetary evolution with different time steps
-# and active strata configurations.
+// =============================================================================
+// Era Definitions
+// =============================================================================
+// Eras define phases of planetary evolution with different time steps
+// and active strata configurations.
 
+/// Planetary formation era with initial accretion and differentiation.
 era.formation {
     : initial
     : title("Planetary Formation")
@@ -95,6 +95,7 @@ era.formation {
     }
 }
 
+/// Active tectonics era with plate motion and crustal recycling.
 era.active_tectonics {
     : title("Active Tectonics")
     : dt(1 <Myr>)
@@ -117,6 +118,7 @@ era.active_tectonics {
     }
 }
 
+/// Cooling phase era as planetary heat dissipates.
 era.cooling {
     : terminal
     : title("Cooling Phase")

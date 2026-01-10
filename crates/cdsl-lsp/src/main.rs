@@ -1,16 +1,25 @@
 //! CDSL Language Server
 //!
 //! A Language Server Protocol implementation for the Continuum DSL.
-//! Provides diagnostics, go-to-definition, completion, and formatting support.
+//!
+//! # Features
+//!
+//! - **Diagnostics**: Real-time parse error reporting
+//! - **Hover**: Symbol information with documentation
+//! - **Go-to-definition**: Jump to signal/field/operator definitions (F12 or Ctrl+Click)
+//! - **Completion**: Keyword and built-in function completion
+//! - **Formatting**: Code formatting on save or on demand
 
 mod formatter;
+mod symbols;
 
 use dashmap::DashMap;
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 
-use continuum_dsl::{parse, CompilationUnit};
+use continuum_dsl::parse;
+use symbols::{format_hover_markdown, SymbolIndex};
 
 /// The CDSL language server backend.
 struct Backend {
@@ -18,8 +27,8 @@ struct Backend {
     client: Client,
     /// Cached document contents.
     documents: DashMap<Url, String>,
-    /// Cached ASTs for each document.
-    asts: DashMap<Url, Option<CompilationUnit>>,
+    /// Cached symbol indices for each document.
+    symbol_indices: DashMap<Url, SymbolIndex>,
 }
 
 impl Backend {
@@ -48,8 +57,11 @@ impl Backend {
             })
             .collect();
 
-        // Cache the AST
-        self.asts.insert(uri.clone(), ast);
+        // Build symbol index from AST
+        if let Some(ref ast) = ast {
+            let index = SymbolIndex::from_ast(ast);
+            self.symbol_indices.insert(uri.clone(), index);
+        }
 
         // Publish diagnostics
         self.client
@@ -80,6 +92,32 @@ fn offset_to_position(text: &str, offset: usize) -> (u32, u32) {
     (line, col)
 }
 
+/// Convert an LSP position (line/column) to a byte offset.
+fn position_to_offset(text: &str, position: Position) -> usize {
+    let mut current_line = 0u32;
+    let mut current_col = 0u32;
+    let mut offset = 0;
+
+    for ch in text.chars() {
+        if current_line == position.line && current_col == position.character {
+            return offset;
+        }
+        if ch == '\n' {
+            if current_line == position.line {
+                // Position is beyond line end, return end of line
+                return offset;
+            }
+            current_line += 1;
+            current_col = 0;
+        } else {
+            current_col += 1;
+        }
+        offset += ch.len_utf8();
+    }
+
+    offset
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, _: InitializeParams) -> Result<InitializeResult> {
@@ -95,6 +133,8 @@ impl LanguageServer for Backend {
                 definition_provider: Some(OneOf::Left(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
                 document_formatting_provider: Some(OneOf::Left(true)),
+                document_symbol_provider: Some(OneOf::Left(true)),
+                references_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -135,7 +175,7 @@ impl LanguageServer for Backend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
         self.documents.remove(&uri);
-        self.asts.remove(&uri);
+        self.symbol_indices.remove(&uri);
 
         // Clear diagnostics
         self.client.publish_diagnostics(uri, vec![], None).await;
@@ -207,20 +247,69 @@ impl LanguageServer for Backend {
         &self,
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
-        let _uri = &params.text_document_position_params.text_document.uri;
-        let _position = params.text_document_position_params.position;
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
 
-        // TODO: Implement go-to-definition using AST spans
-        // This requires building a symbol table from the AST
+        // Get document and symbol index
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let index = match self.symbol_indices.get(uri) {
+            Some(index) => index,
+            None => return Ok(None),
+        };
+
+        // Convert LSP position to byte offset
+        let offset = position_to_offset(&doc, position);
+
+        // Find the definition span
+        if let Some(def_span) = index.find_definition_span(offset) {
+            let (start_line, start_char) = offset_to_position(&doc, def_span.start);
+            let (end_line, end_char) = offset_to_position(&doc, def_span.end);
+
+            return Ok(Some(GotoDefinitionResponse::Scalar(Location {
+                uri: uri.clone(),
+                range: Range {
+                    start: Position::new(start_line, start_char),
+                    end: Position::new(end_line, end_char),
+                },
+            })));
+        }
 
         Ok(None)
     }
 
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
-        let _uri = &params.text_document_position_params.text_document.uri;
-        let _position = params.text_document_position_params.position;
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
 
-        // TODO: Implement hover using AST analysis
+        // Get document and symbol index
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let index = match self.symbol_indices.get(uri) {
+            Some(index) => index,
+            None => return Ok(None),
+        };
+
+        // Convert LSP position to byte offset
+        let offset = position_to_offset(&doc, position);
+
+        // Find symbol at position
+        if let Some(info) = index.find_at_offset(offset) {
+            let markdown = format_hover_markdown(info);
+            return Ok(Some(Hover {
+                contents: HoverContents::Markup(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: markdown,
+                }),
+                range: None,
+            }));
+        }
 
         Ok(None)
     }
@@ -256,6 +345,106 @@ impl LanguageServer for Backend {
 
         Ok(Some(vec![edit]))
     }
+
+    async fn document_symbol(
+        &self,
+        params: DocumentSymbolParams,
+    ) -> Result<Option<DocumentSymbolResponse>> {
+        let uri = &params.text_document.uri;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let index = match self.symbol_indices.get(uri) {
+            Some(index) => index,
+            None => return Ok(None),
+        };
+
+        let symbols: Vec<SymbolInformation> = index
+            .get_all_symbols()
+            .map(|(info, span)| {
+                let (start_line, start_char) = offset_to_position(&doc, span.start);
+                let (end_line, end_char) = offset_to_position(&doc, span.end);
+
+                #[allow(deprecated)] // location field is deprecated but required
+                SymbolInformation {
+                    name: format!("{}.{}", info.kind.display_name(), info.path),
+                    kind: symbol_kind_to_lsp(info.kind),
+                    tags: None,
+                    deprecated: None,
+                    location: Location {
+                        uri: uri.clone(),
+                        range: Range {
+                            start: Position::new(start_line, start_char),
+                            end: Position::new(end_line, end_char),
+                        },
+                    },
+                    container_name: None,
+                }
+            })
+            .collect();
+
+        Ok(Some(DocumentSymbolResponse::Flat(symbols)))
+    }
+
+    async fn references(&self, params: ReferenceParams) -> Result<Option<Vec<Location>>> {
+        let uri = &params.text_document_position.text_document.uri;
+        let position = params.text_document_position.position;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let index = match self.symbol_indices.get(uri) {
+            Some(index) => index,
+            None => return Ok(None),
+        };
+
+        let offset = position_to_offset(&doc, position);
+        let ref_spans = index.find_references(offset);
+
+        if ref_spans.is_empty() {
+            return Ok(None);
+        }
+
+        let locations: Vec<Location> = ref_spans
+            .into_iter()
+            .map(|span| {
+                let (start_line, start_char) = offset_to_position(&doc, span.start);
+                let (end_line, end_char) = offset_to_position(&doc, span.end);
+
+                Location {
+                    uri: uri.clone(),
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                }
+            })
+            .collect();
+
+        Ok(Some(locations))
+    }
+}
+
+/// Convert our SymbolKind to LSP SymbolKind.
+fn symbol_kind_to_lsp(kind: symbols::SymbolKind) -> SymbolKind {
+    match kind {
+        symbols::SymbolKind::Signal => SymbolKind::VARIABLE,
+        symbols::SymbolKind::Field => SymbolKind::FIELD,
+        symbols::SymbolKind::Operator => SymbolKind::OPERATOR,
+        symbols::SymbolKind::Function => SymbolKind::FUNCTION,
+        symbols::SymbolKind::Type => SymbolKind::STRUCT,
+        symbols::SymbolKind::Strata => SymbolKind::NAMESPACE,
+        symbols::SymbolKind::Era => SymbolKind::NAMESPACE,
+        symbols::SymbolKind::Impulse => SymbolKind::EVENT,
+        symbols::SymbolKind::Fracture => SymbolKind::EVENT,
+        symbols::SymbolKind::Chronicle => SymbolKind::CLASS,
+        symbols::SymbolKind::Entity => SymbolKind::CLASS,
+    }
 }
 
 fn completion_item(label: &str, kind: CompletionItemKind, detail: &str) -> CompletionItem {
@@ -275,7 +464,7 @@ async fn main() {
     let (service, socket) = LspService::new(|client| Backend {
         client,
         documents: DashMap::new(),
-        asts: DashMap::new(),
+        symbol_indices: DashMap::new(),
     });
 
     Server::new(stdin, stdout, socket).serve(service).await;
