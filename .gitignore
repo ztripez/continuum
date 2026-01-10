@@ -4,3 +4,8 @@ reports/
 .claude/.cache
 .claude/settings.local.json
 snapshots/
+
+# VS Code extension
+tools/vscode-cdsl/node_modules/
+tools/vscode-cdsl/*.vsix
+tools/vscode-cdsl/out/

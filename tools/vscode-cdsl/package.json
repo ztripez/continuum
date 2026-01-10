@@ -1,0 +1,39 @@
+{
+  "name": "vscode-cdsl",
+  "displayName": "Continuum DSL",
+  "description": "Language support for Continuum DSL (.cdsl) files",
+  "version": "0.1.0",
+  "publisher": "continuum",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ztripez/continuum"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "cdsl",
+        "aliases": [
+          "Continuum DSL",
+          "cdsl"
+        ],
+        "extensions": [
+          ".cdsl"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cdsl",
+        "scopeName": "source.cdsl",
+        "path": "./syntaxes/cdsl.tmLanguage.json"
+      }
+    ]
+  }
+}
