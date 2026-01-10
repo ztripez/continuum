@@ -1,7 +1,11 @@
-//! Continuum Lens (observer boundary) - core storage and ingest.
+//! Continuum Lens (observer boundary).
 //!
-//! Lens ingests field emissions and stores latest + bounded history per field.
-//! It is observer-only and must not influence execution.
+//! Lens is the canonical observer boundary. End programs must query fields
+//! through Lens APIs only. FieldSnapshot is internal transport only.
+//!
+//! Lens ingests field emissions, stores bounded history, and reconstructs
+//! continuous field functions for observation. It is observer-only and must
+//! never influence execution or causality.
 
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -20,7 +24,8 @@ pub mod gpu {
 
     /// GPU backend handle for Lens reconstruction.
     ///
-    /// Provides batch nearest-neighbor queries for scalar fields.
+    /// Provides batch nearest-neighbor queries for scalar fields. GPU compute
+    /// is observer-only and uses f32 internally.
     pub struct GpuLensBackend {
         context: GpuContext,
         pipeline: Option<NearestNeighborPipeline>,
@@ -339,7 +344,7 @@ pub struct FieldLensConfig {
 }
 
 impl FieldLensConfig {
-    /// Validate configuration.
+    /// Validate configuration values.
     pub fn validate(&self) -> Result<(), LensError> {
         if self.max_frames_per_field == 0 {
             return Err(LensError::InvalidConfig(
@@ -436,18 +441,25 @@ impl FieldStorage {
 /// Lens error types.
 #[derive(Debug, Error)]
 pub enum LensError {
+    /// Configuration validation failure.
     #[error("Invalid lens config: {0}")]
     InvalidConfig(String),
+    /// Requested field is not present.
     #[error("Field not found: {0}")]
     FieldNotFound(FieldId),
+    /// No samples available for the requested field and tick.
     #[error("No samples for field {field} at tick {tick}")]
     NoSamplesAtTick { field: FieldId, tick: u64 },
+    /// Refinement queue capacity exceeded.
     #[error("Refinement queue full")]
     RefinementQueueFull,
+    /// GPU backend was not configured.
     #[error("GPU backend not configured")]
     GpuUnavailable,
+    /// GPU query failed.
     #[error("GPU query failed: {0}")]
     GpuQuery(String),
+    /// GPU batch queries only support scalar samples.
     #[error("Non-scalar sample encountered for GPU query: {0}")]
     NonScalarSample(FieldId),
 }
@@ -459,11 +471,13 @@ pub enum LensError {
 pub struct TileId(u64);
 
 impl TileId {
+    /// Build a tile id from face, LOD, and Morton code.
     pub fn from_parts(face: u8, lod: u8, morton: u64) -> Self {
         let id = ((face as u64) << 56) | ((lod as u64) << 48) | (morton & 0x0000_FFFF_FFFF_FFFF);
         Self(id)
     }
 
+    /// Level of detail encoded in this tile id.
     pub fn lod(self) -> u8 {
         ((self.0 >> 48) & 0xFF) as u8
     }
@@ -472,7 +486,9 @@ impl TileId {
 /// Region selector for topology queries.
 #[derive(Debug, Clone)]
 pub enum Region {
+    /// Single tile region.
     Tile(TileId),
+    /// Spherical cap region (center is unit vector, radius in radians).
     SphereCap { center: [f64; 3], radius_rad: f64 },
 }
 
@@ -480,6 +496,7 @@ pub enum Region {
 ///
 /// Defines the spatial indexing used to organize field samples for queries and refinement.
 pub trait VirtualTopology: Send + Sync {
+    /// Map a position to a tile at the given LOD.
     fn tile_at(&self, position: [f64; 3], lod: u8) -> TileId;
 }
 
@@ -696,6 +713,8 @@ impl FieldLens {
     }
 
     /// Record a batch of fields for a single tick, preserving field order.
+    ///
+    /// Uses IndexMap order for deterministic ingestion.
     pub fn record_many(
         &mut self,
         tick: u64,
@@ -712,6 +731,8 @@ impl FieldLens {
 
     /// Get the latest frame for a field.
     /// Get reconstruction for a specific tick (nearest-neighbor MVP).
+    ///
+    /// Uses cache when available; returns errors if the field or tick is missing.
     pub fn at(
         &mut self,
         field_id: &FieldId,
@@ -782,6 +803,8 @@ impl FieldLens {
     }
 
     /// Get reconstruction for a specific tile at tick.
+    ///
+    /// Returns an error if the tile has no samples at this tick.
     pub fn tile(
         &self,
         field_id: &FieldId,
@@ -938,6 +961,8 @@ impl FieldLens {
     }
 
     /// Configure per-field overrides.
+    ///
+    /// Call before issuing queries for the field.
     pub fn configure_field(&mut self, field_id: FieldId, config: FieldConfig) {
         self.field_configs.insert(field_id, config);
     }
@@ -950,6 +975,8 @@ impl FieldLens {
 
     #[cfg(feature = "gpu")]
     /// Query a batch of positions on the GPU for a specific tick.
+    ///
+    /// Only supports scalar samples; returns NonScalarSample otherwise.
     pub fn query_batch_gpu(
         &mut self,
         field_id: &FieldId,
