@@ -772,12 +772,212 @@ signal.mantle.viscosity {
     : title("Mantle Viscosity")
     : symbol("eta")
 
+    config {
+        initial: 1e21  # Earth's effective mantle viscosity (Pa*s)
+    }
+
     resolve {
-        prev + collected
+        if prev == 0.0 {
+            config.mantle.viscosity.initial + collected
+        } else {
+            prev + collected
+        }
     }
 
     assert {
         prev >= 0.0 : warn, "Viscosity cannot be negative"
+    }
+}
+
+# =============================================================================
+# Mantle Convection Signals (from old mantle_flow.rs)
+# =============================================================================
+
+# Effective Rayleigh number - dimensionless measure of convection vigor
+# Ra ~ Q/ν (heat power / viscosity) normalized to Earth-like conditions
+signal.mantle.rayleigh_number {
+    : Scalar<1, 0..1e10>
+    : strata(tectonics)
+    : title("Effective Rayleigh Number")
+    : symbol("Ra")
+
+    config {
+        reference_heat_power: 4.0e13   # W (40 TW, Earth reference)
+        reference_viscosity: 1.0e21    # Pa*s (Earth reference)
+    }
+
+    resolve {
+        # Normalized Rayleigh: Ra_eff ~ (Q/Q_ref) / (ν/ν_ref)
+        let q_norm = signal.core.heat_power / config.mantle.rayleigh_number.reference_heat_power in
+        let nu_norm = signal.mantle.viscosity / config.mantle.rayleigh_number.reference_viscosity in
+        if nu_norm > 0.0 {
+            q_norm / nu_norm
+        } else {
+            1.0
+        }
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Rayleigh number cannot be negative"
+    }
+}
+
+# Convection cell count - derived from Rayleigh number
+# More vigorous convection produces more cells
+signal.mantle.convection_cells {
+    : Scalar<1, 2..12>
+    : strata(tectonics)
+    : title("Convection Cell Count")
+    : symbol("N_cells")
+
+    config {
+        reference_ra: 1.0e6            # Reference Rayleigh number
+        mode_count: 4                  # Earth-like cell count
+        exponent: 0.4                  # Scaling exponent
+        min_count: 2
+        max_count: 12
+    }
+
+    resolve {
+        # n = mode * (Ra / Ra_ref)^exponent
+        let ra = signal.mantle.rayleigh_number in
+        let ratio = ra / config.mantle.convection_cells.reference_ra in
+        let n = config.mantle.convection_cells.mode_count * pow(ratio, config.mantle.convection_cells.exponent) in
+        clamp(n, config.mantle.convection_cells.min_count, config.mantle.convection_cells.max_count)
+    }
+
+    assert {
+        prev >= 2.0 : warn, "Convection cells below minimum"
+        prev <= 12.0 : warn, "Convection cells above maximum"
+    }
+}
+
+# Mantle flow strength - vortex velocity scale (cm/yr)
+# Higher heat power drives more vigorous convection
+signal.mantle.flow_strength {
+    : Scalar<cm/yr, 0..50>
+    : strata(tectonics)
+    : title("Mantle Flow Strength")
+    : symbol("v_mantle")
+
+    config {
+        base_strength: 5.0             # cm/yr (typical Earth mantle)
+        reference_heat_power: 4.0e13   # W
+        exponent: 0.3                  # Strength scaling exponent
+    }
+
+    resolve {
+        # strength ~ base * (Q/Q_ref)^exponent
+        let ratio = signal.core.heat_power / config.mantle.flow_strength.reference_heat_power in
+        let scale = pow(max(ratio, 0.0), config.mantle.flow_strength.exponent) in
+        config.mantle.flow_strength.base_strength * scale + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Flow strength cannot be negative"
+    }
+}
+
+# =============================================================================
+# Advanced Tectonic Signals
+# =============================================================================
+
+# Orogeny rate - rate of mountain building from plate collisions
+signal.tectonics.orogeny_rate {
+    : Scalar<m/Myr, 0..10000>
+    : strata(tectonics)
+    : title("Orogeny Rate")
+    : symbol("dh/dt")
+
+    config {
+        stress_factor: 1e-8            # Conversion from stress to uplift rate
+        activity_factor: 100.0         # Base rate per unit activity
+    }
+
+    resolve {
+        # Orogeny driven by boundary stress and tectonic activity
+        let stress_contribution = signal.tectonics.boundary_stress * config.tectonics.orogeny_rate.stress_factor in
+        let activity_contribution = signal.tectonics.activity * config.tectonics.orogeny_rate.activity_factor in
+        stress_contribution + activity_contribution + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Orogeny rate cannot be negative"
+    }
+}
+
+# Volcanism index - volcanic activity level from thermal state
+signal.tectonics.volcanism {
+    : Scalar<1, 0..100>
+    : strata(tectonics)
+    : title("Volcanism Index")
+    : symbol("V_idx")
+
+    config {
+        reference_mantle_temp: 1600.0  # K
+        temp_sensitivity: 0.01         # Index per K above reference
+        flow_factor: 0.5               # Contribution from mantle flow
+    }
+
+    resolve {
+        # Volcanism driven by excess mantle temperature and convection strength
+        let temp_excess = max(signal.mantle.temp - config.tectonics.volcanism.reference_mantle_temp, 0.0) in
+        let temp_contribution = temp_excess * config.tectonics.volcanism.temp_sensitivity in
+        let flow_contribution = signal.mantle.flow_strength * config.tectonics.volcanism.flow_factor in
+        clamp(temp_contribution + flow_contribution + collected, 0.0, 100.0)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Volcanism index cannot be negative"
+        prev <= 100.0 : warn, "Volcanism index exceeds maximum"
+    }
+}
+
+# Subduction rate - rate at which oceanic crust is recycled
+signal.tectonics.subduction_rate {
+    : Scalar<km²/Myr, 0..10>
+    : strata(tectonics)
+    : title("Subduction Rate")
+    : symbol("A_sub")
+
+    config {
+        velocity_factor: 1e-6          # Conversion from plate velocity
+        boundary_factor: 0.1           # Factor for boundary length contribution
+    }
+
+    resolve {
+        # Subduction rate driven by plate velocities and convergent boundaries
+        let velocity_contribution = signal.plates.boundary_shear * 1e6 * config.tectonics.subduction_rate.velocity_factor in
+        let oceanic_fraction = signal.plates.oceanic_count / max(signal.plates.count, 1.0) in
+        velocity_contribution * oceanic_fraction * signal.tectonics.activity + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Subduction rate cannot be negative"
+    }
+}
+
+# Seafloor spreading rate - rate of new oceanic crust creation
+signal.tectonics.spreading_rate {
+    : Scalar<km²/Myr, 0..10>
+    : strata(tectonics)
+    : title("Seafloor Spreading Rate")
+    : symbol("A_spread")
+
+    config {
+        mantle_coupling: 0.2           # Coupling to mantle flow
+    }
+
+    resolve {
+        # Spreading rate roughly balances subduction over long timescales
+        # Driven by mantle upwelling strength
+        let flow_contribution = signal.mantle.flow_strength * config.tectonics.spreading_rate.mantle_coupling in
+        let activity_contribution = signal.tectonics.activity in
+        flow_contribution * activity_contribution + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Spreading rate cannot be negative"
     }
 }
 
@@ -1198,5 +1398,71 @@ field.plates.age_map {
 
     measure {
         signal.plates.mean_age
+    }
+}
+
+field.mantle.rayleigh {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Rayleigh Number Field")
+
+    measure {
+        signal.mantle.rayleigh_number
+    }
+}
+
+field.mantle.flow {
+    : Scalar<cm/yr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Mantle Flow Strength Field")
+
+    measure {
+        signal.mantle.flow_strength
+    }
+}
+
+field.tectonics.orogeny {
+    : Scalar<m/Myr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Orogeny Rate Field")
+
+    measure {
+        signal.tectonics.orogeny_rate
+    }
+}
+
+field.tectonics.volcanism_map {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Volcanism Index Field")
+
+    measure {
+        signal.tectonics.volcanism
+    }
+}
+
+field.tectonics.subduction {
+    : Scalar<km²/Myr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Subduction Rate Field")
+
+    measure {
+        signal.tectonics.subduction_rate
+    }
+}
+
+field.tectonics.spreading {
+    : Scalar<km²/Myr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Seafloor Spreading Field")
+
+    measure {
+        signal.tectonics.spreading_rate
     }
 }
