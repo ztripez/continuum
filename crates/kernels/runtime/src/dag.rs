@@ -28,7 +28,8 @@ use std::collections::HashSet;
 
 use indexmap::IndexMap;
 
-use crate::types::{SignalId, StratumId, EraId, Phase};
+use crate::reductions::ReductionOp;
+use crate::types::{EntityId, SignalId, StratumId, EraId, Phase};
 use crate::vectorized::MemberSignalId;
 
 /// A single execution unit in the dependency graph.
@@ -96,6 +97,45 @@ pub enum NodeKind {
         member_signal: MemberSignalId,
         /// Index into the lane kernel registry.
         kernel_idx: usize,
+    },
+    /// Compute a population aggregate over an entity's member signal.
+    ///
+    /// This node acts as a **scheduling barrier**: it reads from all instances
+    /// of a member signal and produces a scalar result. All member signal
+    /// resolution for the entity must complete before this node executes.
+    ///
+    /// # Barrier Semantics
+    ///
+    /// ```text
+    /// Entity instances:  [e0, e1, e2, ..., eN]
+    ///                          ↓
+    /// MemberSignal resolution (parallel)
+    ///                          ↓
+    ///                    ══════════════
+    ///                    BARRIER: Aggregate
+    ///                    ══════════════
+    ///                          ↓
+    /// Dependent signals (after barrier)
+    /// ```
+    ///
+    /// # Available Operations
+    ///
+    /// - `sum(entity, field)` - Sum all values
+    /// - `mean(entity, field)` - Average of all values
+    /// - `min(entity, field)` - Minimum value (lowest index wins ties)
+    /// - `max(entity, field)` - Maximum value (lowest index wins ties)
+    /// - `count(entity, predicate)` - Count matching instances
+    PopulationAggregate {
+        /// The entity type being aggregated over.
+        entity_id: EntityId,
+        /// The member signal to aggregate.
+        member_signal: MemberSignalId,
+        /// The reduction operation to apply.
+        reduction_op: ReductionOp,
+        /// Signal that stores the aggregate result.
+        output_signal: SignalId,
+        /// Index into the aggregate function table.
+        aggregate_idx: usize,
     },
 }
 
@@ -240,6 +280,340 @@ pub struct CycleError {
     /// These are the nodes that could not be scheduled because they
     /// form a circular dependency chain.
     pub involved_nodes: Vec<NodeId>,
+}
+
+// ============================================================================
+// Barrier-Aware DAG Builder
+// ============================================================================
+
+/// A dependency on a member signal, used for barrier scheduling.
+///
+/// When a signal reads from an aggregate over a member signal, we need to
+/// ensure all member signal resolution happens before the aggregate computes.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct MemberSignalDependency {
+    /// The member signal family being depended on.
+    pub member_signal: MemberSignalId,
+}
+
+/// Aggregate barrier definition for population-level reduction.
+///
+/// This represents a barrier point in the DAG where all instances of a member
+/// signal must be resolved before the aggregate can compute.
+#[derive(Debug, Clone)]
+pub struct AggregateBarrier {
+    /// Unique identifier for this barrier.
+    pub id: NodeId,
+    /// The member signal being aggregated.
+    pub member_signal: MemberSignalId,
+    /// The reduction operation.
+    pub reduction_op: ReductionOp,
+    /// Output signal storing the aggregate result.
+    pub output_signal: SignalId,
+    /// Index into aggregate function table.
+    pub aggregate_idx: usize,
+}
+
+/// Builder for constructing DAGs with barrier awareness.
+///
+/// This builder understands the relationship between:
+/// 1. Member signal resolution nodes (per-entity)
+/// 2. Population aggregate barriers
+/// 3. Dependent signals that read aggregates
+///
+/// # Barrier Scheduling
+///
+/// When an aggregate barrier is added, the builder automatically:
+/// - Creates a dependency on all member signal resolution nodes for that entity
+/// - Schedules the aggregate after all instances are resolved
+/// - Allows dependent signals to read the aggregate result
+///
+/// # Example
+///
+/// ```ignore
+/// let mut builder = BarrierDagBuilder::new(Phase::Resolve, "physics".into());
+///
+/// // Add member signal resolution for all persons
+/// builder.add_member_signal_resolve("person.age".parse().unwrap(), 0);
+///
+/// // Add aggregate barrier that computes mean age
+/// builder.add_aggregate_barrier(AggregateBarrier {
+///     id: NodeId("mean_age_barrier".to_string()),
+///     member_signal: "person.age".parse().unwrap(),
+///     reduction_op: ReductionOp::Mean,
+///     output_signal: "population.mean_age".into(),
+///     aggregate_idx: 0,
+/// });
+///
+/// // Add signal that reads the aggregate
+/// builder.add_signal_resolve(
+///     "policy.retirement_age".into(),
+///     0,
+///     &["population.mean_age".into()], // Reads aggregate
+/// );
+/// ```
+pub struct BarrierDagBuilder {
+    nodes: Vec<DagNode>,
+    phase: Phase,
+    stratum: StratumId,
+    /// Track which member signals have resolution nodes.
+    member_signal_nodes: IndexMap<MemberSignalId, NodeId>,
+    /// Track aggregate barriers for dependency resolution.
+    aggregate_barriers: Vec<AggregateBarrier>,
+}
+
+impl BarrierDagBuilder {
+    /// Create a new barrier-aware DAG builder.
+    pub fn new(phase: Phase, stratum: StratumId) -> Self {
+        Self {
+            nodes: Vec::new(),
+            phase,
+            stratum,
+            member_signal_nodes: IndexMap::new(),
+            aggregate_barriers: Vec::new(),
+        }
+    }
+
+    /// Add a member signal resolution node.
+    ///
+    /// This node resolves all instances of a member signal and must complete
+    /// before any aggregate over this signal can be computed.
+    pub fn add_member_signal_resolve(&mut self, member_signal: MemberSignalId, kernel_idx: usize) {
+        let node_id = NodeId(format!("member.{}", member_signal));
+
+        // Track this member signal node for barrier dependencies
+        self.member_signal_nodes
+            .insert(member_signal.clone(), node_id.clone());
+
+        self.nodes.push(DagNode {
+            id: node_id,
+            reads: HashSet::new(), // Member signals read from previous tick
+            writes: None, // Writes to population storage, not global signal
+            kind: NodeKind::MemberSignalResolve {
+                member_signal,
+                kernel_idx,
+            },
+        });
+    }
+
+    /// Add an aggregate barrier that computes a population reduction.
+    ///
+    /// This barrier automatically depends on the corresponding member signal
+    /// resolution node, ensuring all instances are resolved before aggregation.
+    pub fn add_aggregate_barrier(&mut self, barrier: AggregateBarrier) {
+        // The barrier reads from the member signal (dependency on member resolve)
+        let mut reads = HashSet::new();
+
+        // If there's a corresponding member signal node, create a synthetic
+        // signal ID for dependency tracking
+        let member_dep_signal = SignalId(format!("__member.{}", barrier.member_signal));
+        reads.insert(member_dep_signal.clone());
+
+        // Update the member signal node to "write" this synthetic signal
+        // so the topological sort understands the dependency
+        if let Some(node_id) = self.member_signal_nodes.get(&barrier.member_signal) {
+            // Find and update the node
+            for node in &mut self.nodes {
+                if &node.id == node_id {
+                    node.writes = Some(member_dep_signal);
+                    break;
+                }
+            }
+        }
+
+        self.nodes.push(DagNode {
+            id: barrier.id.clone(),
+            reads,
+            writes: Some(barrier.output_signal.clone()),
+            kind: NodeKind::PopulationAggregate {
+                entity_id: barrier.member_signal.entity_id.clone(),
+                member_signal: barrier.member_signal.clone(),
+                reduction_op: barrier.reduction_op,
+                output_signal: barrier.output_signal.clone(),
+                aggregate_idx: barrier.aggregate_idx,
+            },
+        });
+
+        self.aggregate_barriers.push(barrier);
+    }
+
+    /// Add a global signal resolution node.
+    ///
+    /// If this signal reads from an aggregate output, it will be scheduled
+    /// after the aggregate barrier.
+    pub fn add_signal_resolve(
+        &mut self,
+        signal: SignalId,
+        resolver_idx: usize,
+        reads: &[SignalId],
+    ) {
+        self.nodes.push(DagNode {
+            id: NodeId(format!("sig.{}", signal)),
+            reads: reads.iter().cloned().collect(),
+            writes: Some(signal.clone()),
+            kind: NodeKind::SignalResolve {
+                signal,
+                resolver_idx,
+            },
+        });
+    }
+
+    /// Build the DAG with barrier-aware topological leveling.
+    pub fn build(self) -> Result<ExecutableDag, CycleError> {
+        let levels = topological_levels(&self.nodes)?;
+
+        Ok(ExecutableDag {
+            phase: self.phase,
+            stratum: self.stratum,
+            levels,
+        })
+    }
+
+    /// Get statistics about the barrier structure.
+    pub fn barrier_stats(&self) -> BarrierStats {
+        BarrierStats {
+            member_signal_count: self.member_signal_nodes.len(),
+            aggregate_barrier_count: self.aggregate_barriers.len(),
+            total_node_count: self.nodes.len(),
+        }
+    }
+}
+
+/// Statistics about barrier structure in a DAG.
+#[derive(Debug, Clone, Copy)]
+pub struct BarrierStats {
+    /// Number of member signal resolution nodes.
+    pub member_signal_count: usize,
+    /// Number of aggregate barrier nodes.
+    pub aggregate_barrier_count: usize,
+    /// Total number of nodes.
+    pub total_node_count: usize,
+}
+
+// ============================================================================
+// Gated Stratum Optimization
+// ============================================================================
+
+/// Marker for stratum execution eligibility.
+///
+/// Used to optimize gated and strided strata by avoiding work entirely
+/// when the stratum is not eligible for the current tick.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StratumEligibility {
+    /// Stratum is eligible and should execute.
+    Eligible,
+    /// Stratum is gated and should skip all work.
+    Gated,
+    /// Stratum has stride > 1 and tick is not aligned.
+    StrideSkipped,
+}
+
+impl StratumEligibility {
+    /// Determine eligibility from stratum state and tick.
+    ///
+    /// This is an O(1) check that avoids touching any entity arrays or
+    /// signal storage when the stratum should skip execution.
+    pub fn from_state(state: crate::types::StratumState, tick: u64) -> Self {
+        match state {
+            crate::types::StratumState::Active => StratumEligibility::Eligible,
+            crate::types::StratumState::Gated => StratumEligibility::Gated,
+            crate::types::StratumState::ActiveWithStride(stride) => {
+                if tick.is_multiple_of(stride as u64) {
+                    StratumEligibility::Eligible
+                } else {
+                    StratumEligibility::StrideSkipped
+                }
+            }
+        }
+    }
+
+    /// Check if stratum should execute.
+    pub fn should_execute(&self) -> bool {
+        matches!(self, StratumEligibility::Eligible)
+    }
+}
+
+// ============================================================================
+// Barrier Verification
+// ============================================================================
+
+/// Verify that a DAG respects aggregate barrier semantics.
+///
+/// This checks that:
+/// 1. All aggregates are scheduled after their source member signals
+/// 2. All signals reading aggregates are scheduled after the aggregate
+///
+/// Returns `Ok(())` if valid, or `Err` with a description of the violation.
+pub fn verify_barrier_semantics(dag: &ExecutableDag) -> Result<(), BarrierViolation> {
+    let mut aggregate_levels: IndexMap<SignalId, usize> = IndexMap::new();
+    let mut member_signal_levels: IndexMap<MemberSignalId, usize> = IndexMap::new();
+
+    // First pass: record level of each node
+    for (level_idx, level) in dag.levels.iter().enumerate() {
+        for node in &level.nodes {
+            match &node.kind {
+                NodeKind::MemberSignalResolve { member_signal, .. } => {
+                    member_signal_levels.insert(member_signal.clone(), level_idx);
+                }
+                NodeKind::PopulationAggregate {
+                    member_signal,
+                    output_signal,
+                    ..
+                } => {
+                    aggregate_levels.insert(output_signal.clone(), level_idx);
+
+                    // Verify: aggregate must be after member signal resolution
+                    if let Some(&member_level) = member_signal_levels.get(member_signal) {
+                        if level_idx <= member_level {
+                            return Err(BarrierViolation::AggregateBeforeMemberSignal {
+                                aggregate_signal: output_signal.clone(),
+                                member_signal: member_signal.clone(),
+                                aggregate_level: level_idx,
+                                member_level,
+                            });
+                        }
+                    }
+                }
+                NodeKind::SignalResolve { signal, .. } => {
+                    // Check if this signal reads from any aggregate
+                    for read_signal in &node.reads {
+                        if let Some(&agg_level) = aggregate_levels.get(read_signal) {
+                            if level_idx <= agg_level {
+                                return Err(BarrierViolation::SignalBeforeAggregate {
+                                    signal: signal.clone(),
+                                    aggregate_signal: read_signal.clone(),
+                                    signal_level: level_idx,
+                                    aggregate_level: agg_level,
+                                });
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Error type for barrier semantic violations.
+#[derive(Debug, Clone)]
+pub enum BarrierViolation {
+    /// An aggregate is scheduled before or at the same level as its source.
+    AggregateBeforeMemberSignal {
+        aggregate_signal: SignalId,
+        member_signal: MemberSignalId,
+        aggregate_level: usize,
+        member_level: usize,
+    },
+    /// A signal reading an aggregate is scheduled before or at the aggregate level.
+    SignalBeforeAggregate {
+        signal: SignalId,
+        aggregate_signal: SignalId,
+        signal_level: usize,
+        aggregate_level: usize,
+    },
 }
 
 /// Compute topological levels using Kahn's algorithm
@@ -560,5 +934,242 @@ mod tests {
         let ids: Vec<_> = err.involved_nodes.iter().map(|n| &n.0).collect();
         assert!(ids.contains(&&"x".to_string()));
         assert!(ids.contains(&&"y".to_string()));
+    }
+
+    // ========================================================================
+    // Barrier-Aware DAG Builder Tests
+    // ========================================================================
+
+    use crate::reductions::ReductionOp;
+    use crate::types::EntityId;
+    use crate::vectorized::MemberSignalId;
+
+    #[test]
+    fn test_barrier_dag_builder_member_signal_before_aggregate() {
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("physics".to_string()));
+
+        // Add member signal resolution for person.age
+        let member_signal = MemberSignalId {
+            entity_id: EntityId("person".to_string()),
+            signal_name: "age".to_string(),
+        };
+        builder.add_member_signal_resolve(member_signal.clone(), 0);
+
+        // Add aggregate barrier that computes mean age
+        builder.add_aggregate_barrier(AggregateBarrier {
+            id: NodeId("mean_age_barrier".to_string()),
+            member_signal: member_signal.clone(),
+            reduction_op: ReductionOp::Mean,
+            output_signal: SignalId("population.mean_age".to_string()),
+            aggregate_idx: 0,
+        });
+
+        let dag = builder.build().expect("should build without cycles");
+
+        // Verify: member signal is in level 0, aggregate is in level 1
+        assert_eq!(dag.levels.len(), 2);
+        assert_eq!(dag.levels[0].nodes.len(), 1);
+        assert_eq!(dag.levels[1].nodes.len(), 1);
+
+        // Check level 0 is the member signal
+        assert!(matches!(
+            dag.levels[0].nodes[0].kind,
+            NodeKind::MemberSignalResolve { .. }
+        ));
+
+        // Check level 1 is the aggregate
+        assert!(matches!(
+            dag.levels[1].nodes[0].kind,
+            NodeKind::PopulationAggregate { .. }
+        ));
+    }
+
+    #[test]
+    fn test_barrier_dag_builder_signal_after_aggregate() {
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("physics".to_string()));
+
+        // Add member signal resolution
+        let member_signal = MemberSignalId {
+            entity_id: EntityId("particle".to_string()),
+            signal_name: "energy".to_string(),
+        };
+        builder.add_member_signal_resolve(member_signal.clone(), 0);
+
+        // Add aggregate barrier
+        builder.add_aggregate_barrier(AggregateBarrier {
+            id: NodeId("total_energy_barrier".to_string()),
+            member_signal: member_signal.clone(),
+            reduction_op: ReductionOp::Sum,
+            output_signal: SignalId("system.total_energy".to_string()),
+            aggregate_idx: 0,
+        });
+
+        // Add a global signal that reads the aggregate
+        builder.add_signal_resolve(
+            SignalId("system.energy_ratio".to_string()),
+            1,
+            &[SignalId("system.total_energy".to_string())],
+        );
+
+        let dag = builder.build().expect("should build without cycles");
+
+        // Verify: 3 levels - member signal, aggregate, dependent signal
+        assert_eq!(dag.levels.len(), 3);
+        assert!(matches!(
+            dag.levels[0].nodes[0].kind,
+            NodeKind::MemberSignalResolve { .. }
+        ));
+        assert!(matches!(
+            dag.levels[1].nodes[0].kind,
+            NodeKind::PopulationAggregate { .. }
+        ));
+        assert!(matches!(
+            dag.levels[2].nodes[0].kind,
+            NodeKind::SignalResolve { .. }
+        ));
+    }
+
+    #[test]
+    fn test_barrier_dag_builder_multiple_aggregates() {
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("physics".to_string()));
+
+        let member_signal = MemberSignalId {
+            entity_id: EntityId("cell".to_string()),
+            signal_name: "temperature".to_string(),
+        };
+        builder.add_member_signal_resolve(member_signal.clone(), 0);
+
+        // Multiple aggregates over the same member signal
+        builder.add_aggregate_barrier(AggregateBarrier {
+            id: NodeId("min_temp".to_string()),
+            member_signal: member_signal.clone(),
+            reduction_op: ReductionOp::Min,
+            output_signal: SignalId("grid.min_temp".to_string()),
+            aggregate_idx: 0,
+        });
+
+        builder.add_aggregate_barrier(AggregateBarrier {
+            id: NodeId("max_temp".to_string()),
+            member_signal: member_signal.clone(),
+            reduction_op: ReductionOp::Max,
+            output_signal: SignalId("grid.max_temp".to_string()),
+            aggregate_idx: 1,
+        });
+
+        let dag = builder.build().expect("should build");
+
+        // Both aggregates should be at level 1 (they can run in parallel)
+        assert_eq!(dag.levels.len(), 2);
+        assert_eq!(dag.levels[0].nodes.len(), 1); // member signal
+        assert_eq!(dag.levels[1].nodes.len(), 2); // both aggregates
+    }
+
+    #[test]
+    fn test_barrier_stats() {
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("test".to_string()));
+
+        let ms1 = MemberSignalId {
+            entity_id: EntityId("a".to_string()),
+            signal_name: "x".to_string(),
+        };
+        let ms2 = MemberSignalId {
+            entity_id: EntityId("b".to_string()),
+            signal_name: "y".to_string(),
+        };
+
+        builder.add_member_signal_resolve(ms1.clone(), 0);
+        builder.add_member_signal_resolve(ms2.clone(), 1);
+
+        builder.add_aggregate_barrier(AggregateBarrier {
+            id: NodeId("agg1".to_string()),
+            member_signal: ms1,
+            reduction_op: ReductionOp::Sum,
+            output_signal: SignalId("out1".to_string()),
+            aggregate_idx: 0,
+        });
+
+        let stats = builder.barrier_stats();
+        assert_eq!(stats.member_signal_count, 2);
+        assert_eq!(stats.aggregate_barrier_count, 1);
+        assert_eq!(stats.total_node_count, 3);
+    }
+
+    // ========================================================================
+    // Barrier Verification Tests
+    // ========================================================================
+
+    #[test]
+    fn test_verify_barrier_semantics_valid() {
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("test".to_string()));
+
+        let member_signal = MemberSignalId {
+            entity_id: EntityId("entity".to_string()),
+            signal_name: "value".to_string(),
+        };
+        builder.add_member_signal_resolve(member_signal.clone(), 0);
+
+        builder.add_aggregate_barrier(AggregateBarrier {
+            id: NodeId("agg".to_string()),
+            member_signal,
+            reduction_op: ReductionOp::Sum,
+            output_signal: SignalId("sum".to_string()),
+            aggregate_idx: 0,
+        });
+
+        builder.add_signal_resolve(
+            SignalId("derived".to_string()),
+            0,
+            &[SignalId("sum".to_string())],
+        );
+
+        let dag = builder.build().unwrap();
+        assert!(verify_barrier_semantics(&dag).is_ok());
+    }
+
+    // ========================================================================
+    // Stratum Eligibility Tests
+    // ========================================================================
+
+    #[test]
+    fn test_stratum_eligibility_active() {
+        let eligibility =
+            StratumEligibility::from_state(crate::types::StratumState::Active, 0);
+        assert_eq!(eligibility, StratumEligibility::Eligible);
+        assert!(eligibility.should_execute());
+    }
+
+    #[test]
+    fn test_stratum_eligibility_gated() {
+        let eligibility =
+            StratumEligibility::from_state(crate::types::StratumState::Gated, 0);
+        assert_eq!(eligibility, StratumEligibility::Gated);
+        assert!(!eligibility.should_execute());
+    }
+
+    #[test]
+    fn test_stratum_eligibility_stride_aligned() {
+        // Stride 4, tick 8 is aligned (8 % 4 == 0)
+        let eligibility =
+            StratumEligibility::from_state(crate::types::StratumState::ActiveWithStride(4), 8);
+        assert_eq!(eligibility, StratumEligibility::Eligible);
+        assert!(eligibility.should_execute());
+    }
+
+    #[test]
+    fn test_stratum_eligibility_stride_not_aligned() {
+        // Stride 4, tick 7 is not aligned (7 % 4 != 0)
+        let eligibility =
+            StratumEligibility::from_state(crate::types::StratumState::ActiveWithStride(4), 7);
+        assert_eq!(eligibility, StratumEligibility::StrideSkipped);
+        assert!(!eligibility.should_execute());
+    }
+
+    #[test]
+    fn test_stratum_eligibility_stride_zero_tick() {
+        // Tick 0 should always be aligned (0 % n == 0 for any n)
+        let eligibility =
+            StratumEligibility::from_state(crate::types::StratumState::ActiveWithStride(10), 0);
+        assert_eq!(eligibility, StratumEligibility::Eligible);
+        assert!(eligibility.should_execute());
     }
 }
