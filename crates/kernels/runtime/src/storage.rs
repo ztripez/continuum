@@ -224,6 +224,86 @@ impl FieldBuffer {
     pub fn field_ids(&self) -> impl Iterator<Item = &FieldId> {
         self.samples.keys()
     }
+
+    /// Merge samples from another buffer into this one.
+    ///
+    /// Used for combining thread-local buffers after parallel emission.
+    pub fn merge(&mut self, other: FieldBuffer) {
+        for (field, mut samples) in other.samples {
+            self.samples.entry(field).or_default().append(&mut samples);
+        }
+    }
+
+    /// Get total sample count across all fields.
+    pub fn sample_count(&self) -> usize {
+        self.samples.values().map(|v| v.len()).sum()
+    }
+}
+
+/// Thread-local field buffer for parallel emission.
+///
+/// Each thread gets its own `FieldBuffer`, allowing lock-free emission
+/// during parallel Measure phase. After emission completes, call
+/// [`merge_all`](Self::merge_all) to combine all thread-local buffers.
+///
+/// # Example
+///
+/// ```ignore
+/// use rayon::prelude::*;
+///
+/// let parallel_buffer = ParallelFieldBuffer::new();
+///
+/// // Parallel emission
+/// (0..1000).into_par_iter().for_each(|i| {
+///     parallel_buffer.emit(field_id.clone(), [i as f64, 0.0, 0.0], Value::Scalar(i as f64));
+/// });
+///
+/// // Merge all thread-local buffers
+/// let result = parallel_buffer.merge_all();
+/// ```
+pub struct ParallelFieldBuffer {
+    /// Per-thread buffers using thread_local crate.
+    local_buffers: thread_local::ThreadLocal<std::cell::RefCell<FieldBuffer>>,
+}
+
+impl ParallelFieldBuffer {
+    /// Create a new parallel field buffer.
+    pub fn new() -> Self {
+        Self {
+            local_buffers: thread_local::ThreadLocal::new(),
+        }
+    }
+
+    /// Emit a sample to a field (thread-safe, lock-free).
+    pub fn emit(&self, field: FieldId, position: [f64; 3], value: Value) {
+        self.local_buffers
+            .get_or(|| std::cell::RefCell::new(FieldBuffer::default()))
+            .borrow_mut()
+            .emit(field, position, value);
+    }
+
+    /// Emit a scalar sample (convenience for point values).
+    pub fn emit_scalar(&self, field: FieldId, value: f64) {
+        self.emit(field, [0.0, 0.0, 0.0], Value::Scalar(value));
+    }
+
+    /// Merge all thread-local buffers into a single FieldBuffer.
+    ///
+    /// This consumes the parallel buffer and returns the merged result.
+    pub fn merge_all(self) -> FieldBuffer {
+        let mut result = FieldBuffer::default();
+        for local in self.local_buffers.into_iter() {
+            result.merge(local.into_inner());
+        }
+        result
+    }
+
+}
+
+impl Default for ParallelFieldBuffer {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// Data for a single entity instance
@@ -810,5 +890,125 @@ mod tests {
         assert_eq!(storage.get_prev(&fast_id), Some(&Value::Scalar(2.0)));
         // Slow signal preserved from previous tick
         assert_eq!(storage.get_prev(&slow_id), Some(&Value::Scalar(100.0)));
+    }
+
+    // ========================================================================
+    // ParallelFieldBuffer Tests
+    // ========================================================================
+
+    #[test]
+    fn test_parallel_field_buffer_single_thread() {
+        let buffer = ParallelFieldBuffer::new();
+        let field_id: FieldId = "test.field".into();
+
+        buffer.emit_scalar(field_id.clone(), 1.0);
+        buffer.emit_scalar(field_id.clone(), 2.0);
+
+        let merged = buffer.merge_all();
+        let samples = merged.get_samples(&field_id).unwrap();
+        assert_eq!(samples.len(), 2);
+    }
+
+    #[test]
+    fn test_parallel_field_buffer_with_positions() {
+        let buffer = ParallelFieldBuffer::new();
+        let field_id: FieldId = "spatial.field".into();
+
+        buffer.emit(field_id.clone(), [1.0, 0.0, 0.0], Value::Scalar(10.0));
+        buffer.emit(field_id.clone(), [2.0, 0.0, 0.0], Value::Scalar(20.0));
+
+        let merged = buffer.merge_all();
+        let samples = merged.get_samples(&field_id).unwrap();
+        assert_eq!(samples.len(), 2);
+        assert_eq!(samples[0].position, [1.0, 0.0, 0.0]);
+        assert_eq!(samples[1].position, [2.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_parallel_field_buffer_parallel_emission() {
+        use rayon::prelude::*;
+
+        let buffer = ParallelFieldBuffer::new();
+        let field_id: FieldId = "parallel.field".into();
+
+        // Emit from multiple threads
+        (0..1000).into_par_iter().for_each(|i| {
+            buffer.emit(
+                field_id.clone(),
+                [i as f64, 0.0, 0.0],
+                Value::Scalar(i as f64),
+            );
+        });
+
+        let merged = buffer.merge_all();
+        let samples = merged.get_samples(&field_id).unwrap();
+
+        // All 1000 samples should be present
+        assert_eq!(samples.len(), 1000);
+
+        // Verify values (order is not guaranteed)
+        let sum: f64 = samples
+            .iter()
+            .filter_map(|s| match s.value {
+                Value::Scalar(v) => Some(v),
+                _ => None,
+            })
+            .sum();
+        // Sum of 0..1000 = 499500
+        assert_eq!(sum, 499500.0);
+    }
+
+    #[test]
+    fn test_parallel_field_buffer_multiple_fields() {
+        use rayon::prelude::*;
+
+        let buffer = ParallelFieldBuffer::new();
+        let field_a: FieldId = "field.a".into();
+        let field_b: FieldId = "field.b".into();
+
+        (0..100).into_par_iter().for_each(|i| {
+            if i % 2 == 0 {
+                buffer.emit_scalar(field_a.clone(), i as f64);
+            } else {
+                buffer.emit_scalar(field_b.clone(), i as f64);
+            }
+        });
+
+        let merged = buffer.merge_all();
+
+        // 50 samples in each field
+        assert_eq!(merged.get_samples(&field_a).unwrap().len(), 50);
+        assert_eq!(merged.get_samples(&field_b).unwrap().len(), 50);
+    }
+
+    #[test]
+    fn test_field_buffer_merge() {
+        let mut buffer1 = FieldBuffer::default();
+        let mut buffer2 = FieldBuffer::default();
+        let field_id: FieldId = "merged.field".into();
+
+        buffer1.emit_scalar(field_id.clone(), 1.0);
+        buffer1.emit_scalar(field_id.clone(), 2.0);
+
+        buffer2.emit_scalar(field_id.clone(), 3.0);
+        buffer2.emit_scalar(field_id.clone(), 4.0);
+
+        buffer1.merge(buffer2);
+
+        let samples = buffer1.get_samples(&field_id).unwrap();
+        assert_eq!(samples.len(), 4);
+    }
+
+    #[test]
+    fn test_field_buffer_sample_count() {
+        let mut buffer = FieldBuffer::default();
+        let field_a: FieldId = "field.a".into();
+        let field_b: FieldId = "field.b".into();
+
+        buffer.emit_scalar(field_a.clone(), 1.0);
+        buffer.emit_scalar(field_a.clone(), 2.0);
+        buffer.emit_scalar(field_b.clone(), 3.0);
+
+        assert_eq!(buffer.sample_count(), 3);
     }
 }

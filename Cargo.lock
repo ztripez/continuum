@@ -373,6 +373,7 @@ dependencies = [
  "rayon",
  "serde",
  "thiserror",
+ "thread_local",
  "tracing",
 ]
 
