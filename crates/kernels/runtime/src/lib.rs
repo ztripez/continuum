@@ -10,6 +10,7 @@
 //!
 //! - [`types`] - Core types: [`Phase`], [`Value`], [`StratumState`], [`Dt`]
 //! - [`storage`] - Signal and entity storage with tick management
+//! - [`soa_storage`] - SoA (Struct-of-Arrays) storage for vectorized execution
 //! - [`executor`] - Phase executors and the main [`Runtime`] type
 //! - [`dag`] - Execution graph construction and scheduling
 //! - [`error`] - Error types for runtime failures
@@ -40,6 +41,7 @@
 pub mod dag;
 pub mod error;
 pub mod executor;
+pub mod soa_storage;
 pub mod storage;
 pub mod types;
 
@@ -49,5 +51,9 @@ pub use executor::{
     EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, MeasureContext, MeasureFn,
     PhaseExecutor, ResolveContext, ResolverFn, Runtime, TransitionFn, WarmupContext,
     WarmupExecutor, WarmupFn,
+};
+pub use soa_storage::{
+    AlignedBuffer, MemberSignalBuffer, MemberSignalMeta, MemberSignalRegistry, PopulationStorage,
+    TypedBuffer, ValueType, SIMD_ALIGNMENT,
 };
 pub use types::*;
