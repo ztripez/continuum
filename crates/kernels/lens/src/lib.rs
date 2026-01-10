@@ -82,11 +82,88 @@ pub enum LensError {
     NoSamplesAtTick { field: FieldId, tick: u64 },
 }
 
+/// Tile identifier for virtual topology.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct TileId(u64);
+
+impl TileId {
+    pub fn from_parts(face: u8, lod: u8, morton: u64) -> Self {
+        let id = ((face as u64) << 56) | ((lod as u64) << 48) | (morton & 0x0000_FFFF_FFFF_FFFF);
+        Self(id)
+    }
+
+    pub fn lod(self) -> u8 {
+        ((self.0 >> 48) & 0xFF) as u8
+    }
+}
+
+/// Region selector for topology queries.
+#[derive(Debug, Clone)]
+pub enum Region {
+    Tile(TileId),
+    SphereCap { center: [f64; 3], radius_rad: f64 },
+}
+
+/// Virtual topology interface (observer-only).
+pub trait VirtualTopology: Send + Sync {
+    fn tile_at(&self, position: [f64; 3], lod: u8) -> TileId;
+}
+
+/// Minimal cubed-sphere topology.
+#[derive(Debug, Default, Clone)]
+pub struct CubedSphereTopology;
+
+impl CubedSphereTopology {
+    fn face_and_uv(position: [f64; 3]) -> (u8, f64, f64) {
+        let (x, y, z) = (position[0], position[1], position[2]);
+        let ax = x.abs();
+        let ay = y.abs();
+        let az = z.abs();
+        if ax >= ay && ax >= az {
+            if x >= 0.0 {
+                (0, -z / ax, y / ax)
+            } else {
+                (1, z / ax, y / ax)
+            }
+        } else if ay >= ax && ay >= az {
+            if y >= 0.0 {
+                (2, x / ay, -z / ay)
+            } else {
+                (3, x / ay, z / ay)
+            }
+        } else if z >= 0.0 {
+            (4, x / az, y / az)
+        } else {
+            (5, -x / az, y / az)
+        }
+    }
+
+    fn uv_to_morton(u: f64, v: f64, lod: u8) -> u64 {
+        let grid = 1u64 << lod;
+        let u = ((u + 1.0) * 0.5 * grid as f64).clamp(0.0, (grid - 1) as f64) as u64;
+        let v = ((v + 1.0) * 0.5 * grid as f64).clamp(0.0, (grid - 1) as f64) as u64;
+        let mut morton = 0u64;
+        for i in 0..lod {
+            morton |= ((u >> i) & 1) << (2 * i);
+            morton |= ((v >> i) & 1) << (2 * i + 1);
+        }
+        morton
+    }
+}
+
+impl VirtualTopology for CubedSphereTopology {
+    fn tile_at(&self, position: [f64; 3], lod: u8) -> TileId {
+        let (face, u, v) = Self::face_and_uv(position);
+        let morton = Self::uv_to_morton(u, v, lod);
+        TileId::from_parts(face, lod, morton)
+    }
+}
+
 /// Canonical observer boundary for field history.
-#[derive(Debug, Default)]
 pub struct FieldLens {
     config: FieldLensConfig,
     fields: IndexMap<FieldId, FieldStorage>,
+    topology: Arc<dyn VirtualTopology>,
 }
 
 /// Playback clock for observer queries (fractional tick time).
@@ -204,6 +281,7 @@ impl FieldLens {
         Ok(Self {
             config,
             fields: IndexMap::new(),
+            topology: Arc::new(CubedSphereTopology::default()),
         })
     }
 
@@ -293,6 +371,51 @@ impl FieldLens {
         Ok(Arc::new(NearestNeighborReconstruction::new(
             frame.samples.clone(),
         )))
+    }
+
+    /// Get reconstruction for a specific tile at tick.
+    pub fn tile(
+        &self,
+        field_id: &FieldId,
+        tile_id: TileId,
+        tick: u64,
+    ) -> Result<Arc<dyn FieldReconstruction>, LensError> {
+        let storage = self
+            .fields
+            .get(field_id)
+            .ok_or_else(|| LensError::FieldNotFound(field_id.clone()))?;
+
+        let frame = storage
+            .history
+            .iter()
+            .find(|frame| frame.tick == tick)
+            .ok_or_else(|| LensError::NoSamplesAtTick {
+                field: field_id.clone(),
+                tick,
+            })?;
+
+        if frame.samples.is_empty() {
+            return Err(LensError::NoSamplesAtTick {
+                field: field_id.clone(),
+                tick,
+            });
+        }
+
+        let samples = frame
+            .samples
+            .iter()
+            .filter(|sample| self.topology.tile_at(sample.position, tile_id.lod()) == tile_id)
+            .cloned()
+            .collect::<Vec<_>>();
+
+        if samples.is_empty() {
+            return Err(LensError::NoSamplesAtTick {
+                field: field_id.clone(),
+                tick,
+            });
+        }
+
+        Ok(Arc::new(NearestNeighborReconstruction::new(samples)))
     }
 
     /// Query scalar at a specific tick (spatial only, no temporal interpolation).
@@ -554,5 +677,14 @@ mod tests {
             .query(&field_id, [0.0, 0.0, 0.0], 1.5)
             .expect("query works");
         assert_eq!(value, 5.0);
+    }
+
+    #[test]
+    fn topology_tile_at_is_deterministic() {
+        let topo = CubedSphereTopology::default();
+        let pos = [1.0, 0.2, -0.3];
+        let a = topo.tile_at(pos, 3);
+        let b = topo.tile_at(pos, 3);
+        assert_eq!(a, b);
     }
 }
