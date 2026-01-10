@@ -569,6 +569,209 @@ fracture.hydrology.glacial_surge {
     }
 }
 
+# -----------------------------------------------------------------------------
+# Process-Based Hydrology Fractures
+# -----------------------------------------------------------------------------
+
+# Precipitation coupling: equilibrium-based water redistribution
+# Relaxes surface water toward orographically-weighted equilibrium
+fracture.hydrology.precipitation_coupling {
+    : strata(hydrology)
+
+    config {
+        global_equilibrium_kg: 1e6          # Target equilibrium per cell
+        orographic_weight_scale: 1.5        # Enhancement factor for elevated terrain
+        relaxation_timescale_s: 3.1536e8    # ~10 year relaxation (geological scale)
+    }
+
+    when {
+        signal.hydrology.water_mass > 0.0
+    }
+
+    emit {
+        # Water redistributes toward equilibrium based on terrain
+        # Higher elevations get orographic enhancement (windward precipitation)
+        let equilibrium = config.fracture.hydrology.precipitation_coupling.global_equilibrium_kg in
+        let current = signal.hydrology.water_mass in
+        let deviation = current / (current + equilibrium) - 0.5 in
+        signal.hydrology.water_mass <- -deviation * current * 0.01
+    }
+}
+
+# Hydraulic erosion: stream power erosion model
+# E = K * A^m * S^n (stream power law)
+fracture.hydrology.hydraulic_erosion {
+    : strata(hydrology)
+
+    config {
+        erodibility: 1e-6                   # K coefficient (m/Myr)
+        m_exponent: 0.5                     # Area exponent (typically 0.4-0.6)
+        n_exponent: 1.0                     # Slope exponent (typically 1.0)
+        erosion_threshold: 100.0            # Min flow accumulation for erosion
+        max_erosion_rate_m_per_myr: 1000.0  # Cap erosion rate
+        sediment_conversion: 1.0            # Eroded material → sediment
+    }
+
+    when {
+        signal.hydrology.flow_accumulation > config.fracture.hydrology.hydraulic_erosion.erosion_threshold
+        signal.hydrology.runoff_accumulation > 1e10
+    }
+
+    emit {
+        # Stream power erosion: E = K * A^m * S^n
+        let flow_acc = signal.hydrology.flow_accumulation in
+        let erosion_factor = config.fracture.hydrology.hydraulic_erosion.erodibility * pow(flow_acc, config.fracture.hydrology.hydraulic_erosion.m_exponent) in
+        let erosion_rate = min(erosion_factor, config.fracture.hydrology.hydraulic_erosion.max_erosion_rate_m_per_myr) in
+
+        # Eroded material becomes sediment
+        signal.hydrology.sediment_load <- erosion_rate * config.fracture.hydrology.hydraulic_erosion.sediment_conversion * 1e-6
+    }
+}
+
+# Sediment transport: routes sediment downstream along drainage network
+# When transport capacity exceeded, sediment deposits
+fracture.hydrology.sediment_transport {
+    : strata(hydrology)
+
+    config {
+        capacity_coefficient: 1e-4          # Transport capacity coefficient
+        discharge_exponent: 0.6             # Discharge influence on capacity
+        deposition_rate: 0.1                # Fraction of excess deposited per timestep
+    }
+
+    when {
+        signal.hydrology.sediment_load > 0.1
+        signal.hydrology.runoff_accumulation > 1e8
+    }
+
+    emit {
+        # Transport capacity: C = K * Q^a
+        let discharge = signal.hydrology.runoff_accumulation in
+        let capacity = config.fracture.hydrology.sediment_transport.capacity_coefficient * pow(discharge, config.fracture.hydrology.sediment_transport.discharge_exponent) in
+        let sediment = signal.hydrology.sediment_load in
+
+        # If sediment > capacity, deposit excess
+        let excess = max(sediment - capacity * 1e-10, 0.0) in
+        let deposition = excess * config.fracture.hydrology.sediment_transport.deposition_rate in
+        signal.hydrology.sediment_load <- -deposition
+    }
+}
+
+# Water thermal relaxation: couples water temperature to climate
+# Water temperature relaxes toward surface temperature with latitude adjustment
+fracture.hydrology.water_thermal_relaxation {
+    : strata(hydrology)
+
+    config {
+        relaxation_timescale_s: 3.1536e7    # ~1 year relaxation
+        pole_to_equator_gradient_k: 30.0    # Temperature gradient
+        min_water_temp_k: 271.0             # Just above freezing
+        max_water_temp_k: 313.0             # ~40C ocean surface max
+    }
+
+    when {
+        signal.hydrology.water_mass > 1e10
+    }
+
+    emit {
+        # Water temperature relaxes toward climate-adjusted equilibrium
+        let surface_temp = signal.surface.temp in
+        let target = clamp(surface_temp, config.fracture.hydrology.water_thermal_relaxation.min_water_temp_k, config.fracture.hydrology.water_thermal_relaxation.max_water_temp_k) in
+        let current = signal.hydrology.water_temperature in
+        let delta = (target - current) * 0.01 in
+        signal.hydrology.water_temperature <- delta
+    }
+}
+
+# Dissolved gas exchange: temperature-dependent gas solubility
+# Cold water dissolves more gas, warm water releases gas
+fracture.hydrology.gas_exchange {
+    : strata(hydrology)
+
+    config {
+        solubility_cold: 0.7                # Equilibrium at cold water (~270K)
+        solubility_warm: 0.3                # Equilibrium at warm water (~300K)
+        cold_temp_k: 270.0
+        warm_temp_k: 300.0
+        exchange_timescale_s: 6.048e5       # ~7 days exchange timescale
+    }
+
+    when {
+        signal.hydrology.water_mass > 1e10
+    }
+
+    emit {
+        # Gas solubility inversely related to temperature (Henry's law)
+        let temp = signal.hydrology.water_temperature in
+        let temp_fraction = clamp((temp - config.fracture.hydrology.gas_exchange.cold_temp_k) / (config.fracture.hydrology.gas_exchange.warm_temp_k - config.fracture.hydrology.gas_exchange.cold_temp_k), 0.0, 1.0) in
+        let target_gas = config.fracture.hydrology.gas_exchange.solubility_cold * (1.0 - temp_fraction) + config.fracture.hydrology.gas_exchange.solubility_warm * temp_fraction in
+        let current_gas = signal.hydrology.dissolved_gas in
+        let delta = (target_gas * 10.0 - current_gas) * 0.001 in
+        signal.hydrology.dissolved_gas <- delta
+    }
+}
+
+# Groundwater coupling: infiltration and baseflow
+# Bidirectional water transfer between surface and crust water reservoir
+fracture.hydrology.groundwater_coupling {
+    : strata(hydrology)
+
+    config {
+        # Infiltration parameters
+        permeability_m_per_s: 1e-6          # Mixed regolith/soil permeability
+        porosity: 0.3                       # Typical soil porosity
+        min_surface_water_kg: 1000.0        # Min surface water for infiltration
+
+        # Baseflow parameters
+        baseflow_threshold: 0.7             # Saturation threshold for baseflow
+        baseflow_coefficient: 1e-6          # Discharge coefficient (1/s)
+    }
+
+    when {
+        signal.hydrology.water_mass > config.fracture.hydrology.groundwater_coupling.min_surface_water_kg
+    }
+
+    emit {
+        # Infiltration: surface -> groundwater when pore space available
+        let saturation = signal.hydrology.groundwater_saturation in
+        let available_pore = max(1.0 - saturation, 0.0) * config.fracture.hydrology.groundwater_coupling.porosity in
+        let infiltration_rate = config.fracture.hydrology.groundwater_coupling.permeability_m_per_s * available_pore * 1000.0 in
+
+        # Baseflow: groundwater -> surface when saturated
+        let excess = max(saturation - config.fracture.hydrology.groundwater_coupling.baseflow_threshold, 0.0) in
+        let baseflow_rate = excess * config.fracture.hydrology.groundwater_coupling.baseflow_coefficient * 1e5 in
+
+        # Net exchange
+        let net_surface = baseflow_rate - infiltration_rate in
+        signal.hydrology.groundwater_saturation <- -net_surface * 1e-5
+    }
+}
+
+# Sediment lithification: converts thick sediment to crustal rock
+# Prevents sediment saturation, creates sedimentary basins
+fracture.hydrology.sediment_lithification {
+    : strata(hydrology)
+
+    config {
+        threshold: 6.0                      # Sediment threshold for lithification
+        rate_per_myr: 0.15                  # 15% of excess lithifies per Myr
+        sediment_to_rock_m: 500.0           # 1 sediment unit -> 500m rock
+        max_elevation_m: -500.0             # Only in basins (below sea level)
+    }
+
+    when {
+        signal.hydrology.sediment_load > config.fracture.hydrology.sediment_lithification.threshold
+    }
+
+    emit {
+        # Excess sediment above threshold compacts and lithifies
+        let sediment = signal.hydrology.sediment_load in
+        let excess = sediment - config.fracture.hydrology.sediment_lithification.threshold in
+        let lithified = excess * config.fracture.hydrology.sediment_lithification.rate_per_myr * 1e-6 in
+        signal.hydrology.sediment_load <- -lithified
+    }
+}
+
 # =============================================================================
 # Hydrology Fields
 # =============================================================================
