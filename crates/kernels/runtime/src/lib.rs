@@ -59,6 +59,10 @@ pub use executor::{
     ScalarResolveContext, ScalarResolverFn, TransitionFn, Vec3KernelFn, Vec3L1Kernel,
     Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn, WarmupContext, WarmupExecutor, WarmupFn,
 };
+pub use executor::cost_model::{
+    AdaptiveCostModel, ComplexityScore, ComplexityThresholds, CostModel, CostWeights,
+    ExecutionMetrics,
+};
 pub use soa_storage::{
     AlignedBuffer, MemberSignalBuffer, MemberSignalMeta, MemberSignalRegistry, PopulationStorage,
     TypedBuffer, ValueType, SIMD_ALIGNMENT,

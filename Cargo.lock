@@ -418,6 +418,7 @@ name = "continuum-runtime"
 version = "0.1.0"
 dependencies = [
  "continuum-foundation",
+ "continuum-vm",
  "criterion",
  "indexmap",
  "rayon",

@@ -4,6 +4,7 @@
 
 mod assertions;
 mod context;
+pub mod cost_model;
 pub mod lane_kernel;
 pub mod member_executor;
 mod phases;
