@@ -18,6 +18,8 @@ pub struct FieldLensConfig {
     pub max_frames_per_field: usize,
     /// Maximum cached reconstructions per field.
     pub max_cached_per_field: usize,
+    /// Maximum refinement requests buffered.
+    pub max_refinement_queue: usize,
 }
 
 impl FieldLensConfig {
@@ -33,6 +35,11 @@ impl FieldLensConfig {
                 "max_cached_per_field must be > 0".to_string(),
             ));
         }
+        if self.max_refinement_queue == 0 {
+            return Err(LensError::InvalidConfig(
+                "max_refinement_queue must be > 0".to_string(),
+            ));
+        }
         Ok(())
     }
 }
@@ -42,6 +49,7 @@ impl Default for FieldLensConfig {
         Self {
             max_frames_per_field: 1000,
             max_cached_per_field: 32,
+            max_refinement_queue: 1024,
         }
     }
 }
@@ -118,6 +126,8 @@ pub enum LensError {
     FieldNotFound(FieldId),
     #[error("No samples for field {field} at tick {tick}")]
     NoSamplesAtTick { field: FieldId, tick: u64 },
+    #[error("Refinement queue full")]
+    RefinementQueueFull,
 }
 
 /// Tile identifier for virtual topology.
@@ -203,6 +213,9 @@ pub struct FieldLens {
     fields: IndexMap<FieldId, FieldStorage>,
     topology: Arc<dyn VirtualTopology>,
     field_configs: HashMap<FieldId, FieldConfig>,
+    refinement_queue: VecDeque<RefinementRequest>,
+    refinement_status: HashMap<RefinementHandle, RefinementStatus>,
+    next_refinement_id: u64,
 }
 
 /// Playback clock for observer queries (fractional tick time).
@@ -322,6 +335,9 @@ impl FieldLens {
             fields: IndexMap::new(),
             topology: Arc::new(CubedSphereTopology::default()),
             field_configs: HashMap::new(),
+            refinement_queue: VecDeque::new(),
+            refinement_status: HashMap::new(),
+            next_refinement_id: 1,
         })
     }
 
@@ -563,12 +579,78 @@ impl FieldLens {
     pub fn configure_field(&mut self, field_id: FieldId, config: FieldConfig) {
         self.field_configs.insert(field_id, config);
     }
+
+    /// Request refinement of a field region.
+    pub fn request_refinement(
+        &mut self,
+        mut request: RefinementRequest,
+    ) -> Result<RefinementHandle, LensError> {
+        if self.refinement_queue.len() >= self.config.max_refinement_queue {
+            return Err(LensError::RefinementQueueFull);
+        }
+        let handle = RefinementHandle(self.next_refinement_id);
+        self.next_refinement_id += 1;
+        request.handle = handle;
+        self.refinement_queue.push_back(request);
+        self.refinement_status
+            .insert(handle, RefinementStatus::Pending);
+        Ok(handle)
+    }
+
+    /// Check refinement status.
+    pub fn refinement_status(&self, handle: RefinementHandle) -> Option<RefinementStatus> {
+        self.refinement_status.get(&handle).copied()
+    }
+
+    /// Cancel a refinement request.
+    pub fn cancel_refinement(&mut self, handle: RefinementHandle) {
+        self.refinement_queue.retain(|req| req.handle != handle);
+        self.refinement_status.remove(&handle);
+    }
+
+    /// Drain up to `max` refinement requests (for measurement system).
+    pub fn drain_refinements(&mut self, max: usize) -> Vec<RefinementRequest> {
+        let mut drained = Vec::new();
+        let count = max.min(self.refinement_queue.len());
+        for _ in 0..count {
+            if let Some(req) = self.refinement_queue.pop_front() {
+                if let Some(status) = self.refinement_status.get_mut(&req.handle) {
+                    *status = RefinementStatus::Sampling;
+                }
+                drained.push(req);
+            }
+        }
+        drained
+    }
 }
 
 /// Per-field overrides for Lens behavior.
 #[derive(Debug, Clone, Default)]
 pub struct FieldConfig {
     pub max_cached_per_field: Option<usize>,
+}
+
+/// Refinement request handle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct RefinementHandle(u64);
+
+/// Refinement request status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RefinementStatus {
+    Pending,
+    Sampling,
+    Complete,
+    Failed,
+}
+
+/// Refinement request (observer-only).
+#[derive(Debug, Clone)]
+pub struct RefinementRequest {
+    pub handle: RefinementHandle,
+    pub field_id: FieldId,
+    pub region: Region,
+    pub target_lod: u8,
+    pub priority: u32,
 }
 
 #[cfg(test)]
@@ -588,6 +670,7 @@ mod tests {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
             max_cached_per_field: 4,
+            max_refinement_queue: 16,
         })
         .expect("config valid");
 
@@ -623,6 +706,7 @@ mod tests {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
             max_cached_per_field: 4,
+            max_refinement_queue: 16,
         })
         .expect("config valid");
 
@@ -641,6 +725,7 @@ mod tests {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 3,
             max_cached_per_field: 2,
+            max_refinement_queue: 16,
         })
         .expect("config valid");
 
@@ -670,6 +755,7 @@ mod tests {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
             max_cached_per_field: 4,
+            max_refinement_queue: 16,
         })
         .expect("config valid");
 
@@ -702,6 +788,7 @@ mod tests {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
             max_cached_per_field: 4,
+            max_refinement_queue: 16,
         })
         .expect("config valid");
 
@@ -720,6 +807,7 @@ mod tests {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
             max_cached_per_field: 4,
+            max_refinement_queue: 16,
         })
         .expect("config valid");
 
@@ -761,6 +849,7 @@ mod tests {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 3,
             max_cached_per_field: 4,
+            max_refinement_queue: 16,
         })
         .expect("config valid");
 
@@ -789,5 +878,34 @@ mod tests {
         let a = topo.tile_at(pos, 3);
         let b = topo.tile_at(pos, 3);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn refinement_queue_tracks_status() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 4,
+        })
+        .expect("config valid");
+
+        let handle = lens
+            .request_refinement(RefinementRequest {
+                handle: RefinementHandle(0),
+                field_id: "field.temp".into(),
+                region: Region::Tile(TileId::from_parts(0, 1, 0)),
+                target_lod: 2,
+                priority: 1,
+            })
+            .expect("request ok");
+
+        assert_eq!(lens.refinement_status(handle), Some(RefinementStatus::Pending));
+
+        let drained = lens.drain_refinements(1);
+        assert_eq!(drained.len(), 1);
+        assert_eq!(lens.refinement_status(handle), Some(RefinementStatus::Sampling));
+
+        lens.cancel_refinement(handle);
+        assert_eq!(lens.refinement_status(handle), None);
     }
 }
