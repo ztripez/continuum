@@ -34,7 +34,7 @@ use std::sync::Arc;
 use continuum_runtime::executor::{
     LaneKernel, LaneKernelError, LaneKernelResult, LoweringStrategy,
 };
-use continuum_runtime::soa_storage::PopulationStorage;
+use continuum_runtime::soa_storage::{MemberSignalBuffer, PopulationStorage};
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Dt;
 use continuum_runtime::vectorized::MemberSignalId;
@@ -175,6 +175,48 @@ impl L2VectorizedExecutor {
         dt: Dt,
         signals: &SignalStorage,
     ) -> Result<Vec<f64>, L2ExecutionError> {
+        self.execute_with_members(prev_values, dt, signals, None)
+    }
+
+    /// Execute the SSA function with access to member signal snapshot.
+    ///
+    /// This method implements **snapshot/next-state semantics** for entity resolve:
+    /// - All `self.X` reads see the **snapshot** (previous tick values)
+    /// - All writes go to the **next-state** buffer (current tick)
+    /// - This enables full parallelism across all member signal resolvers
+    ///
+    /// # Arguments
+    ///
+    /// * `prev_values` - Previous values for the target signal (all entities)
+    /// * `dt` - Time delta for this tick
+    /// * `signals` - Signal storage for reading global signals
+    /// * `members` - Optional member signal buffer for cross-member reads (snapshot)
+    ///
+    /// # Semantics
+    ///
+    /// When `members` is provided, `SelfField` instructions read from the
+    /// **previous tick's buffer** (snapshot at resolve start), not the current
+    /// buffer being written to. This ensures deterministic, parallelizable
+    /// execution:
+    ///
+    /// ```text
+    /// resolve {
+    ///   self.velocity = integrate(self.velocity, forces)
+    ///   self.position = integrate(self.position, self.velocity)
+    ///   // self.velocity here reads PREVIOUS tick's velocity, not just-computed
+    /// }
+    /// ```
+    ///
+    /// # Returns
+    ///
+    /// A vector of new values, one per entity.
+    pub fn execute_with_members(
+        &self,
+        prev_values: &[f64],
+        dt: Dt,
+        signals: &SignalStorage,
+        members: Option<&MemberSignalBuffer>,
+    ) -> Result<Vec<f64>, L2ExecutionError> {
         let population = prev_values.len();
 
         // Initialize virtual register storage
@@ -198,6 +240,7 @@ impl L2VectorizedExecutor {
                     prev_values,
                     dt.seconds(),
                     signals,
+                    members,
                     population,
                 )?;
             }
@@ -240,6 +283,7 @@ impl L2VectorizedExecutor {
         prev_values: &[f64],
         dt: f64,
         signals: &SignalStorage,
+        members: Option<&MemberSignalBuffer>,
         population: usize,
     ) -> Result<(), L2ExecutionError> {
         match inst {
@@ -273,10 +317,26 @@ impl L2VectorizedExecutor {
                 vregs[dst.0 as usize] = Some(VRegBuffer::uniform(0.0));
             }
 
-            SsaInstruction::SelfField { dst, field: _ } => {
-                // Self field access - requires entity data infrastructure
-                // For now, return zeros
-                vregs[dst.0 as usize] = Some(VRegBuffer::Scalar(vec![0.0; population]));
+            SsaInstruction::SelfField { dst, field } => {
+                // Self field access - read from snapshot (previous tick buffer)
+                // This implements snapshot/next-state semantics: all reads see previous tick
+                if let Some(member_buf) = members {
+                    // Try scalar first, then vec3
+                    if let Some(snapshot_slice) = member_buf.prev_scalar_slice(field) {
+                        vregs[dst.0 as usize] =
+                            Some(VRegBuffer::Scalar(snapshot_slice.to_vec()));
+                    } else if let Some(_vec3_slice) = member_buf.prev_vec3_slice(field) {
+                        // Vec3 fields not yet fully supported in L2
+                        // Return scalar 0 for now (magnitude placeholder)
+                        vregs[dst.0 as usize] = Some(VRegBuffer::Scalar(vec![0.0; population]));
+                    } else {
+                        // Field not found in member buffer - return zeros
+                        vregs[dst.0 as usize] = Some(VRegBuffer::Scalar(vec![0.0; population]));
+                    }
+                } else {
+                    // No member buffer provided - return zeros
+                    vregs[dst.0 as usize] = Some(VRegBuffer::Scalar(vec![0.0; population]));
+                }
             }
 
             SsaInstruction::BinOp { dst, op, lhs, rhs } => {
@@ -919,10 +979,14 @@ impl LaneKernel for ScalarL2Kernel {
 
         let population_size = prev_values.len();
 
-        // Execute L2 vectorized kernel
+        // Get member signal buffer for snapshot semantics
+        // All self.X reads will see previous tick values (snapshot)
+        let member_signals = population.signals();
+
+        // Execute L2 vectorized kernel with snapshot semantics
         let new_values = self
             .executor
-            .execute_scalar(prev_values, dt, signals)
+            .execute_with_members(prev_values, dt, signals, Some(member_signals))
             .map_err(|e| {
                 LaneKernelError::ExecutionFailed(format!(
                     "L2 kernel failed for {}: {}",

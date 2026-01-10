@@ -342,3 +342,138 @@ fn test_l2_smooth_operator() {
     assert!(result[2] > 90.0); // 90 moves up
     assert!((result[3] - 100.0).abs() < 0.01); // 100 stays at 100
 }
+
+// ============================================================================
+// Snapshot/Next-State Semantics Tests
+// ============================================================================
+
+use continuum_runtime::ValueType;
+
+#[test]
+fn test_l2_self_field_snapshot_semantics() {
+    // Test that SelfField reads from the snapshot (previous tick buffer)
+    // Expression: self.velocity (reads another member signal)
+    let expr = CompiledExpr::SelfField("velocity".to_string());
+    let ssa = Arc::new(lower_to_ssa(&expr));
+    let executor = L2VectorizedExecutor::new(ssa);
+
+    // Create a member signal buffer with velocity values
+    let mut member_buf = MemberSignalBuffer::new();
+    member_buf.register_signal("velocity".to_string(), ValueType::Scalar);
+    member_buf.init_instances(4);
+
+    // Set previous tick values (the snapshot)
+    // We need to advance tick to make current -> previous
+    {
+        let current = member_buf.scalar_slice_mut("velocity").unwrap();
+        current[0] = 10.0;
+        current[1] = 20.0;
+        current[2] = 30.0;
+        current[3] = 40.0;
+    }
+    member_buf.advance_tick(); // Now these values are in the previous buffer
+
+    // Set new current values (should NOT be read by snapshot semantics)
+    {
+        let current = member_buf.scalar_slice_mut("velocity").unwrap();
+        current[0] = 100.0;
+        current[1] = 200.0;
+        current[2] = 300.0;
+        current[3] = 400.0;
+    }
+
+    let signals = SignalStorage::default();
+    let prev_values = vec![0.0; 4]; // prev for the target signal (not velocity)
+
+    // Execute with member buffer - should read from snapshot (previous tick)
+    let result = executor
+        .execute_with_members(&prev_values, Dt(1.0), &signals, Some(&member_buf))
+        .expect("L2 execution failed");
+
+    // Should read the PREVIOUS tick values (10, 20, 30, 40), not current (100, 200, 300, 400)
+    assert_eq!(result, vec![10.0, 20.0, 30.0, 40.0]);
+}
+
+#[test]
+fn test_l2_self_field_without_member_buffer() {
+    // Test that SelfField returns zeros when no member buffer is provided
+    let expr = CompiledExpr::SelfField("velocity".to_string());
+    let ssa = Arc::new(lower_to_ssa(&expr));
+    let executor = L2VectorizedExecutor::new(ssa);
+
+    let signals = SignalStorage::default();
+    let prev_values = vec![1.0, 2.0, 3.0, 4.0];
+
+    // Execute without member buffer
+    let result = executor
+        .execute_scalar(&prev_values, Dt(1.0), &signals)
+        .expect("L2 execution failed");
+
+    // Should return zeros when no member buffer is provided
+    assert_eq!(result, vec![0.0, 0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn test_l2_self_field_missing_field() {
+    // Test that SelfField returns zeros for non-existent field
+    let expr = CompiledExpr::SelfField("nonexistent".to_string());
+    let ssa = Arc::new(lower_to_ssa(&expr));
+    let executor = L2VectorizedExecutor::new(ssa);
+
+    // Create member buffer without the requested field
+    let mut member_buf = MemberSignalBuffer::new();
+    member_buf.register_signal("velocity".to_string(), ValueType::Scalar);
+    member_buf.init_instances(4);
+
+    let signals = SignalStorage::default();
+    let prev_values = vec![0.0; 4];
+
+    let result = executor
+        .execute_with_members(&prev_values, Dt(1.0), &signals, Some(&member_buf))
+        .expect("L2 execution failed");
+
+    // Should return zeros for missing field
+    assert_eq!(result, vec![0.0, 0.0, 0.0, 0.0]);
+}
+
+#[test]
+fn test_l2_self_field_expression_with_snapshot() {
+    // Test snapshot semantics in a larger expression:
+    // prev + self.velocity * 0.5 (prev is our signal, self.velocity is snapshot)
+    let expr = CompiledExpr::Binary {
+        op: BinaryOpIr::Add,
+        left: Box::new(CompiledExpr::Prev),
+        right: Box::new(CompiledExpr::Binary {
+            op: BinaryOpIr::Mul,
+            left: Box::new(CompiledExpr::SelfField("velocity".to_string())),
+            right: Box::new(CompiledExpr::Literal(0.5)),
+        }),
+    };
+    let ssa = Arc::new(lower_to_ssa(&expr));
+    let executor = L2VectorizedExecutor::new(ssa);
+
+    // Create member buffer with velocity snapshot values
+    let mut member_buf = MemberSignalBuffer::new();
+    member_buf.register_signal("velocity".to_string(), ValueType::Scalar);
+    member_buf.init_instances(4);
+
+    {
+        let current = member_buf.scalar_slice_mut("velocity").unwrap();
+        current[0] = 2.0;
+        current[1] = 4.0;
+        current[2] = 6.0;
+        current[3] = 8.0;
+    }
+    member_buf.advance_tick(); // Snapshot now has 2, 4, 6, 8
+
+    let signals = SignalStorage::default();
+    let prev_values = vec![10.0, 20.0, 30.0, 40.0];
+
+    let result = executor
+        .execute_with_members(&prev_values, Dt(1.0), &signals, Some(&member_buf))
+        .expect("L2 execution failed");
+
+    // prev + velocity * 0.5 = [10 + 2*0.5, 20 + 4*0.5, 30 + 6*0.5, 40 + 8*0.5]
+    //                       = [11, 22, 33, 44]
+    assert_eq!(result, vec![11.0, 22.0, 33.0, 44.0]);
+}

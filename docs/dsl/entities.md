@@ -419,6 +419,73 @@ signal.stellar.moon_count {
 
 ---
 
+## 12. Snapshot/Next-State Semantics
+
+Entity resolve blocks use **snapshot/next-state semantics** to enable parallel execution:
+
+### The Rule
+
+- All `self.X` **reads** see the **snapshot** (previous tick values)
+- All `self.X` **writes** go to the **next-state** buffer (current tick)
+
+### Why This Matters
+
+This separation enables **full parallelism** across all member signal resolvers:
+
+```
+entity.stellar.moon {
+  resolve {
+    // Both reads see PREVIOUS tick values (snapshot)
+    self.velocity = integrate(self.velocity, acceleration)
+    self.position = integrate(self.position, self.velocity)
+    // self.velocity here reads PREVIOUS tick's velocity, not just-computed!
+  }
+}
+```
+
+Without snapshot semantics, the second line would use the just-computed velocity,
+making the result depend on statement order and preventing parallel execution.
+
+### Execution Model
+
+1. **Tick Start**: All member signals snapshot their current values
+2. **Resolve Phase**: All resolvers run in parallel, reading snapshots
+3. **Tick End**: Next-state becomes current, ready for next tick
+
+```
+┌─────────────────┐     ┌─────────────────┐     ┌─────────────────┐
+│  Previous Tick  │     │  Current Tick   │     │    Next Tick    │
+│   (Snapshot)    │────>│   (Writing)     │────>│   (Snapshot)    │
+└─────────────────┘     └─────────────────┘     └─────────────────┘
+       ↑ READ                 ↓ WRITE                ↑ READ
+       └──── all self.X reads ────┘                  └────────────┘
+```
+
+### Implications
+
+1. **Order Independence**: Statement order within resolve doesn't affect results
+2. **Parallel Safety**: All member signals can resolve concurrently
+3. **Determinism**: Same inputs always produce same outputs
+4. **One-Tick Delay**: Changes are visible in the next tick, not immediately
+
+### Cross-Member Reads
+
+When one member signal reads another:
+
+```
+entity.terra.plate {
+  resolve {
+    // self.stress reads velocity's PREVIOUS tick value
+    self.stress = fn.compute_stress(self.velocity, neighbor_velocities)
+    self.velocity = integrate(self.velocity, forces / self.mass)
+  }
+}
+```
+
+Both `self.stress` and `self.velocity` resolver see the same snapshot of all member signals.
+
+---
+
 ## Summary
 
 | Concept | Purpose |
@@ -438,3 +505,4 @@ Key principles:
 - Aggregation is explicit
 - Count is scenario-controlled
 - Order is deterministic
+- Resolve uses snapshot/next-state semantics for parallelism
