@@ -11,6 +11,7 @@
 //! - [`types`] - Core types: [`Phase`], [`Value`], [`StratumState`], [`Dt`]
 //! - [`storage`] - Signal and entity storage with tick management
 //! - [`soa_storage`] - SoA (Struct-of-Arrays) storage for vectorized execution
+//! - [`reductions`] - Deterministic reduction operations for entity aggregates
 //! - [`executor`] - Phase executors and the main [`Runtime`] type
 //! - [`dag`] - Execution graph construction and scheduling
 //! - [`error`] - Error types for runtime failures
@@ -41,6 +42,7 @@
 pub mod dag;
 pub mod error;
 pub mod executor;
+pub mod reductions;
 pub mod soa_storage;
 pub mod storage;
 pub mod types;
