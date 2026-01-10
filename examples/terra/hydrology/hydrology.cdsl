@@ -326,6 +326,208 @@ signal.hydrology.chemical_weathering {
 }
 
 # =============================================================================
+# Water Temperature
+# =============================================================================
+
+signal.hydrology.water_temperature {
+    : Scalar<K, 271..313>
+    : strata(hydrology)
+    : title("Surface Water Temperature")
+    : symbol("T_w")
+    : uses(dt_raw)
+
+    config {
+        relaxation_tau_s: 3.1536e7       # ~1 year relaxation time
+        latitude_adjustment: 10.0         # K difference pole to equator
+        min_temp_k: 271.0                 # Just above freezing
+        max_temp_k: 313.0                 # ~40°C ocean surface max
+    }
+
+    resolve {
+        # Water temperature relaxes toward surface temperature with latitude adjustment
+        let surface_temp = signal.surface.temp in
+        let target_temp = clamp(surface_temp, config.hydrology.water_temperature.min_temp_k, config.hydrology.water_temperature.max_temp_k) in
+        relax_to(prev, target_temp, config.hydrology.water_temperature.relaxation_tau_s) + collected
+    }
+
+    assert {
+        prev >= config.hydrology.water_temperature.min_temp_k : warn, "Water temperature too low"
+        prev <= config.hydrology.water_temperature.max_temp_k : warn, "Water temperature too high"
+    }
+}
+
+# =============================================================================
+# Groundwater System
+# =============================================================================
+
+# Groundwater saturation fraction
+signal.hydrology.groundwater_saturation {
+    : Scalar<1, 0..1>
+    : strata(hydrology)
+    : title("Groundwater Saturation")
+    : symbol("S_gw")
+    : uses(dt_raw)
+
+    config {
+        initial: 0.5
+        porosity: 0.3                     # Typical soil porosity
+        max_capacity_kg_m2: 1e5           # Maximum water per unit area
+    }
+
+    resolve {
+        # Saturation changes from infiltration (increase) and baseflow (decrease)
+        let infiltration = signal.hydrology.infiltration_rate in
+        let baseflow = signal.hydrology.baseflow_rate in
+        let net_flux = (infiltration - baseflow) * dt_raw / config.hydrology.groundwater_saturation.max_capacity_kg_m2 in
+        clamp(prev + net_flux + collected, 0.0, 1.0)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Groundwater saturation cannot be negative"
+        prev <= 1.0 : warn, "Groundwater saturation cannot exceed 1"
+    }
+}
+
+# Infiltration rate from surface to groundwater
+signal.hydrology.infiltration_rate {
+    : Scalar<kg/m²/s, 0..1e-2>
+    : strata(hydrology)
+    : title("Infiltration Rate")
+    : symbol("I")
+
+    config {
+        permeability_m_per_s: 1e-6        # Mixed regolith/soil
+        min_surface_water_kg: 1000.0      # Minimum surface water to infiltrate
+        max_rate: 2.8e-3                  # Max ~10 mm/hour
+        water_density: 1000.0             # kg/m³
+    }
+
+    resolve {
+        # Green-Ampt simplified: infiltration limited by available pore space
+        let saturation = signal.hydrology.groundwater_saturation in
+        let available_pore = max(1.0 - saturation, 0.0) * 0.3 in  # porosity = 0.3
+        let rate_m_per_s = config.hydrology.infiltration_rate.permeability_m_per_s * available_pore in
+        let rate_kg = rate_m_per_s * config.hydrology.infiltration_rate.water_density in
+        clamp(rate_kg + collected, 0.0, config.hydrology.infiltration_rate.max_rate)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Infiltration rate cannot be negative"
+    }
+}
+
+# Baseflow rate from groundwater to surface streams
+signal.hydrology.baseflow_rate {
+    : Scalar<kg/m²/s, 0..1e-3>
+    : strata(hydrology)
+    : title("Baseflow Rate")
+    : symbol("Q_base")
+
+    config {
+        threshold: 0.7                    # Saturation threshold for baseflow
+        coefficient: 1e-6                 # Discharge coefficient (1/s)
+        max_rate: 1e-3
+    }
+
+    resolve {
+        # Darcy-like: baseflow when saturation exceeds threshold
+        let saturation = signal.hydrology.groundwater_saturation in
+        let excess = max(saturation - config.hydrology.baseflow_rate.threshold, 0.0) in
+        let rate = excess * config.hydrology.baseflow_rate.coefficient * 1e5 in  # scaled by capacity
+        clamp(rate + collected, 0.0, config.hydrology.baseflow_rate.max_rate)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Baseflow rate cannot be negative"
+    }
+}
+
+# =============================================================================
+# Dissolved Content
+# =============================================================================
+
+# Dissolved gas in surface water
+signal.hydrology.dissolved_gas {
+    : Scalar<mol/m³, 0..100>
+    : strata(hydrology)
+    : title("Dissolved Gas Content")
+    : symbol("G")
+    : uses(dt_raw)
+
+    config {
+        initial: 10.0                     # mol/m³ proxy
+        exchange_rate: 1e-7               # Gas exchange rate with atmosphere
+        temperature_sensitivity: -0.02    # Solubility decreases with temperature
+    }
+
+    resolve {
+        # Dissolved gas depends on temperature and atmospheric exchange
+        let temp = signal.hydrology.water_temperature in
+        let temp_factor = exp(config.hydrology.dissolved_gas.temperature_sensitivity * (temp - 288.0)) in
+        let equilibrium = config.hydrology.dissolved_gas.initial * temp_factor in
+        relax_to(prev, equilibrium, 3.1536e7) + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Dissolved gas cannot be negative"
+    }
+}
+
+# =============================================================================
+# Flow Topology
+# =============================================================================
+
+# Flow accumulation (upstream contributing area proxy)
+signal.hydrology.flow_accumulation {
+    : Scalar<1, 0..1e6>
+    : strata(hydrology)
+    : title("Flow Accumulation")
+    : symbol("A_flow")
+
+    config {
+        base_value: 1.0
+        runoff_sensitivity: 1e-14
+    }
+
+    resolve {
+        # Flow accumulation scales with runoff
+        let runoff = signal.hydrology.runoff_accumulation in
+        config.hydrology.flow_accumulation.base_value + runoff * config.hydrology.flow_accumulation.runoff_sensitivity + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Flow accumulation cannot be negative"
+    }
+}
+
+# Stream order (Strahler)
+signal.hydrology.stream_order {
+    : Scalar<1, 0..10>
+    : strata(hydrology)
+    : title("Stream Order")
+    : symbol("ω")
+
+    config {
+        flow_threshold: 100.0             # Flow accumulation for stream initiation
+    }
+
+    resolve {
+        # Simplified stream order from flow accumulation
+        let flow_acc = signal.hydrology.flow_accumulation in
+        if flow_acc < config.hydrology.stream_order.flow_threshold {
+            0.0  # Hillslope
+        } else {
+            clamp(log10(flow_acc / config.hydrology.stream_order.flow_threshold) + 1.0, 0.0, 10.0)
+        }
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Stream order cannot be negative"
+        prev <= 10.0 : warn, "Stream order exceeds maximum"
+    }
+}
+
+# =============================================================================
 # Hydrology Fractures
 # =============================================================================
 
@@ -467,5 +669,82 @@ field.hydrology.water_phase {
 
     measure {
         hydrology.water_phase(signal.surface.temp)
+    }
+}
+
+field.hydrology.water_temperature_map {
+    : Scalar<K>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Water Temperature Field")
+
+    measure {
+        signal.hydrology.water_temperature
+    }
+}
+
+field.hydrology.groundwater_saturation_map {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Groundwater Saturation Field")
+
+    measure {
+        signal.hydrology.groundwater_saturation
+    }
+}
+
+field.hydrology.infiltration_map {
+    : Scalar<kg/m²/s>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Infiltration Rate Field")
+
+    measure {
+        signal.hydrology.infiltration_rate
+    }
+}
+
+field.hydrology.baseflow_map {
+    : Scalar<kg/m²/s>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Baseflow Rate Field")
+
+    measure {
+        signal.hydrology.baseflow_rate
+    }
+}
+
+field.hydrology.dissolved_gas_map {
+    : Scalar<mol/m³>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Dissolved Gas Field")
+
+    measure {
+        signal.hydrology.dissolved_gas
+    }
+}
+
+field.hydrology.flow_accumulation_map {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Flow Accumulation Field")
+
+    measure {
+        signal.hydrology.flow_accumulation
+    }
+}
+
+field.hydrology.stream_order_map {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Stream Order Field")
+
+    measure {
+        signal.hydrology.stream_order
     }
 }
