@@ -470,6 +470,156 @@ fracture.atmosphere.ice_age {
     }
 }
 
+# -----------------------------------------------------------------------------
+# Cross-Domain Carbon Cycle Fractures
+# -----------------------------------------------------------------------------
+
+# Volcanic CO2 coupling: tectonic activity -> atmospheric CO2 emissions
+# Represents background volcanic outgassing from ridges, subduction, hotspots
+fracture.atmosphere.volcanic_co2_coupling {
+    : strata(atmosphere)
+
+    config {
+        # Base emission rate at Earth-like tectonic activity (activity = 1.0)
+        base_emission_kg_per_s: 8.0e9        # ~250 Mt CO2/yr (modern Earth estimate)
+        # Activity scaling exponent (higher = more sensitive to activity changes)
+        activity_exponent: 1.5
+        # Minimum emission (dormant tectonics)
+        min_emission_kg_per_s: 1.0e8
+    }
+
+    when {
+        signal.tectonics.activity > 0.0
+    }
+
+    emit {
+        # CO2 emission rate = base * activity^exponent
+        let activity = max(signal.tectonics.activity, 0.1) in
+        let emission_factor = pow(activity, config.fracture.atmosphere.volcanic_co2_coupling.activity_exponent) in
+        let emission_rate = max(
+            config.fracture.atmosphere.volcanic_co2_coupling.base_emission_kg_per_s * emission_factor,
+            config.fracture.atmosphere.volcanic_co2_coupling.min_emission_kg_per_s
+        ) in
+
+        # Convert emission rate to ppmv change
+        # ~2.2 kg CO2 per ppmv per km³ atmosphere
+        let ppmv_per_kg = 1e-15 in
+        signal.atmosphere.co2_ppmv <- emission_rate * ppmv_per_kg
+    }
+}
+
+# Silicate weathering CO2 sink (carbonate-silicate cycle)
+# Long-term climate thermostat: warmer -> more weathering -> CO2 removal -> cooling
+fracture.atmosphere.silicate_weathering {
+    : strata(atmosphere)
+
+    config {
+        # Reference weathering rate at 288K and 280 ppmv CO2
+        base_weathering_kg_per_s: 4.0e9      # ~125 Mt CO2/yr (modern Earth estimate)
+        # Temperature sensitivity (Arrhenius-like)
+        # Weathering doubles roughly every 10K above reference
+        temperature_sensitivity: 0.0693      # ln(2)/10
+        reference_temp_k: 288.0
+        # CO2 sensitivity (higher CO2 = more weathering via carbonic acid)
+        co2_exponent: 0.3
+        reference_co2_ppmv: 280.0
+        # Minimum temperature for weathering (frozen = no weathering)
+        min_temp_k: 273.15
+        # Max removal fraction per timestep (stability)
+        max_removal_fraction: 0.1
+    }
+
+    when {
+        signal.atmosphere.surface_temp.x > config.fracture.atmosphere.silicate_weathering.min_temp_k
+        signal.atmosphere.co2_ppmv > 10.0
+    }
+
+    emit {
+        let temp = signal.atmosphere.surface_temp.x in
+        let co2 = signal.atmosphere.co2_ppmv in
+
+        # Temperature factor: Arrhenius-like exponential
+        let temp_factor = exp(config.fracture.atmosphere.silicate_weathering.temperature_sensitivity * (temp - config.fracture.atmosphere.silicate_weathering.reference_temp_k)) in
+
+        # CO2 factor: power law (more CO2 = more carbonic acid = more weathering)
+        let co2_factor = pow(co2 / config.fracture.atmosphere.silicate_weathering.reference_co2_ppmv, config.fracture.atmosphere.silicate_weathering.co2_exponent) in
+
+        # Combined weathering rate
+        let weathering_rate = config.fracture.atmosphere.silicate_weathering.base_weathering_kg_per_s * temp_factor * co2_factor in
+
+        # Limit removal to prevent oscillations
+        let max_removal_ppmv = co2 * config.fracture.atmosphere.silicate_weathering.max_removal_fraction in
+        let removal_ppmv = min(weathering_rate * 1e-15, max_removal_ppmv) in
+
+        # Weathering removes CO2 (negative delta)
+        signal.atmosphere.co2_ppmv <- -removal_ppmv
+    }
+}
+
+# Ocean CO2 absorption: temperature-dependent CO2 solubility
+# Cold oceans absorb more CO2, warm oceans release CO2
+fracture.atmosphere.ocean_co2_exchange {
+    : strata(atmosphere)
+
+    config {
+        # Exchange coefficient (kg CO2 per K temperature difference per second)
+        exchange_coefficient: 1.0e8
+        # Reference equilibrium temperature
+        reference_temp_k: 288.0
+        # Henry's law temperature sensitivity (solubility decreases ~3% per K)
+        solubility_temp_sensitivity: -0.03
+    }
+
+    when {
+        signal.atmosphere.co2_ppmv > 0.0
+    }
+
+    emit {
+        # Ocean-atmosphere CO2 exchange based on temperature
+        # Cold water = CO2 sink, warm water = CO2 source
+        let temp = signal.atmosphere.surface_temp.x in
+        let temp_anomaly = temp - config.fracture.atmosphere.ocean_co2_exchange.reference_temp_k in
+
+        # Solubility factor: colder = more soluble
+        let solubility_factor = 1.0 + temp_anomaly * config.fracture.atmosphere.ocean_co2_exchange.solubility_temp_sensitivity in
+
+        # Net flux: negative anomaly (cold) = absorption, positive (warm) = release
+        let flux = -temp_anomaly * config.fracture.atmosphere.ocean_co2_exchange.exchange_coefficient * solubility_factor * 1e-15 in
+
+        signal.atmosphere.co2_ppmv <- flux
+    }
+}
+
+# Methane oxidation: CH4 -> CO2 conversion in atmosphere
+# Long-term methane sink, short-term CO2 source
+fracture.atmosphere.methane_oxidation {
+    : strata(atmosphere)
+
+    config {
+        # Methane lifetime in atmosphere (~12 years)
+        methane_lifetime_s: 3.784e8
+        # CO2 produced per unit CH4 oxidized (mass ratio)
+        co2_per_ch4: 2.75
+    }
+
+    when {
+        signal.atmosphere.ch4_ppmv > 0.1
+    }
+
+    emit {
+        # First-order decay of methane
+        let ch4 = signal.atmosphere.ch4_ppmv in
+        let decay_rate = ch4 / config.fracture.atmosphere.methane_oxidation.methane_lifetime_s in
+
+        # Oxidation produces CO2
+        let co2_produced = decay_rate * config.fracture.atmosphere.methane_oxidation.co2_per_ch4 * 1e-6 in
+
+        # Update both species
+        signal.atmosphere.ch4_ppmv <- -decay_rate * 1e-6
+        signal.atmosphere.co2_ppmv <- co2_produced
+    }
+}
+
 # =============================================================================
 # Atmosphere Fields
 # =============================================================================
