@@ -47,6 +47,23 @@ impl Default for MeasureParallelConfig {
     }
 }
 
+/// Configuration for Fracture phase parallelism
+#[derive(Debug, Clone)]
+pub struct FractureParallelConfig {
+    /// Minimum number of fractures to trigger parallel evaluation.
+    /// Below this threshold, fractures evaluate sequentially to avoid overhead.
+    pub parallel_threshold: usize,
+}
+
+impl Default for FractureParallelConfig {
+    fn default() -> Self {
+        Self {
+            // Default: parallelize when there are 2+ fractures
+            parallel_threshold: 2,
+        }
+    }
+}
+
 /// Phase executor handles individual phase execution
 pub struct PhaseExecutor {
     /// Resolver functions indexed by resolver_idx
@@ -61,6 +78,8 @@ pub struct PhaseExecutor {
     pub impulse_handlers: Vec<ImpulseFn>,
     /// Configuration for Measure phase parallelism
     pub measure_config: MeasureParallelConfig,
+    /// Configuration for Fracture phase parallelism
+    pub fracture_config: FractureParallelConfig,
 }
 
 impl Default for PhaseExecutor {
@@ -72,11 +91,27 @@ impl Default for PhaseExecutor {
 impl PhaseExecutor {
     /// Create a new phase executor with default configuration
     pub fn new() -> Self {
-        Self::with_measure_config(MeasureParallelConfig::default())
+        Self::with_configs(
+            MeasureParallelConfig::default(),
+            FractureParallelConfig::default(),
+        )
     }
 
     /// Create a new phase executor with custom Measure phase configuration
     pub fn with_measure_config(measure_config: MeasureParallelConfig) -> Self {
+        Self::with_configs(measure_config, FractureParallelConfig::default())
+    }
+
+    /// Create a new phase executor with custom Fracture phase configuration
+    pub fn with_fracture_config(fracture_config: FractureParallelConfig) -> Self {
+        Self::with_configs(MeasureParallelConfig::default(), fracture_config)
+    }
+
+    /// Create a new phase executor with custom configurations for both phases
+    pub fn with_configs(
+        measure_config: MeasureParallelConfig,
+        fracture_config: FractureParallelConfig,
+    ) -> Self {
         Self {
             resolvers: Vec::new(),
             collect_ops: Vec::new(),
@@ -84,6 +119,7 @@ impl PhaseExecutor {
             fractures: Vec::new(),
             impulse_handlers: Vec::new(),
             measure_config,
+            fracture_config,
         }
     }
 
@@ -280,6 +316,10 @@ impl PhaseExecutor {
     }
 
     /// Execute the Fracture phase
+    ///
+    /// Fracture condition evaluation is read-only, so we can parallelize it.
+    /// Results are sorted by fracture index before emitting to maintain
+    /// deterministic ordering.
     #[instrument(skip_all, name = "fracture")]
     pub fn execute_fracture(
         &self,
@@ -291,22 +331,67 @@ impl PhaseExecutor {
     ) -> Result<()> {
         let era_dags = dags.get_era(era).unwrap();
 
-        for dag in era_dags.for_phase(Phase::Fracture) {
-            for level in &dag.levels {
-                for node in &level.nodes {
-                    if let NodeKind::Fracture { fracture_idx } = &node.kind {
-                        let fracture = &self.fractures[*fracture_idx];
-                        let ctx = FractureContext { signals, dt };
-                        if let Some(outputs) = fracture(&ctx) {
-                            debug!(outputs = outputs.len(), "fracture emitted");
-                            for (signal, value) in outputs {
-                                fracture_queue.queue(signal, value);
-                            }
-                        }
+        // Collect all fracture indices across all DAGs and levels
+        let all_fracture_indices: Vec<usize> = era_dags
+            .for_phase(Phase::Fracture)
+            .flat_map(|dag| {
+                dag.levels.iter().flat_map(|level| {
+                    level.nodes.iter().filter_map(|node| match &node.kind {
+                        NodeKind::Fracture { fracture_idx } => Some(*fracture_idx),
+                        _ => None,
+                    })
+                })
+            })
+            .collect();
+
+        let total_fractures = all_fracture_indices.len();
+
+        if total_fractures == 0 {
+            return Ok(());
+        }
+
+        trace!(
+            fractures = total_fractures,
+            threshold = self.fracture_config.parallel_threshold,
+            "fracture evaluation"
+        );
+
+        if total_fractures < self.fracture_config.parallel_threshold {
+            // Below threshold - evaluate sequentially to avoid parallelism overhead
+            for &fracture_idx in &all_fracture_indices {
+                let fracture = &self.fractures[fracture_idx];
+                let ctx = FractureContext { signals, dt };
+                if let Some(outputs) = fracture(&ctx) {
+                    debug!(fracture_idx, outputs = outputs.len(), "fracture emitted");
+                    for (signal, value) in outputs {
+                        fracture_queue.queue(signal, value);
                     }
                 }
             }
+        } else {
+            // At or above threshold - evaluate all in parallel
+            // Results include fracture index for deterministic ordering
+            let mut triggered: Vec<(usize, Vec<(SignalId, f64)>)> = all_fracture_indices
+                .par_iter()
+                .filter_map(|&fracture_idx| {
+                    let fracture = &self.fractures[fracture_idx];
+                    let ctx = FractureContext { signals, dt };
+                    fracture(&ctx).map(|outputs| (fracture_idx, outputs))
+                })
+                .collect();
+
+            // Sort by fracture index for deterministic emit ordering
+            triggered.sort_by_key(|(idx, _)| *idx);
+
+            // Sequential emit to maintain determinism
+            for (fracture_idx, outputs) in triggered {
+                debug!(fracture_idx, outputs = outputs.len(), "fracture emitted");
+                for (signal, value) in outputs {
+                    fracture_queue.queue(signal, value);
+                }
+            }
         }
+
         Ok(())
     }
 
