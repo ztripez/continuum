@@ -6,6 +6,8 @@ It consumes snapshot artifacts produced by `world-run --save`, and must access
 field data through **Lens semantics** (observer-only). `FieldSnapshot` is
 internal transport and must not be treated as a public API for end programs.
 
+When batch queries are used, Lens may auto-select a GPU backend if enabled.
+
 ## Usage
 
 ```bash

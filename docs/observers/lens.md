@@ -116,7 +116,8 @@ Examples:
 - `tile(field_id, tile_id, tick)` -> reconstruction
 - `query(field_id, position, time)` -> value
 - `query_playback(field_id, position, playback)` -> value
-- `query_batch(field_id, positions, time)` -> values
+- `query_batch(field_id, positions, tick)` -> values (auto-selects GPU if enabled)
+- `history_ticks(field_id)` -> list of ticks retained for the field
 
 Queries must be pure and deterministic.
 
@@ -133,7 +134,19 @@ Refinement requests:
 
 ---
 
-## 10. Determinism
+## 10. GPU Acceleration (Observer-Only)
+
+Lens may use GPU acceleration for **batch queries** when configured.
+
+Rules:
+- GPU is strictly observer-only and never affects simulation results.
+- GPU batch queries use f32 compute and return f64 results.
+- CPU remains the canonical fallback.
+- Auto-selection is allowed, but must be deterministic and documented.
+
+---
+
+## 11. Determinism
 
 Given identical field emissions and playback policy:
 - Lens must produce the same reconstructions
@@ -143,7 +156,7 @@ Minor visualization rounding differences are acceptable, but the data must be st
 
 ---
 
-## 11. What Lens Is Not
+## 12. What Lens Is Not
 
 Lens is not:
 - part of the execution DAG
