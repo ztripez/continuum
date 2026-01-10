@@ -1416,6 +1416,78 @@ mod tests {
     }
 
     #[test]
+    fn queries_do_not_mutate_samples() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.temp".into();
+        let original = vec![
+            FieldSample {
+                position: [0.0, 0.0, 0.0],
+                value: Value::Scalar(1.0),
+            },
+            FieldSample {
+                position: [1.0, 0.0, 0.0],
+                value: Value::Scalar(2.0),
+            },
+        ];
+
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: original.clone(),
+        });
+
+        for _ in 0..10 {
+            let _ = lens.query_at_tick(&field_id, [0.2, 0.0, 0.0], 1);
+        }
+
+        let ticks = lens.history_ticks(&field_id).expect("history exists");
+        assert_eq!(ticks, vec![1]);
+
+        let recon = lens.at(&field_id, 1).expect("recon");
+        let value = recon.query([0.0, 0.0, 0.0]);
+        assert_eq!(value, 1.0);
+    }
+
+    #[test]
+    fn query_vector_handles_zero_magnitude() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 3,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.wind".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![FieldSample {
+                position: [0.0, 0.0, 0.0],
+                value: Value::Vec3([1.0, 0.0, 0.0]),
+            }],
+        });
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 2,
+            samples: vec![FieldSample {
+                position: [0.0, 0.0, 0.0],
+                value: Value::Vec3([-1.0, 0.0, 0.0]),
+            }],
+        });
+
+        let vec = lens
+            .query_vector(&field_id, [0.0, 0.0, 0.0], 1.5)
+            .expect("query vector");
+        assert_eq!(vec, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
     fn refinement_queue_tracks_status() {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
