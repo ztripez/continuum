@@ -255,7 +255,45 @@ fn test_parse_fracture_def() {
         Item::FractureDef(def) => {
             assert_eq!(def.path.node.join("."), "terra.climate.runaway_greenhouse");
             assert_eq!(def.conditions.len(), 2);
-            assert_eq!(def.emit.len(), 1);
+            assert!(def.emit.is_some(), "emit should be present");
+        }
+        _ => panic!("expected FractureDef"),
+    }
+}
+
+#[test]
+fn test_parse_fracture_with_strata_and_config() {
+    let source = r#"
+        fracture.thermal.mechanical_coupling {
+            : strata(thermal)
+
+            config {
+                reference_heat_j: 8.0e30
+                coupling_strength: 0.1
+                base_flow_strength: 5.0
+            }
+
+            when {
+                abs(signal.mantle.heat_content - config.fracture.thermal.mechanical_coupling.reference_heat_j) > 1e29
+            }
+
+            emit {
+                signal.mantle.flow_strength <- 1.0
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::FractureDef(def) => {
+            assert_eq!(def.path.node.join("."), "thermal.mechanical_coupling");
+            assert!(def.strata.is_some(), "strata should be present");
+            assert_eq!(def.strata.as_ref().unwrap().node.join("."), "thermal");
+            assert_eq!(def.local_config.len(), 3);
+            assert_eq!(def.conditions.len(), 1);
+            assert!(def.emit.is_some(), "emit should be present");
         }
         _ => panic!("expected FractureDef"),
     }

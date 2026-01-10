@@ -355,6 +355,28 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         // Box logical_or before using in if_expr to reduce type complexity
         let logical_or_boxed = logical_or.clone().boxed();
 
+        // Emit expression: signal.path <- value
+        // Emits a value to a signal target. Used in fracture emit blocks.
+        let emit_expr = text::keyword("signal")
+            .ignore_then(just('.'))
+            .ignore_then(path())
+            .map_with(|p, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                (p, span.start)
+            })
+            .then_ignore(just("<-").padded_by(ws()))
+            .then(expr_boxed.clone())
+            .map(|((target, start), value)| {
+                let span = start..value.span.end;
+                Spanned::new(
+                    Expr::EmitSignal {
+                        target,
+                        value: Box::new(value),
+                    },
+                    span,
+                )
+            });
+
         // Let expression: let name = value in body
         // Multiple lets chain together: let a = 1 in let b = 2 in a + b
         let let_expr = text::keyword("let")
@@ -462,7 +484,7 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         };
 
         // Let and if expressions have lowest precedence - they consume the rest as body
-        choice((let_expr, if_expr, logical_or))
+        choice((emit_expr, let_expr, if_expr, logical_or))
     })
 }
 

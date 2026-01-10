@@ -557,19 +557,14 @@ pub struct ApplyBlock {
 pub struct FractureDef {
     /// Fracture path.
     pub path: Spanned<Path>,
+    /// Stratum this fracture belongs to.
+    pub strata: Option<Spanned<Path>>,
+    /// Fracture-local config with defaults.
+    pub local_config: Vec<ConfigEntry>,
     /// Trigger conditions.
     pub conditions: Vec<Spanned<Expr>>,
-    /// Emissions when triggered.
-    pub emit: Vec<EmitStatement>,
-}
-
-/// Statement emitting an impulse or event when fracture triggers.
-#[derive(Debug, Clone, PartialEq)]
-pub struct EmitStatement {
-    /// Target impulse or event path.
-    pub target: Spanned<Path>,
-    /// Value to emit.
-    pub value: Spanned<Expr>,
+    /// Emit expression when triggered. Contains signal emit expressions.
+    pub emit: Option<Spanned<Expr>>,
 }
 
 // === Chronicle ===

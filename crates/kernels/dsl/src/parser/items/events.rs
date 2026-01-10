@@ -8,13 +8,14 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    ApplyBlock, ChronicleDef, EmitStatement, Expr, FractureDef, ImpulseDef, ObserveBlock,
-    ObserveHandler, Spanned, TypeExpr,
+    ApplyBlock, ChronicleDef, ConfigEntry, Expr, FractureDef, ImpulseDef, ObserveBlock,
+    ObserveHandler, Path, Spanned, TypeExpr,
 };
 
 use super::super::expr::spanned_expr;
-use super::super::primitives::{ident, spanned, spanned_path, ws};
+use super::super::primitives::{attr_path, ident, spanned, spanned_path, ws};
 use super::super::ParseError;
+use super::config::config_entry;
 use super::types::type_expr;
 
 // === Impulse ===
@@ -91,16 +92,22 @@ pub fn fracture_def<'src>(
                 .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
         )
         .map(|(path, contents)| {
+            let mut strata = None;
+            let mut local_config = vec![];
             let mut conditions = vec![];
-            let mut emit = vec![];
+            let mut emit = None;
             for content in contents {
                 match content {
+                    FractureContent::Strata(s) => strata = Some(s),
+                    FractureContent::Config(c) => local_config = c,
                     FractureContent::When(w) => conditions = w,
-                    FractureContent::Emit(e) => emit = e,
+                    FractureContent::Emit(e) => emit = Some(e),
                 }
             }
             FractureDef {
                 path,
+                strata,
+                local_config,
                 conditions,
                 emit,
             }
@@ -109,13 +116,29 @@ pub fn fracture_def<'src>(
 
 #[derive(Clone)]
 enum FractureContent {
+    Strata(Spanned<Path>),
+    Config(Vec<ConfigEntry>),
     When(Vec<Spanned<Expr>>),
-    Emit(Vec<EmitStatement>),
+    Emit(Spanned<Expr>),
 }
 
 fn fracture_content<'src>(
 ) -> impl Parser<'src, &'src str, FractureContent, extra::Err<ParseError<'src>>> {
     choice((
+        // : strata(path) - must come before other choices to avoid matching "strata" elsewhere
+        attr_path("strata").map(FractureContent::Strata),
+        // config { ... } - local config block
+        text::keyword("config")
+            .padded_by(ws())
+            .ignore_then(
+                config_entry()
+                    .padded_by(ws())
+                    .repeated()
+                    .collect()
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .map(FractureContent::Config),
+        // when { ... } - trigger conditions
         text::keyword("when")
             .padded_by(ws())
             .ignore_then(
@@ -126,28 +149,28 @@ fn fracture_content<'src>(
                     .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
             )
             .map(FractureContent::When),
+        // emit { expr... } - emit expression(s), supports let bindings
+        // Multiple expressions are wrapped in a Block
         text::keyword("emit")
             .padded_by(ws())
             .ignore_then(
-                emit_statement()
+                spanned_expr()
                     .padded_by(ws())
                     .repeated()
-                    .collect()
+                    .at_least(1)
+                    .collect::<Vec<_>>()
                     .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
             )
-            .map(FractureContent::Emit),
+            .map_with(|exprs, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                if exprs.len() == 1 {
+                    FractureContent::Emit(exprs.into_iter().next().unwrap())
+                } else {
+                    // Multiple expressions -> wrap in a Block
+                    FractureContent::Emit(Spanned::new(Expr::Block(exprs), span.start..span.end))
+                }
+            }),
     ))
-}
-
-fn emit_statement<'src>(
-) -> impl Parser<'src, &'src str, EmitStatement, extra::Err<ParseError<'src>>> + Clone {
-    text::keyword("signal")
-        .padded_by(ws())
-        .ignore_then(just('.'))
-        .ignore_then(spanned_path())
-        .then_ignore(just("<-").padded_by(ws()))
-        .then(spanned_expr())
-        .map(|(target, value)| EmitStatement { target, value })
 }
 
 // === Chronicle ===
