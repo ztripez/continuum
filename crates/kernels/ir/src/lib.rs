@@ -12,6 +12,7 @@ pub mod ssa;
 mod types;
 pub mod units;
 mod validate;
+pub mod vectorized;
 
 pub use codegen::compile as compile_to_bytecode;
 pub use compile::{compile, CompilationResult, CompileError};
@@ -22,3 +23,4 @@ pub use interpret::{
 pub use lower::{lower, LowerError};
 pub use types::*;
 pub use validate::{validate, CompileWarning, WarningCode};
+pub use vectorized::{L2ExecutionError, L2VectorizedExecutor, ScalarL2Kernel, VRegBuffer};
