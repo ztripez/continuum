@@ -8,6 +8,7 @@ mod codegen;
 mod compile;
 mod interpret;
 mod lower;
+pub mod patterns;
 pub mod ssa;
 mod types;
 pub mod units;

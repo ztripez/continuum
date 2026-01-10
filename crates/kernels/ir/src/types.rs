@@ -968,7 +968,7 @@ pub enum CompiledExpr {
 ///
 /// These operations reduce a collection of values to a single value.
 /// They are used with entity iteration constructs like `sum(entity.moon, ...)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AggregateOpIr {
     /// Sum of all values
     Sum,
@@ -994,7 +994,7 @@ pub enum AggregateOpIr {
 ///
 /// All comparison operators return 1.0 for true and 0.0 for false.
 /// Logical operators treat any non-zero value as true.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BinaryOpIr {
     /// Addition: `a + b`
     Add,
@@ -1025,7 +1025,7 @@ pub enum BinaryOpIr {
 }
 
 /// Unary operators for single-operand expressions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UnaryOpIr {
     /// Numeric negation: `-x`
     Neg,
@@ -1043,7 +1043,7 @@ pub enum UnaryOpIr {
 ///
 /// Unlike raw expressions like `prev + rate * dt`, these operators handle
 /// the implicit `dt` parameter correctly and can use higher-order methods.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum DtRobustOperator {
     /// Integrate a rate over time: `integrate(prev, rate)`
     /// Raw equivalent: `prev + rate * dt`
@@ -1070,7 +1070,7 @@ pub enum DtRobustOperator {
 ///
 /// Higher-order methods provide better accuracy at larger time steps
 /// but require more computation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum IntegrationMethod {
     /// First-order Euler integration (default)
     #[default]
