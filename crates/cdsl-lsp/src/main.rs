@@ -24,6 +24,7 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use walkdir::WalkDir;
 
+use continuum_dsl::ast::{CompilationUnit, Expr, Item, Spanned};
 use continuum_dsl::parse;
 use symbols::{format_hover_markdown, SymbolIndex, SymbolKind as CdslSymbolKind};
 
@@ -71,7 +72,7 @@ impl Backend {
         let (ast, errors) = parse(text);
 
         // Convert parse errors to LSP diagnostics
-        let diagnostics: Vec<Diagnostic> = errors
+        let mut diagnostics: Vec<Diagnostic> = errors
             .iter()
             .map(|err| {
                 let span = err.span();
@@ -91,10 +92,31 @@ impl Backend {
             })
             .collect();
 
-        // Build symbol index from AST
+        // Build symbol index from AST and collect hints
         if let Some(ref ast) = ast {
             let index = SymbolIndex::from_ast(ast);
             self.symbol_indices.insert(uri.clone(), index);
+
+            // Collect clamp usage hints
+            let clamp_spans = collect_clamp_usages(ast);
+            for span in clamp_spans {
+                let (start_line, start_char) = offset_to_position(text, span.start);
+                let (end_line, end_char) = offset_to_position(text, span.end);
+
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                    severity: Some(DiagnosticSeverity::HINT),
+                    source: Some("cdsl".to_string()),
+                    message: "Consider using assertions instead of clamp. \
+                        Clamping can hide simulation errors by silently correcting values."
+                        .to_string(),
+                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
+                    ..Default::default()
+                });
+            }
         }
 
         // Publish diagnostics
@@ -311,6 +333,200 @@ fn find_function_call_context(text_before: &str) -> Option<(String, usize)> {
     }
 
     None
+}
+
+/// Collect all spans where `clamp` is used in the AST.
+///
+/// Detects both method calls (value.clamp(min, max)) and function calls.
+fn collect_clamp_usages(ast: &CompilationUnit) -> Vec<std::ops::Range<usize>> {
+    let mut spans = Vec::new();
+
+    for item in &ast.items {
+        collect_clamp_in_item(&item.node, &mut spans);
+    }
+
+    spans
+}
+
+fn collect_clamp_in_item(item: &Item, spans: &mut Vec<std::ops::Range<usize>>) {
+    match item {
+        Item::SignalDef(def) => {
+            if let Some(ref resolve) = def.resolve {
+                collect_clamp_in_expr(&resolve.body, spans);
+            }
+            if let Some(ref assertions) = def.assertions {
+                for assertion in &assertions.assertions {
+                    collect_clamp_in_expr(&assertion.condition, spans);
+                }
+            }
+        }
+        Item::FieldDef(def) => {
+            if let Some(ref measure) = def.measure {
+                collect_clamp_in_expr(&measure.body, spans);
+            }
+        }
+        Item::OperatorDef(def) => {
+            if let Some(ref body) = def.body {
+                use continuum_dsl::ast::OperatorBody;
+                match body {
+                    OperatorBody::Warmup(expr)
+                    | OperatorBody::Collect(expr)
+                    | OperatorBody::Measure(expr) => {
+                        collect_clamp_in_expr(expr, spans);
+                    }
+                }
+            }
+        }
+        Item::FnDef(def) => {
+            collect_clamp_in_expr(&def.body, spans);
+        }
+        Item::ImpulseDef(def) => {
+            if let Some(ref apply) = def.apply {
+                collect_clamp_in_expr(&apply.body, spans);
+            }
+        }
+        Item::FractureDef(def) => {
+            for condition in &def.conditions {
+                collect_clamp_in_expr(condition, spans);
+            }
+            for emit in &def.emit {
+                collect_clamp_in_expr(&emit.value, spans);
+            }
+        }
+        Item::ChronicleDef(def) => {
+            if let Some(ref observe) = def.observe {
+                for handler in &observe.handlers {
+                    collect_clamp_in_expr(&handler.condition, spans);
+                    for (_, field_expr) in &handler.event_fields {
+                        collect_clamp_in_expr(field_expr, spans);
+                    }
+                }
+            }
+        }
+        Item::EraDef(def) => {
+            for transition in &def.transitions {
+                for condition in &transition.conditions {
+                    collect_clamp_in_expr(condition, spans);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<usize>>) {
+    match &expr.node {
+        Expr::MethodCall { object, method, args } => {
+            if method == "clamp" {
+                spans.push(expr.span.clone());
+            }
+            collect_clamp_in_expr(object, spans);
+            for arg in args {
+                collect_clamp_in_expr(&arg.value, spans);
+            }
+        }
+        Expr::Call { function, args } => {
+            // Check if function is a path ending in "clamp"
+            if let Expr::Path(path) = &function.node {
+                if path.segments.last().map(|s| s.as_str()) == Some("clamp") {
+                    spans.push(expr.span.clone());
+                }
+            }
+            collect_clamp_in_expr(function, spans);
+            for arg in args {
+                collect_clamp_in_expr(&arg.value, spans);
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            collect_clamp_in_expr(left, spans);
+            collect_clamp_in_expr(right, spans);
+        }
+        Expr::Unary { operand, .. } => {
+            collect_clamp_in_expr(operand, spans);
+        }
+        Expr::If { condition, then_branch, else_branch } => {
+            collect_clamp_in_expr(condition, spans);
+            collect_clamp_in_expr(then_branch, spans);
+            if let Some(else_expr) = else_branch {
+                collect_clamp_in_expr(else_expr, spans);
+            }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_clamp_in_expr(value, spans);
+            collect_clamp_in_expr(body, spans);
+        }
+        Expr::Block(exprs) => {
+            for e in exprs {
+                collect_clamp_in_expr(e, spans);
+            }
+        }
+        Expr::FieldAccess { object, .. } => {
+            collect_clamp_in_expr(object, spans);
+        }
+        Expr::For { iter, body, .. } => {
+            collect_clamp_in_expr(iter, spans);
+            collect_clamp_in_expr(body, spans);
+        }
+        Expr::Struct(fields) => {
+            for (_, value) in fields {
+                collect_clamp_in_expr(value, spans);
+            }
+        }
+        Expr::EmitSignal { value, .. } => {
+            collect_clamp_in_expr(value, spans);
+        }
+        Expr::EmitField { position, value, .. } => {
+            collect_clamp_in_expr(position, spans);
+            collect_clamp_in_expr(value, spans);
+        }
+        Expr::Map { sequence, function } => {
+            collect_clamp_in_expr(sequence, spans);
+            collect_clamp_in_expr(function, spans);
+        }
+        Expr::Fold { sequence, init, function } => {
+            collect_clamp_in_expr(sequence, spans);
+            collect_clamp_in_expr(init, spans);
+            collect_clamp_in_expr(function, spans);
+        }
+        Expr::Filter { predicate, .. } => {
+            collect_clamp_in_expr(predicate, spans);
+        }
+        Expr::First { predicate, .. } => {
+            collect_clamp_in_expr(predicate, spans);
+        }
+        Expr::Aggregate { body, .. } => {
+            collect_clamp_in_expr(body, spans);
+        }
+        Expr::EntityAccess { instance, .. } => {
+            collect_clamp_in_expr(instance, spans);
+        }
+        Expr::Nearest { position, .. } => {
+            collect_clamp_in_expr(position, spans);
+        }
+        Expr::Within { position, radius, .. } => {
+            collect_clamp_in_expr(position, spans);
+            collect_clamp_in_expr(radius, spans);
+        }
+        // Terminal expressions - no children
+        Expr::Literal(_)
+        | Expr::LiteralWithUnit { .. }
+        | Expr::Path(_)
+        | Expr::Prev
+        | Expr::PrevField(_)
+        | Expr::DtRaw
+        | Expr::Payload
+        | Expr::PayloadField(_)
+        | Expr::SignalRef(_)
+        | Expr::ConstRef(_)
+        | Expr::ConfigRef(_)
+        | Expr::FieldRef(_)
+        | Expr::Collected
+        | Expr::MathConst(_)
+        | Expr::SelfField(_)
+        | Expr::EntityRef(_)
+        | Expr::Other(_)
+        | Expr::Pairs(_) => {}
+    }
 }
 
 #[tower_lsp::async_trait]
