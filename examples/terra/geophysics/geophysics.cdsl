@@ -234,22 +234,77 @@ signal.rotation.state {
     }
 }
 
-# Spin axis in world coordinates (obliquity and precession encoded)
+# Axial obliquity (tilt angle from ecliptic normal)
+# Earth: ~23.4 degrees = 0.409 rad
+signal.rotation.obliquity {
+    : Scalar<rad, 0..PI>
+    : strata(rotation)
+    : title("Axial Obliquity")
+    : symbol("epsilon")
+    : uses(dt_raw)
+
+    config {
+        initial: 0.409
+        precession_rate: 0.0  # rad/s, can evolve via tidal effects
+    }
+
+    resolve {
+        # Obliquity can evolve due to tidal torques and perturbations
+        prev + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Obliquity cannot be negative"
+        prev <= PI : warn, "Obliquity cannot exceed PI"
+    }
+}
+
+# Precession angle (rotation of spin axis around ecliptic normal)
+# Earth: completes one cycle in ~26,000 years
+signal.rotation.precession {
+    : Scalar<rad, 0..TAU>
+    : strata(rotation)
+    : title("Precession Angle")
+    : symbol("psi")
+    : uses(dt_raw)
+
+    config {
+        initial: 0.0
+        rate: 7.7e-12  # rad/s, ~26,000 year period
+    }
+
+    resolve {
+        # Precession advances at a rate determined by torques
+        wrap(prev + config.rotation.precession.rate * dt_raw + collected, 0.0, TAU)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Precession angle cannot be negative"
+        prev <= TAU : warn, "Precession angle cannot exceed TAU"
+    }
+}
+
+# Spin axis in world coordinates (computed from obliquity and precession)
+# +Y is ecliptic normal, spin axis tilts from +Y by obliquity
 signal.rotation.spin_axis {
     : Vec3<1>
     : strata(rotation)
     : title("Spin Axis World")
     : symbol("n_spin")
 
-    config {
-        initial_obliquity: 0.409
-        initial_precession: 0.0
-    }
-
     resolve {
-        # Spin axis from obliquity (theta from +Y) and precession (phi around Y)
-        # For Earth: obliquity ~23.4 deg = 0.409 rad
-        prev + collected
+        # Compute unit vector from spherical angles
+        # obliquity = angle from +Y axis
+        # precession = rotation around Y axis in XZ plane
+        let obl = signal.rotation.obliquity in
+        let prec = signal.rotation.precession in
+        let sin_obl = sin(obl) in
+        let cos_obl = cos(obl) in
+        vec3(
+            sin_obl * sin(prec),   # x component
+            cos_obl,               # y component (ecliptic normal)
+            sin_obl * cos(prec)    # z component
+        )
     }
 
     assert {
