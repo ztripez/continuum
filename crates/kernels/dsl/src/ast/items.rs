@@ -680,6 +680,8 @@ pub struct ObserveHandler {
 /// - `stellar.moon.velocity` → entity `stellar.moon`, signal `velocity`
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemberDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Full member path (e.g., `human.person.age`).
     /// The last segment is the signal name, preceding segments form the entity path.
     pub path: Spanned<Path>,

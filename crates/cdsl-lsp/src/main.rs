@@ -53,6 +53,8 @@ const SEMANTIC_TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::COMMENT,   // 14: comment
     SemanticTokenType::PARAMETER, // 15: const
     SemanticTokenType::PARAMETER, // 16: config
+    SemanticTokenType::VARIABLE,  // 17: member
+    SemanticTokenType::NAMESPACE, // 18: world
 ];
 
 /// Semantic token modifiers.
@@ -226,6 +228,185 @@ impl Backend {
             })
             .cloned()
             .collect()
+    }
+
+    /// Check if any indexed file contains a world definition.
+    fn has_world_definition(&self) -> bool {
+        self.symbol_indices.iter().any(|entry| {
+            entry.value().has_symbol_kind(CdslSymbolKind::World)
+        })
+    }
+
+    /// Find duplicate symbol definitions across all indexed files.
+    ///
+    /// Returns a list of (uri, path, span, kind) tuples for symbols that are
+    /// defined more than once. Only the second and subsequent definitions are
+    /// included (the first definition is considered canonical).
+    fn find_duplicate_symbols(&self) -> Vec<(Url, String, std::ops::Range<usize>, CdslSymbolKind)> {
+        use std::collections::HashMap;
+
+        // Collect all symbols: path -> Vec<(uri, span, kind)>
+        let mut all_symbols: HashMap<String, Vec<(Url, std::ops::Range<usize>, CdslSymbolKind)>> =
+            HashMap::new();
+
+        for entry in self.symbol_indices.iter() {
+            let uri = entry.key().clone();
+            for (info, span) in entry.value().get_all_definitions() {
+                all_symbols
+                    .entry(info.path.clone())
+                    .or_default()
+                    .push((uri.clone(), span, info.kind));
+            }
+        }
+
+        // Find paths with more than one definition
+        let mut duplicates = Vec::new();
+        for (path, occurrences) in all_symbols {
+            if occurrences.len() > 1 {
+                // Skip the first (canonical) definition, report the rest
+                for (uri, span, kind) in occurrences.into_iter().skip(1) {
+                    duplicates.push((uri, path.clone(), span, kind));
+                }
+            }
+        }
+
+        duplicates
+    }
+
+    /// Run workspace-level validation and publish diagnostics.
+    ///
+    /// This should be called after workspace scanning is complete.
+    async fn validate_workspace(&self) {
+        // Check for missing world definition
+        if !self.has_world_definition() {
+            // Find the first indexed file to publish the error
+            if let Some(entry) = self.symbol_indices.iter().next() {
+                let uri = entry.key().clone();
+                let text = self
+                    .documents
+                    .get(&uri)
+                    .map(|v| v.clone())
+                    .unwrap_or_default();
+
+                // Get existing diagnostics for this file (if any)
+                let mut diagnostics = Vec::new();
+
+                // Add error at position 0,0
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position::new(0, 0),
+                        end: Position::new(0, 0),
+                    },
+                    severity: Some(DiagnosticSeverity::ERROR),
+                    source: Some("cdsl".to_string()),
+                    message: "Missing world definition. Every world must have exactly one \
+                        `world.name { }` declaration."
+                        .to_string(),
+                    ..Default::default()
+                });
+
+                // Re-parse to get any existing diagnostics
+                if !text.is_empty() {
+                    let (_, errors) = parse(&text);
+                    for err in &errors {
+                        let span = err.span();
+                        let (start_line, start_char) = offset_to_position(&text, span.start);
+                        let (end_line, end_char) = offset_to_position(&text, span.end);
+
+                        diagnostics.push(Diagnostic {
+                            range: Range {
+                                start: Position::new(start_line, start_char),
+                                end: Position::new(end_line, end_char),
+                            },
+                            severity: Some(DiagnosticSeverity::ERROR),
+                            source: Some("cdsl".to_string()),
+                            message: format!("{}", err.reason()),
+                            ..Default::default()
+                        });
+                    }
+                }
+
+                self.client
+                    .publish_diagnostics(uri, diagnostics, None)
+                    .await;
+            }
+        }
+
+        // Check for duplicate symbols
+        let duplicates = self.find_duplicate_symbols();
+        // Group duplicates by URI
+        let mut duplicates_by_uri: std::collections::HashMap<
+            Url,
+            Vec<(String, std::ops::Range<usize>, CdslSymbolKind)>,
+        > = std::collections::HashMap::new();
+
+        for (uri, path, span, kind) in duplicates {
+            duplicates_by_uri
+                .entry(uri)
+                .or_default()
+                .push((path, span, kind));
+        }
+
+        // Publish warnings for each file with duplicates
+        for (uri, file_duplicates) in duplicates_by_uri {
+            let text = self
+                .documents
+                .get(&uri)
+                .map(|v| v.clone())
+                .or_else(|| {
+                    uri.to_file_path()
+                        .ok()
+                        .and_then(|p| std::fs::read_to_string(p).ok())
+                })
+                .unwrap_or_default();
+
+            // Re-parse to get existing diagnostics
+            let (_, errors) = parse(&text);
+            let mut diagnostics: Vec<Diagnostic> = errors
+                .iter()
+                .map(|err| {
+                    let span = err.span();
+                    let (start_line, start_char) = offset_to_position(&text, span.start);
+                    let (end_line, end_char) = offset_to_position(&text, span.end);
+
+                    Diagnostic {
+                        range: Range {
+                            start: Position::new(start_line, start_char),
+                            end: Position::new(end_line, end_char),
+                        },
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        source: Some("cdsl".to_string()),
+                        message: format!("{}", err.reason()),
+                        ..Default::default()
+                    }
+                })
+                .collect();
+
+            // Add duplicate warnings
+            for (path, span, kind) in file_duplicates {
+                let (start_line, start_char) = offset_to_position(&text, span.start);
+                let (end_line, end_char) = offset_to_position(&text, span.end);
+
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                    severity: Some(DiagnosticSeverity::WARNING),
+                    source: Some("cdsl".to_string()),
+                    message: format!(
+                        "Duplicate {} definition: '{}' is already defined elsewhere",
+                        kind.display_name(),
+                        path
+                    ),
+                    ..Default::default()
+                });
+            }
+
+            self.client
+                .publish_diagnostics(uri, diagnostics, None)
+                .await;
+        }
     }
 }
 
@@ -689,6 +870,9 @@ impl LanguageServer for Backend {
                 format!("Indexed {} .cdsl files in workspace", count),
             )
             .await;
+
+        // Run workspace-level validation (missing world, duplicates)
+        self.validate_workspace().await;
     }
 
     async fn shutdown(&self) -> Result<()> {
@@ -1256,6 +1440,8 @@ impl LanguageServer for Backend {
                 CdslSymbolKind::Entity => 10,
                 CdslSymbolKind::Const => 15,
                 CdslSymbolKind::Config => 16,
+                CdslSymbolKind::Member => 17,
+                CdslSymbolKind::World => 18,
             };
             // Mark as definition
             tokens.push((span.start, span.end - span.start, token_type, 0b11));
@@ -1277,6 +1463,8 @@ impl LanguageServer for Backend {
                 CdslSymbolKind::Entity => 10,
                 CdslSymbolKind::Const => 15,
                 CdslSymbolKind::Config => 16,
+                CdslSymbolKind::Member => 17,
+                CdslSymbolKind::World => 18,
             };
             tokens.push((span.start, span.end - span.start, token_type, 0));
         }
@@ -1296,6 +1484,8 @@ impl LanguageServer for Backend {
             ("fracture", 11),
             ("chronicle", 11),
             ("entity", 11),
+            ("member", 11),
+            ("world", 11),
             ("resolve", 11),
             ("measure", 11),
             ("collect", 11),
@@ -1306,6 +1496,7 @@ impl LanguageServer for Backend {
             ("observe", 11),
             ("schema", 11),
             ("transition", 11),
+            ("policy", 11),
             ("if", 11),
             ("else", 11),
             ("let", 11),
@@ -1616,6 +1807,8 @@ fn symbol_kind_to_lsp(kind: symbols::SymbolKind) -> SymbolKind {
         symbols::SymbolKind::Fracture => SymbolKind::EVENT,
         symbols::SymbolKind::Chronicle => SymbolKind::CLASS,
         symbols::SymbolKind::Entity => SymbolKind::CLASS,
+        symbols::SymbolKind::Member => SymbolKind::VARIABLE,
+        symbols::SymbolKind::World => SymbolKind::MODULE,
         symbols::SymbolKind::Const => SymbolKind::CONSTANT,
         symbols::SymbolKind::Config => SymbolKind::PROPERTY,
     }
@@ -1635,6 +1828,8 @@ fn cdsl_kind_to_completion_kind(kind: CdslSymbolKind) -> CompletionItemKind {
         CdslSymbolKind::Fracture => CompletionItemKind::EVENT,
         CdslSymbolKind::Chronicle => CompletionItemKind::CLASS,
         CdslSymbolKind::Entity => CompletionItemKind::CLASS,
+        CdslSymbolKind::Member => CompletionItemKind::VARIABLE,
+        CdslSymbolKind::World => CompletionItemKind::MODULE,
         CdslSymbolKind::Const => CompletionItemKind::CONSTANT,
         CdslSymbolKind::Config => CompletionItemKind::PROPERTY,
     }

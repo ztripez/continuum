@@ -25,8 +25,9 @@ use std::ops::Range;
 
 use continuum_dsl::ast::{
     ChronicleDef, CompilationUnit, ConfigBlock, ConfigEntry, ConstBlock, ConstEntry, EntityDef,
-    EraDef, Expr, FieldDef, FnDef, FractureDef, ImpulseDef, Item, Literal, OperatorBody,
+    EraDef, Expr, FieldDef, FnDef, FractureDef, ImpulseDef, Item, Literal, MemberDef, OperatorBody,
     OperatorDef, Path, SignalDef, Spanned, SpannedExprVisitor, StrataDef, TypeDef, TypeExpr,
+    WorldDef,
 };
 
 /// Information about a symbol for hover display.
@@ -64,6 +65,8 @@ pub enum SymbolKind {
     Fracture,
     Chronicle,
     Entity,
+    Member,
+    World,
     Const,
     Config,
 }
@@ -83,6 +86,8 @@ impl SymbolKind {
             SymbolKind::Fracture => "fracture",
             SymbolKind::Chronicle => "chronicle",
             SymbolKind::Entity => "entity",
+            SymbolKind::Member => "member",
+            SymbolKind::World => "world",
             SymbolKind::Const => "const",
             SymbolKind::Config => "config",
         }
@@ -246,6 +251,18 @@ impl SymbolIndex {
             .collect()
     }
 
+    /// Check if this index contains any symbol of the given kind.
+    pub fn has_symbol_kind(&self, kind: SymbolKind) -> bool {
+        self.symbols.iter().any(|s| s.info.kind == kind)
+    }
+
+    /// Get all symbol definitions in this index.
+    ///
+    /// Returns an iterator of (SymbolInfo, span) for each definition.
+    pub fn get_all_definitions(&self) -> impl Iterator<Item = (&SymbolInfo, Range<usize>)> {
+        self.symbols.iter().map(|s| (&s.info, s.path_span.clone()))
+    }
+
     /// Find the definition span for the symbol at the given offset.
     ///
     /// Returns the byte range of the definition if found. Used for go-to-definition.
@@ -375,6 +392,8 @@ impl SymbolIndex {
             Item::FractureDef(def) => self.index_fracture(def, item.span.clone()),
             Item::ChronicleDef(def) => self.index_chronicle(def, item.span.clone()),
             Item::EntityDef(def) => self.index_entity(def, item.span.clone()),
+            Item::MemberDef(def) => self.index_member(def, item.span.clone()),
+            Item::WorldDef(def) => self.index_world(def, item.span.clone()),
             Item::ConstBlock(block) => self.index_const_block(block),
             Item::ConfigBlock(block) => self.index_config_block(block),
         }
@@ -743,10 +762,10 @@ impl SymbolIndex {
     fn index_entity(&mut self, def: &EntityDef, span: Range<usize>) {
         let mut extra = Vec::new();
 
-        if !def.schema.is_empty() {
+        if let Some(ref count_source) = def.count_source {
             extra.push((
-                "schema".to_string(),
-                format!("{} field(s)", def.schema.len()),
+                "count_source".to_string(),
+                count_source.node.to_string(),
             ));
         }
         if let Some(ref bounds) = def.count_bounds {
@@ -763,7 +782,70 @@ impl SymbolIndex {
                 ty: None,
                 title: None,
                 symbol: None,
+                strata: None,
+                extra,
+            },
+        });
+    }
+
+    fn index_member(&mut self, def: &MemberDef, span: Range<usize>) {
+        let mut extra = Vec::new();
+
+        if let Some(ref assertions) = def.assertions {
+            extra.push((
+                "assertions".to_string(),
+                format!("{} assertion(s)", assertions.assertions.len()),
+            ));
+            // Index references in assertion expressions
+            for assertion in &assertions.assertions {
+                self.index_expr(&assertion.condition);
+            }
+        }
+
+        // Index references in resolve block
+        if let Some(ref resolve) = def.resolve {
+            self.index_expr(&resolve.body);
+        }
+
+        // Local config entries are not indexed as references (they're local to the member)
+
+        self.symbols.push(IndexedSymbol {
+            span,
+            path_span: def.path.span.clone(),
+            info: SymbolInfo {
+                kind: SymbolKind::Member,
+                path: def.path.node.to_string(),
+                doc: def.doc.clone(),
+                ty: def.ty.as_ref().map(|t| format!("{:?}", t.node)),
+                title: def.title.as_ref().map(|t| t.node.clone()),
+                symbol: def.symbol.as_ref().map(|s| s.node.clone()),
                 strata: def.strata.as_ref().map(|s| s.node.to_string()),
+                extra,
+            },
+        });
+    }
+
+    fn index_world(&mut self, def: &WorldDef, span: Range<usize>) {
+        let mut extra = Vec::new();
+
+        if let Some(ref version) = def.version {
+            extra.push(("version".to_string(), version.node.clone()));
+        }
+        if let Some(ref policy) = def.policy {
+            extra.push(("policy".to_string(), format!("{} entry(ies)", policy.entries.len())));
+        }
+
+        self.symbols.push(IndexedSymbol {
+            span,
+            path_span: def.path.span.clone(),
+            info: SymbolInfo {
+                kind: SymbolKind::World,
+                path: def.path.node.to_string(),
+                doc: None,
+                ty: None,
+                title: def.title.as_ref().map(|t| t.node.clone()),
+                symbol: None,
+                strata: None,
                 extra,
             },
         });
