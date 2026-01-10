@@ -171,6 +171,78 @@ pub fn optimal_chunk_size(population_size: usize) -> usize {
 }
 
 // ============================================================================
+// Generic Parallel Execution Helper
+// ============================================================================
+
+/// Execute a mapping function over a slice in parallel chunks.
+///
+/// This is the core parallel execution pattern for L1 member signal resolution.
+/// Results are collected in deterministic index order regardless of thread scheduling.
+///
+/// # Arguments
+///
+/// * `values` - Input slice to process
+/// * `map_fn` - Function receiving (global_index, &value) and returning result
+/// * `chunk_size` - Number of elements per parallel chunk
+/// * `serial_threshold` - Execute serially if population <= this threshold
+///
+/// # Determinism
+///
+/// Results are always in index order because:
+/// 1. `par_chunks` preserves chunk ordering
+/// 2. Within each chunk, we iterate sequentially
+///
+/// # Example
+///
+/// ```ignore
+/// let results = parallel_chunked_map(
+///     &values,
+///     |idx, &value| value * 2.0,
+///     256,  // chunk_size
+///     64,   // serial_threshold
+/// );
+/// ```
+pub fn parallel_chunked_map<T, U, F>(
+    values: &[T],
+    map_fn: F,
+    chunk_size: usize,
+    serial_threshold: usize,
+) -> Vec<U>
+where
+    T: Sync,
+    U: Send,
+    F: Fn(usize, &T) -> U + Sync,
+{
+    let population = values.len();
+
+    // Small populations: execute serially
+    if population <= serial_threshold {
+        return values
+            .iter()
+            .enumerate()
+            .map(|(idx, value)| map_fn(idx, value))
+            .collect();
+    }
+
+    // Parallel chunked execution with deterministic ordering
+    values
+        .par_chunks(chunk_size)
+        .enumerate()
+        .flat_map(|(chunk_idx, chunk)| {
+            let base_idx = chunk_idx * chunk_size;
+            chunk
+                .iter()
+                .enumerate()
+                .map(|(i, value)| {
+                    let global_idx = base_idx + i;
+                    map_fn(global_idx, value)
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect()
+}
+
+// ============================================================================
 // L1 Execution Functions
 // ============================================================================
 
@@ -207,51 +279,21 @@ pub fn resolve_scalar_l1<F>(
 where
     F: Fn(&ScalarResolveContext) -> f64 + Sync,
 {
-    let population = prev_values.len();
-
-    // Small populations: execute serially
-    if population <= config.min_chunk {
-        return prev_values
-            .iter()
-            .enumerate()
-            .map(|(idx, &prev)| {
-                let ctx = MemberResolveContext {
-                    prev,
-                    index: EntityIndex(idx),
-                    signals,
-                    members,
-                    dt,
-                };
-                resolver(&ctx)
-            })
-            .collect();
-    }
-
-    let chunk_size = config.effective_size();
-
-    // Parallel chunked execution with deterministic ordering
-    prev_values
-        .par_chunks(chunk_size)
-        .enumerate()
-        .flat_map(|(chunk_idx, chunk)| {
-            let base_idx = chunk_idx * chunk_size;
-            chunk
-                .iter()
-                .enumerate()
-                .map(|(i, &prev)| {
-                    let instance_idx = base_idx + i;
-                    let ctx = MemberResolveContext {
-                        prev,
-                        index: EntityIndex(instance_idx),
-                        signals,
-                        members,
-                        dt,
-                    };
-                    resolver(&ctx)
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect()
+    parallel_chunked_map(
+        prev_values,
+        |idx, &prev| {
+            let ctx = MemberResolveContext {
+                prev,
+                index: EntityIndex(idx),
+                signals,
+                members,
+                dt,
+            };
+            resolver(&ctx)
+        },
+        config.effective_size(),
+        config.min_chunk,
+    )
 }
 
 /// Resolve all instances of a Vec3 member signal using L1 strategy.
@@ -268,50 +310,21 @@ pub fn resolve_vec3_l1<F>(
 where
     F: Fn(&Vec3ResolveContext) -> [f64; 3] + Sync,
 {
-    let population = prev_values.len();
-
-    // Small populations: execute serially
-    if population <= config.min_chunk {
-        return prev_values
-            .iter()
-            .enumerate()
-            .map(|(idx, &prev)| {
-                let ctx = MemberResolveContext {
-                    prev,
-                    index: EntityIndex(idx),
-                    signals,
-                    members,
-                    dt,
-                };
-                resolver(&ctx)
-            })
-            .collect();
-    }
-
-    let chunk_size = config.effective_size();
-
-    prev_values
-        .par_chunks(chunk_size)
-        .enumerate()
-        .flat_map(|(chunk_idx, chunk)| {
-            let base_idx = chunk_idx * chunk_size;
-            chunk
-                .iter()
-                .enumerate()
-                .map(|(i, &prev)| {
-                    let instance_idx = base_idx + i;
-                    let ctx = MemberResolveContext {
-                        prev,
-                        index: EntityIndex(instance_idx),
-                        signals,
-                        members,
-                        dt,
-                    };
-                    resolver(&ctx)
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect()
+    parallel_chunked_map(
+        prev_values,
+        |idx, &prev| {
+            let ctx = MemberResolveContext {
+                prev,
+                index: EntityIndex(idx),
+                signals,
+                members,
+                dt,
+            };
+            resolver(&ctx)
+        },
+        config.effective_size(),
+        config.min_chunk,
+    )
 }
 
 /// Generic L1 resolution for any value type.
@@ -330,50 +343,21 @@ pub fn resolve_member_signal_l1<F>(
 where
     F: Fn(&MemberResolveContext<Value>) -> Value + Sync,
 {
-    let population = prev_values.len();
-
-    // Small populations: execute serially
-    if population <= config.min_chunk {
-        return prev_values
-            .iter()
-            .enumerate()
-            .map(|(idx, prev)| {
-                let ctx = MemberResolveContext {
-                    prev: prev.clone(),
-                    index: EntityIndex(idx),
-                    signals,
-                    members,
-                    dt,
-                };
-                resolver(&ctx)
-            })
-            .collect();
-    }
-
-    let chunk_size = config.effective_size();
-
-    prev_values
-        .par_chunks(chunk_size)
-        .enumerate()
-        .flat_map(|(chunk_idx, chunk)| {
-            let base_idx = chunk_idx * chunk_size;
-            chunk
-                .iter()
-                .enumerate()
-                .map(|(i, prev)| {
-                    let instance_idx = base_idx + i;
-                    let ctx = MemberResolveContext {
-                        prev: prev.clone(),
-                        index: EntityIndex(instance_idx),
-                        signals,
-                        members,
-                        dt,
-                    };
-                    resolver(&ctx)
-                })
-                .collect::<Vec<_>>()
-        })
-        .collect()
+    parallel_chunked_map(
+        prev_values,
+        |idx, prev| {
+            let ctx = MemberResolveContext {
+                prev: prev.clone(),
+                index: EntityIndex(idx),
+                signals,
+                members,
+                dt,
+            };
+            resolver(&ctx)
+        },
+        config.effective_size(),
+        config.min_chunk,
+    )
 }
 
 // ============================================================================

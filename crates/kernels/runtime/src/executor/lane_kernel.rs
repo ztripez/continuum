@@ -47,7 +47,6 @@
 
 use std::sync::Arc;
 
-use rayon::prelude::*;
 use tracing::{debug, instrument, trace};
 
 use crate::soa_storage::PopulationStorage;
@@ -55,7 +54,9 @@ use crate::storage::SignalStorage;
 use crate::types::Dt;
 use crate::vectorized::{EntityIndex, MemberSignalId};
 
-use super::member_executor::{optimal_chunk_size, ScalarResolveContext, Vec3ResolveContext};
+use super::member_executor::{
+    optimal_chunk_size, parallel_chunked_map, ScalarResolveContext, Vec3ResolveContext,
+};
 
 // ============================================================================
 // Lowering Strategy
@@ -291,44 +292,34 @@ impl LaneKernel for ScalarL1Kernel {
             .fixed_chunk_size
             .unwrap_or_else(|| optimal_chunk_size(population_size));
 
-        // Clone prev_values for parallel iteration
+        // Clone prev_values for parallel iteration (needed for borrow separation)
         let prev_vec: Vec<f64> = prev_values.to_vec();
 
-        // Execute in parallel chunks, collecting results with indices
-        // We need to get a reference to the member signals for cross-member reads
+        // Execute in parallel chunks using the generic helper
         let member_signals = population.signals();
-        let results: Vec<(usize, f64)> = prev_vec
-            .par_chunks(chunk_size)
-            .enumerate()
-            .flat_map(|(chunk_idx, chunk)| {
-                let base_idx = chunk_idx * chunk_size;
-                chunk
-                    .iter()
-                    .enumerate()
-                    .map(|(local_idx, &prev)| {
-                        let global_idx = base_idx + local_idx;
-                        let ctx = ScalarResolveContext {
-                            prev,
-                            index: EntityIndex(global_idx),
-                            signals,
-                            members: member_signals,
-                            dt,
-                        };
-                        (global_idx, (self.resolver)(&ctx))
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
+        let results = parallel_chunked_map(
+            &prev_vec,
+            |idx, &prev| {
+                let ctx = ScalarResolveContext {
+                    prev,
+                    index: EntityIndex(idx),
+                    signals,
+                    members: member_signals,
+                    dt,
+                };
+                (self.resolver)(&ctx)
+            },
+            chunk_size,
+            64, // serial_threshold
+        );
 
-        // Write results to current buffer in index order
+        // Write results to current buffer (order preserved by parallel_chunked_map)
         let current_slice = population
             .signals_mut()
             .scalar_slice_mut(&self.signal_name)
             .ok_or_else(|| LaneKernelError::SignalNotFound(self.signal_name.clone()))?;
 
-        for (idx, value) in results {
-            current_slice[idx] = value;
-        }
+        current_slice.copy_from_slice(&results);
 
         let elapsed_ns = start.elapsed().as_nanos() as u64;
         debug!(population_size, elapsed_ns, "scalar L1 kernel complete");
@@ -420,43 +411,34 @@ impl LaneKernel for Vec3L1Kernel {
             .fixed_chunk_size
             .unwrap_or_else(|| optimal_chunk_size(population_size));
 
-        // Clone prev_values for parallel iteration
+        // Clone prev_values for parallel iteration (needed for borrow separation)
         let prev_vec: Vec<[f64; 3]> = prev_values.to_vec();
 
-        // Execute in parallel chunks
+        // Execute in parallel chunks using the generic helper
         let member_signals = population.signals();
-        let results: Vec<(usize, [f64; 3])> = prev_vec
-            .par_chunks(chunk_size)
-            .enumerate()
-            .flat_map(|(chunk_idx, chunk)| {
-                let base_idx = chunk_idx * chunk_size;
-                chunk
-                    .iter()
-                    .enumerate()
-                    .map(|(local_idx, &prev)| {
-                        let global_idx = base_idx + local_idx;
-                        let ctx = Vec3ResolveContext {
-                            prev,
-                            index: EntityIndex(global_idx),
-                            signals,
-                            members: member_signals,
-                            dt,
-                        };
-                        (global_idx, (self.resolver)(&ctx))
-                    })
-                    .collect::<Vec<_>>()
-            })
-            .collect();
+        let results = parallel_chunked_map(
+            &prev_vec,
+            |idx, &prev| {
+                let ctx = Vec3ResolveContext {
+                    prev,
+                    index: EntityIndex(idx),
+                    signals,
+                    members: member_signals,
+                    dt,
+                };
+                (self.resolver)(&ctx)
+            },
+            chunk_size,
+            64, // serial_threshold
+        );
 
-        // Write results to current buffer
+        // Write results to current buffer (order preserved by parallel_chunked_map)
         let current_slice = population
             .signals_mut()
             .vec3_slice_mut(&self.signal_name)
             .ok_or_else(|| LaneKernelError::SignalNotFound(self.signal_name.clone()))?;
 
-        for (idx, value) in results {
-            current_slice[idx] = value;
-        }
+        current_slice.copy_from_slice(&results);
 
         let elapsed_ns = start.elapsed().as_nanos() as u64;
         debug!(population_size, elapsed_ns, "Vec3 L1 kernel complete");
