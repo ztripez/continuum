@@ -1047,4 +1047,285 @@ mod tests {
         assert_eq!(global_card, Cardinality::Scalar);
         assert_eq!(member_card, Cardinality::Medium(500));
     }
+
+    // ========================================================================
+    // SIMD Lane Boundary Tests
+    // ========================================================================
+
+    /// Test that identity generation works correctly at SIMD lane boundary sizes.
+    /// SIMD lane widths are typically 4 (f32x4), 8 (f32x8), 16 (f32x16), 32.
+    #[test]
+    fn test_simd_lane_boundary_identity_access() {
+        // Test at common SIMD lane boundaries and off-by-one values
+        let boundary_sizes = [4, 7, 8, 15, 16, 17, 31, 32, 33, 63, 64, 65];
+
+        for size in boundary_sizes {
+            let signal = MemberSignal::new(
+                MemberSignalId::new("entity".into(), "signal"),
+                ValueType::Scalar,
+                size,
+            );
+
+            // Verify cardinality
+            assert_eq!(
+                signal.cardinality(),
+                size,
+                "Cardinality mismatch for size {}",
+                size
+            );
+
+            // Verify all identities are accessible
+            for i in 0..size {
+                let identity = signal.identity_at(i);
+                assert_eq!(
+                    identity.entity_index.0, i,
+                    "Identity index mismatch at {} for size {}",
+                    i, size
+                );
+            }
+
+            // Verify identities iterator returns exact count
+            let collected: Vec<_> = signal.identities().collect();
+            assert_eq!(
+                collected.len(),
+                size,
+                "Identities iterator wrong count for size {}",
+                size
+            );
+        }
+    }
+
+    /// Test boundary conditions for SIMD tail handling scenarios.
+    /// When population isn't a multiple of SIMD width, tail elements must be handled.
+    #[test]
+    fn test_simd_tail_handling_boundaries() {
+        // f32x4 lane width: 4 elements
+        // Test sizes that produce different tail lengths (0, 1, 2, 3 tail elements)
+        let sizes_for_f32x4 = [
+            (4, 0),  // 4 elements = 1 full lane, 0 tail
+            (5, 1),  // 5 elements = 1 full lane, 1 tail
+            (6, 2),  // 6 elements = 1 full lane, 2 tail
+            (7, 3),  // 7 elements = 1 full lane, 3 tail
+            (8, 0),  // 8 elements = 2 full lanes, 0 tail
+            (17, 1), // 17 elements = 4 full lanes, 1 tail
+        ];
+
+        for (size, expected_tail) in sizes_for_f32x4 {
+            let signal = MemberSignal::new(
+                MemberSignalId::new("entity".into(), "data"),
+                ValueType::Scalar,
+                size,
+            );
+
+            let actual_tail = size % 4;
+            assert_eq!(
+                actual_tail, expected_tail,
+                "Tail calculation wrong for size {}",
+                size
+            );
+
+            // Verify the last element (tail element if any) is accessible
+            let last_identity = signal.identity_at(size - 1);
+            assert_eq!(last_identity.entity_index.0, size - 1);
+
+            // Verify iteration covers all elements including tail
+            let count = signal.identities().count();
+            assert_eq!(count, size);
+        }
+    }
+
+    /// Test field primitive at SIMD boundary sizes for spatial sampling.
+    #[test]
+    fn test_field_primitive_simd_boundary_sizes() {
+        let boundary_sizes = [4, 8, 16, 32, 64, 128, 255, 256, 257];
+
+        for size in boundary_sizes {
+            let field = FieldPrimitive::new("spatial.data".into(), ValueType::Scalar, size);
+
+            assert_eq!(field.cardinality(), size);
+
+            // Verify all sample identities are accessible
+            for i in 0..size {
+                let identity = field.identity_at(i);
+                assert_eq!(identity.sample_index.0, i);
+            }
+
+            // Verify iterator count
+            assert_eq!(field.identities().count(), size);
+        }
+    }
+
+    /// Test cardinality classification at exact SIMD boundary values.
+    #[test]
+    fn test_cardinality_at_simd_boundaries() {
+        // Test exact boundaries of Cardinality classification
+        // Small: 2..=16, Medium: 17..=1024, Large: >1024
+
+        // SIMD lane boundaries within Small range
+        assert_eq!(Cardinality::classify(4), Cardinality::Small(4));
+        assert_eq!(Cardinality::classify(8), Cardinality::Small(8));
+        assert_eq!(Cardinality::classify(16), Cardinality::Small(16));
+
+        // Boundary from Small to Medium (at 17)
+        assert_eq!(Cardinality::classify(16), Cardinality::Small(16));
+        assert_eq!(Cardinality::classify(17), Cardinality::Medium(17));
+
+        // SIMD boundaries within Medium range
+        assert_eq!(Cardinality::classify(32), Cardinality::Medium(32));
+        assert_eq!(Cardinality::classify(64), Cardinality::Medium(64));
+        assert_eq!(Cardinality::classify(128), Cardinality::Medium(128));
+        assert_eq!(Cardinality::classify(256), Cardinality::Medium(256));
+        assert_eq!(Cardinality::classify(512), Cardinality::Medium(512));
+        assert_eq!(Cardinality::classify(1024), Cardinality::Medium(1024));
+
+        // Boundary from Medium to Large (at 1025)
+        assert_eq!(Cardinality::classify(1024), Cardinality::Medium(1024));
+        assert_eq!(Cardinality::classify(1025), Cardinality::Large(1025));
+    }
+
+    /// Test per-entity fracture at SIMD boundary populations.
+    #[test]
+    fn test_fracture_simd_boundary_populations() {
+        let boundary_sizes = [4, 8, 15, 16, 17, 32, 64, 100];
+
+        for size in boundary_sizes {
+            let fracture =
+                FracturePrimitive::per_entity("stress.check".into(), "entity".into(), size);
+
+            assert_eq!(fracture.cardinality(), size);
+            assert!(fracture.is_per_entity());
+
+            // Verify all entity indices are accessible
+            for i in 0..size {
+                let identity = fracture.identity_at(i);
+                assert_eq!(identity.entity_index, Some(EntityIndex(i)));
+            }
+
+            // Verify iterator count
+            assert_eq!(fracture.identities().count(), size);
+        }
+    }
+
+    /// Test MemberSignal with actual MemberSignalBuffer storage at SIMD boundaries.
+    #[test]
+    fn test_member_signal_storage_simd_boundaries() {
+        let boundary_sizes = [4, 7, 8, 15, 16, 17, 31, 32, 33];
+
+        for size in boundary_sizes {
+            let signal = MemberSignal::new(
+                MemberSignalId::new("entity".into(), "energy"),
+                ValueType::Scalar,
+                size,
+            );
+
+            // Create storage
+            let mut storage = MemberSignalBuffer::new();
+            storage.register_signal("energy".to_string(), ValueType::Scalar);
+            storage.init_instances(size);
+
+            // Write values at all indices
+            for i in 0..size {
+                signal.set_current(&mut storage, EntityIndex(i), Value::Scalar(i as f64 * 10.0));
+            }
+
+            // Verify all values are readable including tail elements
+            for i in 0..size {
+                let value = signal.get_current(&storage, EntityIndex(i));
+                assert_eq!(
+                    value,
+                    Some(Value::Scalar(i as f64 * 10.0)),
+                    "Value mismatch at index {} for size {}",
+                    i,
+                    size
+                );
+            }
+
+            // Verify scalar slice access returns correct length
+            let slice = signal.scalar_slice(&storage).unwrap();
+            assert_eq!(
+                slice.len(),
+                size,
+                "Slice length mismatch for size {}",
+                size
+            );
+
+            // Verify slice contents match including last (potentially tail) element
+            assert_eq!(
+                slice[size - 1],
+                (size - 1) as f64 * 10.0,
+                "Last element wrong for size {}",
+                size
+            );
+        }
+    }
+
+    /// Test Vec3 member signal storage at SIMD boundaries.
+    /// Vec3 has different SIMD implications (3 components per element).
+    #[test]
+    fn test_vec3_member_signal_simd_boundaries() {
+        let boundary_sizes = [4, 8, 16, 17, 32, 33];
+
+        for size in boundary_sizes {
+            let signal = MemberSignal::new(
+                MemberSignalId::new("entity".into(), "position"),
+                ValueType::Vec3,
+                size,
+            );
+
+            // Create storage
+            let mut storage = MemberSignalBuffer::new();
+            storage.register_signal("position".to_string(), ValueType::Vec3);
+            storage.init_instances(size);
+
+            // Write Vec3 values at all indices
+            for i in 0..size {
+                let v = i as f64;
+                signal.set_current(&mut storage, EntityIndex(i), Value::Vec3([v, v * 2.0, v * 3.0]));
+            }
+
+            // Verify all values including tail elements
+            for i in 0..size {
+                let value = signal.get_current(&storage, EntityIndex(i));
+                let v = i as f64;
+                assert_eq!(
+                    value,
+                    Some(Value::Vec3([v, v * 2.0, v * 3.0])),
+                    "Vec3 value mismatch at index {} for size {}",
+                    i,
+                    size
+                );
+            }
+
+            // Verify vec3 slice access
+            let slice = signal.vec3_slice(&storage).unwrap();
+            assert_eq!(slice.len(), size);
+
+            // Verify last element
+            let v = (size - 1) as f64;
+            assert_eq!(slice[size - 1], [v, v * 2.0, v * 3.0]);
+        }
+    }
+
+    /// Regression test: ensure cardinality count accessor works for all sizes.
+    #[test]
+    fn test_cardinality_count_at_boundaries() {
+        let test_cases = [
+            (0, 1),     // Scalar
+            (1, 1),     // Scalar
+            (16, 16),   // Small
+            (17, 17),   // Medium boundary
+            (1024, 1024), // Medium max
+            (1025, 1025), // Large boundary
+        ];
+
+        for (input, expected) in test_cases {
+            let card = Cardinality::classify(input);
+            assert_eq!(
+                card.count(),
+                expected,
+                "count() mismatch for input {}",
+                input
+            );
+        }
+    }
 }
