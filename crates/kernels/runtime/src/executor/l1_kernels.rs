@@ -108,13 +108,11 @@ impl LaneKernel for ScalarL1Kernel {
             .fixed_chunk_size
             .unwrap_or_else(|| optimal_chunk_size(population_size));
 
-        // Clone prev_values for parallel iteration (needed for borrow separation)
-        let prev_vec: Vec<f64> = prev_values.to_vec();
-
         // Execute in parallel chunks using the generic helper
+        // prev_values and member_signals are both immutable borrows that can coexist
         let member_signals = population.signals();
         let results = parallel_chunked_map(
-            &prev_vec,
+            prev_values,
             |idx, &prev| {
                 let ctx = ScalarResolveContext {
                     prev,
@@ -227,13 +225,11 @@ impl LaneKernel for Vec3L1Kernel {
             .fixed_chunk_size
             .unwrap_or_else(|| optimal_chunk_size(population_size));
 
-        // Clone prev_values for parallel iteration (needed for borrow separation)
-        let prev_vec: Vec<[f64; 3]> = prev_values.to_vec();
-
         // Execute in parallel chunks using the generic helper
+        // prev_values and member_signals are both immutable borrows that can coexist
         let member_signals = population.signals();
         let results = parallel_chunked_map(
-            &prev_vec,
+            prev_values,
             |idx, &prev| {
                 let ctx = Vec3ResolveContext {
                     prev,
