@@ -13,6 +13,7 @@
 //! - **Formatting**: Code formatting on save or on demand
 //! - **Inlay hints**: Type hints for symbol references
 //! - **Rename**: Rename symbols across all files (F2)
+//! - **Folding**: Collapse blocks (signals, fields, functions, etc.)
 
 mod formatter;
 mod symbols;
@@ -846,6 +847,7 @@ impl LanguageServer for Backend {
                     prepare_provider: Some(true),
                     work_done_progress_options: Default::default(),
                 })),
+                folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -1768,6 +1770,191 @@ impl LanguageServer for Backend {
             document_changes: None,
             change_annotations: None,
         }))
+    }
+
+    async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
+        let uri = &params.text_document.uri;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        let (ast, _) = parse(&doc);
+        let ast = match ast {
+            Some(ast) => ast,
+            None => return Ok(None),
+        };
+
+        let mut ranges = Vec::new();
+
+        // Add folding ranges for each top-level item
+        for item in &ast.items {
+            let (start_line, _) = offset_to_position(&doc, item.span.start);
+            let (end_line, _) = offset_to_position(&doc, item.span.end);
+
+            // Only create fold if it spans multiple lines
+            if end_line > start_line {
+                ranges.push(FoldingRange {
+                    start_line,
+                    start_character: None,
+                    end_line,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Region),
+                    collapsed_text: Some(get_item_collapsed_text(&item.node)),
+                });
+            }
+
+            // Add folding for nested blocks within items
+            add_nested_folding_ranges(&doc, &item.node, &mut ranges);
+        }
+
+        // Add folding for comment blocks
+        add_comment_folding_ranges(&doc, &mut ranges);
+
+        if ranges.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(ranges))
+        }
+    }
+}
+
+/// Get collapsed text preview for a folded item.
+fn get_item_collapsed_text(item: &Item) -> String {
+    match item {
+        Item::SignalDef(def) => format!("signal.{} {{ ... }}", def.path.node),
+        Item::FieldDef(def) => format!("field.{} {{ ... }}", def.path.node),
+        Item::OperatorDef(def) => format!("operator.{} {{ ... }}", def.path.node),
+        Item::FnDef(def) => format!("fn.{} {{ ... }}", def.path.node),
+        Item::TypeDef(def) => format!("type.{} {{ ... }}", def.name.node),
+        Item::StrataDef(def) => format!("strata.{} {{ ... }}", def.path.node),
+        Item::EraDef(def) => format!("era.{} {{ ... }}", def.name.node),
+        Item::ImpulseDef(def) => format!("impulse.{} {{ ... }}", def.path.node),
+        Item::FractureDef(def) => format!("fracture.{} {{ ... }}", def.path.node),
+        Item::ChronicleDef(def) => format!("chronicle.{} {{ ... }}", def.path.node),
+        Item::EntityDef(def) => format!("entity.{} {{ ... }}", def.path.node),
+        Item::MemberDef(def) => format!("member.{} {{ ... }}", def.path.node),
+        Item::WorldDef(def) => format!("world.{} {{ ... }}", def.path.node),
+        Item::ConstBlock(_) => "const { ... }".to_string(),
+        Item::ConfigBlock(_) => "config { ... }".to_string(),
+    }
+}
+
+/// Add folding ranges for nested blocks (resolve, config, assert, etc.)
+fn add_nested_folding_ranges(doc: &str, item: &Item, ranges: &mut Vec<FoldingRange>) {
+    match item {
+        Item::SignalDef(def) => {
+            if let Some(ref resolve) = def.resolve {
+                add_block_folding(doc, resolve.body.span.start, resolve.body.span.end, ranges);
+            }
+            if let Some(ref assertions) = def.assertions {
+                for assertion in &assertions.assertions {
+                    add_block_folding(doc, assertion.condition.span.start, assertion.condition.span.end, ranges);
+                }
+            }
+            if !def.local_config.is_empty() {
+                // Local config block - find its span from entries
+                if let (Some(first), Some(last)) = (def.local_config.first(), def.local_config.last()) {
+                    add_block_folding(doc, first.path.span.start, last.value.span.end, ranges);
+                }
+            }
+        }
+        Item::FieldDef(def) => {
+            if let Some(ref measure) = def.measure {
+                add_block_folding(doc, measure.body.span.start, measure.body.span.end, ranges);
+            }
+        }
+        Item::OperatorDef(def) => {
+            if let Some(ref body) = def.body {
+                // Extract span from the OperatorBody enum variant
+                let expr_span = match body {
+                    continuum_dsl::OperatorBody::Warmup(expr) => &expr.span,
+                    continuum_dsl::OperatorBody::Collect(expr) => &expr.span,
+                    continuum_dsl::OperatorBody::Measure(expr) => &expr.span,
+                };
+                add_block_folding(doc, expr_span.start, expr_span.end, ranges);
+            }
+        }
+        Item::FnDef(def) => {
+            add_block_folding(doc, def.body.span.start, def.body.span.end, ranges);
+        }
+        Item::FractureDef(def) => {
+            for cond in &def.conditions {
+                add_block_folding(doc, cond.span.start, cond.span.end, ranges);
+            }
+            for emission in &def.emit {
+                add_block_folding(doc, emission.value.span.start, emission.value.span.end, ranges);
+            }
+        }
+        Item::MemberDef(def) => {
+            if let Some(ref resolve) = def.resolve {
+                add_block_folding(doc, resolve.body.span.start, resolve.body.span.end, ranges);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Add a folding range for a block if it spans multiple lines.
+fn add_block_folding(doc: &str, start: usize, end: usize, ranges: &mut Vec<FoldingRange>) {
+    let (start_line, _) = offset_to_position(doc, start);
+    let (end_line, _) = offset_to_position(doc, end);
+
+    if end_line > start_line {
+        ranges.push(FoldingRange {
+            start_line,
+            start_character: None,
+            end_line,
+            end_character: None,
+            kind: Some(FoldingRangeKind::Region),
+            collapsed_text: None,
+        });
+    }
+}
+
+/// Add folding ranges for consecutive comment blocks.
+fn add_comment_folding_ranges(doc: &str, ranges: &mut Vec<FoldingRange>) {
+    let lines: Vec<&str> = doc.lines().collect();
+    let mut comment_start: Option<u32> = None;
+
+    for (i, line) in lines.iter().enumerate() {
+        let trimmed = line.trim();
+        let is_comment = trimmed.starts_with("//") || trimmed.starts_with('#');
+
+        if is_comment {
+            if comment_start.is_none() {
+                comment_start = Some(i as u32);
+            }
+        } else if let Some(start) = comment_start {
+            let end = i as u32 - 1;
+            if end > start {
+                ranges.push(FoldingRange {
+                    start_line: start,
+                    start_character: None,
+                    end_line: end,
+                    end_character: None,
+                    kind: Some(FoldingRangeKind::Comment),
+                    collapsed_text: Some("// ...".to_string()),
+                });
+            }
+            comment_start = None;
+        }
+    }
+
+    // Handle comment block at end of file
+    if let Some(start) = comment_start {
+        let end = lines.len() as u32 - 1;
+        if end > start {
+            ranges.push(FoldingRange {
+                start_line: start,
+                start_character: None,
+                end_line: end,
+                end_character: None,
+                kind: Some(FoldingRangeKind::Comment),
+                collapsed_text: Some("// ...".to_string()),
+            });
+        }
     }
 }
 
