@@ -69,6 +69,42 @@ pub struct ConfigEntry {
     pub unit: Option<Spanned<String>>,
 }
 
+// === World ===
+
+/// World definition replacing the world.yaml manifest.
+///
+/// # DSL Syntax
+///
+/// ```cdsl
+/// world.terra {
+///     : title("Earth Planetary Simulation")
+///     : version("1.0.0")
+///
+///     policy {
+///         determinism: strict
+///         faults: fatal
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorldDef {
+    /// World path (e.g., `world.terra`).
+    pub path: Spanned<Path>,
+    /// Human-readable title.
+    pub title: Option<Spanned<String>>,
+    /// Version string.
+    pub version: Option<Spanned<String>>,
+    /// Policy configuration.
+    pub policy: Option<PolicyBlock>,
+}
+
+/// Block of execution policy configuration.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PolicyBlock {
+    /// Individual policy definitions.
+    pub entries: Vec<ConfigEntry>,
+}
+
 // === Types ===
 
 /// Custom type definition for structured values.

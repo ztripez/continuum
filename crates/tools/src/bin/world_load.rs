@@ -36,13 +36,6 @@ fn main() {
         process::exit(1);
     }
 
-    // Check for world.yaml
-    let world_yaml = world_dir.join("world.yaml");
-    if !world_yaml.exists() {
-        error!("No world.yaml found in '{}'", world_dir.display());
-        process::exit(1);
-    }
-
     info!("Loading world from: {}", world_dir.display());
 
     // Find all .cdsl files recursively
@@ -154,5 +147,6 @@ fn describe_item(item: &continuum_dsl::Item) -> String {
         continuum_dsl::Item::FractureDef(f) => format!("fracture {}", f.path.node),
         continuum_dsl::Item::ChronicleDef(c) => format!("chronicle {}", c.path.node),
         continuum_dsl::Item::EntityDef(e) => format!("entity {}", e.path.node),
+        continuum_dsl::Item::WorldDef(w) => format!("world {}", w.path.node),
     }
 }

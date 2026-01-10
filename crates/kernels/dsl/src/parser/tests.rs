@@ -1767,3 +1767,39 @@ fn test_parse_named_argument_with_expression_value() {
         _ => panic!("expected SignalDef"),
     }
 }
+
+#[test]
+fn test_parse_world_def() {
+    let source = r#"
+        world.terra {
+            : title("Earth Planetary Simulation")
+            : version("1.0.0")
+
+            policy {
+                determinism: "strict"
+                faults: "fatal"
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::WorldDef(def) => {
+            assert_eq!(def.path.node.join("."), "terra");
+            assert_eq!(def.title.as_ref().unwrap().node, "Earth Planetary Simulation");
+            assert_eq!(def.version.as_ref().unwrap().node, "1.0.0");
+            
+            let policy = def.policy.as_ref().expect("expected policy block");
+            assert_eq!(policy.entries.len(), 2);
+            
+            assert_eq!(policy.entries[0].path.node.join("."), "determinism");
+            match &policy.entries[0].value.node {
+                Literal::String(s) => assert_eq!(s, "strict"),
+                _ => panic!("expected string literal"),
+            }
+        }
+        _ => panic!("expected WorldDef"),
+    }
+}

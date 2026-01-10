@@ -117,6 +117,8 @@ pub struct CompilationUnit {
 /// of their declaration order in source.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Item {
+    /// World manifest definition: `world.terra { ... }`.
+    WorldDef(WorldDef),
     /// Compile-time constant definitions: `const { physics.g: 9.81 }`.
     ConstBlock(ConstBlock),
     /// Runtime configuration values: `config { thermal.tau: 1000.0 }`.

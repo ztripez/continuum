@@ -1,6 +1,0 @@
-apiVersion: continuum/v1
-kind: World
-
-metadata:
-  name: minimal
-  title: "Minimal Thermal Simulation"

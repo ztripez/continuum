@@ -1,21 +1,22 @@
 //! World Loading.
 //!
 //! This module provides functions to load Continuum worlds from the filesystem.
-//! A world is a directory containing a `world.yaml` manifest and one or more
-//! `.cdsl` files with DSL declarations.
+//! A world is a directory containing either a `world.yaml` manifest or a DSL
+//! file with a `world` definition, plus other `.cdsl` files.
 //!
 //! # World Structure
 //!
 //! A valid world directory must contain:
-//! - `world.yaml` - The world manifest (execution policy)
-//! - One or more `*.cdsl` files - DSL source files (can be nested in subdirectories)
+//! - `world.yaml` OR a `world` definition in a `.cdsl` file
+//! - One or more `*.cdsl` files - DSL source files
 //!
 //! # Loading Process
 //!
-//! 1. Validate that the directory exists and contains `world.yaml`
+//! 1. Validate that the directory exists
 //! 2. Recursively collect all `.cdsl` files, sorted by path for determinism
 //! 3. Parse and validate each file individually
 //! 4. Merge all compilation units into a single [`CompilationUnit`]
+//! 5. Verify that a world definition exists (manifest or DSL)
 //!
 //! # Example
 //!
@@ -33,7 +34,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::ast::CompilationUnit;
+use crate::ast::{CompilationUnit, Item};
 use crate::{parse, validate, ValidationError};
 
 /// Errors that can occur during world loading.
@@ -48,11 +49,11 @@ pub enum LoadError {
     /// The path passed to [`load_world`] must be an existing directory.
     InvalidWorldDir(PathBuf),
 
-    /// No `world.yaml` manifest was found in the world directory.
+    /// No `world` DSL definition was found.
     ///
-    /// Every valid world must have a `world.yaml` file at its root.
-    /// This file defines execution policy (time strata, eras, etc.).
-    MissingWorldYaml(PathBuf),
+    /// Every valid world must have a world definition block in a DSL file.
+    /// Support for `world.yaml` has been removed.
+    MissingWorldDefinition(PathBuf),
 
     /// Failed to read a file from disk.
     ///
@@ -95,8 +96,8 @@ impl std::fmt::Display for LoadError {
             LoadError::InvalidWorldDir(path) => {
                 write!(f, "'{}' is not a valid directory", path.display())
             }
-            LoadError::MissingWorldYaml(path) => {
-                write!(f, "no world.yaml found in '{}'", path.display())
+            LoadError::MissingWorldDefinition(path) => {
+                write!(f, "no world definition found in '{}' (missing world {{ }} block in .cdsl)", path.display())
             }
             LoadError::ReadError { path, error } => {
                 write!(f, "error reading {}: {}", path.display(), error)
@@ -184,19 +185,13 @@ pub fn load_file(path: &Path) -> Result<CompilationUnit, LoadError> {
 
 /// Load all .cdsl files from a world directory
 ///
-/// Verifies the directory exists and contains a world.yaml,
-/// then collects and parses all .cdsl files, merging them into
-/// a single compilation unit.
+/// Verifies the directory exists, then collects and parses all .cdsl files,
+/// merging them into a single compilation unit. Ensures a world definition
+/// exists in the DSL.
 pub fn load_world(world_dir: &Path) -> Result<LoadResult, LoadError> {
     // Validate world directory
     if !world_dir.exists() || !world_dir.is_dir() {
         return Err(LoadError::InvalidWorldDir(world_dir.to_path_buf()));
-    }
-
-    // Check for world.yaml
-    let world_yaml = world_dir.join("world.yaml");
-    if !world_yaml.exists() {
-        return Err(LoadError::MissingWorldYaml(world_dir.to_path_buf()));
     }
 
     // Collect .cdsl files
@@ -204,10 +199,30 @@ pub fn load_world(world_dir: &Path) -> Result<LoadResult, LoadError> {
 
     // Parse and merge all files
     let mut merged_unit = CompilationUnit::default();
+    let mut has_world_def = false;
 
     for file in &files {
         let unit = load_file(file)?;
+        for item in &unit.items {
+            if matches!(item.node, Item::WorldDef(_)) {
+                if has_world_def {
+                    return Err(LoadError::ValidationErrors {
+                        path: file.clone(),
+                        errors: vec![ValidationError {
+                            message: "multiple world definitions found (already defined in another file)".to_string(),
+                            span: item.span.clone(),
+                        }],
+                    });
+                }
+                has_world_def = true;
+            }
+        }
         merged_unit.items.extend(unit.items);
+    }
+
+    // Must have a world definition
+    if !has_world_def {
+        return Err(LoadError::MissingWorldDefinition(world_dir.to_path_buf()));
     }
 
     Ok(LoadResult {
@@ -261,24 +276,26 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = dir.path();
 
-        // Create world.yaml
-        File::create(root.join("world.yaml")).unwrap();
-
-        // Create a .cdsl file
-        let mut file = File::create(root.join("test.cdsl")).unwrap();
+        // Create a .cdsl file with world definition
+        let mut file = File::create(root.join("world.cdsl")).unwrap();
+        writeln!(file, "world.terra {{ : title(\"Test World\") }}").unwrap();
         writeln!(file, "strata.test {{ }}").unwrap();
         writeln!(file, "era.main {{ : initial }}").unwrap();
 
         let result = load_world(root).unwrap();
         assert_eq!(result.files.len(), 1);
-        assert_eq!(result.unit.items.len(), 2);
+        assert_eq!(result.unit.items.len(), 3);
+        match &result.unit.items[0].node {
+            Item::WorldDef(def) => assert_eq!(def.title.as_ref().unwrap().node, "Test World"),
+            _ => panic!("expected WorldDef"),
+        }
     }
 
     #[test]
-    fn test_load_world_missing_yaml() {
+    fn test_load_world_missing_def() {
         let dir = tempdir().unwrap();
         let result = load_world(dir.path());
-        assert!(matches!(result, Err(LoadError::MissingWorldYaml(_))));
+        assert!(matches!(result, Err(LoadError::MissingWorldDefinition(_))));
     }
 
     #[test]
@@ -304,8 +321,7 @@ mod tests {
         let dir = tempdir().unwrap();
         let root = dir.path();
 
-        File::create(root.join("world.yaml")).unwrap();
-
+        // Even with parse error, we don't need world.yaml anymore to attempt loading
         let mut file = File::create(root.join("bad.cdsl")).unwrap();
         writeln!(file, "invalid syntax {{{{").unwrap();
 
@@ -319,8 +335,8 @@ mod tests {
         let err = LoadError::InvalidWorldDir(PathBuf::from("/test"));
         assert!(err.to_string().contains("not a valid directory"));
 
-        let err = LoadError::MissingWorldYaml(PathBuf::from("/test"));
-        assert!(err.to_string().contains("no world.yaml"));
+        let err = LoadError::MissingWorldDefinition(PathBuf::from("/test"));
+        assert!(err.to_string().contains("no world definition"));
 
         let err = LoadError::ReadError {
             path: PathBuf::from("/test"),
@@ -367,5 +383,20 @@ mod tests {
         assert!(files[0].ends_with("a.cdsl"));
         assert!(files[1].ends_with("m.cdsl"));
         assert!(files[2].ends_with("z.cdsl"));
+    }
+
+    #[test]
+    fn test_load_world_duplicate_def() {
+        let dir = tempdir().unwrap();
+        let root = dir.path();
+
+        let mut file1 = File::create(root.join("world1.cdsl")).unwrap();
+        writeln!(file1, "world.terra {{ : title(\"One\") }}").unwrap();
+
+        let mut file2 = File::create(root.join("world2.cdsl")).unwrap();
+        writeln!(file2, "world.mars {{ : title(\"Two\") }}").unwrap();
+
+        let result = load_world(root);
+        assert!(matches!(result, Err(LoadError::ValidationErrors { .. })));
     }
 }

@@ -6,6 +6,9 @@
 //!
 //! # Supported Items
 //!
+//! ## World Manifest
+//! - [`WorldDef`](crate::ast::WorldDef) - `world.name { ... }` world manifest and policy
+//!
 //! ## Configuration
 //! - [`ConstBlock`](crate::ast::ConstBlock) - `const { ... }` compile-time constants
 //! - [`ConfigBlock`](crate::ast::ConfigBlock) - `config { ... }` runtime parameters
@@ -38,6 +41,7 @@ mod events;
 mod signals;
 mod time;
 mod types;
+mod world;
 
 use chumsky::prelude::*;
 
@@ -52,10 +56,12 @@ pub use events::{chronicle_def, fracture_def, impulse_def};
 pub use signals::{field_def, operator_def, signal_def};
 pub use time::{era_def, strata_def};
 pub use types::{fn_def, type_def};
+pub use world::world_def;
 
 /// Main entry point for parsing top-level items.
 pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<'src>>> {
     choice((
+        world_def().map(Item::WorldDef),
         const_block().map(Item::ConstBlock),
         config_block().map(Item::ConfigBlock),
         type_def().map(Item::TypeDef),

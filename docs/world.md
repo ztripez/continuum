@@ -12,7 +12,7 @@ It specifies *what exists* and *how time advances*, but not how the system is in
 A **World** is a self-contained specification of a causal system.
 
 It consists of:
-- an execution manifest (`world.yaml`)
+- an execution manifest (`world` primitive in DSL, or `world.yaml`)
 - a set of DSL declarations (`*.cdsl`)
 
 A World defines:
@@ -52,11 +52,13 @@ This separation is fundamental and must not be blurred.
 
 A World is loaded from a directory.
 
-### Fixed rules (not configurable)
+### Loading Validation
 
-1. **Find root**: The World root is the directory containing `world.yaml`
-2. **Load YAML**: Glob all `*.yaml` under root (recursive), sort by path, merge (last wins)
-3. **Load DSL**: Glob all `*.cdsl` under root (recursive), sort by path, compile as single unit
+1. **Input**: A directory path is provided as the World root.
+2. **Scan**: All `*.cdsl` files are collected and parsed.
+3. **Validate**: The World must contain exactly one world definition, either:
+   - A `world` block in one of the `.cdsl` files (Preferred)
+   - A `world.yaml` file at the root (Legacy)
 
 There are:
 - no include directives
@@ -70,7 +72,7 @@ World structure is defined by the filesystem.
 Organized by domain:
 ```
 terra/
-  world.yaml
+  terra.cdsl        # contains `world.terra { ... }`
   config/
     physics.yaml
     defaults.yaml
@@ -88,17 +90,43 @@ terra/
 Or flat:
 ```
 terra/
-  world.yaml
-  terra.cdsl
+  terra.cdsl        # contains `world.terra { ... }`
 ```
 
 Both are valid. The engine only cares about sorted glob results.
 
 ---
 
-## 4. The `world.yaml` Manifest
+## 4. The World Manifest
 
-### Required structure
+The manifest defines **execution policy**, not simulation logic.
+
+### Option A: DSL (Preferred)
+
+Use the `world` primitive in any `.cdsl` file:
+
+```cdsl
+world.terra {
+    : title("Earth Planetary Simulation")
+    : version("1.0.0")
+
+    policy {
+        determinism: "strict"
+        faults: "fatal"
+    }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `world.<name>` | Machine identifier (lowercase, dot-separated) |
+| `: title` | Human-readable name |
+| `: version` | World version string |
+| `policy` | Execution policy configuration (optional) |
+
+### Option B: YAML (Legacy)
+
+A `world.yaml` file at the directory root:
 
 ```yaml
 apiVersion: continuum/v1
@@ -116,9 +144,9 @@ metadata:
 | `metadata.name` | Yes | Machine identifier (lowercase, no spaces) |
 | `metadata.title` | No | Human-readable name |
 
-### What `world.yaml` defines
+### What the manifest defines
 
-`world.yaml` defines **execution policy**, not simulation logic.
+The manifest defines **execution policy**, not simulation logic.
 
 It may define:
 - determinism policy
@@ -135,11 +163,11 @@ It must not define:
 - initial conditions
 - observer logic
 
-If logic or instantiation appears in `world.yaml`, the model is incorrect.
+If logic or instantiation appears in the manifest, the model is incorrect.
 
 ### Additional YAML files
 
-Other `*.yaml` files under the world root are merged into the manifest.
+Other `*.yaml` files under the world root are merged into the manifest (regardless of whether DSL or YAML was used for the main definition).
 Use for organizing configuration:
 
 ```yaml

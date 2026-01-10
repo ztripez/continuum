@@ -1,6 +1,11 @@
 # Minimal Thermal Simulation
 # A simple cooling simulation demonstrating the DSL and let expressions
 
+world.minimal {
+    : title("Minimal Thermal Simulation")
+    : version("0.1.0")
+}
+
 const {
     physics.stefan_boltzmann: 5.67e-8
     physics.boltzmann: 1.380649e-23
