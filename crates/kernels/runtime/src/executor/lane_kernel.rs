@@ -544,7 +544,7 @@ impl Default for LoweringHeuristics {
             l3_threshold: 1000,
             l2_threshold: 50000,
             l2_available: true, // L2 vectorized execution via SSA
-            l3_available: false, // Not yet implemented
+            l3_available: true, // L3 sub-DAG execution for small populations
         }
     }
 }
@@ -599,10 +599,12 @@ mod tests {
     fn test_lowering_heuristics_default() {
         let h = LoweringHeuristics::default();
 
-        // With defaults (L2 enabled, L3 not available):
-        // - Small populations use L1
+        // With defaults (L2 enabled, L3 enabled):
+        // - Small populations (< 1000) use L3
+        // - Medium populations use L1
         // - Large populations (> 50000) use L2
-        assert_eq!(h.select(100), LoweringStrategy::InstanceParallel);
+        assert_eq!(h.select(100), LoweringStrategy::SubDag);
+        assert_eq!(h.select(500), LoweringStrategy::SubDag);
         assert_eq!(h.select(10000), LoweringStrategy::InstanceParallel);
         assert_eq!(h.select(60000), LoweringStrategy::VectorKernel);
         assert_eq!(h.select(100000), LoweringStrategy::VectorKernel);

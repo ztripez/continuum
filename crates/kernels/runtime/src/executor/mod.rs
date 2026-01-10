@@ -5,6 +5,7 @@
 mod assertions;
 mod context;
 pub mod cost_model;
+pub mod l3_kernel;
 pub mod lane_kernel;
 pub mod member_executor;
 mod phases;
@@ -31,6 +32,11 @@ pub use context::{
 pub use member_executor::{
     ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver, ScalarResolveContext,
     ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
+};
+pub use l3_kernel::{
+    L3Kernel, L3KernelBuilder, L3MemberResolver, MemberDag, MemberDagError, MemberEdge,
+    ScalarL3MemberResolver, ScalarL3ResolveContext, ScalarL3ResolverFn, Vec3L3MemberResolver,
+    Vec3L3ResolveContext, Vec3L3ResolverFn,
 };
 pub use lane_kernel::{
     LaneKernel, LaneKernelError, LaneKernelRegistry, LaneKernelResult, LoweringHeuristics,

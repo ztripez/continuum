@@ -337,7 +337,7 @@ impl Default for CostModel {
             l2_population_threshold: 50_000,
             l3_population_threshold: 2_000,
             l2_available: true,
-            l3_available: false,
+            l3_available: true,
         }
     }
 }
@@ -640,30 +640,24 @@ mod tests {
 
     #[test]
     fn test_cost_model_l3_for_small_heavy() {
+        // Use default model with L3 enabled and low heavy threshold
         let model = CostModel {
-            l3_available: true,
-            ..Default::default()
-        };
-
-        // Create thresholds with low heavy threshold to make expression count as "heavy"
-        let thresholds = ComplexityThresholds {
-            heavy_score_threshold: 1.0,
+            thresholds: ComplexityThresholds {
+                heavy_score_threshold: 1.0,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
         let bytecode = compile_complex_expr();
         let score = ComplexityScore::from_bytecode(&bytecode, &model.weights);
 
+        // Complex expression should be heavy with low threshold
+        assert!(score.is_heavy(&model.thresholds));
+
         // Small population + heavy expr + L3 available = L3
-        if score.is_heavy(&thresholds) {
-            let model = CostModel {
-                l3_available: true,
-                thresholds,
-                ..Default::default()
-            };
-            let strategy = model.select_strategy(&score, 500);
-            assert_eq!(strategy, LoweringStrategy::SubDag);
-        }
+        let strategy = model.select_strategy(&score, 500);
+        assert_eq!(strategy, LoweringStrategy::SubDag);
     }
 
     #[test]
