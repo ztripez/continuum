@@ -9,11 +9,11 @@ use tracing::{debug, error, instrument, trace};
 
 use crate::dag::{DagSet, NodeKind};
 use crate::error::{Error, Result};
-use crate::storage::{FieldBuffer, FractureQueue, InputChannels, SignalStorage};
+use crate::storage::{EventBuffer, FieldBuffer, FractureQueue, InputChannels, SignalStorage};
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 
 use super::assertions::AssertionChecker;
-use super::context::{CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext};
+use super::context::{ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext};
 
 /// Function that resolves a signal value
 pub type ResolverFn = Box<dyn Fn(&ResolveContext) -> Value + Send + Sync>;
@@ -29,6 +29,23 @@ pub type MeasureFn = Box<dyn Fn(&mut MeasureContext) + Send + Sync>;
 
 /// Function that applies an impulse with a typed payload
 pub type ImpulseFn = Box<dyn Fn(&mut ImpulseContext, &Value) + Send + Sync>;
+
+/// An event emitted by a chronicle handler.
+///
+/// Chronicles observe simulation state and emit events for logging and analytics.
+/// These events are non-causal and do not affect simulation outcomes.
+#[derive(Debug, Clone)]
+pub struct EmittedEvent {
+    /// The event name (e.g., "climate.alert")
+    pub name: String,
+    /// Event fields as key-value pairs
+    pub fields: Vec<(String, Value)>,
+}
+
+/// Function that evaluates chronicle handlers and emits events.
+///
+/// Returns a vector of events to emit. Empty vector means no events triggered.
+pub type ChronicleFn = Box<dyn Fn(&ChronicleContext) -> Vec<EmittedEvent> + Send + Sync>;
 
 /// Configuration for Measure phase parallelism
 #[derive(Debug, Clone)]
@@ -76,6 +93,8 @@ pub struct PhaseExecutor {
     pub fractures: Vec<FractureFn>,
     /// Impulse handler functions
     pub impulse_handlers: Vec<ImpulseFn>,
+    /// Chronicle handler functions
+    pub chronicle_handlers: Vec<ChronicleFn>,
     /// Configuration for Measure phase parallelism
     pub measure_config: MeasureParallelConfig,
     /// Configuration for Fracture phase parallelism
@@ -118,6 +137,7 @@ impl PhaseExecutor {
             measure_ops: Vec::new(),
             fractures: Vec::new(),
             impulse_handlers: Vec::new(),
+            chronicle_handlers: Vec::new(),
             measure_config,
             fracture_config,
         }
@@ -155,6 +175,13 @@ impl PhaseExecutor {
     pub fn register_impulse(&mut self, handler: ImpulseFn) -> usize {
         let idx = self.impulse_handlers.len();
         self.impulse_handlers.push(handler);
+        idx
+    }
+
+    /// Register a chronicle handler, returns its index
+    pub fn register_chronicle(&mut self, handler: ChronicleFn) -> usize {
+        let idx = self.chronicle_handlers.len();
+        self.chronicle_handlers.push(handler);
         idx
     }
 
@@ -491,6 +518,88 @@ impl PhaseExecutor {
             // Merge all local buffers into the main buffer
             for buffer in local_buffers {
                 field_buffer.merge(buffer);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Execute chronicles in the Measure phase.
+    ///
+    /// Chronicles observe resolved signals and conditionally emit events.
+    /// They are non-causal: removing all chronicles must not change simulation results.
+    ///
+    /// Chronicle handlers can run in parallel since they only read signals.
+    /// Results are sorted by chronicle index before emitting to maintain
+    /// deterministic event ordering.
+    #[instrument(skip_all, name = "chronicles")]
+    pub fn execute_chronicles(
+        &self,
+        era: &EraId,
+        tick: u64,
+        dt: Dt,
+        strata_states: &IndexMap<StratumId, StratumState>,
+        dags: &DagSet,
+        signals: &SignalStorage,
+        event_buffer: &mut EventBuffer,
+    ) -> Result<()> {
+        let era_dags = dags.get_era(era).unwrap();
+
+        // Collect all chronicle indices across all Measure DAGs
+        let all_chronicle_indices: Vec<usize> = era_dags
+            .for_phase(Phase::Measure)
+            .filter(|dag| {
+                let stratum_state = strata_states
+                    .get(&dag.stratum)
+                    .copied()
+                    .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+                stratum_state.is_eligible(tick)
+            })
+            .flat_map(|dag| {
+                dag.levels.iter().flat_map(|level| {
+                    level.nodes.iter().filter_map(|node| match &node.kind {
+                        NodeKind::ChronicleObserve { chronicle_idx } => Some(*chronicle_idx),
+                        _ => None,
+                    })
+                })
+            })
+            .collect();
+
+        let total_chronicles = all_chronicle_indices.len();
+
+        if total_chronicles == 0 {
+            return Ok(());
+        }
+
+        trace!(
+            chronicles = total_chronicles,
+            "chronicle execution"
+        );
+
+        // Execute chronicles and collect events
+        // Using parallel execution since chronicles are read-only
+        let mut all_events: Vec<(usize, Vec<EmittedEvent>)> = all_chronicle_indices
+            .par_iter()
+            .filter_map(|&chronicle_idx| {
+                let handler = &self.chronicle_handlers[chronicle_idx];
+                let ctx = ChronicleContext { signals, dt };
+                let events = handler(&ctx);
+                if events.is_empty() {
+                    None
+                } else {
+                    Some((chronicle_idx, events))
+                }
+            })
+            .collect();
+
+        // Sort by chronicle index for deterministic event ordering
+        all_events.sort_by_key(|(idx, _)| *idx);
+
+        // Sequential emit to maintain determinism
+        for (chronicle_idx, events) in all_events {
+            for event in events {
+                debug!(chronicle_idx, event_name = %event.name, "chronicle event emitted");
+                event_buffer.emit(event.name, event.fields);
             }
         }
 
