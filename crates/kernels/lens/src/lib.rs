@@ -19,6 +19,8 @@ pub mod gpu {
     use wgpu::util::DeviceExt;
 
     /// GPU backend handle for Lens reconstruction.
+    ///
+    /// Provides batch nearest-neighbor queries for scalar fields.
     pub struct GpuLensBackend {
         context: GpuContext,
         pipeline: Option<NearestNeighborPipeline>,
@@ -36,6 +38,9 @@ pub mod gpu {
             &self.context
         }
 
+        /// Query a batch of scalar positions using GPU nearest-neighbor.
+        ///
+        /// Returns f64 values but uses f32 computation on the GPU.
         pub fn query_scalar_batch(
             &mut self,
             samples: &[( [f64; 3], f64 )],
@@ -318,7 +323,9 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 "#;
 }
 
-/// Lens configuration.
+/// Lens configuration (observer-only).
+///
+/// These settings affect observation only and must not influence simulation results.
 #[derive(Debug, Clone, Copy)]
 pub struct FieldLensConfig {
     /// Maximum number of frames to retain per field.
@@ -361,14 +368,14 @@ impl Default for FieldLensConfig {
     }
 }
 
-/// Single-field snapshot frame stored by Lens.
+/// Single-field snapshot frame stored by Lens (internal transport).
 #[derive(Debug, Clone)]
 pub(crate) struct FieldFrame {
     pub tick: u64,
     pub samples: Vec<FieldSample>,
 }
 
-/// Input payload for ingesting a single field snapshot.
+/// Input payload for ingesting a single field snapshot (internal transport).
 #[derive(Debug, Clone)]
 pub(crate) struct FieldSnapshot {
     pub field_id: FieldId,
@@ -444,6 +451,8 @@ pub enum LensError {
 }
 
 /// Tile identifier for virtual topology.
+///
+/// Stable across runs for identical positions and LOD.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TileId(u64);
 
@@ -466,11 +475,15 @@ pub enum Region {
 }
 
 /// Virtual topology interface (observer-only).
+///
+/// Defines the spatial indexing used to organize field samples for queries and refinement.
 pub trait VirtualTopology: Send + Sync {
     fn tile_at(&self, position: [f64; 3], lod: u8) -> TileId;
 }
 
 /// Minimal cubed-sphere topology.
+///
+/// Uses cube faces and Morton-coded tiles for LOD partitioning.
 #[derive(Debug, Default, Clone)]
 pub struct CubedSphereTopology;
 
@@ -520,7 +533,9 @@ impl VirtualTopology for CubedSphereTopology {
     }
 }
 
-/// Canonical observer boundary for field history.
+/// Canonical observer boundary for field history and reconstruction.
+///
+/// Lens is observer-only. It must never influence execution or causality.
 pub struct FieldLens {
     config: FieldLensConfig,
     fields: IndexMap<FieldId, FieldStorage>,
@@ -534,6 +549,8 @@ pub struct FieldLens {
 }
 
 /// Playback clock for observer queries (fractional tick time).
+///
+/// Supports lagged playback for interpolation between ticks.
 #[derive(Debug, Clone)]
 pub struct PlaybackClock {
     current_time: f64,
@@ -576,6 +593,8 @@ impl PlaybackClock {
 }
 
 /// Reconstructed field interface (observer-only).
+///
+/// Implementations must be deterministic given the same samples.
 pub trait FieldReconstruction: Send + Sync {
     /// Query scalar value at position.
     fn query(&self, position: [f64; 3]) -> f64;
@@ -654,8 +673,8 @@ impl FieldLens {
         })
     }
 
-    /// Record a single field snapshot.
-pub(crate) fn record(&mut self, snapshot: FieldSnapshot) {
+    /// Record a single field snapshot (internal transport).
+    pub(crate) fn record(&mut self, snapshot: FieldSnapshot) {
         let storage = self
             .fields
             .entry(snapshot.field_id)
@@ -1026,7 +1045,7 @@ pub enum RefinementStatus {
     Failed,
 }
 
-/// Refinement request (observer-only).
+/// Refinement request (observer-only, internal handle).
 #[derive(Debug, Clone)]
 pub struct RefinementRequest {
     pub(crate) handle: RefinementHandle,
