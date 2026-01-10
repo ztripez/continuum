@@ -2,7 +2,9 @@
 
 This document defines the **analyze** tool, used for validating and comparing simulation runs.
 
-It consumes snapshot artifacts produced by `world-run --save`.
+It consumes snapshot artifacts produced by `world-run --save`, and must access
+field data through **Lens semantics** (observer-only). `FieldSnapshot` is
+internal transport and must not be treated as a public API for end programs.
 
 ## Usage
 

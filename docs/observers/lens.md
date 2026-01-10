@@ -1,207 +1,165 @@
-Here is a **clean, authoritative `observers/lens.md`** that matches the rest of your system: strict observer boundary, no causal leakage, no legacy assumptions.
-
-This document defines **Lens as the observation interface**, not a tool, not a renderer, not a cache.
-
----
-
-```md
 # Lens
 
 This document defines the **Lens** in Continuum.
 
-The Lens is the **primary observation interface** for simulation output.
-It reconstructs and exposes **Fields** for inspection, analysis, and visualization.
+Lens is the **canonical observer boundary**. End programs (tools, visualizers, analyzers)
+must consume field data **only through Lens**.
 
-The Lens is strictly **non-causal**.
+Lens is strictly **non-causal**. Removing Lens must not change simulation outcomes.
 
 ---
 
 ## 1. What the Lens Is
 
-The **Lens** is an observer-layer system that:
+Lens is an observer-layer system that:
+- ingests field emissions from Measure
+- structures samples using virtual topology
+- reconstructs continuous field functions
+- provides deterministic query APIs for tools and visualization
 
-- ingests emitted fields
-- reconstructs field representations
-- exposes query and sampling interfaces
-- provides data to visualization and analysis tools
-
-The Lens does **not** influence execution.
-It observes causal history after the fact.
+Lens does **not** influence execution or scheduling.
 
 ---
 
-## 2. Lens and the Observer Boundary
+## 2. Observer Boundary (Absolute)
 
-The observer boundary is absolute.
+The boundary is strict.
 
-The Lens:
-- may read fields
-- may read resolved signals (if explicitly allowed)
-- must never write signals
-- must never affect execution order
-- must never affect timing or determinism
+Allowed:
+- Lens reads field emissions
+- Lens reconstructs and serves observations
+- End programs query Lens APIs
 
-Removing the Lens must not change simulation results.
+Forbidden:
+- End programs read FieldSnapshot directly
+- Domains query Lens
+- Lens writes signals or affects execution order
 
-If removing the Lens changes outcomes, the boundary has been violated.
+If removing Lens changes outcomes, the boundary is broken.
 
 ---
 
-## 3. Lens Inputs
+## 3. Inputs and Transport
 
-The Lens consumes **Field emissions** produced during the **Measure phase**.
+Lens consumes **field emissions** produced during Measure.
 
-Each field emission includes:
-- a field identifier
-- a tick and stratum
+Each emission includes:
+- field identifier
+- tick and stratum
 - payload samples
 - optional metadata
 
-The Lens does not consume:
-- signal inputs
-- unresolved state
-- execution internals
+`FieldSnapshot` is **internal transport only**. It is not a public API.
+End programs must never read `FieldSnapshot` directly.
 
 ---
 
-## 4. Field Reconstruction
+## 4. Fields Are Functions
 
-Fields may be emitted in minimal or partial form.
+A field is a function:
 
-The Lens is responsible for:
-- reconstructing spatial structure
-- interpolating or aggregating samples (observer-only)
-- producing queryable representations
+```
+f : Position -> Value
+```
+
+Samples are **constraints**, not final data.
+Any observer usage must go through reconstruction.
+
+If code loops over raw samples as final data, it violates the Lens contract.
+
+---
+
+## 5. Reconstruction (Mandatory)
+
+Lens reconstructs a continuous (or piecewise-continuous) field function from samples.
 
 Reconstruction:
-- must be deterministic
-- must not introduce new causal meaning
-- must not feed back into execution
+- is deterministic
+- is observer-only
+- never feeds back into execution
 
-Reconstruction policies are observer concerns, not simulation concerns.
-
----
-
-## 5. Lens Queries
-
-The Lens exposes read-only queries.
-
-Typical queries include:
-- field value at a position
-- field slices or projections
-- temporal sampling
-- aggregate statistics
-
-Queries must:
-- be pure
-- be side-effect free
-- never block execution
+Reconstruction methods may vary (nearest, linear, RBF, etc.) but the boundary does not.
 
 ---
 
-## 6. Lens and Time
+## 6. Virtual Topology (Structure)
 
-Lens data is indexed by:
-- tick
-- era
-- stratum
+Lens organizes samples using **virtual topology** to provide:
+- stable tile/region identifiers
+- deterministic spatial partitioning
+- coherent LOD/refinement paths
 
-The Lens does not advance time.
-It only observes it.
-
-Temporal interpolation or resampling is allowed,
-but must be clearly marked as derived observation.
+Virtual topology is observer-owned structure only. It contains no values.
 
 ---
 
-## 7. Lens and Determinism
+## 7. Temporal Interpolation
 
-Lens behavior should be deterministic with respect to its inputs.
+Lens may serve data at fractional time using temporal interpolation.
 
-Given the same emitted fields:
-- the same reconstructed fields should be produced
-- the same query results should be returned
+Rules (observer-only):
+- Scalars: linear interpolation
+- Vectors: lerp then normalize
+- Metadata: categorical, choose prev or next
 
-Minor floating-point differences in visualization are acceptable,
-but the underlying data must be stable.
-
-Lens determinism is important for analysis,
-but never for causality.
+Playback may lag simulation by a configurable interval to ensure bracketing frames.
 
 ---
 
-## 8. Lens and Performance
+## 8. Query API (Conceptual)
 
-The Lens may:
-- cache reconstructed fields
-- downsample data
-- stream data incrementally
+Lens exposes read-only queries. The exact types may evolve, but the boundary does not.
 
-These are performance optimizations only.
+Examples:
+- `latest(field_id)` -> reconstruction
+- `at(field_id, tick)` -> reconstruction
+- `tile(field_id, tile_id, tick)` -> reconstruction
+- `query(field_id, position, time)` -> value
+- `query_playback(field_id, position, playback)` -> value
+- `query_batch(field_id, positions, time)` -> values
 
-Performance decisions must not:
-- alter field values
-- hide missing data
-- change interpretation silently
-
----
-
-## 9. Lens vs Other Observers
-
-The Lens is the **foundational observer**.
-
-Other observers (e.g. chronicles, visualizers, analytics tools):
-- build on top of the Lens
-- consume its outputs
-- never bypass it to access execution internals
-
-The Lens defines the canonical observer interface.
+Queries must be pure and deterministic.
 
 ---
 
-## 10. What the Lens Is Not
+## 9. Refinement
 
-The Lens is **not**:
-- part of the execution graph
+Lens may request refinement when uncertainty is too high.
+
+Refinement requests:
+- are observer-only
+- are deduplicated and ordered deterministically
+- result in **new sampling of signals** (not resampling the point cloud)
+
+---
+
+## 10. Determinism
+
+Given identical field emissions and playback policy:
+- Lens must produce the same reconstructions
+- Query results must be stable
+
+Minor visualization rounding differences are acceptable, but the data must be stable.
+
+---
+
+## 11. What Lens Is Not
+
+Lens is not:
+- part of the execution DAG
 - a simulation cache
 - a scripting surface
-- a control mechanism
-- an authority on truth
+- a renderer
+- a source of truth
 
-Truth belongs to signals.
-Meaning belongs to observers.
+Truth belongs to signals. Meaning belongs to observers.
 
 ---
 
 ## Summary
 
-- The Lens observes fields, never signals
-- It reconstructs and exposes data
-- It is strictly non-causal
-- It must be removable without effect
-- It defines the observer interface boundary
-
-If the Lens influences execution,
-the system is broken.
-```
-
----
-
-### Status
-
-With `lens.md` in place:
-
-* Observers are now fully specified:
-
-  * `fields.md` — what is observed
-  * `lens.md` — how observation is exposed
-  * `chronicles.md` — how meaning is assigned
-* The observer boundary is airtight
-* Tooling (`run`, `analyze`, visualization) has a clean anchor
-
-If you want to continue, the next logical targets would be:
-
-* a light pass on `observers/fields.md` to ensure alignment, or
-* `tools/run.md` to reflect Lens-first observation clearly.
-
-But `lens.md` itself is now complete and correct.
+- Lens is the canonical observer boundary
+- FieldSnapshot is internal transport only
+- Reconstruction is mandatory
+- Virtual topology provides structure for queries and refinement
+- Lens is deterministic and removable without causal impact
