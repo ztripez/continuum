@@ -848,6 +848,7 @@ impl LanguageServer for Backend {
                     work_done_progress_options: Default::default(),
                 })),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
+                workspace_symbol_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -1406,6 +1407,66 @@ impl LanguageServer for Backend {
         }
 
         Ok(None)
+    }
+
+    async fn symbol(
+        &self,
+        params: WorkspaceSymbolParams,
+    ) -> Result<Option<Vec<SymbolInformation>>> {
+        let query = params.query.to_lowercase();
+        let mut results = Vec::new();
+
+        // Search all indexed files for matching symbols
+        for entry in self.symbol_indices.iter() {
+            let uri = entry.key().clone();
+            let index = entry.value();
+
+            let doc = match self.documents.get(&uri) {
+                Some(doc) => doc.clone(),
+                None => continue,
+            };
+
+            for (info, span) in index.get_all_definitions() {
+                // Match symbol path against query (fuzzy match)
+                let path_lower = info.path.to_lowercase();
+                if query.is_empty() || path_lower.contains(&query) {
+                    let (start_line, start_char) = offset_to_position(&doc, span.start);
+                    let (end_line, end_char) = offset_to_position(&doc, span.end);
+
+                    #[allow(deprecated)]
+                    results.push(SymbolInformation {
+                        name: info.path.clone(),
+                        kind: symbol_kind_to_lsp(info.kind),
+                        tags: None,
+                        deprecated: None,
+                        location: Location {
+                            uri: uri.clone(),
+                            range: Range {
+                                start: Position::new(start_line, start_char),
+                                end: Position::new(end_line, end_char),
+                            },
+                        },
+                        container_name: Some(format!("{:?}", info.kind)),
+                    });
+                }
+            }
+        }
+
+        // Sort by relevance: exact prefix matches first, then by path length
+        results.sort_by(|a, b| {
+            let a_starts = a.name.to_lowercase().starts_with(&query);
+            let b_starts = b.name.to_lowercase().starts_with(&query);
+            match (a_starts, b_starts) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.name.len().cmp(&b.name.len()),
+            }
+        });
+
+        // Limit results to prevent overwhelming the UI
+        results.truncate(100);
+
+        Ok(Some(results))
     }
 
     async fn semantic_tokens_full(
