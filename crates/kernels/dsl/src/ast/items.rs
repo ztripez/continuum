@@ -31,6 +31,8 @@ pub struct ConstBlock {
 /// A single constant definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstEntry {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Namespaced path (e.g., `physics.gravitational`).
     pub path: Spanned<Path>,
     /// Constant value (must be a literal).
@@ -61,6 +63,8 @@ pub struct ConfigBlock {
 /// A single config definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigEntry {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Namespaced path (e.g., `terra.thermal.tau`).
     pub path: Spanned<Path>,
     /// Default value (can be overridden by scenario).

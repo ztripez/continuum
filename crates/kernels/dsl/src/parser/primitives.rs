@@ -60,14 +60,21 @@ pub fn spanned<'src, O>(
 /// Returns `()` since whitespace is typically ignored.
 pub fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src>>> + Clone {
     // Regular line comment: // but NOT /// or //!
-    // We match // then capture the rest of the line, filtering out doc comments
-    let line_comment = just("//")
-        .ignore_then(any().and_is(just('\n').not()).repeated().to_slice())
-        .filter(|rest: &&str| {
-            // Keep only if rest is empty (//\n) or doesn't start with / or !
-            rest.is_empty() || (!rest.starts_with('/') && !rest.starts_with('!'))
-        })
-        .padded();
+    // Match "// " (with space) or "//[^/!]" or "//" at end of line
+    let line_comment = choice((
+        // "// " with space - definitely a comment
+        just("// ")
+            .ignore_then(any().and_is(just('\n').not()).repeated())
+            .ignored(),
+        // "//\n" - empty comment line (followed by newline)
+        just("//\n").ignored(),
+        // "//x" where x is not / or ! or newline - comment with content starting immediately
+        just("//")
+            .ignore_then(none_of("/!\n"))
+            .ignore_then(any().and_is(just('\n').not()).repeated())
+            .ignored(),
+    ))
+    .padded();
     let hash_comment = just("#")
         .then(any().and_is(just('\n').not()).repeated())
         .padded();
@@ -77,7 +84,7 @@ pub fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src
         .padded();
 
     choice((
-        line_comment.ignored(),
+        line_comment,
         hash_comment.ignored(),
         block_comment.ignored(),
         text::whitespace().at_least(1).ignored(),
@@ -90,16 +97,37 @@ pub fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src
 ///
 /// Captures consecutive `///` lines and returns them as a single string
 /// with the `///` prefix stripped. Returns `None` if no doc comments found.
+///
+/// Note: This parser expects to be called at a position where `///` appears
+/// immediately. Surrounding whitespace should be handled by the caller's
+/// `ws()` or `padded_by()`.
 pub fn doc_comment<'src>(
 ) -> impl Parser<'src, &'src str, Option<String>, extra::Err<ParseError<'src>>> + Clone {
+    // Parse a single doc comment line: "/// content\n"
+    // Includes optional leading inline whitespace (spaces/tabs) for subsequent lines
+    let doc_line = text::inline_whitespace()
+        .ignore_then(just("///"))
+        .ignore_then(any().and_is(just('\n').not()).repeated().to_slice())
+        .then_ignore(just('\n').or(end().to('\n')))
+        .map(|s: &str| s.trim().to_string());
+
+    // Use peek-based approach: only try parsing a doc_line if it will succeed
+    // This prevents consuming whitespace when there's no /// following
+    let peek_doc_line = text::inline_whitespace()
+        .ignore_then(just("///").rewind())
+        .ignore_then(doc_line.clone());
+
+    // First line must start with /// (no leading whitespace consumed by us)
     just("///")
         .ignore_then(any().and_is(just('\n').not()).repeated().to_slice())
         .then_ignore(just('\n').or(end().to('\n')))
         .map(|s: &str| s.trim().to_string())
-        .separated_by(text::whitespace().at_most(1000))
-        .at_least(1)
-        .collect::<Vec<_>>()
-        .map(|lines| Some(lines.join("\n")))
+        .then(peek_doc_line.repeated().collect::<Vec<_>>())
+        .map(|(first, rest)| {
+            let mut lines = vec![first];
+            lines.extend(rest);
+            Some(lines.join("\n"))
+        })
         .or(empty().to(None))
 }
 

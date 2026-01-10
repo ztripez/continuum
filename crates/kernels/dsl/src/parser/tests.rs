@@ -1941,3 +1941,166 @@ fn test_terra_file_parses() {
     // Verify module doc was captured
     assert!(ast.module_doc.is_some(), "terra.cdsl should have module doc");
 }
+
+#[test]
+fn test_doc_comments_in_config_block_simple() {
+    // First test: just a single entry with doc comment
+    let source = "config { /// Doc\natmosphere.temp: 288.0 }";
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::ConfigBlock(block) => {
+            assert_eq!(block.entries.len(), 1);
+            assert_eq!(block.entries[0].doc.as_ref().unwrap(), "Doc");
+        }
+        _ => panic!("expected ConfigBlock"),
+    }
+}
+
+#[test]
+fn test_config_entry_without_doc() {
+    // Test entry without doc comment
+    let source = "config { atmosphere.temp: 288.0 }";
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::ConfigBlock(block) => {
+            assert_eq!(block.entries.len(), 1);
+            assert!(block.entries[0].doc.is_none());
+        }
+        _ => panic!("expected ConfigBlock"),
+    }
+}
+
+#[test]
+fn test_config_mixed_doc_entries() {
+    // Test: entry with doc followed by entry without doc
+    let source = "config { /// Doc\na.x: 1.0\nb.y: 2.0 }";
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::ConfigBlock(block) => {
+            assert_eq!(block.entries.len(), 2);
+            assert_eq!(block.entries[0].doc.as_ref().unwrap(), "Doc");
+            assert!(block.entries[1].doc.is_none());
+        }
+        _ => panic!("expected ConfigBlock"),
+    }
+}
+
+#[test]
+fn test_doc_comments_in_config_block() {
+    let source = r#"
+        config {
+            /// First doc comment
+            atmosphere.initial_temp: 288.0
+            /// Second doc
+            /// with multiple lines
+            atmosphere.pressure: 101325.0
+            atmosphere.no_doc: 1.0
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::ConfigBlock(block) => {
+            assert_eq!(block.entries.len(), 3);
+            // First entry has doc
+            assert_eq!(
+                block.entries[0].doc.as_ref().unwrap(),
+                "First doc comment"
+            );
+            // Second entry has multi-line doc
+            assert_eq!(
+                block.entries[1].doc.as_ref().unwrap(),
+                "Second doc\nwith multiple lines"
+            );
+            // Third entry has no doc
+            assert!(block.entries[2].doc.is_none());
+        }
+        _ => panic!("expected ConfigBlock"),
+    }
+}
+
+#[test]
+fn test_doc_comments_in_const_block() {
+    let source = r#"
+        const {
+            /// Stefan-Boltzmann constant
+            physics.sigma: 5.67e-8
+            physics.no_doc: 3.14
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::ConstBlock(block) => {
+            assert_eq!(block.entries.len(), 2);
+            // First entry has doc
+            assert_eq!(
+                block.entries[0].doc.as_ref().unwrap(),
+                "Stefan-Boltzmann constant"
+            );
+            // Second entry has no doc
+            assert!(block.entries[1].doc.is_none());
+        }
+        _ => panic!("expected ConstBlock"),
+    }
+}
+
+#[test]
+fn test_atmosphere_file_parses() {
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let atmosphere_path = workspace_root.join("examples/terra/atmosphere/atmosphere.cdsl");
+    let content = std::fs::read_to_string(&atmosphere_path)
+        .unwrap_or_else(|e| panic!("Failed to read {}: {}", atmosphere_path.display(), e));
+    let (ast, errors) = crate::parse(&content);
+
+    if !errors.is_empty() {
+        for err in &errors {
+            let span = err.span();
+            let line_num = content[..span.start].matches('\n').count() + 1;
+            eprintln!("Line {}: {}", line_num, err);
+        }
+    }
+
+    assert!(
+        errors.is_empty(),
+        "atmosphere.cdsl should parse without errors"
+    );
+    assert!(ast.is_some(), "atmosphere.cdsl should produce an AST");
+    let ast = ast.unwrap();
+    assert!(ast.items.len() > 0, "atmosphere.cdsl should have items");
+
+    // Verify config entry doc comments are captured
+    for item in &ast.items {
+        if let Item::ConfigBlock(block) = &item.node {
+            // The first entry should have a doc comment "Radiative balance"
+            if let Some(first_entry) = block.entries.first() {
+                if first_entry.path.node.join(".") == "atmosphere.initial_surface_temp" {
+                    assert!(
+                        first_entry.doc.is_some(),
+                        "atmosphere.initial_surface_temp should have doc comment"
+                    );
+                    assert!(
+                        first_entry.doc.as_ref().unwrap().contains("Radiative balance"),
+                        "doc should contain 'Radiative balance'"
+                    );
+                }
+            }
+        }
+    }
+}
