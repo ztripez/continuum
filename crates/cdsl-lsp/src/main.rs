@@ -324,34 +324,87 @@ impl LanguageServer for Backend {
 
         let mut items = Vec::new();
 
-        // If we have a kind prefix, only show symbols of that kind from ALL files
-        if let Some((kind, _prefix_len)) = kind_filter {
+        // If we have a kind prefix, show hierarchical path completion
+        if let Some((kind, prefix_len)) = kind_filter {
+            // Get the path part after "signal." etc.
+            let path_prefix = &prefix[prefix_len..];
+            let prefix_segments: Vec<&str> = if path_prefix.is_empty() {
+                vec![]
+            } else {
+                path_prefix.split('.').collect()
+            };
+            let prefix_depth = prefix_segments.len();
+
+            // Track unique next segments and their info for deduplication
+            let mut seen_segments: std::collections::HashMap<String, Option<(String, Option<String>)>> =
+                std::collections::HashMap::new();
+
             // Collect completions from ALL indexed files in the world
             for entry in self.symbol_indices.iter() {
                 for info in entry.value().get_completions().filter(|c| c.kind == kind) {
-                    let lsp_kind = cdsl_kind_to_completion_kind(info.kind);
+                    let path_segments: Vec<&str> = info.path.split('.').collect();
 
-                    // Build detail string with type and title
-                    let detail = match (info.ty, info.title) {
-                        (Some(ty), Some(title)) => format!("{} - {}", ty, title),
-                        (Some(ty), None) => ty.to_string(),
-                        (None, Some(title)) => title.to_string(),
-                        (None, None) => info.kind.display_name().to_string(),
-                    };
+                    // Check if this path matches the prefix
+                    let matches_prefix = prefix_segments
+                        .iter()
+                        .zip(path_segments.iter())
+                        .all(|(p, s)| s.starts_with(*p));
 
-                    items.push(CompletionItem {
-                        label: info.path.to_string(),
-                        kind: Some(lsp_kind),
-                        detail: Some(detail),
-                        documentation: info.doc.map(|d| {
-                            Documentation::MarkupContent(MarkupContent {
-                                kind: MarkupKind::Markdown,
-                                value: d.to_string(),
-                            })
-                        }),
-                        ..Default::default()
-                    });
+                    if !matches_prefix {
+                        continue;
+                    }
+
+                    // Get the next segment to show
+                    if let Some(next_segment) = path_segments.get(prefix_depth) {
+                        let is_final = path_segments.len() == prefix_depth + 1;
+
+                        // Build the completion info
+                        if is_final {
+                            // This is the final segment - show full info
+                            let detail = match (info.ty, info.title) {
+                                (Some(ty), Some(title)) => format!("{} - {}", ty, title),
+                                (Some(ty), None) => ty.to_string(),
+                                (None, Some(title)) => title.to_string(),
+                                (None, None) => info.kind.display_name().to_string(),
+                            };
+                            seen_segments.insert(
+                                next_segment.to_string(),
+                                Some((detail, info.doc.map(|d| d.to_string()))),
+                            );
+                        } else {
+                            // Intermediate segment - just a namespace
+                            seen_segments
+                                .entry(next_segment.to_string())
+                                .or_insert(None);
+                        }
+                    }
                 }
+            }
+
+            // Build completion items from unique segments
+            for (segment, info) in seen_segments {
+                let is_final = info.is_some();
+                let (detail, doc) = match info {
+                    Some((d, doc)) => (d, doc),
+                    None => ("namespace".to_string(), None),
+                };
+
+                items.push(CompletionItem {
+                    label: segment,
+                    kind: Some(if is_final {
+                        cdsl_kind_to_completion_kind(kind)
+                    } else {
+                        CompletionItemKind::MODULE
+                    }),
+                    detail: Some(detail),
+                    documentation: doc.map(|d| {
+                        Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: d,
+                        })
+                    }),
+                    ..Default::default()
+                });
             }
         } else {
             // No kind prefix - show keywords and all symbols
