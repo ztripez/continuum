@@ -48,9 +48,9 @@ pub fn signal_def<'src>() -> impl Parser<'src, &'src str, SignalDef, extra::Err<
                 warmup: None,
                 resolve: None,
                 assertions: None,
+                tensor_constraints: vec![],
+                seq_constraints: vec![],
             };
-            let mut tensor_constraints = Vec::new();
-            let mut seq_constraints = Vec::new();
             for content in contents {
                 match content {
                     SignalContent::Type(t) => def.ty = Some(t),
@@ -62,22 +62,8 @@ pub fn signal_def<'src>() -> impl Parser<'src, &'src str, SignalDef, extra::Err<
                     SignalContent::LocalConfig(c) => def.local_config.extend(c),
                     SignalContent::Resolve(r) => def.resolve = Some(r),
                     SignalContent::Assert(a) => def.assertions = Some(a),
-                    SignalContent::TensorConstraint(c) => tensor_constraints.push(c),
-                    SignalContent::SeqConstraint(c) => seq_constraints.push(c),
-                }
-            }
-            // Apply constraints to the type expression
-            if let Some(ref mut ty) = def.ty {
-                match &mut ty.node {
-                    TypeExpr::Tensor { constraints, .. } => {
-                        *constraints = tensor_constraints;
-                    }
-                    TypeExpr::Seq { constraints, .. } => {
-                        *constraints = seq_constraints;
-                    }
-                    _ => {
-                        // Constraints on non-tensor/seq types are ignored
-                    }
+                    SignalContent::TensorConstraint(c) => def.tensor_constraints.push(c),
+                    SignalContent::SeqConstraint(c) => def.seq_constraints.push(c),
                 }
             }
             def

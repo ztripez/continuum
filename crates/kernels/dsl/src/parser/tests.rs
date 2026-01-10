@@ -94,21 +94,19 @@ fn test_parse_signal_with_tensor_constraints() {
     let unit = result.unwrap();
     match &unit.items[0].node {
         Item::SignalDef(def) => {
+            // Verify the type is Tensor
             let ty = def.ty.as_ref().expect("should have type");
-            match &ty.node {
-                TypeExpr::Tensor { constraints, .. } => {
-                    assert_eq!(constraints.len(), 2);
-                    assert_eq!(
-                        constraints[0],
-                        crate::ast::TensorConstraint::Symmetric
-                    );
-                    assert_eq!(
-                        constraints[1],
-                        crate::ast::TensorConstraint::PositiveDefinite
-                    );
-                }
-                _ => panic!("expected Tensor type"),
-            }
+            assert!(matches!(ty.node, TypeExpr::Tensor { .. }));
+            // Constraints are now stored on SignalDef, not TypeExpr
+            assert_eq!(def.tensor_constraints.len(), 2);
+            assert_eq!(
+                def.tensor_constraints[0],
+                crate::ast::TensorConstraint::Symmetric
+            );
+            assert_eq!(
+                def.tensor_constraints[1],
+                crate::ast::TensorConstraint::PositiveDefinite
+            );
         }
         _ => panic!("expected SignalDef"),
     }
@@ -133,26 +131,24 @@ fn test_parse_signal_with_seq_constraints() {
     let unit = result.unwrap();
     match &unit.items[0].node {
         Item::SignalDef(def) => {
+            // Verify the type is Seq
             let ty = def.ty.as_ref().expect("should have type");
-            match &ty.node {
-                TypeExpr::Seq { constraints, .. } => {
-                    assert_eq!(constraints.len(), 2);
-                    match &constraints[0] {
-                        crate::ast::SeqConstraint::Each(range) => {
-                            assert_eq!(range.min, 1e20);
-                            assert_eq!(range.max, 1e28);
-                        }
-                        _ => panic!("expected Each constraint"),
-                    }
-                    match &constraints[1] {
-                        crate::ast::SeqConstraint::Sum(range) => {
-                            assert_eq!(range.min, 1e25);
-                            assert_eq!(range.max, 1e30);
-                        }
-                        _ => panic!("expected Sum constraint"),
-                    }
+            assert!(matches!(ty.node, TypeExpr::Seq { .. }));
+            // Constraints are now stored on SignalDef, not TypeExpr
+            assert_eq!(def.seq_constraints.len(), 2);
+            match &def.seq_constraints[0] {
+                crate::ast::SeqConstraint::Each(range) => {
+                    assert_eq!(range.min, 1e20);
+                    assert_eq!(range.max, 1e28);
                 }
-                _ => panic!("expected Seq type"),
+                _ => panic!("expected Each constraint"),
+            }
+            match &def.seq_constraints[1] {
+                crate::ast::SeqConstraint::Sum(range) => {
+                    assert_eq!(range.min, 1e25);
+                    assert_eq!(range.max, 1e30);
+                }
+                _ => panic!("expected Sum constraint"),
             }
         }
         _ => panic!("expected SignalDef"),

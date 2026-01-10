@@ -218,7 +218,7 @@ fn test_dimension_parsed_for_vector_unit() {
 
     // Verify m/s² = length^1 * time^-2
     match &signal.value_type {
-        ValueType::Vec3 { unit, dimension } => {
+        ValueType::Vec3 { unit, dimension, .. } => {
             assert_eq!(unit, &Some("m/s²".to_string()), "unit should be 'm/s²'");
             assert!(dimension.is_some(), "dimension should be parsed");
             let dim = dimension.as_ref().unwrap();
@@ -1026,6 +1026,17 @@ fn test_lower_error_display() {
     let err = LowerError::UndeclaredDtRawUsage("test.value".to_string());
     assert!(err.to_string().contains("dt_raw"));
     assert!(err.to_string().contains("test.value"));
+
+    let err = LowerError::MismatchedConstraint {
+        signal: "test.stress".to_string(),
+        constraint_kind: "tensor".to_string(),
+        actual_type: "Scalar<Pa>".to_string(),
+        expected_type: "Tensor".to_string(),
+    };
+    assert!(err.to_string().contains("test.stress"));
+    assert!(err.to_string().contains("tensor"));
+    assert!(err.to_string().contains("Scalar<Pa>"));
+    assert!(err.to_string().contains("Tensor"));
 }
 
 // ============================================================================
@@ -2175,4 +2186,197 @@ fn test_lower_multiple_typedefs() {
     assert!(world.types.contains_key(&TypeId::from("Position")));
     assert!(world.types.contains_key(&TypeId::from("Velocity")));
     assert!(world.types.contains_key(&TypeId::from("Particle")));
+}
+
+// ============================================================================
+// Type Constraint Mismatch Tests (#71)
+// ============================================================================
+
+#[test]
+fn test_tensor_constraint_on_scalar_fails() {
+    // Tensor constraints like `: symmetric` should fail on non-Tensor types
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : Scalar<Pa>
+            : symmetric
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, constraint_kind, actual_type, expected_type } => {
+            assert_eq!(signal, "test.value");
+            assert_eq!(constraint_kind, "tensor");
+            assert!(actual_type.contains("Scalar"), "got: {}", actual_type);
+            assert_eq!(expected_type, "Tensor");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_tensor_constraint_on_vector_fails() {
+    // Tensor constraints should fail on Vector types too
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.velocity {
+            : Vec3<m/s>
+            : positive_definite
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, constraint_kind, expected_type, .. } => {
+            assert_eq!(signal, "test.velocity");
+            assert_eq!(constraint_kind, "tensor");
+            assert_eq!(expected_type, "Tensor");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_seq_constraint_on_scalar_fails() {
+    // Seq constraints like `: each(0..1)` should fail on non-Seq types
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : Scalar<kg>
+            : each(1e20..1e28)
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, constraint_kind, actual_type, expected_type } => {
+            assert_eq!(signal, "test.value");
+            assert_eq!(constraint_kind, "sequence");
+            assert!(actual_type.contains("Scalar"), "got: {}", actual_type);
+            assert_eq!(expected_type, "Seq");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_seq_constraint_on_tensor_fails() {
+    // Seq constraints should fail on Tensor types too
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.stress {
+            : Tensor<3,3,Pa>
+            : sum(0..1e10)
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, constraint_kind, expected_type, .. } => {
+            assert_eq!(signal, "test.stress");
+            assert_eq!(constraint_kind, "sequence");
+            assert_eq!(expected_type, "Seq");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_constraint_on_unspecified_type_fails() {
+    // Constraints should fail when no type is specified
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.value {
+            : symmetric
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        LowerError::MismatchedConstraint { signal, actual_type, .. } => {
+            assert_eq!(signal, "test.value");
+            assert_eq!(actual_type, "unspecified");
+        }
+        e => panic!("expected MismatchedConstraint, got: {:?}", e),
+    }
+}
+
+#[test]
+fn test_valid_tensor_constraint_succeeds() {
+    // Valid tensor constraints should work
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.stress {
+            : Tensor<3,3,Pa>
+            : symmetric
+            : positive_definite
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_ok(), "got error: {:?}", result.unwrap_err());
+}
+
+#[test]
+fn test_valid_seq_constraint_succeeds() {
+    // Valid seq constraints should work
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.masses {
+            : Seq<Scalar<kg>>
+            : each(1e20..1e28)
+            : sum(1e25..1e30)
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let result = lower(&unit);
+
+    assert!(result.is_ok(), "got error: {:?}", result.unwrap_err());
 }

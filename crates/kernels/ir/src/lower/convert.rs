@@ -78,10 +78,18 @@ impl Lowerer {
                     2 => ValueType::Vec2 {
                         unit: unit_str,
                         dimension,
+                        magnitude: magnitude.as_ref().map(|r| ValueRange {
+                            min: r.min,
+                            max: r.max,
+                        }),
                     },
                     3 => ValueType::Vec3 {
                         unit: unit_str,
                         dimension,
+                        magnitude: magnitude.as_ref().map(|r| ValueRange {
+                            min: r.min,
+                            max: r.max,
+                        }),
                     },
                     4 => ValueType::Vec4 {
                         unit: unit_str,

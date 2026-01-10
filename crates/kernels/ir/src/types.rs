@@ -612,6 +612,8 @@ pub enum ValueType {
         unit: Option<String>,
         /// Parsed dimensional representation for analysis.
         dimension: Option<crate::units::Unit>,
+        /// Optional magnitude constraint.
+        magnitude: Option<ValueRange>,
     },
     /// 3D vector.
     Vec3 {
@@ -619,6 +621,8 @@ pub enum ValueType {
         unit: Option<String>,
         /// Parsed dimensional representation for analysis.
         dimension: Option<crate::units::Unit>,
+        /// Optional magnitude constraint (e.g., for position bounds).
+        magnitude: Option<ValueRange>,
     },
     /// 4D vector (quaternions, homogeneous coordinates).
     Vec4 {
