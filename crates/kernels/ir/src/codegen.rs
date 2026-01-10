@@ -165,11 +165,19 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         },
         CompiledExpr::Local(name) => Expr::Local(name.clone()),
         CompiledExpr::FieldAccess { object, field } => {
-            // Handle field access on signals (e.g., signal.x, signal.y, signal.z)
+            // Handle field access on signals, prev, and collected (e.g., signal.x, prev.y, collected.z)
             match object.as_ref() {
                 CompiledExpr::Signal(id) => {
                     // Convert to SignalComponent for vector component access
                     Expr::SignalComponent(id.0.clone(), field.clone())
+                }
+                CompiledExpr::Prev => {
+                    // Convert to PrevComponent for vector prev component access
+                    Expr::PrevComponent(field.clone())
+                }
+                CompiledExpr::Collected => {
+                    // Convert to CollectedComponent for vector inputs component access
+                    Expr::CollectedComponent(field.clone())
                 }
                 other => {
                     panic!(

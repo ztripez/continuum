@@ -28,11 +28,17 @@ pub enum Op {
     /// Push sum of inputs for current signal
     LoadInputs,
 
+    /// Push value of inputs component by component index (for vector signals)
+    LoadInputsComponent(u16),
+
     /// Push value of signal by index (resolved at compile time)
     LoadSignal(u16),
 
     /// Push value of signal component by signal index and component index
     LoadSignalComponent(u16, u16),
+
+    /// Push value of prev component by component index (for vector signals)
+    LoadPrevComponent(u16),
 
     /// Push value of constant by index
     LoadConst(u16),

@@ -205,6 +205,94 @@ pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> 
     }
 }
 
+/// Builds a resolver function for a compiled signal.
+///
+/// This function handles both scalar signals (with a single `resolve` expression)
+/// and vector signals (with per-component `resolve_components` expressions).
+///
+/// # Vector Signal Handling
+///
+/// For vector signals (Vec2, Vec3, Vec4), the resolver executes each component's
+/// bytecode independently and assembles the results into the appropriate Value type.
+/// This allows vector operations to be expressed as scalar operations at the
+/// bytecode level while maintaining type safety at the signal level.
+///
+/// # Returns
+///
+/// - `Some(ResolverFn)` if the signal has a resolve expression
+/// - `None` if the signal has no resolve logic (externally driven)
+pub fn build_signal_resolver(
+    signal: &crate::CompiledSignal,
+    world: &CompiledWorld,
+) -> Option<ResolverFn> {
+    // Check for component-wise resolution (vector signals)
+    if let Some(ref components) = signal.resolve_components {
+        return Some(build_vector_resolver(
+            components,
+            &signal.value_type,
+            world,
+        ));
+    }
+
+    // Fall back to scalar resolution
+    signal
+        .resolve
+        .as_ref()
+        .map(|expr| build_resolver(expr, world, signal.uses_dt_raw))
+}
+
+/// Builds a resolver for vector signals with per-component expressions.
+///
+/// Each component expression is compiled to bytecode and executed independently.
+/// The results are assembled into a Vec2, Vec3, or Vec4 based on the signal's type.
+fn build_vector_resolver(
+    components: &[CompiledExpr],
+    value_type: &ValueType,
+    world: &CompiledWorld,
+) -> ResolverFn {
+    // Pre-compile all component expressions to bytecode
+    let bytecodes: Vec<BytecodeChunk> = components.iter().map(|e| codegen::compile(e)).collect();
+    let constants = world.constants.clone();
+    let config = world.config.clone();
+    let value_type = value_type.clone();
+
+    Box::new(move |ctx| {
+        let exec_ctx = ResolverContext {
+            prev: ctx.prev,
+            inputs: ctx.inputs,
+            dt: ctx.dt.seconds(),
+            shared: SharedContextData {
+                constants: &constants,
+                config: &config,
+                signals: ctx.signals,
+            },
+        };
+
+        // Execute each component's bytecode
+        let results: Vec<f64> = bytecodes.iter().map(|bc| execute(bc, &exec_ctx)).collect();
+
+        // Assemble into the appropriate Value type
+        match value_type {
+            ValueType::Vec2 { .. } => {
+                debug_assert_eq!(results.len(), 2, "Vec2 requires exactly 2 components");
+                Value::Vec2([results[0], results[1]])
+            }
+            ValueType::Vec3 { .. } => {
+                debug_assert_eq!(results.len(), 3, "Vec3 requires exactly 3 components");
+                Value::Vec3([results[0], results[1], results[2]])
+            }
+            ValueType::Vec4 { .. } => {
+                debug_assert_eq!(results.len(), 4, "Vec4 requires exactly 4 components");
+                Value::Vec4([results[0], results[1], results[2], results[3]])
+            }
+            _ => panic!(
+                "build_vector_resolver called with non-vector type: {:?}",
+                value_type
+            ),
+        }
+    })
+}
+
 /// Builds a resolver function from a compiled expression.
 ///
 /// The resolver computes the next value for a signal based on its previous

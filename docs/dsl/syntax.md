@@ -636,7 +636,74 @@ fold(sequence, init, fn)
 
 ---
 
-## 18. Signal Input Operator
+## 18. Vector Field Access
+
+Vector types (`Vec2`, `Vec3`, `Vec4`) support component access using dot notation:
+
+### Supported Patterns
+
+```
+prev.x              // Component of previous value
+prev.y
+prev.z
+prev.w
+
+collected.x         // Component of accumulated inputs
+collected.y
+
+signal.path.x       // Component of another signal
+signal.path.y
+signal.path.z
+```
+
+These patterns work because `prev`, `collected`, and `signal.path` are statically known
+to refer to resolved storage locations.
+
+### Unsupported Patterns
+
+Field access on computed expressions is **not supported**:
+
+```
+// NOT SUPPORTED - accessing component of a local binding
+let v = vec3(1.0, 2.0, 3.0) in v.x    // Error!
+
+// NOT SUPPORTED - accessing component of a function result
+normalize(velocity).x                   // Error!
+
+// NOT SUPPORTED - chained field access
+other_struct.position.x                 // Error!
+```
+
+### Workarounds
+
+For patterns not directly supported, restructure to access components at the source:
+
+```
+// Instead of: let v = vec3(a, b, c) in v.x
+// Use: extract the component directly
+a
+
+// Instead of: normalize(velocity).x
+// Use: compute inline or use separate signals
+let vx = velocity.x in
+let vy = velocity.y in
+let vz = velocity.z in
+let mag = sqrt(vx*vx + vy*vy + vz*vz) in
+vx / mag
+
+// For complex cases, split into separate scalar signals
+signal.velocity_x { resolve { ... } }
+signal.velocity_y { resolve { ... } }
+signal.velocity_z { resolve { ... } }
+```
+
+The compiler expands vector signal resolve blocks into per-component scalar expressions
+at compile time, so component access on `prev`, `collected`, and `signal.path` is
+resolved statically without runtime overhead.
+
+---
+
+## 19. Signal Input Operator
 
 The `<-` operator writes to signal input accumulators:
 
@@ -654,7 +721,7 @@ field.target <- position, value
 
 ---
 
-## 19. Reference Prefixes
+## 20. Reference Prefixes
 
 | Prefix | Meaning |
 |--------|---------|
@@ -669,7 +736,7 @@ field.target <- position, value
 
 ---
 
-## 20. Mathematical Constants
+## 21. Mathematical Constants
 
 Built-in mathematical constants. Both ASCII and Unicode forms are supported:
 
@@ -696,7 +763,7 @@ resolve {
 
 ---
 
-## 21. Complete Example
+## 22. Complete Example
 
 ```
 const {

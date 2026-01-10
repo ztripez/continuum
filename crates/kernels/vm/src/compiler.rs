@@ -60,10 +60,14 @@ pub enum Expr {
     DtRaw,
     /// Load the sum of inputs for the current signal
     Collected,
+    /// Access a component of the collected vector value (e.g., collected.x, collected.y)
+    CollectedComponent(String),
     /// Load a signal value by name
     Signal(String),
     /// Access a component of a vector signal (e.g., signal.x, signal.y)
     SignalComponent(String, String),
+    /// Access a component of the previous vector value (e.g., prev.x, prev.y)
+    PrevComponent(String),
     /// Load a constant value by name
     Const(String),
     /// Load a configuration value by name
@@ -147,6 +151,11 @@ impl Compiler {
                 self.chunk.emit(Op::LoadInputs);
             }
 
+            Expr::CollectedComponent(component) => {
+                let component_idx = self.chunk.add_component(component);
+                self.chunk.emit(Op::LoadInputsComponent(component_idx));
+            }
+
             Expr::Signal(name) => {
                 let idx = self.chunk.add_signal(name);
                 self.chunk.emit(Op::LoadSignal(idx));
@@ -156,6 +165,11 @@ impl Compiler {
                 let signal_idx = self.chunk.add_signal(signal);
                 let component_idx = self.chunk.add_component(component);
                 self.chunk.emit(Op::LoadSignalComponent(signal_idx, component_idx));
+            }
+
+            Expr::PrevComponent(component) => {
+                let component_idx = self.chunk.add_component(component);
+                self.chunk.emit(Op::LoadPrevComponent(component_idx));
             }
 
             Expr::Const(name) => {

@@ -225,6 +225,15 @@ pub struct CompiledTransition {
 /// different results with different time steps, which is sometimes intentional
 /// (e.g., physical integration) but should be tracked.
 ///
+/// # Vector/Tensor Signals
+///
+/// For vector types (Vec2, Vec3, Vec4), expressions are expanded at lowering time
+/// into per-component scalar expressions stored in `resolve_components`. This
+/// enables the bytecode VM to remain scalar-only while supporting vector signals.
+///
+/// - Scalar signals: Use `resolve` field
+/// - Vector signals: Use `resolve_components` field (x, y, z, w in order)
+///
 /// # Warmup
 ///
 /// Signals may define a warmup phase that runs before normal simulation to
@@ -245,8 +254,17 @@ pub struct CompiledSignal {
     pub uses_dt_raw: bool,
     /// Signals this signal reads
     pub reads: Vec<SignalId>,
-    /// The resolve expression
+    /// The resolve expression (for scalar signals).
     pub resolve: Option<CompiledExpr>,
+    /// Component-wise resolve expressions for vector signals.
+    ///
+    /// For Vec2: [x, y]
+    /// For Vec3: [x, y, z]
+    /// For Vec4: [x, y, z, w]
+    ///
+    /// When present, this takes precedence over `resolve` for vector signals.
+    /// Each expression is a scalar expression that computes one component.
+    pub resolve_components: Option<Vec<CompiledExpr>>,
     /// Warmup configuration
     pub warmup: Option<CompiledWarmup>,
     /// Assertions to validate after resolution

@@ -2228,3 +2228,381 @@ fn test_valid_seq_constraint_succeeds() {
 
     assert!(result.is_ok(), "got error: {:?}", result.unwrap_err());
 }
+
+// ============================================================================
+// Vector Component Lowering Tests
+// ============================================================================
+
+#[test]
+fn test_vec3_signal_has_resolve_components() {
+    // Vec3 signals should have resolve_components instead of resolve
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.velocity {
+            : Vec3<m/s>
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+
+    // Vec3 signals should NOT have resolve (it's expanded to components)
+    assert!(signal.resolve.is_none(), "Vec3 signal should not have resolve");
+
+    // Vec3 signals should have 3 component expressions
+    assert!(signal.resolve_components.is_some(), "Vec3 signal should have resolve_components");
+    let components = signal.resolve_components.as_ref().unwrap();
+    assert_eq!(components.len(), 3, "Vec3 should have 3 components");
+}
+
+#[test]
+fn test_vec2_signal_has_resolve_components() {
+    // Vec2 signals should have 2 component expressions
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.position {
+            : Vec2<m>
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.position")).unwrap();
+
+    assert!(signal.resolve.is_none(), "Vec2 signal should not have resolve");
+    assert!(signal.resolve_components.is_some(), "Vec2 signal should have resolve_components");
+    let components = signal.resolve_components.as_ref().unwrap();
+    assert_eq!(components.len(), 2, "Vec2 should have 2 components");
+}
+
+#[test]
+fn test_vec4_signal_has_resolve_components() {
+    // Vec4 signals should have 4 component expressions
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.quaternion {
+            : Vec4<1>
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.quaternion")).unwrap();
+
+    assert!(signal.resolve.is_none(), "Vec4 signal should not have resolve");
+    assert!(signal.resolve_components.is_some(), "Vec4 signal should have resolve_components");
+    let components = signal.resolve_components.as_ref().unwrap();
+    assert_eq!(components.len(), 4, "Vec4 should have 4 components");
+}
+
+#[test]
+fn test_scalar_signal_has_resolve_not_components() {
+    // Scalar signals should have resolve, not resolve_components
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.temperature {
+            : Scalar<K>
+            : strata(test)
+            resolve { prev + 1.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.temperature")).unwrap();
+
+    assert!(signal.resolve.is_some(), "Scalar signal should have resolve");
+    assert!(signal.resolve_components.is_none(), "Scalar signal should not have resolve_components");
+}
+
+#[test]
+fn test_vec3_prev_expanded_to_field_access() {
+    // For Vec3 signals, `prev` in resolve should expand to `prev.x`, `prev.y`, `prev.z`
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.velocity {
+            : Vec3<m/s>
+            : strata(test)
+            resolve { prev }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+    let components = signal.resolve_components.as_ref().unwrap();
+
+    // Each component should be a FieldAccess on Prev
+    for (i, comp) in components.iter().enumerate() {
+        match comp {
+            CompiledExpr::FieldAccess { object, field } => {
+                assert!(matches!(object.as_ref(), CompiledExpr::Prev),
+                    "component {} should have Prev as object", i);
+                let expected = ["x", "y", "z"][i];
+                assert_eq!(field, expected, "component {} should access field '{}'", i, expected);
+            }
+            other => panic!("component {} should be FieldAccess, got {:?}", i, other),
+        }
+    }
+}
+
+#[test]
+fn test_vec3_collected_expanded_to_field_access() {
+    // For Vec3 signals, `collected` in resolve should expand to `collected.x`, etc.
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.force {
+            : Vec3<N>
+            : strata(test)
+            resolve { prev + collected }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.force")).unwrap();
+    let components = signal.resolve_components.as_ref().unwrap();
+
+    // Each component should be Binary(Add, FieldAccess(Prev, x/y/z), FieldAccess(Collected, x/y/z))
+    for (i, comp) in components.iter().enumerate() {
+        match comp {
+            CompiledExpr::Binary { op, left, right } => {
+                assert!(matches!(op, BinaryOpIr::Add));
+
+                // Left should be prev.x/y/z
+                match left.as_ref() {
+                    CompiledExpr::FieldAccess { object, field } => {
+                        assert!(matches!(object.as_ref(), CompiledExpr::Prev));
+                        let expected = ["x", "y", "z"][i];
+                        assert_eq!(field, expected);
+                    }
+                    other => panic!("left should be FieldAccess(Prev), got {:?}", other),
+                }
+
+                // Right should be collected.x/y/z
+                match right.as_ref() {
+                    CompiledExpr::FieldAccess { object, field } => {
+                        assert!(matches!(object.as_ref(), CompiledExpr::Collected));
+                        let expected = ["x", "y", "z"][i];
+                        assert_eq!(field, expected);
+                    }
+                    other => panic!("right should be FieldAccess(Collected), got {:?}", other),
+                }
+            }
+            other => panic!("component {} should be Binary, got {:?}", i, other),
+        }
+    }
+}
+
+#[test]
+fn test_vec3_signal_reference_expanded() {
+    // For Vec3 signals, referencing another Vec3 signal should expand to component access
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.velocity {
+            : Vec3<m/s>
+            : strata(test)
+            resolve { prev }
+        }
+        signal.test.position {
+            : Vec3<m>
+            : strata(test)
+            resolve { prev + signal.test.velocity }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.position")).unwrap();
+    let components = signal.resolve_components.as_ref().unwrap();
+
+    // Check that signal reference is expanded to component access
+    for (i, comp) in components.iter().enumerate() {
+        match comp {
+            CompiledExpr::Binary { right, .. } => {
+                // Right side should be signal.test.velocity.x/y/z
+                match right.as_ref() {
+                    CompiledExpr::FieldAccess { object, field } => {
+                        match object.as_ref() {
+                            CompiledExpr::Signal(id) => {
+                                assert_eq!(id.0, "test.velocity");
+                            }
+                            other => panic!("object should be Signal, got {:?}", other),
+                        }
+                        let expected = ["x", "y", "z"][i];
+                        assert_eq!(field, expected);
+                    }
+                    other => panic!("right should be FieldAccess(Signal), got {:?}", other),
+                }
+            }
+            other => panic!("component should be Binary, got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn test_vec3_binary_ops_expanded_componentwise() {
+    // Binary operations on Vec3 should be expanded per-component
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.velocity {
+            : Vec3<m/s>
+            : strata(test)
+            resolve { prev * 2.0 }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+    let components = signal.resolve_components.as_ref().unwrap();
+
+    for (i, comp) in components.iter().enumerate() {
+        match comp {
+            CompiledExpr::Binary { op, left, right } => {
+                assert!(matches!(op, BinaryOpIr::Mul));
+
+                // Left should be prev.x/y/z
+                match left.as_ref() {
+                    CompiledExpr::FieldAccess { object, field } => {
+                        assert!(matches!(object.as_ref(), CompiledExpr::Prev));
+                        let expected = ["x", "y", "z"][i];
+                        assert_eq!(field, expected);
+                    }
+                    other => panic!("left should be FieldAccess, got {:?}", other),
+                }
+
+                // Right should be literal 2.0 (scalars are broadcast)
+                match right.as_ref() {
+                    CompiledExpr::Literal(v) => assert_eq!(*v, 2.0),
+                    other => panic!("right should be Literal(2.0), got {:?}", other),
+                }
+            }
+            other => panic!("component should be Binary, got {:?}", other),
+        }
+    }
+}
+
+#[test]
+fn test_vec3_constructor_expanded() {
+    // vec3(x, y, z) in resolve should extract the correct component
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.velocity {
+            : Vec3<m/s>
+            : strata(test)
+            resolve { vec3(1.0, 2.0, 3.0) }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+    let components = signal.resolve_components.as_ref().unwrap();
+
+    // Component 0 (x) should extract arg 0 = 1.0
+    match &components[0] {
+        CompiledExpr::Literal(v) => assert_eq!(*v, 1.0),
+        other => panic!("x component should be Literal(1.0), got {:?}", other),
+    }
+
+    // Component 1 (y) should extract arg 1 = 2.0
+    match &components[1] {
+        CompiledExpr::Literal(v) => assert_eq!(*v, 2.0),
+        other => panic!("y component should be Literal(2.0), got {:?}", other),
+    }
+
+    // Component 2 (z) should extract arg 2 = 3.0
+    match &components[2] {
+        CompiledExpr::Literal(v) => assert_eq!(*v, 3.0),
+        other => panic!("z component should be Literal(3.0), got {:?}", other),
+    }
+}
+
+#[test]
+fn test_vec3_explicit_component_access_preserved() {
+    // Explicit component access like prev.x should be preserved, not double-expanded
+    let src = r#"
+        strata.test {}
+        era.main { : initial }
+        signal.test.velocity {
+            : Vec3<m/s>
+            : strata(test)
+            resolve { vec3(prev.x, prev.y * 2.0, prev.z) }
+        }
+    "#;
+    let (unit, errors) = parse(src);
+    assert!(errors.is_empty(), "parse errors: {:?}", errors);
+    let unit = unit.unwrap();
+    let world = lower(&unit).unwrap();
+
+    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+    let components = signal.resolve_components.as_ref().unwrap();
+
+    // Component 0 should be prev.x (preserved)
+    match &components[0] {
+        CompiledExpr::FieldAccess { object, field } => {
+            assert!(matches!(object.as_ref(), CompiledExpr::Prev));
+            assert_eq!(field, "x");
+        }
+        other => panic!("x component should be FieldAccess(Prev, x), got {:?}", other),
+    }
+
+    // Component 1 should be prev.y * 2.0
+    match &components[1] {
+        CompiledExpr::Binary { op, left, .. } => {
+            assert!(matches!(op, BinaryOpIr::Mul));
+            match left.as_ref() {
+                CompiledExpr::FieldAccess { object, field } => {
+                    assert!(matches!(object.as_ref(), CompiledExpr::Prev));
+                    assert_eq!(field, "y");
+                }
+                other => panic!("left should be FieldAccess(Prev, y), got {:?}", other),
+            }
+        }
+        other => panic!("y component should be Binary, got {:?}", other),
+    }
+
+    // Component 2 should be prev.z (preserved)
+    match &components[2] {
+        CompiledExpr::FieldAccess { object, field } => {
+            assert!(matches!(object.as_ref(), CompiledExpr::Prev));
+            assert_eq!(field, "z");
+        }
+        other => panic!("z component should be FieldAccess(Prev, z), got {:?}", other),
+    }
+}
