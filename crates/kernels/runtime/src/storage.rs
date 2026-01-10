@@ -25,6 +25,7 @@
 use indexmap::IndexMap;
 
 use crate::types::{EntityId, FieldId, InstanceId, SignalId, Value};
+pub use continuum_foundation::FieldSample;
 
 use serde::{Deserialize, Serialize};
 
@@ -168,15 +169,6 @@ impl FractureQueue {
             channels.accumulate(&id, value);
         }
     }
-}
-
-/// A single field sample (position + value)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FieldSample {
-    /// Position in field's coordinate space
-    pub position: [f64; 3],
-    /// Sample value
-    pub value: Value,
 }
 
 /// Storage for field samples emitted during Measure phase

@@ -6,8 +6,7 @@
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
-use continuum_runtime::storage::FieldSample;
-use continuum_runtime::types::FieldId;
+use continuum_foundation::{FieldId, FieldSample};
 use indexmap::IndexMap;
 use thiserror::Error;
 
@@ -1049,7 +1048,7 @@ pub struct RefinementRequestSpec {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use continuum_runtime::types::Value;
+    use continuum_foundation::Value;
 
     fn sample(v: f64) -> FieldSample {
         FieldSample {

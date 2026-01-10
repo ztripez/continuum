@@ -418,8 +418,8 @@ name = "continuum-lens"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "continuum-foundation",
  "continuum-gpu",
- "continuum-runtime",
  "indexmap",
  "thiserror",
  "wgpu",

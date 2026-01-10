@@ -6,7 +6,7 @@ description = "Observer boundary: field ingest + history storage"
 license = "MIT"
 
 [dependencies]
-continuum-runtime = { path = "../runtime" }
+continuum-foundation = { path = "../foundation" }
 indexmap = "2"
 thiserror = "2"
 continuum-gpu = { path = "../gpu", optional = true }
