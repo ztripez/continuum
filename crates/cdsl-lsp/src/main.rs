@@ -1,7 +1,9 @@
 //! CDSL Language Server
 //!
 //! A Language Server Protocol implementation for the Continuum DSL.
-//! Provides diagnostics, go-to-definition, and completion support.
+//! Provides diagnostics, go-to-definition, completion, and formatting support.
+
+mod formatter;
 
 use dashmap::DashMap;
 use tower_lsp::jsonrpc::Result;
@@ -92,6 +94,7 @@ impl LanguageServer for Backend {
                 }),
                 definition_provider: Some(OneOf::Left(true)),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
+                document_formatting_provider: Some(OneOf::Left(true)),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -220,6 +223,38 @@ impl LanguageServer for Backend {
         // TODO: Implement hover using AST analysis
 
         Ok(None)
+    }
+
+    async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
+        let uri = &params.text_document.uri;
+
+        // Get the document content
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        // Format the document
+        let formatted = formatter::format(&doc);
+
+        // If no changes, return empty
+        if formatted == doc {
+            return Ok(Some(vec![]));
+        }
+
+        // Calculate the range for the entire document
+        let line_count = doc.lines().count() as u32;
+        let last_line_len = doc.lines().last().map(|l| l.len() as u32).unwrap_or(0);
+
+        let edit = TextEdit {
+            range: Range {
+                start: Position::new(0, 0),
+                end: Position::new(line_count, last_line_len),
+            },
+            new_text: formatted,
+        };
+
+        Ok(Some(vec![edit]))
     }
 }
 
