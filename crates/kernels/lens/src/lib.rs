@@ -89,6 +89,48 @@ pub struct FieldLens {
     fields: IndexMap<FieldId, FieldStorage>,
 }
 
+/// Playback clock for observer queries (fractional tick time).
+#[derive(Debug, Clone)]
+pub struct PlaybackClock {
+    current_time: f64,
+    lag_ticks: f64,
+    speed: f64,
+}
+
+impl PlaybackClock {
+    pub fn new(lag_ticks: f64) -> Self {
+        Self {
+            current_time: 0.0,
+            lag_ticks,
+            speed: 1.0,
+        }
+    }
+
+    pub fn current_time(&self) -> f64 {
+        self.current_time
+    }
+
+    pub fn set_speed(&mut self, speed: f64) {
+        self.speed = speed.max(0.0);
+    }
+
+    pub fn seek(&mut self, time: f64) {
+        self.current_time = time.max(0.0);
+    }
+
+    pub fn advance(&mut self, sim_tick: u64) {
+        let target_time = sim_tick as f64 - self.lag_ticks;
+        self.current_time = target_time.max(0.0) * self.speed;
+    }
+
+    pub fn bracketing_ticks(&self) -> (u64, u64, f64) {
+        let tick_prev = self.current_time.floor() as u64;
+        let tick_next = self.current_time.ceil() as u64;
+        let alpha = self.current_time.fract();
+        (tick_prev, tick_next, alpha)
+    }
+}
+
 /// Reconstructed field interface (observer-only).
 pub trait FieldReconstruction: Send + Sync {
     /// Query scalar value at position.
@@ -264,6 +306,69 @@ impl FieldLens {
         Ok(reconstruction.query(position))
     }
 
+    /// Query scalar value at fractional time (temporal interpolation).
+    pub fn query(
+        &self,
+        field_id: &FieldId,
+        position: [f64; 3],
+        time: f64,
+    ) -> Result<f64, LensError> {
+        let tick_prev = time.floor() as u64;
+        let tick_next = time.ceil() as u64;
+        let alpha = time.fract();
+
+        if alpha == 0.0 {
+            return self.query_at_tick(field_id, position, tick_prev);
+        }
+
+        let prev = self.query_at_tick(field_id, position, tick_prev)?;
+        let next = self.query_at_tick(field_id, position, tick_next)?;
+        Ok(prev * (1.0 - alpha) + next * alpha)
+    }
+
+    /// Query scalar value using playback clock.
+    pub fn query_playback(
+        &self,
+        field_id: &FieldId,
+        position: [f64; 3],
+        playback: &PlaybackClock,
+    ) -> Result<f64, LensError> {
+        self.query(field_id, position, playback.current_time())
+    }
+
+    /// Query vector value at fractional time (temporal interpolation).
+    pub fn query_vector(
+        &self,
+        field_id: &FieldId,
+        position: [f64; 3],
+        time: f64,
+    ) -> Result<[f64; 3], LensError> {
+        let tick_prev = time.floor() as u64;
+        let tick_next = time.ceil() as u64;
+        let alpha = time.fract();
+
+        if alpha == 0.0 {
+            let reconstruction = self.at(field_id, tick_prev)?;
+            return Ok(reconstruction.query_vector(position));
+        }
+
+        let prev = self.at(field_id, tick_prev)?.query_vector(position);
+        let next = self.at(field_id, tick_next)?.query_vector(position);
+
+        let lerped = [
+            prev[0] * (1.0 - alpha) + next[0] * alpha,
+            prev[1] * (1.0 - alpha) + next[1] * alpha,
+            prev[2] * (1.0 - alpha) + next[2] * alpha,
+        ];
+
+        let mag = (lerped[0] * lerped[0] + lerped[1] * lerped[1] + lerped[2] * lerped[2]).sqrt();
+        if mag > 0.0 {
+            Ok([lerped[0] / mag, lerped[1] / mag, lerped[2] / mag])
+        } else {
+            Ok([0.0, 0.0, 0.0])
+        }
+    }
+
     /// Get bounded history for a field.
     pub fn history(&self, field_id: &FieldId) -> Option<&VecDeque<FieldFrame>> {
         self.fields.get(field_id).map(|storage| &storage.history)
@@ -408,5 +513,46 @@ mod tests {
             LensError::NoSamplesAtTick { .. } => {}
             other => panic!("unexpected error: {other:?}"),
         }
+    }
+
+    #[test]
+    fn playback_clock_brackets_ticks() {
+        let mut clock = PlaybackClock::new(1.0);
+        clock.advance(10);
+        let (prev, next, alpha) = clock.bracketing_ticks();
+        assert_eq!(prev, 9);
+        assert_eq!(next, 9);
+        assert_eq!(alpha, 0.0);
+
+        clock.seek(9.5);
+        let (prev, next, alpha) = clock.bracketing_ticks();
+        assert_eq!(prev, 9);
+        assert_eq!(next, 10);
+        assert_eq!(alpha, 0.5);
+    }
+
+    #[test]
+    fn query_interpolates_between_ticks() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 3,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.temp".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![sample(0.0)],
+        });
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 2,
+            samples: vec![sample(10.0)],
+        });
+
+        let value = lens
+            .query(&field_id, [0.0, 0.0, 0.0], 1.5)
+            .expect("query works");
+        assert_eq!(value, 5.0);
     }
 }
