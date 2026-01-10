@@ -247,6 +247,72 @@ fn detect_kind_prefix(prefix: &str) -> Option<(CdslSymbolKind, usize)> {
     None
 }
 
+/// Find function call context for signature help.
+///
+/// Searches backwards from cursor to find if we're inside a `fn.path.name(...)` call.
+/// Returns the function path (without "fn." prefix) and the active parameter index.
+fn find_function_call_context(text_before: &str) -> Option<(String, usize)> {
+    // Find the most recent unclosed '(' that follows "fn."
+    let mut paren_depth = 0;
+    let mut last_fn_call_start = None;
+
+    // Scan backwards through the text
+    let chars: Vec<char> = text_before.chars().collect();
+    let mut i = chars.len();
+
+    while i > 0 {
+        i -= 1;
+        match chars[i] {
+            ')' => paren_depth += 1,
+            '(' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                } else {
+                    // Found an unclosed '(' - check if it's a fn call
+                    // Look backwards for "fn." pattern
+                    let before_paren = &text_before[..i];
+                    if let Some(fn_start) = before_paren.rfind("fn.") {
+                        // Extract the function path between "fn." and "("
+                        let path_start = fn_start + 3; // Skip "fn."
+                        let path = &text_before[path_start..i];
+
+                        // Validate it's a valid path (alphanumeric, underscore, dots)
+                        if path
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                            && !path.is_empty()
+                        {
+                            last_fn_call_start = Some((path.to_string(), i + 1));
+                            break;
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // If we found a function call, count commas to find active parameter
+    if let Some((fn_path, args_start)) = last_fn_call_start {
+        let args_text = &text_before[args_start..];
+        let mut comma_count = 0usize;
+        let mut depth = 0usize;
+
+        for ch in args_text.chars() {
+            match ch {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => comma_count += 1,
+                _ => {}
+            }
+        }
+
+        return Some((fn_path, comma_count));
+    }
+
+    None
+}
+
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
@@ -275,6 +341,11 @@ impl LanguageServer for Backend {
                 document_formatting_provider: Some(OneOf::Left(true)),
                 document_symbol_provider: Some(OneOf::Left(true)),
                 references_provider: Some(OneOf::Left(true)),
+                signature_help_provider: Some(SignatureHelpOptions {
+                    trigger_characters: Some(vec!["(".to_string(), ",".to_string()]),
+                    retrigger_characters: None,
+                    work_done_progress_options: Default::default(),
+                }),
                 semantic_tokens_provider: Some(
                     SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
                         legend: SemanticTokensLegend {
@@ -714,6 +785,105 @@ impl LanguageServer for Backend {
             .collect();
 
         Ok(Some(locations))
+    }
+
+    async fn signature_help(&self, params: SignatureHelpParams) -> Result<Option<SignatureHelp>> {
+        let uri = &params.text_document_position_params.text_document.uri;
+        let position = params.text_document_position_params.position;
+
+        let doc = match self.documents.get(uri) {
+            Some(doc) => doc.clone(),
+            None => return Ok(None),
+        };
+
+        // Get text up to cursor position
+        let offset = position_to_offset(&doc, position);
+        let text_before = &doc[..offset];
+
+        // Find the function call context by looking for "fn.path.name(" pattern
+        // and counting parentheses/commas
+        let (fn_path, active_param) = match find_function_call_context(text_before) {
+            Some(ctx) => ctx,
+            None => return Ok(None),
+        };
+
+        // Search all indexed files for the function
+        for entry in self.symbol_indices.iter() {
+            if let Some(sig) = entry.value().get_function_signature(&fn_path) {
+                // Build the signature label
+                let params_str: Vec<String> = sig
+                    .params
+                    .iter()
+                    .map(|p| {
+                        if let Some(ref ty) = p.ty {
+                            format!("{}: {}", p.name, ty)
+                        } else {
+                            p.name.clone()
+                        }
+                    })
+                    .collect();
+
+                let generics_str = if sig.generics.is_empty() {
+                    String::new()
+                } else {
+                    format!("<{}>", sig.generics.join(", "))
+                };
+
+                let return_str = sig
+                    .return_type
+                    .as_ref()
+                    .map(|t| format!(" -> {}", t))
+                    .unwrap_or_default();
+
+                let label = format!(
+                    "fn.{}{}({}){}",
+                    sig.path,
+                    generics_str,
+                    params_str.join(", "),
+                    return_str
+                );
+
+                // Build parameter information with offsets
+                let mut param_infos = Vec::new();
+                let params_start = label.find('(').unwrap_or(0) + 1;
+                let mut current_offset = params_start;
+
+                for (i, param_str) in params_str.iter().enumerate() {
+                    let param_start = current_offset;
+                    let param_end = param_start + param_str.len();
+
+                    param_infos.push(ParameterInformation {
+                        label: ParameterLabel::LabelOffsets([param_start as u32, param_end as u32]),
+                        documentation: None,
+                    });
+
+                    current_offset = param_end;
+                    if i < params_str.len() - 1 {
+                        current_offset += 2; // ", "
+                    }
+                }
+
+                let signature = SignatureInformation {
+                    label,
+                    documentation: sig.doc.as_ref().map(|d| {
+                        Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: d.clone(),
+                        })
+                    }),
+                    parameters: Some(param_infos),
+                    active_parameter: Some(active_param.min(sig.params.len().saturating_sub(1)) as u32),
+                };
+
+                return Ok(Some(SignatureHelp {
+                    signatures: vec![signature],
+                    active_signature: Some(0),
+                    active_parameter: Some(active_param.min(sig.params.len().saturating_sub(1)) as u32),
+                }));
+            }
+        }
+
+        Ok(None)
     }
 
     async fn semantic_tokens_full(

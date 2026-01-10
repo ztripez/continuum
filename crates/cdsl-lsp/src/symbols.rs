@@ -125,11 +125,36 @@ pub struct ReferenceInfo {
     pub kind: SymbolKind,
 }
 
+/// A function parameter for signature help.
+#[derive(Debug, Clone)]
+pub struct FnParamInfo {
+    /// Parameter name.
+    pub name: String,
+    /// Parameter type (formatted string).
+    pub ty: Option<String>,
+}
+
+/// Function signature for signature help.
+#[derive(Debug, Clone)]
+pub struct FunctionSignature {
+    /// Function path (e.g., "math.lerp").
+    pub path: String,
+    /// Documentation comment.
+    pub doc: Option<String>,
+    /// Generic type parameters.
+    pub generics: Vec<String>,
+    /// Function parameters.
+    pub params: Vec<FnParamInfo>,
+    /// Return type (formatted string).
+    pub return_type: Option<String>,
+}
+
 /// Symbol index for a document.
 #[derive(Debug, Default)]
 pub struct SymbolIndex {
     symbols: Vec<IndexedSymbol>,
     references: Vec<SymbolReference>,
+    functions: Vec<FunctionSignature>,
     #[allow(dead_code)]
     module_doc: Option<String>,
 }
@@ -140,6 +165,7 @@ impl SymbolIndex {
         let mut index = SymbolIndex {
             symbols: Vec::new(),
             references: Vec::new(),
+            functions: Vec::new(),
             module_doc: ast.module_doc.clone(),
         };
 
@@ -246,6 +272,17 @@ impl SymbolIndex {
     /// Returns kind and path span for syntax highlighting of definition paths.
     pub fn get_symbol_path_spans(&self) -> impl Iterator<Item = (SymbolKind, &Range<usize>)> {
         self.symbols.iter().map(|s| (s.info.kind, &s.path_span))
+    }
+
+    /// Get a function signature by path for signature help.
+    pub fn get_function_signature(&self, path: &str) -> Option<&FunctionSignature> {
+        self.functions.iter().find(|f| f.path == path)
+    }
+
+    /// Get all function signatures for signature help.
+    #[allow(dead_code)]
+    pub fn get_all_function_signatures(&self) -> impl Iterator<Item = &FunctionSignature> {
+        self.functions.iter()
     }
 
     /// Find all references to the symbol at the given offset.
@@ -424,27 +461,45 @@ impl SymbolIndex {
     fn index_fn(&mut self, def: &FnDef, span: Range<usize>) {
         let mut extra = Vec::new();
 
-        // Add parameter info
-        if !def.params.is_empty() {
-            let params: Vec<_> = def
-                .params
+        // Build parameter info for both extra display and signature help
+        let param_infos: Vec<FnParamInfo> = def
+            .params
+            .iter()
+            .map(|p| FnParamInfo {
+                name: p.name.node.clone(),
+                ty: p.ty.as_ref().map(|t| format_type_expr(&t.node)),
+            })
+            .collect();
+
+        // Add parameter info for hover display
+        if !param_infos.is_empty() {
+            let params_str: Vec<_> = param_infos
                 .iter()
                 .map(|p| {
                     if let Some(ref ty) = p.ty {
-                        format!("{}: {}", p.name.node, format_type_expr(&ty.node))
+                        format!("{}: {}", p.name, ty)
                     } else {
-                        p.name.node.clone()
+                        p.name.clone()
                     }
                 })
                 .collect();
-            extra.push(("params".to_string(), params.join(", ")));
+            extra.push(("params".to_string(), params_str.join(", ")));
         }
 
         // Add generics info
-        if !def.generics.is_empty() {
-            let generics: Vec<_> = def.generics.iter().map(|g| g.node.clone()).collect();
+        let generics: Vec<String> = def.generics.iter().map(|g| g.node.clone()).collect();
+        if !generics.is_empty() {
             extra.push(("generics".to_string(), generics.join(", ")));
         }
+
+        // Store function signature for signature help
+        self.functions.push(FunctionSignature {
+            path: def.path.node.to_string(),
+            doc: def.doc.clone(),
+            generics: generics.clone(),
+            params: param_infos,
+            return_type: def.return_type.as_ref().map(|t| format_type_expr(&t.node)),
+        });
 
         self.symbols.push(IndexedSymbol {
             span,
