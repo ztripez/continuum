@@ -131,6 +131,21 @@ config {
     tectonics.initial_activity: 1.0
     tectonics.reference_shear: 30.0
     tectonics.initial_plate_count: 12
+
+    # Plate entity configuration
+    plates.count: 12
+    plates.min_count: 5
+    plates.max_count: 50
+    plates.oceanic_fraction: 0.71
+    plates.max_oceanic_age_myr: 280.0
+    plates.age_min_myr: 0.0
+    plates.age_max_myr: 4000.0
+    plates.thickness_min_m: 5000.0
+    plates.thickness_max_m: 70000.0
+    plates.continental_thickness_threshold_m: 30000.0
+    plates.buoyancy_min: 0.0
+    plates.buoyancy_max: 1.0
+    plates.continental_buoyancy_threshold: 0.5
 }
 
 # =============================================================================
@@ -734,14 +749,14 @@ signal.tectonics.activity {
     }
 }
 
-# Plate count diagnostic
+# Plate count diagnostic (now derived from plate entity)
 signal.tectonics.plate_count {
     : Scalar<1, 0..64>
     : strata(tectonics)
     : title("Plate Count")
 
     resolve {
-        clamp(prev + collected, 0.0, 64.0)
+        count(entity.terra.plate)
     }
 
     assert {
@@ -763,6 +778,233 @@ signal.mantle.viscosity {
 
     assert {
         prev >= 0.0 : warn, "Viscosity cannot be negative"
+    }
+}
+
+# =============================================================================
+# Tectonic Plate Entity
+# =============================================================================
+
+entity.terra.plate {
+    : count(config.plates.count)
+    : count(5..64)
+}
+
+# -----------------------------------------------------------------------------
+# Plate Physical Properties
+# -----------------------------------------------------------------------------
+
+# Plate type: 0 = oceanic, 1 = continental
+member.terra.plate.kind {
+    : Scalar<1, 0..1>
+    : strata(tectonics)
+    : title("Plate Type")
+    : symbol("k_plate")
+
+    resolve { prev }
+}
+
+# Plate age in millions of years
+# Oceanic plates age and eventually subduct; continental plates can be billions of years old
+member.terra.plate.age {
+    : Scalar<Myr, 0..5000>
+    : strata(tectonics)
+    : title("Plate Age")
+    : symbol("t_plate")
+    : uses(dt_raw)
+
+    config {
+        max_oceanic_age_myr: 280.0
+    }
+
+    resolve {
+        # Plates age with simulation time
+        # Oceanic plates are capped at max age (subduction recycling)
+        let new_age = prev + dt_raw / 3.1536e13 in  # Convert seconds to Myr
+        if self.kind < 0.5 {
+            # Oceanic: cap at max age
+            min(new_age, config.terra.plate.age.max_oceanic_age_myr)
+        } else {
+            # Continental: no cap
+            new_age
+        }
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Plate age cannot be negative"
+    }
+}
+
+# Plate lithosphere thickness
+member.terra.plate.thickness {
+    : Scalar<m, 5000..70000>
+    : strata(tectonics)
+    : title("Plate Thickness")
+    : symbol("h_plate")
+
+    resolve {
+        clamp(prev + collected, 5000.0, 70000.0)
+    }
+
+    assert {
+        prev >= 5000.0 : warn, "Plate thickness below minimum"
+        prev <= 70000.0 : warn, "Plate thickness above maximum"
+    }
+}
+
+# Plate buoyancy (0 = dense/subductable, 1 = buoyant/resistant)
+# Lower buoyancy = more likely to subduct
+member.terra.plate.buoyancy {
+    : Scalar<1, 0..1>
+    : strata(tectonics)
+    : title("Plate Buoyancy")
+    : symbol("b_plate")
+
+    resolve {
+        clamp(prev + collected, 0.0, 1.0)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Plate buoyancy cannot be negative"
+        prev <= 1.0 : warn, "Plate buoyancy cannot exceed 1"
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Geometry (seed direction on sphere)
+# -----------------------------------------------------------------------------
+
+# Plate seed direction in body frame (unit vector defining plate center)
+member.terra.plate.seed_direction {
+    : Vec3<1>
+    : strata(tectonics)
+    : title("Plate Seed Direction")
+    : symbol("n_plate")
+
+    resolve {
+        # Normalize to maintain unit vector
+        normalize(prev)
+    }
+
+    assert {
+        abs(length(prev) - 1.0) < 0.01 : warn, "Plate seed should be unit vector"
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Kinematics
+# -----------------------------------------------------------------------------
+
+# Plate angular velocity (rotation axis and rate in body frame)
+member.terra.plate.omega {
+    : Vec3<rad/s>
+    : strata(tectonics)
+    : title("Plate Angular Velocity")
+    : symbol("omega_plate")
+
+    config {
+        scale: 1.0
+    }
+
+    resolve {
+        # Plate motion derived from mantle flow and collected impulses
+        config.terra.plate.omega.scale * (prev + collected)
+    }
+}
+
+# Plate surface velocity magnitude at equator of rotation
+member.terra.plate.velocity {
+    : Scalar<m/s, 0..1>
+    : strata(tectonics)
+    : title("Plate Velocity")
+    : symbol("v_plate")
+
+    resolve {
+        # v = omega * R (velocity at planet radius)
+        length(self.omega) * signal.planet.radius
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Plate velocity cannot be negative"
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Aggregate Plate Signals
+# -----------------------------------------------------------------------------
+
+# Number of plates (derived from entity count)
+signal.plates.count {
+    : Scalar<1, 0..64>
+    : strata(tectonics)
+    : title("Number of Plates")
+    : symbol("N_plates")
+
+    resolve {
+        count(entity.terra.plate)
+    }
+}
+
+# Mean plate age
+signal.plates.mean_age {
+    : Scalar<Myr, 0..5000>
+    : strata(tectonics)
+    : title("Mean Plate Age")
+    : symbol("t_mean")
+
+    resolve {
+        mean(entity.terra.plate, self.age)
+    }
+}
+
+# Mean plate thickness
+signal.plates.mean_thickness {
+    : Scalar<m, 5000..70000>
+    : strata(tectonics)
+    : title("Mean Plate Thickness")
+    : symbol("h_mean")
+
+    resolve {
+        mean(entity.terra.plate, self.thickness)
+    }
+}
+
+# Oceanic plate count
+signal.plates.oceanic_count {
+    : Scalar<1, 0..64>
+    : strata(tectonics)
+    : title("Oceanic Plate Count")
+    : symbol("N_oceanic")
+
+    resolve {
+        sum(entity.terra.plate, if self.kind < 0.5 { 1.0 } else { 0.0 })
+    }
+}
+
+# Continental plate count
+signal.plates.continental_count {
+    : Scalar<1, 0..64>
+    : strata(tectonics)
+    : title("Continental Plate Count")
+    : symbol("N_continental")
+
+    resolve {
+        sum(entity.terra.plate, if self.kind >= 0.5 { 1.0 } else { 0.0 })
+    }
+}
+
+# Maximum boundary shear (approximation from plate velocities)
+signal.plates.boundary_shear {
+    : Scalar<m/s, 0..1>
+    : strata(tectonics)
+    : title("Plate Boundary Shear")
+    : symbol("tau_boundary")
+
+    resolve {
+        # Approximate shear as max velocity difference between plates
+        let max_v = max(entity.terra.plate, self.velocity) in
+        let min_v = min(entity.terra.plate, self.velocity) in
+        max_v - min_v + collected
     }
 }
 
@@ -934,5 +1176,27 @@ field.thermal.heat_flow {
 
     measure {
         signal.surface.heat_flow
+    }
+}
+
+field.plates.velocity_map {
+    : Scalar<m/s>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Plate Velocity Field")
+
+    measure {
+        signal.plates.boundary_shear
+    }
+}
+
+field.plates.age_map {
+    : Scalar<Myr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Mean Plate Age Field")
+
+    measure {
+        signal.plates.mean_age
     }
 }
