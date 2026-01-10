@@ -734,9 +734,9 @@ impl LanguageServer for Backend {
 
         let mut tokens: Vec<(usize, usize, u32, u32)> = Vec::new(); // (start, len, type, modifiers)
 
-        // Collect tokens from symbol definitions
-        for (info, span) in index.get_all_symbols() {
-            let token_type = match info.kind {
+        // Collect tokens from symbol definition paths (e.g., "terra.temp" in "signal.terra.temp")
+        for (kind, span) in index.get_symbol_path_spans() {
+            let token_type = match kind {
                 CdslSymbolKind::Signal => 0,
                 CdslSymbolKind::Field => 1,
                 CdslSymbolKind::Operator => 2,

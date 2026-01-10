@@ -88,7 +88,10 @@ impl SymbolKind {
 /// An indexed symbol with its source span.
 #[derive(Debug)]
 struct IndexedSymbol {
+    /// Full span of the definition block.
     span: Range<usize>,
+    /// Span of just the path (e.g., "terra.temp" in "signal.terra.temp").
+    path_span: Range<usize>,
     info: SymbolInfo,
 }
 
@@ -238,6 +241,13 @@ impl SymbolIndex {
             .map(|r| (ReferenceInfo { kind: r.kind }, &r.span))
     }
 
+    /// Get symbol path spans for semantic tokens.
+    ///
+    /// Returns kind and path span for syntax highlighting of definition paths.
+    pub fn get_symbol_path_spans(&self) -> impl Iterator<Item = (SymbolKind, &Range<usize>)> {
+        self.symbols.iter().map(|s| (s.info.kind, &s.path_span))
+    }
+
     /// Find all references to the symbol at the given offset.
     ///
     /// Returns spans of all references (not including the definition itself).
@@ -327,6 +337,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.path.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Signal,
                 path: def.path.node.to_string(),
@@ -354,6 +365,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.path.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Field,
                 path: def.path.node.to_string(),
@@ -395,6 +407,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.path.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Operator,
                 path: def.path.node.to_string(),
@@ -435,6 +448,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.path.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Function,
                 path: def.path.node.to_string(),
@@ -466,6 +480,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.name.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Type,
                 path: def.name.node.clone(),
@@ -488,6 +503,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.path.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Strata,
                 path: def.path.node.to_string(),
@@ -519,6 +535,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.name.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Era,
                 path: def.name.node.clone(),
@@ -540,6 +557,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.path.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Impulse,
                 path: def.path.node.to_string(),
@@ -586,6 +604,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.path.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Fracture,
                 path: def.path.node.to_string(),
@@ -612,6 +631,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.path.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Chronicle,
                 path: def.path.node.to_string(),
@@ -640,6 +660,7 @@ impl SymbolIndex {
 
         self.symbols.push(IndexedSymbol {
             span,
+            path_span: def.path.span.clone(),
             info: SymbolInfo {
                 kind: SymbolKind::Entity,
                 path: def.path.node.to_string(),
