@@ -1268,6 +1268,135 @@ mod tests {
     }
 
     #[test]
+    fn latest_reconstruction_queries_latest_tick() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.temp".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![sample(1.0)],
+        });
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 2,
+            samples: vec![sample(2.0)],
+        });
+
+        let recon = lens
+            .latest_reconstruction(&field_id)
+            .expect("latest reconstruction");
+        let value = recon.query([0.0, 0.0, 0.0]);
+        assert_eq!(value, 2.0);
+    }
+
+    #[test]
+    fn query_batch_cpu_fallback() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.temp".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![
+                FieldSample {
+                    position: [0.0, 0.0, 0.0],
+                    value: Value::Scalar(10.0),
+                },
+                FieldSample {
+                    position: [10.0, 0.0, 0.0],
+                    value: Value::Scalar(20.0),
+                },
+            ],
+        });
+
+        let results = lens
+            .query_batch(&field_id, &[[0.1, 0.0, 0.0], [9.9, 0.0, 0.0]], 1)
+            .expect("batch query");
+        assert_eq!(results, vec![10.0, 20.0]);
+    }
+
+    #[test]
+    fn tile_query_filters_samples() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 2,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let topo = CubedSphereTopology::default();
+        let pos_a = [1.0, 0.0, 0.0];
+        let pos_b = [-1.0, 0.0, 0.0];
+        let tile_a = topo.tile_at(pos_a, 1);
+
+        let field_id: FieldId = "field.elevation".into();
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![
+                FieldSample {
+                    position: pos_a,
+                    value: Value::Scalar(5.0),
+                },
+                FieldSample {
+                    position: pos_b,
+                    value: Value::Scalar(50.0),
+                },
+            ],
+        });
+
+        let recon = lens.tile(&field_id, tile_a, 1).expect("tile recon");
+        let value = recon.query(pos_a);
+        assert_eq!(value, 5.0);
+    }
+
+    #[test]
+    fn configure_field_cache_override_is_used() {
+        let mut lens = FieldLens::new(FieldLensConfig {
+            max_frames_per_field: 3,
+            max_cached_per_field: 4,
+            max_refinement_queue: 16,
+        })
+        .expect("config valid");
+
+        let field_id: FieldId = "field.temp".into();
+        lens.configure_field(
+            field_id.clone(),
+            FieldConfig {
+                max_cached_per_field: Some(1),
+            },
+        );
+
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 1,
+            samples: vec![sample(1.0)],
+        });
+        lens.record(FieldSnapshot {
+            field_id: field_id.clone(),
+            tick: 2,
+            samples: vec![sample(2.0)],
+        });
+
+        let _ = lens.query_at_tick(&field_id, [0.0, 0.0, 0.0], 1).unwrap();
+        let _ = lens.query_at_tick(&field_id, [0.0, 0.0, 0.0], 2).unwrap();
+
+        let storage = lens.fields.get(&field_id).expect("storage exists");
+        assert_eq!(storage.cache.len(), 1);
+    }
+
+    #[test]
     fn refinement_queue_tracks_status() {
         let mut lens = FieldLens::new(FieldLensConfig {
             max_frames_per_field: 2,
