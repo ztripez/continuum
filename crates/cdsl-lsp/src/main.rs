@@ -335,8 +335,14 @@ impl LanguageServer for Backend {
                 .collect();
             let prefix_depth = prefix_segments.len();
 
-            // Track unique next segments and their info for deduplication
-            let mut seen_segments: std::collections::HashMap<String, Option<(String, Option<String>)>> =
+            // Track unique next segments: segment -> Option<(full_path, type, title, doc)>
+            struct CompletionData {
+                full_path: String,
+                ty: Option<String>,
+                title: Option<String>,
+                doc: Option<String>,
+            }
+            let mut seen_segments: std::collections::HashMap<String, Option<CompletionData>> =
                 std::collections::HashMap::new();
 
             // Collect completions from ALL indexed files in the world
@@ -361,15 +367,14 @@ impl LanguageServer for Backend {
                         // Build the completion info
                         if is_final {
                             // This is the final segment - show full info
-                            let detail = match (info.ty, info.title) {
-                                (Some(ty), Some(title)) => format!("{} - {}", ty, title),
-                                (Some(ty), None) => ty.to_string(),
-                                (None, Some(title)) => title.to_string(),
-                                (None, None) => info.kind.display_name().to_string(),
-                            };
                             seen_segments.insert(
                                 next_segment.to_string(),
-                                Some((detail, info.doc.map(|d| d.to_string()))),
+                                Some(CompletionData {
+                                    full_path: info.path.to_string(),
+                                    ty: info.ty.map(|s| s.to_string()),
+                                    title: info.title.map(|s| s.to_string()),
+                                    doc: info.doc.map(|s| s.to_string()),
+                                }),
                             );
                         } else {
                             // Intermediate segment - just a namespace
@@ -382,10 +387,36 @@ impl LanguageServer for Backend {
             }
 
             // Build completion items from unique segments
-            for (segment, info) in seen_segments {
-                let is_final = info.is_some();
-                let (detail, doc) = match info {
-                    Some((d, doc)) => (d, doc),
+            for (segment, data) in seen_segments {
+                let is_final = data.is_some();
+                let (detail, documentation) = match data {
+                    Some(d) => {
+                        // Build detail line
+                        let detail = match (&d.ty, &d.title) {
+                            (Some(ty), Some(title)) => format!("{} — {}", ty, title),
+                            (Some(ty), None) => ty.clone(),
+                            (None, Some(title)) => title.clone(),
+                            (None, None) => kind.display_name().to_string(),
+                        };
+
+                        // Build rich markdown documentation
+                        let mut doc_parts = vec![
+                            format!("**{}.{}**", kind.display_name(), d.full_path),
+                        ];
+                        if let Some(ref title) = d.title {
+                            doc_parts.push(format!("*{}*", title));
+                        }
+                        if let Some(ref ty) = d.ty {
+                            doc_parts.push(format!("Type: `{}`", ty));
+                        }
+                        if let Some(ref doc) = d.doc {
+                            doc_parts.push("---".to_string());
+                            doc_parts.push(doc.clone());
+                        }
+
+                        let doc_markdown = doc_parts.join("\n\n");
+                        (detail, Some(doc_markdown))
+                    }
                     None => ("namespace".to_string(), None),
                 };
 
@@ -397,7 +428,7 @@ impl LanguageServer for Backend {
                         CompletionItemKind::MODULE
                     }),
                     detail: Some(detail),
-                    documentation: doc.map(|d| {
+                    documentation: documentation.map(|d| {
                         Documentation::MarkupContent(MarkupContent {
                             kind: MarkupKind::Markdown,
                             value: d,
