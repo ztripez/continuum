@@ -105,7 +105,6 @@ signal.hydrology.water_mass {
     : strata(hydrology)
     : title("Total Surface Water Mass")
     : symbol("M_water")
-    : uses(dt_raw)
 
     config {
         initial: 1e18
@@ -131,7 +130,6 @@ signal.hydrology.ice_mass {
     : strata(hydrology)
     : title("Total Ice Mass")
     : symbol("M_ice")
-    : uses(dt_raw)
 
     config {
         initial: 2.6e19  # Earth's ice mass ~26 million km³
@@ -267,7 +265,6 @@ signal.hydrology.sediment_load {
     : strata(hydrology)
     : title("Sediment Load")
     : symbol("S")
-    : uses(dt_raw)
 
     config {
         erosion_rate: 1e-6
@@ -334,7 +331,6 @@ signal.hydrology.water_temperature {
     : strata(hydrology)
     : title("Surface Water Temperature")
     : symbol("T_w")
-    : uses(dt_raw)
 
     config {
         relaxation_tau_s: 3.1536e7       # ~1 year relaxation time
@@ -366,7 +362,6 @@ signal.hydrology.groundwater_saturation {
     : strata(hydrology)
     : title("Groundwater Saturation")
     : symbol("S_gw")
-    : uses(dt_raw)
 
     config {
         initial: 0.5
@@ -452,7 +447,6 @@ signal.hydrology.dissolved_gas {
     : strata(hydrology)
     : title("Dissolved Gas Content")
     : symbol("G")
-    : uses(dt_raw)
 
     config {
         initial: 10.0                     # mol/m³ proxy

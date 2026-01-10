@@ -228,7 +228,6 @@ signal.rotation.state {
     : strata(rotation)
     : title("Rotation State")
     : symbol("theta,omega")
-    : uses(dt_raw)
 
     config {
         initial_phase: 0.0
@@ -252,11 +251,10 @@ signal.rotation.state {
 # Axial obliquity (tilt angle from ecliptic normal)
 # Earth: ~23.4 degrees = 0.409 rad
 signal.rotation.obliquity {
-    : Scalar<rad, 0..PI>
+    : Scalar<rad, 0..3.14159>
     : strata(rotation)
     : title("Axial Obliquity")
     : symbol("epsilon")
-    : uses(dt_raw)
 
     config {
         initial: 0.409
@@ -277,11 +275,10 @@ signal.rotation.obliquity {
 # Precession angle (rotation of spin axis around ecliptic normal)
 # Earth: completes one cycle in ~26,000 years
 signal.rotation.precession {
-    : Scalar<rad, 0..TAU>
+    : Scalar<rad, 0..6.28318>
     : strata(rotation)
     : title("Precession Angle")
     : symbol("psi")
-    : uses(dt_raw)
 
     config {
         initial: 0.0
@@ -382,7 +379,6 @@ signal.mantle.heat_content {
     : strata(thermal)
     : title("Mantle Heat Content")
     : symbol("Q_mantle")
-    : uses(dt_raw)
 
     config {
         initial_heat: 8.0e30
@@ -1011,7 +1007,6 @@ member.terra.plate.age {
     : strata(tectonics)
     : title("Plate Age")
     : symbol("t_plate")
-    : uses(dt_raw)
 
     config {
         max_oceanic_age_myr: 280.0

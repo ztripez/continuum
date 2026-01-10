@@ -171,7 +171,6 @@ member.stellar.star.orbit_phase {
     : strata(stellar.orbit)
     : title("Orbit Phase")
     : symbol("phi_star")
-    : uses(dt_raw)
 
     resolve {
         # Advance phase based on orbital period
@@ -282,7 +281,6 @@ member.stellar.star.variability_factor {
     : strata(stellar.activity)
     : title("Luminosity Variability Factor")
     : symbol("f_var")
-    : uses(sim_time)
 
     resolve {
         # Rotational modulation (starspots)
@@ -306,7 +304,6 @@ member.stellar.star.luminosity {
     : strata(stellar.orbit)
     : title("Current Luminosity")
     : symbol("L_star")
-    : uses(sim_time)
 
     resolve {
         # Main sequence evolution: luminosity increases over time
@@ -407,7 +404,6 @@ member.stellar.moon.orbit_phase {
     : strata(stellar.orbit)
     : title("Orbit Phase")
     : symbol("phi_moon")
-    : uses(dt_raw)
 
     resolve {
         # Kepler's third law for orbital period

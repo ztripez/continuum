@@ -214,7 +214,6 @@ signal.ecology.soil_carbon {
     : strata(ecology)
     : title("Soil Carbon")
     : symbol("SOC")
-    : uses(dt_raw)
 
     config {
         initial: 10.0                         # Initial SOC (kg C/m²)

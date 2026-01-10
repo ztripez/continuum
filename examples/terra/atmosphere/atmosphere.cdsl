@@ -123,7 +123,6 @@ signal.atmosphere.surface_temp {
     : strata(atmosphere)
     : title("Surface Temperature")
     : symbol("T_surf")
-    : uses(dt_raw)
 
     config {
         heat_capacity_j_k: 5e23
