@@ -474,7 +474,7 @@ impl L3Kernel {
                         .signals()
                         .prev_scalar_slice(signal_name)
                         .and_then(|slice| slice.get(entity_idx).copied())
-                        .unwrap_or(0.0);
+                        .expect("L3: prev scalar slice must exist for member signal being resolved");
 
                     let ctx = ScalarL3ResolveContext {
                         prev,
@@ -493,7 +493,7 @@ impl L3Kernel {
                         .signals()
                         .prev_vec3_slice(signal_name)
                         .and_then(|slice| slice.get(entity_idx).copied())
-                        .unwrap_or([0.0, 0.0, 0.0]);
+                        .expect("L3: prev vec3 slice must exist for member signal being resolved");
 
                     let ctx = Vec3L3ResolveContext {
                         prev,
