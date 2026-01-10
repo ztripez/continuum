@@ -364,14 +364,14 @@ impl Default for FieldLensConfig {
 
 /// Single-field snapshot frame stored by Lens.
 #[derive(Debug, Clone)]
-pub struct FieldFrame {
+pub(crate) struct FieldFrame {
     pub tick: u64,
     pub samples: Vec<FieldSample>,
 }
 
 /// Input payload for ingesting a single field snapshot.
 #[derive(Debug, Clone)]
-pub struct FieldSnapshot {
+pub(crate) struct FieldSnapshot {
     pub field_id: FieldId,
     pub tick: u64,
     pub samples: Vec<FieldSample>,
@@ -585,8 +585,7 @@ pub trait FieldReconstruction: Send + Sync {
         let v = self.query(position);
         [v, 0.0, 0.0]
     }
-    /// Underlying samples (debug/diagnostics only).
-    fn samples(&self) -> &[FieldSample];
+    // Raw sample access intentionally omitted to enforce observer boundary.
 }
 
 /// Nearest-neighbor reconstruction (MVP).
@@ -637,9 +636,6 @@ impl FieldReconstruction for NearestNeighborReconstruction {
         best_value
     }
 
-    fn samples(&self) -> &[FieldSample] {
-        &self.samples
-    }
 }
 
 impl FieldLens {
@@ -660,7 +656,7 @@ impl FieldLens {
     }
 
     /// Record a single field snapshot.
-    pub fn record(&mut self, snapshot: FieldSnapshot) {
+pub(crate) fn record(&mut self, snapshot: FieldSnapshot) {
         let storage = self
             .fields
             .entry(snapshot.field_id)
@@ -690,10 +686,6 @@ impl FieldLens {
     }
 
     /// Get the latest frame for a field.
-    pub fn latest(&self, field_id: &FieldId) -> Option<&FieldFrame> {
-        self.fields.get(field_id).and_then(FieldStorage::latest)
-    }
-
     /// Get reconstruction for a specific tick (nearest-neighbor MVP).
     pub fn at(
         &mut self,
@@ -908,9 +900,11 @@ impl FieldLens {
             .collect())
     }
 
-    /// Get bounded history for a field.
-    pub fn history(&self, field_id: &FieldId) -> Option<&VecDeque<FieldFrame>> {
-        self.fields.get(field_id).map(|storage| &storage.history)
+    /// Get bounded history metadata for a field.
+    pub fn history_ticks(&self, field_id: &FieldId) -> Option<Vec<u64>> {
+        self.fields
+            .get(field_id)
+            .map(|storage| storage.history.iter().map(|frame| frame.tick).collect())
     }
 
     /// Iterate over field IDs in deterministic insertion order.
@@ -1077,13 +1071,8 @@ mod tests {
             samples: vec![sample(3.0)],
         });
 
-        let history = lens.history(&field_id).expect("history exists");
-        assert_eq!(history.len(), 2);
-        assert_eq!(history[0].tick, 2);
-        assert_eq!(history[1].tick, 3);
-
-        let latest = lens.latest(&field_id).expect("latest exists");
-        assert_eq!(latest.tick, 3);
+        let ticks = lens.history_ticks(&field_id).expect("history exists");
+        assert_eq!(ticks, vec![2, 3]);
     }
 
     #[test]
