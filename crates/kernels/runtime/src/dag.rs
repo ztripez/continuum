@@ -29,6 +29,7 @@ use std::collections::HashSet;
 use indexmap::IndexMap;
 
 use crate::types::{SignalId, StratumId, EraId, Phase};
+use crate::vectorized::MemberSignalId;
 
 /// A single execution unit in the dependency graph.
 ///
@@ -85,6 +86,16 @@ pub enum NodeKind {
     Fracture {
         /// Index into the fracture detector table.
         fracture_idx: usize,
+    },
+    /// Execute a lane kernel for member signal resolution (L1/L2/L3).
+    ///
+    /// This is the two-level execution model where a DAG node can expand
+    /// internally to a vectorized lane kernel operating over all instances.
+    MemberSignalResolve {
+        /// The member signal being resolved.
+        member_signal: MemberSignalId,
+        /// Index into the lane kernel registry.
+        kernel_idx: usize,
     },
 }
 

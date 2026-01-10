@@ -621,6 +621,13 @@ impl<T: Copy + Default> DoubleBuffer<T> {
         let end = start + self.instance_count;
         &mut self.current.as_slice_mut()[start..end]
     }
+
+    /// Get slice of previous tick's values for a signal (all instances).
+    fn prev_signal_slice(&self, signal_idx: usize) -> &[T] {
+        let start = signal_idx * self.instance_count;
+        let end = start + self.instance_count;
+        &self.previous.as_slice()[start..end]
+    }
 }
 
 // ============================================================================
@@ -814,6 +821,49 @@ impl MemberSignalBuffer {
             return None;
         }
         Some(self.vec3s.signal_slice_mut(meta.buffer_index))
+    }
+
+    // ========================================================================
+    // Previous tick access (for lane kernel execution)
+    // ========================================================================
+
+    /// Get previous tick's scalar slice for a signal (all instances).
+    ///
+    /// This provides read-only access to the previous tick's values,
+    /// enabling batch resolver execution.
+    pub fn prev_scalar_slice(&self, signal: &str) -> Option<&[f64]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type != ValueType::Scalar {
+            return None;
+        }
+        Some(self.scalars.prev_signal_slice(meta.buffer_index))
+    }
+
+    /// Get previous tick's Vec3 slice for a signal.
+    pub fn prev_vec3_slice(&self, signal: &str) -> Option<&[[f64; 3]]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type != ValueType::Vec3 {
+            return None;
+        }
+        Some(self.vec3s.prev_signal_slice(meta.buffer_index))
+    }
+
+    /// Get previous tick's Vec2 slice for a signal.
+    pub fn prev_vec2_slice(&self, signal: &str) -> Option<&[[f64; 2]]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type != ValueType::Vec2 {
+            return None;
+        }
+        Some(self.vec2s.prev_signal_slice(meta.buffer_index))
+    }
+
+    /// Get previous tick's Vec4 slice for a signal.
+    pub fn prev_vec4_slice(&self, signal: &str) -> Option<&[[f64; 4]]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type != ValueType::Vec4 {
+            return None;
+        }
+        Some(self.vec4s.prev_signal_slice(meta.buffer_index))
     }
 
     /// Advance tick: current becomes previous.

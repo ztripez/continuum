@@ -52,9 +52,11 @@ pub mod vectorized;
 pub use error::{Error, Result};
 pub use executor::{
     AssertContext, AssertionChecker, AssertionFn, AssertionSeverity, ChunkConfig, CollectContext,
-    CollectFn, EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, MeasureContext,
-    MeasureFn, MemberResolveContext, MemberSignalResolver, PhaseExecutor, ResolveContext,
-    ResolverFn, Runtime, ScalarL1Resolver, ScalarResolveContext, ScalarResolverFn, TransitionFn,
+    CollectFn, EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, LaneKernel,
+    LaneKernelError, LaneKernelRegistry, LaneKernelResult, LoweringHeuristics, LoweringStrategy,
+    MeasureContext, MeasureFn, MemberResolveContext, MemberSignalResolver, PhaseExecutor,
+    ResolveContext, ResolverFn, Runtime, ScalarKernelFn, ScalarL1Kernel, ScalarL1Resolver,
+    ScalarResolveContext, ScalarResolverFn, TransitionFn, Vec3KernelFn, Vec3L1Kernel,
     Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn, WarmupContext, WarmupExecutor, WarmupFn,
 };
 pub use soa_storage::{

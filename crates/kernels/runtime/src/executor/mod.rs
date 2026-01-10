@@ -4,6 +4,7 @@
 
 mod assertions;
 mod context;
+pub mod lane_kernel;
 pub mod member_executor;
 mod phases;
 mod warmup;
@@ -29,6 +30,10 @@ pub use context::{
 pub use member_executor::{
     ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver, ScalarResolveContext,
     ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
+};
+pub use lane_kernel::{
+    LaneKernel, LaneKernelError, LaneKernelRegistry, LaneKernelResult, LoweringHeuristics,
+    LoweringStrategy, ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel,
 };
 pub use phases::{CollectFn, FractureFn, ImpulseFn, MeasureFn, PhaseExecutor, ResolverFn};
 pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
