@@ -30,7 +30,7 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId, TypeId};
+use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId, OperatorId, SignalId, StratumId, TypeId};
 
 /// The complete compiled simulation world, ready for DAG construction.
 ///
@@ -87,6 +87,8 @@ pub struct CompiledWorld {
     pub fractures: IndexMap<FractureId, CompiledFracture>,
     /// Entity definitions
     pub entities: IndexMap<EntityId, CompiledEntity>,
+    /// Member signal definitions (per-entity authoritative state)
+    pub members: IndexMap<MemberId, CompiledMember>,
     /// Chronicle definitions (observer-only event recording)
     pub chronicles: IndexMap<ChronicleId, CompiledChronicle>,
     /// Custom type definitions
@@ -385,78 +387,103 @@ pub struct CompiledEmit {
     pub value: CompiledExpr,
 }
 
-/// A compiled entity definition representing a collection of structured instances.
+/// A compiled entity definition representing a pure index space.
 ///
-/// Entities model collections of similar objects (e.g., moons, tectonic plates)
-/// where each instance has the same schema but different values. This enables
-/// N-body interactions and aggregate computations.
+/// Entities define collections of similar instances (e.g., moons, tectonic plates)
+/// that can be indexed and iterated. Entities are pure identity providers - they
+/// define *what exists* but not *what state it has*.
 ///
-/// # Schema
-///
-/// Each entity defines a schema of fields that every instance must have.
-/// The schema is fixed at compile time, though instance count may vary.
+/// Per-entity state is defined via member signals (`member.entity.field { ... }`),
+/// which are top-level primitives with their own resolve expressions and strata.
+/// This separation allows multi-rate scheduling on the same entity.
 ///
 /// # Instance Count
 ///
 /// The number of instances can be:
-/// - Fixed: Determined at compile time
+/// - Fixed: Determined at compile time via `count_bounds`
 /// - Config-driven: Read from scenario configuration via `count_source`
 /// - Bounded: Validated against `count_bounds` at runtime
 ///
-/// # Cross-Entity Access
+/// # Example DSL
 ///
-/// Entity resolve expressions can access other entities via the `entity_reads`
-/// dependency list, enabling cross-entity interactions.
+/// ```cdsl
+/// entity.stellar.moon {
+///     : strata(stellar)
+///     : count(1..100)
+/// }
+///
+/// // Per-entity state is defined separately as member signals:
+/// member.stellar.moon.mass {
+///     : Scalar<kg>
+///     : strata(stellar.orbital)
+///     resolve { prev }
+/// }
+/// ```
 #[derive(Debug, Clone)]
 pub struct CompiledEntity {
     /// Unique identifier for the entity type.
     pub id: EntityId,
-    /// Stratum binding.
-    pub stratum: StratumId,
     /// Count source from config (e.g., "stellar.moon_count")
     pub count_source: Option<String>,
     /// Count validation bounds
     pub count_bounds: Option<(u32, u32)>,
-    /// Schema fields for each instance
-    pub schema: Vec<CompiledSchemaField>,
-    /// Signals this entity reads
+}
+
+/// A compiled member signal definition representing per-entity authoritative state.
+///
+/// Member signals are top-level primitives that define state attached to entity
+/// instances. Unlike entity schema fields (which are resolved together), each
+/// member signal has its own resolve expression and can belong to a different
+/// stratum, enabling multi-rate scheduling on the same entity.
+///
+/// # Path Structure
+///
+/// The member's path consists of:
+/// - Entity path: identifies which entity type this belongs to
+/// - Signal name: the specific signal within that entity
+///
+/// For example, `human.person.age` belongs to entity `human.person` with signal `age`.
+///
+/// # Snapshot Semantics
+///
+/// All `self.*` reads within a member's resolve block see the previous tick's values,
+/// maintaining snapshot/next-state semantics for determinism.
+///
+/// # Example DSL
+///
+/// ```cdsl
+/// member.human.person.age {
+///     : Scalar
+///     : strata(human.physiology)
+///     resolve { integrate(prev, 1) }
+/// }
+/// ```
+#[derive(Debug, Clone)]
+pub struct CompiledMember {
+    /// Unique identifier for this member signal.
+    pub id: MemberId,
+    /// The entity this member belongs to.
+    pub entity_id: EntityId,
+    /// The signal name within the entity (e.g., "age" from "human.person.age").
+    pub signal_name: String,
+    /// Stratum binding for scheduling.
+    pub stratum: StratumId,
+    /// Human-readable title for display.
+    pub title: Option<String>,
+    /// Unicode symbol for visualization.
+    pub symbol: Option<String>,
+    /// Value type with optional bounds.
+    pub value_type: ValueType,
+    /// Whether `dt_raw` is explicitly used.
+    pub uses_dt_raw: bool,
+    /// Signals this member reads (global signals).
     pub reads: Vec<SignalId>,
-    /// Entities this entity reads (for other(), cross-entity access)
-    pub entity_reads: Vec<EntityId>,
-    /// Resolution logic (executed per instance)
+    /// Other member signals this member reads.
+    pub member_reads: Vec<MemberId>,
+    /// The resolve expression.
     pub resolve: Option<CompiledExpr>,
-    /// Entity-level assertions
+    /// Assertions to validate after resolution.
     pub assertions: Vec<CompiledAssertion>,
-    /// Nested field definitions for observation
-    pub fields: Vec<CompiledEntityField>,
-}
-
-/// A field definition within an entity's schema.
-///
-/// Each instance of the entity will have a value for this field.
-#[derive(Debug, Clone)]
-pub struct CompiledSchemaField {
-    /// Name of the field.
-    pub name: String,
-    /// Type of the field value.
-    pub value_type: ValueType,
-}
-
-/// An observable field nested within an entity (for observation/measurement).
-///
-/// Entity fields are computed during the Measure phase and provide per-instance
-/// observable data. Unlike schema fields (which are causal state), these fields
-/// are derived for observation purposes only.
-#[derive(Debug, Clone)]
-pub struct CompiledEntityField {
-    /// Name of the field.
-    pub name: String,
-    /// Type of the field value.
-    pub value_type: ValueType,
-    /// Spatial topology for reconstruction.
-    pub topology: TopologyIr,
-    /// The measure expression
-    pub measure: Option<CompiledExpr>,
 }
 
 /// A compiled chronicle definition for observer-only event recording.

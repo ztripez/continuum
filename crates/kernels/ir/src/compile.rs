@@ -28,11 +28,12 @@
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use continuum_foundation::{EraId, SignalId, StratumId};
+use continuum_foundation::{EraId, MemberId, SignalId, StratumId};
 use continuum_runtime::dag::{
     CycleError, DagBuilder, DagNode, DagSet, EraDags, ExecutableDag, NodeId, NodeKind,
 };
 use continuum_runtime::types::Phase;
+use continuum_runtime::vectorized::MemberSignalId;
 
 use crate::{CompiledWorld, OperatorPhaseIr};
 
@@ -86,6 +87,8 @@ pub struct CompilationResult {
     pub dags: DagSet,
     /// Resolver function indices (signal_id -> index)
     pub resolver_indices: IndexMap<SignalId, usize>,
+    /// Member signal resolver indices (member_id -> kernel index)
+    pub member_indices: IndexMap<MemberId, usize>,
     /// Operator function indices
     pub operator_indices: IndexMap<String, usize>,
     /// Field emitter indices
@@ -103,6 +106,7 @@ pub fn compile(world: &CompiledWorld) -> Result<CompilationResult, CompileError>
 struct Compiler<'a> {
     world: &'a CompiledWorld,
     resolver_indices: IndexMap<SignalId, usize>,
+    member_indices: IndexMap<MemberId, usize>,
     operator_indices: IndexMap<String, usize>,
     field_indices: IndexMap<String, usize>,
     fracture_indices: IndexMap<String, usize>,
@@ -113,6 +117,7 @@ impl<'a> Compiler<'a> {
         Self {
             world,
             resolver_indices: IndexMap::new(),
+            member_indices: IndexMap::new(),
             operator_indices: IndexMap::new(),
             field_indices: IndexMap::new(),
             fracture_indices: IndexMap::new(),
@@ -134,6 +139,7 @@ impl<'a> Compiler<'a> {
         Ok(CompilationResult {
             dags: dag_set,
             resolver_indices: self.resolver_indices,
+            member_indices: self.member_indices,
             operator_indices: self.operator_indices,
             field_indices: self.field_indices,
             fracture_indices: self.fracture_indices,
@@ -144,6 +150,11 @@ impl<'a> Compiler<'a> {
         // Assign resolver indices
         for (idx, (signal_id, _)) in self.world.signals.iter().enumerate() {
             self.resolver_indices.insert(signal_id.clone(), idx);
+        }
+
+        // Assign member signal indices
+        for (idx, (member_id, _)) in self.world.members.iter().enumerate() {
+            self.member_indices.insert(member_id.clone(), idx);
         }
 
         // Assign operator indices
@@ -242,6 +253,7 @@ impl<'a> Compiler<'a> {
     ) -> Result<Option<ExecutableDag>, CompileError> {
         let mut builder = DagBuilder::new(Phase::Resolve, (*stratum_id).clone());
 
+        // Add regular signal resolve nodes
         for (signal_id, signal) in &self.world.signals {
             if signal.stratum != *stratum_id {
                 continue;
@@ -263,6 +275,38 @@ impl<'a> Compiler<'a> {
                 kind: NodeKind::SignalResolve {
                     signal: continuum_runtime::SignalId(signal_id.0.clone()),
                     resolver_idx: self.resolver_indices[signal_id],
+                },
+            };
+            builder.add_node(node);
+        }
+
+        // Add member signal resolve nodes
+        for (member_id, member) in &self.world.members {
+            if member.stratum != *stratum_id {
+                continue;
+            }
+
+            // Skip members without resolve expressions
+            if member.resolve.is_none() {
+                continue;
+            }
+
+            let member_signal_id = MemberSignalId::new(
+                continuum_runtime::types::EntityId(member.entity_id.0.clone()),
+                member.signal_name.clone(),
+            );
+
+            let node = DagNode {
+                id: NodeId(format!("member.{}", member_id.0)),
+                reads: member
+                    .reads
+                    .iter()
+                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                    .collect(),
+                writes: None, // Member signals don't write to global signal namespace
+                kind: NodeKind::MemberSignalResolve {
+                    member_signal: member_signal_id,
+                    kernel_idx: self.member_indices[member_id],
                 },
             };
             builder.add_node(node);
@@ -405,6 +449,7 @@ mod tests {
             impulses: IndexMap::new(),
             fractures: IndexMap::new(),
             entities: IndexMap::new(),
+            members: IndexMap::new(),
             chronicles: IndexMap::new(),
             types: IndexMap::new(),
         };
@@ -472,5 +517,76 @@ mod tests {
         // Check that signal c depends on both a and b
         let sig_c = world.signals.get(&SignalId::from("terra.c")).unwrap();
         assert_eq!(sig_c.reads.len(), 2);
+    }
+
+    #[test]
+    fn test_compile_member_signal() {
+        let src = r#"
+            strata.human {}
+
+            era.main {
+                : initial
+            }
+
+            entity.human.person {
+                : count(1..100)
+            }
+
+            member.human.person.age {
+                : Scalar
+                : strata(human)
+                resolve { prev + 1.0 }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let result = compile(&world).unwrap();
+
+        // Should have one era
+        assert_eq!(result.dags.era_count(), 1);
+
+        // Member should have index
+        let member_id = continuum_foundation::MemberId::from("human.person.age");
+        assert!(result.member_indices.contains_key(&member_id));
+        assert_eq!(result.member_indices[&member_id], 0);
+    }
+
+    #[test]
+    fn test_compile_multiple_member_signals_same_entity() {
+        let src = r#"
+            strata.stellar {}
+
+            era.main {
+                : initial
+            }
+
+            entity.stellar.moon {
+                : count(1..10)
+            }
+
+            member.stellar.moon.mass {
+                : Scalar<kg>
+                : strata(stellar)
+                resolve { prev }
+            }
+
+            member.stellar.moon.radius {
+                : Scalar<m>
+                : strata(stellar)
+                resolve { prev * 1.01 }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let result = compile(&world).unwrap();
+
+        // Both members should have indices
+        assert_eq!(result.member_indices.len(), 2);
+
+        let mass_id = continuum_foundation::MemberId::from("stellar.moon.mass");
+        let radius_id = continuum_foundation::MemberId::from("stellar.moon.radius");
+
+        assert!(result.member_indices.contains_key(&mass_id));
+        assert!(result.member_indices.contains_key(&radius_id));
     }
 }

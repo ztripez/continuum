@@ -982,28 +982,6 @@ fn test_undefined_stratum_in_field() {
 }
 
 #[test]
-fn test_undefined_stratum_in_entity() {
-    let src = r#"
-        era.main { : initial }
-        entity.test.item {
-            : strata(ghost)
-        }
-    "#;
-    let (unit, errors) = parse(src);
-    assert!(errors.is_empty(), "parse errors: {:?}", errors);
-    let unit = unit.unwrap();
-    let result = lower(&unit);
-
-    assert!(result.is_err());
-    match result.unwrap_err() {
-        LowerError::UndefinedStratum(name) => {
-            assert_eq!(name, "ghost");
-        }
-        e => panic!("expected UndefinedStratum, got: {:?}", e),
-    }
-}
-
-#[test]
 fn test_lower_error_display() {
     // Test Display impl for all error variants
     let err = LowerError::UndefinedStratum("terra".to_string());
@@ -1275,14 +1253,14 @@ fn test_signal_self_reference_via_prev() {
 
 use continuum_foundation::EntityId;
 
+// Entities are now pure index spaces - they don't have schema, resolve, or fields.
+// Per-entity state is defined via member signals.
+
 #[test]
-fn test_lower_entity_basic() {
+fn test_lower_entity_empty() {
     let src = r#"
-        strata.stellar {}
         era.main { : initial }
-        entity.stellar.moon {
-            : strata(stellar)
-        }
+        entity.stellar.moon {}
     "#;
     let (unit, errors) = parse(src);
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
@@ -1290,40 +1268,16 @@ fn test_lower_entity_basic() {
     let world = lower(&unit).unwrap();
 
     let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
-    assert_eq!(entity.stratum, StratumId::from("stellar"));
-}
-
-#[test]
-fn test_lower_entity_with_schema() {
-    let src = r#"
-        strata.stellar {}
-        era.main { : initial }
-        entity.stellar.moon {
-            : strata(stellar)
-            schema {
-                mass: Scalar<kg>
-                position: Vec3<m>
-            }
-        }
-    "#;
-    let (unit, errors) = parse(src);
-    assert!(errors.is_empty(), "parse errors: {:?}", errors);
-    let unit = unit.unwrap();
-    let world = lower(&unit).unwrap();
-
-    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
-    assert_eq!(entity.schema.len(), 2);
-    assert_eq!(entity.schema[0].name, "mass");
-    assert_eq!(entity.schema[1].name, "position");
+    assert_eq!(entity.id.0, "stellar.moon");
+    assert!(entity.count_source.is_none());
+    assert!(entity.count_bounds.is_none());
 }
 
 #[test]
 fn test_lower_entity_with_count_source() {
     let src = r#"
-        strata.stellar {}
         era.main { : initial }
         entity.stellar.moon {
-            : strata(stellar)
             : count(config.stellar.moon_count)
         }
     "#;
@@ -1339,10 +1293,8 @@ fn test_lower_entity_with_count_source() {
 #[test]
 fn test_lower_entity_with_count_bounds() {
     let src = r#"
-        strata.stellar {}
         era.main { : initial }
         entity.stellar.moon {
-            : strata(stellar)
             : count(1..20)
         }
     "#;
@@ -1356,15 +1308,12 @@ fn test_lower_entity_with_count_bounds() {
 }
 
 #[test]
-fn test_lower_entity_with_resolve() {
+fn test_lower_entity_with_both_count_options() {
     let src = r#"
-        strata.stellar {}
         era.main { : initial }
-        entity.stellar.moon {
-            : strata(stellar)
-            resolve {
-                self.position + self.velocity
-            }
+        entity.stellar.planet {
+            : count(config.stellar.planet_count)
+            : count(1..10)
         }
     "#;
     let (unit, errors) = parse(src);
@@ -1372,110 +1321,9 @@ fn test_lower_entity_with_resolve() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
-    assert!(entity.resolve.is_some());
-}
-
-#[test]
-fn test_lower_entity_with_field() {
-    let src = r#"
-        strata.stellar {}
-        era.main { : initial }
-        entity.stellar.moon {
-            : strata(stellar)
-            field.energy {
-                : Scalar<J>
-                measure { self.mass * 1000.0 }
-            }
-        }
-    "#;
-    let (unit, errors) = parse(src);
-    assert!(errors.is_empty(), "parse errors: {:?}", errors);
-    let unit = unit.unwrap();
-    let world = lower(&unit).unwrap();
-
-    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
-    assert_eq!(entity.fields.len(), 1);
-    assert_eq!(entity.fields[0].name, "energy");
-    assert!(entity.fields[0].measure.is_some());
-}
-
-#[test]
-fn test_lower_entity_signal_reads() {
-    let src = r#"
-        strata.stellar {}
-        era.main { : initial }
-        signal.stellar.gravity {
-            : strata(stellar)
-            resolve { 9.81 }
-        }
-        entity.stellar.moon {
-            : strata(stellar)
-            resolve {
-                signal.stellar.gravity * self.mass
-            }
-        }
-    "#;
-    let (unit, errors) = parse(src);
-    assert!(errors.is_empty(), "parse errors: {:?}", errors);
-    let unit = unit.unwrap();
-    let world = lower(&unit).unwrap();
-
-    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
-    assert!(
-        entity.reads.contains(&SignalId::from("stellar.gravity")),
-        "entity reads: {:?}",
-        entity.reads
-    );
-}
-
-#[test]
-fn test_lower_entity_default_stratum() {
-    // Entity without explicit stratum should default to "default"
-    let src = r#"
-        era.main { : initial }
-        entity.test.item {}
-    "#;
-    let (unit, errors) = parse(src);
-    assert!(errors.is_empty(), "parse errors: {:?}", errors);
-    let unit = unit.unwrap();
-    let world = lower(&unit).unwrap();
-
-    let entity = world.entities.get(&EntityId::from("test.item")).unwrap();
-    assert_eq!(entity.stratum, StratumId::from("default"));
-}
-
-#[test]
-fn test_lower_entity_multiple_fields() {
-    let src = r#"
-        strata.stellar {}
-        era.main { : initial }
-        entity.stellar.moon {
-            : strata(stellar)
-
-            field.position {
-                measure { self.position }
-            }
-
-            field.velocity {
-                measure { self.velocity }
-            }
-
-            field.energy {
-                measure { self.mass * 100.0 }
-            }
-        }
-    "#;
-    let (unit, errors) = parse(src);
-    assert!(errors.is_empty(), "parse errors: {:?}", errors);
-    let unit = unit.unwrap();
-    let world = lower(&unit).unwrap();
-
-    let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
-    assert_eq!(entity.fields.len(), 3);
-    assert_eq!(entity.fields[0].name, "position");
-    assert_eq!(entity.fields[1].name, "velocity");
-    assert_eq!(entity.fields[2].name, "energy");
+    let entity = world.entities.get(&EntityId::from("stellar.planet")).unwrap();
+    assert!(entity.count_source.is_some());
+    assert!(entity.count_bounds.is_some());
 }
 
 // ============================================================================

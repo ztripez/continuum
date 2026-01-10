@@ -157,33 +157,8 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                     }
                 }
             }
-            Item::EntityDef(entity) => {
-                // Check entity resolve block for dt_raw usage
-                if let Some(resolve) = &entity.resolve {
-                    if uses_dt_raw(&resolve.body.node) {
-                        errors.push(ValidationError {
-                            message: format!(
-                                "entity '{}' uses dt_raw which is not allowed in entity resolve blocks",
-                                entity.path.node
-                            ),
-                            span: resolve.body.span.clone(),
-                        });
-                    }
-                }
-                // Check entity field measure blocks
-                for field in &entity.fields {
-                    if let Some(measure) = &field.measure {
-                        if uses_dt_raw(&measure.body.node) {
-                            errors.push(ValidationError {
-                                message: format!(
-                                    "entity field '{}.{}' uses dt_raw which is not allowed in measure blocks",
-                                    entity.path.node, field.name.node
-                                ),
-                                span: measure.body.span.clone(),
-                            });
-                        }
-                    }
-                }
+            Item::EntityDef(_) => {
+                // Entities are pure index spaces - no resolve or measure blocks to validate
             }
             _ => {}
         }
@@ -239,15 +214,8 @@ fn collect_unknown_functions(
         Item::FnDef(f) => {
             check_expr_for_unknown_functions(&f.body, user_functions, user_function_names, errors);
         }
-        Item::EntityDef(entity) => {
-            if let Some(resolve) = &entity.resolve {
-                check_expr_for_unknown_functions(&resolve.body, user_functions, user_function_names, errors);
-            }
-            for field in &entity.fields {
-                if let Some(measure) = &field.measure {
-                    check_expr_for_unknown_functions(&measure.body, user_functions, user_function_names, errors);
-                }
-            }
+        Item::EntityDef(_) => {
+            // Entities are pure index spaces - no expressions to validate
         }
         _ => {}
     }

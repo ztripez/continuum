@@ -86,3 +86,9 @@ define_id!(
     /// Unique identifier for a custom type definition
     TypeId
 );
+
+define_id!(
+    /// Unique identifier for a member signal (per-entity state)
+    /// Format: entity_path.signal_name (e.g., "human.person.age")
+    MemberId
+);

@@ -72,6 +72,7 @@ fn test_build_fracture() {
         impulses: IndexMap::new(),
         fractures: IndexMap::new(),
         entities: IndexMap::new(),
+        members: IndexMap::new(),
         chronicles: IndexMap::new(),
         types: IndexMap::new(),
     };
