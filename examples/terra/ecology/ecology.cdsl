@@ -307,6 +307,171 @@ fracture.ecology.mass_extinction {
     }
 }
 
+# -----------------------------------------------------------------------------
+# Process-Based Ecology Fractures
+# -----------------------------------------------------------------------------
+
+# Biosphere CO2 coupling: NEE = NPP - decomposition
+# Couples terrestrial carbon cycle to atmospheric CO2
+# Sign convention: positive NEE = net carbon uptake (biosphere sink)
+fracture.ecology.biosphere_co2_coupling {
+    : strata(ecology)
+
+    config {
+        co2_to_c_ratio: 3.667                # CO2 molar mass (44) / C molar mass (12)
+        planet_surface_area_m2: 5.1e14       # Earth surface area
+    }
+
+    when {
+        signal.ecology.npp > 0.0
+    }
+
+    emit {
+        # NEE = NPP - decomposition (positive = carbon uptake)
+        let npp = signal.ecology.npp in
+        let decomp = signal.ecology.decomposition_rate in
+        let nee = npp - decomp in
+
+        # Convert NEE to CO2 flux (negative NEE = CO2 release)
+        # NEE positive = uptake = removing CO2 from atmosphere
+        let co2_flux = -nee * config.fracture.ecology.biosphere_co2_coupling.co2_to_c_ratio in
+
+        # Emit to atmosphere (simplified: modulate CO2 ppmv)
+        signal.atmosphere.co2_ppmv <- co2_flux * 0.001
+    }
+}
+
+# Carrying capacity exceeded: triggers dieback when biomass > sustainable
+# K = NPP * turnover_time / maintenance_cost
+fracture.ecology.carrying_capacity_exceeded {
+    : strata(ecology)
+
+    config {
+        overshoot_threshold: 1.2             # Trigger when biomass > K * 1.2
+        dieback_rate_per_yr: 0.2             # Max mortality rate during dieback
+        maintenance_cost: 0.05               # Fraction of biomass per year
+        turnover_time_yr: 20.0               # Base turnover time
+    }
+
+    when {
+        signal.ecology.biomass > 0.0
+        signal.ecology.npp > 0.0
+    }
+
+    emit {
+        # Compute carrying capacity: K = NPP * turnover / maintenance
+        let npp = signal.ecology.npp in
+        let turnover = config.fracture.ecology.carrying_capacity_exceeded.turnover_time_yr in
+        let maintenance = config.fracture.ecology.carrying_capacity_exceeded.maintenance_cost in
+        let carrying_capacity = npp * turnover / maintenance in
+
+        # Check for overshoot
+        let threshold = carrying_capacity * config.fracture.ecology.carrying_capacity_exceeded.overshoot_threshold in
+        let biomass = signal.ecology.biomass in
+
+        if biomass > threshold {
+            # Dieback: reduce biomass toward carrying capacity
+            let excess = biomass - carrying_capacity in
+            let dieback = excess * config.fracture.ecology.carrying_capacity_exceeded.dieback_rate_per_yr * 1e-6 in
+            signal.ecology.biomass <- -dieback
+        } else {
+            signal.ecology.biomass <- 0.0
+        }
+    }
+}
+
+# Desertification risk: detects vegetation collapse conditions
+# Risk elevated when: low vegetation + drought + heat stress
+fracture.ecology.desertification_risk {
+    : strata(ecology)
+
+    config {
+        veg_threshold: 0.15                  # Low vegetation threshold
+        water_threshold: 0.2                 # Drought water presence threshold
+        heat_stress_temp_k: 303.15           # ~30C heat stress threshold
+        soil_degradation_rate: 0.01          # Rate of soil carbon loss during desertification
+    }
+
+    when {
+        signal.ecology.vegetation_cover < config.fracture.ecology.desertification_risk.veg_threshold
+        signal.surface.temp > config.fracture.ecology.desertification_risk.heat_stress_temp_k
+    }
+
+    emit {
+        # Desertification: soil degradation accelerates
+        # Sparse vegetation + heat = increased soil carbon loss
+        let veg = signal.ecology.vegetation_cover in
+        let temp = signal.surface.temp in
+        let heat_factor = (temp - 288.0) / 30.0 in  # Normalized heat stress
+
+        # Soil carbon loss proportional to risk factors
+        let degradation = config.fracture.ecology.desertification_risk.soil_degradation_rate * (1.0 - veg) * max(heat_factor, 0.0) in
+        signal.ecology.soil_carbon <- -signal.ecology.soil_carbon * degradation
+
+        # Vegetation cover further reduced (positive feedback)
+        signal.ecology.vegetation_cover <- -veg * degradation * 0.1
+    }
+}
+
+# Fire disturbance: biomass loss and carbon release
+# Triggered by dry conditions and high biomass
+fracture.ecology.fire_disturbance {
+    : strata(ecology)
+
+    config {
+        biomass_threshold: 20.0              # Minimum biomass for fire spread
+        temp_threshold_k: 300.0              # Temperature above which fire risk increases
+        burn_fraction: 0.1                   # Fraction of biomass burned per event
+        carbon_release_fraction: 0.8         # Fraction of burned biomass released as CO2
+    }
+
+    when {
+        signal.ecology.biomass > config.fracture.ecology.fire_disturbance.biomass_threshold
+        signal.surface.temp > config.fracture.ecology.fire_disturbance.temp_threshold_k
+        signal.ecology.vegetation_cover > 0.3
+    }
+
+    emit {
+        # Fire consumes biomass
+        let biomass = signal.ecology.biomass in
+        let burned = biomass * config.fracture.ecology.fire_disturbance.burn_fraction in
+        signal.ecology.biomass <- -burned
+
+        # Some carbon released to atmosphere
+        let released = burned * config.fracture.ecology.fire_disturbance.carbon_release_fraction in
+        signal.atmosphere.co2_ppmv <- released * 1e-6
+
+        # Remaining carbon enters soil as char/ash
+        let charred = burned * (1.0 - config.fracture.ecology.fire_disturbance.carbon_release_fraction) in
+        signal.ecology.soil_carbon <- charred * 0.5
+    }
+}
+
+# Pest/disease outbreak: biomass reduction under stress
+fracture.ecology.pest_outbreak {
+    : strata(ecology)
+
+    config {
+        stress_temp_threshold_k: 305.0       # Heat stress increases pest activity
+        mortality_rate: 0.15                 # Fraction of biomass lost
+        outbreak_threshold: 30.0             # Minimum biomass for outbreak
+    }
+
+    when {
+        signal.ecology.biomass > config.fracture.ecology.pest_outbreak.outbreak_threshold
+        signal.surface.temp > config.fracture.ecology.pest_outbreak.stress_temp_threshold_k
+    }
+
+    emit {
+        # Pest/disease reduces biomass
+        let mortality = signal.ecology.biomass * config.fracture.ecology.pest_outbreak.mortality_rate * 0.001 in
+        signal.ecology.biomass <- -mortality
+
+        # Dead biomass enters litter/soil carbon pool
+        signal.ecology.soil_carbon <- mortality * 0.3
+    }
+}
+
 # =============================================================================
 # Ecology Fields
 # =============================================================================
