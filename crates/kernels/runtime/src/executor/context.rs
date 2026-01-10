@@ -75,3 +75,14 @@ pub struct AssertContext<'a> {
     /// Time step
     pub dt: Dt,
 }
+
+/// Context available to chronicle handlers (Measure phase)
+///
+/// Chronicles are observer-only constructs that read resolved signals
+/// and emit events. They cannot affect causality.
+pub struct ChronicleContext<'a> {
+    /// Access to signals (current tick values, post-resolve)
+    pub signals: &'a SignalStorage,
+    /// Time step
+    pub dt: Dt,
+}

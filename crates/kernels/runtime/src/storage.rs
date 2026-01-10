@@ -306,6 +306,64 @@ impl Default for ParallelFieldBuffer {
     }
 }
 
+/// Storage for events emitted during Measure phase by chronicles.
+///
+/// Events are observer-only outputs that do not affect simulation causality.
+/// They are collected here for logging, analytics, and external consumption.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub struct EventBuffer {
+    /// Events collected during Measure phase
+    events: Vec<EmittedEventRecord>,
+}
+
+/// A recorded event with metadata.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmittedEventRecord {
+    /// The event name (e.g., "climate.alert")
+    pub name: String,
+    /// Event fields as key-value pairs
+    pub fields: Vec<(String, Value)>,
+}
+
+impl EventBuffer {
+    /// Add an event to the buffer.
+    pub fn emit(&mut self, name: String, fields: Vec<(String, Value)>) {
+        self.events.push(EmittedEventRecord { name, fields });
+    }
+
+    /// Get all events.
+    pub fn events(&self) -> &[EmittedEventRecord] {
+        &self.events
+    }
+
+    /// Drain all events (for observer consumption).
+    pub fn drain(&mut self) -> Vec<EmittedEventRecord> {
+        std::mem::take(&mut self.events)
+    }
+
+    /// Clear all events.
+    pub fn clear(&mut self) {
+        self.events.clear();
+    }
+
+    /// Check if any events exist.
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    /// Get event count.
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    /// Merge events from another buffer into this one.
+    ///
+    /// Used for combining thread-local buffers after parallel emission.
+    pub fn merge(&mut self, mut other: EventBuffer) {
+        self.events.append(&mut other.events);
+    }
+}
+
 /// Data for a single entity instance
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct InstanceData {
