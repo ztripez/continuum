@@ -57,6 +57,9 @@ use crate::soa_storage::{MemberSignalBuffer, ValueType};
 use crate::storage::{FieldBuffer, FieldSample, SignalStorage};
 use crate::types::{EntityId, FieldId, FractureId, SignalId, Value};
 
+// Re-export MemberSignalId from foundation
+pub use continuum_foundation::MemberSignalId;
+
 // ============================================================================
 // Identity Types
 // ============================================================================
@@ -82,53 +85,6 @@ pub struct MemberSignalIdentity {
     pub signal_id: MemberSignalId,
     /// The entity instance index
     pub entity_index: EntityIndex,
-}
-
-/// Unique identifier for a member signal family.
-///
-/// A member signal is a "family" of signals - one per entity instance.
-/// For example, `member.human.person.age` identifies the family, while
-/// a specific person's age is identified by `(signal_id, entity_index)`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct MemberSignalId {
-    /// The entity type this signal belongs to
-    pub entity_id: EntityId,
-    /// The signal name within the entity
-    pub signal_name: String,
-}
-
-impl MemberSignalId {
-    /// Create a new member signal ID.
-    pub fn new(entity_id: EntityId, signal_name: impl Into<String>) -> Self {
-        Self {
-            entity_id,
-            signal_name: signal_name.into(),
-        }
-    }
-
-    /// Parse from a dot-separated path like "human.person.age".
-    ///
-    /// The last component is the signal name, the rest form the entity path.
-    pub fn from_path(path: &str) -> Option<Self> {
-        let parts: Vec<&str> = path.split('.').collect();
-        if parts.len() < 2 {
-            return None;
-        }
-
-        let signal_name = parts[parts.len() - 1].to_string();
-        let entity_path = parts[..parts.len() - 1].join(".");
-
-        Some(Self {
-            entity_id: entity_path.as_str().into(),
-            signal_name,
-        })
-    }
-}
-
-impl std::fmt::Display for MemberSignalId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "member.{}.{}", self.entity_id, self.signal_name)
-    }
 }
 
 /// Identity for a field sample.

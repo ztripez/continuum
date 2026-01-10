@@ -46,9 +46,8 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{SignalId, StratumId};
+use continuum_foundation::{MemberSignalId, SignalId, StratumId};
 use continuum_runtime::types::EntityId;
-use continuum_runtime::vectorized::MemberSignalId;
 
 use crate::ssa::lower_to_ssa;
 use crate::vectorized::ScalarL2Kernel;

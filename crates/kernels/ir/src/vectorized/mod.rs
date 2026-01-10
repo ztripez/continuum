@@ -44,7 +44,7 @@ use continuum_runtime::executor::{
 use continuum_runtime::soa_storage::{MemberSignalBuffer, PopulationStorage};
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Dt;
-use continuum_runtime::vectorized::MemberSignalId;
+use continuum_foundation::MemberSignalId;
 
 use crate::ssa::{BlockId, SsaFunction, SsaInstruction, Terminator, VReg};
 use crate::{BinaryOpIr, DtRobustOperator, IntegrationMethod, UnaryOpIr};

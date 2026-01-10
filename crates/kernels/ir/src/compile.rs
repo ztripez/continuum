@@ -28,14 +28,13 @@
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use continuum_foundation::{EraId, EntityId as FoundationEntityId, MemberId, SignalId, StratumId};
+use continuum_foundation::{EraId, EntityId as FoundationEntityId, MemberId, MemberSignalId, SignalId, StratumId};
 use continuum_runtime::dag::{
     AggregateBarrier, BarrierDagBuilder, CycleError, DagBuilder, DagNode, DagSet, EraDags,
     ExecutableDag, NodeId, NodeKind,
 };
 use continuum_runtime::reductions::ReductionOp;
 use continuum_runtime::types::{EntityId as RuntimeEntityId, Phase};
-use continuum_runtime::vectorized::MemberSignalId;
 
 use crate::{AggregateOpIr, CompiledExpr, CompiledWorld, OperatorPhaseIr};
 
