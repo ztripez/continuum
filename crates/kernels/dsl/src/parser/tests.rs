@@ -1233,13 +1233,13 @@ signal.test.double_neg {
 // ============================================================================
 // Entity Parsing Tests
 // ============================================================================
+// Entities are pure index spaces - they only define what exists, not state.
+// Per-entity state is defined via member signals.
 
 #[test]
-fn test_parse_entity_basic() {
+fn test_parse_entity_empty() {
     let source = r#"
-entity.stellar.moon {
-    : strata(stellar)
-}
+entity.stellar.moon {}
     "#;
     let (result, errors) = parse(source);
     assert!(errors.is_empty(), "errors: {:?}", errors);
@@ -1248,34 +1248,8 @@ entity.stellar.moon {
     match &unit.items[0].node {
         Item::EntityDef(def) => {
             assert_eq!(def.path.node.join("."), "stellar.moon");
-            assert!(def.strata.is_some());
-            assert_eq!(def.strata.as_ref().unwrap().node.join("."), "stellar");
-        }
-        _ => panic!("expected EntityDef"),
-    }
-}
-
-#[test]
-fn test_parse_entity_with_schema() {
-    let source = r#"
-entity.stellar.moon {
-    : strata(stellar)
-    schema {
-        mass: Scalar<kg>
-        position: Vec3<m>
-        velocity: Vec3<m/s>
-    }
-}
-    "#;
-    let (result, errors) = parse(source);
-    assert!(errors.is_empty(), "errors: {:?}", errors);
-    let unit = result.unwrap();
-    match &unit.items[0].node {
-        Item::EntityDef(def) => {
-            assert_eq!(def.schema.len(), 3);
-            assert_eq!(def.schema[0].name.node, "mass");
-            assert_eq!(def.schema[1].name.node, "position");
-            assert_eq!(def.schema[2].name.node, "velocity");
+            assert!(def.count_source.is_none());
+            assert!(def.count_bounds.is_none());
         }
         _ => panic!("expected EntityDef"),
     }
@@ -1285,7 +1259,6 @@ entity.stellar.moon {
 fn test_parse_entity_with_count_source() {
     let source = r#"
 entity.stellar.moon {
-    : strata(stellar)
     : count(config.stellar.moon_count)
 }
     "#;
@@ -1308,7 +1281,6 @@ entity.stellar.moon {
 fn test_parse_entity_with_count_bounds() {
     let source = r#"
 entity.stellar.moon {
-    : strata(stellar)
     : count(1..20)
 }
     "#;
@@ -1327,87 +1299,12 @@ entity.stellar.moon {
 }
 
 #[test]
-fn test_parse_entity_with_resolve() {
-    let source = r#"
-entity.stellar.moon {
-    : strata(stellar)
-    resolve {
-        self.position + self.velocity * dt
-    }
-}
-    "#;
-    let (result, errors) = parse(source);
-    assert!(errors.is_empty(), "errors: {:?}", errors);
-    let unit = result.unwrap();
-    match &unit.items[0].node {
-        Item::EntityDef(def) => {
-            assert!(def.resolve.is_some());
-        }
-        _ => panic!("expected EntityDef"),
-    }
-}
-
-#[test]
-fn test_parse_entity_with_field() {
-    let source = r#"
-entity.stellar.moon {
-    : strata(stellar)
-    field.orbital_energy {
-        : Scalar<J>
-        : topology(point_cloud)
-        measure {
-            0.5 * self.mass * kernel.dot(self.velocity, self.velocity)
-        }
-    }
-}
-    "#;
-    let (result, errors) = parse(source);
-    assert!(errors.is_empty(), "errors: {:?}", errors);
-    let unit = result.unwrap();
-    match &unit.items[0].node {
-        Item::EntityDef(def) => {
-            assert_eq!(def.fields.len(), 1);
-            assert_eq!(def.fields[0].name.node, "orbital_energy");
-            assert!(def.fields[0].ty.is_some());
-            assert!(def.fields[0].topology.is_some());
-            assert!(def.fields[0].measure.is_some());
-        }
-        _ => panic!("expected EntityDef"),
-    }
-}
-
-#[test]
-fn test_parse_entity_full() {
-    // Full entity definition with all features
+fn test_parse_entity_with_both_count_options() {
+    // Can have both count source and bounds for validation
     let source = r#"
 entity.stellar.planet {
-    : strata(stellar)
     : count(config.stellar.planet_count)
-
-    schema {
-        mass: Scalar<kg, 1e20..1e30>
-        radius: Scalar<m>
-        position: Vec3<m>
-    }
-
-    config {
-        orbital_period: 365.25 <days>
-    }
-
-    resolve {
-        self.position + signal.stellar.gravity_field * dt
-    }
-
-    assert {
-        self.mass > 0.0, "mass_positive"
-    }
-
-    field.surface_gravity {
-        : Scalar<m/s2>
-        measure {
-            const.physics.G * self.mass / (self.radius * self.radius)
-        }
-    }
+    : count(1..10)
 }
     "#;
     let (result, errors) = parse(source);
@@ -1416,49 +1313,8 @@ entity.stellar.planet {
     match &unit.items[0].node {
         Item::EntityDef(def) => {
             assert_eq!(def.path.node.join("."), "stellar.planet");
-            assert!(def.strata.is_some());
             assert!(def.count_source.is_some());
-            assert_eq!(def.schema.len(), 3);
-            assert!(!def.config_defaults.is_empty());
-            assert!(def.resolve.is_some());
-            assert!(def.assertions.is_some());
-            assert_eq!(def.fields.len(), 1);
-        }
-        _ => panic!("expected EntityDef"),
-    }
-}
-
-#[test]
-fn test_parse_entity_multiple_fields() {
-    let source = r#"
-entity.stellar.moon {
-    : strata(stellar)
-
-    field.position {
-        : Vec3<m>
-        measure { self.position }
-    }
-
-    field.velocity {
-        : Vec3<m/s>
-        measure { self.velocity }
-    }
-
-    field.distance {
-        : Scalar<m>
-        measure { kernel.length(self.position) }
-    }
-}
-    "#;
-    let (result, errors) = parse(source);
-    assert!(errors.is_empty(), "errors: {:?}", errors);
-    let unit = result.unwrap();
-    match &unit.items[0].node {
-        Item::EntityDef(def) => {
-            assert_eq!(def.fields.len(), 3);
-            assert_eq!(def.fields[0].name.node, "position");
-            assert_eq!(def.fields[1].name.node, "velocity");
-            assert_eq!(def.fields[2].name.node, "distance");
+            assert!(def.count_bounds.is_some());
         }
         _ => panic!("expected EntityDef"),
     }
@@ -2102,5 +1958,41 @@ fn test_atmosphere_file_parses() {
                 }
             }
         }
+    }
+}
+
+#[test]
+fn test_parse_world_def() {
+    let source = r#"
+        world.terra {
+            : title("Earth Planetary Simulation")
+            : version("1.0.0")
+
+            policy {
+                determinism: "strict"
+                faults: "fatal"
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::WorldDef(def) => {
+            assert_eq!(def.path.node.join("."), "terra");
+            assert_eq!(def.title.as_ref().unwrap().node, "Earth Planetary Simulation");
+            assert_eq!(def.version.as_ref().unwrap().node, "1.0.0");
+
+            let policy = def.policy.as_ref().expect("expected policy block");
+            assert_eq!(policy.entries.len(), 2);
+
+            assert_eq!(policy.entries[0].path.node.join("."), "determinism");
+            match &policy.entries[0].value.node {
+                Literal::String(s) => assert_eq!(s, "strict"),
+                _ => panic!("expected string literal"),
+            }
+        }
+        _ => panic!("expected WorldDef"),
     }
 }

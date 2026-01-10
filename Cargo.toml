@@ -10,6 +10,7 @@ members = [
     "crates/kernels/ir",
     "crates/kernels/runtime",
     "crates/kernels/vm",
+    "crates/kernels/gpu",
     "crates/tests",
     "crates/tools",
 ]

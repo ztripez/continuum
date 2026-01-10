@@ -15,4 +15,6 @@ The IR acts as the semantic bridge between the user-facing DSL AST and the execu
 
 - **`CompiledWorld`**: The complete, resolved definition of a simulation world.
 - **`CompiledSignal`**: A signal with fully resolved dependencies and bytecode-ready expression.
+- **`CompiledEntity`**: An entity definition (pure index space with count bounds).
+- **`CompiledMember`**: A per-entity member signal with own stratum and resolve expression.
 - **`CompiledExpr`**: A simplified expression tree (no sugar, fully typed).

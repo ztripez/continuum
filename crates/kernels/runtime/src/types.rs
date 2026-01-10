@@ -16,9 +16,10 @@
 //! This module re-exports foundational ID types from [`continuum_foundation`]:
 //! [`SignalId`], [`FieldId`], [`EraId`], [`StratumId`], etc.
 
-// Re-export foundational ID types
+// Re-export foundational ID types and StratumState
 pub use continuum_foundation::{
     EntityId, EraId, FieldId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId,
+    StratumState,
 };
 
 use serde::{Deserialize, Serialize};
@@ -66,48 +67,6 @@ impl Phase {
         Phase::Fracture,
         Phase::Measure,
     ];
-}
-
-/// Stratum activation state within an era.
-///
-/// Strata can be configured to run at different rates or be paused entirely.
-/// This allows multi-rate simulation where fast-changing phenomena (weather)
-/// run every tick while slow phenomena (geology) run less frequently.
-///
-/// # Example
-///
-/// ```
-/// use continuum_runtime::StratumState;
-///
-/// let fast = StratumState::Active;
-/// let slow = StratumState::ActiveWithStride(100);
-/// let paused = StratumState::Gated;
-///
-/// // Check if stratum runs on a given tick
-/// assert!(fast.is_eligible(42));
-/// assert!(slow.is_eligible(100));  // Multiple of 100
-/// assert!(!slow.is_eligible(42));  // Not a multiple
-/// assert!(!paused.is_eligible(42)); // Never runs
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum StratumState {
-    /// Executes every tick. Use for fast-changing phenomena.
-    Active,
-    /// Executes every N ticks. Use for slower phenomena.
-    ActiveWithStride(u32),
-    /// Paused entirely; state is preserved but not updated.
-    Gated,
-}
-
-impl StratumState {
-    /// Check if stratum should execute on given tick
-    pub fn is_eligible(&self, tick: u64) -> bool {
-        match self {
-            StratumState::Active => true,
-            StratumState::ActiveWithStride(stride) => tick.is_multiple_of(*stride as u64),
-            StratumState::Gated => false,
-        }
-    }
 }
 
 /// Runtime value types for simulation signals.

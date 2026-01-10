@@ -8,19 +8,86 @@ use std::collections::HashSet;
 use continuum_dsl::ast::{self, Expr, Literal};
 use continuum_foundation::{EntityId, FnId, InstanceId, SignalId};
 
-use crate::{CompiledExpr, DtRobustOperator, IntegrationMethod};
+use crate::{CompiledExpr, DtRobustOperator, IntegrationMethod, ValueType};
 
 use super::Lowerer;
 
-impl Lowerer {
-    pub(crate) fn lower_expr(&self, expr: &Expr) -> CompiledExpr {
-        self.lower_expr_with_locals(expr, &HashSet::new())
+/// Context for expression lowering, carrying type information and local variables.
+///
+/// This struct propagates necessary context through recursive expression lowering,
+/// enabling type-aware transformations such as vector expression expansion.
+#[derive(Clone)]
+pub struct LoweringContext<'a> {
+    /// Local variable names in scope (from let bindings and function parameters)
+    pub locals: HashSet<String>,
+    /// The target value type for the expression being lowered.
+    /// Used for type-aware expansion of vector/tensor operations.
+    pub value_type: Option<&'a ValueType>,
+}
+
+impl<'a> LoweringContext<'a> {
+    /// Creates a new empty context with no locals and no type information.
+    pub fn new() -> Self {
+        Self {
+            locals: HashSet::new(),
+            value_type: None,
+        }
     }
 
+    /// Creates a context with the given value type.
+    pub fn with_type(value_type: &'a ValueType) -> Self {
+        Self {
+            locals: HashSet::new(),
+            value_type: Some(value_type),
+        }
+    }
+
+    /// Returns a new context with an additional local variable.
+    pub fn with_local(&self, name: String) -> Self {
+        let mut new_locals = self.locals.clone();
+        new_locals.insert(name);
+        Self {
+            locals: new_locals,
+            value_type: self.value_type,
+        }
+    }
+}
+
+impl Default for LoweringContext<'_> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Lowerer {
+    /// Lower an expression without any context (no locals, no type info).
+    pub(crate) fn lower_expr(&self, expr: &Expr) -> CompiledExpr {
+        self.lower_expr_with_context(expr, &LoweringContext::new())
+    }
+
+    /// Lower an expression with type context for type-aware expansion.
+    pub(crate) fn lower_expr_typed(&self, expr: &Expr, value_type: &ValueType) -> CompiledExpr {
+        self.lower_expr_with_context(expr, &LoweringContext::with_type(value_type))
+    }
+
+    /// Lower an expression with only local variables (legacy compatibility).
     pub(crate) fn lower_expr_with_locals(
         &self,
         expr: &Expr,
         locals: &HashSet<String>,
+    ) -> CompiledExpr {
+        let ctx = LoweringContext {
+            locals: locals.clone(),
+            value_type: None,
+        };
+        self.lower_expr_with_context(expr, &ctx)
+    }
+
+    /// Core expression lowering with full context.
+    pub(crate) fn lower_expr_with_context(
+        &self,
+        expr: &Expr,
+        ctx: &LoweringContext<'_>,
     ) -> CompiledExpr {
         match expr {
             Expr::Literal(lit) => CompiledExpr::Literal(self.literal_to_f64_unchecked(lit)),
@@ -32,7 +99,7 @@ impl Lowerer {
             Expr::Collected => CompiledExpr::Collected,
             Expr::Path(path) => {
                 // Check for local variable first (single-segment paths only)
-                if path.segments.len() == 1 && locals.contains(&path.segments[0]) {
+                if path.segments.len() == 1 && ctx.locals.contains(&path.segments[0]) {
                     return CompiledExpr::Local(path.segments[0].clone());
                 }
                 // Could be signal, const, or config reference
@@ -67,12 +134,12 @@ impl Lowerer {
             Expr::ConfigRef(path) => CompiledExpr::Config(path.join(".")),
             Expr::Binary { op, left, right } => CompiledExpr::Binary {
                 op: self.lower_binary_op(*op),
-                left: Box::new(self.lower_expr_with_locals(&left.node, locals)),
-                right: Box::new(self.lower_expr_with_locals(&right.node, locals)),
+                left: Box::new(self.lower_expr_with_context(&left.node, ctx)),
+                right: Box::new(self.lower_expr_with_context(&right.node, ctx)),
             },
             Expr::Unary { op, operand } => CompiledExpr::Unary {
                 op: self.lower_unary_op(*op),
-                operand: Box::new(self.lower_expr_with_locals(&operand.node, locals)),
+                operand: Box::new(self.lower_expr_with_context(&operand.node, ctx)),
             },
             Expr::Call { function, args } => {
                 let func_name = self.expr_to_function_name(&function.node);
@@ -81,7 +148,7 @@ impl Lowerer {
                 if let Some(operator) = self.parse_dt_robust_operator(&func_name) {
                     let lowered_args: Vec<_> = args
                         .iter()
-                        .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
+                        .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
                         .collect();
                     CompiledExpr::DtRobustCall {
                         operator,
@@ -95,7 +162,7 @@ impl Lowerer {
                         function: kernel_name,
                         args: args
                             .iter()
-                            .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
+                            .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
                             .collect(),
                     }
                 } else {
@@ -106,7 +173,7 @@ impl Lowerer {
                         // Inline the function by wrapping body in let bindings for each param
                         let lowered_args: Vec<_> = args
                             .iter()
-                            .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
+                            .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
                             .collect();
 
                         // Build nested let expressions: let param1 = arg1 in let param2 = arg2 in body
@@ -126,7 +193,7 @@ impl Lowerer {
                             function: func_name,
                             args: args
                                 .iter()
-                                .map(|a| self.lower_expr_with_locals(&a.value.node, locals))
+                                .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
                                 .collect(),
                         }
                     }
@@ -135,9 +202,9 @@ impl Lowerer {
             Expr::MethodCall { object, method, args } => {
                 // Method calls are lowered to function calls with object as first argument
                 // e.g., obj.method(a, b) -> method(obj, a, b)
-                let lowered_obj = self.lower_expr_with_locals(&object.node, locals);
+                let lowered_obj = self.lower_expr_with_context(&object.node, ctx);
                 let lowered_args: Vec<_> = std::iter::once(lowered_obj)
-                    .chain(args.iter().map(|a| self.lower_expr_with_locals(&a.value.node, locals)))
+                    .chain(args.iter().map(|a| self.lower_expr_with_context(&a.value.node, ctx)))
                     .collect();
 
                 CompiledExpr::Call {
@@ -146,7 +213,7 @@ impl Lowerer {
                 }
             }
             Expr::FieldAccess { object, field } => CompiledExpr::FieldAccess {
-                object: Box::new(self.lower_expr_with_locals(&object.node, locals)),
+                object: Box::new(self.lower_expr_with_context(&object.node, ctx)),
                 field: field.clone(),
             },
             Expr::If {
@@ -154,22 +221,21 @@ impl Lowerer {
                 then_branch,
                 else_branch,
             } => CompiledExpr::If {
-                condition: Box::new(self.lower_expr_with_locals(&condition.node, locals)),
-                then_branch: Box::new(self.lower_expr_with_locals(&then_branch.node, locals)),
+                condition: Box::new(self.lower_expr_with_context(&condition.node, ctx)),
+                then_branch: Box::new(self.lower_expr_with_context(&then_branch.node, ctx)),
                 else_branch: Box::new(
                     else_branch
                         .as_ref()
-                        .map(|e| self.lower_expr_with_locals(&e.node, locals))
+                        .map(|e| self.lower_expr_with_context(&e.node, ctx))
                         .unwrap_or(CompiledExpr::Literal(0.0)),
                 ),
             },
             Expr::Let { name, value, body } => {
                 // Lower the value without the new local
-                let lowered_value = self.lower_expr_with_locals(&value.node, locals);
+                let lowered_value = self.lower_expr_with_context(&value.node, ctx);
                 // Add the new local for the body
-                let mut new_locals = locals.clone();
-                new_locals.insert(name.clone());
-                let lowered_body = self.lower_expr_with_locals(&body.node, &new_locals);
+                let body_ctx = ctx.with_local(name.clone());
+                let lowered_body = self.lower_expr_with_context(&body.node, &body_ctx);
                 CompiledExpr::Let {
                     name: name.clone(),
                     value: Box::new(lowered_value),
@@ -195,7 +261,7 @@ impl Lowerer {
                     panic!("Empty block expression has no value - blocks must contain at least one expression")
                 } else {
                     // For now, just evaluate to the last expression
-                    self.lower_expr_with_locals(&exprs.last().unwrap().node, locals)
+                    self.lower_expr_with_context(&exprs.last().unwrap().node, ctx)
                 }
             }
 
@@ -229,7 +295,7 @@ impl Lowerer {
             Expr::Aggregate { op, entity, body } => CompiledExpr::Aggregate {
                 op: self.lower_aggregate_op(*op),
                 entity: EntityId::from(entity.join(".").as_str()),
-                body: Box::new(self.lower_expr_with_locals(&body.node, locals)),
+                body: Box::new(self.lower_expr_with_context(&body.node, ctx)),
             },
 
             Expr::Other(path) => {
@@ -247,18 +313,18 @@ impl Lowerer {
 
             Expr::Filter { entity, predicate } => CompiledExpr::Filter {
                 entity: EntityId::from(entity.join(".").as_str()),
-                predicate: Box::new(self.lower_expr_with_locals(&predicate.node, locals)),
+                predicate: Box::new(self.lower_expr_with_context(&predicate.node, ctx)),
                 body: Box::new(CompiledExpr::Literal(1.0)), // placeholder for nested body
             },
 
             Expr::First { entity, predicate } => CompiledExpr::First {
                 entity: EntityId::from(entity.join(".").as_str()),
-                predicate: Box::new(self.lower_expr_with_locals(&predicate.node, locals)),
+                predicate: Box::new(self.lower_expr_with_context(&predicate.node, ctx)),
             },
 
             Expr::Nearest { entity, position } => CompiledExpr::Nearest {
                 entity: EntityId::from(entity.join(".").as_str()),
-                position: Box::new(self.lower_expr_with_locals(&position.node, locals)),
+                position: Box::new(self.lower_expr_with_context(&position.node, ctx)),
             },
 
             Expr::Within {
@@ -267,8 +333,8 @@ impl Lowerer {
                 radius,
             } => CompiledExpr::Within {
                 entity: EntityId::from(entity.join(".").as_str()),
-                position: Box::new(self.lower_expr_with_locals(&position.node, locals)),
-                radius: Box::new(self.lower_expr_with_locals(&radius.node, locals)),
+                position: Box::new(self.lower_expr_with_context(&position.node, ctx)),
+                radius: Box::new(self.lower_expr_with_context(&radius.node, ctx)),
                 body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
             },
 

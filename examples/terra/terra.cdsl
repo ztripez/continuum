@@ -10,6 +10,15 @@
 //!   - hydrology/hydrology.cdsl: Water cycle, precipitation, runoff
 //!   - ecology/ecology.cdsl: Biosphere, carbon cycling, productivity
 
+world.terra {
+    : title("Terra Geophysics Simulation")
+    : version("0.1.0")
+
+    policy {
+        description: "Realistic crust dynamics with isostasy and dynamic topography"
+    }
+}
+
 // =============================================================================
 // Strata Definitions
 // =============================================================================

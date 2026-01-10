@@ -6,6 +6,9 @@
 //!
 //! # Supported Items
 //!
+//! ## World Manifest
+//! - [`WorldDef`](crate::ast::WorldDef) - `world.name { ... }` world manifest and policy
+//!
 //! ## Configuration
 //! - [`ConstBlock`](crate::ast::ConstBlock) - `const { ... }` compile-time constants
 //! - [`ConfigBlock`](crate::ast::ConfigBlock) - `config { ... }` runtime parameters
@@ -29,15 +32,18 @@
 //! - [`ChronicleDef`](crate::ast::ChronicleDef) - `chronicle.name { ... }` observers
 //!
 //! ## Collections
-//! - [`EntityDef`](crate::ast::EntityDef) - `entity.name { ... }` indexed state
+//! - [`EntityDef`](crate::ast::EntityDef) - `entity.name { ... }` index spaces
+//! - [`MemberDef`](crate::ast::MemberDef) - `member.entity.field { ... }` per-entity state
 
 mod common;
 mod config;
 mod entity;
 mod events;
+mod member;
 mod signals;
 mod time;
 mod types;
+mod world;
 
 use chumsky::prelude::*;
 
@@ -50,9 +56,11 @@ use super::ParseError;
 pub use config::{config_block, const_block};
 pub use entity::entity_def;
 pub use events::{chronicle_def, fracture_def, impulse_def};
+pub use member::member_def;
 pub use signals::{field_def, operator_def, signal_def};
 pub use time::{era_def, strata_def};
 pub use types::{fn_def, type_def};
+pub use world::world_def;
 
 /// Main entry point for parsing top-level items.
 ///
@@ -60,6 +68,8 @@ pub use types::{fn_def, type_def};
 /// and stored in the item's `doc` field.
 pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<'src>>> {
     choice((
+        // World definition (no doc comments - it's a manifest)
+        world_def().map(Item::WorldDef),
         // Config blocks don't have doc comments (they're structural, not semantic items)
         const_block().map(Item::ConstBlock),
         config_block().map(Item::ConfigBlock),
@@ -107,6 +117,10 @@ pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<
         doc_comment().then(entity_def()).map(|(doc, mut def)| {
             def.doc = doc;
             Item::EntityDef(def)
+        }),
+        doc_comment().then(member_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::MemberDef(def)
         }),
     ))
 }

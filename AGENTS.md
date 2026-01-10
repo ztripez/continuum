@@ -90,14 +90,13 @@ These roles must never be blurred.
 
 A **World** is a directory containing:
 
-- `world.yaml` — execution policy only
+- `world` definition (DSL or `world.yaml`) — execution policy only
 - `*.cdsl` — authoritative simulation declarations
 
 ### World loading (fixed rule)
 
-- World root = directory containing `world.yaml`
-- Load all other `*.yaml` under root (recursive), sorted by path
-- Merge YAML by overwrite (last wins)
+- World root = directory containing `world.yaml` OR `world` DSL definition
+- Load all `*.yaml` under root (recursive), sorted by path; merge
 - Load all `*.cdsl` under root (recursive), sorted by path; compile
 
 This behavior is **not configurable**.
@@ -106,7 +105,7 @@ See: `world.md`
 
 ---
 
-## Manifest (`world.yaml`)
+## Manifest (DSL or `world.yaml`)
 
 The manifest defines **how execution runs**, not simulation logic.
 
@@ -146,9 +145,11 @@ It produces a **typed IR** which is the sole input to execution graph constructi
 
 ## What the DSL Defines (Authoritative)
 
-All simulation entities are declared in `*.cdsl`:
+All simulation primitives are declared in `*.cdsl`:
 
 - **Signals** — authoritative resolved values
+- **Entities** — pure index spaces (identity only)
+- **Members** — per-entity authoritative state with own strata
 - **Operators** — phase-tagged execution blocks
 - **Fields** — observer data + reconstruction hints
 - **Impulses** — external causal inputs

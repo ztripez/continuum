@@ -331,7 +331,87 @@ See @execution/warmup.md for full semantics.
 
 ---
 
-## 10. Fields
+## 10. Entities
+
+Entities are pure index spaces that define what instances exist:
+
+```
+entity.stellar.moon {
+    : count(config.stellar.moon_count)
+    : count(1..20)
+}
+
+entity.terra.plate {
+    : count(5..50)
+}
+
+entity.stellar.star {}
+```
+
+### Entity Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `: count(config.path)` | Instance count from config |
+| `: count(min..max)` | Count validation bounds |
+
+Entities do not have strata, schema, or resolve blocks.
+Per-entity state is defined via member signals.
+
+---
+
+## 11. Member Signals
+
+Per-entity authoritative state with own strata:
+
+```
+member.stellar.moon.mass {
+    : Scalar<kg, 1e18..1e24>
+    : strata(stellar.orbital)
+
+    resolve { prev }
+}
+
+member.stellar.moon.orbit_phase {
+    : Scalar<rad, 0..TAU>
+    : strata(stellar.orbital)
+
+    resolve {
+        advance_phase(prev, self.orbit_velocity)
+    }
+}
+
+member.stellar.moon.surface_temp {
+    : Scalar<K>
+    : strata(stellar.thermal)
+
+    resolve {
+        fn.equilibrium_temperature(signal.stellar.flux_at(self.position), self.albedo)
+    }
+}
+```
+
+### Member Signal Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `: Type<unit, range>` | Value type with constraints |
+| `: strata(path)` | Stratum binding (required) |
+| `: title("...")` | Human-readable name |
+| `: symbol("...")` | Display symbol |
+
+### Self Reference
+
+- `self.X` — read other member signals of same entity instance
+- `prev` — previous tick value of this member signal
+
+Different member signals can have different strata for multi-rate scheduling.
+
+(See `entities.md` for full semantics.)
+
+---
+
+## 12. Fields
 
 Observable derived data:
 
@@ -362,7 +442,7 @@ field.terra.surface.temperature_map {
 
 ---
 
-## 11. Operators
+## 13. Operators
 
 Phase-tagged logic blocks:
 
@@ -407,7 +487,7 @@ See @execution/warmup.md for warmup semantics.
 
 ---
 
-## 12. Impulses
+## 14. Impulses
 
 External causal inputs:
 
@@ -432,7 +512,7 @@ impulse.terra.impact.asteroid {
 
 ---
 
-## 13. Fractures
+## 15. Fractures
 
 Emergent tension detectors:
 
@@ -463,7 +543,7 @@ fracture.terra.tectonics.subduction {
 
 ---
 
-## 14. Chronicles
+## 16. Chronicles
 
 Observer-only pattern recognition:
 
@@ -498,7 +578,7 @@ Chronicles:
 
 ---
 
-## 15. Expression Syntax
+## 17. Expression Syntax
 
 ### Arithmetic
 
@@ -556,7 +636,74 @@ fold(sequence, init, fn)
 
 ---
 
-## 16. Signal Input Operator
+## 18. Vector Field Access
+
+Vector types (`Vec2`, `Vec3`, `Vec4`) support component access using dot notation:
+
+### Supported Patterns
+
+```
+prev.x              // Component of previous value
+prev.y
+prev.z
+prev.w
+
+collected.x         // Component of accumulated inputs
+collected.y
+
+signal.path.x       // Component of another signal
+signal.path.y
+signal.path.z
+```
+
+These patterns work because `prev`, `collected`, and `signal.path` are statically known
+to refer to resolved storage locations.
+
+### Unsupported Patterns
+
+Field access on computed expressions is **not supported**:
+
+```
+// NOT SUPPORTED - accessing component of a local binding
+let v = vec3(1.0, 2.0, 3.0) in v.x    // Error!
+
+// NOT SUPPORTED - accessing component of a function result
+normalize(velocity).x                   // Error!
+
+// NOT SUPPORTED - chained field access
+other_struct.position.x                 // Error!
+```
+
+### Workarounds
+
+For patterns not directly supported, restructure to access components at the source:
+
+```
+// Instead of: let v = vec3(a, b, c) in v.x
+// Use: extract the component directly
+a
+
+// Instead of: normalize(velocity).x
+// Use: compute inline or use separate signals
+let vx = velocity.x in
+let vy = velocity.y in
+let vz = velocity.z in
+let mag = sqrt(vx*vx + vy*vy + vz*vz) in
+vx / mag
+
+// For complex cases, split into separate scalar signals
+signal.velocity_x { resolve { ... } }
+signal.velocity_y { resolve { ... } }
+signal.velocity_z { resolve { ... } }
+```
+
+The compiler expands vector signal resolve blocks into per-component scalar expressions
+at compile time, so component access on `prev`, `collected`, and `signal.path` is
+resolved statically without runtime overhead.
+
+---
+
+## 19. Signal Input Operator
 
 The `<-` operator writes to signal input accumulators:
 
@@ -574,7 +721,7 @@ field.target <- position, value
 
 ---
 
-## 17. Reference Prefixes
+## 20. Reference Prefixes
 
 | Prefix | Meaning |
 |--------|---------|
@@ -589,7 +736,7 @@ field.target <- position, value
 
 ---
 
-## 18. Mathematical Constants
+## 21. Mathematical Constants
 
 Built-in mathematical constants. Both ASCII and Unicode forms are supported:
 
@@ -616,7 +763,7 @@ resolve {
 
 ---
 
-## 19. Complete Example
+## 22. Complete Example
 
 ```
 const {

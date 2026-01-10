@@ -73,12 +73,14 @@ Each declaration introduces a named simulation entity.
 
 Supported declaration kinds:
 
-- `signal`
-- `operator`
-- `field`
-- `impulse`
-- `fracture`
-- `chronicle`
+- `signal` — authoritative resolved values
+- `entity` — pure index spaces (identity only)
+- `member` — per-entity authoritative state
+- `operator` — phase-tagged logic blocks
+- `field` — observable derived data
+- `impulse` — external causal inputs
+- `fracture` — emergent tension detectors
+- `chronicle` — observer-only interpretation rules
 
 Declarations are **order-independent**.
 Dependencies are inferred, not declared manually.

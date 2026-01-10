@@ -54,6 +54,7 @@ mod entities;
 mod eras;
 mod events;
 mod expr;
+mod members;
 mod operators;
 mod signals;
 
@@ -65,14 +66,14 @@ use thiserror::Error;
 
 use continuum_dsl::ast::{CompilationUnit, Item, TypeDef};
 use continuum_foundation::{
-    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, OperatorId, SignalId,
-    StratumId, TypeId,
+    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, MemberId, OperatorId,
+    SignalId, StratumId, TypeId,
 };
 
 use crate::{
     CompiledChronicle, CompiledEntity, CompiledEra, CompiledField, CompiledFn, CompiledFracture,
-    CompiledImpulse, CompiledOperator, CompiledSignal, CompiledStratum, CompiledType,
-    CompiledTypeField, CompiledWorld,
+    CompiledImpulse, CompiledMember, CompiledOperator, CompiledSignal, CompiledStratum,
+    CompiledType, CompiledTypeField, CompiledWorld,
 };
 
 /// Errors that can occur during the lowering phase.
@@ -187,6 +188,7 @@ pub(crate) struct Lowerer {
     pub(crate) impulses: IndexMap<ImpulseId, CompiledImpulse>,
     pub(crate) fractures: IndexMap<FractureId, CompiledFracture>,
     pub(crate) entities: IndexMap<EntityId, CompiledEntity>,
+    pub(crate) members: IndexMap<MemberId, CompiledMember>,
     pub(crate) chronicles: IndexMap<ChronicleId, CompiledChronicle>,
     pub(crate) types: IndexMap<TypeId, CompiledType>,
 }
@@ -205,6 +207,7 @@ impl Lowerer {
             impulses: IndexMap::new(),
             fractures: IndexMap::new(),
             entities: IndexMap::new(),
+            members: IndexMap::new(),
             chronicles: IndexMap::new(),
             types: IndexMap::new(),
         }
@@ -259,6 +262,7 @@ impl Lowerer {
             impulses: self.impulses,
             fractures: self.fractures,
             entities: self.entities,
+            members: self.members,
             chronicles: self.chronicles,
             types: self.types,
         }
@@ -318,7 +322,7 @@ impl Lowerer {
             }
         }
 
-        // Third pass: signals, fields, operators, impulses, fractures, entities, chronicles
+        // Third pass: signals, fields, operators, impulses, fractures, entities, members, chronicles
         for item in &unit.items {
             match &item.node {
                 Item::SignalDef(def) => self.lower_signal(def)?,
@@ -327,6 +331,7 @@ impl Lowerer {
                 Item::ImpulseDef(def) => self.lower_impulse(def)?,
                 Item::FractureDef(def) => self.lower_fracture(def)?,
                 Item::EntityDef(def) => self.lower_entity(def)?,
+                Item::MemberDef(def) => self.lower_member(def)?,
                 Item::ChronicleDef(def) => self.lower_chronicle(def)?,
                 _ => {}
             }

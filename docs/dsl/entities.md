@@ -1,6 +1,7 @@
-# Continuum DSL — Entities
+# Continuum DSL — Entities and Member Signals
 
-This document defines **entities** — dynamic collections of structured state.
+This document defines **entities** as pure index spaces and **member signals**
+as per-entity authoritative state.
 
 ---
 
@@ -12,63 +13,194 @@ Many simulations need variable-count collections:
 - N tectonic plates
 - Atmospheric layers
 
-Each element needs its own state, but the DSL shouldn't require manual iteration.
+Each element needs its own state, and different aspects of that state may
+evolve at different rates. The DSL must support:
+- Variable instance counts
+- Per-entity state
+- Multi-rate scheduling (different strata for different properties)
 
 ---
 
-## 2. The Solution: Entity Collections
+## 2. The Solution: Entities + Member Signals
 
-An `entity` is a **named, indexed collection** of structured state:
+The solution separates **identity** from **state**:
 
-- Count is determined by scenario configuration
-- Each instance has the same schema
-- Iteration is implicit — aggregation is explicit
-- The engine handles parallelization
+### Entities as Pure Index Spaces
+
+An `entity` defines *what exists* — a named collection of instances that can
+be indexed and iterated. Entities are pure identity providers:
+
+```cdsl
+entity.stellar.moon {
+    : count(config.stellar.moon_count)
+    : count(1..20)  // validation bounds
+}
+```
+
+### Member Signals as Per-Entity State
+
+A `member` signal defines *what state each instance has*. Each member signal
+is a top-level primitive with its own resolve expression and stratum:
+
+```cdsl
+member.stellar.moon.mass {
+    : Scalar<kg>
+    : strata(stellar.orbital)
+    resolve { prev }
+}
+
+member.stellar.moon.orbit_radius {
+    : Scalar<m>
+    : strata(stellar.orbital)
+    resolve { prev }
+}
+
+member.stellar.moon.surface_temp {
+    : Scalar<K>
+    : strata(stellar.thermal)  // Different stratum!
+    resolve {
+        fn.equilibrium_temperature(
+            signal.stellar.flux_at(self.orbit_radius),
+            self.albedo
+        )
+    }
+}
+```
+
+This separation enables **multi-rate scheduling** — surface temperature can
+update on a thermal stratum while orbital mechanics use an orbital stratum.
 
 ---
 
 ## 3. Entity Declaration
 
-```
+Entities define identity and instance count:
+
+```cdsl
 entity.stellar.moon {
-  : strata(stellar.orbital)
-  : count(config.stellar.moon_count)
-  : count(1..20)  // validation bounds
-
-  schema {
-    mass: Scalar<kg, 1e18..1e24>
-    radius: Scalar<m, 1e5..1e7>
-    orbit_radius: Scalar<m, 1e7..1e10>
-    orbit_phase: Scalar<rad, 0..TAU>
-    orbit_velocity: Scalar<m/s>
-    name: String
-  }
-
-  config {
-    // Default values, can be overridden by scenario
-    orbit_phase: 0 <rad>
-  }
-
-  resolve {
-    // 'self' refers to current instance
-    // This block runs once per moon, engine handles iteration
-    self.orbit_phase = advance_phase(self.orbit_phase, self.orbit_velocity)
-    self.orbit_velocity = fn.orbital.velocity(signal.terra.mass, self.orbit_radius)
-  }
+    : count(config.stellar.moon_count)  // count from config
+    : count(1..20)                      // validation bounds
 }
+
+entity.terra.plate {
+    : count(5..50)  // bounded count
+}
+
+entity.stellar.star {}  // no constraints
 ```
 
 ### Entity Attributes
 
 | Attribute | Description |
 |-----------|-------------|
-| `: strata(path)` | Stratum binding |
-| `: count(config.path)` | Count from config |
+| `: count(config.path)` | Instance count from scenario configuration |
 | `: count(min..max)` | Count validation bounds |
+
+Entities do **not** have:
+- Strata (member signals have their own strata)
+- Schema blocks (state defined via member signals)
+- Resolve blocks (no behavior, just identity)
+- Config blocks (per-instance config via scenario)
 
 ---
 
-## 4. Scenario Configuration
+## 4. Member Signal Declaration
+
+Member signals define per-entity authoritative state:
+
+```cdsl
+member.stellar.moon.mass {
+    : Scalar<kg, 1e18..1e24>
+    : strata(stellar.orbital)
+
+    resolve { prev }
+}
+
+member.stellar.moon.orbit_phase {
+    : Scalar<rad, 0..TAU>
+    : strata(stellar.orbital)
+
+    resolve {
+        advance_phase(prev, self.orbit_velocity)
+    }
+}
+```
+
+### Member Signal Attributes
+
+| Attribute | Description |
+|-----------|-------------|
+| `: Type<unit, range>` | Value type with constraints |
+| `: strata(path)` | Stratum binding (required) |
+| `: title("...")` | Human-readable name |
+| `: symbol("...")` | Display symbol |
+
+### Self Reference
+
+Inside a member signal resolve block, `self.X` reads other member signals
+of the same entity instance:
+
+```cdsl
+member.stellar.moon.velocity {
+    : Scalar<m/s>
+    : strata(stellar.orbital)
+
+    resolve {
+        fn.orbital_velocity(signal.terra.mass, self.orbit_radius)
+    }
+}
+```
+
+---
+
+## 5. Snapshot/Next-State Semantics
+
+Member signals use **snapshot semantics** to enable parallel execution:
+
+### The Rule
+
+- All `self.X` **reads** see the **snapshot** (previous tick values)
+- All writes go to the **next-state** buffer (current tick)
+
+### Why This Matters
+
+This separation enables **full parallelism** across all member signal resolvers:
+
+```cdsl
+member.stellar.moon.velocity {
+    : Vec3<m/s>
+    : strata(stellar.orbital)
+
+    resolve {
+        integrate(prev, acceleration)  // prev = previous tick velocity
+    }
+}
+
+member.stellar.moon.position {
+    : Vec3<m>
+    : strata(stellar.orbital)
+
+    resolve {
+        // self.velocity reads PREVIOUS tick velocity, not just-computed!
+        integrate(prev, self.velocity)
+    }
+}
+```
+
+Without snapshot semantics, position would use the just-computed velocity,
+making results depend on execution order.
+
+### Execution Model
+
+1. **Tick Start**: All member signals snapshot their current values
+2. **Resolve Phase**: All resolvers run in parallel, reading snapshots
+3. **Tick End**: Next-state becomes current, ready for next tick
+
+---
+
+## 6. Scenario Configuration
+
+Instance data is provided via scenario configuration:
 
 ### YAML Format
 
@@ -85,99 +217,71 @@ entities:
       radius: 11.267e3 m
       orbit_radius: 9.376e6 m
       orbit_phase: 1.2 rad
-
-  stellar.star:
-    - name: sol_a
-      mass: 1.989e30 kg
-      luminosity: 3.828e26 W
-      position: [0, 0, 0] m
-    - name: sol_b
-      mass: 1.5e30 kg
-      luminosity: 2.1e26 W
-      position: [1.5e11, 0, 0] m
 ```
 
-### DSL Format (for fixed scenarios)
-
-```
-scenario.binary_earth {
-  entity.stellar.star: [
-    { name: "sol_a", mass: 1.989e30 <kg>, luminosity: 3.828e26 <W> },
-    { name: "sol_b", mass: 1.5e30 <kg>, luminosity: 2.1e26 <W> }
-  ]
-
-  entity.stellar.moon: [
-    { name: "luna", mass: 7.34e22 <kg>, orbit_radius: 3.844e8 <m> }
-  ]
-}
-```
+The scenario defines:
+- How many instances exist
+- Initial values for each member signal
 
 ---
 
-## 5. Accessing Entities
+## 7. Accessing Entities
 
 ### Aggregate Operations
 
 No manual iteration — use built-in aggregators:
 
-```
+```cdsl
 signal.terra.tidal.total_force {
-  : Vec3<N>
-  : strata(terra.orbital)
+    : Vec3<N>
+    : strata(terra.orbital)
 
-  resolve {
-    sum(entity.stellar.moon, fn.tidal_force(self.mass, self.orbit_radius, self.orbit_phase))
-  }
+    resolve {
+        sum(entity.stellar.moon,
+            fn.tidal_force(self.mass, self.orbit_radius, self.orbit_phase)
+        )
+    }
 }
 
-signal.stellar.system.total_luminosity {
-  : Scalar<W>
-  : strata(stellar.core)
+signal.stellar.moon_count {
+    : Scalar<1, 0..20>
+    : strata(stellar.orbital)
 
-  resolve {
-    sum(entity.stellar.star, self.luminosity)
-  }
-}
-
-signal.terra.plates.average_age {
-  : Scalar<Myr>
-  : strata(terra.tectonics)
-
-  resolve {
-    mean(entity.terra.plate, self.age)
-  }
+    resolve {
+        count(entity.stellar.moon)
+    }
 }
 ```
 
 ### Index Access
 
-```
+```cdsl
 signal.terra.primary_moon.distance {
-  : Scalar<m>
-  : strata(terra.orbital)
+    : Scalar<m>
+    : strata(terra.orbital)
 
-  resolve {
-    entity.stellar.moon[0].orbit_radius
-  }
+    resolve {
+        entity.stellar.moon[0].orbit_radius
+    }
 }
 ```
 
 ### Named Access
 
-```
+```cdsl
 signal.terra.luna.phase {
-  : Scalar<rad>
-  : strata(terra.orbital)
+    : Scalar<rad>
+    : strata(terra.orbital)
 
-  resolve {
-    entity.stellar.moon["luna"].orbit_phase
-  }
+    resolve {
+        entity.stellar.moon["luna"].orbit_phase
+    }
 }
 ```
 
 ---
 
-## 6. Aggregate Operations Reference
+## 8. Aggregate Operations Reference
 
 ### Reduction
 
@@ -214,22 +318,22 @@ signal.terra.luna.phase {
 
 ---
 
-## 7. Entity Interactions
+## 9. Entity Interactions
 
 ### Self-Exclusion with `other`
 
 For N-body interactions, exclude self:
 
-```
-entity.stellar.moon {
-  ...
-  resolve {
-    // Gravitational perturbation from other moons
-    let perturbation = sum(other(entity.stellar.moon),
-      fn.gravitational_acceleration(other.mass, distance(self.position, other.position))
-    ) in
-    self.velocity = integrate(self.velocity, perturbation + signal.terra.gravity_at(self.position))
-  }
+```cdsl
+member.stellar.moon.perturbation {
+    : Vec3<m/s²>
+    : strata(stellar.orbital)
+
+    resolve {
+        sum(other(entity.stellar.moon),
+            fn.gravitational_acceleration(other.mass, distance(self.position, other.position))
+        )
+    }
 }
 ```
 
@@ -237,185 +341,123 @@ entity.stellar.moon {
 
 For symmetric interactions:
 
-```
+```cdsl
 operator.stellar.orbital.gravity {
-  : strata(stellar.orbital)
-  : phase(collect)
+    : strata(stellar.orbital)
+    : phase(collect)
 
-  collect {
-    // pairs() generates all unique (i,j) combinations, i < j
-    for (a, b) in pairs(entity.stellar.body) {
-      let r = distance(a.position, b.position)
-      let force = fn.gravitational_force(a.mass, b.mass, r)
-      let direction = normalize(b.position - a.position)
+    collect {
+        // pairs() generates all unique (i,j) combinations, i < j
+        for (a, b) in pairs(entity.stellar.body) {
+            let r = distance(a.position, b.position)
+            let force = fn.gravitational_force(a.mass, b.mass, r)
+            let direction = normalize(b.position - a.position)
 
-      a.acceleration <- force / a.mass * direction
-      b.acceleration <- -force / b.mass * direction
+            a.acceleration <- force / a.mass * direction
+            b.acceleration <- -force / b.mass * direction
+        }
     }
-  }
-}
-```
-
-### Cross-Entity Operations
-
-Interactions between different entity types:
-
-```
-signal.terra.moon_shadow_fraction {
-  : Scalar<1, 0..1>
-  : strata(terra.orbital)
-
-  resolve {
-    sum(entity.stellar.moon,
-      fn.shadow_cone_intersection(
-        self.position,
-        self.radius,
-        entity.stellar.star[0].position,
-        signal.terra.position
-      )
-    )
-  }
 }
 ```
 
 ---
 
-## 8. Entity Fields
+## 10. Complete Example
 
-Entities can emit fields for observation:
-
-```
+```cdsl
+// Entity as pure index space
 entity.stellar.moon {
-  ...
+    : count(config.stellar.moon_count)
+    : count(0..20)
+}
 
-  field.position {
+// Member signals define per-entity state
+member.stellar.moon.mass {
+    : Scalar<kg, 1e15..1e24>
+    : strata(stellar.orbital)
+    resolve { prev }
+}
+
+member.stellar.moon.position {
     : Vec3<m>
-    : topology(point_cloud)
+    : strata(stellar.orbital)
 
-    measure {
-      self.position
+    resolve {
+        integrate(prev, self.velocity)
     }
-  }
+}
 
-  field.surface_temperature {
+member.stellar.moon.velocity {
+    : Vec3<m/s>
+    : strata(stellar.orbital)
+
+    resolve {
+        // Gravity from planet
+        let planet_gravity = fn.gravitational_acceleration(
+            signal.terra.mass,
+            magnitude(self.position)
+        ) * -normalize(self.position) in
+
+        // Perturbations from other moons
+        let perturbations = sum(other(entity.stellar.moon),
+            fn.gravitational_acceleration(other.mass, distance(self.position, other.position))
+            * normalize(other.position - self.position)
+        ) in
+
+        integrate(prev, planet_gravity + perturbations)
+    }
+}
+
+member.stellar.moon.surface_temp {
     : Scalar<K>
-    : topology(point_cloud)
+    : strata(stellar.thermal)  // Different stratum for thermal!
 
-    measure {
-      fn.equilibrium_temperature(
-        signal.stellar.flux_at(self.position),
-        self.albedo
-      )
+    resolve {
+        fn.equilibrium_temperature(
+            signal.stellar.flux_at(self.position),
+            self.albedo
+        )
     }
-  }
-}
-```
-
----
-
-## 9. Dynamic Entity Creation (Fractures)
-
-Entities can spawn via fractures:
-
-```
-fracture.terra.tectonics.plate_split {
-  when {
-    let plate = max(entity.terra.plate, self.area) in
-    plate.area > config.terra.max_plate_area
-    plate.rift_stress > config.terra.rift_threshold
-  }
-
-  emit {
-    // Request plate split — engine handles actual creation
-    entity.terra.plate.split <- {
-      source: plate.id,
-      axis: plate.max_stress_axis
-    }
-  }
-}
-```
-
-Entity creation/destruction is handled by the engine to maintain determinism.
-
----
-
-## 10. Entity Ordering
-
-Entity iteration order is **deterministic**:
-
-1. By index (creation order)
-2. Stable across ticks
-3. New entities appended at end
-
-This ensures:
-- Reproducible results
-- Safe parallel execution within aggregations
-- Predictable `entity[i]` access
-
----
-
-## 11. Complete Example
-
-```
-// Schema
-entity.stellar.moon {
-  : strata(stellar.orbital)
-  : count(config.stellar.moon_count)
-  : count(0..20)
-
-  schema {
-    name: String
-    mass: Scalar<kg, 1e15..1e24>
-    radius: Scalar<m, 1e3..1e7>
-    position: Vec3<m>
-    velocity: Vec3<m/s>
-    albedo: Scalar<1, 0..1>
-  }
-
-  config {
-    albedo: 0.12
-  }
-
-  resolve {
-    // Gravity from planet
-    let planet_gravity = fn.gravitational_acceleration(
-      signal.terra.mass,
-      magnitude(self.position)
-    ) * -normalize(self.position) in
-
-    // Perturbations from other moons
-    let perturbations = sum(other(entity.stellar.moon),
-      fn.gravitational_acceleration(other.mass, distance(self.position, other.position))
-      * normalize(other.position - self.position)
-    ) in
-
-    self.velocity = integrate(self.velocity, planet_gravity + perturbations)
-    self.position = integrate(self.position, self.velocity)
-  }
 }
 
 // Derived signal using entity
 signal.terra.tidal.amplitude {
-  : Scalar<m, 0..100>
-  : strata(terra.orbital)
+    : Scalar<m, 0..100>
+    : strata(terra.orbital)
 
-  resolve {
-    sum(entity.stellar.moon,
-      fn.tidal_amplitude(self.mass, magnitude(self.position), signal.terra.radius)
-    )
-  }
-}
-
-// Entity count as signal
-signal.stellar.moon_count {
-  : Scalar<1, 0..20>
-  : strata(stellar.orbital)
-
-  resolve {
-    count(entity.stellar.moon)
-  }
+    resolve {
+        sum(entity.stellar.moon,
+            fn.tidal_amplitude(self.mass, magnitude(self.position), signal.terra.radius)
+        )
+    }
 }
 ```
+
+---
+
+## 11. Why This Design?
+
+### Separation of Concerns
+
+| Concept | Defines | Has Stratum? |
+|---------|---------|--------------|
+| Entity | What exists (identity) | No |
+| Member Signal | What state it has | Yes |
+
+### Multi-Rate Scheduling
+
+Different member signals can have different strata:
+
+```cdsl
+member.terra.plate.position { : strata(terra.tectonics) }  // slow
+member.terra.plate.temperature { : strata(terra.thermal) }  // medium
+member.terra.plate.surface_stress { : strata(terra.seismic) }  // fast
+```
+
+### Clean DAG Construction
+
+Each member signal becomes a DAG node in its stratum's resolve phase.
+Dependencies are inferred from self/signal reads.
 
 ---
 
@@ -423,18 +465,18 @@ signal.stellar.moon_count {
 
 | Concept | Purpose |
 |---------|---------|
-| `entity.path { }` | Define collection schema |
-| `schema { }` | Fields each instance has |
-| `self` | Current instance in resolve |
+| `entity.path { }` | Define identity/collection |
+| `member.entity.field { }` | Define per-entity state |
+| `: strata(path)` | Member stratum binding |
+| `self.X` | Read member of same instance |
 | `other(entity)` | All instances except self |
 | `pairs(entity)` | All unique pairs |
-| `sum/max/min/mean` | Aggregate operations |
-| `entity[i]` | Index access |
-| `entity["name"]` | Named access |
-| Scenario config | Define instance count and values |
+| Aggregations | `sum/max/min/mean/count` |
+| Index/named access | `entity[i]` / `entity["name"]` |
 
 Key principles:
-- Iteration is implicit
-- Aggregation is explicit
-- Count is scenario-controlled
-- Order is deterministic
+- Entities are pure index spaces (no behavior)
+- Member signals are top-level primitives with own strata
+- Multi-rate scheduling via different strata
+- Snapshot semantics for parallel execution
+- Aggregation is explicit, iteration is implicit
