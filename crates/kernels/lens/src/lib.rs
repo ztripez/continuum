@@ -472,12 +472,14 @@ pub struct TileId(u64);
 
 impl TileId {
     /// Build a tile id from face, LOD, and Morton code.
+    ///
+    /// Face numbering follows cubed-sphere order: +X, -X, +Y, -Y, +Z, -Z.
     pub fn from_parts(face: u8, lod: u8, morton: u64) -> Self {
         let id = ((face as u64) << 56) | ((lod as u64) << 48) | (morton & 0x0000_FFFF_FFFF_FFFF);
         Self(id)
     }
 
-    /// Level of detail encoded in this tile id.
+    /// Level of detail encoded in this tile id (0 = coarsest).
     pub fn lod(self) -> u8 {
         ((self.0 >> 48) & 0xFF) as u8
     }
@@ -578,6 +580,7 @@ pub struct PlaybackClock {
 }
 
 impl PlaybackClock {
+    /// Create a playback clock with a fixed lag (in ticks).
     pub fn new(lag_ticks: f64) -> Self {
         Self {
             current_time: 0.0,
@@ -636,6 +639,7 @@ pub struct NearestNeighborReconstruction {
 }
 
 impl NearestNeighborReconstruction {
+    /// Create a nearest-neighbor reconstruction from samples.
     pub fn new(samples: Vec<FieldSample>) -> Self {
         Self { samples }
     }
@@ -729,7 +733,6 @@ impl FieldLens {
         }
     }
 
-    /// Get the latest frame for a field.
     /// Get reconstruction for a specific tick (nearest-neighbor MVP).
     ///
     /// Uses cache when available; returns errors if the field or tick is missing.
@@ -1065,6 +1068,7 @@ impl FieldLens {
 /// Per-field overrides for Lens behavior.
 #[derive(Debug, Clone, Default)]
 pub struct FieldConfig {
+    /// Optional override for max cached reconstructions for this field.
     pub max_cached_per_field: Option<usize>,
 }
 
@@ -1075,28 +1079,41 @@ pub struct RefinementHandle(u64);
 /// Refinement request status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RefinementStatus {
+    /// Enqueued, waiting for processing.
     Pending,
+    /// Sampling/refinement in progress.
     Sampling,
+    /// Refinement completed successfully.
     Complete,
+    /// Refinement failed.
     Failed,
 }
 
 /// Refinement request (observer-only, internal handle).
 #[derive(Debug, Clone)]
 pub struct RefinementRequest {
+    /// Internal request handle.
     pub(crate) handle: RefinementHandle,
+    /// Target field to refine.
     pub field_id: FieldId,
+    /// Region to sample.
     pub region: Region,
+    /// Target level-of-detail.
     pub target_lod: u8,
+    /// Priority hint (higher means sooner).
     pub priority: u32,
 }
 
 /// Public refinement request spec (handle assigned by Lens).
 #[derive(Debug, Clone)]
 pub struct RefinementRequestSpec {
+    /// Target field to refine.
     pub field_id: FieldId,
+    /// Region to sample.
     pub region: Region,
+    /// Target level-of-detail.
     pub target_lod: u8,
+    /// Priority hint (higher means sooner).
     pub priority: u32,
 }
 
