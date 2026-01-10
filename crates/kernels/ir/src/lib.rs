@@ -6,6 +6,7 @@
 
 mod codegen;
 mod compile;
+pub mod fusion;
 mod interpret;
 mod lower;
 pub mod patterns;

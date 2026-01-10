@@ -744,7 +744,7 @@ pub enum TopologyIr {
 /// The execution phase for an operator.
 ///
 /// Determines when in the tick lifecycle the operator runs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum OperatorPhaseIr {
     /// Runs during warmup initialization
     Warmup,
