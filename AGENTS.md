@@ -146,9 +146,11 @@ It produces a **typed IR** which is the sole input to execution graph constructi
 
 ## What the DSL Defines (Authoritative)
 
-All simulation entities are declared in `*.cdsl`:
+All simulation primitives are declared in `*.cdsl`:
 
 - **Signals** — authoritative resolved values
+- **Entities** — pure index spaces (identity only)
+- **Members** — per-entity authoritative state with own strata
 - **Operators** — phase-tagged execution blocks
 - **Fields** — observer data + reconstruction hints
 - **Impulses** — external causal inputs

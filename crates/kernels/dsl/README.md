@@ -7,7 +7,7 @@ This crate is responsible for turning raw source text into a structured, validat
 ## Components
 
 - **`parser`**: Chumsky-based parser for `.cdsl` files.
-- **`ast`**: Typed Abstract Syntax Tree definitions (`SignalDef`, `OperatorDef`, `Expr`, etc.) with source spans.
+- **`ast`**: Typed Abstract Syntax Tree definitions (`SignalDef`, `EntityDef`, `MemberDef`, `OperatorDef`, `Expr`, etc.) with source spans.
 - **`validate`**: Initial semantic validation pass (naming collisions, phase correctness).
 - **`loader`**: Utilities for discovering and loading DSL files from a world directory.
 
