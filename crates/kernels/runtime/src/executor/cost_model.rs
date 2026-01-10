@@ -15,7 +15,6 @@
 //! ## Runtime Factors
 //! - Population size
 //! - Backend availability (GPU, SIMD)
-//! - Historical performance data (optional adaptive mode)
 //!
 //! # Decision Matrix
 //!
@@ -418,107 +417,6 @@ impl CostModel {
 }
 
 // ============================================================================
-// Adaptive Cost Model (Runtime Feedback)
-// ============================================================================
-
-/// Performance measurement for a single kernel execution.
-#[derive(Debug, Clone)]
-pub struct ExecutionMetrics {
-    /// Population size
-    pub population: usize,
-    /// Lowering strategy used
-    pub strategy: LoweringStrategy,
-    /// Execution time in nanoseconds
-    pub execution_ns: u64,
-    /// Throughput (instances per second)
-    pub throughput: f64,
-}
-
-/// Adaptive cost model that learns from runtime performance.
-///
-/// This is optional and can be used to tune thresholds based on
-/// actual performance measurements.
-#[derive(Debug, Clone, Default)]
-pub struct AdaptiveCostModel {
-    /// Base cost model
-    pub base: CostModel,
-    /// Performance history keyed by (signal_id, strategy)
-    history: HashMap<String, Vec<ExecutionMetrics>>,
-}
-
-impl AdaptiveCostModel {
-    /// Create a new adaptive cost model.
-    pub fn new() -> Self {
-        Self {
-            base: CostModel::default(),
-            history: HashMap::new(),
-        }
-    }
-
-    /// Record a performance measurement.
-    pub fn record(&mut self, signal_id: &str, metrics: ExecutionMetrics) {
-        self.history
-            .entry(signal_id.to_string())
-            .or_default()
-            .push(metrics);
-
-        // Keep only recent history (sliding window)
-        if let Some(history) = self.history.get_mut(signal_id) {
-            const MAX_HISTORY: usize = 100;
-            if history.len() > MAX_HISTORY {
-                history.drain(0..history.len() - MAX_HISTORY);
-            }
-        }
-    }
-
-    /// Get average throughput for a signal with a specific strategy.
-    pub fn average_throughput(&self, signal_id: &str, strategy: LoweringStrategy) -> Option<f64> {
-        let history = self.history.get(signal_id)?;
-        let matching: Vec<_> = history
-            .iter()
-            .filter(|m| m.strategy == strategy)
-            .collect();
-
-        if matching.is_empty() {
-            return None;
-        }
-
-        let total: f64 = matching.iter().map(|m| m.throughput).sum();
-        Some(total / matching.len() as f64)
-    }
-
-    /// Select strategy using historical data if available.
-    pub fn select_adaptive(
-        &self,
-        signal_id: &str,
-        complexity: &ComplexityScore,
-        population: usize,
-    ) -> LoweringStrategy {
-        // Check if we have historical data for this signal
-        if let Some(history) = self.history.get(signal_id) {
-            if history.len() >= 10 {
-                // Enough data to make informed decision
-                let l1_throughput = self
-                    .average_throughput(signal_id, LoweringStrategy::InstanceParallel)
-                    .unwrap_or(0.0);
-                let l2_throughput = self
-                    .average_throughput(signal_id, LoweringStrategy::VectorKernel)
-                    .unwrap_or(0.0);
-
-                // Pick the strategy with better historical throughput
-                if l2_throughput > l1_throughput * 1.1 {
-                    // Need 10% improvement to switch
-                    return LoweringStrategy::VectorKernel;
-                }
-            }
-        }
-
-        // Fall back to heuristic-based selection
-        self.base.select_strategy(complexity, population)
-    }
-}
-
-// ============================================================================
 // Tests
 // ============================================================================
 
@@ -679,46 +577,5 @@ mod tests {
 
         assert!(score.total_score > 0.0);
         assert_eq!(strategy, LoweringStrategy::VectorKernel);
-    }
-
-    #[test]
-    fn test_adaptive_cost_model_record() {
-        let mut adaptive = AdaptiveCostModel::new();
-
-        adaptive.record(
-            "test.signal",
-            ExecutionMetrics {
-                population: 10_000,
-                strategy: LoweringStrategy::InstanceParallel,
-                execution_ns: 1_000_000,
-                throughput: 10_000_000.0,
-            },
-        );
-
-        assert!(adaptive.history.contains_key("test.signal"));
-        assert_eq!(adaptive.history["test.signal"].len(), 1);
-    }
-
-    #[test]
-    fn test_adaptive_average_throughput() {
-        let mut adaptive = AdaptiveCostModel::new();
-
-        for i in 0..5 {
-            adaptive.record(
-                "test.signal",
-                ExecutionMetrics {
-                    population: 10_000,
-                    strategy: LoweringStrategy::InstanceParallel,
-                    execution_ns: 1_000_000,
-                    throughput: 10_000_000.0 + (i as f64 * 1_000_000.0),
-                },
-            );
-        }
-
-        let avg = adaptive
-            .average_throughput("test.signal", LoweringStrategy::InstanceParallel)
-            .unwrap();
-        // Average of 10M, 11M, 12M, 13M, 14M = 12M
-        assert!((avg - 12_000_000.0).abs() < 1.0);
     }
 }
