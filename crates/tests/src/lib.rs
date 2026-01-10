@@ -6,8 +6,9 @@
 use continuum_dsl::parse;
 use continuum_foundation::{EraId, FieldId, SignalId};
 use continuum_ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture, build_resolver,
-    compile, convert_assertion_severity, get_initial_signal_value, lower, CompiledWorld,
+    build_assertion, build_era_configs, build_field_measure, build_fracture,
+    build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
+    CompiledWorld,
 };
 use continuum_runtime::executor::Runtime;
 use continuum_runtime::types::Value;
@@ -64,8 +65,7 @@ impl TestHarness {
 
         // Register resolvers
         for (_signal_id, signal) in &world.signals {
-            if let Some(ref expr) = signal.resolve {
-                let resolver = build_resolver(expr, &world, signal.uses_dt_raw);
+            if let Some(resolver) = build_signal_resolver(signal, &world) {
                 runtime.register_resolver(resolver);
             }
         }

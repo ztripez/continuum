@@ -90,6 +90,15 @@ impl ExecutionContext for ResolverContext<'_> {
         })
     }
 
+    fn prev_component(&self, component: &str) -> f64 {
+        self.prev.component(component).unwrap_or_else(|| {
+            panic!(
+                "prev value {:?} has no component '{}' - expected vector with x/y/z/w components",
+                self.prev, component
+            )
+        })
+    }
+
     fn dt(&self) -> f64 {
         self.dt
     }
@@ -139,6 +148,16 @@ impl ExecutionContext for AssertionContext<'_> {
             panic!(
                 "Assertion value {:?} is not a scalar - cannot assert on vector signals without component access",
                 self.current
+            )
+        })
+    }
+
+    fn prev_component(&self, component: &str) -> f64 {
+        // In assertions, 'prev' refers to the current (post-resolve) value being asserted
+        self.current.component(component).unwrap_or_else(|| {
+            panic!(
+                "Assertion value {:?} has no component '{}' - expected vector with x/y/z/w components",
+                self.current, component
             )
         })
     }

@@ -9,11 +9,25 @@ pub trait ExecutionContext {
     /// Get previous value of current signal
     fn prev(&self) -> f64;
 
+    /// Get previous value component by name (x, y, z, w) for vector signals
+    fn prev_component(&self, component: &str) -> f64 {
+        // Default implementation returns the full prev value
+        let _ = component;
+        self.prev()
+    }
+
     /// Get dt (time step)
     fn dt(&self) -> f64;
 
     /// Get sum of inputs for current signal
     fn inputs(&self) -> f64;
+
+    /// Get inputs component by name (x, y, z, w) for vector signals
+    fn inputs_component(&self, component: &str) -> f64 {
+        // Default implementation returns the full inputs value
+        let _ = component;
+        self.inputs()
+    }
 
     /// Get signal value by name
     fn signal(&self, name: &str) -> f64;
@@ -59,6 +73,11 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> f64 {
                 stack.push(ctx.inputs());
             }
 
+            Op::LoadInputsComponent(component_idx) => {
+                let component = &chunk.components[component_idx as usize];
+                stack.push(ctx.inputs_component(component));
+            }
+
             Op::LoadSignal(idx) => {
                 let name = &chunk.signals[idx as usize];
                 stack.push(ctx.signal(name));
@@ -68,6 +87,11 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> f64 {
                 let name = &chunk.signals[signal_idx as usize];
                 let component = &chunk.components[component_idx as usize];
                 stack.push(ctx.signal_component(name, component));
+            }
+
+            Op::LoadPrevComponent(component_idx) => {
+                let component = &chunk.components[component_idx as usize];
+                stack.push(ctx.prev_component(component));
             }
 
             Op::LoadConst(idx) => {
