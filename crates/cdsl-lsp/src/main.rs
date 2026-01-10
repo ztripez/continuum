@@ -26,7 +26,7 @@ use walkdir::WalkDir;
 
 use continuum_dsl::ast::{CompilationUnit, Expr, Item, Spanned};
 use continuum_dsl::parse;
-use symbols::{format_hover_markdown, SymbolIndex, SymbolKind as CdslSymbolKind};
+use symbols::{format_hover_markdown, get_builtin_hover, SymbolIndex, SymbolKind as CdslSymbolKind};
 
 /// Semantic token types for syntax highlighting.
 /// These indices must match the order in the legend.
@@ -224,6 +224,42 @@ fn position_to_offset(text: &str, position: Position) -> usize {
     }
 
     offset
+}
+
+/// Get the identifier at cursor position.
+///
+/// Returns the full identifier under or before the cursor (e.g., "clamp" or "math.lerp").
+/// Used for hover on built-in functions.
+fn get_word_at_cursor(text: &str, offset: usize) -> Option<String> {
+    if offset > text.len() {
+        return None;
+    }
+
+    // Find start of identifier (going backwards)
+    let before = &text[..offset];
+    let start = before
+        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+
+    // Find end of identifier (going forwards)
+    let after = &text[offset..];
+    let end_rel = after
+        .find(|c: char| !c.is_alphanumeric() && c != '_')
+        .unwrap_or(after.len());
+    let end = offset + end_rel;
+
+    if start >= end {
+        return None;
+    }
+
+    let word = &text[start..end];
+    if word.is_empty() {
+        None
+    } else {
+        // Extract just the last segment (the function name) for builtin lookup
+        Some(word.split('.').next_back().unwrap_or(word).to_string())
+    }
 }
 
 /// Get the completion prefix (the text being typed before the cursor).
@@ -859,30 +895,58 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
-        // Get document and symbol index
+        // Get document content
         let doc = match self.documents.get(uri) {
             Some(doc) => doc.clone(),
-            None => return Ok(None),
-        };
-
-        let index = match self.symbol_indices.get(uri) {
-            Some(index) => index,
             None => return Ok(None),
         };
 
         // Convert LSP position to byte offset
         let offset = position_to_offset(&doc, position);
 
-        // Find symbol at position
-        if let Some(info) = index.find_at_offset(offset) {
-            let markdown = format_hover_markdown(info);
-            return Ok(Some(Hover {
-                contents: HoverContents::Markup(MarkupContent {
-                    kind: MarkupKind::Markdown,
-                    value: markdown,
-                }),
-                range: None,
-            }));
+        // Try to find symbol in current file's index
+        if let Some(index) = self.symbol_indices.get(uri) {
+            // First try direct lookup in current file
+            if let Some(info) = index.find_at_offset(offset) {
+                let markdown = format_hover_markdown(info);
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: markdown,
+                    }),
+                    range: None,
+                }));
+            }
+
+            // Check if we're on a reference to a symbol defined in another file
+            if let Some((kind, path)) = index.get_reference_at_offset(offset) {
+                // Search all indexed files for the definition
+                for entry in self.symbol_indices.iter() {
+                    if let Some(info) = entry.value().find_definition(kind, path) {
+                        let markdown = format_hover_markdown(info);
+                        return Ok(Some(Hover {
+                            contents: HoverContents::Markup(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: markdown,
+                            }),
+                            range: None,
+                        }));
+                    }
+                }
+            }
+        }
+
+        // Try to find a built-in function at cursor
+        if let Some(word) = get_word_at_cursor(&doc, offset) {
+            if let Some(hover_md) = get_builtin_hover(&word) {
+                return Ok(Some(Hover {
+                    contents: HoverContents::Markup(MarkupContent {
+                        kind: MarkupKind::Markdown,
+                        value: hover_md,
+                    }),
+                    range: None,
+                }));
+            }
         }
 
         Ok(None)

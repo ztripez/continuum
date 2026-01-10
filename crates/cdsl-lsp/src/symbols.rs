@@ -198,11 +198,22 @@ impl SymbolIndex {
     }
 
     /// Find a symbol definition by kind and path.
-    fn find_definition(&self, kind: SymbolKind, path: &str) -> Option<&SymbolInfo> {
+    pub fn find_definition(&self, kind: SymbolKind, path: &str) -> Option<&SymbolInfo> {
         self.symbols
             .iter()
             .find(|s| s.info.kind == kind && s.info.path == path)
             .map(|s| &s.info)
+    }
+
+    /// Get the reference target at an offset (if cursor is on a reference).
+    ///
+    /// Returns (kind, path) of the referenced symbol if found.
+    pub fn get_reference_at_offset(&self, offset: usize) -> Option<(SymbolKind, &str)> {
+        self.references
+            .iter()
+            .filter(|r| r.span.contains(&offset))
+            .min_by_key(|r| r.span.end - r.span.start)
+            .map(|r| (r.kind, r.target_path.as_str()))
     }
 
     /// Find the definition span for the symbol at the given offset.
@@ -932,6 +943,169 @@ pub fn format_hover_markdown(info: &SymbolInfo) -> String {
     parts.join("\n\n")
 }
 
+/// Built-in function information.
+pub struct BuiltinFn {
+    /// Function name.
+    pub name: &'static str,
+    /// Signature string.
+    pub signature: &'static str,
+    /// Brief description.
+    pub doc: &'static str,
+}
+
+/// Get all built-in functions.
+pub fn builtin_functions() -> &'static [BuiltinFn] {
+    &[
+        // Math functions
+        BuiltinFn {
+            name: "clamp",
+            signature: "clamp(value, min, max) -> T",
+            doc: "Clamp a value to a range.\n\nReturns `min` if `value < min`, `max` if `value > max`, otherwise `value`.\n\n**Warning**: Consider using assertions instead of clamp. Clamping can hide simulation errors by silently correcting values.",
+        },
+        BuiltinFn {
+            name: "lerp",
+            signature: "lerp(a, b, t) -> T",
+            doc: "Linear interpolation between two values.\n\nReturns `a + (b - a) * t`. When `t = 0` returns `a`, when `t = 1` returns `b`.",
+        },
+        BuiltinFn {
+            name: "exp",
+            signature: "exp(x) -> f64",
+            doc: "Compute e^x (exponential function).",
+        },
+        BuiltinFn {
+            name: "ln",
+            signature: "ln(x) -> f64",
+            doc: "Compute the natural logarithm of x.",
+        },
+        BuiltinFn {
+            name: "log10",
+            signature: "log10(x) -> f64",
+            doc: "Compute the base-10 logarithm of x.",
+        },
+        BuiltinFn {
+            name: "pow",
+            signature: "pow(base, exp) -> f64",
+            doc: "Raise base to the power of exp.",
+        },
+        BuiltinFn {
+            name: "sqrt",
+            signature: "sqrt(x) -> f64",
+            doc: "Compute the square root of x.",
+        },
+        BuiltinFn {
+            name: "abs",
+            signature: "abs(x) -> T",
+            doc: "Compute the absolute value of x.",
+        },
+        BuiltinFn {
+            name: "min",
+            signature: "min(a, b) -> T",
+            doc: "Return the minimum of two values.",
+        },
+        BuiltinFn {
+            name: "max",
+            signature: "max(a, b) -> T",
+            doc: "Return the maximum of two values.",
+        },
+        BuiltinFn {
+            name: "floor",
+            signature: "floor(x) -> f64",
+            doc: "Round down to the nearest integer.",
+        },
+        BuiltinFn {
+            name: "ceil",
+            signature: "ceil(x) -> f64",
+            doc: "Round up to the nearest integer.",
+        },
+        BuiltinFn {
+            name: "round",
+            signature: "round(x) -> f64",
+            doc: "Round to the nearest integer.",
+        },
+        BuiltinFn {
+            name: "mod",
+            signature: "mod(a, b) -> T",
+            doc: "Compute the modulo (remainder) of a divided by b.",
+        },
+        // Trigonometry
+        BuiltinFn {
+            name: "sin",
+            signature: "sin(x) -> f64",
+            doc: "Compute the sine of x (in radians).",
+        },
+        BuiltinFn {
+            name: "cos",
+            signature: "cos(x) -> f64",
+            doc: "Compute the cosine of x (in radians).",
+        },
+        BuiltinFn {
+            name: "tan",
+            signature: "tan(x) -> f64",
+            doc: "Compute the tangent of x (in radians).",
+        },
+        BuiltinFn {
+            name: "asin",
+            signature: "asin(x) -> f64",
+            doc: "Compute the arc sine of x. Returns radians.",
+        },
+        BuiltinFn {
+            name: "acos",
+            signature: "acos(x) -> f64",
+            doc: "Compute the arc cosine of x. Returns radians.",
+        },
+        BuiltinFn {
+            name: "atan",
+            signature: "atan(x) -> f64",
+            doc: "Compute the arc tangent of x. Returns radians.",
+        },
+        BuiltinFn {
+            name: "atan2",
+            signature: "atan2(y, x) -> f64",
+            doc: "Compute the arc tangent of y/x, using signs to determine quadrant. Returns radians.",
+        },
+        // Vector constructors
+        BuiltinFn {
+            name: "vec2",
+            signature: "vec2(x, y) -> Vec2<T>",
+            doc: "Construct a 2D vector from components.",
+        },
+        BuiltinFn {
+            name: "vec3",
+            signature: "vec3(x, y, z) -> Vec3<T>",
+            doc: "Construct a 3D vector from components.",
+        },
+        BuiltinFn {
+            name: "vec4",
+            signature: "vec4(x, y, z, w) -> Vec4<T>",
+            doc: "Construct a 4D vector from components.",
+        },
+        // Simulation-specific
+        BuiltinFn {
+            name: "relax_to",
+            signature: "relax_to(current, target, tau) -> T",
+            doc: "Relax a value toward a target with time constant tau.\n\nImplements exponential relaxation: `current + (target - current) * (1 - exp(-dt/tau))`.",
+        },
+        BuiltinFn {
+            name: "decay",
+            signature: "decay(value, half_life) -> T",
+            doc: "Apply exponential decay with the given half-life.\n\nReturns `value * exp(-ln(2) * dt / half_life)`.",
+        },
+    ]
+}
+
+/// Get hover info for a built-in function by name.
+pub fn get_builtin_hover(name: &str) -> Option<String> {
+    builtin_functions()
+        .iter()
+        .find(|f| f.name == name)
+        .map(|f| {
+            format!(
+                "**{}** (built-in)\n\n`{}`\n\n---\n\n{}",
+                f.name, f.signature, f.doc
+            )
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1188,5 +1362,24 @@ fn.math.double(x) { x * 2 }
         // Check function completion
         let func = completions.iter().find(|c| c.path == "math.double").unwrap();
         assert_eq!(func.kind, SymbolKind::Function);
+    }
+
+    #[test]
+    fn test_builtin_hover() {
+        // Test common builtins
+        assert!(get_builtin_hover("clamp").is_some());
+        assert!(get_builtin_hover("vec3").is_some());
+        assert!(get_builtin_hover("exp").is_some());
+        assert!(get_builtin_hover("relax_to").is_some());
+
+        // Test non-builtins
+        assert!(get_builtin_hover("not_a_builtin").is_none());
+        assert!(get_builtin_hover("custom_fn").is_none());
+
+        // Test hover content includes signature
+        let clamp_hover = get_builtin_hover("clamp").unwrap();
+        assert!(clamp_hover.contains("clamp"));
+        assert!(clamp_hover.contains("(built-in)"));
+        assert!(clamp_hover.contains("value, min, max"));
     }
 }
