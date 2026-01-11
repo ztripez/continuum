@@ -734,8 +734,8 @@ fn eval_function(name: &str, args: &[InterpValue]) -> InterpValue {
             ])
         }
 
-        // Vector length - returns scalar
-        "length" if args.len() == 1 => {
+        // Vector length/magnitude - returns scalar
+        "length" | "magnitude" if args.len() == 1 => {
             match args[0] {
                 InterpValue::Scalar(v) => InterpValue::Scalar(v.abs()),
                 InterpValue::Vec3(v) => {
