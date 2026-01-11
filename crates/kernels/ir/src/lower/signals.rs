@@ -168,9 +168,10 @@ impl Lowerer {
     ) -> Result<(), LowerError> {
         // Check tensor constraints
         if !def.tensor_constraints.is_empty() {
-            let is_tensor = def.ty.as_ref().is_some_and(|t| {
-                matches!(t.node, ast::TypeExpr::Tensor { .. })
-            });
+            let is_tensor = def
+                .ty
+                .as_ref()
+                .is_some_and(|t| matches!(t.node, ast::TypeExpr::Tensor { .. }));
             if !is_tensor {
                 let actual_type = def
                     .ty
@@ -188,9 +189,10 @@ impl Lowerer {
 
         // Check sequence constraints
         if !def.seq_constraints.is_empty() {
-            let is_seq = def.ty.as_ref().is_some_and(|t| {
-                matches!(t.node, ast::TypeExpr::Seq { .. })
-            });
+            let is_seq = def
+                .ty
+                .as_ref()
+                .is_some_and(|t| matches!(t.node, ast::TypeExpr::Seq { .. }));
             if !is_seq {
                 let actual_type = def
                     .ty
@@ -220,7 +222,9 @@ impl Lowerer {
                 }
             }
             ast::TypeExpr::Vector { dim, unit, .. } => format!("Vec{}<{}>", dim, unit),
-            ast::TypeExpr::Tensor { rows, cols, unit, .. } => {
+            ast::TypeExpr::Tensor {
+                rows, cols, unit, ..
+            } => {
                 format!("Tensor<{},{},{}>", rows, cols, unit)
             }
             ast::TypeExpr::Grid { width, height, .. } => format!("Grid<{},{}>", width, height),
@@ -242,12 +246,20 @@ impl Lowerer {
                 let mut ty = spanned_ty.node.clone();
 
                 // Apply tensor constraints
-                if let ast::TypeExpr::Tensor { ref mut constraints, .. } = ty {
+                if let ast::TypeExpr::Tensor {
+                    ref mut constraints,
+                    ..
+                } = ty
+                {
                     *constraints = def.tensor_constraints.clone();
                 }
 
                 // Apply sequence constraints
-                if let ast::TypeExpr::Seq { ref mut constraints, .. } = ty {
+                if let ast::TypeExpr::Seq {
+                    ref mut constraints,
+                    ..
+                } = ty
+                {
                     *constraints = def.seq_constraints.clone();
                 }
 

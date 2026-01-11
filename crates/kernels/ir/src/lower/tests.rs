@@ -3,7 +3,7 @@
 use continuum_dsl::parse;
 use continuum_foundation::{FnId, SignalId, StratumId};
 
-use crate::{lower, BinaryOpIr, CompiledExpr, LowerError, ValueType};
+use crate::{BinaryOpIr, CompiledExpr, LowerError, ValueType, lower};
 
 #[test]
 fn test_lower_empty() {
@@ -60,7 +60,10 @@ fn test_negative_range_in_type() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("test.elevation")).unwrap();
+    let signal = world
+        .signals
+        .get(&SignalId::from("test.elevation"))
+        .unwrap();
 
     // Verify the negative range is captured
     match &signal.value_type {
@@ -119,7 +122,10 @@ fn test_unit_preserved_in_vector_type() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("terra.velocity")).unwrap();
+    let signal = world
+        .signals
+        .get(&SignalId::from("terra.velocity"))
+        .unwrap();
 
     // Verify the unit is preserved
     match &signal.value_type {
@@ -146,7 +152,10 @@ fn test_dimension_parsed_for_scalar_unit() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("terra.velocity")).unwrap();
+    let signal = world
+        .signals
+        .get(&SignalId::from("terra.velocity"))
+        .unwrap();
 
     // Verify the dimension is parsed correctly: m/s = length^1 * time^-1
     match &signal.value_type {
@@ -214,11 +223,16 @@ fn test_dimension_parsed_for_vector_unit() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("terra.acceleration")).unwrap();
+    let signal = world
+        .signals
+        .get(&SignalId::from("terra.acceleration"))
+        .unwrap();
 
     // Verify m/s² = length^1 * time^-2
     match &signal.value_type {
-        ValueType::Vec3 { unit, dimension, .. } => {
+        ValueType::Vec3 {
+            unit, dimension, ..
+        } => {
             assert_eq!(unit, &Some("m/s²".to_string()), "unit should be 'm/s²'");
             assert!(dimension.is_some(), "dimension should be parsed");
             let dim = dimension.as_ref().unwrap();
@@ -524,7 +538,10 @@ fn test_kernel_function_various_names() {
             assert_eq!(function, "gravity_acceleration");
             assert_eq!(args.len(), 2);
         }
-        other => panic!("expected KernelCall for gravity_acceleration, got {:?}", other),
+        other => panic!(
+            "expected KernelCall for gravity_acceleration, got {:?}",
+            other
+        ),
     }
 
     // Check kernel.mat_vec_mul -> KernelCall("mat_vec_mul", ...)
@@ -813,7 +830,10 @@ fn test_dt_raw_in_nested_expr_without_declaration_fails() {
     let result = lower(&unit);
 
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), LowerError::UndeclaredDtRawUsage(_)));
+    assert!(matches!(
+        result.unwrap_err(),
+        LowerError::UndeclaredDtRawUsage(_)
+    ));
 }
 
 // ============================================================================
@@ -1185,7 +1205,10 @@ fn test_lower_prev_reference() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.accumulator")).unwrap();
+    let signal = world
+        .signals
+        .get(&SignalId::from("test.accumulator"))
+        .unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
     match resolve {
         CompiledExpr::Binary { left, .. } => {
@@ -1321,7 +1344,10 @@ fn test_lower_entity_with_both_count_options() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let entity = world.entities.get(&EntityId::from("stellar.planet")).unwrap();
+    let entity = world
+        .entities
+        .get(&EntityId::from("stellar.planet"))
+        .unwrap();
     assert!(entity.count_source.is_some());
     assert!(entity.count_bounds.is_some());
 }
@@ -1356,7 +1382,10 @@ fn test_lower_chronicle_basic() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    let chronicle = world
+        .chronicles
+        .get(&ChronicleId::from("thermal.events"))
+        .unwrap();
     assert_eq!(chronicle.id.0, "thermal.events");
     assert_eq!(chronicle.handlers.len(), 1);
 }
@@ -1390,7 +1419,10 @@ fn test_lower_chronicle_with_multiple_handlers() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    let chronicle = world
+        .chronicles
+        .get(&ChronicleId::from("thermal.events"))
+        .unwrap();
     assert_eq!(chronicle.handlers.len(), 2);
     assert_eq!(chronicle.handlers[0].event_name, "critical_temp");
     assert_eq!(chronicle.handlers[1].event_name, "cold_snap");
@@ -1425,9 +1457,16 @@ fn test_lower_chronicle_collects_signal_reads() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    let chronicle = world
+        .chronicles
+        .get(&ChronicleId::from("thermal.events"))
+        .unwrap();
     assert!(chronicle.reads.contains(&SignalId::from("thermal.temp")));
-    assert!(chronicle.reads.contains(&SignalId::from("thermal.pressure")));
+    assert!(
+        chronicle
+            .reads
+            .contains(&SignalId::from("thermal.pressure"))
+    );
 }
 
 #[test]
@@ -1455,7 +1494,10 @@ fn test_lower_chronicle_event_fields() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    let chronicle = world
+        .chronicles
+        .get(&ChronicleId::from("thermal.events"))
+        .unwrap();
     let handler = &chronicle.handlers[0];
     assert_eq!(handler.event_fields.len(), 2);
     assert_eq!(handler.event_fields[0].name, "temperature");
@@ -1498,7 +1540,10 @@ fn test_lower_chronicle_empty_observe() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let chronicle = world.chronicles.get(&ChronicleId::from("thermal.events")).unwrap();
+    let chronicle = world
+        .chronicles
+        .get(&ChronicleId::from("thermal.events"))
+        .unwrap();
     assert!(chronicle.handlers.is_empty());
     assert!(chronicle.reads.is_empty());
 }
@@ -1647,11 +1692,7 @@ fn test_math_const_phi() {
     match resolve {
         CompiledExpr::Literal(v) => {
             let phi = 1.618_033_988_749_895;
-            assert!(
-                (*v - phi).abs() < 1e-10,
-                "PHI should be ~1.618, got {}",
-                v
-            );
+            assert!((*v - phi).abs() < 1e-10, "PHI should be ~1.618, got {}", v);
         }
         other => panic!("expected Literal(PHI), got {:?}", other),
     }
@@ -1723,7 +1764,9 @@ fn test_tensor_type_ast_parsing() {
     assert_eq!(type_def.name.node, "stress");
     assert_eq!(type_def.fields.len(), 1);
     match &type_def.fields[0].ty.node {
-        TypeExpr::Tensor { rows, cols, unit, .. } => {
+        TypeExpr::Tensor {
+            rows, cols, unit, ..
+        } => {
             assert_eq!(rows, &3);
             assert_eq!(cols, &3);
             assert_eq!(unit, "Pa");
@@ -1919,7 +1962,9 @@ fn test_lower_typedef_with_tensor() {
     assert_eq!(type_def.fields.len(), 1);
 
     match &type_def.fields[0].value_type {
-        ValueType::Tensor { rows, cols, unit, .. } => {
+        ValueType::Tensor {
+            rows, cols, unit, ..
+        } => {
             assert_eq!(*rows, 3);
             assert_eq!(*cols, 3);
             assert_eq!(unit.as_deref(), Some("Pa"));
@@ -1944,7 +1989,11 @@ fn test_lower_typedef_with_grid() {
     assert_eq!(type_def.fields.len(), 1);
 
     match &type_def.fields[0].value_type {
-        ValueType::Grid { width, height, element_type } => {
+        ValueType::Grid {
+            width,
+            height,
+            element_type,
+        } => {
             assert_eq!(*width, 1024);
             assert_eq!(*height, 512);
             match element_type.as_ref() {
@@ -2060,7 +2109,12 @@ fn test_tensor_constraint_on_scalar_fails() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        LowerError::MismatchedConstraint { signal, constraint_kind, actual_type, expected_type } => {
+        LowerError::MismatchedConstraint {
+            signal,
+            constraint_kind,
+            actual_type,
+            expected_type,
+        } => {
             assert_eq!(signal, "test.value");
             assert_eq!(constraint_kind, "tensor");
             assert!(actual_type.contains("Scalar"), "got: {}", actual_type);
@@ -2090,7 +2144,12 @@ fn test_tensor_constraint_on_vector_fails() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        LowerError::MismatchedConstraint { signal, constraint_kind, expected_type, .. } => {
+        LowerError::MismatchedConstraint {
+            signal,
+            constraint_kind,
+            expected_type,
+            ..
+        } => {
             assert_eq!(signal, "test.velocity");
             assert_eq!(constraint_kind, "tensor");
             assert_eq!(expected_type, "Tensor");
@@ -2119,7 +2178,12 @@ fn test_seq_constraint_on_scalar_fails() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        LowerError::MismatchedConstraint { signal, constraint_kind, actual_type, expected_type } => {
+        LowerError::MismatchedConstraint {
+            signal,
+            constraint_kind,
+            actual_type,
+            expected_type,
+        } => {
             assert_eq!(signal, "test.value");
             assert_eq!(constraint_kind, "sequence");
             assert!(actual_type.contains("Scalar"), "got: {}", actual_type);
@@ -2149,7 +2213,12 @@ fn test_seq_constraint_on_tensor_fails() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        LowerError::MismatchedConstraint { signal, constraint_kind, expected_type, .. } => {
+        LowerError::MismatchedConstraint {
+            signal,
+            constraint_kind,
+            expected_type,
+            ..
+        } => {
             assert_eq!(signal, "test.stress");
             assert_eq!(constraint_kind, "sequence");
             assert_eq!(expected_type, "Seq");
@@ -2177,7 +2246,11 @@ fn test_constraint_on_unspecified_type_fails() {
 
     assert!(result.is_err());
     match result.unwrap_err() {
-        LowerError::MismatchedConstraint { signal, actual_type, .. } => {
+        LowerError::MismatchedConstraint {
+            signal,
+            actual_type,
+            ..
+        } => {
             assert_eq!(signal, "test.value");
             assert_eq!(actual_type, "unspecified");
         }
@@ -2253,10 +2326,16 @@ fn test_vec3_signal_has_resolve_components() {
     let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
 
     // Vec3 signals should NOT have resolve (it's expanded to components)
-    assert!(signal.resolve.is_none(), "Vec3 signal should not have resolve");
+    assert!(
+        signal.resolve.is_none(),
+        "Vec3 signal should not have resolve"
+    );
 
     // Vec3 signals should have 3 component expressions
-    assert!(signal.resolve_components.is_some(), "Vec3 signal should have resolve_components");
+    assert!(
+        signal.resolve_components.is_some(),
+        "Vec3 signal should have resolve_components"
+    );
     let components = signal.resolve_components.as_ref().unwrap();
     assert_eq!(components.len(), 3, "Vec3 should have 3 components");
 }
@@ -2280,8 +2359,14 @@ fn test_vec2_signal_has_resolve_components() {
 
     let signal = world.signals.get(&SignalId::from("test.position")).unwrap();
 
-    assert!(signal.resolve.is_none(), "Vec2 signal should not have resolve");
-    assert!(signal.resolve_components.is_some(), "Vec2 signal should have resolve_components");
+    assert!(
+        signal.resolve.is_none(),
+        "Vec2 signal should not have resolve"
+    );
+    assert!(
+        signal.resolve_components.is_some(),
+        "Vec2 signal should have resolve_components"
+    );
     let components = signal.resolve_components.as_ref().unwrap();
     assert_eq!(components.len(), 2, "Vec2 should have 2 components");
 }
@@ -2303,10 +2388,19 @@ fn test_vec4_signal_has_resolve_components() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.quaternion")).unwrap();
+    let signal = world
+        .signals
+        .get(&SignalId::from("test.quaternion"))
+        .unwrap();
 
-    assert!(signal.resolve.is_none(), "Vec4 signal should not have resolve");
-    assert!(signal.resolve_components.is_some(), "Vec4 signal should have resolve_components");
+    assert!(
+        signal.resolve.is_none(),
+        "Vec4 signal should not have resolve"
+    );
+    assert!(
+        signal.resolve_components.is_some(),
+        "Vec4 signal should have resolve_components"
+    );
     let components = signal.resolve_components.as_ref().unwrap();
     assert_eq!(components.len(), 4, "Vec4 should have 4 components");
 }
@@ -2328,10 +2422,19 @@ fn test_scalar_signal_has_resolve_not_components() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.temperature")).unwrap();
+    let signal = world
+        .signals
+        .get(&SignalId::from("test.temperature"))
+        .unwrap();
 
-    assert!(signal.resolve.is_some(), "Scalar signal should have resolve");
-    assert!(signal.resolve_components.is_none(), "Scalar signal should not have resolve_components");
+    assert!(
+        signal.resolve.is_some(),
+        "Scalar signal should have resolve"
+    );
+    assert!(
+        signal.resolve_components.is_none(),
+        "Scalar signal should not have resolve_components"
+    );
 }
 
 #[test]
@@ -2358,10 +2461,17 @@ fn test_vec3_prev_expanded_to_field_access() {
     for (i, comp) in components.iter().enumerate() {
         match comp {
             CompiledExpr::FieldAccess { object, field } => {
-                assert!(matches!(object.as_ref(), CompiledExpr::Prev),
-                    "component {} should have Prev as object", i);
+                assert!(
+                    matches!(object.as_ref(), CompiledExpr::Prev),
+                    "component {} should have Prev as object",
+                    i
+                );
                 let expected = ["x", "y", "z"][i];
-                assert_eq!(field, expected, "component {} should access field '{}'", i, expected);
+                assert_eq!(
+                    field, expected,
+                    "component {} should access field '{}'",
+                    i, expected
+                );
             }
             other => panic!("component {} should be FieldAccess, got {:?}", i, other),
         }
@@ -2579,7 +2689,10 @@ fn test_vec3_explicit_component_access_preserved() {
             assert!(matches!(object.as_ref(), CompiledExpr::Prev));
             assert_eq!(field, "x");
         }
-        other => panic!("x component should be FieldAccess(Prev, x), got {:?}", other),
+        other => panic!(
+            "x component should be FieldAccess(Prev, x), got {:?}",
+            other
+        ),
     }
 
     // Component 1 should be prev.y * 2.0
@@ -2603,6 +2716,9 @@ fn test_vec3_explicit_component_access_preserved() {
             assert!(matches!(object.as_ref(), CompiledExpr::Prev));
             assert_eq!(field, "z");
         }
-        other => panic!("z component should be FieldAccess(Prev, z), got {:?}", other),
+        other => panic!(
+            "z component should be FieldAccess(Prev, z), got {:?}",
+            other
+        ),
     }
 }

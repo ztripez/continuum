@@ -179,7 +179,8 @@ impl Lowerer {
 
                         // Build nested let expressions: let param1 = arg1 in let param2 = arg2 in body
                         let mut result = user_fn.body.clone();
-                        for (param, arg) in user_fn.params.iter().rev().zip(lowered_args.iter().rev())
+                        for (param, arg) in
+                            user_fn.params.iter().rev().zip(lowered_args.iter().rev())
                         {
                             result = CompiledExpr::Let {
                                 name: param.clone(),
@@ -200,12 +201,19 @@ impl Lowerer {
                     }
                 }
             }
-            Expr::MethodCall { object, method, args } => {
+            Expr::MethodCall {
+                object,
+                method,
+                args,
+            } => {
                 // Method calls are lowered to function calls with object as first argument
                 // e.g., obj.method(a, b) -> method(obj, a, b)
                 let lowered_obj = self.lower_expr_with_context(&object.node, ctx);
                 let lowered_args: Vec<_> = std::iter::once(lowered_obj)
-                    .chain(args.iter().map(|a| self.lower_expr_with_context(&a.value.node, ctx)))
+                    .chain(
+                        args.iter()
+                            .map(|a| self.lower_expr_with_context(&a.value.node, ctx)),
+                    )
                     .collect();
 
                 CompiledExpr::Call {
@@ -250,7 +258,9 @@ impl Lowerer {
                     ast::MathConst::E => std::f64::consts::E,
                     ast::MathConst::Phi => 1.618_033_988_749_895,
                     ast::MathConst::I => {
-                        panic!("MathConst::I (imaginary unit) cannot be represented as a real number")
+                        panic!(
+                            "MathConst::I (imaginary unit) cannot be represented as a real number"
+                        )
                     }
                 };
                 CompiledExpr::Literal(val)
@@ -259,7 +269,9 @@ impl Lowerer {
             // These require more complex lowering or are handled specially
             Expr::Block(exprs) => {
                 if exprs.is_empty() {
-                    panic!("Empty block expression has no value - blocks must contain at least one expression")
+                    panic!(
+                        "Empty block expression has no value - blocks must contain at least one expression"
+                    )
                 } else {
                     // For now, just evaluate to the last expression
                     self.lower_expr_with_context(&exprs.last().unwrap().node, ctx)

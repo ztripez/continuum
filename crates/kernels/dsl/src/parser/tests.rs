@@ -1858,3 +1858,58 @@ fn test_parse_fracture_emit_semicolons() {
         _ => panic!("expected FractureDef"),
     }
 }
+
+#[test]
+fn test_parse_sim_time_expression() {
+    let source = r#"
+        signal.test.clock {
+            : Scalar<1>
+            resolve { sim_time + 1.0 }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Binary { op, left, .. } => {
+                    assert_eq!(*op, BinaryOp::Add);
+                    assert!(matches!(left.node, Expr::SimTime));
+                }
+                _ => panic!("expected binary expression"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_impulse_with_metadata() {
+    let source = r#"
+        impulse.test.quake {
+            : title("Earthquake")
+            : symbol("Q")
+            config {
+                strength: 1.0
+            }
+            apply {
+                payload * config.test.quake.strength
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::ImpulseDef(def) => {
+            assert_eq!(def.path.node.join("."), "test.quake");
+            assert_eq!(def.title.as_ref().unwrap().node, "Earthquake");
+            assert_eq!(def.symbol.as_ref().unwrap().node, "Q");
+            assert_eq!(def.local_config.len(), 1);
+            assert!(def.apply.is_some());
+        }
+        _ => panic!("expected ImpulseDef"),
+    }
+}

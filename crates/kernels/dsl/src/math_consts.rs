@@ -4,7 +4,7 @@
 //! in expressions and type range specifications. Constants are registered with
 //! both ASCII and Unicode variants for user convenience.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 /// A mathematical constant entry with its value and metadata.
@@ -20,8 +20,8 @@ pub struct MathConstDef {
 ///
 /// Maps constant names (both ASCII and Unicode variants) to their definitions.
 /// This is the single source of truth for all built-in math constants.
-pub static MATH_CONSTS: LazyLock<HashMap<&'static str, MathConstDef>> = LazyLock::new(|| {
-    let mut m = HashMap::new();
+pub static MATH_CONSTS: LazyLock<BTreeMap<&'static str, MathConstDef>> = LazyLock::new(|| {
+    let mut m = BTreeMap::new();
 
     // Pi - ratio of circumference to diameter
     let pi = MathConstDef {

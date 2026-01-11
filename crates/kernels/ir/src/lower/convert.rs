@@ -9,8 +9,8 @@ use continuum_dsl::ast::{
 };
 
 use crate::{
-    AggregateOpIr, AssertionSeverity, BinaryOpIr, CompiledAssertion, TopologyIr, UnaryOpIr,
-    ValueRange, ValueType, OperatorPhaseIr,
+    AggregateOpIr, AssertionSeverity, BinaryOpIr, CompiledAssertion, OperatorPhaseIr, TopologyIr,
+    UnaryOpIr, ValueRange, ValueType,
 };
 
 use super::{LowerError, Lowerer};
@@ -163,18 +163,23 @@ impl Lowerer {
 
     pub(crate) fn lower_seq_constraint(&self, c: &ast::SeqConstraint) -> crate::SeqConstraintIr {
         match c {
-            ast::SeqConstraint::Each(r) => {
-                crate::SeqConstraintIr::Each(ValueRange { min: r.min, max: r.max })
-            }
-            ast::SeqConstraint::Sum(r) => {
-                crate::SeqConstraintIr::Sum(ValueRange { min: r.min, max: r.max })
-            }
+            ast::SeqConstraint::Each(r) => crate::SeqConstraintIr::Each(ValueRange {
+                min: r.min,
+                max: r.max,
+            }),
+            ast::SeqConstraint::Sum(r) => crate::SeqConstraintIr::Sum(ValueRange {
+                min: r.min,
+                max: r.max,
+            }),
         }
     }
 
     /// Parses a unit string and returns both the string representation and
     /// the structured dimensional representation.
-    fn parse_unit_with_dimension(&self, unit: &str) -> (Option<String>, Option<crate::units::Unit>) {
+    fn parse_unit_with_dimension(
+        &self,
+        unit: &str,
+    ) -> (Option<String>, Option<crate::units::Unit>) {
         if unit.is_empty() {
             (None, None)
         } else {
