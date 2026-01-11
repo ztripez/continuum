@@ -83,6 +83,7 @@ fn test_build_fracture() {
     // Create a fracture that triggers when temp > 100 and emits to energy
     let fracture = CompiledFracture {
         id: continuum_foundation::FractureId::from("test_fracture"),
+        stratum: continuum_foundation::StratumId::from("default"),
         reads: vec![continuum_foundation::SignalId::from("temp")],
         conditions: vec![CompiledExpr::Binary {
             op: BinaryOpIr::Gt,

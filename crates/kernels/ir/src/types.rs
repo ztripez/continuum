@@ -30,7 +30,10 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId, OperatorId, SignalId, StratumId, TypeId};
+use continuum_foundation::{
+    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
+    OperatorId, SignalId, StratumId, TypeId,
+};
 
 // Re-export StratumState from foundation for backwards compatibility
 pub use continuum_foundation::StratumState;
@@ -375,6 +378,8 @@ pub struct CompiledImpulse {
 pub struct CompiledFracture {
     /// Unique identifier for the fracture.
     pub id: FractureId,
+    /// Stratum binding.
+    pub stratum: StratumId,
     /// Signals this fracture reads
     pub reads: Vec<SignalId>,
     /// Condition expressions (all must be true)
@@ -897,7 +902,6 @@ pub enum CompiledExpr {
     Local(String),
 
     // === Impulse expressions ===
-
     /// Impulse payload reference: `payload`
     Payload,
 
@@ -916,7 +920,6 @@ pub enum CompiledExpr {
     },
 
     // === Entity expressions ===
-
     /// Access current entity instance field: self.mass
     SelfField(String),
 

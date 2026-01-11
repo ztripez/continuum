@@ -841,15 +841,12 @@ impl<'a> Compiler<'a> {
     ) -> Result<Option<ExecutableDag>, CompileError> {
         let mut builder = DagBuilder::new(Phase::Fracture, (*stratum_id).clone());
 
-        // Fractures aren't bound to a specific stratum in IR
-        // Add all fractures to the first stratum only (to avoid duplicating execution)
-        let first_stratum = self.world.strata.keys().next();
-        if first_stratum != Some(stratum_id) {
-            let dag = builder.build()?;
-            return Ok(if dag.is_empty() { None } else { Some(dag) });
-        }
-
         for (fracture_id, fracture) in &self.world.fractures {
+            // Only include fractures bound to this stratum
+            if fracture.stratum != *stratum_id {
+                continue;
+            }
+
             let node = DagNode {
                 id: NodeId(format!("frac.{}", fracture_id.0)),
                 reads: fracture

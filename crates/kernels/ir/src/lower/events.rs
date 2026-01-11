@@ -5,11 +5,11 @@
 use std::collections::HashSet;
 
 use continuum_dsl::ast::{self, Expr, Spanned};
-use continuum_foundation::{FractureId, ImpulseId, SignalId};
+use continuum_foundation::{FractureId, ImpulseId, SignalId, StratumId};
 
 use crate::{CompiledEmit, CompiledExpr, CompiledFracture, CompiledImpulse, ValueType};
 
-use super::{expr::LoweringContext, LowerError, Lowerer};
+use super::{LowerError, Lowerer, expr::LoweringContext};
 
 /// A captured let binding from the emit block traversal.
 #[derive(Clone)]
@@ -66,6 +66,25 @@ impl Lowerer {
             self.config.insert(full_key, value);
         }
 
+        // Determine stratum binding
+        let stratum = if let Some(s) = &def.strata {
+            let id = StratumId::from(s.node.join(".").as_str());
+            if !self.strata.contains_key(&id) {
+                return Err(LowerError::UndefinedStratum(id.0));
+            }
+            id
+        } else {
+            // Default to first stratum if not specified
+            // This maintains backward compatibility with older fracture definitions
+            if let Some((first_id, _)) = self.strata.first() {
+                first_id.clone()
+            } else {
+                return Err(LowerError::Generic(
+                    "Fracture defined but no strata are available to bind to".to_string(),
+                ));
+            }
+        };
+
         let mut reads = Vec::new();
         for cond in &def.conditions {
             self.collect_signal_refs(&cond.node, &mut reads);
@@ -81,6 +100,7 @@ impl Lowerer {
 
         let fracture = CompiledFracture {
             id: id.clone(),
+            stratum,
             reads,
             conditions: def
                 .conditions
@@ -103,10 +123,7 @@ impl Lowerer {
     /// Collect emit expressions from an expression tree.
     /// Handles single EmitSignal, Block containing multiple emits, or nested structures.
     /// Returns tuples of (target_path, lowered_value_with_let_bindings).
-    fn collect_emit_expressions(
-        &self,
-        expr: Option<&Expr>,
-    ) -> Vec<(ast::Path, CompiledExpr)> {
+    fn collect_emit_expressions(&self, expr: Option<&Expr>) -> Vec<(ast::Path, CompiledExpr)> {
         let mut emits = Vec::new();
         if let Some(expr) = expr {
             self.collect_emits_recursive(expr, &mut emits, Vec::new());
