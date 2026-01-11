@@ -26,7 +26,7 @@
 
 use std::collections::HashSet;
 
-use indexmap::IndexMap;
+use indexmap::{IndexMap, IndexSet};
 
 use crate::reductions::ReductionOp;
 use crate::types::{EntityId, SignalId, StratumId, EraId, Phase};
@@ -640,9 +640,12 @@ fn topological_levels(nodes: &[DagNode]) -> Result<Vec<Level>, CycleError> {
     }
 
     // Compute in-degrees based on signal reads
+    // Deduplicate reads per node to avoid incrementing in-degree multiple times
+    // for the same dependency
     for node in nodes {
+        let mut seen_signals: IndexSet<&SignalId> = IndexSet::new();
         for read_signal in &node.reads {
-            if signal_to_node.contains_key(read_signal) {
+            if signal_to_node.contains_key(read_signal) && seen_signals.insert(read_signal) {
                 *in_degree.get_mut(&node.id).unwrap() += 1;
                 dependents.entry(read_signal).or_default().push(node);
             }

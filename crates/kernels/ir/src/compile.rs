@@ -38,6 +38,64 @@ use continuum_runtime::types::{EntityId as RuntimeEntityId, Phase};
 
 use crate::{AggregateOpIr, CompiledExpr, CompiledWorld, OperatorPhaseIr};
 
+/// Checks if an expression contains any entity-related constructs.
+///
+/// Entity expressions (Aggregate, SelfField, EntityAccess, etc.) require the
+/// EntityExecutor for evaluation and cannot be compiled to bytecode. Signals
+/// with such expressions should not be added to the bytecode DAG.
+fn contains_entity_expression(expr: &CompiledExpr) -> bool {
+    match expr {
+        // Entity-related expressions
+        CompiledExpr::SelfField(_)
+        | CompiledExpr::EntityAccess { .. }
+        | CompiledExpr::Aggregate { .. }
+        | CompiledExpr::Other { .. }
+        | CompiledExpr::Pairs { .. }
+        | CompiledExpr::Filter { .. }
+        | CompiledExpr::First { .. }
+        | CompiledExpr::Nearest { .. }
+        | CompiledExpr::Within { .. } => true,
+
+        // Impulse-related expressions (also not bytecode-compatible)
+        CompiledExpr::Payload
+        | CompiledExpr::PayloadField(_)
+        | CompiledExpr::EmitSignal { .. } => true,
+
+        // Recursive cases - check sub-expressions
+        CompiledExpr::Binary { left, right, .. } => {
+            contains_entity_expression(left) || contains_entity_expression(right)
+        }
+        CompiledExpr::Unary { operand, .. } => contains_entity_expression(operand),
+        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
+            args.iter().any(contains_entity_expression)
+        }
+        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_entity_expression),
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            contains_entity_expression(condition)
+                || contains_entity_expression(then_branch)
+                || contains_entity_expression(else_branch)
+        }
+        CompiledExpr::Let { value, body, .. } => {
+            contains_entity_expression(value) || contains_entity_expression(body)
+        }
+        CompiledExpr::FieldAccess { object, .. } => contains_entity_expression(object),
+
+        // Leaf expressions - no entity constructs
+        CompiledExpr::Literal(_)
+        | CompiledExpr::Prev
+        | CompiledExpr::DtRaw
+        | CompiledExpr::Collected
+        | CompiledExpr::Signal(_)
+        | CompiledExpr::Const(_)
+        | CompiledExpr::Config(_)
+        | CompiledExpr::Local(_) => false,
+    }
+}
+
 /// Errors that can occur during DAG compilation.
 ///
 /// These errors represent problems converting the IR into executable DAGs.
@@ -294,6 +352,9 @@ impl<'a> Compiler<'a> {
                 Self::extract_aggregates_recursive(radius, aggregates);
                 Self::extract_aggregates_recursive(body, aggregates);
             }
+            CompiledExpr::EmitSignal { value, .. } => {
+                Self::extract_aggregates_recursive(value, aggregates);
+            }
             // Leaf nodes - no recursion needed
             CompiledExpr::Literal(_)
             | CompiledExpr::Prev
@@ -304,7 +365,9 @@ impl<'a> Compiler<'a> {
             | CompiledExpr::Signal(_)
             | CompiledExpr::Config(_)
             | CompiledExpr::Const(_)
-            | CompiledExpr::Local(_) => {}
+            | CompiledExpr::Local(_)
+            | CompiledExpr::Payload
+            | CompiledExpr::PayloadField(_) => {}
         }
     }
 
@@ -418,17 +481,30 @@ impl<'a> Compiler<'a> {
             }
 
             // Skip signals without resolve expressions
-            if signal.resolve.is_none() {
+            let Some(ref resolve_expr) = signal.resolve else {
+                continue;
+            };
+
+            // Skip signals with entity expressions (require EntityExecutor, not bytecode)
+            if contains_entity_expression(resolve_expr) {
                 continue;
             }
 
+            // Also check component expressions for vector signals
+            if let Some(ref components) = signal.resolve_components {
+                if components.iter().any(contains_entity_expression) {
+                    continue;
+                }
+            }
+
+            // Per docs/execution/phases.md: Resolve "reads resolved signals from the
+            // previous tick" and "must be deterministic and order-independent".
+            // Signal references always read previous tick values, so there are no
+            // same-tick dependencies between signals. Use empty reads to allow
+            // parallel resolution.
             let node = DagNode {
                 id: NodeId(format!("sig.{}", signal_id.0)),
-                reads: signal
-                    .reads
-                    .iter()
-                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
-                    .collect(),
+                reads: std::collections::HashSet::new(), // No same-tick dependencies
                 writes: Some(continuum_runtime::SignalId(signal_id.0.clone())),
                 kind: NodeKind::SignalResolve {
                     signal: continuum_runtime::SignalId(signal_id.0.clone()),
@@ -445,7 +521,12 @@ impl<'a> Compiler<'a> {
             }
 
             // Skip members without resolve expressions
-            if member.resolve.is_none() {
+            let Some(ref resolve_expr) = member.resolve else {
+                continue;
+            };
+
+            // Skip members with entity expressions (require EntityExecutor, not bytecode)
+            if contains_entity_expression(resolve_expr) {
                 continue;
             }
 
@@ -454,13 +535,10 @@ impl<'a> Compiler<'a> {
                 member.signal_name.clone(),
             );
 
+            // Per docs: signal references read previous tick values, no same-tick deps
             let node = DagNode {
                 id: NodeId(format!("member.{}", member_id.0)),
-                reads: member
-                    .reads
-                    .iter()
-                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
-                    .collect(),
+                reads: std::collections::HashSet::new(), // No same-tick dependencies
                 writes: None, // Member signals don't write to global signal namespace
                 kind: NodeKind::MemberSignalResolve {
                     member_signal: member_signal_id,
@@ -517,7 +595,12 @@ impl<'a> Compiler<'a> {
             }
 
             // Skip members without resolve expressions
-            if member.resolve.is_none() {
+            let Some(ref resolve_expr) = member.resolve else {
+                continue;
+            };
+
+            // Skip members with entity expressions (require EntityExecutor, not bytecode)
+            if contains_entity_expression(resolve_expr) {
                 continue;
             }
 
@@ -588,34 +671,42 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        // Add regular signal resolve nodes (those without aggregates)
+        // Add regular signal resolve nodes (those without aggregates or entity expressions)
         for (signal_id, signal) in &self.world.signals {
             if signal.stratum != *stratum_id {
                 continue;
             }
 
             // Skip signals without resolve expressions
-            if signal.resolve.is_none() {
+            let Some(ref resolve) = signal.resolve else {
+                continue;
+            };
+
+            // Skip signals that ARE aggregates (they're handled by aggregate barriers)
+            if !Self::extract_aggregates(resolve).is_empty() {
                 continue;
             }
 
-            // Skip signals that ARE aggregates (they're handled by aggregate barriers)
-            if let Some(ref resolve) = signal.resolve {
-                if !Self::extract_aggregates(resolve).is_empty() {
+            // Skip signals with entity expressions (require EntityExecutor, not bytecode)
+            if contains_entity_expression(resolve) {
+                continue;
+            }
+
+            // Also check component expressions for vector signals
+            if let Some(ref components) = signal.resolve_components {
+                if components.iter().any(contains_entity_expression) {
                     continue;
                 }
             }
 
-            let reads: Vec<continuum_runtime::SignalId> = signal
-                .reads
-                .iter()
-                .map(|s| continuum_runtime::SignalId(s.0.clone()))
-                .collect();
-
+            // Signal references read from the PREVIOUS tick's values, so they
+            // don't create same-tick dependencies. Pass empty reads to avoid
+            // creating DAG edges between signals.
+            // (signal.reads is informational only - for analysis, not scheduling)
             builder.add_signal_resolve(
                 continuum_runtime::SignalId(signal_id.0.clone()),
                 self.resolver_indices[signal_id],
-                &reads,
+                &[],
             );
         }
 
@@ -629,11 +720,36 @@ impl<'a> Compiler<'a> {
 
     /// Extract the member signal name from an aggregate body expression.
     ///
-    /// Returns `Some(name)` if the body is a simple `self.X` reference,
-    /// `None` otherwise.
+    /// Recursively searches for `self.X` references in the expression tree.
+    /// Returns the first member signal name found.
     fn extract_member_name_from_body(body: &CompiledExpr) -> Option<String> {
         match body {
             CompiledExpr::SelfField(field_name) => Some(field_name.clone()),
+            // Recurse into binary expressions
+            CompiledExpr::Binary { left, right, .. } => {
+                Self::extract_member_name_from_body(left)
+                    .or_else(|| Self::extract_member_name_from_body(right))
+            }
+            // Recurse into unary expressions
+            CompiledExpr::Unary { operand, .. } => Self::extract_member_name_from_body(operand),
+            // Recurse into conditionals
+            CompiledExpr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => Self::extract_member_name_from_body(condition)
+                .or_else(|| Self::extract_member_name_from_body(then_branch))
+                .or_else(|| Self::extract_member_name_from_body(else_branch)),
+            // Recurse into let expressions
+            CompiledExpr::Let { value, body, .. } => Self::extract_member_name_from_body(value)
+                .or_else(|| Self::extract_member_name_from_body(body)),
+            // Recurse into function calls
+            CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
+                args.iter().find_map(Self::extract_member_name_from_body)
+            }
+            // Recurse into field access
+            CompiledExpr::FieldAccess { object, .. } => Self::extract_member_name_from_body(object),
+            // Leaf nodes that don't contain member references
             _ => None,
         }
     }

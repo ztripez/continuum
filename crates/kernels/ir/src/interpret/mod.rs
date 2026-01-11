@@ -60,6 +60,68 @@ use crate::{
     CompiledWorld, ValueType,
 };
 
+/// Checks if an expression contains any entity-related constructs.
+///
+/// Entity expressions (Aggregate, SelfField, EntityAccess, etc.) require the
+/// EntityExecutor for evaluation and cannot be compiled to bytecode. This
+/// function recursively checks an expression tree for any such constructs.
+///
+/// # Returns
+///
+/// `true` if the expression or any sub-expression contains entity constructs
+fn contains_entity_expression(expr: &CompiledExpr) -> bool {
+    match expr {
+        // Entity-related expressions
+        CompiledExpr::SelfField(_)
+        | CompiledExpr::EntityAccess { .. }
+        | CompiledExpr::Aggregate { .. }
+        | CompiledExpr::Other { .. }
+        | CompiledExpr::Pairs { .. }
+        | CompiledExpr::Filter { .. }
+        | CompiledExpr::First { .. }
+        | CompiledExpr::Nearest { .. }
+        | CompiledExpr::Within { .. } => true,
+
+        // Impulse-related expressions (also not bytecode-compatible)
+        CompiledExpr::Payload
+        | CompiledExpr::PayloadField(_)
+        | CompiledExpr::EmitSignal { .. } => true,
+
+        // Recursive cases - check sub-expressions
+        CompiledExpr::Binary { left, right, .. } => {
+            contains_entity_expression(left) || contains_entity_expression(right)
+        }
+        CompiledExpr::Unary { operand, .. } => contains_entity_expression(operand),
+        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
+            args.iter().any(contains_entity_expression)
+        }
+        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_entity_expression),
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            contains_entity_expression(condition)
+                || contains_entity_expression(then_branch)
+                || contains_entity_expression(else_branch)
+        }
+        CompiledExpr::Let { value, body, .. } => {
+            contains_entity_expression(value) || contains_entity_expression(body)
+        }
+        CompiledExpr::FieldAccess { object, .. } => contains_entity_expression(object),
+
+        // Leaf expressions - no entity constructs
+        CompiledExpr::Literal(_)
+        | CompiledExpr::Prev
+        | CompiledExpr::DtRaw
+        | CompiledExpr::Collected
+        | CompiledExpr::Signal(_)
+        | CompiledExpr::Const(_)
+        | CompiledExpr::Config(_)
+        | CompiledExpr::Local(_) => false,
+    }
+}
+
 use contexts::{
     AssertionContext, FractureExecContext, MeasureContext, ResolverContext, SharedContextData,
     TransitionContext,
@@ -217,16 +279,26 @@ pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> 
 /// This allows vector operations to be expressed as scalar operations at the
 /// bytecode level while maintaining type safety at the signal level.
 ///
+/// # Entity Expressions
+///
+/// Signals containing entity-related expressions (Aggregate, SelfField, etc.)
+/// cannot be compiled to bytecode and require the EntityExecutor. This function
+/// returns `None` for such signals, indicating they need special handling.
+///
 /// # Returns
 ///
-/// - `Some(ResolverFn)` if the signal has a resolve expression
-/// - `None` if the signal has no resolve logic (externally driven)
+/// - `Some(ResolverFn)` if the signal has a bytecode-compatible resolve expression
+/// - `None` if the signal has no resolve logic, is externally driven, or requires EntityExecutor
 pub fn build_signal_resolver(
     signal: &crate::CompiledSignal,
     world: &CompiledWorld,
 ) -> Option<ResolverFn> {
     // Check for component-wise resolution (vector signals)
     if let Some(ref components) = signal.resolve_components {
+        // Check if any component contains entity expressions
+        if components.iter().any(contains_entity_expression) {
+            return None; // Requires EntityExecutor
+        }
         return Some(build_vector_resolver(
             components,
             &signal.value_type,
@@ -235,10 +307,14 @@ pub fn build_signal_resolver(
     }
 
     // Fall back to scalar resolution
-    signal
-        .resolve
-        .as_ref()
-        .map(|expr| build_resolver(expr, world, signal.uses_dt_raw))
+    signal.resolve.as_ref().and_then(|expr| {
+        // Check if the expression contains entity constructs
+        if contains_entity_expression(expr) {
+            None // Requires EntityExecutor
+        } else {
+            Some(build_resolver(expr, world, signal.uses_dt_raw))
+        }
+    })
 }
 
 /// Builds a resolver for vector signals with per-component expressions.
@@ -346,6 +422,12 @@ pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: b
 /// and emit results to the field buffer. They run during the Measure phase
 /// and have no effect on causal simulation.
 ///
+/// # Entity Expressions
+///
+/// Fields containing entity-related expressions (Aggregate, SelfField, etc.)
+/// cannot be compiled to bytecode and require special handling. This function
+/// returns `None` for such fields.
+///
 /// # Closure Capture
 ///
 /// The returned closure captures:
@@ -358,18 +440,28 @@ pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: b
 /// - `field_id`: The ID of the field to emit to
 /// - `expr`: The compiled measure expression
 /// - `world`: The compiled world (for constants and config)
+///
+/// # Returns
+///
+/// - `Some(MeasureFn)` if the expression is bytecode-compatible
+/// - `None` if the expression requires EntityExecutor
 pub fn build_field_measure(
     field_id: &FieldId,
     expr: &CompiledExpr,
     world: &CompiledWorld,
-) -> MeasureFn {
+) -> Option<MeasureFn> {
+    // Check if the expression contains entity constructs
+    if contains_entity_expression(expr) {
+        return None; // Requires EntityExecutor
+    }
+
     let field_id = FieldId(field_id.0.clone());
     // Pre-compile to bytecode
     let bytecode = codegen::compile(expr);
     let constants = world.constants.clone();
     let config = world.config.clone();
 
-    Box::new(move |ctx| {
+    Some(Box::new(move |ctx| {
         let exec_ctx = MeasureContext {
             dt: ctx.dt.seconds(),
             shared: SharedContextData {
@@ -380,7 +472,7 @@ pub fn build_field_measure(
         };
         let result = execute(&bytecode, &exec_ctx);
         ctx.fields.emit_scalar(field_id.clone(), result);
-    })
+    }))
 }
 
 /// Builds a fracture detection function.

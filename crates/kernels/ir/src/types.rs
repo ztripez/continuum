@@ -891,6 +891,25 @@ pub enum CompiledExpr {
     /// Local variable reference
     Local(String),
 
+    // === Impulse expressions ===
+
+    /// Impulse payload reference: `payload`
+    Payload,
+
+    /// Impulse payload field access: `payload.magnitude`
+    PayloadField(String),
+
+    /// Emit a value to a signal: `signal.X <- value`
+    ///
+    /// Used in impulse apply blocks and fracture emit blocks.
+    /// This is a side-effect operation that writes to a signal.
+    EmitSignal {
+        /// The target signal to emit to
+        target: SignalId,
+        /// The value to emit
+        value: Box<CompiledExpr>,
+    },
+
     // === Entity expressions ===
 
     /// Access current entity instance field: self.mass

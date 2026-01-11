@@ -20,7 +20,7 @@ use continuum_ir::{
     build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
     validate,
 };
-use continuum_runtime::executor::Runtime;
+use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::storage::FieldSample;
 use continuum_runtime::types::{Dt, Value};
 
@@ -198,12 +198,32 @@ fn main() {
     let mut runtime = Runtime::new(initial_era.clone(), era_configs, compilation.dags);
 
     // Register resolvers
+    // IMPORTANT: Must register in the same order as DAG builder expects (all signals)
+    // Signals with entity expressions get placeholder resolvers that should never be called
+    // (the DAG should not include entity expression signals in the resolve phase)
+    let mut resolver_count = 0;
+    let mut entity_signal_count = 0;
     for (signal_id, signal) in &world.signals {
         if let Some(resolver) = build_signal_resolver(signal, &world) {
             let idx = runtime.register_resolver(resolver);
             info!("  Registered resolver for {} (idx={})", signal_id, idx);
+            resolver_count += 1;
+        } else {
+            // Register a placeholder resolver for entity expression signals
+            // This ensures indices match what the DAG expects
+            let signal_name = signal_id.0.clone();
+            let placeholder: ResolverFn = Box::new(move |_ctx| {
+                panic!(
+                    "Signal '{}' requires EntityExecutor but was called in bytecode path",
+                    signal_name
+                );
+            });
+            let idx = runtime.register_resolver(placeholder);
+            info!("  Registered placeholder for {} (idx={}) - requires EntityExecutor", signal_id, idx);
+            entity_signal_count += 1;
         }
     }
+    info!("  Total: {} resolvers, {} entity expression placeholders", resolver_count, entity_signal_count);
 
     // Register assertions
     let mut assertion_count = 0;
@@ -225,18 +245,27 @@ fn main() {
     }
 
     // Register field measure functions
+    // Fields with entity expressions (aggregates, etc.) are skipped - they require EntityExecutor
     let mut field_count = 0;
+    let mut skipped_fields = 0;
     for (field_id, field) in &world.fields {
         if let Some(ref expr) = field.measure {
             let runtime_id = FieldId(field_id.0.clone());
-            let measure_fn = build_field_measure(&runtime_id, expr, &world);
-            let idx = runtime.register_measure_op(measure_fn);
-            info!("  Registered field measure for {} (idx={})", field_id, idx);
-            field_count += 1;
+            if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
+                let idx = runtime.register_measure_op(measure_fn);
+                info!("  Registered field measure for {} (idx={})", field_id, idx);
+                field_count += 1;
+            } else {
+                // Field contains entity expressions - requires EntityExecutor (not implemented yet)
+                skipped_fields += 1;
+            }
         }
     }
     if field_count > 0 {
         info!("  Registered {} field measures", field_count);
+    }
+    if skipped_fields > 0 {
+        info!("  Skipped {} fields with entity expressions (EntityExecutor not yet implemented)", skipped_fields);
     }
 
     // Register fracture detectors

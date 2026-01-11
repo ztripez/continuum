@@ -277,11 +277,18 @@ impl Lowerer {
             }
 
             Expr::EntityAccess { entity, instance } => {
-                // instance expression must be a string literal for the instance ID
+                // instance expression must be a literal for the instance ID
+                // Supports: string ("primary"), integer (0), or float that's an integer (0.0)
                 let inst_id = match &instance.node {
                     Expr::Literal(Literal::String(s)) => InstanceId::from(s.as_str()),
+                    Expr::Literal(Literal::Integer(n)) => InstanceId::from(n.to_string().as_str()),
+                    Expr::Literal(Literal::Float(n)) => {
+                        // Convert float to integer string if it's a whole number
+                        let int_val = *n as i64;
+                        InstanceId::from(int_val.to_string().as_str())
+                    }
                     other => panic!(
-                        "EntityAccess instance must be a string literal, got {:?} - dynamic instance lookups are not supported",
+                        "EntityAccess instance must be a literal (string, integer, or float), got {:?} - dynamic instance lookups are not supported",
                         other
                     ),
                 };
@@ -336,6 +343,14 @@ impl Lowerer {
                 position: Box::new(self.lower_expr_with_context(&position.node, ctx)),
                 radius: Box::new(self.lower_expr_with_context(&radius.node, ctx)),
                 body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+            },
+
+            // === Impulse expressions ===
+            Expr::Payload => CompiledExpr::Payload,
+            Expr::PayloadField(field) => CompiledExpr::PayloadField(field.clone()),
+            Expr::EmitSignal { target, value } => CompiledExpr::EmitSignal {
+                target: SignalId::from(target.join(".").as_str()),
+                value: Box::new(self.lower_expr_with_context(&value.node, ctx)),
             },
 
             // Remaining expressions that need more complex handling

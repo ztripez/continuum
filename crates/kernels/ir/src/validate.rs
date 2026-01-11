@@ -380,9 +380,19 @@ fn check_expr_symbols(
             check_expr_symbols(radius, context, defined_signals, defined_constants, defined_config, warnings);
             check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
         }
-        // Literals, Prev, DtRaw, Collected, Local don't need checking
+        CompiledExpr::EmitSignal { value, .. } => {
+            check_expr_symbols(value, context, defined_signals, defined_constants, defined_config, warnings);
+        }
+        // Literals, Prev, DtRaw, Collected, Local, Payload don't need checking
         // Local variables are validated at parse/lower time
-        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::Collected | CompiledExpr::Local(_) => {}
+        // Payload expressions are validated in impulse context
+        CompiledExpr::Literal(_)
+        | CompiledExpr::Prev
+        | CompiledExpr::DtRaw
+        | CompiledExpr::Collected
+        | CompiledExpr::Local(_)
+        | CompiledExpr::Payload
+        | CompiledExpr::PayloadField(_) => {}
     }
 }
 

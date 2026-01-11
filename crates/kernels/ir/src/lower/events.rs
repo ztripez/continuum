@@ -2,7 +2,7 @@
 //!
 //! This module handles lowering impulse and fracture definitions from AST to IR.
 
-use continuum_dsl::ast;
+use continuum_dsl::ast::{self, Expr};
 use continuum_foundation::{FractureId, ImpulseId, SignalId};
 
 use crate::{CompiledEmit, CompiledFracture, CompiledImpulse, ValueType};
@@ -51,25 +51,75 @@ impl Lowerer {
         for cond in &def.conditions {
             self.collect_signal_refs(&cond.node, &mut reads);
         }
-        for emit in &def.emit {
-            self.collect_signal_refs(&emit.value.node, &mut reads);
+
+        // Collect emit expressions from the emit block
+        let emits = self.collect_emit_expressions(def.emit.as_ref().map(|e| &e.node));
+        for (_, value_expr) in &emits {
+            self.collect_signal_refs(value_expr, &mut reads);
         }
 
         let fracture = CompiledFracture {
             id: id.clone(),
             reads,
-            conditions: def.conditions.iter().map(|c| self.lower_expr(&c.node)).collect(),
-            emits: def
-                .emit
+            conditions: def
+                .conditions
                 .iter()
-                .map(|e| CompiledEmit {
-                    target: SignalId::from(e.target.node.join(".").as_str()),
-                    value: self.lower_expr(&e.value.node),
+                .map(|c| self.lower_expr(&c.node))
+                .collect(),
+            emits: emits
+                .into_iter()
+                .map(|(target, value)| CompiledEmit {
+                    target: SignalId::from(target.join(".").as_str()),
+                    value: self.lower_expr(&value),
                 })
                 .collect(),
         };
 
         self.fractures.insert(id, fracture);
         Ok(())
+    }
+
+    /// Collect emit expressions from an expression tree.
+    /// Handles single EmitSignal, Block containing multiple emits, or nested structures.
+    fn collect_emit_expressions<'a>(
+        &self,
+        expr: Option<&'a Expr>,
+    ) -> Vec<(ast::Path, &'a Expr)> {
+        let mut emits = Vec::new();
+        if let Some(expr) = expr {
+            self.collect_emits_recursive(expr, &mut emits);
+        }
+        emits
+    }
+
+    fn collect_emits_recursive<'a>(&self, expr: &'a Expr, emits: &mut Vec<(ast::Path, &'a Expr)>) {
+        match expr {
+            Expr::EmitSignal { target, value } => {
+                emits.push((target.clone(), &value.node));
+            }
+            Expr::Block(exprs) => {
+                for spanned_expr in exprs {
+                    self.collect_emits_recursive(&spanned_expr.node, emits);
+                }
+            }
+            Expr::Let { body, .. } => {
+                // Let bindings can contain emit expressions in their body
+                self.collect_emits_recursive(&body.node, emits);
+            }
+            Expr::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                // Conditional emits
+                self.collect_emits_recursive(&then_branch.node, emits);
+                if let Some(else_expr) = else_branch {
+                    self.collect_emits_recursive(&else_expr.node, emits);
+                }
+            }
+            _ => {
+                // Other expressions don't contain emits
+            }
+        }
     }
 }

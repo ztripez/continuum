@@ -330,6 +330,13 @@ impl Lowerer {
             Config(name) => Config(name.clone()),
             Local(name) => Local(name.clone()),
 
+            // Payload expressions: expand to component access
+            Payload => FieldAccess {
+                object: Box::new(Payload),
+                field: component.to_string(),
+            },
+            PayloadField(field) => PayloadField(field.clone()),
+
             // Signals: if accessing a vector signal without explicit component,
             // add the component accessor
             Signal(id) => FieldAccess {
@@ -460,7 +467,7 @@ impl Lowerer {
                 }
             }
 
-            // Entity expressions: not supported in vector context
+            // Entity/impulse expressions: not supported in vector context
             SelfField(_)
             | EntityAccess { .. }
             | Aggregate { .. }
@@ -469,9 +476,10 @@ impl Lowerer {
             | Filter { .. }
             | First { .. }
             | Nearest { .. }
-            | Within { .. } => {
+            | Within { .. }
+            | EmitSignal { .. } => {
                 panic!(
-                    "Entity expressions cannot be used in vector signal resolve blocks: {:?}",
+                    "Entity/impulse expressions cannot be used in vector signal resolve blocks: {:?}",
                     expr
                 )
             }
