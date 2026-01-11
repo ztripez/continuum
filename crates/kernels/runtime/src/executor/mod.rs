@@ -55,6 +55,14 @@ pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
 /// Function that evaluates era transition conditions
 pub type TransitionFn = Box<dyn Fn(&SignalStorage) -> Option<EraId> + Send + Sync>;
 
+/// Function that evaluates aggregate expressions over member signals.
+///
+/// These resolvers run after member signal resolution (Phase 3c) and can access
+/// both global signals and member signal data for aggregate computations like
+/// `sum(entity.particle, self.mass)`.
+pub type AggregateResolverFn =
+    Box<dyn Fn(&SignalStorage, &MemberSignalBuffer, Dt) -> Value + Send + Sync>;
+
 /// Era configuration
 pub struct EraConfig {
     /// Time step for this era
@@ -76,6 +84,9 @@ pub struct Runtime {
     /// Member resolver functions indexed by signal name
     /// Uses ScalarResolverFn which captures constants/config at build time
     member_resolvers: IndexMap<String, ScalarResolverFn>,
+    /// Aggregate resolvers for signals that depend on member signal data
+    /// Maps signal ID to (resolver_fn) - runs after member signal resolution
+    aggregate_resolvers: IndexMap<SignalId, AggregateResolverFn>,
     /// Input channels for Collect phase
     input_channels: InputChannels,
     /// Field buffer for Measure phase
@@ -109,6 +120,7 @@ impl Runtime {
             entities: EntityStorage::default(),
             member_signals: MemberSignalBuffer::new(),
             member_resolvers: IndexMap::new(),
+            aggregate_resolvers: IndexMap::new(),
             input_channels: InputChannels::default(),
             field_buffer: FieldBuffer::default(),
             fracture_queue: FractureQueue::default(),
@@ -207,6 +219,15 @@ impl Runtime {
     pub fn register_member_resolver(&mut self, signal_name: String, resolver: ScalarResolverFn) {
         tracing::debug!(signal = %signal_name, "member resolver registered");
         self.member_resolvers.insert(signal_name, resolver);
+    }
+
+    /// Register an aggregate resolver for a signal that depends on member signal data.
+    ///
+    /// These resolvers run after member signal resolution (Phase 3c) and can compute
+    /// aggregates like `sum(entity.particle, self.mass)`.
+    pub fn register_aggregate_resolver(&mut self, signal_id: SignalId, resolver: AggregateResolverFn) {
+        tracing::debug!(signal = %signal_id, "aggregate resolver registered");
+        self.aggregate_resolvers.insert(signal_id, resolver);
     }
 
     /// Get a member signal value for a specific instance
@@ -350,6 +371,9 @@ impl Runtime {
         // Phase 3b: Resolve member signals (after global signals are available)
         self.execute_member_resolve(dt)?;
 
+        // Phase 3c: Resolve aggregate signals (after member signals are available)
+        self.execute_aggregate_resolve(dt)?;
+
         // Phase 4: Fracture
         self.phase_executor.execute_fracture(
             &self.current_era,
@@ -457,6 +481,53 @@ impl Runtime {
                 trace!(signal = %signal_name, instance = instance_idx, value, "member signal resolved");
                 self.member_signals.set_current(&signal_name, instance_idx, Value::Scalar(value));
             }
+        }
+
+        Ok(())
+    }
+
+    /// Execute aggregate signal resolution (Phase 3c).
+    ///
+    /// Runs after member signal resolution so that aggregate expressions like
+    /// `sum(entity.particle, self.mass)` have access to resolved member values.
+    #[instrument(skip(self), name = "aggregate_resolve")]
+    fn execute_aggregate_resolve(&mut self, dt: Dt) -> Result<()> {
+        if self.aggregate_resolvers.is_empty() {
+            return Ok(());
+        }
+
+        trace!(
+            resolvers = self.aggregate_resolvers.len(),
+            "resolving aggregate signals"
+        );
+
+        // Copy signal IDs to avoid borrow issues
+        let signal_ids: Vec<SignalId> = self.aggregate_resolvers.keys().cloned().collect();
+
+        for signal_id in signal_ids {
+            let resolver = self.aggregate_resolvers.get(&signal_id).unwrap();
+            let value = resolver(&self.signals, &self.member_signals, dt);
+
+            // Validate numeric results
+            if let Some(scalar) = value.as_scalar() {
+                if scalar.is_nan() {
+                    error!(signal = %signal_id, "NaN result in aggregate signal");
+                    return Err(Error::NumericError {
+                        signal: signal_id.clone(),
+                        message: "NaN result in aggregate".to_string(),
+                    });
+                }
+                if scalar.is_infinite() {
+                    error!(signal = %signal_id, "infinite result in aggregate signal");
+                    return Err(Error::NumericError {
+                        signal: signal_id.clone(),
+                        message: "Infinite result in aggregate".to_string(),
+                    });
+                }
+            }
+
+            trace!(signal = %signal_id, ?value, "aggregate signal resolved");
+            self.signals.set_current(signal_id, value);
         }
 
         Ok(())

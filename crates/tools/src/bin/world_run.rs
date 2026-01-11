@@ -16,9 +16,9 @@ use tracing::{error, info, warn};
 use continuum_dsl::load_world;
 use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
 use continuum_ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture, build_member_resolver,
-    build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
-    validate,
+    build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
+    build_fracture, build_member_resolver, build_signal_resolver, compile,
+    convert_assertion_severity, get_initial_signal_value, lower, validate,
 };
 use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
@@ -200,31 +200,51 @@ fn main() {
 
     // Register resolvers
     // IMPORTANT: Must register in the same order as DAG builder expects (all signals)
-    // Signals with entity expressions get placeholder resolvers that should never be called
-    // (the DAG should not include entity expression signals in the resolve phase)
+    // Signals with entity expressions get:
+    //   1. A placeholder resolver (maintains index ordering for DAG)
+    //   2. An aggregate resolver (runs in Phase 3c after member resolution)
     let mut resolver_count = 0;
-    let mut entity_signal_count = 0;
+    let mut aggregate_count = 0;
     for (signal_id, signal) in &world.signals {
         if let Some(resolver) = build_signal_resolver(signal, &world) {
             let idx = runtime.register_resolver(resolver);
             info!("  Registered resolver for {} (idx={})", signal_id, idx);
             resolver_count += 1;
-        } else {
-            // Register a placeholder resolver for entity expression signals
-            // This ensures indices match what the DAG expects
+        } else if let Some(ref resolve_expr) = signal.resolve {
+            // Signal has entity expressions - register placeholder for DAG ordering
+            // and a separate aggregate resolver for Phase 3c
             let signal_name = signal_id.0.clone();
             let placeholder: ResolverFn = Box::new(move |_ctx| {
+                // This placeholder should never be called - aggregates run in Phase 3c
                 panic!(
-                    "Signal '{}' requires EntityExecutor but was called in bytecode path",
+                    "Signal '{}' placeholder called - aggregate signals run in Phase 3c",
                     signal_name
                 );
             });
             let idx = runtime.register_resolver(placeholder);
-            info!("  Registered placeholder for {} (idx={}) - requires EntityExecutor", signal_id, idx);
-            entity_signal_count += 1;
+
+            // Build and register the actual aggregate resolver
+            let aggregate_resolver = build_aggregate_resolver(resolve_expr, &world);
+            runtime.register_aggregate_resolver(SignalId(signal_id.0.clone()), aggregate_resolver);
+            info!(
+                "  Registered aggregate resolver for {} (placeholder idx={})",
+                signal_id, idx
+            );
+            aggregate_count += 1;
+        } else {
+            // Signal has no resolve expression - just register a no-op placeholder
+            let signal_name = signal_id.0.clone();
+            let placeholder: ResolverFn = Box::new(move |_ctx| {
+                panic!(
+                    "Signal '{}' has no resolve expression",
+                    signal_name
+                );
+            });
+            let idx = runtime.register_resolver(placeholder);
+            info!("  Registered placeholder for {} (idx={}) - no resolve expr", signal_id, idx);
         }
     }
-    info!("  Total: {} resolvers, {} entity expression placeholders", resolver_count, entity_signal_count);
+    info!("  Total: {} resolvers, {} aggregate resolvers", resolver_count, aggregate_count);
 
     // Register assertions
     let mut assertion_count = 0;
@@ -293,13 +313,20 @@ fn main() {
 
     // Initialize entities
     for (entity_id, entity) in &world.entities {
-        // Determine instance count from config or default
+        // Determine instance count from config, bounds, or default
         let count = if let Some(ref count_source) = entity.count_source {
             world
                 .config
                 .get(count_source)
                 .map(|v| *v as usize)
                 .unwrap_or(1)
+        } else if let Some((min, max)) = entity.count_bounds {
+            // If bounds are fixed (min == max), use that; otherwise use min
+            if min == max {
+                min as usize
+            } else {
+                min as usize
+            }
         } else {
             1
         };
@@ -344,12 +371,14 @@ fn main() {
             .entities
             .values()
             .next()
-            .and_then(|entity| {
-                entity
-                    .count_source
-                    .as_ref()
-                    .and_then(|src| world.config.get(src))
-                    .map(|v| *v as usize)
+            .map(|entity| {
+                if let Some(ref count_source) = entity.count_source {
+                    world.config.get(count_source).map(|v| *v as usize).unwrap_or(1)
+                } else if let Some((min, max)) = entity.count_bounds {
+                    if min == max { min as usize } else { min as usize }
+                } else {
+                    1
+                }
             })
             .unwrap_or(1);
 

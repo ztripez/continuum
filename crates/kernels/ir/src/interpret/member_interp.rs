@@ -70,6 +70,9 @@ pub struct MemberInterpContext<'a> {
     /// Entity prefix for constructing full member paths (e.g., "terra.plate")
     /// Used to convert short field names like "age" to full paths like "terra.plate.age"
     pub entity_prefix: String,
+    /// Whether to read current tick values (for aggregates after member resolution)
+    /// or previous tick values (for member resolution during the tick)
+    pub read_current: bool,
 }
 
 impl<'a> MemberInterpContext<'a> {
@@ -97,6 +100,7 @@ impl<'a> MemberInterpContext<'a> {
             config,
             locals: HashMap::new(),
             entity_prefix: entity_prefix.to_string(),
+            read_current: false, // During member resolution, read previous tick values
         }
     }
 
@@ -133,10 +137,17 @@ impl<'a> MemberInterpContext<'a> {
     /// Constructs the full member path from the entity prefix and field name.
     /// For example, if entity_prefix is "terra.plate" and field is "age",
     /// looks up "terra.plate.age".
+    ///
+    /// Uses `get_current()` if `read_current` is true (for aggregate evaluation),
+    /// otherwise uses `get_previous()` (for member resolution during tick).
     fn self_field(&self, field: &str) -> f64 {
         let full_path = format!("{}.{}", self.entity_prefix, field);
-        self.members
-            .get_previous(&full_path, self.index)
+        let value = if self.read_current {
+            self.members.get_current(&full_path, self.index)
+        } else {
+            self.members.get_previous(&full_path, self.index)
+        };
+        value
             .and_then(|v| v.as_scalar())
             .unwrap_or_else(|| {
                 panic!(
@@ -149,10 +160,16 @@ impl<'a> MemberInterpContext<'a> {
     /// Get a member field component for the current instance.
     ///
     /// Constructs the full member path from the entity prefix and field name.
+    /// Uses `get_current()` if `read_current` is true (for aggregate evaluation),
+    /// otherwise uses `get_previous()` (for member resolution during tick).
     fn self_field_component(&self, field: &str, component: &str) -> f64 {
         let full_path = format!("{}.{}", self.entity_prefix, field);
-        self.members
-            .get_previous(&full_path, self.index)
+        let value = if self.read_current {
+            self.members.get_current(&full_path, self.index)
+        } else {
+            self.members.get_previous(&full_path, self.index)
+        };
+        value
             .and_then(|v| v.component(component))
             .unwrap_or_else(|| {
                 panic!(
@@ -647,6 +664,7 @@ mod tests {
             config,
             locals: HashMap::new(),
             entity_prefix: TEST_ENTITY_PREFIX.to_string(),
+            read_current: false, // Tests use previous tick values like member resolution
         }
     }
 

@@ -51,10 +51,12 @@ use indexmap::IndexMap;
 
 use continuum_foundation::{EraId, FieldId, SignalId, StratumId};
 use continuum_runtime::executor::{
-    AssertionFn, AssertionSeverity, EraConfig, FractureFn, MeasureFn, ResolverFn, TransitionFn,
+    AggregateResolverFn, AssertionFn, AssertionSeverity, EraConfig, FractureFn, MeasureFn,
+    ResolverFn, TransitionFn,
 };
 // Import functions crate to ensure kernels are registered
 use continuum_functions as _;
+use continuum_runtime::soa_storage::MemberSignalBuffer;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::{Dt, Value};
 use continuum_vm::{execute, BytecodeChunk};
@@ -597,4 +599,52 @@ pub fn convert_assertion_severity(severity: IrAssertionSeverity) -> AssertionSev
         IrAssertionSeverity::Error => AssertionSeverity::Error,
         IrAssertionSeverity::Fatal => AssertionSeverity::Fatal,
     }
+}
+
+/// Builds an aggregate resolver for signals that depend on member signal data.
+///
+/// This function creates a closure that evaluates aggregate expressions like
+/// `sum(entity.particle, self.mass)` over all entity instances. The closure
+/// captures constants and config at build time and accesses member signals at
+/// evaluation time.
+///
+/// # Arguments
+///
+/// * `expr` - The compiled expression containing the aggregate
+/// * `world` - The compiled world containing constants and config
+///
+/// # Returns
+///
+/// An `AggregateResolverFn` that computes the aggregate value when called.
+pub fn build_aggregate_resolver(
+    expr: &CompiledExpr,
+    world: &CompiledWorld,
+) -> AggregateResolverFn {
+    use member_interp::{interpret_expr, MemberInterpContext};
+    use std::collections::HashMap;
+
+    let expr = expr.clone();
+    let constants = world.constants.clone();
+    let config = world.config.clone();
+
+    Box::new(move |signals: &SignalStorage, members: &MemberSignalBuffer, dt: Dt| {
+        // Create a context for interpretation
+        // For aggregate signals, we don't have a "self" instance - the aggregate
+        // iterates over all instances internally
+        let mut ctx = MemberInterpContext {
+            prev: 0.0,                  // Not used for aggregate signals
+            index: 0,                   // Will be set by aggregate iteration
+            dt: dt.seconds(),
+            signals,
+            members,
+            constants: &constants,
+            config: &config,
+            locals: HashMap::new(),
+            entity_prefix: String::new(), // Will be set by aggregate during iteration
+            read_current: true, // Read current tick values (member resolution already complete)
+        };
+
+        let result = interpret_expr(&expr, &mut ctx);
+        Value::Scalar(result)
+    })
 }
