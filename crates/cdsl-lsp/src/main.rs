@@ -274,6 +274,49 @@ impl Backend {
         duplicates
     }
 
+    /// Find unused symbols (defined but never referenced) in a specific file.
+    ///
+    /// Returns a list of (path, span, kind) for symbols that have no references
+    /// anywhere in the workspace.
+    fn find_unused_symbols_in_file(
+        &self,
+        uri: &Url,
+    ) -> Vec<(String, std::ops::Range<usize>, CdslSymbolKind)> {
+        let index = match self.symbol_indices.get(uri) {
+            Some(idx) => idx,
+            None => return vec![],
+        };
+
+        // Collect all references across the entire workspace
+        let mut all_refs: std::collections::HashSet<(String, CdslSymbolKind)> =
+            std::collections::HashSet::new();
+
+        for entry in self.symbol_indices.iter() {
+            for ref_info in entry.value().get_references_for_validation().iter() {
+                all_refs.insert((ref_info.target_path.clone(), ref_info.kind));
+            }
+        }
+
+        // Find definitions in this file that have no references
+        let mut unused = Vec::new();
+        for (info, span) in index.get_all_definitions() {
+            // Skip certain kinds that are entry points or config
+            match info.kind {
+                CdslSymbolKind::World
+                | CdslSymbolKind::Era
+                | CdslSymbolKind::Const
+                | CdslSymbolKind::Config => continue,
+                _ => {}
+            }
+
+            if !all_refs.contains(&(info.path.clone(), info.kind)) {
+                unused.push((info.path.clone(), span, info.kind));
+            }
+        }
+
+        unused
+    }
+
     /// Run workspace-level validation and publish diagnostics.
     ///
     /// This should be called after workspace scanning is complete.
@@ -400,6 +443,75 @@ impl Backend {
                         kind.display_name(),
                         path
                     ),
+                    ..Default::default()
+                });
+            }
+
+            self.client
+                .publish_diagnostics(uri, diagnostics, None)
+                .await;
+        }
+
+        // Check for unused symbols in all files
+        for entry in self.symbol_indices.iter() {
+            let uri = entry.key().clone();
+            let unused = self.find_unused_symbols_in_file(&uri);
+
+            if unused.is_empty() {
+                continue;
+            }
+
+            let text = self
+                .documents
+                .get(&uri)
+                .map(|v| v.clone())
+                .or_else(|| {
+                    uri.to_file_path()
+                        .ok()
+                        .and_then(|p| std::fs::read_to_string(p).ok())
+                })
+                .unwrap_or_default();
+
+            // Re-parse to get existing diagnostics
+            let (_, errors) = parse(&text);
+            let mut diagnostics: Vec<Diagnostic> = errors
+                .iter()
+                .map(|err| {
+                    let span = err.span();
+                    let (start_line, start_char) = offset_to_position(&text, span.start);
+                    let (end_line, end_char) = offset_to_position(&text, span.end);
+
+                    Diagnostic {
+                        range: Range {
+                            start: Position::new(start_line, start_char),
+                            end: Position::new(end_line, end_char),
+                        },
+                        severity: Some(DiagnosticSeverity::ERROR),
+                        source: Some("cdsl".to_string()),
+                        message: format!("{}", err.reason()),
+                        ..Default::default()
+                    }
+                })
+                .collect();
+
+            // Add unused symbol hints
+            for (path, span, kind) in unused {
+                let (start_line, start_char) = offset_to_position(&text, span.start);
+                let (end_line, end_char) = offset_to_position(&text, span.end);
+
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                    severity: Some(DiagnosticSeverity::HINT),
+                    source: Some("cdsl".to_string()),
+                    message: format!(
+                        "Unused {}: '{}' is never referenced",
+                        kind.display_name(),
+                        path
+                    ),
+                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
                     ..Default::default()
                 });
             }

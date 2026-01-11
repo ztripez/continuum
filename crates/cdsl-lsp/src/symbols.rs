@@ -52,7 +52,7 @@ pub struct SymbolInfo {
 }
 
 /// The kind of symbol.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SymbolKind {
     Signal,
     Field,
