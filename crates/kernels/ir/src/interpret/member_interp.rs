@@ -43,7 +43,7 @@ use continuum_runtime::soa_storage::MemberSignalBuffer;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::SignalId;
 
-use crate::{BinaryOpIr, CompiledExpr, DtRobustOperator, UnaryOpIr};
+use crate::{AggregateOpIr, BinaryOpIr, CompiledExpr, DtRobustOperator, UnaryOpIr};
 
 /// Context for interpreting member expressions.
 ///
@@ -290,12 +290,66 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> f64
             _ => panic!("Unsupported field access base: {:?}", object),
         },
 
-        // Entity aggregate operations - not yet implemented
-        CompiledExpr::Aggregate { op, entity, .. } => {
-            panic!(
-                "Aggregate({:?} over {}) not yet implemented in member interpreter",
-                op, entity.0
-            )
+        // Entity aggregate operations: sum/mean/min/max/count over entity instances
+        CompiledExpr::Aggregate { op, entity, body } => {
+            let instance_count = ctx.members.instance_count();
+            if instance_count == 0 {
+                // Return identity for empty aggregations
+                return match op {
+                    AggregateOpIr::Sum => 0.0,
+                    AggregateOpIr::Product => 1.0,
+                    AggregateOpIr::Min => f64::INFINITY,
+                    AggregateOpIr::Max => f64::NEG_INFINITY,
+                    AggregateOpIr::Mean => 0.0,
+                    AggregateOpIr::Count => 0.0,
+                    AggregateOpIr::Any => 0.0,
+                    AggregateOpIr::All => 1.0,
+                    AggregateOpIr::None => 1.0, // True (1.0) if no values are non-zero (vacuously true for empty set)
+                };
+            }
+
+            // Save original context
+            let original_prefix = ctx.entity_prefix.clone();
+            let original_index = ctx.index;
+
+            // Set entity context for the aggregation
+            // The entity ID (e.g., "terra.plate") becomes the prefix for self.* lookups
+            ctx.entity_prefix = entity.0.clone();
+
+            // Collect values by evaluating body for each instance
+            let values: Vec<f64> = (0..instance_count)
+                .map(|i| {
+                    ctx.index = i;
+                    interpret_expr(body, ctx)
+                })
+                .collect();
+
+            // Restore original context
+            ctx.entity_prefix = original_prefix;
+            ctx.index = original_index;
+
+            // Aggregate the collected values
+            match op {
+                AggregateOpIr::Sum => values.iter().sum(),
+                AggregateOpIr::Product => values.iter().product(),
+                AggregateOpIr::Min => values.iter().copied().fold(f64::INFINITY, f64::min),
+                AggregateOpIr::Max => values.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+                AggregateOpIr::Mean => {
+                    let sum: f64 = values.iter().sum();
+                    sum / values.len() as f64
+                }
+                AggregateOpIr::Count => values.len() as f64,
+                AggregateOpIr::Any => {
+                    if values.iter().any(|v| v.abs() > f64::EPSILON) { 1.0 } else { 0.0 }
+                }
+                AggregateOpIr::All => {
+                    if values.iter().all(|v| v.abs() > f64::EPSILON) { 1.0 } else { 0.0 }
+                }
+                AggregateOpIr::None => {
+                    // True (1.0) if no values are non-zero
+                    if values.iter().all(|v| v.abs() <= f64::EPSILON) { 1.0 } else { 0.0 }
+                }
+            }
         }
 
         // Other entity operations - not yet implemented
@@ -741,5 +795,89 @@ mod tests {
         };
 
         assert_eq!(resolver(&ctx), 151.0); // 50 + 101 = 151
+    }
+
+    #[test]
+    fn test_aggregate_sum() {
+        use continuum_foundation::EntityId;
+
+        let signals = create_test_signals();
+        let members = create_test_members(3);
+        let constants = IndexMap::new();
+        let config = IndexMap::new();
+        let mut ctx = create_test_context(0.0, 0, &signals, &members, &constants, &config);
+
+        // Sum of all ages: 10 + 20 + 30 = 60
+        let expr = CompiledExpr::Aggregate {
+            op: AggregateOpIr::Sum,
+            entity: EntityId::from(TEST_ENTITY_PREFIX),
+            body: Box::new(CompiledExpr::SelfField("age".to_string())),
+        };
+        assert_eq!(interpret_expr(&expr, &mut ctx), 60.0);
+    }
+
+    #[test]
+    fn test_aggregate_mean() {
+        use continuum_foundation::EntityId;
+
+        let signals = create_test_signals();
+        let members = create_test_members(3);
+        let constants = IndexMap::new();
+        let config = IndexMap::new();
+        let mut ctx = create_test_context(0.0, 0, &signals, &members, &constants, &config);
+
+        // Mean of all ages: (10 + 20 + 30) / 3 = 20
+        let expr = CompiledExpr::Aggregate {
+            op: AggregateOpIr::Mean,
+            entity: EntityId::from(TEST_ENTITY_PREFIX),
+            body: Box::new(CompiledExpr::SelfField("age".to_string())),
+        };
+        assert_eq!(interpret_expr(&expr, &mut ctx), 20.0);
+    }
+
+    #[test]
+    fn test_aggregate_min_max() {
+        use continuum_foundation::EntityId;
+
+        let signals = create_test_signals();
+        let members = create_test_members(3);
+        let constants = IndexMap::new();
+        let config = IndexMap::new();
+        let mut ctx = create_test_context(0.0, 0, &signals, &members, &constants, &config);
+
+        // Min of all ages: 10
+        let min_expr = CompiledExpr::Aggregate {
+            op: AggregateOpIr::Min,
+            entity: EntityId::from(TEST_ENTITY_PREFIX),
+            body: Box::new(CompiledExpr::SelfField("age".to_string())),
+        };
+        assert_eq!(interpret_expr(&min_expr, &mut ctx), 10.0);
+
+        // Max of all ages: 30
+        let max_expr = CompiledExpr::Aggregate {
+            op: AggregateOpIr::Max,
+            entity: EntityId::from(TEST_ENTITY_PREFIX),
+            body: Box::new(CompiledExpr::SelfField("age".to_string())),
+        };
+        assert_eq!(interpret_expr(&max_expr, &mut ctx), 30.0);
+    }
+
+    #[test]
+    fn test_aggregate_count() {
+        use continuum_foundation::EntityId;
+
+        let signals = create_test_signals();
+        let members = create_test_members(3);
+        let constants = IndexMap::new();
+        let config = IndexMap::new();
+        let mut ctx = create_test_context(0.0, 0, &signals, &members, &constants, &config);
+
+        // Count of all instances: 3
+        let expr = CompiledExpr::Aggregate {
+            op: AggregateOpIr::Count,
+            entity: EntityId::from(TEST_ENTITY_PREFIX),
+            body: Box::new(CompiledExpr::Literal(1.0)), // body is ignored for count
+        };
+        assert_eq!(interpret_expr(&expr, &mut ctx), 3.0);
     }
 }
