@@ -389,38 +389,13 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             })
             .boxed();
 
-        // Let expression: let name = value in body
-        // Multiple lets chain together: let a = 1 in let b = 2 in a + b
-        // Boxed to reduce type complexity and prevent stack overflow with chained lets.
-        let let_expr = text::keyword("let")
-            .padded_by(ws())
-            .map_with(|_, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                span.start
-            })
-            .then(ident())
-            .then_ignore(just('=').padded_by(ws()))
-            .then(expr_boxed.clone())
-            .then_ignore(text::keyword("in").padded_by(ws()))
-            .then(expr_boxed.clone())
-            .map(|(((let_start, name), value), body)| {
-                let span = let_start..body.span.end;
-                Spanned::new(
-                    Expr::Let {
-                        name,
-                        value: Box::new(value),
-                        body: Box::new(body),
-                    },
-                    span,
-                )
-            })
-            .boxed();
-
         // If expression: if condition { then } else { else }
         // Also supports: if cond { a } else if cond2 { b } else { c }
         //
         // Uses iterative parsing of else-if chains to avoid recursive parser issues.
         // Pattern: if COND { BLOCK } (else if COND { BLOCK })* (else { BLOCK })?
+        //
+        // NOTE: Defined BEFORE let_expr so it can be used in expr_without_let.
         let if_expr = {
             // Braced block: { expr ; expr ; ... } or { expr }
             // Supports semicolon-separated expressions for sequencing
@@ -511,6 +486,56 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                         },
                         if_start..final_span_end,
                     )
+                })
+                .boxed()
+        };
+
+        // Expression without let - includes emit, if-else, and logical_or but NOT let expressions.
+        // Used for the value part of let bindings to prevent recursive let parsing while still
+        // allowing if-else expressions like: let x = if cond { a } else { b } in ...
+        let expr_without_let = choice((emit_expr.clone(), if_expr.clone(), logical_or.clone())).boxed();
+
+        // Let expression: let name = value in body
+        // Multiple lets chain together: let a = 1 in let b = 2 in a + b
+        //
+        // Uses iterative parsing of let chains to avoid stack overflow with deeply nested lets.
+        // Pattern: (let NAME = VALUE in)+ BODY
+        // We parse each "let name = value in" as a binding prefix, then fold right-to-left.
+        let let_expr = {
+            // A single let binding prefix: let name = value in
+            // Note: value uses expr_without_let to allow if-else but prevent recursive let parsing.
+            let let_binding = text::keyword("let")
+                .padded_by(ws())
+                .map_with(|_, extra| {
+                    let span: chumsky::span::SimpleSpan = extra.span();
+                    span.start
+                })
+                .then(ident())
+                .then_ignore(just('=').padded_by(ws()))
+                .then(expr_without_let.clone())
+                .then_ignore(text::keyword("in").padded_by(ws()));
+
+            // Parse one or more let bindings followed by a body expression
+            let_binding
+                .repeated()
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .then(expr_boxed.clone())
+                .map(|(bindings, body)| {
+                    // Fold bindings from right to left to build nested Let expressions
+                    let mut result = body;
+                    for ((let_start, name), value) in bindings.into_iter().rev() {
+                        let span = let_start..result.span.end;
+                        result = Spanned::new(
+                            Expr::Let {
+                                name,
+                                value: Box::new(value),
+                                body: Box::new(result),
+                            },
+                            span,
+                        );
+                    }
+                    result
                 })
                 .boxed()
         };
