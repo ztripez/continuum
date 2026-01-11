@@ -28,10 +28,10 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
+    Ident, ItemFn, LitStr, Token,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
-    Ident, ItemFn, LitStr, Token,
 };
 
 /// Arguments to the kernel_fn attribute
@@ -73,7 +73,10 @@ impl Parse for KernelArg {
                 Ok(KernelArg::Name(lit.value()))
             }
             "variadic" => Ok(KernelArg::Variadic),
-            other => Err(syn::Error::new(ident.span(), format!("unknown argument: {}", other))),
+            other => Err(syn::Error::new(
+                ident.span(),
+                format!("unknown argument: {}", other),
+            )),
         }
     }
 }
@@ -142,7 +145,11 @@ fn generate_kernel_registration(
     let has_dt = params.last().map_or(false, |p| {
         if let syn::FnArg::Typed(pat) = p {
             if let syn::Type::Path(tp) = pat.ty.as_ref() {
-                return tp.path.segments.last().map_or(false, |seg| seg.ident == "Dt");
+                return tp
+                    .path
+                    .segments
+                    .last()
+                    .map_or(false, |seg| seg.ident == "Dt");
             }
         }
         false

@@ -359,7 +359,9 @@ fn test_parse_vec4_unit_quaternion() {
                 } => {
                     assert_eq!(*dim, 4);
                     assert_eq!(unit, "1");
-                    let mag = magnitude.as_ref().expect("should have magnitude constraint");
+                    let mag = magnitude
+                        .as_ref()
+                        .expect("should have magnitude constraint");
                     // Single value 1 is converted to range 1..1
                     assert_eq!(mag.min, 1.0);
                     assert_eq!(mag.max, 1.0);
@@ -551,7 +553,10 @@ fn test_parse_function_call_nested() {
                     assert_eq!(args.len(), 2);
                     // First arg should be min(prev, 1000)
                     match &args[0].value.node {
-                        Expr::Call { function, args: inner_args } => {
+                        Expr::Call {
+                            function,
+                            args: inner_args,
+                        } => {
                             match &function.node {
                                 Expr::Path(p) => assert_eq!(p.join("."), "min"),
                                 _ => panic!("expected Path"),
@@ -1067,7 +1072,11 @@ signal.test.conditional {
             assert!(def.resolve.is_some());
             let resolve = def.resolve.as_ref().unwrap();
             match &resolve.body.node {
-                Expr::If { condition, then_branch, else_branch } => {
+                Expr::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                } => {
                     // Verify condition is prev > 0.0
                     match &condition.node {
                         Expr::Binary { op, .. } => {
@@ -1214,7 +1223,10 @@ signal.test.double_neg {
         Item::SignalDef(def) => {
             let resolve = def.resolve.as_ref().unwrap();
             match &resolve.body.node {
-                Expr::Unary { op: outer_op, operand } => {
+                Expr::Unary {
+                    op: outer_op,
+                    operand,
+                } => {
                     assert_eq!(*outer_op, UnaryOp::Neg);
                     match &operand.node {
                         Expr::Unary { op: inner_op, .. } => {
@@ -1795,7 +1807,10 @@ fn test_terra_file_parses() {
     let ast = ast.unwrap();
     assert!(ast.items.len() > 0, "terra.cdsl should have items");
     // Verify module doc was captured
-    assert!(ast.module_doc.is_some(), "terra.cdsl should have module doc");
+    assert!(
+        ast.module_doc.is_some(),
+        "terra.cdsl should have module doc"
+    );
 }
 
 #[test]
@@ -1867,10 +1882,7 @@ fn test_doc_comments_in_config_block() {
         Item::ConfigBlock(block) => {
             assert_eq!(block.entries.len(), 3);
             // First entry has doc
-            assert_eq!(
-                block.entries[0].doc.as_ref().unwrap(),
-                "First doc comment"
-            );
+            assert_eq!(block.entries[0].doc.as_ref().unwrap(), "First doc comment");
             // Second entry has multi-line doc
             assert_eq!(
                 block.entries[1].doc.as_ref().unwrap(),
@@ -1952,7 +1964,11 @@ fn test_atmosphere_file_parses() {
                         "atmosphere.initial_surface_temp should have doc comment"
                     );
                     assert!(
-                        first_entry.doc.as_ref().unwrap().contains("Radiative balance"),
+                        first_entry
+                            .doc
+                            .as_ref()
+                            .unwrap()
+                            .contains("Radiative balance"),
                         "doc should contain 'Radiative balance'"
                     );
                 }
@@ -1981,7 +1997,10 @@ fn test_parse_world_def() {
     match &unit.items[0].node {
         Item::WorldDef(def) => {
             assert_eq!(def.path.node.join("."), "terra");
-            assert_eq!(def.title.as_ref().unwrap().node, "Earth Planetary Simulation");
+            assert_eq!(
+                def.title.as_ref().unwrap().node,
+                "Earth Planetary Simulation"
+            );
             assert_eq!(def.version.as_ref().unwrap().node, "1.0.0");
 
             let policy = def.policy.as_ref().expect("expected policy block");

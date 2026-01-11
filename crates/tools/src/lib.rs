@@ -4,7 +4,7 @@
 
 pub mod analyze;
 
-use tracing_subscriber::{fmt, EnvFilter};
+use tracing_subscriber::{EnvFilter, fmt};
 
 /// Initialize logging with a default filter.
 ///
@@ -15,8 +15,5 @@ pub fn init_logging() {
         EnvFilter::new("info,continuum_tools=debug,continuum_runtime=debug,continuum_ir=info,continuum_dsl=info")
     });
 
-    fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .init();
+    fmt().with_env_filter(filter).with_target(false).init();
 }

@@ -58,7 +58,11 @@ impl Lowerer {
         let fracture = CompiledFracture {
             id: id.clone(),
             reads,
-            conditions: def.conditions.iter().map(|c| self.lower_expr(&c.node)).collect(),
+            conditions: def
+                .conditions
+                .iter()
+                .map(|c| self.lower_expr(&c.node))
+                .collect(),
             emits: def
                 .emit
                 .iter()

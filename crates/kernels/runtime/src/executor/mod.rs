@@ -20,7 +20,10 @@ use tracing::{error, info, instrument, trace};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
-use crate::storage::{EmittedEventRecord, EventBuffer, FieldBuffer, FieldSample, FractureQueue, InputChannels, SignalStorage};
+use crate::storage::{
+    EmittedEventRecord, EventBuffer, FieldBuffer, FieldSample, FractureQueue, InputChannels,
+    SignalStorage,
+};
 use crate::types::{
     Dt, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value, WarmupConfig,
     WarmupResult,
@@ -29,23 +32,26 @@ use crate::types::{
 // Re-export public types
 pub use assertions::{AssertionChecker, AssertionFn, AssertionSeverity, SignalAssertion};
 pub use context::{
-    AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext,
-    ResolveContext, WarmupContext,
+    AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext,
+    MeasureContext, ResolveContext, WarmupContext,
 };
-pub use member_executor::{
-    ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver, ScalarResolveContext,
-    ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
-};
+pub use kernel_registry::LaneKernelRegistry;
+pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
 pub use l3_kernel::{
     L3Kernel, L3KernelBuilder, L3MemberResolver, MemberDag, MemberDagError, MemberEdge,
     ScalarL3MemberResolver, ScalarL3ResolveContext, ScalarL3ResolverFn, Vec3L3MemberResolver,
     Vec3L3ResolveContext, Vec3L3ResolverFn,
 };
-pub use kernel_registry::LaneKernelRegistry;
-pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
 pub use lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
 pub use lowering_strategy::{LoweringHeuristics, LoweringStrategy};
-pub use phases::{ChronicleFn, CollectFn, EmittedEvent, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn, MeasureParallelConfig, PhaseExecutor, ResolverFn};
+pub use member_executor::{
+    ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver,
+    ScalarResolveContext, ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
+};
+pub use phases::{
+    ChronicleFn, CollectFn, EmittedEvent, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn,
+    MeasureParallelConfig, PhaseExecutor, ResolverFn,
+};
 pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
 
 /// Function that evaluates era transition conditions
@@ -412,22 +418,13 @@ mod tests {
 
         // Execute ticks
         runtime.execute_tick().unwrap();
-        assert_eq!(
-            runtime.get_signal(&signal_id),
-            Some(&Value::Scalar(1.0))
-        );
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(1.0)));
 
         runtime.execute_tick().unwrap();
-        assert_eq!(
-            runtime.get_signal(&signal_id),
-            Some(&Value::Scalar(2.0))
-        );
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(2.0)));
 
         runtime.execute_tick().unwrap();
-        assert_eq!(
-            runtime.get_signal(&signal_id),
-            Some(&Value::Scalar(3.0))
-        );
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(3.0)));
     }
 
     #[test]
@@ -703,7 +700,12 @@ mod tests {
         let signal_id_clone = signal_id.clone();
         let field_id_clone = field_id.clone();
         runtime.register_measure_op(Box::new(move |ctx| {
-            let temp = ctx.signals.get(&signal_id_clone).unwrap().as_scalar().unwrap();
+            let temp = ctx
+                .signals
+                .get(&signal_id_clone)
+                .unwrap()
+                .as_scalar()
+                .unwrap();
             ctx.fields.emit_scalar(field_id_clone.clone(), temp);
         }));
 
@@ -1049,10 +1051,7 @@ mod tests {
         );
 
         // Gated signal should NOT have changed (gated stratum skipped)
-        assert_eq!(
-            runtime.get_signal(&gated_signal),
-            Some(&Value::Scalar(0.0))
-        );
+        assert_eq!(runtime.get_signal(&gated_signal), Some(&Value::Scalar(0.0)));
     }
 
     #[test]
@@ -1269,7 +1268,12 @@ mod tests {
         // Register chronicle: emit event when temperature > 100
         let signal_id_clone = signal_id.clone();
         runtime.register_chronicle(Box::new(move |ctx| {
-            let temp = ctx.signals.get(&signal_id_clone).unwrap().as_scalar().unwrap();
+            let temp = ctx
+                .signals
+                .get(&signal_id_clone)
+                .unwrap()
+                .as_scalar()
+                .unwrap();
             if temp > 100.0 {
                 vec![EmittedEvent {
                     name: "high_temperature".to_string(),
@@ -1360,7 +1364,12 @@ mod tests {
         // Register chronicle: emit event only when pressure > 100 (never true)
         let signal_id_clone = signal_id.clone();
         runtime.register_chronicle(Box::new(move |ctx| {
-            let pressure = ctx.signals.get(&signal_id_clone).unwrap().as_scalar().unwrap();
+            let pressure = ctx
+                .signals
+                .get(&signal_id_clone)
+                .unwrap()
+                .as_scalar()
+                .unwrap();
             if pressure > 100.0 {
                 vec![EmittedEvent {
                     name: "high_pressure".to_string(),

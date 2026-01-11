@@ -483,7 +483,9 @@ impl L3Kernel {
                         .signals()
                         .prev_scalar_slice(signal_name)
                         .and_then(|slice| slice.get(entity_idx).copied())
-                        .expect("L3: prev scalar slice must exist for member signal being resolved");
+                        .expect(
+                            "L3: prev scalar slice must exist for member signal being resolved",
+                        );
 
                     let ctx = ScalarL3ResolveContext {
                         prev,
@@ -900,7 +902,10 @@ mod tests {
 
         let result = dag.build();
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), MemberDagError::CycleDetected(_)));
+        assert!(matches!(
+            result.unwrap_err(),
+            MemberDagError::CycleDetected(_)
+        ));
     }
 
     #[test]
@@ -931,11 +936,15 @@ mod tests {
         let a = make_member_signal_id("test.entity", "a");
         let b = make_member_signal_id("test.entity", "b");
 
-        let mut kernel = L3Kernel::new(a.clone(), {
-            let mut dag = MemberDag::new();
-            dag.add_dependency(a.clone(), b.clone());
-            dag.build().unwrap()
-        }, 5);
+        let mut kernel = L3Kernel::new(
+            a.clone(),
+            {
+                let mut dag = MemberDag::new();
+                dag.add_dependency(a.clone(), b.clone());
+                dag.build().unwrap()
+            },
+            5,
+        );
 
         // A: prev + 1
         kernel.add_scalar_resolver("a".to_string(), |ctx| ctx.prev + 1.0);

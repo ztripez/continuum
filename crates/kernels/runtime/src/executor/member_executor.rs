@@ -681,9 +681,8 @@ mod tests {
 
     #[test]
     fn test_scalar_l1_resolver_with_dt() {
-        let resolver = ScalarL1Resolver::new(|ctx: &ScalarResolveContext| {
-            ctx.prev + 10.0 * ctx.dt.seconds()
-        });
+        let resolver =
+            ScalarL1Resolver::new(|ctx: &ScalarResolveContext| ctx.prev + 10.0 * ctx.dt.seconds());
 
         let prev_values: Vec<f64> = vec![0.0, 0.0, 0.0];
         let signals = create_test_signals();
@@ -724,11 +723,8 @@ mod tests {
 
     #[test]
     fn test_generic_member_signal_l1() {
-        let prev_values: Vec<Value> = vec![
-            Value::Scalar(1.0),
-            Value::Scalar(2.0),
-            Value::Scalar(3.0),
-        ];
+        let prev_values: Vec<Value> =
+            vec![Value::Scalar(1.0), Value::Scalar(2.0), Value::Scalar(3.0)];
         let signals = create_test_signals();
         let members = create_test_members(3);
         let config = ChunkConfig::default();

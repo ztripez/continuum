@@ -92,8 +92,8 @@ pub fn parse(source: &str) -> (Option<CompilationUnit>, Vec<ParseError<'_>>) {
     compilation_unit().parse(source).into_output_errors()
 }
 
-fn compilation_unit<'src>(
-) -> impl Parser<'src, &'src str, CompilationUnit, extra::Err<ParseError<'src>>> {
+fn compilation_unit<'src>()
+-> impl Parser<'src, &'src str, CompilationUnit, extra::Err<ParseError<'src>>> {
     // Parse optional module doc comment (//!) at the start of the file
     module_doc()
         .then_ignore(ws())

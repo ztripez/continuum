@@ -95,9 +95,10 @@ impl AssertionChecker {
             let passed = (assertion.condition)(&ctx);
 
             if !passed {
-                let message = assertion.message.clone().unwrap_or_else(|| {
-                    format!("assertion failed for signal {}", signal)
-                });
+                let message = assertion
+                    .message
+                    .clone()
+                    .unwrap_or_else(|| format!("assertion failed for signal {}", signal));
 
                 match assertion.severity {
                     AssertionSeverity::Warn => {

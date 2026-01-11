@@ -5,7 +5,7 @@
 use clap::{Parser, Subcommand};
 use std::process;
 
-use continuum_tools::analyze::commands::baseline::{run as run_baseline, BaselineCommand};
+use continuum_tools::analyze::commands::baseline::{BaselineCommand, run as run_baseline};
 
 #[derive(Parser, Debug)]
 #[command(name = "analyze")]

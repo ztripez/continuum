@@ -9,9 +9,9 @@ use chumsky::prelude::*;
 
 use crate::ast::{FnDef, FnParam, Range, TypeDef, TypeExpr, TypeField};
 
+use super::super::ParseError;
 use super::super::expr::spanned_expr;
 use super::super::primitives::{float, ident, spanned, spanned_path, unit_string, ws};
-use super::super::ParseError;
 
 // === Type Definitions ===
 
@@ -28,7 +28,11 @@ pub fn type_def<'src>() -> impl Parser<'src, &'src str, TypeDef, extra::Err<Pars
                 .collect()
                 .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
         )
-        .map(|(name, fields)| TypeDef { doc: None, name, fields })
+        .map(|(name, fields)| TypeDef {
+            doc: None,
+            name,
+            fields,
+        })
 }
 
 fn type_field<'src>() -> impl Parser<'src, &'src str, TypeField, extra::Err<ParseError<'src>>> {
@@ -38,8 +42,8 @@ fn type_field<'src>() -> impl Parser<'src, &'src str, TypeField, extra::Err<Pars
         .map(|(name, ty)| TypeField { name, ty })
 }
 
-pub fn type_expr<'src>(
-) -> impl Parser<'src, &'src str, TypeExpr, extra::Err<ParseError<'src>>> + Clone {
+pub fn type_expr<'src>()
+-> impl Parser<'src, &'src str, TypeExpr, extra::Err<ParseError<'src>>> + Clone {
     recursive(|type_expr_recurse| {
         choice((
             // Scalar<unit, range>
@@ -155,8 +159,8 @@ fn range<'src>() -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'s
 
 /// Parses a magnitude value, which can be either a range (min..max) or a single value.
 /// A single value is converted to an exact range (value..value).
-fn magnitude_value<'src>(
-) -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> + Clone {
+fn magnitude_value<'src>()
+-> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> + Clone {
     choice((
         // Range: 1e10..1e12
         float()

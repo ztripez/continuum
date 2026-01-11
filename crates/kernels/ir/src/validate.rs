@@ -319,40 +319,128 @@ fn check_expr_symbols(
                 });
             }
             for arg in args {
-                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+                check_expr_symbols(
+                    arg,
+                    context,
+                    defined_signals,
+                    defined_constants,
+                    defined_config,
+                    warnings,
+                );
             }
         }
         CompiledExpr::DtRobustCall { args, .. } => {
             // dt-robust operators are known by definition, just check args
             for arg in args {
-                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+                check_expr_symbols(
+                    arg,
+                    context,
+                    defined_signals,
+                    defined_constants,
+                    defined_config,
+                    warnings,
+                );
             }
         }
         CompiledExpr::KernelCall { args, .. } => {
             // Kernel functions are engine-provided, just check args
             // TODO: Could validate that specific kernel function names are known
             for arg in args {
-                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+                check_expr_symbols(
+                    arg,
+                    context,
+                    defined_signals,
+                    defined_constants,
+                    defined_config,
+                    warnings,
+                );
             }
         }
         CompiledExpr::Binary { left, right, .. } => {
-            check_expr_symbols(left, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(right, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                left,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                right,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::Unary { operand, .. } => {
-            check_expr_symbols(operand, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                operand,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
-        CompiledExpr::If { condition, then_branch, else_branch } => {
-            check_expr_symbols(condition, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(then_branch, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(else_branch, context, defined_signals, defined_constants, defined_config, warnings);
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            check_expr_symbols(
+                condition,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                then_branch,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                else_branch,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::Let { value, body, .. } => {
-            check_expr_symbols(value, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                value,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::FieldAccess { object, .. } => {
-            check_expr_symbols(object, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                object,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         // Entity expressions - recurse into sub-expressions
         CompiledExpr::SelfField(_) => {}
@@ -360,29 +448,104 @@ fn check_expr_symbols(
             // Entity access validation happens at runtime
         }
         CompiledExpr::Aggregate { body, .. } => {
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::Other { body, .. } | CompiledExpr::Pairs { body, .. } => {
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
-        CompiledExpr::Filter { predicate, body, .. } => {
-            check_expr_symbols(predicate, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+        CompiledExpr::Filter {
+            predicate, body, ..
+        } => {
+            check_expr_symbols(
+                predicate,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::First { predicate, .. } => {
-            check_expr_symbols(predicate, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                predicate,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::Nearest { position, .. } => {
-            check_expr_symbols(position, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                position,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
-        CompiledExpr::Within { position, radius, body, .. } => {
-            check_expr_symbols(position, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(radius, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+        CompiledExpr::Within {
+            position,
+            radius,
+            body,
+            ..
+        } => {
+            check_expr_symbols(
+                position,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                radius,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         // Literals, Prev, DtRaw, SimTime, Collected, Local don't need checking
         // Local variables are validated at parse/lower time
-        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::SimTime | CompiledExpr::Collected | CompiledExpr::Local(_) => {}
+        CompiledExpr::Literal(_)
+        | CompiledExpr::Prev
+        | CompiledExpr::DtRaw
+        | CompiledExpr::SimTime
+        | CompiledExpr::Collected
+        | CompiledExpr::Local(_) => {}
     }
 }
 
@@ -540,8 +703,17 @@ mod tests {
         // No undefined symbol or unknown function warnings
         let symbol_warnings: Vec<_> = warnings
             .iter()
-            .filter(|w| matches!(w.code, WarningCode::UndefinedSymbol | WarningCode::UnknownFunction))
+            .filter(|w| {
+                matches!(
+                    w.code,
+                    WarningCode::UndefinedSymbol | WarningCode::UnknownFunction
+                )
+            })
             .collect();
-        assert!(symbol_warnings.is_empty(), "unexpected warnings: {:?}", symbol_warnings);
+        assert!(
+            symbol_warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            symbol_warnings
+        );
     }
 }

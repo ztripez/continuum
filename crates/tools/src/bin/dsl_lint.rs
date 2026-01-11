@@ -31,7 +31,11 @@ fn main() {
     };
 
     info!("Linting: {}", file_path);
-    info!("File size: {} bytes, {} lines", source.len(), source.lines().count());
+    info!(
+        "File size: {} bytes, {} lines",
+        source.len(),
+        source.lines().count()
+    );
 
     let (result, parse_errors) = continuum_dsl::parse(&source);
 
@@ -84,7 +88,10 @@ fn extract_span_from_error(err_str: &str) -> Option<(usize, usize)> {
         if let Some(dot_pos) = rest.find("..") {
             let start_str = &rest[..dot_pos];
             let end_rest = &rest[dot_pos + 2..];
-            let end_str: String = end_rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+            let end_str: String = end_rest
+                .chars()
+                .take_while(|c| c.is_ascii_digit())
+                .collect();
 
             if let (Ok(start), Ok(end)) = (start_str.parse::<usize>(), end_str.parse::<usize>()) {
                 return Some((start, end));
@@ -114,7 +121,10 @@ fn show_error_context(source: &str, span: (usize, usize), file_path: &str) {
     let col = start - line_start + 1;
 
     // Get the line content
-    let line_end = source[start..].find('\n').map(|p| start + p).unwrap_or(source.len());
+    let line_end = source[start..]
+        .find('\n')
+        .map(|p| start + p)
+        .unwrap_or(source.len());
     let line_content = &source[line_start..line_end];
 
     eprintln!();
@@ -130,7 +140,12 @@ fn show_error_context(source: &str, span: (usize, usize), file_path: &str) {
     let ctx_end = (line_num + 2).min(lines.len());
 
     eprintln!("  Context:");
-    for (i, line) in lines.iter().enumerate().skip(ctx_start).take(ctx_end - ctx_start) {
+    for (i, line) in lines
+        .iter()
+        .enumerate()
+        .skip(ctx_start)
+        .take(ctx_end - ctx_start)
+    {
         let marker = if i + 1 == line_num { ">>>" } else { "   " };
         eprintln!("{} {:>4} | {}", marker, i + 1, line);
     }

@@ -178,11 +178,7 @@ where
                 Ordering::Greater => b, // b wins (for min: b < a)
                 Ordering::Equal => {
                     // Tie: lower index wins
-                    if a.index <= b.index {
-                        a
-                    } else {
-                        b
-                    }
+                    if a.index <= b.index { a } else { b }
                 }
             };
             next.push(winner);
@@ -222,8 +218,7 @@ pub fn sum(values: &[f64]) -> f64 {
 
 /// Deterministic sum of Vec3 values.
 pub fn sum_vec3(values: &[[f64; 3]]) -> [f64; 3] {
-    tree_reduce(values, |a, b| [a[0] + b[0], a[1] + b[1], a[2] + b[2]])
-        .unwrap_or([0.0, 0.0, 0.0])
+    tree_reduce(values, |a, b| [a[0] + b[0], a[1] + b[1], a[2] + b[2]]).unwrap_or([0.0, 0.0, 0.0])
 }
 
 /// Deterministic product of values using fixed-tree reduction.
@@ -268,9 +263,7 @@ pub fn min(values: &[f64]) -> f64 {
 /// with the lowest index for full determinism.
 pub fn max_indexed(values: &[f64]) -> Option<IndexedValue<f64>> {
     // For max, we flip the comparison: Greater means a wins
-    tree_reduce_indexed(values, |a, b| {
-        b.partial_cmp(&a).unwrap_or(Ordering::Equal)
-    })
+    tree_reduce_indexed(values, |a, b| b.partial_cmp(&a).unwrap_or(Ordering::Equal))
 }
 
 /// Deterministic maximum value.

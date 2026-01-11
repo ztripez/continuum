@@ -30,8 +30,8 @@ use walkdir::WalkDir;
 use continuum_dsl::ast::{CompilationUnit, Expr, Item, Spanned};
 use continuum_dsl::parse;
 use symbols::{
-    format_hover_markdown, get_builtin_hover, ReferenceValidationInfo, SymbolIndex,
-    SymbolKind as CdslSymbolKind,
+    ReferenceValidationInfo, SymbolIndex, SymbolKind as CdslSymbolKind, format_hover_markdown,
+    get_builtin_hover,
 };
 
 /// Semantic token types for syntax highlighting.
@@ -167,10 +167,7 @@ impl Backend {
                     },
                     severity: Some(attr.severity),
                     source: Some("cdsl".to_string()),
-                    message: format!(
-                        "Missing {} for '{}'",
-                        attr.attribute, attr.symbol_path
-                    ),
+                    message: format!("Missing {} for '{}'", attr.attribute, attr.symbol_path),
                     ..Default::default()
                 });
             }
@@ -245,7 +242,10 @@ impl Backend {
             .filter(|r| {
                 // Check if definition exists in any indexed file
                 !self.symbol_indices.iter().any(|entry| {
-                    entry.value().find_definition(r.kind, &r.target_path).is_some()
+                    entry
+                        .value()
+                        .find_definition(r.kind, &r.target_path)
+                        .is_some()
                 })
             })
             .cloned()
@@ -254,9 +254,9 @@ impl Backend {
 
     /// Check if any indexed file contains a world definition.
     fn has_world_definition(&self) -> bool {
-        self.symbol_indices.iter().any(|entry| {
-            entry.value().has_symbol_kind(CdslSymbolKind::World)
-        })
+        self.symbol_indices
+            .iter()
+            .any(|entry| entry.value().has_symbol_kind(CdslSymbolKind::World))
     }
 
     /// Find duplicate symbol definitions across all indexed files.
@@ -274,10 +274,11 @@ impl Backend {
         for entry in self.symbol_indices.iter() {
             let uri = entry.key().clone();
             for (info, span) in entry.value().get_all_definitions() {
-                all_symbols
-                    .entry(info.path.clone())
-                    .or_default()
-                    .push((uri.clone(), span, info.kind));
+                all_symbols.entry(info.path.clone()).or_default().push((
+                    uri.clone(),
+                    span,
+                    info.kind,
+                ));
             }
         }
 
@@ -818,7 +819,11 @@ fn collect_clamp_in_item(item: &Item, spans: &mut Vec<std::ops::Range<usize>>) {
 
 fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<usize>>) {
     match &expr.node {
-        Expr::MethodCall { object, method, args } => {
+        Expr::MethodCall {
+            object,
+            method,
+            args,
+        } => {
             if method == "clamp" {
                 spans.push(expr.span.clone());
             }
@@ -846,7 +851,11 @@ fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<u
         Expr::Unary { operand, .. } => {
             collect_clamp_in_expr(operand, spans);
         }
-        Expr::If { condition, then_branch, else_branch } => {
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
             collect_clamp_in_expr(condition, spans);
             collect_clamp_in_expr(then_branch, spans);
             if let Some(else_expr) = else_branch {
@@ -877,7 +886,9 @@ fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<u
         Expr::EmitSignal { value, .. } => {
             collect_clamp_in_expr(value, spans);
         }
-        Expr::EmitField { position, value, .. } => {
+        Expr::EmitField {
+            position, value, ..
+        } => {
             collect_clamp_in_expr(position, spans);
             collect_clamp_in_expr(value, spans);
         }
@@ -885,7 +896,11 @@ fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<u
             collect_clamp_in_expr(sequence, spans);
             collect_clamp_in_expr(function, spans);
         }
-        Expr::Fold { sequence, init, function } => {
+        Expr::Fold {
+            sequence,
+            init,
+            function,
+        } => {
             collect_clamp_in_expr(sequence, spans);
             collect_clamp_in_expr(init, spans);
             collect_clamp_in_expr(function, spans);
@@ -905,7 +920,9 @@ fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<u
         Expr::Nearest { position, .. } => {
             collect_clamp_in_expr(position, spans);
         }
-        Expr::Within { position, radius, .. } => {
+        Expr::Within {
+            position, radius, ..
+        } => {
             collect_clamp_in_expr(position, spans);
             collect_clamp_in_expr(radius, spans);
         }
@@ -1048,15 +1065,17 @@ impl LanguageServer for Backend {
                     work_done_progress_options: Default::default(),
                 }),
                 semantic_tokens_provider: Some(
-                    SemanticTokensServerCapabilities::SemanticTokensOptions(SemanticTokensOptions {
-                        legend: SemanticTokensLegend {
-                            token_types: SEMANTIC_TOKEN_TYPES.to_vec(),
-                            token_modifiers: SEMANTIC_TOKEN_MODIFIERS.to_vec(),
+                    SemanticTokensServerCapabilities::SemanticTokensOptions(
+                        SemanticTokensOptions {
+                            legend: SemanticTokensLegend {
+                                token_types: SEMANTIC_TOKEN_TYPES.to_vec(),
+                                token_modifiers: SEMANTIC_TOKEN_MODIFIERS.to_vec(),
+                            },
+                            full: Some(SemanticTokensFullOptions::Bool(true)),
+                            range: None,
+                            ..Default::default()
                         },
-                        full: Some(SemanticTokensFullOptions::Bool(true)),
-                        range: None,
-                        ..Default::default()
-                    }),
+                    ),
                 ),
                 inlay_hint_provider: Some(OneOf::Left(true)),
                 rename_provider: Some(OneOf::Right(RenameOptions {
@@ -1148,10 +1167,8 @@ impl LanguageServer for Backend {
             // Get the path part after "signal." etc.
             let path_prefix = &prefix[prefix_len..];
             // Split by dots, filtering empty segments (from trailing dots like "core.")
-            let prefix_segments: Vec<&str> = path_prefix
-                .split('.')
-                .filter(|s| !s.is_empty())
-                .collect();
+            let prefix_segments: Vec<&str> =
+                path_prefix.split('.').filter(|s| !s.is_empty()).collect();
             let prefix_depth = prefix_segments.len();
 
             // Track unique next segments: segment -> Option<(full_path, type, title, doc)>
@@ -1219,9 +1236,8 @@ impl LanguageServer for Backend {
                         };
 
                         // Build rich markdown documentation
-                        let mut doc_parts = vec![
-                            format!("**{}.{}**", kind.display_name(), d.full_path),
-                        ];
+                        let mut doc_parts =
+                            vec![format!("**{}.{}**", kind.display_name(), d.full_path)];
                         if let Some(ref title) = d.title {
                             doc_parts.push(format!("*{}*", title));
                         }
@@ -1262,11 +1278,27 @@ impl LanguageServer for Backend {
                 // Top-level declarations
                 completion_item("signal", CompletionItemKind::KEYWORD, "Signal declaration"),
                 completion_item("field", CompletionItemKind::KEYWORD, "Field declaration"),
-                completion_item("fracture", CompletionItemKind::KEYWORD, "Fracture declaration"),
-                completion_item("impulse", CompletionItemKind::KEYWORD, "Impulse declaration"),
-                completion_item("chronicle", CompletionItemKind::KEYWORD, "Chronicle declaration"),
+                completion_item(
+                    "fracture",
+                    CompletionItemKind::KEYWORD,
+                    "Fracture declaration",
+                ),
+                completion_item(
+                    "impulse",
+                    CompletionItemKind::KEYWORD,
+                    "Impulse declaration",
+                ),
+                completion_item(
+                    "chronicle",
+                    CompletionItemKind::KEYWORD,
+                    "Chronicle declaration",
+                ),
                 completion_item("entity", CompletionItemKind::KEYWORD, "Entity declaration"),
-                completion_item("operator", CompletionItemKind::KEYWORD, "Operator declaration"),
+                completion_item(
+                    "operator",
+                    CompletionItemKind::KEYWORD,
+                    "Operator declaration",
+                ),
                 completion_item("strata", CompletionItemKind::KEYWORD, "Strata declaration"),
                 completion_item("era", CompletionItemKind::KEYWORD, "Era declaration"),
                 completion_item("const", CompletionItemKind::KEYWORD, "Const block"),
@@ -1293,7 +1325,11 @@ impl LanguageServer for Backend {
                 completion_item("Vector", CompletionItemKind::TYPE_PARAMETER, "Vector type"),
                 completion_item("Tensor", CompletionItemKind::TYPE_PARAMETER, "Tensor type"),
                 // Built-in functions
-                completion_item("clamp", CompletionItemKind::FUNCTION, "Clamp value to range"),
+                completion_item(
+                    "clamp",
+                    CompletionItemKind::FUNCTION,
+                    "Clamp value to range",
+                ),
                 completion_item("min", CompletionItemKind::FUNCTION, "Minimum of values"),
                 completion_item("max", CompletionItemKind::FUNCTION, "Maximum of values"),
                 completion_item("abs", CompletionItemKind::FUNCTION, "Absolute value"),
@@ -1611,13 +1647,17 @@ impl LanguageServer for Backend {
                         })
                     }),
                     parameters: Some(param_infos),
-                    active_parameter: Some(active_param.min(sig.params.len().saturating_sub(1)) as u32),
+                    active_parameter: Some(
+                        active_param.min(sig.params.len().saturating_sub(1)) as u32
+                    ),
                 };
 
                 return Ok(Some(SignatureHelp {
                     signatures: vec![signature],
                     active_signature: Some(0),
-                    active_parameter: Some(active_param.min(sig.params.len().saturating_sub(1)) as u32),
+                    active_parameter: Some(
+                        active_param.min(sig.params.len().saturating_sub(1)) as u32
+                    ),
                 }));
             }
         }
@@ -1815,7 +1855,11 @@ impl LanguageServer for Backend {
         // Add comment tokens
         let mut in_doc_comment = false;
         for (line_idx, line) in doc.lines().enumerate() {
-            let line_start = doc.lines().take(line_idx).map(|l| l.len() + 1).sum::<usize>();
+            let line_start = doc
+                .lines()
+                .take(line_idx)
+                .map(|l| l.len() + 1)
+                .sum::<usize>();
             if let Some(pos) = line.find("//") {
                 let comment_start = line_start + pos;
                 let comment_len = line.len() - pos;
@@ -1879,15 +1923,12 @@ impl LanguageServer for Backend {
         // Add type hints for symbol references
         for ref_info in index.get_references_for_validation() {
             // Look up the definition to get its type
-            let type_str = self
-                .symbol_indices
-                .iter()
-                .find_map(|entry| {
-                    entry
-                        .value()
-                        .find_definition(ref_info.kind, &ref_info.target_path)
-                        .and_then(|info| info.ty.clone())
-                });
+            let type_str = self.symbol_indices.iter().find_map(|entry| {
+                entry
+                    .value()
+                    .find_definition(ref_info.kind, &ref_info.target_path)
+                    .and_then(|info| info.ty.clone())
+            });
 
             if let Some(ty) = type_str {
                 let (line, col) = offset_to_position(&doc, ref_info.span.end);
@@ -2003,7 +2044,8 @@ impl LanguageServer for Backend {
             // Find references to rename
             for ref_info in file_index.get_references_for_validation() {
                 if ref_info.kind == kind && ref_info.target_path == old_path {
-                    let (start_line, start_col) = offset_to_position(&file_doc, ref_info.span.start);
+                    let (start_line, start_col) =
+                        offset_to_position(&file_doc, ref_info.span.start);
                     let (end_line, end_col) = offset_to_position(&file_doc, ref_info.span.end);
                     file_edits.push(TextEdit {
                         range: Range {
@@ -2127,12 +2169,19 @@ fn add_nested_folding_ranges(doc: &str, item: &Item, ranges: &mut Vec<FoldingRan
             }
             if let Some(ref assertions) = def.assertions {
                 for assertion in &assertions.assertions {
-                    add_block_folding(doc, assertion.condition.span.start, assertion.condition.span.end, ranges);
+                    add_block_folding(
+                        doc,
+                        assertion.condition.span.start,
+                        assertion.condition.span.end,
+                        ranges,
+                    );
                 }
             }
             if !def.local_config.is_empty() {
                 // Local config block - find its span from entries
-                if let (Some(first), Some(last)) = (def.local_config.first(), def.local_config.last()) {
+                if let (Some(first), Some(last)) =
+                    (def.local_config.first(), def.local_config.last())
+                {
                     add_block_folding(doc, first.path.span.start, last.value.span.end, ranges);
                 }
             }
@@ -2161,7 +2210,12 @@ fn add_nested_folding_ranges(doc: &str, item: &Item, ranges: &mut Vec<FoldingRan
                 add_block_folding(doc, cond.span.start, cond.span.end, ranges);
             }
             for emission in &def.emit {
-                add_block_folding(doc, emission.value.span.start, emission.value.span.end, ranges);
+                add_block_folding(
+                    doc,
+                    emission.value.span.start,
+                    emission.value.span.end,
+                    ranges,
+                );
             }
         }
         Item::MemberDef(def) => {

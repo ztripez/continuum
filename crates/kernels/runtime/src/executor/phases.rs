@@ -13,7 +13,10 @@ use crate::storage::{EventBuffer, FieldBuffer, FractureQueue, InputChannels, Sig
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 
 use super::assertions::AssertionChecker;
-use super::context::{ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext};
+use super::context::{
+    ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext,
+    ResolveContext,
+};
 
 /// Function that resolves a signal value
 pub type ResolverFn = Box<dyn Fn(&ResolveContext) -> Value + Send + Sync>;
@@ -449,10 +452,9 @@ impl PhaseExecutor {
         let eligible_dags: Vec<_> = era_dags
             .for_phase(Phase::Measure)
             .filter(|dag| {
-                let stratum_state = strata_states
-                    .get(&dag.stratum)
-                    .copied()
-                    .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+                let stratum_state = strata_states.get(&dag.stratum).copied().unwrap_or_else(|| {
+                    panic!("stratum {:?} not found in strata_states", dag.stratum)
+                });
                 stratum_state.is_eligible(tick)
             })
             .collect();
@@ -549,10 +551,9 @@ impl PhaseExecutor {
         let all_chronicle_indices: Vec<usize> = era_dags
             .for_phase(Phase::Measure)
             .filter(|dag| {
-                let stratum_state = strata_states
-                    .get(&dag.stratum)
-                    .copied()
-                    .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+                let stratum_state = strata_states.get(&dag.stratum).copied().unwrap_or_else(|| {
+                    panic!("stratum {:?} not found in strata_states", dag.stratum)
+                });
                 stratum_state.is_eligible(tick)
             })
             .flat_map(|dag| {
@@ -571,10 +572,7 @@ impl PhaseExecutor {
             return Ok(());
         }
 
-        trace!(
-            chronicles = total_chronicles,
-            "chronicle execution"
-        );
+        trace!(chronicles = total_chronicles, "chronicle execution");
 
         // Execute chronicles and collect events
         // Using parallel execution since chronicles are read-only

@@ -53,11 +53,11 @@ use continuum_runtime::executor::{
 use continuum_functions as _;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::{Dt, Value};
-use continuum_vm::{execute, BytecodeChunk};
+use continuum_vm::{BytecodeChunk, execute};
 
 use crate::{
-    codegen, AssertionSeverity as IrAssertionSeverity, CompiledEra, CompiledExpr, CompiledFracture,
-    CompiledWorld, ValueType,
+    AssertionSeverity as IrAssertionSeverity, CompiledEra, CompiledExpr, CompiledFracture,
+    CompiledWorld, ValueType, codegen,
 };
 
 use contexts::{
@@ -227,11 +227,7 @@ pub fn build_signal_resolver(
 ) -> Option<ResolverFn> {
     // Check for component-wise resolution (vector signals)
     if let Some(ref components) = signal.resolve_components {
-        return Some(build_vector_resolver(
-            components,
-            &signal.value_type,
-            world,
-        ));
+        return Some(build_vector_resolver(components, &signal.value_type, world));
     }
 
     // Fall back to scalar resolution

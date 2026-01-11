@@ -101,8 +101,8 @@ pub fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src
 /// Note: This parser expects to be called at a position where `///` appears
 /// immediately. Surrounding whitespace should be handled by the caller's
 /// `ws()` or `padded_by()`.
-pub fn doc_comment<'src>(
-) -> impl Parser<'src, &'src str, Option<String>, extra::Err<ParseError<'src>>> + Clone {
+pub fn doc_comment<'src>()
+-> impl Parser<'src, &'src str, Option<String>, extra::Err<ParseError<'src>>> + Clone {
     // Parse a single doc comment line: "/// content\n"
     // Includes optional leading inline whitespace (spaces/tabs) for subsequent lines
     let doc_line = text::inline_whitespace()
@@ -135,8 +135,8 @@ pub fn doc_comment<'src>(
 ///
 /// Captures consecutive `//!` lines at the start of a file and returns them
 /// as a single string with the `//!` prefix stripped.
-pub fn module_doc<'src>(
-) -> impl Parser<'src, &'src str, Option<String>, extra::Err<ParseError<'src>>> + Clone {
+pub fn module_doc<'src>()
+-> impl Parser<'src, &'src str, Option<String>, extra::Err<ParseError<'src>>> + Clone {
     // Allow leading whitespace before the first //!
     text::whitespace()
         .ignore_then(
@@ -174,14 +174,14 @@ pub fn path<'src>() -> impl Parser<'src, &'src str, Path, extra::Err<ParseError<
 }
 
 /// Spanned path
-pub fn spanned_path<'src>(
-) -> impl Parser<'src, &'src str, Spanned<Path>, extra::Err<ParseError<'src>>> + Clone {
+pub fn spanned_path<'src>()
+-> impl Parser<'src, &'src str, Spanned<Path>, extra::Err<ParseError<'src>>> + Clone {
     spanned(path())
 }
 
 /// String literal
-pub fn string_lit<'src>(
-) -> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
+pub fn string_lit<'src>()
+-> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
     none_of("\"\\")
         .or(just('\\').ignore_then(any()))
         .repeated()
@@ -204,7 +204,10 @@ pub fn float<'src>() -> impl Parser<'src, &'src str, f64, extra::Err<ParseError<
         .to_slice()
         .map(|s: &str| {
             s.parse().unwrap_or_else(|e| {
-                panic!("Internal parser error: matched float pattern '{}' but parse failed: {}", s, e)
+                panic!(
+                    "Internal parser error: matched float pattern '{}' but parse failed: {}",
+                    s, e
+                )
             })
         })
 }
@@ -216,8 +219,8 @@ pub fn number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseE
 }
 
 /// Literal value
-pub fn literal<'src>(
-) -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError<'src>>> + Clone {
+pub fn literal<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError<'src>>> + Clone
+{
     choice((number(), string_lit().map(Literal::String)))
 }
 
@@ -233,8 +236,8 @@ pub fn unit<'src>() -> impl Parser<'src, &'src str, String, extra::Err<ParseErro
 /// Unit string content (without angle brackets): K, W/m², kg/m³
 /// Used in type expressions like Scalar<kg/m³, 0..1000>
 /// Accepts Unicode superscripts and common unit characters
-pub fn unit_string<'src>(
-) -> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
+pub fn unit_string<'src>()
+-> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
     // Unit strings can contain:
     // - Letters (a-z, A-Z)
     // - Digits (0-9)
@@ -283,8 +286,8 @@ pub fn unit_string<'src>(
 }
 
 /// Optional spanned unit
-pub fn optional_unit<'src>(
-) -> impl Parser<'src, &'src str, Option<Spanned<String>>, extra::Err<ParseError<'src>>> + Clone {
+pub fn optional_unit<'src>()
+-> impl Parser<'src, &'src str, Option<Spanned<String>>, extra::Err<ParseError<'src>>> + Clone {
     spanned(unit()).or_not()
 }
 
@@ -313,7 +316,11 @@ pub fn attr_path<'src>(
     just(':')
         .padded_by(ws())
         .ignore_then(text::keyword(keyword))
-        .ignore_then(spanned_path().padded_by(ws()).delimited_by(just('('), just(')')))
+        .ignore_then(
+            spanned_path()
+                .padded_by(ws())
+                .delimited_by(just('('), just(')')),
+        )
 }
 
 /// Parse `: keyword` pattern (no value) used for flag attributes
@@ -338,10 +345,13 @@ pub fn attr_int<'src>(
         .ignore_then(
             spanned(text::int(10).map(|s: &str| {
                 s.parse::<u32>().unwrap_or_else(|e| {
-                    panic!("Internal parser error: matched integer pattern '{}' but parse failed: {}", s, e)
+                    panic!(
+                        "Internal parser error: matched integer pattern '{}' but parse failed: {}",
+                        s, e
+                    )
                 })
             }))
-                .padded_by(ws())
-                .delimited_by(just('('), just(')')),
+            .padded_by(ws())
+            .delimited_by(just('('), just(')')),
         )
 }

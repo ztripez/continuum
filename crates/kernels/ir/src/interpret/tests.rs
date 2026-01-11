@@ -2,11 +2,14 @@
 
 use indexmap::IndexMap;
 
+use continuum_runtime::SignalId;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
-use continuum_runtime::SignalId;
 
-use crate::{BinaryOpIr, CompiledEmit, CompiledEra, CompiledExpr, CompiledFracture, CompiledTransition, CompiledWorld};
+use crate::{
+    BinaryOpIr, CompiledEmit, CompiledEra, CompiledExpr, CompiledFracture, CompiledTransition,
+    CompiledWorld,
+};
 
 use super::build_transition_fn;
 

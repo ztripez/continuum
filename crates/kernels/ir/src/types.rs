@@ -30,7 +30,10 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId, OperatorId, SignalId, StratumId, TypeId};
+use continuum_foundation::{
+    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
+    OperatorId, SignalId, StratumId, TypeId,
+};
 
 // Re-export StratumState from foundation for backwards compatibility
 pub use continuum_foundation::StratumState;
@@ -894,7 +897,6 @@ pub enum CompiledExpr {
     Local(String),
 
     // === Entity expressions ===
-
     /// Access current entity instance field: self.mass
     SelfField(String),
 

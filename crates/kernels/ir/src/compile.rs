@@ -28,7 +28,9 @@
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use continuum_foundation::{EraId, EntityId as FoundationEntityId, MemberId, MemberSignalId, SignalId, StratumId};
+use continuum_foundation::{
+    EntityId as FoundationEntityId, EraId, MemberId, MemberSignalId, SignalId, StratumId,
+};
 use continuum_runtime::dag::{
     AggregateBarrier, BarrierDagBuilder, CycleError, DagBuilder, DagNode, DagSet, EraDags,
     ExecutableDag, NodeId, NodeKind,
@@ -790,7 +792,7 @@ impl<'a> Compiler<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{lower, CompiledWorld};
+    use crate::{CompiledWorld, lower};
     use continuum_dsl::parse;
 
     fn parse_and_lower(src: &str) -> CompiledWorld {
@@ -991,7 +993,11 @@ mod tests {
 
         // Aggregate should have been assigned an index
         assert!(!result.aggregate_indices.is_empty());
-        assert!(result.aggregate_indices.contains_key("agg.stellar.total_mass.0"));
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.stellar.total_mass.0")
+        );
     }
 
     #[test]
@@ -1027,7 +1033,11 @@ mod tests {
 
         // Should have aggregates
         assert!(!result.aggregate_indices.is_empty());
-        assert!(result.aggregate_indices.contains_key("agg.human.person_count.0"));
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.human.person_count.0")
+        );
     }
 
     #[test]
@@ -1071,8 +1081,16 @@ mod tests {
 
         // Should have two aggregates
         assert_eq!(result.aggregate_indices.len(), 2);
-        assert!(result.aggregate_indices.contains_key("agg.stellar.total_mass.0"));
-        assert!(result.aggregate_indices.contains_key("agg.stellar.max_radius.0"));
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.stellar.total_mass.0")
+        );
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.stellar.max_radius.0")
+        );
 
         // Should have two member signals
         assert_eq!(result.member_indices.len(), 2);

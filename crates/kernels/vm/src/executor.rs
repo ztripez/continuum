@@ -158,13 +158,21 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> f64 {
             Op::Eq => {
                 let r = stack.pop().expect("vm bug: stack underflow");
                 let l = stack.pop().expect("vm bug: stack underflow");
-                stack.push(if (l - r).abs() < f64::EPSILON { 1.0 } else { 0.0 });
+                stack.push(if (l - r).abs() < f64::EPSILON {
+                    1.0
+                } else {
+                    0.0
+                });
             }
 
             Op::Ne => {
                 let r = stack.pop().expect("vm bug: stack underflow");
                 let l = stack.pop().expect("vm bug: stack underflow");
-                stack.push(if (l - r).abs() >= f64::EPSILON { 1.0 } else { 0.0 });
+                stack.push(if (l - r).abs() >= f64::EPSILON {
+                    1.0
+                } else {
+                    0.0
+                });
             }
 
             Op::Lt => {
@@ -245,7 +253,7 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> f64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::compiler::{compile_expr, BinaryOp, Expr};
+    use crate::compiler::{BinaryOp, Expr, compile_expr};
 
     struct TestContext;
 

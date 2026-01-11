@@ -61,11 +61,8 @@ impl GpuFieldPipeline {
         self.ensure_pipeline_exists(emission.expression_id)?;
 
         // Convert signal inputs from f64 to f32
-        let signal_inputs_f32: Vec<f32> = emission
-            .signal_inputs
-            .iter()
-            .map(|&v| v as f32)
-            .collect();
+        let signal_inputs_f32: Vec<f32> =
+            emission.signal_inputs.iter().map(|&v| v as f32).collect();
 
         // Convert positions to f32
         let positions_f32: Vec<[f32; 3]> = if emission.positions.is_empty() {
@@ -86,12 +83,8 @@ impl GpuFieldPipeline {
         // Create bind group and dispatch in a scope to release borrow before readback
         {
             let bundle = &self.pipelines[&emission.expression_id];
-            let bind_group = self.create_bind_group(
-                bundle,
-                &signal_buffer,
-                &position_buffer,
-                &output_buffer,
-            );
+            let bind_group =
+                self.create_bind_group(bundle, &signal_buffer, &position_buffer, &output_buffer);
             self.dispatch_compute(&bundle.pipeline, &bind_group, sample_count)?;
         }
 
@@ -140,13 +133,13 @@ impl GpuFieldPipeline {
         // For now, use a simple sum shader as placeholder
         let shader_source = self.generate_shader_source();
 
-        let shader_module = self
-            .context
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some("Field Compute Shader"),
-                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(&shader_source)),
-            });
+        let shader_module =
+            self.context
+                .device
+                .create_shader_module(wgpu::ShaderModuleDescriptor {
+                    label: Some("Field Compute Shader"),
+                    source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(&shader_source)),
+                });
 
         let bind_group_layout =
             self.context
@@ -326,12 +319,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {{
         bind_group: &wgpu::BindGroup,
         sample_count: usize,
     ) -> Result<(), GpuError> {
-        let mut encoder = self
-            .context
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Compute Encoder"),
-            });
+        let mut encoder =
+            self.context
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Compute Encoder"),
+                });
 
         {
             let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
@@ -371,12 +364,12 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {{
         let staging = self.staging_buffer.as_ref().unwrap();
 
         // Copy output to staging
-        let mut encoder = self
-            .context
-            .device
-            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                label: Some("Copy Encoder"),
-            });
+        let mut encoder =
+            self.context
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Copy Encoder"),
+                });
 
         encoder.copy_buffer_to_buffer(output_buffer, 0, staging, 0, size);
 
@@ -385,7 +378,10 @@ fn main(@builtin(global_invocation_id) global_id: vec3<u32>) {{
         // Map and read
         let slice = staging.slice(..size);
         slice.map_async(wgpu::MapMode::Read, |_| {});
-        let _ = self.context.device.poll(wgpu::PollType::wait_indefinitely());
+        let _ = self
+            .context
+            .device
+            .poll(wgpu::PollType::wait_indefinitely());
 
         let mapped = slice.get_mapped_range();
         let result: Vec<f32> = bytemuck::cast_slice(&mapped).to_vec();

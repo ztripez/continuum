@@ -38,13 +38,13 @@ mod tests;
 
 use std::sync::Arc;
 
+use continuum_foundation::MemberSignalId;
 use continuum_runtime::executor::{
     LaneKernel, LaneKernelError, LaneKernelResult, LoweringStrategy,
 };
 use continuum_runtime::soa_storage::{MemberSignalBuffer, PopulationStorage};
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Dt;
-use continuum_foundation::MemberSignalId;
 
 use crate::ssa::{BlockId, SsaFunction, SsaInstruction, Terminator, VReg};
 use crate::{BinaryOpIr, DtRobustOperator, IntegrationMethod, UnaryOpIr};
@@ -314,9 +314,9 @@ impl L2VectorizedExecutor {
 
             SsaInstruction::LoadSignal { dst, signal } => {
                 // Load signal value - for now assume scalar signals are uniform
-                if let Some(value) = signals.get_resolved(&continuum_runtime::SignalId(
-                    signal.0.clone(),
-                )) {
+                if let Some(value) =
+                    signals.get_resolved(&continuum_runtime::SignalId(signal.0.clone()))
+                {
                     let scalar = value.as_scalar().unwrap_or(0.0);
                     vregs[dst.0 as usize] = Some(VRegBuffer::uniform(scalar));
                 } else {
@@ -336,8 +336,7 @@ impl L2VectorizedExecutor {
                 if let Some(member_buf) = members {
                     // Try scalar first, then vec3
                     if let Some(snapshot_slice) = member_buf.prev_scalar_slice(field) {
-                        vregs[dst.0 as usize] =
-                            Some(VRegBuffer::Scalar(snapshot_slice.to_vec()));
+                        vregs[dst.0 as usize] = Some(VRegBuffer::Scalar(snapshot_slice.to_vec()));
                     } else if let Some(_vec3_slice) = member_buf.prev_vec3_slice(field) {
                         // Vec3 fields not yet fully supported in L2
                         // Return scalar 0 for now (magnitude placeholder)
@@ -373,7 +372,11 @@ impl L2VectorizedExecutor {
                 vregs[dst.0 as usize] = Some(result);
             }
 
-            SsaInstruction::KernelCall { dst, function, args } => {
+            SsaInstruction::KernelCall {
+                dst,
+                function,
+                args,
+            } => {
                 let arg_bufs: Vec<&VRegBuffer> = args
                     .iter()
                     .map(|vreg| {
@@ -437,13 +440,21 @@ impl L2VectorizedExecutor {
                     name
                 )));
             }
-            SsaInstruction::Call { dst: _, function, args: _ } => {
+            SsaInstruction::Call {
+                dst: _,
+                function,
+                args: _,
+            } => {
                 return Err(L2ExecutionError::UnsupportedOperation(format!(
                     "Call '{}' not yet supported in L2",
                     function
                 )));
             }
-            SsaInstruction::FieldAccess { dst: _, object: _, field } => {
+            SsaInstruction::FieldAccess {
+                dst: _,
+                object: _,
+                field,
+            } => {
                 return Err(L2ExecutionError::UnsupportedOperation(format!(
                     "FieldAccess '{}' not yet supported in L2",
                     field

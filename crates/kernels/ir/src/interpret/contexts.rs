@@ -7,9 +7,9 @@
 
 use indexmap::IndexMap;
 
+use continuum_runtime::SignalId;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
-use continuum_runtime::SignalId;
 use continuum_vm::ExecutionContext;
 
 /// Shared data available to all execution contexts.
@@ -128,8 +128,12 @@ impl ExecutionContext for ResolverContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }
 
@@ -195,8 +199,12 @@ impl ExecutionContext for AssertionContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, 0.0)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }
 
@@ -242,8 +250,12 @@ impl ExecutionContext for TransitionContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, 0.0)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }
 
@@ -290,8 +302,12 @@ impl ExecutionContext for MeasureContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }
 
@@ -338,7 +354,11 @@ impl ExecutionContext for FractureExecContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }

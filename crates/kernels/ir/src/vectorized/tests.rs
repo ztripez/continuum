@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use super::*;
-use crate::ssa::lower_to_ssa;
 use crate::CompiledExpr;
+use crate::ssa::lower_to_ssa;
 
 /// Helper to create and execute an L2 kernel.
 fn execute_l2(expr: &CompiledExpr, prev_values: &[f64], dt: f64) -> Vec<f64> {

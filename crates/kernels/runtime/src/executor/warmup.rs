@@ -95,7 +95,10 @@ impl WarmupExecutor {
             .max()
             .unwrap_or(0);
 
-        info!(signals = self.warmups.len(), max_iterations, "warmup starting");
+        info!(
+            signals = self.warmups.len(),
+            max_iterations, "warmup starting"
+        );
 
         let mut iteration = 0;
         let mut converged = false;

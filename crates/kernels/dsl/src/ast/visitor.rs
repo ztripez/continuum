@@ -579,11 +579,7 @@ pub trait SpannedExprVisitor {
     }
 
     /// Visit mathematical constant with its span.
-    fn visit_math_const(
-        &mut self,
-        _span: std::ops::Range<usize>,
-        _mc: &super::MathConst,
-    ) -> bool {
+    fn visit_math_const(&mut self, _span: std::ops::Range<usize>, _mc: &super::MathConst) -> bool {
         true
     }
 
@@ -610,11 +606,7 @@ pub trait SpannedExprVisitor {
     // === Compound nodes (have children that will be walked) ===
 
     /// Visit binary operation with its span.
-    fn visit_binary(
-        &mut self,
-        _span: std::ops::Range<usize>,
-        _op: &super::BinaryOp,
-    ) -> bool {
+    fn visit_binary(&mut self, _span: std::ops::Range<usize>, _op: &super::BinaryOp) -> bool {
         true
     }
 

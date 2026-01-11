@@ -71,7 +71,12 @@ impl SnapshotRun {
                 let path = entry.path();
 
                 if path.extension().is_some_and(|ext| ext == "json")
-                    && path.file_name().unwrap().to_str().unwrap().starts_with("tick_")
+                    && path
+                        .file_name()
+                        .unwrap()
+                        .to_str()
+                        .unwrap()
+                        .starts_with("tick_")
                 {
                     let content = fs::read_to_string(&path)
                         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
@@ -106,12 +111,7 @@ impl SnapshotRun {
     pub fn get_field_values(&self, field: &str, tick: u64) -> Vec<f64> {
         self.get_snapshot(tick)
             .and_then(|s| s.fields.get(field))
-            .map(|samples| {
-                samples
-                    .iter()
-                    .filter_map(|s| s.value.as_scalar())
-                    .collect()
-            })
+            .map(|samples| samples.iter().filter_map(|s| s.value.as_scalar()).collect())
             .unwrap_or_default()
     }
 }

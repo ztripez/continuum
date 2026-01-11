@@ -219,7 +219,10 @@ impl VectorizedPrimitive for GlobalSignal {
     }
 
     fn identity_at(&self, index: usize) -> Self::Identity {
-        assert!(index == 0, "GlobalSignal has cardinality 1, index must be 0");
+        assert!(
+            index == 0,
+            "GlobalSignal has cardinality 1, index must be 0"
+        );
         self.id.clone()
     }
 
@@ -1198,12 +1201,7 @@ mod tests {
 
             // Verify scalar slice access returns correct length
             let slice = signal.scalar_slice(&storage).unwrap();
-            assert_eq!(
-                slice.len(),
-                size,
-                "Slice length mismatch for size {}",
-                size
-            );
+            assert_eq!(slice.len(), size, "Slice length mismatch for size {}", size);
 
             // Verify slice contents match including last (potentially tail) element
             assert_eq!(
@@ -1236,7 +1234,11 @@ mod tests {
             // Write Vec3 values at all indices
             for i in 0..size {
                 let v = i as f64;
-                signal.set_current(&mut storage, EntityIndex(i), Value::Vec3([v, v * 2.0, v * 3.0]));
+                signal.set_current(
+                    &mut storage,
+                    EntityIndex(i),
+                    Value::Vec3([v, v * 2.0, v * 3.0]),
+                );
             }
 
             // Verify all values including tail elements
@@ -1266,10 +1268,10 @@ mod tests {
     #[test]
     fn test_cardinality_count_at_boundaries() {
         let test_cases = [
-            (0, 1),     // Scalar
-            (1, 1),     // Scalar
-            (16, 16),   // Small
-            (17, 17),   // Medium boundary
+            (0, 1),       // Scalar
+            (1, 1),       // Scalar
+            (16, 16),     // Small
+            (17, 17),     // Medium boundary
             (1024, 1024), // Medium max
             (1025, 1025), // Large boundary
         ];

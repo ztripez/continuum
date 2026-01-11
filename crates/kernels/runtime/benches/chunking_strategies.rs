@@ -7,10 +7,10 @@
 
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
 use continuum_runtime::executor::member_executor::{
-    resolve_scalar_l1, ChunkConfig, MemberResolveContext,
+    ChunkConfig, MemberResolveContext, resolve_scalar_l1,
 };
 use continuum_runtime::soa_storage::MemberSignalBuffer;
 use continuum_runtime::storage::SignalStorage;
@@ -24,7 +24,10 @@ fn create_test_signals() -> SignalStorage {
 
 fn create_test_members(count: usize) -> MemberSignalBuffer {
     let mut buffer = MemberSignalBuffer::new();
-    buffer.register_signal("value".to_string(), continuum_runtime::soa_storage::ValueType::Scalar);
+    buffer.register_signal(
+        "value".to_string(),
+        continuum_runtime::soa_storage::ValueType::Scalar,
+    );
     buffer.init_instances(count);
     buffer
 }
@@ -118,9 +121,7 @@ fn bench_parallel_speedup(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new("serial", population),
             &population,
-            |b, _| {
-                b.iter(|| resolve_serial(black_box(&prev_values), dt))
-            },
+            |b, _| b.iter(|| resolve_serial(black_box(&prev_values), dt)),
         );
 
         // Parallel L1 with auto chunk
@@ -206,9 +207,7 @@ fn bench_chunk_size_heuristics(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::from_parameter(population),
             &population,
-            |b, &pop| {
-                b.iter(|| ChunkConfig::auto(black_box(pop)))
-            },
+            |b, &pop| b.iter(|| ChunkConfig::auto(black_box(pop))),
         );
     }
 

@@ -49,8 +49,8 @@ use chumsky::prelude::*;
 
 use crate::ast::Item;
 
-use super::primitives::doc_comment;
 use super::ParseError;
+use super::primitives::doc_comment;
 
 // Re-export public parsers
 pub use config::{config_block, const_block};

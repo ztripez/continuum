@@ -29,7 +29,7 @@ use std::collections::HashSet;
 use indexmap::IndexMap;
 
 use crate::reductions::ReductionOp;
-use crate::types::{EntityId, SignalId, StratumId, EraId, Phase};
+use crate::types::{EntityId, EraId, Phase, SignalId, StratumId};
 use crate::vectorized::MemberSignalId;
 
 /// A single execution unit in the dependency graph.
@@ -397,7 +397,7 @@ impl BarrierDagBuilder {
         self.nodes.push(DagNode {
             id: node_id,
             reads: HashSet::new(), // Member signals read from previous tick
-            writes: None, // Writes to population storage, not global signal
+            writes: None,          // Writes to population storage, not global signal
             kind: NodeKind::MemberSignalResolve {
                 member_signal,
                 kernel_idx,
@@ -660,10 +660,7 @@ fn topological_levels(nodes: &[DagNode]) -> Result<Vec<Level>, CycleError> {
 
     // Kahn's algorithm with level tracking
     let mut levels = Vec::new();
-    let mut current_level: Vec<&DagNode> = nodes
-        .iter()
-        .filter(|n| in_degree[&n.id] == 0)
-        .collect();
+    let mut current_level: Vec<&DagNode> = nodes.iter().filter(|n| in_degree[&n.id] == 0).collect();
 
     let mut processed = 0;
 
@@ -862,13 +859,11 @@ mod tests {
         let mut era_dags = EraDags::default();
 
         // Add DAGs for different phases
-        let mut collect_builder =
-            DagBuilder::new(Phase::Collect, StratumId("terra".to_string()));
+        let mut collect_builder = DagBuilder::new(Phase::Collect, StratumId("terra".to_string()));
         collect_builder.add_node(make_node("collect_op", &[], None));
         era_dags.insert(collect_builder.build().unwrap());
 
-        let mut resolve_builder =
-            DagBuilder::new(Phase::Resolve, StratumId("terra".to_string()));
+        let mut resolve_builder = DagBuilder::new(Phase::Resolve, StratumId("terra".to_string()));
         resolve_builder.add_node(make_node("resolver", &[], Some("sig.x")));
         era_dags.insert(resolve_builder.build().unwrap());
 
@@ -917,15 +912,21 @@ mod tests {
         era_dags.insert(builder_climate.build().unwrap());
 
         // Should be able to get each separately
-        assert!(era_dags
-            .get(Phase::Resolve, &StratumId("terra".to_string()))
-            .is_some());
-        assert!(era_dags
-            .get(Phase::Resolve, &StratumId("climate".to_string()))
-            .is_some());
-        assert!(era_dags
-            .get(Phase::Resolve, &StratumId("nonexistent".to_string()))
-            .is_none());
+        assert!(
+            era_dags
+                .get(Phase::Resolve, &StratumId("terra".to_string()))
+                .is_some()
+        );
+        assert!(
+            era_dags
+                .get(Phase::Resolve, &StratumId("climate".to_string()))
+                .is_some()
+        );
+        assert!(
+            era_dags
+                .get(Phase::Resolve, &StratumId("nonexistent".to_string()))
+                .is_none()
+        );
     }
 
     #[test]
@@ -1289,16 +1290,14 @@ mod tests {
 
     #[test]
     fn test_stratum_eligibility_active() {
-        let eligibility =
-            StratumEligibility::from_state(crate::types::StratumState::Active, 0);
+        let eligibility = StratumEligibility::from_state(crate::types::StratumState::Active, 0);
         assert_eq!(eligibility, StratumEligibility::Eligible);
         assert!(eligibility.should_execute());
     }
 
     #[test]
     fn test_stratum_eligibility_gated() {
-        let eligibility =
-            StratumEligibility::from_state(crate::types::StratumState::Gated, 0);
+        let eligibility = StratumEligibility::from_state(crate::types::StratumState::Gated, 0);
         assert_eq!(eligibility, StratumEligibility::Gated);
         assert!(!eligibility.should_execute());
     }

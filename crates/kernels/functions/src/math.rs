@@ -92,7 +92,7 @@ pub fn sum(args: &[f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{eval, get, is_known, Arity};
+    use continuum_kernel_registry::{Arity, eval, get, is_known};
 
     #[test]
     fn test_pure_functions_registered() {

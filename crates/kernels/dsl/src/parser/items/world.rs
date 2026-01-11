@@ -2,8 +2,8 @@ use chumsky::prelude::*;
 
 use crate::ast::{PolicyBlock, Spanned, WorldDef};
 
-use super::super::primitives::{attr_string, spanned_path, ws};
 use super::super::ParseError;
+use super::super::primitives::{attr_string, spanned_path, ws};
 use super::config::config_entry;
 
 pub fn world_def<'src>() -> impl Parser<'src, &'src str, WorldDef, extra::Err<ParseError<'src>>> {
@@ -44,7 +44,8 @@ enum WorldContent {
     Policy(PolicyBlock),
 }
 
-fn world_content<'src>() -> impl Parser<'src, &'src str, WorldContent, extra::Err<ParseError<'src>>> {
+fn world_content<'src>() -> impl Parser<'src, &'src str, WorldContent, extra::Err<ParseError<'src>>>
+{
     choice((
         attr_string("title").map(WorldContent::Title),
         attr_string("version").map(WorldContent::Version),

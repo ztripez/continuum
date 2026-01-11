@@ -44,8 +44,8 @@
 //! // Execute with: continuum_vm::execute(&bytecode, &context)
 //! ```
 
-use continuum_vm::compiler::{BinaryOp, Expr, UnaryOp};
 use continuum_vm::BytecodeChunk;
+use continuum_vm::compiler::{BinaryOp, Expr, UnaryOp};
 
 use crate::{BinaryOpIr, CompiledExpr, DtRobustOperator, UnaryOpIr};
 
@@ -198,7 +198,11 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
                 field
             );
         }
-        CompiledExpr::EntityAccess { entity, instance, field } => {
+        CompiledExpr::EntityAccess {
+            entity,
+            instance,
+            field,
+        } => {
             panic!(
                 "EntityAccess({}.{}.{}) reached bytecode compiler - entity expressions must use EntityExecutor",
                 entity.0, instance.0, field
@@ -282,7 +286,7 @@ mod tests {
     use super::*;
     use crate::CompiledExpr;
     use continuum_foundation::SignalId;
-    use continuum_vm::{execute, ExecutionContext};
+    use continuum_vm::{ExecutionContext, execute};
 
     struct TestContext;
 

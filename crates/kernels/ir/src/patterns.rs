@@ -308,7 +308,8 @@ fn try_match_clamped_accumulator(expr: &CompiledExpr) -> Option<ExpressionPatter
         CompiledExpr::KernelCall { function, args } if function == "clamp" && args.len() == 3 => {
             // Check if first arg is prev + collected
             if try_match_simple_accumulator(&args[0]).is_some() {
-                let has_min = !matches!(&args[1], CompiledExpr::Literal(v) if *v == f64::NEG_INFINITY);
+                let has_min =
+                    !matches!(&args[1], CompiledExpr::Literal(v) if *v == f64::NEG_INFINITY);
                 let has_max = !matches!(&args[2], CompiledExpr::Literal(v) if *v == f64::INFINITY);
                 return Some(ExpressionPattern::ClampedAccumulator { has_min, has_max });
             }
@@ -316,7 +317,8 @@ fn try_match_clamped_accumulator(expr: &CompiledExpr) -> Option<ExpressionPatter
         }
         CompiledExpr::Call { function, args } if function == "clamp" && args.len() == 3 => {
             if try_match_simple_accumulator(&args[0]).is_some() {
-                let has_min = !matches!(&args[1], CompiledExpr::Literal(v) if *v == f64::NEG_INFINITY);
+                let has_min =
+                    !matches!(&args[1], CompiledExpr::Literal(v) if *v == f64::NEG_INFINITY);
                 let has_max = !matches!(&args[2], CompiledExpr::Literal(v) if *v == f64::INFINITY);
                 return Some(ExpressionPattern::ClampedAccumulator { has_min, has_max });
             }
@@ -336,13 +338,19 @@ fn try_match_decay_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern>
         } => {
             let decay_on_left = matches!(
                 left.as_ref(),
-                CompiledExpr::DtRobustCall { operator: DtRobustOperator::Decay, .. }
+                CompiledExpr::DtRobustCall {
+                    operator: DtRobustOperator::Decay,
+                    ..
+                }
             );
             let collected_on_right = matches!(right.as_ref(), CompiledExpr::Collected);
 
             let decay_on_right = matches!(
                 right.as_ref(),
-                CompiledExpr::DtRobustCall { operator: DtRobustOperator::Decay, .. }
+                CompiledExpr::DtRobustCall {
+                    operator: DtRobustOperator::Decay,
+                    ..
+                }
             );
             let collected_on_left = matches!(left.as_ref(), CompiledExpr::Collected);
 
@@ -447,8 +455,9 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
             right,
         } => {
             let left_is_linear = is_scaled_prev(left) || is_scaled_collected(left);
-            let right_is_linear =
-                is_scaled_prev(right) || is_scaled_collected(right) || matches!(right.as_ref(), CompiledExpr::Literal(_));
+            let right_is_linear = is_scaled_prev(right)
+                || is_scaled_collected(right)
+                || matches!(right.as_ref(), CompiledExpr::Literal(_));
 
             if left_is_linear && right_is_linear {
                 return Some(ExpressionPattern::LinearTransform);
@@ -487,18 +496,14 @@ fn try_match_constant(expr: &CompiledExpr) -> bool {
 fn expr_uses_prev(expr: &CompiledExpr) -> bool {
     match expr {
         CompiledExpr::Prev => true,
-        CompiledExpr::Binary { left, right, .. } => {
-            expr_uses_prev(left) || expr_uses_prev(right)
-        }
+        CompiledExpr::Binary { left, right, .. } => expr_uses_prev(left) || expr_uses_prev(right),
         CompiledExpr::Unary { operand, .. } => expr_uses_prev(operand),
         CompiledExpr::If {
             condition,
             then_branch,
             else_branch,
         } => {
-            expr_uses_prev(condition)
-                || expr_uses_prev(then_branch)
-                || expr_uses_prev(else_branch)
+            expr_uses_prev(condition) || expr_uses_prev(then_branch) || expr_uses_prev(else_branch)
         }
         CompiledExpr::Let { value, body, .. } => expr_uses_prev(value) || expr_uses_prev(body),
         CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
@@ -507,9 +512,9 @@ fn expr_uses_prev(expr: &CompiledExpr) -> bool {
         CompiledExpr::DtRobustCall { args, .. } => args.iter().any(expr_uses_prev),
         CompiledExpr::FieldAccess { object, .. } => expr_uses_prev(object),
         CompiledExpr::Aggregate { body, .. } => expr_uses_prev(body),
-        CompiledExpr::Filter { predicate, body, .. } => {
-            expr_uses_prev(predicate) || expr_uses_prev(body)
-        }
+        CompiledExpr::Filter {
+            predicate, body, ..
+        } => expr_uses_prev(predicate) || expr_uses_prev(body),
         CompiledExpr::Within {
             position,
             radius,
@@ -1261,7 +1266,10 @@ pub fn partition_by_execution_level(
 /// Determines why a batch would fall back to L1, if at all.
 ///
 /// Returns `None` if the batch can use L2, or `Some(reason)` if it must fall back.
-fn determine_fallback_reason(batch: &SignalBatch, population_hint: usize) -> Option<FallbackReason> {
+fn determine_fallback_reason(
+    batch: &SignalBatch,
+    population_hint: usize,
+) -> Option<FallbackReason> {
     // Check batch size first (independent of population)
     if batch.signal_ids.len() < MIN_BATCH_SIZE {
         return Some(FallbackReason::BatchTooSmall {
@@ -1518,11 +1526,13 @@ mod tests {
     #[test]
     fn test_pattern_supports_batching() {
         assert!(ExpressionPattern::SimpleAccumulator.supports_batching());
-        assert!(ExpressionPattern::ClampedAccumulator {
-            has_min: true,
-            has_max: true
-        }
-        .supports_batching());
+        assert!(
+            ExpressionPattern::ClampedAccumulator {
+                has_min: true,
+                has_max: true
+            }
+            .supports_batching()
+        );
         assert!(ExpressionPattern::Passthrough.supports_batching());
         assert!(!ExpressionPattern::Custom(12345).supports_batching());
     }
@@ -1594,8 +1604,13 @@ mod tests {
     fn test_should_use_l2_medium_benefit() {
         // Medium benefit patterns need larger population
         // DecayAccumulator is a Medium benefit pattern
-        let pattern = ExpressionPattern::DecayAccumulator { has_collected: true };
-        assert_eq!(pattern.vectorization_benefit(), VectorizationBenefit::Medium);
+        let pattern = ExpressionPattern::DecayAccumulator {
+            has_collected: true,
+        };
+        assert_eq!(
+            pattern.vectorization_benefit(),
+            VectorizationBenefit::Medium
+        );
 
         // Below threshold: should not use L2
         assert!(!should_use_l2(&pattern, L2_MINIMUM_POPULATION));
@@ -1681,7 +1696,9 @@ mod tests {
 
         assert_eq!(
             result.pattern,
-            ExpressionPattern::DecayAccumulator { has_collected: true }
+            ExpressionPattern::DecayAccumulator {
+                has_collected: true
+            }
         );
         assert_eq!(result.benefit, VectorizationBenefit::Medium);
         assert!(result.use_l2); // Large population enables L2 for medium benefit
@@ -1978,7 +1995,8 @@ mod tests {
             ],
         };
 
-        let levels = partition_by_execution_level(vec![l2_batch, l1_batch], L2_POPULATION_THRESHOLD);
+        let levels =
+            partition_by_execution_level(vec![l2_batch, l1_batch], L2_POPULATION_THRESHOLD);
 
         assert_eq!(levels.len(), 2);
         assert!(matches!(levels[0], ExecutionLevel::L2 { .. }));
@@ -2013,7 +2031,8 @@ mod tests {
             ],
         };
 
-        let levels = partition_by_execution_level(vec![l2_batch, l1_batch], L2_POPULATION_THRESHOLD);
+        let levels =
+            partition_by_execution_level(vec![l2_batch, l1_batch], L2_POPULATION_THRESHOLD);
         let summary = summarize_partition(&levels);
 
         assert_eq!(summary.l2_batches, 1);

@@ -35,8 +35,8 @@ use chumsky::prelude::*;
 
 use crate::ast::{AggregateOp, BinaryOp, CallArg, Expr, Literal, MathConst, Spanned, UnaryOp};
 
-use super::primitives::{ident, number, path, string_lit, unit, ws};
 use super::ParseError;
+use super::primitives::{ident, number, path, string_lit, unit, ws};
 
 /// Type alias for parser Extra to ensure consistency across helper functions
 type Ex<'src> = extra::Err<ParseError<'src>>;
@@ -95,8 +95,12 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             just("dt_raw").to(Expr::DtRaw),
             // Math constants (ASCII and Unicode)
             just("PI").or(just("π")).to(Expr::MathConst(MathConst::Pi)),
-            just("TAU").or(just("τ")).to(Expr::MathConst(MathConst::Tau)),
-            just("PHI").or(just("φ")).to(Expr::MathConst(MathConst::Phi)),
+            just("TAU")
+                .or(just("τ"))
+                .to(Expr::MathConst(MathConst::Tau)),
+            just("PHI")
+                .or(just("φ"))
+                .to(Expr::MathConst(MathConst::Phi)),
             just("E").or(just("ℯ")).to(Expr::MathConst(MathConst::E)),
             just("I").or(just("ⅈ")).to(Expr::MathConst(MathConst::I)),
             text::keyword("payload").to(Expr::Payload),
@@ -148,7 +152,10 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                 .map_with(|(lit, unit_opt), extra| {
                     let span: chumsky::span::SimpleSpan = extra.span();
                     let e = match unit_opt {
-                        Some(u) => Expr::LiteralWithUnit { value: lit, unit: u },
+                        Some(u) => Expr::LiteralWithUnit {
+                            value: lit,
+                            unit: u,
+                        },
                         None => Expr::Literal(lit),
                     };
                     Spanned::new(e, span.start..span.end)
@@ -219,21 +226,21 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             just('!').to(UnaryOp::Not),
             text::keyword("not").to(UnaryOp::Not),
         ))
-            .map_with(|op, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                (op, span.start)
-            })
-            .repeated()
-            .foldr(postfix, |(op, op_start), operand| {
-                let span = op_start..operand.span.end;
-                Spanned::new(
-                    Expr::Unary {
-                        op,
-                        operand: Box::new(operand),
-                    },
-                    span,
-                )
-            });
+        .map_with(|op, extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            (op, span.start)
+        })
+        .repeated()
+        .foldr(postfix, |(op, op_start), operand| {
+            let span = op_start..operand.span.end;
+            Spanned::new(
+                Expr::Unary {
+                    op,
+                    operand: Box::new(operand),
+                },
+                span,
+            )
+        });
 
         // Binary operators - helper macro to reduce repetition
         let product = unary.clone().foldl(
@@ -311,10 +318,7 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             text::keyword("and").to(BinaryOp::And),
         ));
         let logical_and = comparison.clone().foldl(
-            and_op
-                .padded_by(ws())
-                .then(comparison)
-                .repeated(),
+            and_op.padded_by(ws()).then(comparison).repeated(),
             |left, (op, right)| {
                 let span = span_union(&left, &right);
                 Spanned::new(
@@ -335,10 +339,7 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             text::keyword("or").to(BinaryOp::Or),
         ));
         let logical_or = logical_and.clone().foldl(
-            or_op
-                .padded_by(ws())
-                .then(logical_and)
-                .repeated(),
+            or_op.padded_by(ws()).then(logical_and).repeated(),
             |left, (op, right)| {
                 let span = span_union(&left, &right);
                 Spanned::new(

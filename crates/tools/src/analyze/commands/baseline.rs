@@ -192,9 +192,10 @@ fn compare(
     let mut failures = Vec::new();
 
     for field_name in &field_names {
-        let baseline_field = baseline.fields.get(field_name).ok_or_else(|| {
-            format!("Field not found in baseline: {}", field_name)
-        })?;
+        let baseline_field = baseline
+            .fields
+            .get(field_name)
+            .ok_or_else(|| format!("Field not found in baseline: {}", field_name))?;
 
         // Try to find the exact tick, otherwise use last
         let tick = if run.get_snapshot(baseline_field.tick).is_some() {

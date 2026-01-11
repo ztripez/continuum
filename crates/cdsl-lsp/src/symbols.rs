@@ -567,10 +567,7 @@ impl SymbolIndex {
                 kind: SymbolKind::Function,
                 path: def.path.node.to_string(),
                 doc: def.doc.clone(),
-                ty: def
-                    .return_type
-                    .as_ref()
-                    .map(|t| format_type_expr(&t.node)),
+                ty: def.return_type.as_ref().map(|t| format_type_expr(&t.node)),
                 title: None,
                 symbol: None,
                 strata: None,
@@ -763,13 +760,13 @@ impl SymbolIndex {
         let mut extra = Vec::new();
 
         if let Some(ref count_source) = def.count_source {
-            extra.push((
-                "count_source".to_string(),
-                count_source.node.to_string(),
-            ));
+            extra.push(("count_source".to_string(), count_source.node.to_string()));
         }
         if let Some(ref bounds) = def.count_bounds {
-            extra.push(("count".to_string(), format!("{}..{}", bounds.min, bounds.max)));
+            extra.push((
+                "count".to_string(),
+                format!("{}..{}", bounds.min, bounds.max),
+            ));
         }
 
         self.symbols.push(IndexedSymbol {
@@ -832,7 +829,10 @@ impl SymbolIndex {
             extra.push(("version".to_string(), version.node.clone()));
         }
         if let Some(ref policy) = def.policy {
-            extra.push(("policy".to_string(), format!("{} entry(ies)", policy.entries.len())));
+            extra.push((
+                "policy".to_string(),
+                format!("{} entry(ies)", policy.entries.len()),
+            ));
         }
 
         self.symbols.push(IndexedSymbol {
@@ -1542,7 +1542,10 @@ fn.math.double(x) { x * 2 }
         assert_eq!(field.doc, Some("Surface temperature display."));
 
         // Check function completion
-        let func = completions.iter().find(|c| c.path == "math.double").unwrap();
+        let func = completions
+            .iter()
+            .find(|c| c.path == "math.double")
+            .unwrap();
         assert_eq!(func.kind, SymbolKind::Function);
     }
 
@@ -1591,16 +1594,19 @@ signal.thermal.gradient {
 
         // Should have references to core.temp, undefined.signal, and some.value (const)
         assert!(
-            refs.iter().any(|r| r.target_path == "core.temp" && r.kind == SymbolKind::Signal),
+            refs.iter()
+                .any(|r| r.target_path == "core.temp" && r.kind == SymbolKind::Signal),
             "Should have signal reference to core.temp"
         );
         assert!(
-            refs.iter().any(|r| r.target_path == "undefined.signal" && r.kind == SymbolKind::Signal),
+            refs.iter()
+                .any(|r| r.target_path == "undefined.signal" && r.kind == SymbolKind::Signal),
             "Should have signal reference to undefined.signal"
         );
         // const references now have kind=Const and path without prefix
         assert!(
-            refs.iter().any(|r| r.target_path == "some.value" && r.kind == SymbolKind::Const),
+            refs.iter()
+                .any(|r| r.target_path == "some.value" && r.kind == SymbolKind::Const),
             "Should have const reference to some.value"
         );
 

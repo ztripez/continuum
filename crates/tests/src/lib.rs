@@ -6,9 +6,8 @@
 use continuum_dsl::parse;
 use continuum_foundation::{EraId, FieldId, SignalId};
 use continuum_ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture,
+    CompiledWorld, build_assertion, build_era_configs, build_field_measure, build_fracture,
     build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
-    CompiledWorld,
 };
 use continuum_runtime::executor::Runtime;
 use continuum_runtime::types::Value;
@@ -150,7 +149,9 @@ impl TestHarness {
     }
 
     /// Drain field samples (clears the buffer).
-    pub fn drain_fields(&mut self) -> indexmap::IndexMap<FieldId, Vec<continuum_runtime::storage::FieldSample>> {
+    pub fn drain_fields(
+        &mut self,
+    ) -> indexmap::IndexMap<FieldId, Vec<continuum_runtime::storage::FieldSample>> {
         self.runtime.drain_fields()
     }
 }

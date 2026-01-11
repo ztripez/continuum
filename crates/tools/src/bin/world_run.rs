@@ -16,9 +16,8 @@ use tracing::{error, info, warn};
 use continuum_dsl::load_world;
 use continuum_foundation::{FieldId, SignalId};
 use continuum_ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture,
-    build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
-    validate,
+    build_assertion, build_era_configs, build_field_measure, build_fracture, build_signal_resolver,
+    compile, convert_assertion_severity, get_initial_signal_value, lower, validate,
 };
 use continuum_runtime::executor::Runtime;
 use continuum_runtime::storage::FieldSample;
@@ -338,8 +337,8 @@ fn main() {
                             fields: field_values,
                         };
 
-                        let snap_json = serde_json::to_string_pretty(&snapshot)
-                            .expect("serialization failed");
+                        let snap_json =
+                            serde_json::to_string_pretty(&snapshot).expect("serialization failed");
                         let snap_path = dir.join(format!("tick_{:06}.json", step));
                         if let Err(e) = fs::write(&snap_path, snap_json) {
                             error!("Failed to write snapshot: {}", e);

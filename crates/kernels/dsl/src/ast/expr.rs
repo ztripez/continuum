@@ -222,7 +222,6 @@ pub enum Expr {
     },
 
     // === Entity expressions ===
-
     /// Reference to current entity instance field: `self.mass`.
     SelfField(String),
 

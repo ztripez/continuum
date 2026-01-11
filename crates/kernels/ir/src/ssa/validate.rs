@@ -193,9 +193,11 @@ mod tests {
         // Entry block has no terminator
 
         let errors = validate_ssa(&func).unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|e| matches!(e, SsaValidationError::MissingTerminator { block } if block.0 == 0)));
+        assert!(
+            errors.iter().any(
+                |e| matches!(e, SsaValidationError::MissingTerminator { block } if block.0 == 0)
+            )
+        );
     }
 
     #[test]
@@ -217,8 +219,10 @@ mod tests {
 
         // Block 0: branch based on condition
         let cond = func.alloc_vreg();
-        func.block_mut(BlockId(0))
-            .push(SsaInstruction::LoadConst { dst: cond, value: 1.0 });
+        func.block_mut(BlockId(0)).push(SsaInstruction::LoadConst {
+            dst: cond,
+            value: 1.0,
+        });
 
         let then_block = func.alloc_block();
         let else_block = func.alloc_block();
@@ -232,21 +236,19 @@ mod tests {
 
         // Block 1 (then): return 1.0
         let then_val = func.alloc_vreg();
-        func.block_mut(then_block)
-            .push(SsaInstruction::LoadConst {
-                dst: then_val,
-                value: 1.0,
-            });
+        func.block_mut(then_block).push(SsaInstruction::LoadConst {
+            dst: then_val,
+            value: 1.0,
+        });
         func.block_mut(then_block)
             .terminate(Terminator::Jump(merge_block));
 
         // Block 2 (else): return 2.0
         let else_val = func.alloc_vreg();
-        func.block_mut(else_block)
-            .push(SsaInstruction::LoadConst {
-                dst: else_val,
-                value: 2.0,
-            });
+        func.block_mut(else_block).push(SsaInstruction::LoadConst {
+            dst: else_val,
+            value: 2.0,
+        });
         func.block_mut(else_block)
             .terminate(Terminator::Jump(merge_block));
 
@@ -270,18 +272,24 @@ mod tests {
         func.vreg_count = 1;
 
         // First definition
-        func.block_mut(BlockId(0))
-            .push(SsaInstruction::LoadConst { dst: reg, value: 1.0 });
+        func.block_mut(BlockId(0)).push(SsaInstruction::LoadConst {
+            dst: reg,
+            value: 1.0,
+        });
         // Second definition of same register (violation)
-        func.block_mut(BlockId(0))
-            .push(SsaInstruction::LoadConst { dst: reg, value: 2.0 });
+        func.block_mut(BlockId(0)).push(SsaInstruction::LoadConst {
+            dst: reg,
+            value: 2.0,
+        });
         func.block_mut(BlockId(0))
             .terminate(Terminator::Return(reg));
 
         let errors = validate_ssa(&func).unwrap_err();
-        assert!(errors
-            .iter()
-            .any(|e| matches!(e, SsaValidationError::DuplicateDefinition { reg: r } if *r == reg)));
+        assert!(
+            errors.iter().any(
+                |e| matches!(e, SsaValidationError::DuplicateDefinition { reg: r } if *r == reg)
+            )
+        );
     }
 
     #[test]
@@ -290,8 +298,10 @@ mod tests {
 
         // Block 0: branch to blocks 1 and 2
         let cond = func.alloc_vreg();
-        func.block_mut(BlockId(0))
-            .push(SsaInstruction::LoadConst { dst: cond, value: 1.0 });
+        func.block_mut(BlockId(0)).push(SsaInstruction::LoadConst {
+            dst: cond,
+            value: 1.0,
+        });
 
         let then_block = func.alloc_block();
         let else_block = func.alloc_block();
@@ -305,21 +315,19 @@ mod tests {
 
         // Block 1 (then): jump to merge
         let then_val = func.alloc_vreg();
-        func.block_mut(then_block)
-            .push(SsaInstruction::LoadConst {
-                dst: then_val,
-                value: 1.0,
-            });
+        func.block_mut(then_block).push(SsaInstruction::LoadConst {
+            dst: then_val,
+            value: 1.0,
+        });
         func.block_mut(then_block)
             .terminate(Terminator::Jump(merge_block));
 
         // Block 2 (else): jump to merge
         let else_val = func.alloc_vreg();
-        func.block_mut(else_block)
-            .push(SsaInstruction::LoadConst {
-                dst: else_val,
-                value: 2.0,
-            });
+        func.block_mut(else_block).push(SsaInstruction::LoadConst {
+            dst: else_val,
+            value: 2.0,
+        });
         func.block_mut(else_block)
             .terminate(Terminator::Jump(merge_block));
 
@@ -347,8 +355,10 @@ mod tests {
 
         // Block 0: return immediately
         let val = func.alloc_vreg();
-        func.block_mut(BlockId(0))
-            .push(SsaInstruction::LoadConst { dst: val, value: 1.0 });
+        func.block_mut(BlockId(0)).push(SsaInstruction::LoadConst {
+            dst: val,
+            value: 1.0,
+        });
         func.block_mut(BlockId(0))
             .terminate(Terminator::Return(val));
 

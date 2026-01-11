@@ -98,7 +98,11 @@ fn main() {
             continue;
         }
 
-        info!("Parsed {} item(s) in {}", unit.items.len(), rel_path.display());
+        info!(
+            "Parsed {} item(s) in {}",
+            unit.items.len(),
+            rel_path.display()
+        );
         for item in &unit.items {
             let desc = describe_item(&item.node);
             info!("    - {}", desc);

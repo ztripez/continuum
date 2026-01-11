@@ -17,12 +17,12 @@ mod validate;
 pub mod vectorized;
 
 pub use codegen::compile as compile_to_bytecode;
-pub use compile::{compile, CompilationResult, CompileError};
+pub use compile::{CompilationResult, CompileError, compile};
 pub use interpret::{
     build_assertion, build_era_configs, build_field_measure, build_fracture, build_resolver,
     build_signal_resolver, convert_assertion_severity, get_initial_signal_value, get_initial_value,
 };
-pub use lower::{lower, LowerError};
+pub use lower::{LowerError, lower};
 pub use types::*;
-pub use validate::{validate, CompileWarning, WarningCode};
+pub use validate::{CompileWarning, WarningCode, validate};
 pub use vectorized::{L2ExecutionError, L2VectorizedExecutor, ScalarL2Kernel, VRegBuffer};

@@ -12,15 +12,15 @@ use crate::ast::{
     ObserveHandler, Spanned, TypeExpr,
 };
 
+use super::super::ParseError;
 use super::super::expr::spanned_expr;
 use super::super::primitives::{ident, spanned, spanned_path, ws};
-use super::super::ParseError;
 use super::types::type_expr;
 
 // === Impulse ===
 
-pub fn impulse_def<'src>(
-) -> impl Parser<'src, &'src str, ImpulseDef, extra::Err<ParseError<'src>>> {
+pub fn impulse_def<'src>() -> impl Parser<'src, &'src str, ImpulseDef, extra::Err<ParseError<'src>>>
+{
     text::keyword("impulse")
         .padded_by(ws())
         .ignore_then(just('.'))
@@ -57,8 +57,8 @@ enum ImpulseContent {
     Apply(ApplyBlock),
 }
 
-fn impulse_content<'src>(
-) -> impl Parser<'src, &'src str, ImpulseContent, extra::Err<ParseError<'src>>> {
+fn impulse_content<'src>()
+-> impl Parser<'src, &'src str, ImpulseContent, extra::Err<ParseError<'src>>> {
     choice((
         just(':')
             .padded_by(ws())
@@ -77,8 +77,8 @@ fn impulse_content<'src>(
 
 // === Fracture ===
 
-pub fn fracture_def<'src>(
-) -> impl Parser<'src, &'src str, FractureDef, extra::Err<ParseError<'src>>> {
+pub fn fracture_def<'src>()
+-> impl Parser<'src, &'src str, FractureDef, extra::Err<ParseError<'src>>> {
     text::keyword("fracture")
         .padded_by(ws())
         .ignore_then(just('.'))
@@ -115,8 +115,8 @@ enum FractureContent {
     Emit(Vec<EmitStatement>),
 }
 
-fn fracture_content<'src>(
-) -> impl Parser<'src, &'src str, FractureContent, extra::Err<ParseError<'src>>> {
+fn fracture_content<'src>()
+-> impl Parser<'src, &'src str, FractureContent, extra::Err<ParseError<'src>>> {
     choice((
         text::keyword("when")
             .padded_by(ws())
@@ -141,8 +141,8 @@ fn fracture_content<'src>(
     ))
 }
 
-fn emit_statement<'src>(
-) -> impl Parser<'src, &'src str, EmitStatement, extra::Err<ParseError<'src>>> + Clone {
+fn emit_statement<'src>()
+-> impl Parser<'src, &'src str, EmitStatement, extra::Err<ParseError<'src>>> + Clone {
     text::keyword("signal")
         .padded_by(ws())
         .ignore_then(just('.'))
@@ -154,8 +154,8 @@ fn emit_statement<'src>(
 
 // === Chronicle ===
 
-pub fn chronicle_def<'src>(
-) -> impl Parser<'src, &'src str, ChronicleDef, extra::Err<ParseError<'src>>> {
+pub fn chronicle_def<'src>()
+-> impl Parser<'src, &'src str, ChronicleDef, extra::Err<ParseError<'src>>> {
     text::keyword("chronicle")
         .padded_by(ws())
         .ignore_then(just('.'))
@@ -167,11 +167,15 @@ pub fn chronicle_def<'src>(
                 .or_not()
                 .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
         )
-        .map(|(path, observe)| ChronicleDef { doc: None, path, observe })
+        .map(|(path, observe)| ChronicleDef {
+            doc: None,
+            path,
+            observe,
+        })
 }
 
-fn observe_block<'src>(
-) -> impl Parser<'src, &'src str, ObserveBlock, extra::Err<ParseError<'src>>> {
+fn observe_block<'src>() -> impl Parser<'src, &'src str, ObserveBlock, extra::Err<ParseError<'src>>>
+{
     text::keyword("observe")
         .padded_by(ws())
         .ignore_then(
@@ -184,8 +188,8 @@ fn observe_block<'src>(
         .map(|handlers| ObserveBlock { handlers })
 }
 
-fn observe_handler<'src>(
-) -> impl Parser<'src, &'src str, ObserveHandler, extra::Err<ParseError<'src>>> {
+fn observe_handler<'src>()
+-> impl Parser<'src, &'src str, ObserveHandler, extra::Err<ParseError<'src>>> {
     text::keyword("when")
         .padded_by(ws())
         .ignore_then(spanned_expr())
@@ -212,8 +216,8 @@ fn observe_handler<'src>(
         })
 }
 
-fn event_field<'src>(
-) -> impl Parser<'src, &'src str, (Spanned<String>, Spanned<Expr>), extra::Err<ParseError<'src>>> {
+fn event_field<'src>()
+-> impl Parser<'src, &'src str, (Spanned<String>, Spanned<Expr>), extra::Err<ParseError<'src>>> {
     spanned(ident())
         .then_ignore(just(':').padded_by(ws()))
         .then(spanned_expr())

@@ -4,7 +4,7 @@ use continuum_foundation::SignalId;
 
 use crate::{BinaryOpIr, CompiledExpr, DtRobustOperator, IntegrationMethod, UnaryOpIr};
 
-use super::{lower_to_ssa, validate_ssa, BlockId, SsaInstruction, Terminator};
+use super::{BlockId, SsaInstruction, Terminator, lower_to_ssa, validate_ssa};
 
 #[test]
 fn test_lower_literal() {
@@ -32,7 +32,10 @@ fn test_lower_prev() {
 
     assert_eq!(ssa.blocks.len(), 1);
     let block = &ssa.blocks[0];
-    assert!(matches!(&block.instructions[0], SsaInstruction::LoadPrev { .. }));
+    assert!(matches!(
+        &block.instructions[0],
+        SsaInstruction::LoadPrev { .. }
+    ));
 
     assert!(validate_ssa(&ssa).is_ok());
 }
@@ -44,7 +47,10 @@ fn test_lower_dt_raw() {
 
     assert_eq!(ssa.blocks.len(), 1);
     let block = &ssa.blocks[0];
-    assert!(matches!(&block.instructions[0], SsaInstruction::LoadDt { .. }));
+    assert!(matches!(
+        &block.instructions[0],
+        SsaInstruction::LoadDt { .. }
+    ));
 
     assert!(validate_ssa(&ssa).is_ok());
 }
@@ -81,11 +87,20 @@ fn test_lower_binary_add() {
     assert_eq!(block.instructions.len(), 3);
 
     // Check order: prev, const, add
-    assert!(matches!(&block.instructions[0], SsaInstruction::LoadPrev { .. }));
-    assert!(matches!(&block.instructions[1], SsaInstruction::LoadConst { .. }));
+    assert!(matches!(
+        &block.instructions[0],
+        SsaInstruction::LoadPrev { .. }
+    ));
+    assert!(matches!(
+        &block.instructions[1],
+        SsaInstruction::LoadConst { .. }
+    ));
     assert!(matches!(
         &block.instructions[2],
-        SsaInstruction::BinOp { op: BinaryOpIr::Add, .. }
+        SsaInstruction::BinOp {
+            op: BinaryOpIr::Add,
+            ..
+        }
     ));
 
     assert!(validate_ssa(&ssa).is_ok());
@@ -105,7 +120,10 @@ fn test_lower_unary_neg() {
     let block = &ssa.blocks[0];
     assert!(matches!(
         &block.instructions[1],
-        SsaInstruction::UnaryOp { op: UnaryOpIr::Neg, .. }
+        SsaInstruction::UnaryOp {
+            op: UnaryOpIr::Neg,
+            ..
+        }
     ));
 
     assert!(validate_ssa(&ssa).is_ok());
@@ -134,11 +152,17 @@ fn test_lower_nested_binary() {
     // Verify the binary ops are in correct order
     assert!(matches!(
         &block.instructions[2],
-        SsaInstruction::BinOp { op: BinaryOpIr::Add, .. }
+        SsaInstruction::BinOp {
+            op: BinaryOpIr::Add,
+            ..
+        }
     ));
     assert!(matches!(
         &block.instructions[4],
-        SsaInstruction::BinOp { op: BinaryOpIr::Mul, .. }
+        SsaInstruction::BinOp {
+            op: BinaryOpIr::Mul,
+            ..
+        }
     ));
 
     assert!(validate_ssa(&ssa).is_ok());
