@@ -20,6 +20,7 @@ use tracing::{error, info, instrument, trace};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
+use crate::soa_storage::{MemberSignalBuffer, ValueType as MemberValueType};
 use crate::storage::{
     EntityInstances, EntityStorage, FieldBuffer, FieldSample, FractureQueue, InputChannels,
     SignalStorage,
@@ -70,6 +71,11 @@ pub struct Runtime {
     signals: SignalStorage,
     /// Entity storage for per-instance state
     entities: EntityStorage,
+    /// Member signal storage (SoA for vectorized execution)
+    member_signals: MemberSignalBuffer,
+    /// Member resolver functions indexed by signal name
+    /// Uses ScalarResolverFn which captures constants/config at build time
+    member_resolvers: IndexMap<String, ScalarResolverFn>,
     /// Input channels for Collect phase
     input_channels: InputChannels,
     /// Field buffer for Measure phase
@@ -101,6 +107,8 @@ impl Runtime {
         Self {
             signals: SignalStorage::default(),
             entities: EntityStorage::default(),
+            member_signals: MemberSignalBuffer::new(),
+            member_resolvers: IndexMap::new(),
             input_channels: InputChannels::default(),
             field_buffer: FieldBuffer::default(),
             fracture_queue: FractureQueue::default(),
@@ -174,6 +182,41 @@ impl Runtime {
         let count = instances.count();
         tracing::debug!(entity = %id, count, "entity initialized");
         self.entities.init_entity(id, instances);
+    }
+
+    /// Register a member signal type
+    ///
+    /// Must be called before `init_member_instances` for all member signals.
+    pub fn register_member_signal(&mut self, signal_name: &str, value_type: MemberValueType) {
+        tracing::debug!(signal = signal_name, ?value_type, "member signal registered");
+        self.member_signals.register_signal(signal_name.to_string(), value_type);
+    }
+
+    /// Initialize storage for all registered member signals
+    ///
+    /// Must be called after all member signals are registered with `register_member_signal`.
+    pub fn init_member_instances(&mut self, instance_count: usize) {
+        tracing::debug!(count = instance_count, "member instances initialized");
+        self.member_signals.init_instances(instance_count);
+    }
+
+    /// Register a member resolver function
+    ///
+    /// The resolver should be built using `build_member_resolver` from the IR,
+    /// which captures constants and config at build time.
+    pub fn register_member_resolver(&mut self, signal_name: String, resolver: ScalarResolverFn) {
+        tracing::debug!(signal = %signal_name, "member resolver registered");
+        self.member_resolvers.insert(signal_name, resolver);
+    }
+
+    /// Get a member signal value for a specific instance
+    pub fn get_member_signal(&self, signal_name: &str, instance_idx: usize) -> Option<Value> {
+        self.member_signals.get_current(signal_name, instance_idx)
+    }
+
+    /// Get access to member signal buffer
+    pub fn member_signals(&self) -> &MemberSignalBuffer {
+        &self.member_signals
     }
 
     /// Get the number of instances for an entity type
@@ -292,7 +335,7 @@ impl Runtime {
             &mut self.pending_impulses,
         )?;
 
-        // Phase 3: Resolve
+        // Phase 3: Resolve global signals
         self.phase_executor.execute_resolve(
             &self.current_era,
             self.tick,
@@ -303,6 +346,9 @@ impl Runtime {
             &mut self.input_channels,
             &self.assertion_checker,
         )?;
+
+        // Phase 3b: Resolve member signals (after global signals are available)
+        self.execute_member_resolve(dt)?;
 
         // Phase 4: Fracture
         self.phase_executor.execute_fracture(
@@ -330,11 +376,90 @@ impl Runtime {
         // Advance state
         self.signals.advance_tick();
         self.entities.advance_tick();
+        self.member_signals.advance_tick();
         self.fracture_queue.drain_into(&mut self.input_channels);
         self.tick += 1;
 
         trace!("tick complete");
         Ok(ctx)
+    }
+
+    /// Execute member signal resolution using L1 parallel execution.
+    ///
+    /// Iterates over all registered member resolvers and executes them for each instance
+    /// in parallel using the chunked L1 execution strategy. This runs after global signal
+    /// resolution so that member expressions can access resolved global signals.
+    #[instrument(skip(self), name = "member_resolve")]
+    fn execute_member_resolve(&mut self, dt: Dt) -> Result<()> {
+        use member_executor::{resolve_scalar_l1, ChunkConfig};
+
+        if self.member_resolvers.is_empty() {
+            return Ok(());
+        }
+
+        let instance_count = self.member_signals.instance_count();
+        if instance_count == 0 {
+            return Ok(());
+        }
+
+        trace!(
+            resolvers = self.member_resolvers.len(),
+            instances = instance_count,
+            "resolving member signals"
+        );
+
+        // Get signal names to iterate over (copy keys to avoid borrow issues)
+        let signal_names: Vec<String> = self.member_resolvers.keys().cloned().collect();
+
+        // Execute each member resolver using L1 parallel strategy
+        for signal_name in signal_names {
+            // Collect previous values as Vec<f64>
+            let prev_values: Vec<f64> = (0..instance_count)
+                .map(|i| {
+                    self.member_signals
+                        .get_previous(&signal_name, i)
+                        .and_then(|v| v.as_scalar())
+                        .unwrap_or(0.0)
+                })
+                .collect();
+
+            let resolver = self.member_resolvers.get(&signal_name).unwrap();
+            let config = ChunkConfig::auto(instance_count);
+
+            // Execute in parallel using L1 strategy
+            let results = resolve_scalar_l1(
+                &prev_values,
+                |ctx| resolver(ctx),
+                &self.signals,
+                &self.member_signals,
+                dt,
+                config,
+            );
+
+            // Validate and write results back
+            for (instance_idx, value) in results.into_iter().enumerate() {
+                // Check for numeric errors
+                if value.is_nan() {
+                    error!(signal = %signal_name, instance = instance_idx, "NaN result in member signal");
+                    return Err(Error::NumericError {
+                        signal: SignalId(signal_name.clone()),
+                        message: format!("NaN result for instance {}", instance_idx),
+                    });
+                }
+                if value.is_infinite() {
+                    error!(signal = %signal_name, instance = instance_idx, "infinite result in member signal");
+                    return Err(Error::NumericError {
+                        signal: SignalId(signal_name.clone()),
+                        message: format!("Infinite result for instance {}", instance_idx),
+                    });
+                }
+
+                trace!(signal = %signal_name, instance = instance_idx, value, "member signal resolved");
+                self.member_signals.set_current(&signal_name, instance_idx, Value::Scalar(value));
+            }
+        }
+
+        Ok(())
     }
 
     fn check_era_transition(&mut self) -> Result<()> {

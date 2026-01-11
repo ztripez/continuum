@@ -39,9 +39,13 @@
 //! hold owned copies of constants and config, avoiding shared state.
 
 mod contexts;
+mod member_interp;
 
 #[cfg(test)]
 mod tests;
+
+// Re-export member interpreter types
+pub use member_interp::{build_member_resolver, MemberInterpContext, MemberResolverFn};
 
 use indexmap::IndexMap;
 

@@ -19,8 +19,9 @@ pub mod vectorized;
 pub use codegen::compile as compile_to_bytecode;
 pub use compile::{compile, CompilationResult, CompileError};
 pub use interpret::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture, build_resolver,
-    build_signal_resolver, convert_assertion_severity, get_initial_signal_value, get_initial_value,
+    build_assertion, build_era_configs, build_field_measure, build_fracture, build_member_resolver,
+    build_resolver, build_signal_resolver, convert_assertion_severity, get_initial_signal_value,
+    get_initial_value, MemberInterpContext, MemberResolverFn,
 };
 pub use lower::{lower, LowerError};
 pub use types::*;

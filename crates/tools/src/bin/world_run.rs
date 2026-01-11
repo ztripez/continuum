@@ -16,11 +16,12 @@ use tracing::{error, info, warn};
 use continuum_dsl::load_world;
 use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
 use continuum_ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture,
+    build_assertion, build_era_configs, build_field_measure, build_fracture, build_member_resolver,
     build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
     validate,
 };
 use continuum_runtime::executor::{ResolverFn, Runtime};
+use continuum_runtime::soa_storage::ValueType as MemberValueType;
 use continuum_runtime::storage::{EntityInstances, FieldSample, InstanceData};
 use continuum_runtime::types::{Dt, Value};
 
@@ -332,6 +333,70 @@ fn main() {
             "  Initialized entity {} with {} instances",
             entity_id, count
         );
+    }
+
+    // Initialize member signals for SoA execution
+    if !world.members.is_empty() {
+        info!("Initializing member signals...");
+
+        // Get instance count (assume all entities have same count for now)
+        let member_instance_count = world
+            .entities
+            .values()
+            .next()
+            .and_then(|entity| {
+                entity
+                    .count_source
+                    .as_ref()
+                    .and_then(|src| world.config.get(src))
+                    .map(|v| *v as usize)
+            })
+            .unwrap_or(1);
+
+        // Register member signals (use full member ID to avoid name collisions)
+        for (member_id, member) in &world.members {
+            let value_type = match member.value_type {
+                continuum_ir::ValueType::Scalar { .. } => MemberValueType::Scalar,
+                continuum_ir::ValueType::Vec2 { .. } => MemberValueType::Vec2,
+                continuum_ir::ValueType::Vec3 { .. } => MemberValueType::Vec3,
+                continuum_ir::ValueType::Vec4 { .. } => MemberValueType::Vec4,
+                _ => MemberValueType::Scalar,
+            };
+            // Use full member ID (e.g., "stellar.star.mass") instead of just signal_name ("mass")
+            // to avoid collisions between entities with same-named members
+            runtime.register_member_signal(&member_id.0, value_type);
+        }
+
+        // Initialize member instances
+        runtime.init_member_instances(member_instance_count);
+        info!(
+            "  Initialized {} member signals with {} instances",
+            world.members.len(),
+            member_instance_count
+        );
+
+        // Build and register member resolvers
+        let mut member_resolver_count = 0;
+        for (member_id, member) in &world.members {
+            if let Some(ref resolve_expr) = member.resolve {
+                // Entity prefix is the entity ID (e.g., "terra.plate" for "terra.plate.age")
+                let entity_prefix = &member.entity_id.0;
+                let resolver = build_member_resolver(resolve_expr, &world.constants, &world.config, entity_prefix);
+                // Use full member ID to match the registration above
+                runtime.register_member_resolver(member_id.0.clone(), resolver);
+                info!(
+                    "  Registered member resolver for {} (entity={})",
+                    member_id, entity_prefix
+                );
+                member_resolver_count += 1;
+            } else {
+                info!(
+                    "  Skipped member {} - no resolve expression",
+                    member_id
+                );
+            }
+        }
+        info!("  Total: {} member resolvers registered", member_resolver_count);
     }
 
     // Prepare snapshot directory if requested
