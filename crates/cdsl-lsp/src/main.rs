@@ -27,8 +27,8 @@ use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, LspService, Server};
 use walkdir::WalkDir;
 
-use continuum_dsl::ast::{CompilationUnit, Expr, Item, Spanned};
-use continuum_dsl::parse;
+use continuum_compiler::dsl::ast::{CompilationUnit, Expr, Item, OperatorBody, Spanned};
+use continuum_compiler::dsl::parse;
 use symbols::{
     ReferenceValidationInfo, SymbolIndex, SymbolKind as CdslSymbolKind, format_hover_markdown,
     get_builtin_hover,
@@ -770,7 +770,7 @@ fn collect_clamp_in_item(item: &Item, spans: &mut Vec<std::ops::Range<usize>>) {
         }
         Item::OperatorDef(def) => {
             if let Some(ref body) = def.body {
-                use continuum_dsl::ast::OperatorBody;
+                use OperatorBody;
                 match body {
                     OperatorBody::Warmup(expr)
                     | OperatorBody::Collect(expr)
@@ -2195,9 +2195,9 @@ fn add_nested_folding_ranges(doc: &str, item: &Item, ranges: &mut Vec<FoldingRan
             if let Some(ref body) = def.body {
                 // Extract span from the OperatorBody enum variant
                 let expr_span = match body {
-                    continuum_dsl::OperatorBody::Warmup(expr) => &expr.span,
-                    continuum_dsl::OperatorBody::Collect(expr) => &expr.span,
-                    continuum_dsl::OperatorBody::Measure(expr) => &expr.span,
+                    OperatorBody::Warmup(expr) => &expr.span,
+                    OperatorBody::Collect(expr) => &expr.span,
+                    OperatorBody::Measure(expr) => &expr.span,
                 };
                 add_block_folding(doc, expr_span.start, expr_span.end, ranges);
             }

@@ -6,8 +6,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use continuum_dsl::ast::CompilationUnit;
-pub use continuum_ir::CompiledWorld;
+pub use continuum_dsl as dsl;
+pub use continuum_ir as ir;
+
+pub use dsl::ast::CompilationUnit;
+pub use ir::CompiledWorld;
 
 /// A unified diagnostic message from any phase of the compiler.
 #[derive(Debug, Clone)]

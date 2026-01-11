@@ -23,7 +23,7 @@
 
 use std::ops::Range;
 
-use continuum_dsl::ast::{
+use continuum_compiler::dsl::ast::{
     ChronicleDef, CompilationUnit, ConfigBlock, ConfigEntry, ConstBlock, ConstEntry, EntityDef,
     EraDef, Expr, FieldDef, FnDef, FractureDef, ImpulseDef, Item, Literal, MemberDef, OperatorBody,
     OperatorDef, Path, SignalDef, Spanned, SpannedExprVisitor, StrataDef, TypeDef, TypeExpr,
@@ -1308,7 +1308,7 @@ signal.thermal.gradient {
     }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1357,7 +1357,7 @@ signal.thermal.gradient {
     }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1397,7 +1397,7 @@ signal.thermal.gradient {
     }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1441,7 +1441,7 @@ fracture.test {
     emit { signal.core.temp <- 5.0 }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1486,7 +1486,7 @@ strata.thermal {
     : stride(1)
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1518,7 +1518,7 @@ field.thermal.display {
 
 fn.math.double(x) { x * 2 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1586,7 +1586,7 @@ signal.thermal.gradient {
     }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());

@@ -253,7 +253,7 @@ dependencies = [
 name = "cdsl-lsp"
 version = "0.1.0"
 dependencies = [
- "continuum-dsl",
+ "continuum-compiler",
  "dashmap 6.1.0",
  "tokio",
  "tower-lsp",
@@ -491,10 +491,9 @@ dependencies = [
 name = "continuum-tests"
 version = "0.1.0"
 dependencies = [
- "continuum-dsl",
+ "continuum-compiler",
  "continuum-foundation",
  "continuum-functions",
- "continuum-ir",
  "continuum-runtime",
  "continuum-vm",
  "indexmap",
@@ -506,10 +505,9 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
- "continuum-dsl",
+ "continuum-compiler",
  "continuum-foundation",
  "continuum-functions",
- "continuum-ir",
  "continuum-runtime",
  "indexmap",
  "serde",

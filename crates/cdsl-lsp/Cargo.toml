@@ -8,7 +8,7 @@ name = "cdsl-lsp"
 path = "src/main.rs"
 
 [dependencies]
-continuum-dsl = { version = "0.1.0", path = "../kernels/dsl" }
+continuum-compiler = { version = "0.1.0", path = "../continuum-compiler" }
 dashmap = "6.1.0"
 tokio = { version = "1.49.0", features = ["rt-multi-thread", "io-std", "macros"] }
 tower-lsp = "0.20.0"

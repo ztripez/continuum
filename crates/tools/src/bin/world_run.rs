@@ -11,14 +11,13 @@ use std::process;
 
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
-use continuum_dsl::load_world;
-use continuum_foundation::{FieldId, SignalId};
-use continuum_ir::{
+use continuum_compiler::ir::{
     build_assertion, build_era_configs, build_field_measure, build_fracture, build_signal_resolver,
-    compile, convert_assertion_severity, get_initial_signal_value, lower, validate,
+    compile, convert_assertion_severity, get_initial_signal_value,
 };
+use continuum_foundation::{FieldId, SignalId};
 use continuum_runtime::executor::Runtime;
 use continuum_runtime::storage::FieldSample;
 use continuum_runtime::types::{Dt, Value};
@@ -97,26 +96,28 @@ fn main() {
         }
     }
 
-    // Load world
+    // Load and compile world using unified compiler
     info!("Loading world from: {}", world_dir.display());
 
-    let load_result = match load_world(world_dir) {
-        Ok(r) => r,
-        Err(e) => {
-            error!("Error loading world: {}", e);
-            process::exit(1);
+    let world = match continuum_compiler::compile_from_dir(world_dir) {
+        Ok(w) => {
+            info!("Successfully compiled world");
+            w
         }
-    };
-
-    info!("Found {} .cdsl file(s)", load_result.files.len());
-    info!("Parsed {} total items", load_result.unit.items.len());
-
-    // Lower to IR
-    info!("Lowering to IR...");
-    let world = match lower(&load_result.unit) {
-        Ok(w) => w,
-        Err(e) => {
-            error!("Lowering error: {}", e);
+        Err(diagnostics) => {
+            for diag in diagnostics {
+                let file_str = diag
+                    .file
+                    .as_ref()
+                    .map(|f| format!("{}: ", f.display()))
+                    .unwrap_or_default();
+                let span_str = diag
+                    .span
+                    .as_ref()
+                    .map(|s| format!("at {:?}: ", s))
+                    .unwrap_or_default();
+                error!("{}{}{}", file_str, span_str, diag.message);
+            }
             process::exit(1);
         }
     };
@@ -127,18 +128,6 @@ fn main() {
     info!("  Fields: {}", world.fields.len());
     info!("  Constants: {}", world.constants.len());
     info!("  Config: {}", world.config.len());
-
-    // Validate IR
-    info!("Validating...");
-    let warnings = validate(&world);
-    if warnings.is_empty() {
-        info!("  No warnings");
-    } else {
-        warn!("{} warning(s):", warnings.len());
-        for warning in &warnings {
-            warn!("  - {} (in {})", warning.message, warning.entity);
-        }
-    }
 
     // Compile to DAGs
     info!("Compiling to DAGs...");
