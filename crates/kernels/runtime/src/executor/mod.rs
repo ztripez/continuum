@@ -219,6 +219,16 @@ impl Runtime {
         self.member_signals.init_instances(instance_count);
     }
 
+    /// Register the instance count for a specific entity.
+    ///
+    /// Call this after `init_member_instances` to track per-entity instance counts
+    /// for aggregate operations. Aggregates will use this count instead of the
+    /// global instance count when iterating over entity members.
+    pub fn register_entity_count(&mut self, entity_id: &str, count: usize) {
+        tracing::debug!(entity = entity_id, count, "entity instance count registered");
+        self.member_signals.register_entity_count(entity_id, count);
+    }
+
     /// Register a scalar member resolver function
     ///
     /// The resolver should be built using `build_member_resolver` from the IR,
@@ -470,8 +480,11 @@ impl Runtime {
         let scalar_signal_names: Vec<String> = self.member_resolvers.keys().cloned().collect();
 
         for signal_name in scalar_signal_names {
+            // Get the correct instance count for this member's entity
+            let signal_instance_count = self.member_signals.instance_count_for_signal(&signal_name);
+
             // Collect previous values as Vec<f64>
-            let prev_values: Vec<f64> = (0..instance_count)
+            let prev_values: Vec<f64> = (0..signal_instance_count)
                 .map(|i| {
                     self.member_signals
                         .get_previous(&signal_name, i)
@@ -481,7 +494,7 @@ impl Runtime {
                 .collect();
 
             let resolver = self.member_resolvers.get(&signal_name).unwrap();
-            let config = ChunkConfig::auto(instance_count);
+            let config = ChunkConfig::auto(signal_instance_count);
 
             // Execute in parallel using L1 strategy
             let results = resolve_scalar_l1(
@@ -521,8 +534,11 @@ impl Runtime {
         let vec3_signal_names: Vec<String> = self.vec3_member_resolvers.keys().cloned().collect();
 
         for signal_name in vec3_signal_names {
+            // Get the correct instance count for this member's entity
+            let signal_instance_count = self.member_signals.instance_count_for_signal(&signal_name);
+
             // Collect previous values as Vec<[f64; 3]>
-            let prev_values: Vec<[f64; 3]> = (0..instance_count)
+            let prev_values: Vec<[f64; 3]> = (0..signal_instance_count)
                 .map(|i| {
                     self.member_signals
                         .get_previous(&signal_name, i)
@@ -532,7 +548,7 @@ impl Runtime {
                 .collect();
 
             let resolver = self.vec3_member_resolvers.get(&signal_name).unwrap();
-            let config = ChunkConfig::auto(instance_count);
+            let config = ChunkConfig::auto(signal_instance_count);
 
             // Execute in parallel using L1 strategy
             let results = resolve_vec3_l1(

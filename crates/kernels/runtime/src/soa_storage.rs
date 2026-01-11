@@ -662,8 +662,10 @@ impl<T: Copy + Default> DoubleBuffer<T> {
 pub struct MemberSignalBuffer {
     /// Registry of signal names → (type, index)
     registry: MemberSignalRegistry,
-    /// Number of entity instances
+    /// Maximum number of entity instances (used for storage allocation)
     instance_count: usize,
+    /// Per-entity instance counts (entity_id → count)
+    entity_instance_counts: std::collections::HashMap<String, usize>,
     /// Double-buffered scalar storage
     scalars: DoubleBuffer<f64>,
     /// Double-buffered Vec2 storage
@@ -680,6 +682,7 @@ impl MemberSignalBuffer {
         Self {
             registry: MemberSignalRegistry::new(),
             instance_count: 0,
+            entity_instance_counts: std::collections::HashMap::new(),
             scalars: DoubleBuffer::new(),
             vec2s: DoubleBuffer::new(),
             vec3s: DoubleBuffer::new(),
@@ -711,9 +714,54 @@ impl MemberSignalBuffer {
             .init(self.registry.type_count(ValueType::Vec4), instance_count);
     }
 
-    /// Get the number of instances.
+    /// Get the maximum number of instances (used for storage).
     pub fn instance_count(&self) -> usize {
         self.instance_count
+    }
+
+    /// Register the instance count for a specific entity.
+    ///
+    /// Call this before `init_instances` to track per-entity counts.
+    pub fn register_entity_count(&mut self, entity_id: &str, count: usize) {
+        self.entity_instance_counts
+            .insert(entity_id.to_string(), count);
+    }
+
+    /// Get the instance count for a specific entity.
+    ///
+    /// Returns the registered count for that entity, or the global instance_count
+    /// if no specific count was registered.
+    pub fn instance_count_for_entity(&self, entity_id: &str) -> usize {
+        self.entity_instance_counts
+            .get(entity_id)
+            .copied()
+            .unwrap_or(self.instance_count)
+    }
+
+    /// Extract entity ID from a member signal name.
+    ///
+    /// Member signal names follow the pattern "entity.id.signal_name".
+    /// For example: "terra.plate.age" → "terra.plate"
+    pub fn entity_id_from_signal(&self, signal_name: &str) -> Option<String> {
+        // Split by '.' and take all but the last component
+        let parts: Vec<&str> = signal_name.split('.').collect();
+        if parts.len() >= 2 {
+            Some(parts[..parts.len() - 1].join("."))
+        } else {
+            None
+        }
+    }
+
+    /// Get the instance count for a member signal by extracting its entity ID.
+    ///
+    /// Returns the entity-specific count, or the global instance_count if
+    /// entity ID cannot be determined or is not registered.
+    pub fn instance_count_for_signal(&self, signal_name: &str) -> usize {
+        if let Some(entity_id) = self.entity_id_from_signal(signal_name) {
+            self.instance_count_for_entity(&entity_id)
+        } else {
+            self.instance_count
+        }
     }
 
     /// Get the registry for signal lookup.

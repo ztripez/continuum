@@ -494,7 +494,8 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
 
         // Entity aggregate operations: sum/mean/min/max/count over entity instances
         CompiledExpr::Aggregate { op, entity, body } => {
-            let instance_count = ctx.members.instance_count();
+            // Use per-entity instance count for correct aggregation
+            let instance_count = ctx.members.instance_count_for_entity(&entity.0);
             if instance_count == 0 {
                 // Return identity for empty aggregations
                 return InterpValue::Scalar(match op {

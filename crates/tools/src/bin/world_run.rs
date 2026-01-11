@@ -367,21 +367,30 @@ fn main() {
     if !world.members.is_empty() {
         info!("Initializing member signals...");
 
-        // Get instance count (assume all entities have same count for now)
-        let member_instance_count = world
-            .entities
-            .values()
-            .next()
-            .map(|entity| {
-                if let Some(ref count_source) = entity.count_source {
-                    world.config.get(count_source).map(|v| *v as usize).unwrap_or(1)
-                } else if let Some((min, max)) = entity.count_bounds {
-                    if min == max { min as usize } else { min as usize }
+        // Build per-entity instance counts and find max for storage allocation
+        let mut entity_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for (entity_id, entity) in &world.entities {
+            let count = if let Some(ref count_source) = entity.count_source {
+                world
+                    .config
+                    .get(count_source)
+                    .map(|v| *v as usize)
+                    .unwrap_or(1)
+            } else if let Some((min, max)) = entity.count_bounds {
+                if min == max {
+                    min as usize
                 } else {
-                    1
+                    min as usize
                 }
-            })
-            .unwrap_or(1);
+            } else {
+                1
+            };
+            entity_counts.insert(entity_id.0.clone(), count);
+        }
+
+        // Use max instance count for storage allocation (signals need enough slots for largest entity)
+        let max_instance_count = entity_counts.values().copied().max().unwrap_or(1);
 
         // Register member signals (use full member ID to avoid name collisions)
         for (member_id, member) in &world.members {
@@ -397,12 +406,19 @@ fn main() {
             runtime.register_member_signal(&member_id.0, value_type);
         }
 
-        // Initialize member instances
-        runtime.init_member_instances(member_instance_count);
+        // Initialize member instances with max count for storage
+        runtime.init_member_instances(max_instance_count);
+
+        // Register per-entity instance counts for aggregate operations
+        for (entity_id, count) in &entity_counts {
+            runtime.register_entity_count(entity_id, *count);
+            info!("  Registered entity {} with {} instances", entity_id, count);
+        }
+
         info!(
-            "  Initialized {} member signals with {} instances",
+            "  Initialized {} member signals (max {} instances)",
             world.members.len(),
-            member_instance_count
+            max_instance_count
         );
 
         // Set initial values for members with initial expressions
@@ -412,14 +428,20 @@ fn main() {
                 let initial_value =
                     eval_initial_expr(initial_expr, &world.constants, &world.config);
 
+                // Get the correct instance count for this member's entity
+                let instance_count = entity_counts
+                    .get(&member.entity_id.0)
+                    .copied()
+                    .unwrap_or(1);
+
                 // Set initial value for all instances of this member
-                for instance_idx in 0..member_instance_count {
+                for instance_idx in 0..instance_count {
                     runtime.set_member_signal(&member_id.0, instance_idx, initial_value.clone());
                 }
 
                 info!(
-                    "  Initialized member {} with value {:?}",
-                    member_id, initial_value
+                    "  Initialized member {} with value {:?} ({} instances)",
+                    member_id, initial_value, instance_count
                 );
                 initialized_count += 1;
             }
