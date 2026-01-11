@@ -14,6 +14,8 @@ pub struct WarmupContext<'a> {
     pub signals: &'a SignalStorage,
     /// Current warmup iteration (0-indexed)
     pub iteration: u32,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }
 
 /// Context available to resolver functions
@@ -26,6 +28,8 @@ pub struct ResolveContext<'a> {
     pub inputs: f64,
     /// Time step
     pub dt: Dt,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }
 
 /// Context available to collect operators
@@ -36,6 +40,8 @@ pub struct CollectContext<'a> {
     pub channels: &'a mut InputChannels,
     /// Time step
     pub dt: Dt,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }
 
 /// Context available to fracture evaluation
@@ -44,6 +50,8 @@ pub struct FractureContext<'a> {
     pub signals: &'a SignalStorage,
     /// Time step
     pub dt: Dt,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }
 
 /// Context available to measure operators
@@ -54,6 +62,8 @@ pub struct MeasureContext<'a> {
     pub fields: &'a mut FieldBuffer,
     /// Time step
     pub dt: Dt,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }
 
 /// Context available to impulse application
@@ -62,6 +72,8 @@ pub struct ImpulseContext<'a> {
     pub signals: &'a SignalStorage,
     /// Channel to write inputs
     pub channels: &'a mut InputChannels,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }
 
 /// Context for assertion evaluation
@@ -74,4 +86,6 @@ pub struct AssertContext<'a> {
     pub signals: &'a SignalStorage,
     /// Time step
     pub dt: Dt,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }

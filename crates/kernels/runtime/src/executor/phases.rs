@@ -13,7 +13,9 @@ use crate::storage::{FieldBuffer, FractureQueue, InputChannels, SignalStorage};
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 
 use super::assertions::AssertionChecker;
-use super::context::{CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext};
+use super::context::{
+    CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext,
+};
 
 /// Function that resolves a signal value
 pub type ResolverFn = Box<dyn Fn(&ResolveContext) -> Value + Send + Sync>;
@@ -165,6 +167,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
+        sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
@@ -178,6 +181,7 @@ impl PhaseExecutor {
             let mut ctx = ImpulseContext {
                 signals,
                 channels: input_channels,
+                sim_time,
             };
             trace!(handler_idx, "applying impulse");
             handler(&mut ctx, &payload);
@@ -206,6 +210,7 @@ impl PhaseExecutor {
                             signals,
                             channels: input_channels,
                             dt,
+                            sim_time,
                         };
                         op(&ctx);
                     }
@@ -222,6 +227,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
+        sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &mut SignalStorage,
@@ -275,6 +281,7 @@ impl PhaseExecutor {
                             signals,
                             inputs: *inputs,
                             dt,
+                            sim_time,
                         };
                         let value = resolver(&ctx);
                         Ok((signal.clone(), value))
@@ -305,7 +312,7 @@ impl PhaseExecutor {
 
                     // Check assertions before committing the value
                     let prev = signals.get_prev(&signal).unwrap_or(&value);
-                    assertion_checker.check_signal(&signal, &value, prev, signals, dt)?;
+                    assertion_checker.check_signal(&signal, &value, prev, signals, dt, sim_time)?;
 
                     trace!(signal = %signal, ?value, "signal resolved");
                     signals.set_current(signal, value);
@@ -325,6 +332,7 @@ impl PhaseExecutor {
         &self,
         era: &EraId,
         dt: Dt,
+        sim_time: f64,
         dags: &DagSet,
         signals: &SignalStorage,
         fracture_queue: &mut FractureQueue,
@@ -360,7 +368,11 @@ impl PhaseExecutor {
             // Below threshold - evaluate sequentially to avoid parallelism overhead
             for &fracture_idx in &all_fracture_indices {
                 let fracture = &self.fractures[fracture_idx];
-                let ctx = FractureContext { signals, dt };
+                let ctx = FractureContext {
+                    signals,
+                    dt,
+                    sim_time,
+                };
                 if let Some(outputs) = fracture(&ctx) {
                     debug!(fracture_idx, outputs = outputs.len(), "fracture emitted");
                     for (signal, value) in outputs {
@@ -375,7 +387,11 @@ impl PhaseExecutor {
                 .par_iter()
                 .filter_map(|&fracture_idx| {
                     let fracture = &self.fractures[fracture_idx];
-                    let ctx = FractureContext { signals, dt };
+                    let ctx = FractureContext {
+                        signals,
+                        dt,
+                        sim_time,
+                    };
                     fracture(&ctx).map(|outputs| (fracture_idx, outputs))
                 })
                 .collect();
@@ -411,6 +427,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
+        sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
@@ -422,10 +439,9 @@ impl PhaseExecutor {
         let eligible_dags: Vec<_> = era_dags
             .for_phase(Phase::Measure)
             .filter(|dag| {
-                let stratum_state = strata_states
-                    .get(&dag.stratum)
-                    .copied()
-                    .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+                let stratum_state = strata_states.get(&dag.stratum).copied().unwrap_or_else(|| {
+                    panic!("stratum {:?} not found in strata_states", dag.stratum)
+                });
                 stratum_state.is_eligible(tick)
             })
             .collect();
@@ -468,6 +484,7 @@ impl PhaseExecutor {
                     signals,
                     fields: field_buffer,
                     dt,
+                    sim_time,
                 };
                 op(&mut ctx);
             }
@@ -482,6 +499,7 @@ impl PhaseExecutor {
                         signals,
                         fields: &mut local_buffer,
                         dt,
+                        sim_time,
                     };
                     op(&mut ctx);
                     local_buffer

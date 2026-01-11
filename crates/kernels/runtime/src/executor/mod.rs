@@ -33,27 +33,30 @@ use crate::types::{
 // Re-export public types
 pub use assertions::{AssertionChecker, AssertionFn, AssertionSeverity, SignalAssertion};
 pub use context::{
-    AssertContext, CollectContext, FractureContext, ImpulseContext, MeasureContext,
-    ResolveContext, WarmupContext,
+    AssertContext, CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext,
+    WarmupContext,
 };
-pub use member_executor::{
-    ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver, ScalarResolveContext,
-    ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
-};
+pub use kernel_registry::LaneKernelRegistry;
+pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
 pub use l3_kernel::{
     L3Kernel, L3KernelBuilder, L3MemberResolver, MemberDag, MemberDagError, MemberEdge,
     ScalarL3MemberResolver, ScalarL3ResolveContext, ScalarL3ResolverFn, Vec3L3MemberResolver,
     Vec3L3ResolveContext, Vec3L3ResolverFn,
 };
-pub use kernel_registry::LaneKernelRegistry;
-pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
 pub use lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
 pub use lowering_strategy::{LoweringHeuristics, LoweringStrategy};
-pub use phases::{CollectFn, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn, MeasureParallelConfig, PhaseExecutor, ResolverFn};
+pub use member_executor::{
+    ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver,
+    ScalarResolveContext, ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
+};
+pub use phases::{
+    CollectFn, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn, MeasureParallelConfig,
+    PhaseExecutor, ResolverFn,
+};
 pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
 
 /// Function that evaluates era transition conditions
-pub type TransitionFn = Box<dyn Fn(&SignalStorage) -> Option<EraId> + Send + Sync>;
+pub type TransitionFn = Box<dyn Fn(&SignalStorage, f64) -> Option<EraId> + Send + Sync>;
 
 /// Function that evaluates aggregate expressions over member signals.
 ///
@@ -61,7 +64,7 @@ pub type TransitionFn = Box<dyn Fn(&SignalStorage) -> Option<EraId> + Send + Syn
 /// both global signals and member signal data for aggregate computations like
 /// `sum(entity.particle, self.mass)`.
 pub type AggregateResolverFn =
-    Box<dyn Fn(&SignalStorage, &MemberSignalBuffer, Dt) -> Value + Send + Sync>;
+    Box<dyn Fn(&SignalStorage, &MemberSignalBuffer, Dt, f64) -> Value + Send + Sync>;
 
 /// Era configuration
 pub struct EraConfig {
@@ -207,8 +210,13 @@ impl Runtime {
     ///
     /// Must be called before `init_member_instances` for all member signals.
     pub fn register_member_signal(&mut self, signal_name: &str, value_type: MemberValueType) {
-        tracing::debug!(signal = signal_name, ?value_type, "member signal registered");
-        self.member_signals.register_signal(signal_name.to_string(), value_type);
+        tracing::debug!(
+            signal = signal_name,
+            ?value_type,
+            "member signal registered"
+        );
+        self.member_signals
+            .register_signal(signal_name.to_string(), value_type);
     }
 
     /// Initialize storage for all registered member signals
@@ -225,7 +233,11 @@ impl Runtime {
     /// for aggregate operations. Aggregates will use this count instead of the
     /// global instance count when iterating over entity members.
     pub fn register_entity_count(&mut self, entity_id: &str, count: usize) {
-        tracing::debug!(entity = entity_id, count, "entity instance count registered");
+        tracing::debug!(
+            entity = entity_id,
+            count,
+            "entity instance count registered"
+        );
         self.member_signals.register_entity_count(entity_id, count);
     }
 
@@ -251,7 +263,11 @@ impl Runtime {
     ///
     /// These resolvers run after member signal resolution (Phase 3c) and can compute
     /// aggregates like `sum(entity.particle, self.mass)`.
-    pub fn register_aggregate_resolver(&mut self, signal_id: SignalId, resolver: AggregateResolverFn) {
+    pub fn register_aggregate_resolver(
+        &mut self,
+        signal_id: SignalId,
+        resolver: AggregateResolverFn,
+    ) {
         tracing::debug!(signal = %signal_id, "aggregate resolver registered");
         self.aggregate_resolvers.insert(signal_id, resolver);
     }
@@ -265,7 +281,8 @@ impl Runtime {
     ///
     /// Used for initializing member signals with non-zero values before execution starts.
     pub fn set_member_signal(&mut self, signal_name: &str, instance_idx: usize, value: Value) {
-        self.member_signals.set_current(signal_name, instance_idx, value);
+        self.member_signals
+            .set_current(signal_name, instance_idx, value);
     }
 
     /// Commit member initial values by advancing the buffer.
@@ -356,7 +373,8 @@ impl Runtime {
     /// Must be called before execute_tick. Runs all registered warmup
     /// functions until convergence or max iterations.
     pub fn execute_warmup(&mut self) -> Result<WarmupResult> {
-        self.warmup_executor.execute(&mut self.signals)
+        self.warmup_executor
+            .execute(&mut self.signals, self.sim_time)
     }
 
     /// Execute a single tick
@@ -390,6 +408,7 @@ impl Runtime {
             &self.current_era,
             self.tick,
             dt,
+            self.sim_time,
             &strata_states,
             &self.dags,
             &self.signals,
@@ -402,6 +421,7 @@ impl Runtime {
             &self.current_era,
             self.tick,
             dt,
+            self.sim_time,
             &strata_states,
             &self.dags,
             &mut self.signals,
@@ -419,6 +439,7 @@ impl Runtime {
         self.phase_executor.execute_fracture(
             &self.current_era,
             dt,
+            self.sim_time,
             &self.dags,
             &self.signals,
             &mut self.fracture_queue,
@@ -429,6 +450,7 @@ impl Runtime {
             &self.current_era,
             self.tick,
             dt,
+            self.sim_time,
             &strata_states,
             &self.dags,
             &self.signals,
@@ -458,7 +480,7 @@ impl Runtime {
     /// global signals.
     #[instrument(skip(self), name = "member_resolve")]
     fn execute_member_resolve(&mut self, dt: Dt) -> Result<()> {
-        use member_executor::{resolve_scalar_l1, resolve_vec3_l1, ChunkConfig};
+        use member_executor::{ChunkConfig, resolve_scalar_l1, resolve_vec3_l1};
 
         if self.member_resolvers.is_empty() && self.vec3_member_resolvers.is_empty() {
             return Ok(());
@@ -526,7 +548,8 @@ impl Runtime {
                 }
 
                 trace!(signal = %signal_name, instance = instance_idx, value, "member signal resolved");
-                self.member_signals.set_current(&signal_name, instance_idx, Value::Scalar(value));
+                self.member_signals
+                    .set_current(&signal_name, instance_idx, Value::Scalar(value));
             }
         }
 
@@ -569,20 +592,27 @@ impl Runtime {
                         error!(signal = %signal_name, instance = instance_idx, component = comp_idx, "NaN result in Vec3 member signal");
                         return Err(Error::NumericError {
                             signal: SignalId(signal_name.clone()),
-                            message: format!("NaN result in component {} for instance {}", comp_idx, instance_idx),
+                            message: format!(
+                                "NaN result in component {} for instance {}",
+                                comp_idx, instance_idx
+                            ),
                         });
                     }
                     if comp.is_infinite() {
                         error!(signal = %signal_name, instance = instance_idx, component = comp_idx, "infinite result in Vec3 member signal");
                         return Err(Error::NumericError {
                             signal: SignalId(signal_name.clone()),
-                            message: format!("Infinite result in component {} for instance {}", comp_idx, instance_idx),
+                            message: format!(
+                                "Infinite result in component {} for instance {}",
+                                comp_idx, instance_idx
+                            ),
                         });
                     }
                 }
 
                 trace!(signal = %signal_name, instance = instance_idx, ?value, "Vec3 member signal resolved");
-                self.member_signals.set_current(&signal_name, instance_idx, Value::Vec3(value));
+                self.member_signals
+                    .set_current(&signal_name, instance_idx, Value::Vec3(value));
             }
         }
 
@@ -609,7 +639,7 @@ impl Runtime {
 
         for signal_id in signal_ids {
             let resolver = self.aggregate_resolvers.get(&signal_id).unwrap();
-            let value = resolver(&self.signals, &self.member_signals, dt);
+            let value = resolver(&self.signals, &self.member_signals, dt, self.sim_time);
 
             // Validate numeric results
             if let Some(scalar) = value.as_scalar() {
@@ -639,7 +669,7 @@ impl Runtime {
     fn check_era_transition(&mut self) -> Result<()> {
         let era_config = self.eras.get(&self.current_era).unwrap();
         if let Some(ref transition) = era_config.transition
-            && let Some(next_era) = transition(&self.signals)
+            && let Some(next_era) = transition(&self.signals, self.sim_time)
         {
             if !self.eras.contains_key(&next_era) {
                 error!(era = %next_era, "transition to unknown era");
@@ -711,22 +741,13 @@ mod tests {
 
         // Execute ticks
         runtime.execute_tick().unwrap();
-        assert_eq!(
-            runtime.get_signal(&signal_id),
-            Some(&Value::Scalar(1.0))
-        );
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(1.0)));
 
         runtime.execute_tick().unwrap();
-        assert_eq!(
-            runtime.get_signal(&signal_id),
-            Some(&Value::Scalar(2.0))
-        );
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(2.0)));
 
         runtime.execute_tick().unwrap();
-        assert_eq!(
-            runtime.get_signal(&signal_id),
-            Some(&Value::Scalar(3.0))
-        );
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(3.0)));
     }
 
     #[test]
@@ -1002,7 +1023,12 @@ mod tests {
         let signal_id_clone = signal_id.clone();
         let field_id_clone = field_id.clone();
         runtime.register_measure_op(Box::new(move |ctx| {
-            let temp = ctx.signals.get(&signal_id_clone).unwrap().as_scalar().unwrap();
+            let temp = ctx
+                .signals
+                .get(&signal_id_clone)
+                .unwrap()
+                .as_scalar()
+                .unwrap();
             ctx.fields.emit_scalar(field_id_clone.clone(), temp);
         }));
 
@@ -1223,7 +1249,7 @@ mod tests {
         let era_a_config = EraConfig {
             dt: Dt(1.0),
             strata: strata_a.clone(),
-            transition: Some(Box::new(move |signals| {
+            transition: Some(Box::new(move |signals, _sim_time| {
                 if let Some(value) = signals.get(&signal_id_clone) {
                     if value.as_scalar().unwrap_or(0.0) >= 5.0 {
                         return Some(era_b_clone.clone());
@@ -1348,10 +1374,7 @@ mod tests {
         );
 
         // Gated signal should NOT have changed (gated stratum skipped)
-        assert_eq!(
-            runtime.get_signal(&gated_signal),
-            Some(&Value::Scalar(0.0))
-        );
+        assert_eq!(runtime.get_signal(&gated_signal), Some(&Value::Scalar(0.0)));
     }
 
     #[test]

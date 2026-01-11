@@ -7,9 +7,9 @@
 
 use indexmap::IndexMap;
 
+use continuum_runtime::SignalId;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
-use continuum_runtime::SignalId;
 use continuum_vm::ExecutionContext;
 
 /// Shared data available to all execution contexts.
@@ -77,6 +77,7 @@ pub(crate) struct ResolverContext<'a> {
     pub(crate) prev: &'a Value,
     pub(crate) inputs: f64,
     pub(crate) dt: f64,
+    pub(crate) sim_time: f64,
     pub(crate) shared: SharedContextData<'a>,
 }
 
@@ -104,7 +105,7 @@ impl ExecutionContext for ResolverContext<'_> {
     }
 
     fn sim_time(&self) -> f64 {
-        0.0 // Not yet tracked in resolver context
+        self.sim_time
     }
 
     fn inputs(&self) -> f64 {
@@ -128,8 +129,12 @@ impl ExecutionContext for ResolverContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }
 
@@ -142,6 +147,7 @@ pub(crate) struct AssertionContext<'a> {
     #[allow(dead_code)] // May be used for future 'prev' semantics in assertions
     pub(crate) prev: &'a Value,
     pub(crate) dt: f64,
+    pub(crate) sim_time: f64,
     pub(crate) shared: SharedContextData<'a>,
 }
 
@@ -171,7 +177,7 @@ impl ExecutionContext for AssertionContext<'_> {
     }
 
     fn sim_time(&self) -> f64 {
-        0.0 // Not yet tracked in assertion context
+        self.sim_time
     }
 
     fn inputs(&self) -> f64 {
@@ -195,8 +201,12 @@ impl ExecutionContext for AssertionContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, 0.0)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }
 
@@ -205,6 +215,7 @@ impl ExecutionContext for AssertionContext<'_> {
 /// Transitions only have access to signals, constants, and config.
 /// They cannot access `prev`, `dt`, or `inputs`.
 pub(crate) struct TransitionContext<'a> {
+    pub(crate) sim_time: f64,
     pub(crate) shared: SharedContextData<'a>,
 }
 
@@ -218,7 +229,7 @@ impl ExecutionContext for TransitionContext<'_> {
     }
 
     fn sim_time(&self) -> f64 {
-        0.0 // Not used in transitions
+        self.sim_time
     }
 
     fn inputs(&self) -> f64 {
@@ -242,8 +253,12 @@ impl ExecutionContext for TransitionContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, 0.0)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }
 
@@ -253,6 +268,7 @@ impl ExecutionContext for TransitionContext<'_> {
 /// and the current time step. They cannot access `prev` or `inputs`.
 pub(crate) struct MeasureContext<'a> {
     pub(crate) dt: f64,
+    pub(crate) sim_time: f64,
     pub(crate) shared: SharedContextData<'a>,
 }
 
@@ -266,7 +282,7 @@ impl ExecutionContext for MeasureContext<'_> {
     }
 
     fn sim_time(&self) -> f64 {
-        0.0 // Not yet tracked in measure context
+        self.sim_time
     }
 
     fn inputs(&self) -> f64 {
@@ -290,8 +306,12 @@ impl ExecutionContext for MeasureContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }
 
@@ -301,6 +321,7 @@ impl ExecutionContext for MeasureContext<'_> {
 /// the current time step. They cannot access `prev` or `inputs`.
 pub(crate) struct FractureExecContext<'a> {
     pub(crate) dt: f64,
+    pub(crate) sim_time: f64,
     pub(crate) shared: SharedContextData<'a>,
 }
 
@@ -314,7 +335,7 @@ impl ExecutionContext for FractureExecContext<'_> {
     }
 
     fn sim_time(&self) -> f64 {
-        0.0 // Not yet tracked in fracture context
+        self.sim_time
     }
 
     fn inputs(&self) -> f64 {
@@ -338,7 +359,11 @@ impl ExecutionContext for FractureExecContext<'_> {
     }
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt)
-            .unwrap_or_else(|| panic!("Unknown kernel function '{}' - function not found in registry", name))
+        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
     }
 }

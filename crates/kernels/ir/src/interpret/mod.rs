@@ -46,8 +46,8 @@ mod tests;
 
 // Re-export member interpreter types
 pub use member_interp::{
-    build_member_resolver, build_vec3_member_resolver, interpret_expr, InterpValue,
-    MemberInterpContext, MemberResolverFn, Vec3MemberResolverFn,
+    InterpValue, MemberInterpContext, MemberResolverFn, Vec3MemberResolverFn,
+    build_member_resolver, build_vec3_member_resolver, interpret_expr,
 };
 
 use std::collections::HashMap;
@@ -64,11 +64,11 @@ use continuum_functions as _;
 use continuum_runtime::soa_storage::MemberSignalBuffer;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::{Dt, Value};
-use continuum_vm::{execute, BytecodeChunk};
+use continuum_vm::{BytecodeChunk, execute};
 
 use crate::{
-    codegen, AssertionSeverity as IrAssertionSeverity, CompiledEra, CompiledExpr, CompiledFracture,
-    CompiledWorld, ValueType,
+    AssertionSeverity as IrAssertionSeverity, CompiledEra, CompiledExpr, CompiledFracture,
+    CompiledWorld, ValueType, codegen,
 };
 
 /// Checks if an expression contains any entity-related constructs.
@@ -94,9 +94,9 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         | CompiledExpr::Within { .. } => true,
 
         // Impulse-related expressions (also not bytecode-compatible)
-        CompiledExpr::Payload
-        | CompiledExpr::PayloadField(_)
-        | CompiledExpr::EmitSignal { .. } => true,
+        CompiledExpr::Payload | CompiledExpr::PayloadField(_) | CompiledExpr::EmitSignal { .. } => {
+            true
+        }
 
         // Recursive cases - check sub-expressions
         CompiledExpr::Binary { left, right, .. } => {
@@ -260,11 +260,12 @@ fn build_transition_fn(
     let constants = constants.clone();
     let config = config.clone();
 
-    Some(Box::new(move |signals: &SignalStorage| {
+    Some(Box::new(move |signals: &SignalStorage, sim_time: f64| {
         // Evaluate each transition condition in order
         // First matching condition wins
         for (target_era, bytecode) in &transitions {
             let ctx = TransitionContext {
+                sim_time,
                 shared: SharedContextData {
                     constants: &constants,
                     config: &config,
@@ -366,11 +367,7 @@ pub fn build_signal_resolver(
         if components.iter().any(contains_entity_expression) {
             return None; // Requires EntityExecutor
         }
-        return Some(build_vector_resolver(
-            components,
-            &signal.value_type,
-            world,
-        ));
+        return Some(build_vector_resolver(components, &signal.value_type, world));
     }
 
     // Fall back to scalar resolution
@@ -404,6 +401,7 @@ fn build_vector_resolver(
             prev: ctx.prev,
             inputs: ctx.inputs,
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -472,6 +470,7 @@ pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: b
             prev: ctx.prev,
             inputs: ctx.inputs,
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -531,6 +530,7 @@ pub fn build_field_measure(
     Some(Box::new(move |ctx| {
         let exec_ctx = MeasureContext {
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -584,6 +584,7 @@ pub fn build_fracture(fracture: &CompiledFracture, world: &CompiledWorld) -> Fra
     Box::new(move |ctx| {
         let exec_ctx = FractureExecContext {
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -639,6 +640,7 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
             current: ctx.current,
             prev: ctx.prev,
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -677,36 +679,35 @@ pub fn convert_assertion_severity(severity: IrAssertionSeverity) -> AssertionSev
 /// # Returns
 ///
 /// An `AggregateResolverFn` that computes the aggregate value when called.
-pub fn build_aggregate_resolver(
-    expr: &CompiledExpr,
-    world: &CompiledWorld,
-) -> AggregateResolverFn {
-    use member_interp::{interpret_expr, InterpValue, MemberInterpContext};
+pub fn build_aggregate_resolver(expr: &CompiledExpr, world: &CompiledWorld) -> AggregateResolverFn {
+    use member_interp::{InterpValue, MemberInterpContext, interpret_expr};
     use std::collections::HashMap;
 
     let expr = expr.clone();
     let constants = world.constants.clone();
     let config = world.config.clone();
 
-    Box::new(move |signals: &SignalStorage, members: &MemberSignalBuffer, dt: Dt| {
-        // Create a context for interpretation
-        // For aggregate signals, we don't have a "self" instance - the aggregate
-        // iterates over all instances internally
-        let mut ctx = MemberInterpContext {
-            prev: InterpValue::Scalar(0.0), // Not used for aggregate signals
-            index: 0,                       // Will be set by aggregate iteration
-            dt: dt.seconds(),
-            sim_time: 0.0, // TODO: Pass sim_time to aggregate resolver
-            signals,
-            members,
-            constants: &constants,
-            config: &config,
-            locals: HashMap::new(),
-            entity_prefix: String::new(), // Will be set by aggregate during iteration
-            read_current: true, // Read current tick values (member resolution already complete)
-        };
+    Box::new(
+        move |signals: &SignalStorage, members: &MemberSignalBuffer, dt: Dt, sim_time: f64| {
+            // Create a context for interpretation
+            // For aggregate signals, we don't have a "self" instance - the aggregate
+            // iterates over all instances internally
+            let mut ctx = MemberInterpContext {
+                prev: InterpValue::Scalar(0.0), // Not used for aggregate signals
+                index: 0,                       // Will be set by aggregate iteration
+                dt: dt.seconds(),
+                sim_time,
+                signals,
+                members,
+                constants: &constants,
+                config: &config,
+                locals: HashMap::new(),
+                entity_prefix: String::new(), // Will be set by aggregate during iteration
+                read_current: true, // Read current tick values (member resolution already complete)
+            };
 
-        let result = interpret_expr(&expr, &mut ctx);
-        Value::Scalar(result.as_scalar())
-    })
+            let result = interpret_expr(&expr, &mut ctx);
+            Value::Scalar(result.as_scalar())
+        },
+    )
 }

@@ -2,11 +2,14 @@
 
 use indexmap::IndexMap;
 
+use continuum_runtime::SignalId;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
-use continuum_runtime::SignalId;
 
-use crate::{BinaryOpIr, CompiledEmit, CompiledEra, CompiledExpr, CompiledFracture, CompiledTransition, CompiledWorld};
+use crate::{
+    BinaryOpIr, CompiledEmit, CompiledEra, CompiledExpr, CompiledFracture, CompiledTransition,
+    CompiledWorld,
+};
 
 use super::build_transition_fn;
 
@@ -42,13 +45,13 @@ fn test_build_transition_fn() {
     let transition_fn = build_transition_fn(&era, &constants, &config).unwrap();
 
     // Signal at 100, should not transition (100 < 50 is false)
-    assert!(transition_fn(&signals).is_none());
+    assert!(transition_fn(&signals, 0.0).is_none());
 
     // Update signal to 30
     signals.set_current(SignalId::from("temp"), Value::Scalar(30.0));
 
     // Signal at 30, should transition (30 < 50 is true)
-    let result = transition_fn(&signals);
+    let result = transition_fn(&signals, 0.0);
     assert!(result.is_some());
     assert_eq!(result.unwrap().0, "next_era");
 }
@@ -102,6 +105,7 @@ fn test_build_fracture() {
     let ctx = FractureContext {
         signals: &signals,
         dt: Dt(1.0),
+        sim_time: 0.0,
     };
 
     // Temp is 50, condition (temp > 100) is false, should not trigger
@@ -112,6 +116,7 @@ fn test_build_fracture() {
     let ctx = FractureContext {
         signals: &signals,
         dt: Dt(1.0),
+        sim_time: 0.0,
     };
 
     // Temp is 150, condition (temp > 100) is true, should trigger
