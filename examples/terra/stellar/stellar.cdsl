@@ -569,6 +569,19 @@ signal.stellar.total_tidal_power {
     }
 }
 
+# Total tidal amplitude from all moons
+# Used for field visualization - aggregates tidal force contribution
+signal.stellar.total_tidal_amplitude {
+    : Scalar<m, 0..1e6>
+    : strata(stellar.tides)
+    : title("Total Tidal Amplitude")
+    : symbol("A_tidal_total")
+
+    resolve {
+        sum(entity.stellar.moon, self.tidal_force * signal.planet.radius)
+    }
+}
+
 # Star count
 signal.stellar.star_count {
     : Scalar<1, 0..4>
@@ -627,7 +640,7 @@ field.stellar.tidal_amplitude_map {
     : title("Tidal Amplitude Field")
 
     measure {
-        # Sum tidal amplitudes from all moons
-        sum(entity.stellar.moon, self.tidal_force * signal.planet.radius)
+        # Observe the aggregated signal (entity aggregation happens in signal resolve)
+        signal.stellar.total_tidal_amplitude
     }
 }
