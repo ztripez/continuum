@@ -15,6 +15,8 @@ fn main() {
         "examples/terra/stellar/stellar.cdsl",
     ];
 
+    let mut failed = false;
+
     for file in files {
         let path = Path::new(env!("CARGO_MANIFEST_DIR"))
             .parent()
@@ -27,7 +29,14 @@ fn main() {
         println!("Testing: {}", file);
         match continuum_dsl::load_file(&path) {
             Ok(_) => println!("  OK"),
-            Err(e) => println!("  ERROR: {}", e),
+            Err(e) => {
+                println!("  ERROR: {}", e);
+                failed = true;
+            }
         }
+    }
+
+    if failed {
+        std::process::exit(1);
     }
 }

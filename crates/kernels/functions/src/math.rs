@@ -73,8 +73,21 @@ pub fn modulo(a: f64, b: f64) -> f64 {
 /// Wrap value to range: `wrap(value, min, max)` → value wrapped to [min, max)
 ///
 /// Useful for cyclic values like angles (0 to 2π) or phases.
+///
+/// # Panics
+///
+/// Panics if `min` or `max` are not finite, or if `max <= min`.
 #[kernel_fn(name = "wrap")]
 pub fn wrap(value: f64, min: f64, max: f64) -> f64 {
+    assert!(min.is_finite(), "wrap: min must be finite, got {}", min);
+    assert!(max.is_finite(), "wrap: max must be finite, got {}", max);
+    assert!(
+        max > min,
+        "wrap: max must be greater than min, got range [{}, {})",
+        min,
+        max
+    );
+
     let range = max - min;
     let offset = value - min;
     min + ((offset % range) + range) % range
@@ -102,7 +115,7 @@ pub fn sum(args: &[f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{eval, get, is_known, Arity};
+    use continuum_kernel_registry::{Arity, eval, get, is_known};
 
     #[test]
     fn test_pure_functions_registered() {
@@ -184,5 +197,17 @@ mod tests {
         // Negative angle
         let result = eval("wrap", &[-PI, 0.0, tau], 1.0).unwrap();
         assert!((result - PI).abs() < 1e-10);
+    }
+
+    #[test]
+    #[should_panic(expected = "wrap: max must be greater than min")]
+    fn test_eval_wrap_invalid_range() {
+        eval("wrap", &[1.0, 10.0, 0.0], 1.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "wrap: max must be greater than min")]
+    fn test_eval_wrap_zero_range() {
+        eval("wrap", &[1.0, 10.0, 10.0], 1.0);
     }
 }

@@ -7,19 +7,17 @@ use std::path::PathBuf;
 
 fn main() {
     let file_path = env::args().nth(1).map(PathBuf::from).unwrap_or_else(|| {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .parent()
-            .unwrap()
-            .join("examples/terra/atmosphere/atmosphere.cdsl")
+        eprintln!("Usage: debug_parse <file>");
+        std::process::exit(1);
     });
 
     println!("Parsing: {:?}", file_path);
 
-    let source = fs::read_to_string(&file_path).unwrap();
+    let source = fs::read_to_string(&file_path).unwrap_or_else(|e| {
+        eprintln!("Failed to read file: {}", e);
+        std::process::exit(1);
+    });
+
     let (result, errors) = continuum_dsl::parse(&source);
 
     if !errors.is_empty() {
@@ -28,7 +26,7 @@ fn main() {
             // Get the span from the error
             let span = err.span();
             let start = span.start;
-            let end = span.end;
+            let _end = span.end;
 
             // Count lines and columns
             let mut line: usize = 1;
@@ -56,11 +54,16 @@ fn main() {
             // Show context around the error
             let context_start = start.saturating_sub(50);
             let context_end = (start + 50).min(source.len());
-            println!("  Context: ...{}...", &source[context_start..context_end].replace('\n', "\\n"));
+            println!(
+                "  Context: ...{}...",
+                &source[context_start..context_end].replace('\n', "\\n")
+            );
         }
+        std::process::exit(1);
     } else if let Some(unit) = result {
         println!("\n✓ Parsed successfully: {} items", unit.items.len());
     } else {
         println!("\n? No result and no errors?");
+        std::process::exit(1);
     }
 }

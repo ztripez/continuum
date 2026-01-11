@@ -53,7 +53,8 @@ fn main() {
                     continuum_dsl::ast::Item::ConfigBlock(_) => configs += 1,
                     continuum_dsl::ast::Item::ConstBlock(_) => consts += 1,
                     continuum_dsl::ast::Item::WorldDef(_) => world += 1,
-                    _ => {}
+                    continuum_dsl::ast::Item::ChronicleDef(_) => {}
+                    continuum_dsl::ast::Item::OperatorDef(_) => {}
                 }
             }
 
