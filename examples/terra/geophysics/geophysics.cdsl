@@ -1018,13 +1018,17 @@ entity.terra.plate {
 # -----------------------------------------------------------------------------
 
 # Plate type: 0 = oceanic, 1 = continental
+# Initialized via scenario or worldgen; 0 = oceanic, 1 = continental
 member.terra.plate.kind {
     : Scalar<1, 0..1>
     : strata(tectonics)
     : title("Plate Type")
     : symbol("k_plate")
 
-    resolve { prev }
+    # Default to oceanic (0.0); scenario/worldgen can override
+    initial { 0.0 }
+
+    resolve { prev + collected }
 }
 
 # Plate age in millions of years
@@ -1037,7 +1041,10 @@ member.terra.plate.age {
 
     config {
         max_oceanic_age_myr: 280.0
+        initial_age_myr: 100.0
     }
+
+    initial { config.terra.plate.age.initial_age_myr }
 
     resolve {
         # Plates age with simulation time (rate = 1 Myr per 3.1536e13 seconds)
@@ -1064,6 +1071,12 @@ member.terra.plate.thickness {
     : title("Plate Thickness")
     : symbol("h_plate")
 
+    config {
+        initial_thickness_m: 35000.0
+    }
+
+    initial { config.terra.plate.thickness.initial_thickness_m }
+
     resolve {
         clamp(prev + collected, 5000.0, 70000.0)
     }
@@ -1081,6 +1094,12 @@ member.terra.plate.buoyancy {
     : strata(tectonics)
     : title("Plate Buoyancy")
     : symbol("b_plate")
+
+    config {
+        initial_buoyancy: 0.3
+    }
+
+    initial { config.terra.plate.buoyancy.initial_buoyancy }
 
     resolve {
         clamp(prev + collected, 0.0, 1.0)
@@ -1103,9 +1122,12 @@ member.terra.plate.seed_direction {
     : title("Plate Seed Direction")
     : symbol("n_plate")
 
+    # Default to +Z axis; scenario/worldgen distributes plates over sphere
+    initial { vec3(0.0, 0.0, 1.0) }
+
     resolve {
         # Normalize to maintain unit vector
-        normalize(prev)
+        normalize(prev + collected)
     }
 
     assert {
@@ -1127,6 +1149,9 @@ member.terra.plate.omega {
     config {
         scale: 1.0
     }
+
+    # Start at rest; mantle flow will drive plate motion
+    initial { vec3(0.0, 0.0, 0.0) }
 
     resolve {
         # Plate motion derived from mantle flow and collected impulses
