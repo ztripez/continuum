@@ -31,6 +31,7 @@ pub fn strata_def<'src>() -> impl Parser<'src, &'src str, StrataDef, extra::Err<
         )
         .map(|(path, attrs)| {
             let mut def = StrataDef {
+                doc: None,
                 path,
                 title: None,
                 symbol: None,
@@ -80,6 +81,7 @@ pub fn era_def<'src>() -> impl Parser<'src, &'src str, EraDef, extra::Err<ParseE
         )
         .map(|(name, contents)| {
             let mut def = EraDef {
+                doc: None,
                 name,
                 is_initial: false,
                 is_terminal: false,

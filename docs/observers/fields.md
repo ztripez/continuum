@@ -60,7 +60,11 @@ A field consists of:
 - one or more samples
 - optional metadata
 
-The exact storage and reconstruction is observer-defined.
+Samples are **constraints**, not final data. A field is treated as a function,
+and reconstruction is mandatory for observer use.
+
+The exact storage and reconstruction is observer-defined, but **must** occur
+through the Lens. Raw field snapshots are not a public API.
 
 ---
 
@@ -69,15 +73,18 @@ The exact storage and reconstruction is observer-defined.
 Fields are consumed by observers.
 
 Observers may:
-- reconstruct fields
-- sample fields
+- reconstruct fields (via Lens)
+- query fields (via Lens)
 - visualize fields
-- store fields
+- store observer artifacts
 
 Observers must not:
 - modify signals
 - influence execution
 - affect timing or ordering
+
+End programs must not read `FieldSnapshot` directly. All field access goes through
+Lens queries.
 
 ---
 

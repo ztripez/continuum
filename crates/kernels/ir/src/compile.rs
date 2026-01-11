@@ -218,6 +218,8 @@ pub struct CompilationResult {
     pub field_indices: IndexMap<String, usize>,
     /// Fracture detector indices
     pub fracture_indices: IndexMap<String, usize>,
+    /// Chronicle handler indices (chronicle_id -> index)
+    pub chronicle_indices: IndexMap<String, usize>,
     /// Aggregate function indices (aggregate_id -> index)
     pub aggregate_indices: IndexMap<String, usize>,
 }
@@ -235,6 +237,7 @@ struct Compiler<'a> {
     operator_indices: IndexMap<String, usize>,
     field_indices: IndexMap<String, usize>,
     fracture_indices: IndexMap<String, usize>,
+    chronicle_indices: IndexMap<String, usize>,
     aggregate_indices: IndexMap<String, usize>,
 }
 
@@ -258,6 +261,7 @@ impl<'a> Compiler<'a> {
             operator_indices: IndexMap::new(),
             field_indices: IndexMap::new(),
             fracture_indices: IndexMap::new(),
+            chronicle_indices: IndexMap::new(),
             aggregate_indices: IndexMap::new(),
         }
     }
@@ -281,6 +285,7 @@ impl<'a> Compiler<'a> {
             operator_indices: self.operator_indices,
             field_indices: self.field_indices,
             fracture_indices: self.fracture_indices,
+            chronicle_indices: self.chronicle_indices,
             aggregate_indices: self.aggregate_indices,
         })
     }
@@ -316,6 +321,11 @@ impl<'a> Compiler<'a> {
         // Assign fracture indices
         for (idx, (fracture_id, _)) in self.world.fractures.iter().enumerate() {
             self.fracture_indices.insert(fracture_id.0.clone(), idx);
+        }
+
+        // Assign chronicle indices
+        for (idx, (chronicle_id, _)) in self.world.chronicles.iter().enumerate() {
+            self.chronicle_indices.insert(chronicle_id.0.clone(), idx);
         }
     }
 
@@ -927,6 +937,28 @@ impl<'a> Compiler<'a> {
                 },
             };
             builder.add_node(node);
+        }
+
+        // Add chronicle observation nodes
+        // Chronicles aren't bound to a specific stratum in IR
+        // Add all chronicles to the first stratum only (to avoid duplicating execution)
+        let first_stratum = self.world.strata.keys().next();
+        if first_stratum == Some(stratum_id) {
+            for (chronicle_id, chronicle) in &self.world.chronicles {
+                let node = DagNode {
+                    id: NodeId(format!("chronicle.{}", chronicle_id.0)),
+                    reads: chronicle
+                        .reads
+                        .iter()
+                        .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                        .collect(),
+                    writes: None,
+                    kind: NodeKind::ChronicleObserve {
+                        chronicle_idx: self.chronicle_indices[&chronicle_id.0],
+                    },
+                };
+                builder.add_node(node);
+            }
         }
 
         let dag = builder.build()?;

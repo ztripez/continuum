@@ -49,6 +49,7 @@ pub fn member_def<'src>() -> impl Parser<'src, &'src str, MemberDef, extra::Err<
         )
         .map(|(path, contents)| {
             let mut def = MemberDef {
+                doc: None,
                 path,
                 ty: None,
                 strata: None,

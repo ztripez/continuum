@@ -90,6 +90,16 @@ impl GpuContext {
         self.adapter_info.device_type
     }
 
+    /// Access the underlying wgpu device.
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    /// Access the underlying wgpu queue.
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
     /// Create a storage buffer for compute operations.
     pub fn create_storage_buffer(&self, label: &str, size: u64, read_only: bool) -> wgpu::Buffer {
         let usage = if read_only {

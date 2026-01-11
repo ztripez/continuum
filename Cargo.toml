@@ -1,10 +1,12 @@
 [workspace]
 resolver = "2"
 members = [
+    "crates/cdsl-lsp",
     "crates/kernel-macros",
     "crates/kernel-registry",
     "crates/kernels/dsl",
     "crates/kernels/foundation",
+    "crates/kernels/lens",
     "crates/kernels/functions",
     "crates/kernels/ir",
     "crates/kernels/runtime",

@@ -31,6 +31,8 @@ pub struct ConstBlock {
 /// A single constant definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConstEntry {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Namespaced path (e.g., `physics.gravitational`).
     pub path: Spanned<Path>,
     /// Constant value (must be a literal).
@@ -61,6 +63,8 @@ pub struct ConfigBlock {
 /// A single config definition.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ConfigEntry {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Namespaced path (e.g., `terra.thermal.tau`).
     pub path: Spanned<Path>,
     /// Default value (can be overridden by scenario).
@@ -120,6 +124,8 @@ pub struct PolicyBlock {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct TypeDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Type name (e.g., `OrbitalElements`).
     pub name: Spanned<String>,
     /// Struct fields.
@@ -142,6 +148,8 @@ pub struct TypeField {
 /// Example: `fn.physics.stefan_boltzmann_loss(temp: Scalar<K>) -> Scalar<W/m²> { ... }`
 #[derive(Debug, Clone, PartialEq)]
 pub struct FnDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Function path (e.g., `physics.stefan_boltzmann_loss`)
     pub path: Spanned<Path>,
     /// Generic type parameters (e.g. `<T>`)
@@ -181,6 +189,8 @@ pub struct FnParam {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct StrataDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Stratum path (e.g., `terra.thermal`).
     pub path: Spanned<Path>,
     /// Human-readable title for display.
@@ -216,6 +226,8 @@ pub struct StrataDef {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct EraDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Era identifier.
     pub name: Spanned<String>,
     /// Whether this is the starting era.
@@ -302,6 +314,8 @@ pub struct Transition {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct SignalDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Signal path (e.g., `terra.surface.temperature`).
     pub path: Spanned<Path>,
     /// Value type with optional bounds.
@@ -408,6 +422,8 @@ pub enum AssertSeverity {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Field path.
     pub path: Spanned<Path>,
     /// Value type at each sample point.
@@ -463,6 +479,8 @@ pub struct MeasureBlock {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct OperatorDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Operator path.
     pub path: Spanned<Path>,
     /// Stratum binding.
@@ -517,6 +535,8 @@ pub enum OperatorBody {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct ImpulseDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Impulse path.
     pub path: Spanned<Path>,
     /// Type of data carried by the impulse.
@@ -559,6 +579,8 @@ pub struct ApplyBlock {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct FractureDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Fracture path.
     pub path: Spanned<Path>,
     /// Stratum this fracture belongs to.
@@ -594,6 +616,8 @@ pub struct FractureDef {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct ChronicleDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Chronicle path.
     pub path: Spanned<Path>,
     /// Observation handlers.
@@ -657,6 +681,8 @@ pub struct ObserveHandler {
 /// - `stellar.moon.velocity` → entity `stellar.moon`, signal `velocity`
 #[derive(Debug, Clone, PartialEq)]
 pub struct MemberDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Full member path (e.g., `human.person.age`).
     /// The last segment is the signal name, preceding segments form the entity path.
     pub path: Spanned<Path>,
@@ -710,6 +736,8 @@ pub struct MemberDef {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub struct EntityDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
     /// Entity path (e.g., `stellar.moon`)
     pub path: Spanned<Path>,
     /// Count source from config (e.g., `config.stellar.moon_count`)

@@ -1,0 +1,67 @@
+{
+  "name": "vscode-cdsl",
+  "displayName": "Continuum DSL",
+  "description": "Language support for Continuum DSL (.cdsl) files",
+  "version": "0.1.0",
+  "publisher": "continuum",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ztripez/continuum"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "activationEvents": [
+    "onLanguage:cdsl"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "cdsl",
+        "aliases": [
+          "Continuum DSL",
+          "cdsl"
+        ],
+        "extensions": [
+          ".cdsl"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "cdsl",
+        "scopeName": "source.cdsl",
+        "path": "./syntaxes/cdsl.tmLanguage.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "CDSL",
+      "properties": {
+        "cdsl.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the cdsl-lsp executable. If empty, uses bundled server or PATH."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.0"
+  }
+}

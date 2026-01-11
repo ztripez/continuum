@@ -88,6 +88,15 @@ pub enum NodeKind {
         /// Index into the fracture detector table.
         fracture_idx: usize,
     },
+    /// Observe signals and conditionally emit chronicle events.
+    ///
+    /// Chronicles are observer-only constructs that execute in the Measure phase.
+    /// They read resolved signals and emit events for logging and analytics.
+    /// Removing all chronicles must not change simulation results.
+    ChronicleObserve {
+        /// Index into the chronicle handler table.
+        chronicle_idx: usize,
+    },
     /// Execute a lane kernel for member signal resolution (L1/L2/L3).
     ///
     /// This is the two-level execution model where a DAG node can expand

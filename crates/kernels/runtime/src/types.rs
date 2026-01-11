@@ -23,6 +23,7 @@ pub use continuum_foundation::{
 };
 
 use serde::{Deserialize, Serialize};
+pub use continuum_foundation::Value;
 
 /// The five execution phases that occur each simulation tick.
 ///
@@ -87,71 +88,6 @@ impl Phase {
 /// ```
 /// use continuum_runtime::Value;
 ///
-/// // Creating values
-/// let temp = Value::Scalar(300.0);
-/// let pos = Value::Vec3([1.0, 2.0, 3.0]);
-///
-/// // Extracting scalars
-/// assert_eq!(temp.as_scalar(), Some(300.0));
-///
-/// // Component access
-/// assert_eq!(pos.component("x"), Some(1.0));
-/// assert_eq!(pos.component("z"), Some(3.0));
-/// ```
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum Value {
-    /// Single scalar value (e.g., temperature, pressure, density).
-    Scalar(f64),
-    /// 2D vector (e.g., UV coordinates, 2D position).
-    Vec2([f64; 2]),
-    /// 3D vector (e.g., position, velocity, force).
-    Vec3([f64; 3]),
-    /// 4D vector (e.g., quaternion, RGBA color).
-    Vec4([f64; 4]),
-    // TODO: Mat4, Tensor, Grid, Seq
-}
-
-impl Value {
-    /// Attempt to get the value as a scalar.
-    pub fn as_scalar(&self) -> Option<f64> {
-        match self {
-            Value::Scalar(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    /// Attempt to get the value as a 3D vector.
-    pub fn as_vec3(&self) -> Option<[f64; 3]> {
-        match self {
-            Value::Vec3(v) => Some(*v),
-            _ => None,
-        }
-    }
-
-    /// Get a component by name (x, y, z, w)
-    pub fn component(&self, name: &str) -> Option<f64> {
-        match (self, name) {
-            (Value::Scalar(v), _) => Some(*v),
-            (Value::Vec2(v), "x") => Some(v[0]),
-            (Value::Vec2(v), "y") => Some(v[1]),
-            (Value::Vec3(v), "x") => Some(v[0]),
-            (Value::Vec3(v), "y") => Some(v[1]),
-            (Value::Vec3(v), "z") => Some(v[2]),
-            (Value::Vec4(v), "x") => Some(v[0]),
-            (Value::Vec4(v), "y") => Some(v[1]),
-            (Value::Vec4(v), "z") => Some(v[2]),
-            (Value::Vec4(v), "w") => Some(v[3]),
-            _ => None,
-        }
-    }
-}
-
-impl Default for Value {
-    fn default() -> Self {
-        Value::Scalar(0.0)
-    }
-}
-
 /// Time step for the current tick
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Dt(pub f64);

@@ -20,11 +20,15 @@ use tracing::{error, info, instrument, trace};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
+<<<<<<< HEAD
 use crate::soa_storage::{MemberSignalBuffer, ValueType as MemberValueType};
 use crate::storage::{
     EntityInstances, EntityStorage, FieldBuffer, FieldSample, FractureQueue, InputChannels,
     SignalStorage,
 };
+=======
+use crate::storage::{EmittedEventRecord, EventBuffer, FieldBuffer, FieldSample, FractureQueue, InputChannels, SignalStorage};
+>>>>>>> origin/main
 use crate::types::{
     Dt, EntityId, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value,
     WarmupConfig, WarmupResult,
@@ -33,8 +37,17 @@ use crate::types::{
 // Re-export public types
 pub use assertions::{AssertionChecker, AssertionFn, AssertionSeverity, SignalAssertion};
 pub use context::{
+<<<<<<< HEAD
     AssertContext, CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext,
     WarmupContext,
+=======
+    AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext,
+    ResolveContext, WarmupContext,
+};
+pub use member_executor::{
+    ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver, ScalarResolveContext,
+    ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
+>>>>>>> origin/main
 };
 pub use kernel_registry::LaneKernelRegistry;
 pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
@@ -45,6 +58,7 @@ pub use l3_kernel::{
 };
 pub use lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
 pub use lowering_strategy::{LoweringHeuristics, LoweringStrategy};
+<<<<<<< HEAD
 pub use member_executor::{
     ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver,
     ScalarResolveContext, ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
@@ -53,6 +67,9 @@ pub use phases::{
     CollectFn, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn, MeasureParallelConfig,
     PhaseExecutor, ResolverFn,
 };
+=======
+pub use phases::{ChronicleFn, CollectFn, EmittedEvent, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn, MeasureParallelConfig, PhaseExecutor, ResolverFn};
+>>>>>>> origin/main
 pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
 
 /// Function that evaluates era transition conditions
@@ -88,6 +105,8 @@ pub struct Runtime {
     input_channels: InputChannels,
     /// Field buffer for Measure phase
     field_buffer: FieldBuffer,
+    /// Event buffer for chronicle events
+    event_buffer: EventBuffer,
     /// Fracture outputs queued for next tick
     fracture_queue: FractureQueue,
     /// Current tick number
@@ -120,6 +139,7 @@ impl Runtime {
             member_signals: MemberSignalBuffer::new(),
             input_channels: InputChannels::default(),
             field_buffer: FieldBuffer::default(),
+            event_buffer: EventBuffer::default(),
             fracture_queue: FractureQueue::default(),
             tick: 0,
             sim_time: 0.0,
@@ -151,6 +171,11 @@ impl Runtime {
     /// Register a measure operator, returns its index
     pub fn register_measure_op(&mut self, op: MeasureFn) -> usize {
         self.phase_executor.register_measure_op(op)
+    }
+
+    /// Register a chronicle handler, returns its index
+    pub fn register_chronicle(&mut self, handler: ChronicleFn) -> usize {
+        self.phase_executor.register_chronicle(handler)
     }
 
     /// Register an impulse handler, returns its index
@@ -332,6 +357,16 @@ impl Runtime {
         &self.field_buffer
     }
 
+    /// Get access to the event buffer (for observer consumption)
+    pub fn event_buffer(&self) -> &EventBuffer {
+        &self.event_buffer
+    }
+
+    /// Drain the event buffer (for observer consumption)
+    pub fn drain_events(&mut self) -> Vec<EmittedEventRecord> {
+        self.event_buffer.drain()
+    }
+
     /// Get current tick context (tick, dt, era)
     ///
     /// # Panics
@@ -444,6 +479,17 @@ impl Runtime {
             &self.dags,
             &self.signals,
             &mut self.field_buffer,
+        )?;
+
+        // Phase 5 continued: Chronicle observation (Measure phase)
+        self.phase_executor.execute_chronicles(
+            &self.current_era,
+            self.tick,
+            dt,
+            &strata_states,
+            &self.dags,
+            &self.signals,
+            &mut self.event_buffer,
         )?;
 
         // Post-tick: check era transitions
@@ -1326,5 +1372,178 @@ mod tests {
         assert_eq!(runtime.get_signal(&signal_a), Some(&Value::Scalar(10.0)));
         assert_eq!(runtime.get_signal(&signal_b), Some(&Value::Scalar(20.0)));
         assert_eq!(runtime.get_signal(&signal_c), Some(&Value::Scalar(40.0)));
+    }
+
+    #[test]
+    fn test_chronicle_event_emission() {
+        let era_id: EraId = "test".into();
+        let stratum_id: StratumId = "default".into();
+        let signal_id: SignalId = "temperature".into();
+
+        // Build DAG for Resolve phase
+        let mut resolve_builder = DagBuilder::new(Phase::Resolve, stratum_id.clone());
+        resolve_builder.add_node(DagNode {
+            id: NodeId("temp_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(signal_id.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_id.clone(),
+                resolver_idx: 0,
+            },
+        });
+        let resolve_dag = resolve_builder.build().unwrap();
+
+        // Build DAG for Measure phase with chronicle
+        let mut measure_builder = DagBuilder::new(Phase::Measure, stratum_id.clone());
+        measure_builder.add_node(DagNode {
+            id: NodeId("temp_chronicle".to_string()),
+            reads: [signal_id.clone()].into_iter().collect(),
+            writes: None,
+            kind: NodeKind::ChronicleObserve { chronicle_idx: 0 },
+        });
+        let measure_dag = measure_builder.build().unwrap();
+
+        let mut era_dags = EraDags::default();
+        era_dags.insert(resolve_dag);
+        era_dags.insert(measure_dag);
+
+        let mut dags = DagSet::default();
+        dags.insert_era(era_id.clone(), era_dags);
+
+        let mut strata = IndexMap::new();
+        strata.insert(stratum_id, StratumState::Active);
+        let era_config = EraConfig {
+            dt: Dt(1.0),
+            strata,
+            transition: None,
+        };
+
+        let mut eras = IndexMap::new();
+        eras.insert(era_id.clone(), era_config);
+
+        let mut runtime = Runtime::new(era_id, eras, dags);
+
+        // Register resolver: temperature increments by 10 each tick
+        runtime.register_resolver(Box::new(|ctx| {
+            let prev = ctx.prev.as_scalar().unwrap_or(0.0);
+            Value::Scalar(prev + 10.0)
+        }));
+
+        // Register chronicle: emit event when temperature > 100
+        let signal_id_clone = signal_id.clone();
+        runtime.register_chronicle(Box::new(move |ctx| {
+            let temp = ctx.signals.get(&signal_id_clone).unwrap().as_scalar().unwrap();
+            if temp > 100.0 {
+                vec![EmittedEvent {
+                    name: "high_temperature".to_string(),
+                    fields: vec![("temp".to_string(), Value::Scalar(temp))],
+                }]
+            } else {
+                vec![]
+            }
+        }));
+
+        runtime.init_signal(signal_id.clone(), Value::Scalar(100.0));
+
+        // Tick 1: temp = 110, should emit event
+        runtime.execute_tick().unwrap();
+        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(110.0)));
+
+        // Check event buffer
+        assert!(!runtime.event_buffer().is_empty());
+        assert_eq!(runtime.event_buffer().len(), 1);
+
+        let events = runtime.drain_events();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name, "high_temperature");
+        assert_eq!(events[0].fields.len(), 1);
+        assert_eq!(events[0].fields[0].0, "temp");
+        assert_eq!(events[0].fields[0].1.as_scalar(), Some(110.0));
+
+        // After drain, buffer should be empty
+        assert!(runtime.event_buffer().is_empty());
+
+        // Tick 2: temp = 120, should emit another event
+        runtime.execute_tick().unwrap();
+        assert_eq!(runtime.event_buffer().len(), 1);
+    }
+
+    #[test]
+    fn test_chronicle_no_emission_when_condition_false() {
+        let era_id: EraId = "test".into();
+        let stratum_id: StratumId = "default".into();
+        let signal_id: SignalId = "pressure".into();
+
+        // Build DAG for Resolve phase
+        let mut resolve_builder = DagBuilder::new(Phase::Resolve, stratum_id.clone());
+        resolve_builder.add_node(DagNode {
+            id: NodeId("pressure_resolve".to_string()),
+            reads: HashSet::new(),
+            writes: Some(signal_id.clone()),
+            kind: NodeKind::SignalResolve {
+                signal: signal_id.clone(),
+                resolver_idx: 0,
+            },
+        });
+        let resolve_dag = resolve_builder.build().unwrap();
+
+        // Build DAG for Measure phase with chronicle
+        let mut measure_builder = DagBuilder::new(Phase::Measure, stratum_id.clone());
+        measure_builder.add_node(DagNode {
+            id: NodeId("pressure_chronicle".to_string()),
+            reads: [signal_id.clone()].into_iter().collect(),
+            writes: None,
+            kind: NodeKind::ChronicleObserve { chronicle_idx: 0 },
+        });
+        let measure_dag = measure_builder.build().unwrap();
+
+        let mut era_dags = EraDags::default();
+        era_dags.insert(resolve_dag);
+        era_dags.insert(measure_dag);
+
+        let mut dags = DagSet::default();
+        dags.insert_era(era_id.clone(), era_dags);
+
+        let mut strata = IndexMap::new();
+        strata.insert(stratum_id, StratumState::Active);
+        let era_config = EraConfig {
+            dt: Dt(1.0),
+            strata,
+            transition: None,
+        };
+
+        let mut eras = IndexMap::new();
+        eras.insert(era_id.clone(), era_config);
+
+        let mut runtime = Runtime::new(era_id, eras, dags);
+
+        // Register resolver: pressure stays constant at 50
+        runtime.register_resolver(Box::new(|_ctx| Value::Scalar(50.0)));
+
+        // Register chronicle: emit event only when pressure > 100 (never true)
+        let signal_id_clone = signal_id.clone();
+        runtime.register_chronicle(Box::new(move |ctx| {
+            let pressure = ctx.signals.get(&signal_id_clone).unwrap().as_scalar().unwrap();
+            if pressure > 100.0 {
+                vec![EmittedEvent {
+                    name: "high_pressure".to_string(),
+                    fields: vec![],
+                }]
+            } else {
+                vec![]
+            }
+        }));
+
+        runtime.init_signal(signal_id.clone(), Value::Scalar(0.0));
+
+        // Execute ticks - no events should be emitted
+        runtime.execute_tick().unwrap();
+        assert!(runtime.event_buffer().is_empty());
+
+        runtime.execute_tick().unwrap();
+        assert!(runtime.event_buffer().is_empty());
+
+        runtime.execute_tick().unwrap();
+        assert!(runtime.event_buffer().is_empty());
     }
 }

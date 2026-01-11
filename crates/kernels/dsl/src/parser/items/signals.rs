@@ -37,6 +37,7 @@ pub fn signal_def<'src>() -> impl Parser<'src, &'src str, SignalDef, extra::Err<
         )
         .map(|(path, contents)| {
             let mut def = SignalDef {
+                doc: None,
                 path,
                 ty: None,
                 strata: None,
@@ -198,6 +199,7 @@ pub fn field_def<'src>() -> impl Parser<'src, &'src str, FieldDef, extra::Err<Pa
         )
         .map(|(path, contents)| {
             let mut def = FieldDef {
+                doc: None,
                 path,
                 ty: None,
                 strata: None,
@@ -278,6 +280,7 @@ pub fn operator_def<'src>(
         )
         .map(|(path, contents)| {
             let mut def = OperatorDef {
+                doc: None,
                 path,
                 strata: None,
                 phase: None,
