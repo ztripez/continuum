@@ -1103,6 +1103,7 @@ mod tests {
             signals: &signals,
             members: &members,
             dt: Dt(0.1),
+            sim_time: 0.0,
         };
 
         assert_eq!(resolver(&ctx), 101.0);
@@ -1131,6 +1132,7 @@ mod tests {
             signals: &signals,
             members: &members,
             dt: Dt(0.1),
+            sim_time: 0.0,
         };
 
         assert_eq!(resolver(&ctx), 151.0); // 50 + 101 = 151

@@ -86,6 +86,13 @@ pub enum WarningCode {
     /// This may indicate a typo in the function name or a missing kernel
     /// registration.
     UnknownFunction,
+
+    /// A member signal has no initialization and uses `prev` in its resolver.
+    ///
+    /// Members without initialization start at 0.0, which may cause NaN or
+    /// incorrect values when used in division or other operations. Consider
+    /// adding explicit initialization via config defaults or an initial expression.
+    UninitializedMember,
 }
 
 /// Validates a compiled world and returns any warnings.
@@ -118,6 +125,7 @@ pub fn validate(world: &CompiledWorld) -> Vec<CompileWarning> {
 
     check_range_assertions(world, &mut warnings);
     check_undefined_symbols(world, &mut warnings);
+    check_uninitialized_members(world, &mut warnings);
 
     // Log warnings
     for warning in &warnings {
@@ -153,6 +161,44 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
             });
         }
     }
+}
+
+/// Checks for member signals that have no initialization.
+///
+/// Members with `resolve { prev }` or similar patterns that just maintain state
+/// will start at 0.0 (from zeroed memory). This can cause NaN when these values
+/// are used in division operations.
+///
+/// A member is considered "uninitialized" if:
+/// - Its resolve expression is just `prev` (maintains previous value)
+/// - There's no explicit initialization (initial blocks not yet implemented)
+fn check_uninitialized_members(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
+    for (member_id, member) in &world.members {
+        if let Some(resolve) = &member.resolve {
+            // Check if the resolve is just `prev` - meaning it maintains state
+            // without any computation. This member will stay at 0.0 forever.
+            if is_prev_only_resolver(resolve) {
+                warnings.push(CompileWarning {
+                    code: WarningCode::UninitializedMember,
+                    message: format!(
+                        "member '{}' uses 'resolve {{ prev }}' but has no initialization - \
+                         will start at 0.0 which may cause NaN in dependent calculations",
+                        member_id.0
+                    ),
+                    entity: member_id.0.clone(),
+                });
+            }
+        }
+    }
+}
+
+/// Checks if a resolve expression is just `prev` (state-maintaining only).
+///
+/// Returns true for expressions like:
+/// - `prev` - just the previous value
+/// - `prev + 0` or similar no-ops could be detected in the future
+fn is_prev_only_resolver(expr: &CompiledExpr) -> bool {
+    matches!(expr, CompiledExpr::Prev)
 }
 
 /// Checks if a function name is registered in the kernel registry.
@@ -554,5 +600,56 @@ mod tests {
             .filter(|w| matches!(w.code, WarningCode::UndefinedSymbol | WarningCode::UnknownFunction))
             .collect();
         assert!(symbol_warnings.is_empty(), "unexpected warnings: {:?}", symbol_warnings);
+    }
+
+    #[test]
+    fn test_uninitialized_member_warns() {
+        // Note: member signals can be defined without entity declaration for lowering
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+member.test.entity.value {
+    : Scalar<1>
+    : strata(test)
+    resolve { prev }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should warn about uninitialized member
+        let uninit_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UninitializedMember)
+            .collect();
+        assert_eq!(uninit_warnings.len(), 1);
+        assert!(uninit_warnings[0].message.contains("test.entity.value"));
+        assert!(uninit_warnings[0].message.contains("prev"));
+    }
+
+    #[test]
+    fn test_member_with_computation_no_warning() {
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+member.test.entity.age {
+    : Scalar<yr>
+    : strata(test)
+    resolve { integrate(prev, 1.0) }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should NOT warn - member has actual computation (integrate)
+        let uninit_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UninitializedMember)
+            .collect();
+        assert!(uninit_warnings.is_empty());
     }
 }
