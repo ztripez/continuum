@@ -2,6 +2,8 @@
 //!
 //! This module handles lowering impulse and fracture definitions from AST to IR.
 
+use std::collections::HashSet;
+
 use continuum_dsl::ast::{self, Expr};
 use continuum_foundation::{FractureId, ImpulseId, SignalId};
 
@@ -52,11 +54,13 @@ impl Lowerer {
             self.collect_signal_refs(&cond.node, &mut reads);
         }
 
+        // Collect signal refs from the entire emit block (including let binding values)
+        if let Some(emit_block) = &def.emit {
+            self.collect_signal_refs(&emit_block.node, &mut reads);
+        }
+
         // Collect emit expressions from the emit block
         let emits = self.collect_emit_expressions(def.emit.as_ref().map(|e| &e.node));
-        for (_, value_expr) in &emits {
-            self.collect_signal_refs(value_expr, &mut reads);
-        }
 
         let fracture = CompiledFracture {
             id: id.clone(),
@@ -68,9 +72,9 @@ impl Lowerer {
                 .collect(),
             emits: emits
                 .into_iter()
-                .map(|(target, value)| CompiledEmit {
+                .map(|(target, value, locals)| CompiledEmit {
                     target: SignalId::from(target.join(".").as_str()),
-                    value: self.lower_expr(&value),
+                    value: self.lower_expr_with_locals(&value, &locals),
                 })
                 .collect(),
         };
@@ -81,30 +85,39 @@ impl Lowerer {
 
     /// Collect emit expressions from an expression tree.
     /// Handles single EmitSignal, Block containing multiple emits, or nested structures.
+    /// Returns tuples of (target_path, value_expr, locals_in_scope).
     fn collect_emit_expressions<'a>(
         &self,
         expr: Option<&'a Expr>,
-    ) -> Vec<(ast::Path, &'a Expr)> {
+    ) -> Vec<(ast::Path, &'a Expr, HashSet<String>)> {
         let mut emits = Vec::new();
         if let Some(expr) = expr {
-            self.collect_emits_recursive(expr, &mut emits);
+            self.collect_emits_recursive(expr, &mut emits, HashSet::new());
         }
         emits
     }
 
-    fn collect_emits_recursive<'a>(&self, expr: &'a Expr, emits: &mut Vec<(ast::Path, &'a Expr)>) {
+    fn collect_emits_recursive<'a>(
+        &self,
+        expr: &'a Expr,
+        emits: &mut Vec<(ast::Path, &'a Expr, HashSet<String>)>,
+        locals: HashSet<String>,
+    ) {
         match expr {
             Expr::EmitSignal { target, value } => {
-                emits.push((target.clone(), &value.node));
+                emits.push((target.clone(), &value.node, locals));
             }
             Expr::Block(exprs) => {
                 for spanned_expr in exprs {
-                    self.collect_emits_recursive(&spanned_expr.node, emits);
+                    self.collect_emits_recursive(&spanned_expr.node, emits, locals.clone());
                 }
             }
-            Expr::Let { body, .. } => {
+            Expr::Let { name, body, .. } => {
                 // Let bindings can contain emit expressions in their body
-                self.collect_emits_recursive(&body.node, emits);
+                // Track the bound variable name for proper lowering
+                let mut new_locals = locals;
+                new_locals.insert(name.clone());
+                self.collect_emits_recursive(&body.node, emits, new_locals);
             }
             Expr::If {
                 then_branch,
@@ -112,9 +125,9 @@ impl Lowerer {
                 ..
             } => {
                 // Conditional emits
-                self.collect_emits_recursive(&then_branch.node, emits);
+                self.collect_emits_recursive(&then_branch.node, emits, locals.clone());
                 if let Some(else_expr) = else_branch {
-                    self.collect_emits_recursive(&else_expr.node, emits);
+                    self.collect_emits_recursive(&else_expr.node, emits, locals);
                 }
             }
             _ => {

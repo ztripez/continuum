@@ -689,4 +689,56 @@ member.test.entity.value {
             "expected no UninitializedMember warning for member with initial block"
         );
     }
+
+    #[test]
+    fn test_let_binding_in_fracture_emit_no_warning() {
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+config {
+    test.threshold: 100.0
+    test.coupling_strength: 0.5
+}
+
+signal.test.heat {
+    : Scalar<J>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+signal.test.flow {
+    : Scalar<W>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+fracture.test.thermal_coupling {
+    when {
+        signal.test.heat > config.test.threshold
+    }
+
+    emit {
+        let ratio = signal.test.heat / config.test.threshold in
+        let delta = (ratio - 1.0) * config.test.coupling_strength in
+        signal.test.flow <- delta
+    }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should NOT warn about let-bound variables being undefined signals
+        let undefined_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UndefinedSymbol)
+            .filter(|w| w.message.contains("ratio") || w.message.contains("delta"))
+            .collect();
+        assert!(
+            undefined_warnings.is_empty(),
+            "expected no UndefinedSymbol warnings for let-bound variables, got: {:?}",
+            undefined_warnings
+        );
+    }
 }
