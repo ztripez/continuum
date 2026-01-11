@@ -3,6 +3,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::{FnDef, FnParam, Range, TypeDef, TypeExpr, TypeField};
+use crate::math_consts;
 
 use super::super::expr::spanned_expr;
 use super::super::lexer::Token;
@@ -138,26 +139,43 @@ pub fn type_expr<'src>()
     })
 }
 
+/// Parses a numeric value that can be either a float literal or a math constant.
+fn numeric_value<'src>()
+-> impl Parser<'src, ParserInput<'src>, f64, extra::Err<ParseError<'src>>> + Clone {
+    choice((
+        float(),
+        // Specific math constant tokens
+        just(Token::Pi).to(std::f64::consts::PI),
+        just(Token::Tau).to(std::f64::consts::TAU),
+        just(Token::E).to(std::f64::consts::E),
+        just(Token::Phi).to(1.618_033_988_749_895),
+        // Dynamic constant lookup via identifier
+        ident().try_map(|name, span| {
+            math_consts::lookup(&name)
+                .ok_or_else(|| Rich::custom(span.into(), format!("unknown math constant '{name}'")))
+        }),
+    ))
+}
+
 fn range<'src>() -> impl Parser<'src, ParserInput<'src>, Range, extra::Err<ParseError<'src>>> + Clone
 {
-    float()
+    numeric_value()
         .then_ignore(just(Token::DotDot))
-        .then(float())
+        .then(numeric_value())
         .map(|(min, max)| Range { min, max })
 }
 
 /// Parses a magnitude value, which can be either a range (min..max) or a single value.
-/// A single value is converted to an exact range (value..value).
 fn magnitude_value<'src>()
 -> impl Parser<'src, ParserInput<'src>, Range, extra::Err<ParseError<'src>>> + Clone {
     choice((
         // Range: 1e10..1e12
-        float()
+        numeric_value()
             .then_ignore(just(Token::DotDot))
-            .then(float())
+            .then(numeric_value())
             .map(|(min, max)| Range { min, max }),
         // Single value: 1 -> Range { min: 1, max: 1 }
-        float().map(|v| Range { min: v, max: v }),
+        numeric_value().map(|v| Range { min: v, max: v }),
     ))
 }
 

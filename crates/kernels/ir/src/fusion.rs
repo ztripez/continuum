@@ -205,6 +205,9 @@ impl OperatorDeps {
                 self.extract_from_expr(radius);
                 self.extract_from_expr(body);
             }
+            CompiledExpr::EmitSignal { value, .. } => {
+                self.extract_from_expr(value);
+            }
             // These don't add dependencies to our tracking
             CompiledExpr::Literal(_)
             | CompiledExpr::Prev
@@ -213,7 +216,9 @@ impl OperatorDeps {
             | CompiledExpr::Collected
             | CompiledExpr::Local(_)
             | CompiledExpr::SelfField(_)
-            | CompiledExpr::EntityAccess { .. } => {}
+            | CompiledExpr::EntityAccess { .. }
+            | CompiledExpr::Payload
+            | CompiledExpr::PayloadField(_) => {}
         }
     }
 }

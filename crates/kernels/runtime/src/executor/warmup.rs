@@ -70,7 +70,7 @@ impl WarmupExecutor {
     ///
     /// Runs all registered warmup functions until convergence or max iterations.
     #[instrument(skip(self, signals), name = "warmup")]
-    pub fn execute(&mut self, signals: &mut SignalStorage) -> Result<WarmupResult> {
+    pub fn execute(&mut self, signals: &mut SignalStorage, sim_time: f64) -> Result<WarmupResult> {
         if self.complete {
             return Ok(WarmupResult {
                 iterations: 0,
@@ -124,6 +124,7 @@ impl WarmupExecutor {
                     prev,
                     signals,
                     iteration,
+                    sim_time,
                 };
 
                 let new_value = (warmup.function)(&ctx);

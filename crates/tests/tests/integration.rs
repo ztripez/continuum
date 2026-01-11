@@ -43,10 +43,13 @@ fn test_simple_world_executes() {
     assert_eq!(harness.get_scalar("terra.counter"), Some(10.0));
 }
 
-/// Test that signal dependency chains are resolved in correct order.
+/// Test that signal dependency chains propagate across ticks.
 ///
 /// Chain: A (base) → B (reads A) → C (reads B)
-/// Verifies correct topological execution ordering.
+///
+/// Per docs/execution/phases.md: signal references read values from the
+/// PREVIOUS tick, making resolution order-independent. Values propagate
+/// across multiple ticks through the dependency chain.
 #[test]
 fn test_signal_dependency_chain() {
     let source = r#"
@@ -68,14 +71,14 @@ fn test_signal_dependency_chain() {
             resolve { 10.0 }
         }
 
-        # Derived: doubles base
+        # Derived: doubles base (reads base from previous tick)
         signal.terra.doubled {
             : Scalar<unit>
             : strata(terra)
             resolve { signal.terra.base * 2.0 }
         }
 
-        # Final: adds 5 to doubled
+        # Final: adds 5 to doubled (reads doubled from previous tick)
         signal.terra.final {
             : Scalar<unit>
             : strata(terra)
@@ -85,12 +88,28 @@ fn test_signal_dependency_chain() {
 
     let mut harness = TestHarness::from_source(source);
 
-    harness.tick();
+    // Initial: all signals start at 0.0
+    assert_eq!(harness.get_scalar("terra.base"), Some(0.0));
+    assert_eq!(harness.get_scalar("terra.doubled"), Some(0.0));
+    assert_eq!(harness.get_scalar("terra.final"), Some(0.0));
 
-    // Verify chain: base=10, doubled=20, final=25
+    // Tick 1: base resolves to 10, others read previous tick's values (0)
+    harness.tick();
     assert_eq!(harness.get_scalar("terra.base"), Some(10.0));
-    assert_eq!(harness.get_scalar("terra.doubled"), Some(20.0));
-    assert_eq!(harness.get_scalar("terra.final"), Some(25.0));
+    assert_eq!(harness.get_scalar("terra.doubled"), Some(0.0)); // 0.0 * 2.0
+    assert_eq!(harness.get_scalar("terra.final"), Some(5.0)); // 0.0 + 5.0
+
+    // Tick 2: doubled now sees base=10 from previous tick
+    harness.tick();
+    assert_eq!(harness.get_scalar("terra.base"), Some(10.0));
+    assert_eq!(harness.get_scalar("terra.doubled"), Some(20.0)); // 10.0 * 2.0
+    assert_eq!(harness.get_scalar("terra.final"), Some(5.0)); // 0.0 + 5.0
+
+    // Tick 3: final now sees doubled=20 from previous tick
+    harness.tick();
+    assert_eq!(harness.get_scalar("terra.base"), Some(10.0));
+    assert_eq!(harness.get_scalar("terra.doubled"), Some(20.0)); // 10.0 * 2.0
+    assert_eq!(harness.get_scalar("terra.final"), Some(25.0)); // 20.0 + 5.0
 }
 
 /// Test that execution is deterministic.
@@ -363,6 +382,9 @@ fn test_kernel_functions() {
 }
 
 /// Test complex expression with multiple operations.
+///
+/// Per docs/execution/phases.md: signal references read values from the
+/// PREVIOUS tick. So complex reads base from the previous tick.
 #[test]
 fn test_complex_expression() {
     let source = r#"
@@ -398,14 +420,24 @@ fn test_complex_expression() {
 
     let mut harness = TestHarness::from_source(source);
 
+    // Tick 1: base=10, complex reads base=0 from previous tick
+    // complex = (0 * 2 + 5) / 2 - 1 = 5 / 2 - 1 = 2.5 - 1 = 1.5
     harness.tick();
+    let complex = harness.get_scalar("terra.complex").unwrap();
+    assert!((complex - 1.5).abs() < 0.001);
 
+    // Tick 2: base=10, complex reads base=10 from previous tick
     // complex = (10 * 2 + 5) / 2 - 1 = 25 / 2 - 1 = 12.5 - 1 = 11.5
+    harness.tick();
     let complex = harness.get_scalar("terra.complex").unwrap();
     assert!((complex - 11.5).abs() < 0.001);
 }
 
 /// Test if-then-else conditional expressions.
+///
+/// Per docs/execution/phases.md: signal references read values from the
+/// PREVIOUS tick. So threshold reads counter from the previous tick,
+/// meaning the condition triggers one tick after counter exceeds 5.
 #[test]
 fn test_conditional_expression() {
     let source = r#"
@@ -437,13 +469,24 @@ fn test_conditional_expression() {
 
     let mut harness = TestHarness::from_source(source);
 
-    // Ticks 1-5: counter <= 5, threshold = 0
-    for _ in 0..5 {
+    // Ticks 1-6: threshold reads counter from previous tick
+    // Tick 1: counter=1, threshold sees counter=0 from prev tick -> 0
+    // Tick 2: counter=2, threshold sees counter=1 -> 0
+    // Tick 3: counter=3, threshold sees counter=2 -> 0
+    // Tick 4: counter=4, threshold sees counter=3 -> 0
+    // Tick 5: counter=5, threshold sees counter=4 -> 0
+    // Tick 6: counter=6, threshold sees counter=5 -> 0 (5 is NOT > 5)
+    for i in 0..6 {
         harness.tick();
-        assert_eq!(harness.get_scalar("terra.threshold"), Some(0.0));
+        assert_eq!(
+            harness.get_scalar("terra.threshold"),
+            Some(0.0),
+            "tick {}: threshold should be 0 (counter from prev tick <= 5)",
+            i + 1
+        );
     }
 
-    // Tick 6: counter = 6 > 5, threshold = 100
+    // Tick 7: counter=7, threshold sees counter=6 from prev tick -> 6 > 5 = true
     harness.tick();
     assert_eq!(harness.get_scalar("terra.threshold"), Some(100.0));
 }

@@ -120,6 +120,7 @@ impl LaneKernel for ScalarL1Kernel {
                     signals,
                     members: member_signals,
                     dt,
+                    sim_time: 0.0, // TODO: Add sim_time to LaneKernel trait
                 };
                 (self.resolver)(&ctx)
             },
@@ -237,6 +238,7 @@ impl LaneKernel for Vec3L1Kernel {
                     signals,
                     members: member_signals,
                     dt,
+                    sim_time: 0.0, // TODO: Add sim_time to LaneKernel trait
                 };
                 (self.resolver)(&ctx)
             },

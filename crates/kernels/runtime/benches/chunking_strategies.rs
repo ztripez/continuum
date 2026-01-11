@@ -77,6 +77,7 @@ fn bench_chunk_sizes(c: &mut Criterion) {
                         black_box(&signals),
                         black_box(&members),
                         dt,
+                        0.0, // sim_time
                         config,
                     )
                 })
@@ -96,6 +97,7 @@ fn bench_chunk_sizes(c: &mut Criterion) {
                 black_box(&signals),
                 black_box(&members),
                 dt,
+                0.0, // sim_time
                 auto_config,
             )
         })
@@ -139,6 +141,7 @@ fn bench_parallel_speedup(c: &mut Criterion) {
                         black_box(&signals),
                         black_box(&members),
                         dt,
+                        0.0, // sim_time
                         config,
                     )
                 })
@@ -171,6 +174,7 @@ fn bench_compute_heavy_resolver(c: &mut Criterion) {
                 black_box(&signals),
                 black_box(&members),
                 dt,
+                0.0, // sim_time
                 simple_config,
             )
         })
@@ -191,6 +195,7 @@ fn bench_compute_heavy_resolver(c: &mut Criterion) {
                 black_box(&signals),
                 black_box(&members),
                 dt,
+                0.0, // sim_time
                 complex_config,
             )
         })

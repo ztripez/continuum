@@ -119,5 +119,12 @@ pub fn item<'src>() -> impl Parser<'src, ParserInput<'src>, Item, extra::Err<Par
             def.doc = doc;
             Item::MemberDef(def)
         }),
+        // Special case: check for fracture keyword specifically to avoid member conflict
+        doc_comment()
+            .then(text::keyword("fracture").ignore_then(fracture_def()))
+            .map(|(doc, mut def)| {
+                def.doc = doc;
+                Item::FractureDef(def)
+            }),
     ))
 }

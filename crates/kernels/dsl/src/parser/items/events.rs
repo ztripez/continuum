@@ -3,14 +3,15 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    ApplyBlock, ChronicleDef, EmitStatement, Expr, FractureDef, ImpulseDef, ObserveBlock,
-    ObserveHandler, Spanned, TypeExpr,
+    ApplyBlock, ChronicleDef, ConfigEntry, Expr, FractureDef, ImpulseDef, ObserveBlock,
+    ObserveHandler, Path, Spanned, TypeExpr,
 };
 
-use super::super::expr::spanned_expr;
+use super::super::expr::{spanned_effect_expr, spanned_expr};
 use super::super::lexer::Token;
-use super::super::primitives::{ident, spanned, spanned_path};
+use super::super::primitives::{attr_path, attr_string, ident, spanned, spanned_path};
 use super::super::{ParseError, ParserInput};
+use super::config::config_entry;
 use super::types::type_expr;
 
 // === Impulse ===
@@ -31,12 +32,17 @@ pub fn impulse_def<'src>()
                 doc: None,
                 path,
                 payload_type: None,
+                title: None,
+                symbol: None,
                 local_config: vec![],
                 apply: None,
             };
             for content in contents {
                 match content {
                     ImpulseContent::Type(t) => def.payload_type = Some(t),
+                    ImpulseContent::Title(t) => def.title = Some(t),
+                    ImpulseContent::Symbol(s) => def.symbol = Some(s),
+                    ImpulseContent::Config(c) => def.local_config = c,
                     ImpulseContent::Apply(a) => def.apply = Some(a),
                 }
             }
@@ -47,18 +53,49 @@ pub fn impulse_def<'src>()
 #[derive(Clone)]
 enum ImpulseContent {
     Type(Spanned<TypeExpr>),
+    Title(Spanned<String>),
+    Symbol(Spanned<String>),
+    Config(Vec<ConfigEntry>),
     Apply(ApplyBlock),
 }
 
 fn impulse_content<'src>()
 -> impl Parser<'src, ParserInput<'src>, ImpulseContent, extra::Err<ParseError<'src>>> {
     choice((
+        attr_string(Token::Title).map(ImpulseContent::Title),
+        attr_string(Token::Symbol).map(ImpulseContent::Symbol),
+        // Type expression: `: TypeExpr`
         just(Token::Colon)
             .ignore_then(spanned(type_expr()))
             .map(ImpulseContent::Type),
+        // Config block: `config { ... }`
+        just(Token::Config)
+            .ignore_then(
+                config_entry()
+                    .repeated()
+                    .collect()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map(ImpulseContent::Config),
+        // Apply block: `apply { expr; expr; ... }` - supports semicolon-separated expressions
         just(Token::Apply)
-            .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
-            .map(|body| ImpulseContent::Apply(ApplyBlock { body })),
+            .ignore_then(
+                spanned_effect_expr()
+                    .separated_by(just(Token::Semicolon).or_not())
+                    .allow_trailing()
+                    .at_least(1)
+                    .collect::<Vec<_>>()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map_with(|exprs, extra| {
+                let span = extra.span();
+                let body = if exprs.len() == 1 {
+                    exprs.into_iter().next().unwrap()
+                } else {
+                    Spanned::new(Expr::Block(exprs), span.into())
+                };
+                ImpulseContent::Apply(ApplyBlock { body })
+            }),
     ))
 }
 
@@ -76,17 +113,23 @@ pub fn fracture_def<'src>()
                 .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(path, contents)| {
+            let mut strata = None;
+            let mut local_config = vec![];
             let mut conditions = vec![];
-            let mut emit = vec![];
+            let mut emit = None;
             for content in contents {
                 match content {
+                    FractureContent::Strata(s) => strata = Some(s),
+                    FractureContent::Config(c) => local_config = c,
                     FractureContent::When(w) => conditions = w,
-                    FractureContent::Emit(e) => emit = e,
+                    FractureContent::Emit(e) => emit = Some(e),
                 }
             }
             FractureDef {
                 doc: None,
                 path,
+                strata,
+                local_config,
                 conditions,
                 emit,
             }
@@ -95,13 +138,26 @@ pub fn fracture_def<'src>()
 
 #[derive(Clone)]
 enum FractureContent {
+    Strata(Spanned<Path>),
+    Config(Vec<ConfigEntry>),
     When(Vec<Spanned<Expr>>),
-    Emit(Vec<EmitStatement>),
+    Emit(Spanned<Expr>),
 }
 
 fn fracture_content<'src>()
 -> impl Parser<'src, ParserInput<'src>, FractureContent, extra::Err<ParseError<'src>>> {
     choice((
+        attr_path(Token::Strata).map(FractureContent::Strata),
+        // config { ... } - local config block
+        just(Token::Config)
+            .ignore_then(
+                config_entry()
+                    .repeated()
+                    .collect()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map(FractureContent::Config),
+        // when { ... } - trigger conditions
         just(Token::When)
             .ignore_then(
                 spanned_expr()
@@ -110,25 +166,27 @@ fn fracture_content<'src>()
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(FractureContent::When),
+        // emit { expr... } - emit expression(s), supports let bindings
+        // Multiple expressions are wrapped in a Block
         just(Token::Emit)
             .ignore_then(
-                emit_statement()
-                    .repeated()
-                    .collect()
+                spanned_effect_expr()
+                    .separated_by(just(Token::Semicolon).or_not())
+                    .allow_trailing()
+                    .at_least(1)
+                    .collect::<Vec<_>>()
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
-            .map(FractureContent::Emit),
+            .map_with(|exprs, extra| {
+                let span = extra.span();
+                if exprs.len() == 1 {
+                    FractureContent::Emit(exprs.into_iter().next().unwrap())
+                } else {
+                    // Multiple expressions -> wrap in a Block
+                    FractureContent::Emit(Spanned::new(Expr::Block(exprs), span.into()))
+                }
+            }),
     ))
-}
-
-fn emit_statement<'src>()
--> impl Parser<'src, ParserInput<'src>, EmitStatement, extra::Err<ParseError<'src>>> + Clone {
-    just(Token::Signal)
-        .ignore_then(just(Token::Dot))
-        .ignore_then(spanned_path())
-        .then_ignore(just(Token::EmitArrow))
-        .then(spanned_expr())
-        .map(|(target, value)| EmitStatement { target, value })
 }
 
 // === Chronicle ===

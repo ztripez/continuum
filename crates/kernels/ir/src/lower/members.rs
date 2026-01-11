@@ -56,10 +56,13 @@ impl Lowerer {
             self.config.insert(full_key, value);
         }
 
-        // Collect signal dependencies from resolve expression
+        // Collect signal dependencies from resolve and initial expressions
         let mut reads = Vec::new();
         if let Some(resolve) = &def.resolve {
             self.collect_signal_refs(&resolve.body.node, &mut reads);
+        }
+        if let Some(initial) = &def.initial {
+            self.collect_signal_refs(&initial.body.node, &mut reads);
         }
 
         // Member reads (self.* references) are resolved at runtime within entity context
@@ -72,6 +75,9 @@ impl Lowerer {
             .resolve
             .as_ref()
             .is_some_and(|r| self.expr_uses_dt_raw(&r.body.node));
+
+        // Lower initial expression
+        let initial = def.initial.as_ref().map(|i| self.lower_expr(&i.body.node));
 
         // Lower resolve expression
         let resolve = def.resolve.as_ref().map(|r| self.lower_expr(&r.body.node));
@@ -105,6 +111,7 @@ impl Lowerer {
             uses_dt_raw,
             reads,
             member_reads,
+            initial,
             resolve,
             assertions,
         };

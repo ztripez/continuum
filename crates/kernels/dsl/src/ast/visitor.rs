@@ -7,55 +7,6 @@
 //!
 //! Instead of duplicating match statements across validate.rs, lower.rs, etc.,
 //! each use case implements the appropriate visitor trait.
-//!
-//! # Choosing a Visitor
-//!
-//! Use [`ExprVisitor`] when you only need to analyze expression structure
-//! (e.g., checking if `dt_raw` is used).
-//!
-//! Use [`SpannedExprVisitor`] when you need source locations for each node
-//! (e.g., LSP hover, go-to-definition, collecting references with positions).
-//!
-//! # Example: Basic Visitor
-//!
-//! ```ignore
-//! use continuum_dsl::ast::{Expr, ExprVisitor};
-//!
-//! struct DtRawChecker { found: bool }
-//!
-//! impl ExprVisitor for DtRawChecker {
-//!     fn visit_dt_raw(&mut self) -> bool {
-//!         self.found = true;
-//!         false // Stop traversal
-//!     }
-//! }
-//!
-//! let mut checker = DtRawChecker { found: false };
-//! checker.walk(&expr);
-//! if checker.found { /* ... */ }
-//! ```
-//!
-//! # Example: Spanned Visitor for LSP
-//!
-//! ```ignore
-//! use continuum_dsl::ast::{SpannedExprVisitor, Spanned, Expr, Path};
-//! use std::ops::Range;
-//!
-//! struct RefCollector {
-//!     refs: Vec<(Range<usize>, String)>,
-//! }
-//!
-//! impl SpannedExprVisitor for RefCollector {
-//!     fn visit_signal_ref(&mut self, span: Range<usize>, path: &Path) -> bool {
-//!         self.refs.push((span, path.to_string()));
-//!         true // Continue traversal
-//!     }
-//! }
-//!
-//! let mut collector = RefCollector { refs: vec![] };
-//! collector.walk(&spanned_expr);
-//! // collector.refs now contains all signal references with their spans
-//! ```
 
 use super::{Expr, Path, Spanned};
 
@@ -72,6 +23,11 @@ pub trait ExprVisitor {
 
     /// Visit `dt_raw` keyword.
     fn visit_dt_raw(&mut self) -> bool {
+        true
+    }
+
+    /// Visit `sim_time` keyword.
+    fn visit_sim_time(&mut self) -> bool {
         true
     }
 
@@ -110,22 +66,22 @@ pub trait ExprVisitor {
         true
     }
 
-    /// Visit `signal.path` reference.
+    /// Visit `signal.name` reference.
     fn visit_signal_ref(&mut self, _path: &Path) -> bool {
         true
     }
 
-    /// Visit `const.path` reference.
+    /// Visit `const.name` reference.
     fn visit_const_ref(&mut self, _path: &Path) -> bool {
         true
     }
 
-    /// Visit `config.path` reference.
+    /// Visit `config.name` reference.
     fn visit_config_ref(&mut self, _path: &Path) -> bool {
         true
     }
 
-    /// Visit `field.path` reference.
+    /// Visit `field.name` reference.
     fn visit_field_ref(&mut self, _path: &Path) -> bool {
         true
     }
@@ -135,32 +91,32 @@ pub trait ExprVisitor {
         true
     }
 
-    /// Visit mathematical constant (pi, tau, e, etc).
+    /// Visit mathematical constant (PI, TAU, etc.).
     fn visit_math_const(&mut self, _mc: &super::MathConst) -> bool {
         true
     }
 
-    /// Visit `self.field` in entity context.
+    /// Visit `self.field` reference.
     fn visit_self_field(&mut self, _field: &str) -> bool {
         true
     }
 
-    /// Visit `entity.path` reference.
+    /// Visit `entity.name` reference.
     fn visit_entity_ref(&mut self, _path: &Path) -> bool {
         true
     }
 
-    /// Visit `other(entity.path)`.
+    /// Visit `other(entity.name)` reference.
     fn visit_other(&mut self, _path: &Path) -> bool {
         true
     }
 
-    /// Visit `pairs(entity.path)`.
+    /// Visit `pairs(entity.name)` reference.
     fn visit_pairs(&mut self, _path: &Path) -> bool {
         true
     }
 
-    // === Compound nodes (have children that will be walked) ===
+    // === Compound nodes (recursable) ===
 
     /// Visit binary operation. Children: left, right.
     fn visit_binary(&mut self, _op: &super::BinaryOp) -> bool {
@@ -275,12 +231,250 @@ pub trait ExprVisitor {
     }
 }
 
-/// Walk an expression tree, calling visitor methods and recursing into children.
+/// Visitor trait for expression traversal with span information.
+pub trait SpannedExprVisitor {
+    // === Leaf nodes ===
+
+    /// Visit `dt_raw` keyword.
+    fn visit_dt_raw(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit `sim_time` keyword.
+    fn visit_sim_time(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit literal value.
+    fn visit_literal(&mut self, _span: std::ops::Range<usize>, _value: &super::Literal) -> bool {
+        true
+    }
+
+    /// Visit literal with unit.
+    fn visit_literal_with_unit(
+        &mut self,
+        _span: std::ops::Range<usize>,
+        _value: &super::Literal,
+        _unit: &str,
+    ) -> bool {
+        true
+    }
+
+    /// Visit path reference.
+    fn visit_path(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
+        true
+    }
+
+    /// Visit `prev` keyword.
+    fn visit_prev(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit `prev.field` access.
+    fn visit_prev_field(&mut self, _span: std::ops::Range<usize>, _field: &str) -> bool {
+        true
+    }
+
+    /// Visit `payload` keyword.
+    fn visit_payload(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit `payload.field` access.
+    fn visit_payload_field(&mut self, _span: std::ops::Range<usize>, _field: &str) -> bool {
+        true
+    }
+
+    /// Visit `signal.name` reference.
+    fn visit_signal_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
+        true
+    }
+
+    /// Visit `const.name` reference.
+    fn visit_const_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
+        true
+    }
+
+    /// Visit `config.name` reference.
+    fn visit_config_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
+        true
+    }
+
+    /// Visit `field.name` reference.
+    fn visit_field_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
+        true
+    }
+
+    /// Visit `collected` keyword.
+    fn visit_collected(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit math constant.
+    fn visit_math_const(&mut self, _span: std::ops::Range<usize>, _mc: &super::MathConst) -> bool {
+        true
+    }
+
+    /// Visit `self.field` reference.
+    fn visit_self_field(&mut self, _span: std::ops::Range<usize>, _field: &str) -> bool {
+        true
+    }
+
+    /// Visit `entity.name` reference.
+    fn visit_entity_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
+        true
+    }
+
+    /// Visit `other(entity.name)` reference.
+    fn visit_other(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
+        true
+    }
+
+    /// Visit `pairs(entity.name)` reference.
+    fn visit_pairs(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
+        true
+    }
+
+    // === Compound nodes ===
+
+    /// Visit binary operation.
+    fn visit_binary(&mut self, _span: std::ops::Range<usize>, _op: &super::BinaryOp) -> bool {
+        true
+    }
+
+    /// Visit unary operation.
+    fn visit_unary(&mut self, _span: std::ops::Range<usize>, _op: &super::UnaryOp) -> bool {
+        true
+    }
+
+    /// Visit function call.
+    fn visit_call(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit method call.
+    fn visit_method_call(&mut self, _span: std::ops::Range<usize>, _method: &str) -> bool {
+        true
+    }
+
+    /// Visit field access.
+    fn visit_field_access(&mut self, _span: std::ops::Range<usize>, _field: &str) -> bool {
+        true
+    }
+
+    /// Visit let binding.
+    fn visit_let(&mut self, _span: std::ops::Range<usize>, _name: &str) -> bool {
+        true
+    }
+
+    /// Visit if expression.
+    fn visit_if(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit for loop.
+    fn visit_for(&mut self, _span: std::ops::Range<usize>, _var: &str) -> bool {
+        true
+    }
+
+    /// Visit block.
+    fn visit_block(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit emit signal.
+    fn visit_emit_signal(&mut self, _span: std::ops::Range<usize>, _target: &Path) -> bool {
+        true
+    }
+
+    /// Visit emit field.
+    fn visit_emit_field(&mut self, _span: std::ops::Range<usize>, _target: &Path) -> bool {
+        true
+    }
+
+    /// Visit struct literal.
+    fn visit_struct(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit map.
+    fn visit_map(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit fold.
+    fn visit_fold(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit entity access.
+    fn visit_entity_access(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
+        true
+    }
+
+    /// Visit aggregate.
+    fn visit_aggregate(
+        &mut self,
+        _span: std::ops::Range<usize>,
+        _op: &super::AggregateOp,
+        _entity: &Path,
+    ) -> bool {
+        true
+    }
+
+    /// Visit filter.
+    fn visit_filter(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
+        true
+    }
+
+    /// Visit first.
+    fn visit_first(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
+        true
+    }
+
+    /// Visit nearest.
+    fn visit_nearest(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
+        true
+    }
+
+    /// Visit within.
+    fn visit_within(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
+        true
+    }
+
+    // === Walk methods ===
+
+    /// Walk a spanned expression tree.
+    fn walk(&mut self, expr: &Spanned<Expr>) {
+        walk_spanned_expr(self, expr);
+    }
+}
+
+/// Check if an expression tree uses the `dt_raw` keyword.
+pub fn uses_dt_raw(expr: &Expr) -> bool {
+    struct DtRawVisitor {
+        found: bool,
+    }
+    impl ExprVisitor for DtRawVisitor {
+        fn visit_dt_raw(&mut self) -> bool {
+            self.found = true;
+            false // Stop walking
+        }
+    }
+    let mut visitor = DtRawVisitor { found: false };
+    visitor.walk(expr);
+    visitor.found
+}
+
+/// Walk an expression tree, calling visitor methods.
 pub fn walk_expr<V: ExprVisitor + ?Sized>(visitor: &mut V, expr: &Expr) {
     match expr {
         // Leaf nodes
         Expr::DtRaw => {
             visitor.visit_dt_raw();
+        }
+        Expr::SimTime => {
+            visitor.visit_sim_time();
         }
         Expr::Literal(lit) => {
             visitor.visit_literal(lit);
@@ -385,8 +579,8 @@ pub fn walk_expr<V: ExprVisitor + ?Sized>(visitor: &mut V, expr: &Expr) {
             if visitor.visit_if() {
                 visitor.walk_spanned(condition);
                 visitor.walk_spanned(then_branch);
-                if let Some(eb) = else_branch {
-                    visitor.walk_spanned(eb);
+                if let Some(else_expr) = else_branch {
+                    visitor.walk_spanned(else_expr);
                 }
             }
         }
@@ -420,8 +614,8 @@ pub fn walk_expr<V: ExprVisitor + ?Sized>(visitor: &mut V, expr: &Expr) {
         }
         Expr::Struct(fields) => {
             if visitor.visit_struct() {
-                for (_, v) in fields {
-                    visitor.walk_spanned(v);
+                for (_, val) in fields {
+                    visitor.walk_spanned(val);
                 }
             }
         }
@@ -480,244 +674,6 @@ pub fn walk_expr<V: ExprVisitor + ?Sized>(visitor: &mut V, expr: &Expr) {
     }
 }
 
-// === Spanned Expression Visitor ===
-
-/// Visitor trait for span-aware expression traversal.
-///
-/// Similar to `ExprVisitor` but each visit method receives the span of the
-/// expression being visited. This is useful for LSP features like hover,
-/// go-to-definition, and reference finding.
-///
-/// # Example
-///
-/// ```ignore
-/// use continuum_dsl::ast::{SpannedExprVisitor, Spanned, Expr, Path};
-/// use std::ops::Range;
-///
-/// struct RefCollector {
-///     refs: Vec<(Range<usize>, String)>,
-/// }
-///
-/// impl SpannedExprVisitor for RefCollector {
-///     fn visit_signal_ref(&mut self, span: Range<usize>, path: &Path) -> bool {
-///         self.refs.push((span, path.to_string()));
-///         true
-///     }
-/// }
-/// ```
-pub trait SpannedExprVisitor {
-    // === Leaf nodes (no children) ===
-
-    /// Visit `dt_raw` keyword with its span.
-    fn visit_dt_raw(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit a literal value with its span.
-    fn visit_literal(&mut self, _span: std::ops::Range<usize>, _value: &super::Literal) -> bool {
-        true
-    }
-
-    /// Visit a literal with unit annotation with its span.
-    fn visit_literal_with_unit(
-        &mut self,
-        _span: std::ops::Range<usize>,
-        _value: &super::Literal,
-        _unit: &str,
-    ) -> bool {
-        true
-    }
-
-    /// Visit a path reference with its span.
-    fn visit_path(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
-        true
-    }
-
-    /// Visit `prev` keyword with its span.
-    fn visit_prev(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit `prev.field` access with its span.
-    fn visit_prev_field(&mut self, _span: std::ops::Range<usize>, _field: &str) -> bool {
-        true
-    }
-
-    /// Visit `payload` keyword with its span.
-    fn visit_payload(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit `payload.field` access with its span.
-    fn visit_payload_field(&mut self, _span: std::ops::Range<usize>, _field: &str) -> bool {
-        true
-    }
-
-    /// Visit `signal.path` reference with its span.
-    fn visit_signal_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
-        true
-    }
-
-    /// Visit `const.path` reference with its span.
-    fn visit_const_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
-        true
-    }
-
-    /// Visit `config.path` reference with its span.
-    fn visit_config_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
-        true
-    }
-
-    /// Visit `field.path` reference with its span.
-    fn visit_field_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
-        true
-    }
-
-    /// Visit `collected` keyword with its span.
-    fn visit_collected(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit mathematical constant with its span.
-    fn visit_math_const(&mut self, _span: std::ops::Range<usize>, _mc: &super::MathConst) -> bool {
-        true
-    }
-
-    /// Visit `self.field` in entity context with its span.
-    fn visit_self_field(&mut self, _span: std::ops::Range<usize>, _field: &str) -> bool {
-        true
-    }
-
-    /// Visit `entity.path` reference with its span.
-    fn visit_entity_ref(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
-        true
-    }
-
-    /// Visit `other(entity.path)` with its span.
-    fn visit_other(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
-        true
-    }
-
-    /// Visit `pairs(entity.path)` with its span.
-    fn visit_pairs(&mut self, _span: std::ops::Range<usize>, _path: &Path) -> bool {
-        true
-    }
-
-    // === Compound nodes (have children that will be walked) ===
-
-    /// Visit binary operation with its span.
-    fn visit_binary(&mut self, _span: std::ops::Range<usize>, _op: &super::BinaryOp) -> bool {
-        true
-    }
-
-    /// Visit unary operation with its span.
-    fn visit_unary(&mut self, _span: std::ops::Range<usize>, _op: &super::UnaryOp) -> bool {
-        true
-    }
-
-    /// Visit function call with its span.
-    fn visit_call(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit method call with its span.
-    fn visit_method_call(&mut self, _span: std::ops::Range<usize>, _method: &str) -> bool {
-        true
-    }
-
-    /// Visit field access with its span.
-    fn visit_field_access(&mut self, _span: std::ops::Range<usize>, _field: &str) -> bool {
-        true
-    }
-
-    /// Visit let binding with its span.
-    fn visit_let(&mut self, _span: std::ops::Range<usize>, _name: &str) -> bool {
-        true
-    }
-
-    /// Visit if expression with its span.
-    fn visit_if(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit for loop with its span.
-    fn visit_for(&mut self, _span: std::ops::Range<usize>, _var: &str) -> bool {
-        true
-    }
-
-    /// Visit block with its span.
-    fn visit_block(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit emit signal with its span.
-    fn visit_emit_signal(&mut self, _span: std::ops::Range<usize>, _target: &Path) -> bool {
-        true
-    }
-
-    /// Visit emit field with its span.
-    fn visit_emit_field(&mut self, _span: std::ops::Range<usize>, _target: &Path) -> bool {
-        true
-    }
-
-    /// Visit struct literal with its span.
-    fn visit_struct(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit map with its span.
-    fn visit_map(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit fold with its span.
-    fn visit_fold(&mut self, _span: std::ops::Range<usize>) -> bool {
-        true
-    }
-
-    /// Visit entity access with its span.
-    fn visit_entity_access(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
-        true
-    }
-
-    /// Visit aggregate with its span.
-    fn visit_aggregate(
-        &mut self,
-        _span: std::ops::Range<usize>,
-        _op: &super::AggregateOp,
-        _entity: &Path,
-    ) -> bool {
-        true
-    }
-
-    /// Visit filter with its span.
-    fn visit_filter(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
-        true
-    }
-
-    /// Visit first with its span.
-    fn visit_first(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
-        true
-    }
-
-    /// Visit nearest with its span.
-    fn visit_nearest(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
-        true
-    }
-
-    /// Visit within with its span.
-    fn visit_within(&mut self, _span: std::ops::Range<usize>, _entity: &Path) -> bool {
-        true
-    }
-
-    // === Walk method ===
-
-    /// Walk a spanned expression tree, calling visit methods with spans.
-    fn walk(&mut self, expr: &Spanned<Expr>) {
-        walk_spanned_expr(self, expr);
-    }
-}
-
 /// Walk a spanned expression tree, calling visitor methods with spans.
 pub fn walk_spanned_expr<V: SpannedExprVisitor + ?Sized>(visitor: &mut V, expr: &Spanned<Expr>) {
     let span = expr.span.clone();
@@ -725,6 +681,9 @@ pub fn walk_spanned_expr<V: SpannedExprVisitor + ?Sized>(visitor: &mut V, expr: 
         // Leaf nodes
         Expr::DtRaw => {
             visitor.visit_dt_raw(span);
+        }
+        Expr::SimTime => {
+            visitor.visit_sim_time(span);
         }
         Expr::Literal(lit) => {
             visitor.visit_literal(span, lit);
@@ -829,8 +788,8 @@ pub fn walk_spanned_expr<V: SpannedExprVisitor + ?Sized>(visitor: &mut V, expr: 
             if visitor.visit_if(span) {
                 visitor.walk(condition);
                 visitor.walk(then_branch);
-                if let Some(eb) = else_branch {
-                    visitor.walk(eb);
+                if let Some(else_expr) = else_branch {
+                    visitor.walk(else_expr);
                 }
             }
         }
@@ -864,8 +823,8 @@ pub fn walk_spanned_expr<V: SpannedExprVisitor + ?Sized>(visitor: &mut V, expr: 
         }
         Expr::Struct(fields) => {
             if visitor.visit_struct(span) {
-                for (_, v) in fields {
-                    visitor.walk(v);
+                for (_, val) in fields {
+                    visitor.walk(val);
                 }
             }
         }
@@ -922,24 +881,4 @@ pub fn walk_spanned_expr<V: SpannedExprVisitor + ?Sized>(visitor: &mut V, expr: 
             }
         }
     }
-}
-
-// === Convenience visitors ===
-
-/// Check if an expression contains `dt_raw`.
-pub fn uses_dt_raw(expr: &Expr) -> bool {
-    struct DtRawChecker {
-        found: bool,
-    }
-
-    impl ExprVisitor for DtRawChecker {
-        fn visit_dt_raw(&mut self) -> bool {
-            self.found = true;
-            false // Stop traversal once found
-        }
-    }
-
-    let mut checker = DtRawChecker { found: false };
-    checker.walk(expr);
-    checker.found
 }

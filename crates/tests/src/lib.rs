@@ -87,11 +87,13 @@ impl TestHarness {
         }
 
         // Register field measure functions
+        // Skip fields with entity expressions (aggregates, etc.)
         for (field_id, field) in &world.fields {
             if let Some(ref expr) = field.measure {
                 let runtime_id = FieldId(field_id.0.clone());
-                let measure_fn = build_field_measure(&runtime_id, expr, &world);
-                runtime.register_measure_op(measure_fn);
+                if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
+                    runtime.register_measure_op(measure_fn);
+                }
             }
         }
 

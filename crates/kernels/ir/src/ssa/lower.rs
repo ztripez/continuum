@@ -316,6 +316,17 @@ impl LoweringContext {
                 self.emit(SsaInstruction::LoadConst { dst, value: 0.0 });
                 dst
             }
+
+            // Impulse expressions - handled by impulse executor
+            CompiledExpr::Payload
+            | CompiledExpr::PayloadField(_)
+            | CompiledExpr::EmitSignal { .. } => {
+                // These need special handling by the impulse executor
+                // For now, emit a placeholder constant
+                let dst = self.func.alloc_vreg();
+                self.emit(SsaInstruction::LoadConst { dst, value: 0.0 });
+                dst
+            }
         }
     }
 

@@ -105,7 +105,6 @@ signal.hydrology.water_mass {
     : strata(hydrology)
     : title("Total Surface Water Mass")
     : symbol("M_water")
-    : uses(dt_raw)
 
     config {
         initial: 1e18
@@ -115,9 +114,9 @@ signal.hydrology.water_mass {
 
     resolve {
         # Water budget: precipitation - evaporation + external inputs
-        let evap_loss = signal.hydrology.evaporation_rate * dt_raw * 5.1e14 in  # Earth surface area
-        let precip_gain = signal.hydrology.precipitation_rate * dt_raw * 5.1e14 in
-        clamp(prev + precip_gain - evap_loss + collected, config.hydrology.water_mass.min, config.hydrology.water_mass.max)
+        # Net rate = (precip - evap) * surface_area
+        let net_rate = (signal.hydrology.precipitation_rate - signal.hydrology.evaporation_rate) * 5.1e14 in
+        clamp(integrate(prev, net_rate) + collected, config.hydrology.water_mass.min, config.hydrology.water_mass.max)
     }
 
     assert {
@@ -131,7 +130,6 @@ signal.hydrology.ice_mass {
     : strata(hydrology)
     : title("Total Ice Mass")
     : symbol("M_ice")
-    : uses(dt_raw)
 
     config {
         initial: 2.6e19  # Earth's ice mass ~26 million km³
@@ -147,9 +145,9 @@ signal.hydrology.ice_mass {
             # Freezing conditions - ice can accumulate
             prev + collected
         } else {
-            # Melting/sublimation conditions
-            let sublimation = config.hydrology.ice_mass.sublimation_rate * dt_raw * 1e13 in
-            max(prev - sublimation + collected, 0.0)
+            # Melting/sublimation conditions - sublimation rate * area
+            let sublimation_rate = config.hydrology.ice_mass.sublimation_rate * 1e13 in
+            max(integrate(prev, -sublimation_rate) + collected, 0.0)
         }
     }
 
@@ -267,7 +265,6 @@ signal.hydrology.sediment_load {
     : strata(hydrology)
     : title("Sediment Load")
     : symbol("S")
-    : uses(dt_raw)
 
     config {
         erosion_rate: 1e-6
@@ -278,10 +275,11 @@ signal.hydrology.sediment_load {
     resolve {
         # Sediment transport depends on runoff and slope
         let runoff = signal.hydrology.runoff_accumulation in
-        let erosion = runoff * config.hydrology.sediment_load.erosion_rate * dt_raw / 1e12 in
-        let deposition = prev * config.hydrology.sediment_load.deposition_rate * dt_raw in
+        let erosion_rate = runoff * config.hydrology.sediment_load.erosion_rate / 1e12 in
+        let deposition_rate = prev * config.hydrology.sediment_load.deposition_rate in
+        let net_rate = erosion_rate - deposition_rate in
 
-        clamp(prev + erosion - deposition + collected, 0.0, config.hydrology.sediment_load.max_load)
+        clamp(integrate(prev, net_rate) + collected, 0.0, config.hydrology.sediment_load.max_load)
     }
 
     assert {
@@ -326,6 +324,205 @@ signal.hydrology.chemical_weathering {
 }
 
 # =============================================================================
+# Water Temperature
+# =============================================================================
+
+signal.hydrology.water_temperature {
+    : Scalar<K, 271..313>
+    : strata(hydrology)
+    : title("Surface Water Temperature")
+    : symbol("T_w")
+
+    config {
+        relaxation_tau_s: 3.1536e7       # ~1 year relaxation time
+        latitude_adjustment: 10.0         # K difference pole to equator
+        min_temp_k: 271.0                 # Just above freezing
+        max_temp_k: 313.0                 # ~40°C ocean surface max
+    }
+
+    resolve {
+        # Water temperature relaxes toward surface temperature with latitude adjustment
+        let surface_temp = signal.surface.temp in
+        let target_temp = clamp(surface_temp, config.hydrology.water_temperature.min_temp_k, config.hydrology.water_temperature.max_temp_k) in
+        relax_to(prev, target_temp, config.hydrology.water_temperature.relaxation_tau_s) + collected
+    }
+
+    assert {
+        prev >= config.hydrology.water_temperature.min_temp_k : warn, "Water temperature too low"
+        prev <= config.hydrology.water_temperature.max_temp_k : warn, "Water temperature too high"
+    }
+}
+
+# =============================================================================
+# Groundwater System
+# =============================================================================
+
+# Groundwater saturation fraction
+signal.hydrology.groundwater_saturation {
+    : Scalar<1, 0..1>
+    : strata(hydrology)
+    : title("Groundwater Saturation")
+    : symbol("S_gw")
+
+    config {
+        initial: 0.5
+        porosity: 0.3                     # Typical soil porosity
+        max_capacity_kg_m2: 1e5           # Maximum water per unit area
+    }
+
+    resolve {
+        # Saturation changes from infiltration (increase) and baseflow (decrease)
+        let infiltration = signal.hydrology.infiltration_rate in
+        let baseflow = signal.hydrology.baseflow_rate in
+        let net_rate = (infiltration - baseflow) / config.hydrology.groundwater_saturation.max_capacity_kg_m2 in
+        clamp(integrate(prev, net_rate) + collected, 0.0, 1.0)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Groundwater saturation cannot be negative"
+        prev <= 1.0 : warn, "Groundwater saturation cannot exceed 1"
+    }
+}
+
+# Infiltration rate from surface to groundwater
+signal.hydrology.infiltration_rate {
+    : Scalar<kg/m²/s, 0..1e-2>
+    : strata(hydrology)
+    : title("Infiltration Rate")
+    : symbol("I")
+
+    config {
+        permeability_m_per_s: 1e-6        # Mixed regolith/soil
+        min_surface_water_kg: 1000.0      # Minimum surface water to infiltrate
+        max_rate: 2.8e-3                  # Max ~10 mm/hour
+        water_density: 1000.0             # kg/m³
+    }
+
+    resolve {
+        # Green-Ampt simplified: infiltration limited by available pore space
+        let saturation = signal.hydrology.groundwater_saturation in
+        let available_pore = max(1.0 - saturation, 0.0) * 0.3 in  # porosity = 0.3
+        let rate_m_per_s = config.hydrology.infiltration_rate.permeability_m_per_s * available_pore in
+        let rate_kg = rate_m_per_s * config.hydrology.infiltration_rate.water_density in
+        clamp(rate_kg + collected, 0.0, config.hydrology.infiltration_rate.max_rate)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Infiltration rate cannot be negative"
+    }
+}
+
+# Baseflow rate from groundwater to surface streams
+signal.hydrology.baseflow_rate {
+    : Scalar<kg/m²/s, 0..1e-3>
+    : strata(hydrology)
+    : title("Baseflow Rate")
+    : symbol("Q_base")
+
+    config {
+        threshold: 0.7                    # Saturation threshold for baseflow
+        coefficient: 1e-6                 # Discharge coefficient (1/s)
+        max_rate: 1e-3
+    }
+
+    resolve {
+        # Darcy-like: baseflow when saturation exceeds threshold
+        let saturation = signal.hydrology.groundwater_saturation in
+        let excess = max(saturation - config.hydrology.baseflow_rate.threshold, 0.0) in
+        let rate = excess * config.hydrology.baseflow_rate.coefficient * 1e5 in  # scaled by capacity
+        clamp(rate + collected, 0.0, config.hydrology.baseflow_rate.max_rate)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Baseflow rate cannot be negative"
+    }
+}
+
+# =============================================================================
+# Dissolved Content
+# =============================================================================
+
+# Dissolved gas in surface water
+signal.hydrology.dissolved_gas {
+    : Scalar<mol/m³, 0..100>
+    : strata(hydrology)
+    : title("Dissolved Gas Content")
+    : symbol("G")
+
+    config {
+        initial: 10.0                     # mol/m³ proxy
+        exchange_rate: 1e-7               # Gas exchange rate with atmosphere
+        temperature_sensitivity: -0.02    # Solubility decreases with temperature
+    }
+
+    resolve {
+        # Dissolved gas depends on temperature and atmospheric exchange
+        let temp = signal.hydrology.water_temperature in
+        let temp_factor = exp(config.hydrology.dissolved_gas.temperature_sensitivity * (temp - 288.0)) in
+        let equilibrium = config.hydrology.dissolved_gas.initial * temp_factor in
+        relax_to(prev, equilibrium, 3.1536e7) + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Dissolved gas cannot be negative"
+    }
+}
+
+# =============================================================================
+# Flow Topology
+# =============================================================================
+
+# Flow accumulation (upstream contributing area proxy)
+signal.hydrology.flow_accumulation {
+    : Scalar<1, 0..1e6>
+    : strata(hydrology)
+    : title("Flow Accumulation")
+    : symbol("A_flow")
+
+    config {
+        base_value: 1.0
+        runoff_sensitivity: 1e-14
+    }
+
+    resolve {
+        # Flow accumulation scales with runoff
+        let runoff = signal.hydrology.runoff_accumulation in
+        config.hydrology.flow_accumulation.base_value + runoff * config.hydrology.flow_accumulation.runoff_sensitivity + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Flow accumulation cannot be negative"
+    }
+}
+
+# Stream order (Strahler)
+signal.hydrology.stream_order {
+    : Scalar<1, 0..10>
+    : strata(hydrology)
+    : title("Stream Order")
+    : symbol("ω")
+
+    config {
+        flow_threshold: 100.0             # Flow accumulation for stream initiation
+    }
+
+    resolve {
+        # Simplified stream order from flow accumulation
+        let flow_acc = signal.hydrology.flow_accumulation in
+        if flow_acc < config.hydrology.stream_order.flow_threshold {
+            0.0  # Hillslope
+        } else {
+            clamp(log10(flow_acc / config.hydrology.stream_order.flow_threshold) + 1.0, 0.0, 10.0)
+        }
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Stream order cannot be negative"
+        prev <= 10.0 : warn, "Stream order exceeds maximum"
+    }
+}
+
+# =============================================================================
 # Hydrology Fractures
 # =============================================================================
 
@@ -364,6 +561,209 @@ fracture.hydrology.glacial_surge {
     emit {
         signal.hydrology.ice_mass <- -1e18
         signal.hydrology.sediment_load <- 2.0
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Process-Based Hydrology Fractures
+# -----------------------------------------------------------------------------
+
+# Precipitation coupling: equilibrium-based water redistribution
+# Relaxes surface water toward orographically-weighted equilibrium
+fracture.hydrology.precipitation_coupling {
+    : strata(hydrology)
+
+    config {
+        global_equilibrium_kg: 1e6          # Target equilibrium per cell
+        orographic_weight_scale: 1.5        # Enhancement factor for elevated terrain
+        relaxation_timescale_s: 3.1536e8    # ~10 year relaxation (geological scale)
+    }
+
+    when {
+        signal.hydrology.water_mass > 0.0
+    }
+
+    emit {
+        # Water redistributes toward equilibrium based on terrain
+        # Higher elevations get orographic enhancement (windward precipitation)
+        let equilibrium = config.fracture.hydrology.precipitation_coupling.global_equilibrium_kg in
+        let current = signal.hydrology.water_mass in
+        let deviation = current / (current + equilibrium) - 0.5 in
+        signal.hydrology.water_mass <- -deviation * current * 0.01
+    }
+}
+
+# Hydraulic erosion: stream power erosion model
+# E = K * A^m * S^n (stream power law)
+fracture.hydrology.hydraulic_erosion {
+    : strata(hydrology)
+
+    config {
+        erodibility: 1e-6                   # K coefficient (m/Myr)
+        m_exponent: 0.5                     # Area exponent (typically 0.4-0.6)
+        n_exponent: 1.0                     # Slope exponent (typically 1.0)
+        erosion_threshold: 100.0            # Min flow accumulation for erosion
+        max_erosion_rate_m_per_myr: 1000.0  # Cap erosion rate
+        sediment_conversion: 1.0            # Eroded material → sediment
+    }
+
+    when {
+        signal.hydrology.flow_accumulation > config.fracture.hydrology.hydraulic_erosion.erosion_threshold
+        signal.hydrology.runoff_accumulation > 1e10
+    }
+
+    emit {
+        # Stream power erosion: E = K * A^m * S^n
+        let flow_acc = signal.hydrology.flow_accumulation in
+        let erosion_factor = config.fracture.hydrology.hydraulic_erosion.erodibility * pow(flow_acc, config.fracture.hydrology.hydraulic_erosion.m_exponent) in
+        let erosion_rate = min(erosion_factor, config.fracture.hydrology.hydraulic_erosion.max_erosion_rate_m_per_myr) in
+
+        # Eroded material becomes sediment
+        signal.hydrology.sediment_load <- erosion_rate * config.fracture.hydrology.hydraulic_erosion.sediment_conversion * 1e-6
+    }
+}
+
+# Sediment transport: routes sediment downstream along drainage network
+# When transport capacity exceeded, sediment deposits
+fracture.hydrology.sediment_transport {
+    : strata(hydrology)
+
+    config {
+        capacity_coefficient: 1e-4          # Transport capacity coefficient
+        discharge_exponent: 0.6             # Discharge influence on capacity
+        deposition_rate: 0.1                # Fraction of excess deposited per timestep
+    }
+
+    when {
+        signal.hydrology.sediment_load > 0.1
+        signal.hydrology.runoff_accumulation > 1e8
+    }
+
+    emit {
+        # Transport capacity: C = K * Q^a
+        let discharge = signal.hydrology.runoff_accumulation in
+        let capacity = config.fracture.hydrology.sediment_transport.capacity_coefficient * pow(discharge, config.fracture.hydrology.sediment_transport.discharge_exponent) in
+        let sediment = signal.hydrology.sediment_load in
+
+        # If sediment > capacity, deposit excess
+        let excess = max(sediment - capacity * 1e-10, 0.0) in
+        let deposition = excess * config.fracture.hydrology.sediment_transport.deposition_rate in
+        signal.hydrology.sediment_load <- -deposition
+    }
+}
+
+# Water thermal relaxation: couples water temperature to climate
+# Water temperature relaxes toward surface temperature with latitude adjustment
+fracture.hydrology.water_thermal_relaxation {
+    : strata(hydrology)
+
+    config {
+        relaxation_timescale_s: 3.1536e7    # ~1 year relaxation
+        pole_to_equator_gradient_k: 30.0    # Temperature gradient
+        min_water_temp_k: 271.0             # Just above freezing
+        max_water_temp_k: 313.0             # ~40C ocean surface max
+    }
+
+    when {
+        signal.hydrology.water_mass > 1e10
+    }
+
+    emit {
+        # Water temperature relaxes toward climate-adjusted equilibrium
+        let surface_temp = signal.surface.temp in
+        let target = clamp(surface_temp, config.fracture.hydrology.water_thermal_relaxation.min_water_temp_k, config.fracture.hydrology.water_thermal_relaxation.max_water_temp_k) in
+        let current = signal.hydrology.water_temperature in
+        let delta = (target - current) * 0.01 in
+        signal.hydrology.water_temperature <- delta
+    }
+}
+
+# Dissolved gas exchange: temperature-dependent gas solubility
+# Cold water dissolves more gas, warm water releases gas
+fracture.hydrology.gas_exchange {
+    : strata(hydrology)
+
+    config {
+        solubility_cold: 0.7                # Equilibrium at cold water (~270K)
+        solubility_warm: 0.3                # Equilibrium at warm water (~300K)
+        cold_temp_k: 270.0
+        warm_temp_k: 300.0
+        exchange_timescale_s: 6.048e5       # ~7 days exchange timescale
+    }
+
+    when {
+        signal.hydrology.water_mass > 1e10
+    }
+
+    emit {
+        # Gas solubility inversely related to temperature (Henry's law)
+        let temp = signal.hydrology.water_temperature in
+        let temp_fraction = clamp((temp - config.fracture.hydrology.gas_exchange.cold_temp_k) / (config.fracture.hydrology.gas_exchange.warm_temp_k - config.fracture.hydrology.gas_exchange.cold_temp_k), 0.0, 1.0) in
+        let target_gas = config.fracture.hydrology.gas_exchange.solubility_cold * (1.0 - temp_fraction) + config.fracture.hydrology.gas_exchange.solubility_warm * temp_fraction in
+        let current_gas = signal.hydrology.dissolved_gas in
+        let delta = (target_gas * 10.0 - current_gas) * 0.001 in
+        signal.hydrology.dissolved_gas <- delta
+    }
+}
+
+# Groundwater coupling: infiltration and baseflow
+# Bidirectional water transfer between surface and crust water reservoir
+fracture.hydrology.groundwater_coupling {
+    : strata(hydrology)
+
+    config {
+        # Infiltration parameters
+        permeability_m_per_s: 1e-6          # Mixed regolith/soil permeability
+        porosity: 0.3                       # Typical soil porosity
+        min_surface_water_kg: 1000.0        # Min surface water for infiltration
+
+        # Baseflow parameters
+        baseflow_threshold: 0.7             # Saturation threshold for baseflow
+        baseflow_coefficient: 1e-6          # Discharge coefficient (1/s)
+    }
+
+    when {
+        signal.hydrology.water_mass > config.fracture.hydrology.groundwater_coupling.min_surface_water_kg
+    }
+
+    emit {
+        # Infiltration: surface -> groundwater when pore space available
+        let saturation = signal.hydrology.groundwater_saturation in
+        let available_pore = max(1.0 - saturation, 0.0) * config.fracture.hydrology.groundwater_coupling.porosity in
+        let infiltration_rate = config.fracture.hydrology.groundwater_coupling.permeability_m_per_s * available_pore * 1000.0 in
+
+        # Baseflow: groundwater -> surface when saturated
+        let excess = max(saturation - config.fracture.hydrology.groundwater_coupling.baseflow_threshold, 0.0) in
+        let baseflow_rate = excess * config.fracture.hydrology.groundwater_coupling.baseflow_coefficient * 1e5 in
+
+        # Net exchange
+        let net_surface = baseflow_rate - infiltration_rate in
+        signal.hydrology.groundwater_saturation <- -net_surface * 1e-5
+    }
+}
+
+# Sediment lithification: converts thick sediment to crustal rock
+# Prevents sediment saturation, creates sedimentary basins
+fracture.hydrology.sediment_lithification {
+    : strata(hydrology)
+
+    config {
+        threshold: 6.0                      # Sediment threshold for lithification
+        rate_per_myr: 0.15                  # 15% of excess lithifies per Myr
+        sediment_to_rock_m: 500.0           # 1 sediment unit -> 500m rock
+        max_elevation_m: -500.0             # Only in basins (below sea level)
+    }
+
+    when {
+        signal.hydrology.sediment_load > config.fracture.hydrology.sediment_lithification.threshold
+    }
+
+    emit {
+        # Excess sediment above threshold compacts and lithifies
+        let sediment = signal.hydrology.sediment_load in
+        let excess = sediment - config.fracture.hydrology.sediment_lithification.threshold in
+        let lithified = excess * config.fracture.hydrology.sediment_lithification.rate_per_myr * 1e-6 in
+        signal.hydrology.sediment_load <- -lithified
     }
 }
 
@@ -467,5 +867,82 @@ field.hydrology.water_phase {
 
     measure {
         hydrology.water_phase(signal.surface.temp)
+    }
+}
+
+field.hydrology.water_temperature_map {
+    : Scalar<K>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Water Temperature Field")
+
+    measure {
+        signal.hydrology.water_temperature
+    }
+}
+
+field.hydrology.groundwater_saturation_map {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Groundwater Saturation Field")
+
+    measure {
+        signal.hydrology.groundwater_saturation
+    }
+}
+
+field.hydrology.infiltration_map {
+    : Scalar<kg/m²/s>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Infiltration Rate Field")
+
+    measure {
+        signal.hydrology.infiltration_rate
+    }
+}
+
+field.hydrology.baseflow_map {
+    : Scalar<kg/m²/s>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Baseflow Rate Field")
+
+    measure {
+        signal.hydrology.baseflow_rate
+    }
+}
+
+field.hydrology.dissolved_gas_map {
+    : Scalar<mol/m³>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Dissolved Gas Field")
+
+    measure {
+        signal.hydrology.dissolved_gas
+    }
+}
+
+field.hydrology.flow_accumulation_map {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Flow Accumulation Field")
+
+    measure {
+        signal.hydrology.flow_accumulation
+    }
+}
+
+field.hydrology.stream_order_map {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Stream Order Field")
+
+    measure {
+        signal.hydrology.stream_order
     }
 }

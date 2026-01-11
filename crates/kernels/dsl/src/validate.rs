@@ -237,13 +237,8 @@ fn collect_unknown_functions(
                     errors,
                 );
             }
-            for emit in &fracture.emit {
-                check_expr_for_unknown_functions(
-                    &emit.value,
-                    user_functions,
-                    user_function_names,
-                    errors,
-                );
+            if let Some(emit) = &fracture.emit {
+                check_expr_for_unknown_functions(emit, user_functions, user_function_names, errors);
             }
         }
         Item::FnDef(f) => {

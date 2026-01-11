@@ -34,6 +34,7 @@ pub fn member_def<'src>()
                 title: None,
                 symbol: None,
                 local_config: vec![],
+                initial: None,
                 resolve: None,
                 assertions: None,
             };
@@ -44,6 +45,7 @@ pub fn member_def<'src>()
                     MemberContent::Title(t) => def.title = Some(t),
                     MemberContent::Symbol(s) => def.symbol = Some(s),
                     MemberContent::Config(c) => def.local_config = c,
+                    MemberContent::Initial(i) => def.initial = Some(i),
                     MemberContent::Resolve(r) => def.resolve = Some(r),
                     MemberContent::Assert(a) => def.assertions = Some(a),
                 }
@@ -59,6 +61,7 @@ enum MemberContent {
     Title(Spanned<String>),
     Symbol(Spanned<String>),
     Config(Vec<ConfigEntry>),
+    Initial(ResolveBlock),
     Resolve(ResolveBlock),
     Assert(crate::ast::AssertBlock),
 }
@@ -85,6 +88,15 @@ fn member_content<'src>()
                     .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(MemberContent::Config),
+        // initial { expr }
+        text::keyword("initial")
+            .padded_by(ws())
+            .ignore_then(
+                spanned_expr()
+                    .padded_by(ws())
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .map(|body| MemberContent::Initial(ResolveBlock { body })),
         // resolve { expr }
         just(Token::Resolve)
             .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
@@ -161,5 +173,22 @@ mod tests {
         assert_eq!(member.path.node.to_string(), "stellar.moon.mass");
         assert!(member.title.is_some());
         assert!(!member.local_config.is_empty());
+    }
+
+    #[test]
+    fn test_parse_member_with_initial() {
+        let src = r#"member.stellar.star.rotation_period {
+            : Scalar<day, 0.1..100>
+            : strata(stellar.activity)
+            initial { config.stellar.default_rotation_period_days }
+            resolve { prev }
+        }"#;
+
+        let result = member_def().parse(src);
+        assert!(result.has_output());
+        let member = result.into_output().unwrap();
+        assert_eq!(member.path.node.to_string(), "stellar.star.rotation_period");
+        assert!(member.initial.is_some(), "initial block should be parsed");
+        assert!(member.resolve.is_some());
     }
 }

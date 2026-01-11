@@ -1,0 +1,646 @@
+# Stellar Domain
+# =============================================================================
+# Handles stars and moons as entities with orbital mechanics, radiation output,
+# stellar variability, and tidal effects.
+#
+# Supports:
+# - Multiple stars (single, binary, trinary systems)
+# - Multiple moons with individual orbital mechanics
+# - Stellar variability (starspots, activity cycles, flares)
+# - Tidal heating from moons and companion stars
+# =============================================================================
+
+# =============================================================================
+# Stellar Constants
+# =============================================================================
+
+const {
+    # Physical constants
+    stellar.solar_luminosity_w: 3.828e26          # Sun luminosity (W)
+    stellar.solar_mass_kg: 1.989e30               # Sun mass (kg)
+    stellar.solar_radius_m: 6.9634e8              # Sun radius (m)
+    stellar.solar_teff_k: 5780.0                  # Sun effective temperature (K)
+    stellar.au_m: 1.495978707e11                  # Astronomical unit (m)
+    stellar.gravitational_constant: 6.67430e-11  # G (m³/kg/s²)
+
+    # Evolution constants
+    stellar.main_sequence_evolution_rate: 1e-4   # Luminosity increase per Myr (~1% per 100 Myr)
+
+    # Tidal constants
+    stellar.tidal_quality_factor: 100.0          # Q factor for tidal dissipation
+    stellar.love_number: 0.3                     # k2 Love number
+
+    # Moon recession
+    stellar.lunar_recession_rate: 3.8e-2         # Earth's Moon recession (m/year)
+}
+
+# =============================================================================
+# Stellar Configuration
+# =============================================================================
+
+config {
+    # Star defaults
+    stellar.default_luminosity: 3.828e26         # W (solar)
+    stellar.default_star_mass: 1.989e30          # kg (solar)
+    stellar.default_star_radius: 6.9634e8        # m (solar)
+    stellar.default_teff: 5780.0                 # K (solar)
+
+    # Moon defaults
+    stellar.default_moon_mass: 7.342e22          # kg (Luna)
+    stellar.default_moon_radius: 1.737e6         # m (Luna)
+
+    # Orbit defaults
+    stellar.default_planet_orbit_radius: 1.495978707e11  # m (1 AU)
+    stellar.default_moon_orbit_radius: 3.844e8           # m (Luna)
+
+    # Variability defaults (quiet star)
+    stellar.default_rotation_period_days: 25.0
+    stellar.default_spot_amplitude: 0.001
+    stellar.default_activity_cycle_years: 11.0
+    stellar.default_flare_rate_per_day: 0.0
+
+    # Counts (overridden by scenario)
+    stellar.star_count: 1
+    stellar.moon_count: 1
+}
+
+# =============================================================================
+# Stellar Strata
+# =============================================================================
+
+strata.stellar.orbit {
+    : title("Stellar Orbit")
+    : symbol("SO")
+    : stride(1)
+}
+
+strata.stellar.activity {
+    : title("Stellar Activity")
+    : symbol("SA")
+    : stride(100)
+}
+
+strata.stellar.tides {
+    : title("Stellar Tides")
+    : symbol("ST")
+    : stride(1)
+}
+
+# =============================================================================
+# Star Entity
+# =============================================================================
+
+entity.stellar.star {
+    : count(config.stellar.star_count)
+    : count(1..4)
+}
+
+# -----------------------------------------------------------------------------
+# Star Physical Properties
+# -----------------------------------------------------------------------------
+
+member.stellar.star.mass {
+    : Scalar<kg, 1e28..1e32>
+    : strata(stellar.orbit)
+    : title("Star Mass")
+    : symbol("M_star")
+
+    initial { config.stellar.default_star_mass }
+    resolve { prev }
+}
+
+member.stellar.star.radius {
+    : Scalar<m, 1e8..1e10>
+    : strata(stellar.orbit)
+    : title("Star Radius")
+    : symbol("R_star")
+
+    initial { config.stellar.default_star_radius }
+    resolve { prev }
+}
+
+member.stellar.star.luminosity_base {
+    : Scalar<W, 1e24..1e30>
+    : strata(stellar.orbit)
+    : title("Base Luminosity")
+    : symbol("L_base")
+
+    initial { config.stellar.default_luminosity }
+    resolve { prev }
+}
+
+member.stellar.star.teff {
+    : Scalar<K, 2000..50000>
+    : strata(stellar.orbit)
+    : title("Effective Temperature")
+    : symbol("T_eff")
+
+    initial { config.stellar.default_teff }
+    resolve { prev }
+}
+
+member.stellar.star.luminosity_evolution_rate {
+    : Scalar<1/Myr, 0..1e-3>
+    : strata(stellar.orbit)
+    : title("Luminosity Evolution Rate")
+    : symbol("dL/dt")
+
+    initial { const.stellar.main_sequence_evolution_rate }
+    resolve { prev }
+}
+
+# -----------------------------------------------------------------------------
+# Star Orbital Elements (for binary/trinary systems)
+# -----------------------------------------------------------------------------
+
+member.stellar.star.orbit_radius {
+    : Scalar<m, 0..1e14>
+    : strata(stellar.orbit)
+    : title("Orbit Semi-major Axis")
+    : symbol("a_star")
+
+    initial { 0.0 }
+    resolve { prev }
+}
+
+member.stellar.star.orbit_eccentricity {
+    : Scalar<1, 0..0.99>
+    : strata(stellar.orbit)
+    : title("Orbit Eccentricity")
+    : symbol("e_star")
+
+    initial { 0.0 }
+    resolve { prev }
+}
+
+member.stellar.star.orbit_phase {
+    : Scalar<rad, 0..TAU>
+    : strata(stellar.orbit)
+    : title("Orbit Phase")
+    : symbol("phi_star")
+
+    resolve {
+        # Advance phase based on orbital period
+        let mu = const.stellar.gravitational_constant * self.mass in
+        let period = TAU * sqrt(pow(self.orbit_radius, 3) / mu) in
+        let omega = TAU / max(period, 1.0) in
+        wrap(prev + omega * dt_raw, 0.0, TAU)
+    }
+}
+
+member.stellar.star.orbit_inclination {
+    : Scalar<rad, 0..PI>
+    : strata(stellar.orbit)
+    : title("Orbit Inclination")
+    : symbol("i_star")
+
+    initial { 0.0 }
+    resolve { prev }
+}
+
+# -----------------------------------------------------------------------------
+# Star Position (derived from orbital elements)
+# -----------------------------------------------------------------------------
+
+member.stellar.star.position {
+    : Vec3<m>
+    : strata(stellar.orbit)
+    : title("Star Position")
+    : symbol("r_star")
+
+    resolve {
+        # Compute position from Keplerian elements
+        let r = self.orbit_radius * (1.0 - self.orbit_eccentricity * cos(self.orbit_phase)) in
+        let x = r * cos(self.orbit_phase) in
+        let y = r * sin(self.orbit_phase) * cos(self.orbit_inclination) in
+        let z = r * sin(self.orbit_phase) * sin(self.orbit_inclination) in
+        vec3(x, y, z)
+    }
+}
+
+member.stellar.star.direction {
+    : Vec3<1>
+    : strata(stellar.orbit)
+    : title("Star Direction from Planet")
+    : symbol("d_star")
+
+    resolve {
+        normalize(self.position)
+    }
+}
+
+member.stellar.star.distance {
+    : Scalar<m, 0..1e15>
+    : strata(stellar.orbit)
+    : title("Distance to Star")
+    : symbol("r_star")
+
+    resolve {
+        magnitude(self.position)
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Star Variability
+# -----------------------------------------------------------------------------
+
+member.stellar.star.rotation_period {
+    : Scalar<day, 0.1..100>
+    : strata(stellar.activity)
+    : title("Rotation Period")
+    : symbol("P_rot")
+
+    initial { config.stellar.default_rotation_period_days }
+    resolve { prev }
+}
+
+member.stellar.star.spot_amplitude {
+    : Scalar<1, 0..0.1>
+    : strata(stellar.activity)
+    : title("Starspot Amplitude")
+    : symbol("A_spot")
+
+    initial { config.stellar.default_spot_amplitude }
+    resolve { prev }
+}
+
+member.stellar.star.activity_cycle_period {
+    : Scalar<yr, 1..100>
+    : strata(stellar.activity)
+    : title("Activity Cycle Period")
+    : symbol("P_cycle")
+
+    initial { config.stellar.default_activity_cycle_years }
+    resolve { prev }
+}
+
+member.stellar.star.flare_rate {
+    : Scalar<1/day, 0..10>
+    : strata(stellar.activity)
+    : title("Flare Rate")
+    : symbol("R_flare")
+
+    initial { config.stellar.default_flare_rate_per_day }
+    resolve { prev }
+}
+
+# -----------------------------------------------------------------------------
+# Star Variability Factor (combined effect)
+# -----------------------------------------------------------------------------
+
+member.stellar.star.variability_factor {
+    : Scalar<1, 0.5..2.0>
+    : strata(stellar.activity)
+    : title("Luminosity Variability Factor")
+    : symbol("f_var")
+
+    resolve {
+        # Rotational modulation (starspots)
+        let rot_phase = sim_time / (self.rotation_period * 86400.0) in
+        let spot_mod = 1.0 - self.spot_amplitude * sin(TAU * rot_phase) in
+
+        # Activity cycle modulation
+        let cycle_phase = sim_time / (self.activity_cycle_period * 3.1536e7) in
+        let cycle_mod = 1.0 - self.spot_amplitude * 0.5 * sin(TAU * cycle_phase) in
+
+        spot_mod * cycle_mod
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Star Evolved Luminosity
+# -----------------------------------------------------------------------------
+
+member.stellar.star.luminosity {
+    : Scalar<W, 1e24..1e30>
+    : strata(stellar.orbit)
+    : title("Current Luminosity")
+    : symbol("L_star")
+
+    resolve {
+        # Main sequence evolution: luminosity increases over time
+        let elapsed_myr = sim_time / 3.1536e13 in
+        let evolution_factor = 1.0 + elapsed_myr * self.luminosity_evolution_rate in
+        self.luminosity_base * evolution_factor * self.variability_factor
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Star Angular Radius (for eclipse calculations)
+# -----------------------------------------------------------------------------
+
+member.stellar.star.angular_radius {
+    : Scalar<rad, 0..0.1>
+    : strata(stellar.orbit)
+    : title("Angular Radius")
+    : symbol("theta_star")
+
+    resolve {
+        atan(self.radius / max(self.distance, 1.0))
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Star Flux at Planet
+# -----------------------------------------------------------------------------
+
+member.stellar.star.flux {
+    : Scalar<W/m², 0..1e6>
+    : strata(stellar.orbit)
+    : title("Stellar Flux at Planet")
+    : symbol("F_star")
+
+    resolve {
+        # For single star at center, use planet orbit distance; for binary stars, use star distance
+        let d = max(self.distance, config.stellar.default_planet_orbit_radius) in
+        self.luminosity / (4.0 * PI * d * d)
+    }
+}
+
+# =============================================================================
+# Moon Entity
+# =============================================================================
+
+entity.stellar.moon {
+    : count(config.stellar.moon_count)
+    : count(0..20)
+}
+
+# -----------------------------------------------------------------------------
+# Moon Physical Properties
+# -----------------------------------------------------------------------------
+
+member.stellar.moon.mass {
+    : Scalar<kg, 1e15..1e24>
+    : strata(stellar.orbit)
+    : title("Moon Mass")
+    : symbol("M_moon")
+
+    initial { config.stellar.default_moon_mass }
+    resolve { prev }
+}
+
+member.stellar.moon.radius {
+    : Scalar<m, 1e3..1e7>
+    : strata(stellar.orbit)
+    : title("Moon Radius")
+    : symbol("R_moon")
+
+    initial { config.stellar.default_moon_radius }
+    resolve { prev }
+}
+
+# -----------------------------------------------------------------------------
+# Moon Orbital Elements
+# -----------------------------------------------------------------------------
+
+member.stellar.moon.orbit_radius {
+    : Scalar<m, 1e6..1e10>
+    : strata(stellar.orbit)
+    : title("Orbit Semi-major Axis")
+    : symbol("a_moon")
+
+    initial { config.stellar.default_moon_orbit_radius }
+    resolve {
+        # Apply tidal recession if configured
+        prev + self.tidal_recession_rate
+    }
+}
+
+member.stellar.moon.orbit_eccentricity {
+    : Scalar<1, 0..0.5>
+    : strata(stellar.orbit)
+    : title("Orbit Eccentricity")
+    : symbol("e_moon")
+
+    initial { 0.0549 }
+    resolve { prev }
+}
+
+member.stellar.moon.orbit_phase {
+    : Scalar<rad, 0..TAU>
+    : strata(stellar.orbit)
+    : title("Orbit Phase")
+    : symbol("phi_moon")
+
+    resolve {
+        # Kepler's third law for orbital period
+        let mu = const.stellar.gravitational_constant * signal.planet.mass in
+        let period = TAU * sqrt(pow(self.orbit_radius, 3) / mu) in
+        let omega = TAU / max(period, 1.0) in
+        wrap(prev + omega * dt_raw, 0.0, TAU)
+    }
+}
+
+member.stellar.moon.orbit_inclination {
+    : Scalar<rad, 0..PI>
+    : strata(stellar.orbit)
+    : title("Orbit Inclination")
+    : symbol("i_moon")
+
+    initial { 0.0898 }
+    resolve { prev }
+}
+
+member.stellar.moon.tidal_recession_rate {
+    : Scalar<m/s, 0..1e-6>
+    : strata(stellar.orbit)
+    : title("Tidal Recession Rate")
+    : symbol("dr/dt")
+
+    initial { 0.0 }
+    resolve { prev }
+}
+
+# -----------------------------------------------------------------------------
+# Moon Position (derived from orbital elements)
+# -----------------------------------------------------------------------------
+
+member.stellar.moon.position {
+    : Vec3<m>
+    : strata(stellar.orbit)
+    : title("Moon Position")
+    : symbol("r_moon")
+
+    resolve {
+        let r = self.orbit_radius * (1.0 - self.orbit_eccentricity * cos(self.orbit_phase)) in
+        let x = r * cos(self.orbit_phase) in
+        let y = r * sin(self.orbit_phase) * cos(self.orbit_inclination) in
+        let z = r * sin(self.orbit_phase) * sin(self.orbit_inclination) in
+        vec3(x, y, z)
+    }
+}
+
+member.stellar.moon.direction {
+    : Vec3<1>
+    : strata(stellar.orbit)
+    : title("Moon Direction from Planet")
+    : symbol("d_moon")
+
+    resolve {
+        normalize(self.position)
+    }
+}
+
+member.stellar.moon.distance {
+    : Scalar<m, 0..1e10>
+    : strata(stellar.orbit)
+    : title("Distance to Moon")
+    : symbol("r_moon")
+
+    resolve {
+        magnitude(self.position)
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Moon Angular Radius (for eclipse calculations)
+# -----------------------------------------------------------------------------
+
+member.stellar.moon.angular_radius {
+    : Scalar<rad, 0..0.1>
+    : strata(stellar.orbit)
+    : title("Angular Radius")
+    : symbol("theta_moon")
+
+    resolve {
+        atan(self.radius / max(self.distance, 1.0))
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Moon Tidal Effect
+# -----------------------------------------------------------------------------
+
+member.stellar.moon.tidal_force {
+    : Scalar<N/kg, 0..1e-5>
+    : strata(stellar.tides)
+    : title("Tidal Force per Unit Mass")
+    : symbol("F_tidal")
+
+    resolve {
+        # Tidal acceleration = 2 * G * M / r³ * R_planet
+        let r3 = pow(self.distance, 3) in
+        2.0 * const.stellar.gravitational_constant * self.mass * signal.planet.radius / max(r3, 1.0)
+    }
+}
+
+member.stellar.moon.tidal_heating {
+    : Scalar<W, 0..1e15>
+    : strata(stellar.tides)
+    : title("Tidal Heating Power")
+    : symbol("P_tidal")
+
+    resolve {
+        # Simplified tidal heating: P = k * (M_moon/r³)² * e² * R^5 * n
+        let n = sqrt(const.stellar.gravitational_constant * signal.planet.mass / pow(self.orbit_radius, 3)) in
+        let factor = const.stellar.love_number / const.stellar.tidal_quality_factor in
+        let r3 = pow(self.distance, 3) in
+        let term = self.mass / max(r3, 1.0) in
+        factor * term * term * pow(self.orbit_eccentricity, 2) * pow(signal.planet.radius, 5) * n
+    }
+}
+
+# =============================================================================
+# Aggregate Signals
+# =============================================================================
+
+# Total insolation from all stars
+signal.stellar.total_insolation {
+    : Scalar<W/m², 0..1e6>
+    : strata(stellar.orbit)
+    : title("Total Stellar Insolation")
+    : symbol("F_total")
+
+    resolve {
+        sum(entity.stellar.star, self.flux)
+    }
+}
+
+# Total tidal heating power from all moons
+signal.stellar.total_tidal_power {
+    : Scalar<W, 0..1e16>
+    : strata(stellar.tides)
+    : title("Total Tidal Heating Power")
+    : symbol("P_tidal_total")
+
+    resolve {
+        sum(entity.stellar.moon, self.tidal_heating)
+    }
+}
+
+# Total tidal amplitude from all moons
+# Used for field visualization - aggregates tidal force contribution
+signal.stellar.total_tidal_amplitude {
+    : Scalar<m, 0..1e6>
+    : strata(stellar.tides)
+    : title("Total Tidal Amplitude")
+    : symbol("A_tidal_total")
+
+    resolve {
+        sum(entity.stellar.moon, self.tidal_force * signal.planet.radius)
+    }
+}
+
+# Star count
+signal.stellar.star_count {
+    : Scalar<1, 0..4>
+    : strata(stellar.orbit)
+    : title("Number of Stars")
+    : symbol("N_star")
+
+    resolve {
+        count(entity.stellar.star)
+    }
+}
+
+# Moon count
+signal.stellar.moon_count {
+    : Scalar<1, 0..20>
+    : strata(stellar.orbit)
+    : title("Number of Moons")
+    : symbol("N_moon")
+
+    resolve {
+        count(entity.stellar.moon)
+    }
+}
+
+# Primary star variability (convenience signal for atmosphere coupling)
+signal.stellar.primary_variability_factor {
+    : Scalar<1, 0.5..2.0>
+    : strata(stellar.activity)
+    : title("Primary Star Variability")
+    : symbol("f_var_0")
+
+    resolve {
+        entity.stellar.star[0].variability_factor
+    }
+}
+
+# =============================================================================
+# Stellar Fields
+# =============================================================================
+
+field.stellar.insolation_map {
+    : Scalar<W/m²>
+    : strata(stellar.orbit)
+    : topology(sphere_surface)
+    : title("Insolation Field")
+
+    measure {
+        signal.stellar.total_insolation
+    }
+}
+
+field.stellar.tidal_amplitude_map {
+    : Scalar<m>
+    : strata(stellar.tides)
+    : topology(sphere_surface)
+    : title("Tidal Amplitude Field")
+
+    measure {
+        # Observe the aggregated signal (entity aggregation happens in signal resolve)
+        signal.stellar.total_tidal_amplitude
+    }
+}

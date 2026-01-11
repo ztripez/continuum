@@ -1,14 +1,16 @@
 //! Terra World - Root Configuration
-//!
+//! =============================================================================
 //! This file defines the shared strata, eras, and time configuration
-//! that all domain modules (geophysics, atmosphere, hydrology, ecology) use.
+//! that all domain modules use.
 //!
 //! Domain-specific signals, fields, fractures, and their local configs are
 //! defined in their respective module files:
+//!   - stellar/stellar.cdsl: Stars, moons, orbital mechanics, tidal effects
 //!   - geophysics/geophysics.cdsl: Planetary physics, crust, tectonics
 //!   - atmosphere/atmosphere.cdsl: Radiative transfer, water vapor, clouds
 //!   - hydrology/hydrology.cdsl: Water cycle, precipitation, runoff
 //!   - ecology/ecology.cdsl: Biosphere, carbon cycling, productivity
+//! =============================================================================
 
 world.terra {
     : title("Terra Geophysics Simulation")
@@ -87,6 +89,9 @@ era.formation {
     : dt(10 <Myr>)
 
     strata {
+        stellar.orbit: active
+        stellar.activity: active
+        stellar.tides: active
         genesis: active
         rotation: active
         thermal: active
@@ -110,6 +115,9 @@ era.active_tectonics {
     : dt(1 <Myr>)
 
     strata {
+        stellar.orbit: active
+        stellar.activity: active
+        stellar.tides: active
         genesis: gated
         rotation: active
         thermal: active
@@ -134,6 +142,9 @@ era.cooling {
     : dt(100 <kyr>)
 
     strata {
+        stellar.orbit: active
+        stellar.activity: active
+        stellar.tides: active
         genesis: gated
         rotation: active
         thermal: active

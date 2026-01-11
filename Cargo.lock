@@ -300,6 +300,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "chumsky"
+version = "1.0.0-alpha.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0e82d74e6c83060ec269fe9e0d408d6de4a1645d525f9a0bbbb841ba4efd91ac"
+dependencies = [
+ "hashbrown 0.15.5",
+ "regex-automata 0.3.9",
+ "serde",
+ "stacker",
+ "unicode-ident",
+ "unicode-segmentation",
+]
+
+[[package]]
 name = "ciborium"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -388,7 +402,7 @@ name = "continuum-compiler"
 version = "0.1.0"
 dependencies = [
  "ariadne",
- "chumsky",
+ "chumsky 0.12.0",
  "continuum-dsl",
  "continuum-ir",
  "indexmap",
@@ -402,7 +416,8 @@ name = "continuum-dsl"
 version = "0.1.0"
 dependencies = [
  "ariadne",
- "chumsky",
+ "chumsky 1.0.0-alpha.8",
+ "continuum-functions",
  "continuum-kernel-registry",
  "logos",
  "tempfile",
@@ -470,6 +485,18 @@ version = "0.1.0"
 dependencies = [
  "continuum-foundation",
  "linkme",
+]
+
+[[package]]
+name = "continuum-lens"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "continuum-foundation",
+ "continuum-gpu",
+ "indexmap",
+ "thiserror",
+ "wgpu",
 ]
 
 [[package]]

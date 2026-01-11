@@ -83,12 +83,14 @@ impl AssertionChecker {
         prev: &Value,
         signals: &SignalStorage,
         dt: Dt,
+        sim_time: f64,
     ) -> Result<()> {
         let ctx = AssertContext {
             current,
             prev,
             signals,
             dt,
+            sim_time,
         };
 
         for assertion in self.assertions.iter().filter(|a| &a.signal == signal) {
@@ -131,10 +133,11 @@ impl AssertionChecker {
         resolved_signals: &[(SignalId, Value)],
         signals: &SignalStorage,
         dt: Dt,
+        sim_time: f64,
     ) -> Result<()> {
         for (signal, current) in resolved_signals {
             let prev = signals.get_prev(signal).unwrap_or(current);
-            self.check_signal(signal, current, prev, signals, dt)?;
+            self.check_signal(signal, current, prev, signals, dt, sim_time)?;
         }
         Ok(())
     }
@@ -171,7 +174,7 @@ mod tests {
         let current = Value::Scalar(10.0);
         let prev = Value::Scalar(5.0);
 
-        let result = checker.check_signal(&signal, &current, &prev, &signals, Dt(1.0));
+        let result = checker.check_signal(&signal, &current, &prev, &signals, Dt(1.0), 0.0);
         assert!(result.is_ok());
     }
 
@@ -192,7 +195,7 @@ mod tests {
         let current = Value::Scalar(-5.0);
         let prev = Value::Scalar(5.0);
 
-        let result = checker.check_signal(&signal, &current, &prev, &signals, Dt(1.0));
+        let result = checker.check_signal(&signal, &current, &prev, &signals, Dt(1.0), 0.0);
         assert!(matches!(result, Err(Error::AssertionFailed { .. })));
     }
 
@@ -214,7 +217,7 @@ mod tests {
         let prev = Value::Scalar(50.0);
 
         // Should succeed despite warning
-        let result = checker.check_signal(&signal, &current, &prev, &signals, Dt(1.0));
+        let result = checker.check_signal(&signal, &current, &prev, &signals, Dt(1.0), 0.0);
         assert!(result.is_ok());
     }
 }

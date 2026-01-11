@@ -4,14 +4,19 @@
 //! Provides stable hashing, deterministic ID generation, and other
 //! primitives required across crates.
 
+pub mod field;
 pub mod ids;
 pub mod stable_hash;
+pub mod value;
 
 // Re-export ID types at crate root
 pub use ids::{
     ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
     OperatorId, SignalId, StratumId, TypeId,
 };
+
+pub use field::FieldSample;
+pub use value::Value;
 
 // Re-export stable hash items at crate root
 pub use stable_hash::{

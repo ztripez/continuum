@@ -101,6 +101,8 @@ pub enum Token {
     Prev,
     #[token("dt_raw")]
     DtRaw,
+    #[token("sim_time")]
+    SimTime,
     #[token("collected")]
     Collected,
     #[token("payload")]
@@ -252,6 +254,8 @@ pub enum Token {
     Dot,
     #[token(",")]
     Comma,
+    #[token(";")]
+    Semicolon,
     #[token(":")]
     Colon,
     #[token("::")]

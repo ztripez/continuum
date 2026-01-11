@@ -4,6 +4,7 @@ use chumsky::input::MapExtra;
 use chumsky::prelude::*;
 
 use crate::ast::{AggregateOp, BinaryOp, CallArg, Expr, Literal, MathConst, Spanned, UnaryOp};
+use crate::math_consts;
 
 use super::lexer::Token;
 use super::primitives::{ident, number, path, string_lit, unit};
@@ -22,12 +23,13 @@ fn span_union<T, U>(left: &Spanned<T>, right: &Spanned<U>) -> SimpleSpan {
 #[allow(dead_code)]
 pub fn expr<'src>()
 -> impl Parser<'src, ParserInput<'src>, Expr, extra::Err<ParseError<'src>>> + Clone {
-    spanned_expr_inner().map(|spanned| spanned.node)
+    spanned_expr_inner(false).map(|spanned| spanned.node)
 }
 
 /// Internal spanned expression parser - produces `Spanned<Expr>` with proper spans throughout
-fn spanned_expr_inner<'src>()
--> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
+fn spanned_expr_inner<'src>(
+    allow_emit: bool,
+) -> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
     recursive(|expr| {
         let expr_boxed: SpannedExprBox<'src> = expr.clone().boxed();
 
@@ -50,6 +52,7 @@ fn spanned_expr_inner<'src>()
         let core_atoms = choice((
             just(Token::Prev).to(Expr::Prev),
             just(Token::DtRaw).to(Expr::DtRaw),
+            just(Token::SimTime).to(Expr::SimTime),
             just(Token::Pi).to(Expr::MathConst(MathConst::Pi)),
             just(Token::Tau).to(Expr::MathConst(MathConst::Tau)),
             just(Token::Phi).to(Expr::MathConst(MathConst::Phi)),
@@ -57,6 +60,18 @@ fn spanned_expr_inner<'src>()
             just(Token::I).to(Expr::MathConst(MathConst::I)),
             just(Token::Payload).to(Expr::Payload),
             just(Token::Collected).to(Expr::Collected),
+            // Look up constants from the registry
+            ident().try_map(|name, span| {
+                if let Some(val) = math_consts::lookup(&name) {
+                    Ok(Expr::Literal(Literal::Float(val)))
+                } else {
+                    // This is tricky because we want to backtrack if it's not a constant
+                    // so it can be parsed as a Path.
+                    // But try_map doesn't easily allow "failure that backtracks to next choice".
+                    // However, we are inside a core_atoms choice.
+                    Err(Rich::custom(span.into(), format!("unknown constant")))
+                }
+            }),
             just(Token::Signal)
                 .ignore_then(just(Token::Dot))
                 .ignore_then(path())
@@ -173,47 +188,54 @@ fn spanned_expr_inner<'src>()
                 },
                 span,
             )
-        });
+        })
+        .boxed();
 
-        let product = unary.clone().foldl(
-            choice((
-                just(Token::Star).to(BinaryOp::Mul),
-                just(Token::Slash).to(BinaryOp::Div),
-            ))
-            .then(unary)
-            .repeated(),
-            |left, (op, right)| {
-                let span = span_union(&left, &right);
-                Spanned::new(
-                    Expr::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span.into(),
-                )
-            },
-        );
+        let product = unary
+            .clone()
+            .foldl(
+                choice((
+                    just(Token::Star).to(BinaryOp::Mul),
+                    just(Token::Slash).to(BinaryOp::Div),
+                ))
+                .then(unary)
+                .repeated(),
+                |left, (op, right)| {
+                    let span = span_union(&left, &right);
+                    Spanned::new(
+                        Expr::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        span.into(),
+                    )
+                },
+            )
+            .boxed();
 
-        let sum = product.clone().foldl(
-            choice((
-                just(Token::Plus).to(BinaryOp::Add),
-                just(Token::Minus).to(BinaryOp::Sub),
-            ))
-            .then(product)
-            .repeated(),
-            |left, (op, right)| {
-                let span = span_union(&left, &right);
-                Spanned::new(
-                    Expr::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span.into(),
-                )
-            },
-        );
+        let sum = product
+            .clone()
+            .foldl(
+                choice((
+                    just(Token::Plus).to(BinaryOp::Add),
+                    just(Token::Minus).to(BinaryOp::Sub),
+                ))
+                .then(product)
+                .repeated(),
+                |left, (op, right)| {
+                    let span = span_union(&left, &right);
+                    Spanned::new(
+                        Expr::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        span.into(),
+                    )
+                },
+            )
+            .boxed();
 
         let comparison = sum
             .clone()
@@ -242,101 +264,192 @@ fn spanned_expr_inner<'src>()
                     )
                 }
                 None => left,
-            });
+            })
+            .boxed();
 
         let and_op = choice((
             just(Token::And).to(BinaryOp::And),
             just(Token::AndKeyword).to(BinaryOp::And),
         ));
-        let logical_and =
-            comparison
-                .clone()
-                .foldl(and_op.then(comparison).repeated(), |left, (op, right)| {
-                    let span = span_union(&left, &right);
-                    Spanned::new(
-                        Expr::Binary {
-                            op,
-                            left: Box::new(left),
-                            right: Box::new(right),
-                        },
-                        span.into(),
-                    )
-                });
+        let logical_and = comparison
+            .clone()
+            .foldl(and_op.then(comparison).repeated(), |left, (op, right)| {
+                let span = span_union(&left, &right);
+                Spanned::new(
+                    Expr::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    span.into(),
+                )
+            })
+            .boxed();
 
         let or_op = choice((
             just(Token::Or).to(BinaryOp::Or),
             just(Token::OrKeyword).to(BinaryOp::Or),
         ));
-        let logical_or =
-            logical_and
-                .clone()
-                .foldl(or_op.then(logical_and).repeated(), |left, (op, right)| {
-                    let span = span_union(&left, &right);
-                    Spanned::new(
-                        Expr::Binary {
-                            op,
-                            left: Box::new(left),
-                            right: Box::new(right),
-                        },
-                        span.into(),
-                    )
-                });
-
-        let logical_or_boxed = logical_or.clone().boxed();
-
-        let let_expr = just(Token::Let)
-            .map_with(|_, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| extra.span().start)
-            .then(ident())
-            .then_ignore(just(Token::Assign))
-            .then(expr_boxed.clone())
-            .then_ignore(just(Token::In))
-            .then(expr_boxed.clone())
-            .map(|(((let_start, name), value), body)| {
-                let span = (let_start..body.span.end).into();
+        let logical_or = logical_and
+            .clone()
+            .foldl(or_op.then(logical_and).repeated(), |left, (op, right)| {
+                let span = span_union(&left, &right);
                 Spanned::new(
-                    Expr::Let {
-                        name,
+                    Expr::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    span.into(),
+                )
+            })
+            .boxed();
+
+        let logical_or_boxed = logical_or.clone();
+
+        // Emit expression: signal.path <- value
+        let emit_expr = just(Token::Signal)
+            .ignore_then(just(Token::Dot))
+            .ignore_then(path())
+            .map_with(|p, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                (p, extra.span().start)
+            })
+            .then_ignore(just(Token::EmitArrow))
+            .then(expr_boxed.clone())
+            .map(|((target, start), value)| {
+                let span = (start..value.span.end).into();
+                Spanned::new(
+                    Expr::EmitSignal {
+                        target,
                         value: Box::new(value),
-                        body: Box::new(body),
                     },
                     span,
                 )
-            });
+            })
+            .boxed();
 
-        let if_expr = just(Token::If)
-            .map_with(|_, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| extra.span().start)
-            .then(logical_or_boxed)
-            .then(
-                expr_boxed
-                    .clone()
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
-            )
-            .then(
-                just(Token::Else)
-                    .ignore_then(expr_boxed.delimited_by(just(Token::LBrace), just(Token::RBrace)))
-                    .or_not(),
-            )
-            .map(
-                |(((if_start, condition), then_branch), else_branch): (
-                    ((_, _), _),
-                    Option<Spanned<Expr>>,
-                )| {
-                    let span_end = else_branch
+        // If expression: if condition { then } else { else }
+        let if_expr = {
+            // Braced block: { expr ; expr ; ... } or { expr }
+            let braced = just(Token::LBrace)
+                .ignore_then(
+                    expr_boxed
+                        .clone()
+                        .separated_by(just(Token::Semicolon).or_not()) // Wait, is Semicolon a token?
+                        .allow_trailing()
+                        .at_least(1)
+                        .collect::<Vec<_>>(),
+                )
+                .then_ignore(just(Token::RBrace))
+                .map_with(
+                    |exprs, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                        let span = extra.span();
+                        if exprs.len() == 1 {
+                            exprs.into_iter().next().unwrap()
+                        } else {
+                            Spanned::new(Expr::Block(exprs), span.into())
+                        }
+                    },
+                );
+
+            let if_head = just(Token::If)
+                .map_with(|_, e: &mut MapExtra<'src, '_, ParserInput<'src>, _>| e.span().start)
+                .then(logical_or_boxed.clone())
+                .then(braced.clone());
+
+            let else_if_clause = just(Token::Else)
+                .ignore_then(just(Token::If))
+                .ignore_then(logical_or_boxed.clone())
+                .then(braced.clone());
+
+            let else_final = just(Token::Else).ignore_then(braced.clone());
+
+            if_head
+                .then(else_if_clause.repeated().collect::<Vec<_>>())
+                .then(else_final.or_not())
+                .map(|((((if_start, cond), then_block), else_ifs), else_final)| {
+                    let mut else_branch = else_final;
+
+                    for (ei_cond, ei_block) in else_ifs.into_iter().rev() {
+                        let span_start = ei_cond.span.start;
+                        let span_end = else_branch
+                            .as_ref()
+                            .map(|e| e.span.end)
+                            .unwrap_or(ei_block.span.end);
+                        else_branch = Some(Spanned::new(
+                            Expr::If {
+                                condition: Box::new(ei_cond),
+                                then_branch: Box::new(ei_block),
+                                else_branch: else_branch.map(Box::new),
+                            },
+                            (span_start..span_end).into(),
+                        ));
+                    }
+
+                    let final_span_end = else_branch
                         .as_ref()
                         .map(|e| e.span.end)
-                        .unwrap_or(then_branch.span.end);
+                        .unwrap_or(then_block.span.end);
+
                     Spanned::new(
                         Expr::If {
-                            condition: Box::new(condition),
-                            then_branch: Box::new(then_branch),
+                            condition: Box::new(cond),
+                            then_branch: Box::new(then_block),
                             else_branch: else_branch.map(Box::new),
                         },
-                        (if_start..span_end).into(),
+                        (if_start..final_span_end).into(),
                     )
-                },
-            );
+                })
+                .boxed()
+        };
 
-        choice((let_expr, if_expr, logical_or))
+        let expr_without_let = {
+            let mut without_let_parsers = vec![if_expr.clone(), logical_or.clone()];
+            if allow_emit {
+                without_let_parsers.insert(0, emit_expr.clone());
+            }
+            choice(without_let_parsers).boxed()
+        };
+
+        // Let expression: let name = value in body
+        let let_expr = {
+            let let_binding = just(Token::Let)
+                .map_with(|_, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                    extra.span().start
+                })
+                .then(ident())
+                .then_ignore(just(Token::Assign))
+                .then(expr_without_let)
+                .then_ignore(just(Token::In));
+
+            let_binding
+                .repeated()
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .then(expr_boxed.clone())
+                .map(|(bindings, body)| {
+                    let mut result = body;
+                    for ((let_start, name), value) in bindings.into_iter().rev() {
+                        let span = (let_start..result.span.end).into();
+                        result = Spanned::new(
+                            Expr::Let {
+                                name,
+                                value: Box::new(value),
+                                body: Box::new(result),
+                            },
+                            span,
+                        );
+                    }
+                    result
+                })
+                .boxed()
+        };
+
+        let mut final_parsers = vec![let_expr, if_expr, logical_or];
+        if allow_emit {
+            final_parsers.insert(0, emit_expr);
+        }
+        choice(final_parsers)
     })
 }
 
@@ -555,7 +668,12 @@ fn entity_aggregate_atoms_spanned<'src>(
 
 pub fn spanned_expr<'src>()
 -> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
-    spanned_expr_inner()
+    spanned_expr_inner(false)
+}
+
+pub fn spanned_effect_expr<'src>()
+-> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
+    spanned_expr_inner(true)
 }
 
 fn aggregate_op_with_body<'src>()
