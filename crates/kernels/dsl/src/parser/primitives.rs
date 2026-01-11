@@ -1,173 +1,62 @@
 //! Primitive parser combinators for the Continuum DSL.
-//!
-//! This module provides low-level parsers for the fundamental tokens and
-//! patterns used throughout the DSL grammar. These primitives are composed
-//! by higher-level parsers in [`super::items`] and [`super::expr`].
-//!
-//! # Token Types
-//!
-//! - **Whitespace**: Spaces, newlines, and comments (`//`, `#`, `/* */`)
-//! - **Identifiers**: ASCII alphanumeric names (e.g., `terra`, `temperature`)
-//! - **Paths**: Dot-separated identifier sequences (e.g., `terra.surface.temp`)
-//! - **Literals**: Numbers and strings
-//! - **Units**: Physical unit annotations (e.g., `<K>`, `<W/m²>`)
-//!
-//! # Span Tracking
-//!
-//! The [`spanned`] function wraps any parser output in our [`Spanned`] wrapper
-//! with source location tracking. This is essential for error reporting and
-//! IDE features.
-//!
-//! ```ignore
-//! use crate::parser::primitives::spanned;
-//!
-//! // Instead of:
-//! parser().map_with(|v, e| Spanned::new(v, e.span().into()))
-//!
-//! // Use:
-//! spanned(parser())
-//! ```
 
+use chumsky::input::{self, MapExtra};
 use chumsky::prelude::*;
 
+use super::lexer::Token;
+use super::{ParseError, ParserInput};
 use crate::ast::{Literal, Path, Spanned};
 
-use super::ParseError;
-
 /// Wraps a parser's output in our [`Spanned`] with source location.
-///
-/// This helper function captures the source span during parsing and wraps
-/// the parsed value in a `Spanned` for error reporting and IDE features.
-///
-/// # Example
-///
-/// ```ignore
-/// // Parse an identifier and capture its span
-/// spanned(ident()) // Returns Parser<..., Spanned<String>, ...>
-/// ```
-pub fn spanned<'src, O>(
-    parser: impl Parser<'src, &'src str, O, extra::Err<ParseError<'src>>> + Clone,
-) -> impl Parser<'src, &'src str, Spanned<O>, extra::Err<ParseError<'src>>> + Clone {
-    parser.map_with(|value, extra| Spanned::new(value, extra.span().into()))
+pub fn spanned<'src, I, O>(
+    parser: impl Parser<'src, I, O, extra::Err<ParseError<'src>>> + Clone,
+) -> impl Parser<'src, I, Spanned<O>, extra::Err<ParseError<'src>>> + Clone
+where
+    I: input::Input<'src, Span = SimpleSpan, Token = Token>,
+{
+    parser.map_with(|value, extra: &mut MapExtra<'src, '_, I, _>| {
+        Spanned::new(value, extra.span().into())
+    })
 }
 
-/// Parses whitespace and comments, consuming all of them.
-///
-/// Recognized comment styles:
-/// - Line comments: `// text` and `# text` (but NOT `///` or `//!` doc comments)
-/// - Block comments: `/* text */`
-///
-/// Returns `()` since whitespace is typically ignored.
-pub fn ws<'src>() -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src>>> + Clone {
-    // Regular line comment: // but NOT /// or //!
-    // Match "// " (with space) or "//[^/!]" or "//" at end of line
-    let line_comment = choice((
-        // "// " with space - definitely a comment
-        just("// ")
-            .ignore_then(any().and_is(just('\n').not()).repeated())
-            .ignored(),
-        // "//\n" - empty comment line (followed by newline)
-        just("//\n").ignored(),
-        // "//x" where x is not / or ! or newline - comment with content starting immediately
-        just("//")
-            .ignore_then(none_of("/!\n"))
-            .ignore_then(any().and_is(just('\n').not()).repeated())
-            .ignored(),
-    ))
-    .padded();
-    let hash_comment = just("#")
-        .then(any().and_is(just('\n').not()).repeated())
-        .padded();
-    let block_comment = just("/*")
-        .then(any().and_is(just("*/").not()).repeated())
-        .then(just("*/"))
-        .padded();
-
+/// Parses an identifier or a keyword that can act as an identifier.
+pub fn ident<'src>()
+-> impl Parser<'src, ParserInput<'src>, String, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        line_comment,
-        hash_comment.ignored(),
-        block_comment.ignored(),
-        text::whitespace().at_least(1).ignored(),
+        select! { Token::Ident(name) => name },
+        // Common keywords that are allowed as identifiers in paths/names
+        just(Token::Initial).to("initial".to_string()),
+        just(Token::Terminal).to("terminal".to_string()),
+        just(Token::Stride).to("stride".to_string()),
+        just(Token::Title).to("title".to_string()),
+        just(Token::Symbol).to("symbol".to_string()),
+        just(Token::Active).to("active".to_string()),
+        just(Token::Converge).to("converge".to_string()),
+        just(Token::Warmup).to("warmup".to_string()),
+        just(Token::Iterate).to("iterate".to_string()),
+        just(Token::Phase).to("phase".to_string()),
+        just(Token::Magnitude).to("magnitude".to_string()),
+        just(Token::Symmetric).to("symmetric".to_string()),
+        just(Token::PositiveDefinite).to("positive_definite".to_string()),
+        just(Token::Topology).to("topology".to_string()),
+        // Math/Aggregate-like keywords often used as functions
+        just(Token::Min).to("min".to_string()),
+        just(Token::Max).to("max".to_string()),
+        just(Token::Mean).to("mean".to_string()),
+        just(Token::Sum).to("sum".to_string()),
+        just(Token::Product).to("product".to_string()),
+        just(Token::Any).to("any".to_string()),
+        just(Token::All).to("all".to_string()),
+        just(Token::None).to("none".to_string()),
+        just(Token::First).to("first".to_string()),
     ))
-    .repeated()
-    .ignored()
-}
-
-/// Parses item documentation comments (`///`).
-///
-/// Captures consecutive `///` lines and returns them as a single string
-/// with the `///` prefix stripped. Returns `None` if no doc comments found.
-///
-/// Note: This parser expects to be called at a position where `///` appears
-/// immediately. Surrounding whitespace should be handled by the caller's
-/// `ws()` or `padded_by()`.
-pub fn doc_comment<'src>()
--> impl Parser<'src, &'src str, Option<String>, extra::Err<ParseError<'src>>> + Clone {
-    // Parse a single doc comment line: "/// content\n"
-    // Includes optional leading inline whitespace (spaces/tabs) for subsequent lines
-    let doc_line = text::inline_whitespace()
-        .ignore_then(just("///"))
-        .ignore_then(any().and_is(just('\n').not()).repeated().to_slice())
-        .then_ignore(just('\n').or(end().to('\n')))
-        .map(|s: &str| s.trim().to_string());
-
-    // Use peek-based approach: only try parsing a doc_line if it will succeed
-    // This prevents consuming whitespace when there's no /// following
-    let peek_doc_line = text::inline_whitespace()
-        .ignore_then(just("///").rewind())
-        .ignore_then(doc_line.clone());
-
-    // First line must start with /// (no leading whitespace consumed by us)
-    just("///")
-        .ignore_then(any().and_is(just('\n').not()).repeated().to_slice())
-        .then_ignore(just('\n').or(end().to('\n')))
-        .map(|s: &str| s.trim().to_string())
-        .then(peek_doc_line.repeated().collect::<Vec<_>>())
-        .map(|(first, rest)| {
-            let mut lines = vec![first];
-            lines.extend(rest);
-            Some(lines.join("\n"))
-        })
-        .or(empty().to(None))
-}
-
-/// Parses module-level documentation comments (`//!`).
-///
-/// Captures consecutive `//!` lines at the start of a file and returns them
-/// as a single string with the `//!` prefix stripped.
-pub fn module_doc<'src>()
--> impl Parser<'src, &'src str, Option<String>, extra::Err<ParseError<'src>>> + Clone {
-    // Allow leading whitespace before the first //!
-    text::whitespace()
-        .ignore_then(
-            just("//!")
-                .ignore_then(any().and_is(just('\n').not()).repeated().to_slice())
-                .then_ignore(just('\n').or(end().to('\n')))
-                .map(|s: &str| s.trim().to_string())
-                .separated_by(text::whitespace().at_most(1000))
-                .at_least(1)
-                .collect::<Vec<_>>()
-                .map(|lines| Some(lines.join("\n"))),
-        )
-        .or(empty().to(None))
-}
-
-/// Parses an ASCII identifier.
-///
-/// Identifiers start with a letter or underscore and contain alphanumeric
-/// characters or underscores. Examples: `terra`, `surface_temp`, `_internal`.
-pub fn ident<'src>() -> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
-    text::ascii::ident().map(|s: &str| s.to_string())
 }
 
 /// Parses a dot-separated path of identifiers.
-///
-/// Paths are used throughout the DSL to reference signals, strata, config
-/// values, and other named entities. Examples: `terra.surface.temperature`,
-/// `config.dt`, `const.physics.gravity`.
-pub fn path<'src>() -> impl Parser<'src, &'src str, Path, extra::Err<ParseError<'src>>> + Clone {
+pub fn path<'src>()
+-> impl Parser<'src, ParserInput<'src>, Path, extra::Err<ParseError<'src>>> + Clone {
     ident()
-        .separated_by(just('.'))
+        .separated_by(just(Token::Dot))
         .at_least(1)
         .collect::<Vec<_>>()
         .map(Path::new)
@@ -175,183 +64,150 @@ pub fn path<'src>() -> impl Parser<'src, &'src str, Path, extra::Err<ParseError<
 
 /// Spanned path
 pub fn spanned_path<'src>()
--> impl Parser<'src, &'src str, Spanned<Path>, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, Spanned<Path>, extra::Err<ParseError<'src>>> + Clone {
     spanned(path())
 }
 
 /// String literal
 pub fn string_lit<'src>()
--> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
-    none_of("\"\\")
-        .or(just('\\').ignore_then(any()))
-        .repeated()
-        .collect::<String>()
-        .delimited_by(just('"'), just('"'))
+-> impl Parser<'src, ParserInput<'src>, String, extra::Err<ParseError<'src>>> + Clone {
+    select! {
+        Token::String(s) => s,
+    }
 }
 
 /// Float number
-pub fn float<'src>() -> impl Parser<'src, &'src str, f64, extra::Err<ParseError<'src>>> + Clone {
-    just('-')
-        .or_not()
-        .then(text::int(10))
-        .then(just('.').then(text::digits(10)).or_not())
-        .then(
-            one_of("eE")
-                .then(one_of("+-").or_not())
-                .then(text::digits(10))
-                .or_not(),
-        )
-        .to_slice()
-        .map(|s: &str| {
-            s.parse().unwrap_or_else(|e| {
-                panic!(
-                    "Internal parser error: matched float pattern '{}' but parse failed: {}",
-                    s, e
-                )
-            })
-        })
+pub fn float<'src>()
+-> impl Parser<'src, ParserInput<'src>, f64, extra::Err<ParseError<'src>>> + Clone {
+    select! {
+        Token::Integer(i) => i as f64,
+        Token::Float(f) => f,
+    }
 }
 
 /// Number literal
-pub fn number<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError<'src>>> + Clone
-{
+pub fn number<'src>()
+-> impl Parser<'src, ParserInput<'src>, Literal, extra::Err<ParseError<'src>>> + Clone {
     float().map(Literal::Float)
 }
 
 /// Literal value
-pub fn literal<'src>() -> impl Parser<'src, &'src str, Literal, extra::Err<ParseError<'src>>> + Clone
-{
-    choice((number(), string_lit().map(Literal::String)))
+pub fn literal<'src>()
+-> impl Parser<'src, ParserInput<'src>, Literal, extra::Err<ParseError<'src>>> + Clone {
+    choice((
+        number(),
+        string_lit().map(Literal::String),
+        select! { Token::Bool(b) => Literal::Bool(b) },
+    ))
 }
 
 /// Unit in angle brackets: `<K>`, `<W/m²>`
-pub fn unit<'src>() -> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
-    none_of(">")
-        .repeated()
-        .at_least(1)
-        .collect::<String>()
-        .delimited_by(just('<'), just('>'))
+pub fn unit<'src>()
+-> impl Parser<'src, ParserInput<'src>, String, extra::Err<ParseError<'src>>> + Clone {
+    just(Token::LAngle)
+        .ignore_then(unit_content())
+        .then_ignore(just(Token::RAngle))
+}
+
+/// Internal helper to match unit content tokens
+fn unit_content<'src>()
+-> impl Parser<'src, ParserInput<'src>, String, extra::Err<ParseError<'src>>> + Clone {
+    // Reconstruct unit from tokens
+    choice((
+        ident(),
+        just(Token::Slash).to("/".to_string()),
+        just(Token::Star).to("*".to_string()),
+        select! {
+            Token::Integer(i) => i.to_string(),
+            Token::UnitPart(s) => s,
+        },
+    ))
+    .repeated()
+    .at_least(1)
+    .collect::<Vec<_>>()
+    .map(|parts| parts.join(""))
 }
 
 /// Unit string content (without angle brackets): K, W/m², kg/m³
-/// Used in type expressions like Scalar<kg/m³, 0..1000>
-/// Accepts Unicode superscripts and common unit characters
 pub fn unit_string<'src>()
--> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
-    // Unit strings can contain:
-    // - Letters (a-z, A-Z)
-    // - Digits (0-9)
-    // - Unicode superscripts (⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺)
-    // - Division and multiplication (/, *, ·)
-    // - Degree symbol (°)
-    // - Common unit prefixes are just letters
-    // Stop at: comma, closing bracket, whitespace
-    any()
-        .filter(|c: &char| {
-            c.is_alphanumeric()
-                || *c == '/'
-                || *c == '*'
-                || *c == '·'
-                || *c == '°'
-                || *c == '-'
-                || *c == '_'
-                // Unicode superscripts
-                || *c == '⁰'
-                || *c == '¹'
-                || *c == '²'
-                || *c == '³'
-                || *c == '⁴'
-                || *c == '⁵'
-                || *c == '⁶'
-                || *c == '⁷'
-                || *c == '⁸'
-                || *c == '⁹'
-                || *c == '⁻'
-                || *c == '⁺'
-                // Unicode subscripts (less common but might be useful)
-                || *c == '₀'
-                || *c == '₁'
-                || *c == '₂'
-                || *c == '₃'
-                || *c == '₄'
-                || *c == '₅'
-                || *c == '₆'
-                || *c == '₇'
-                || *c == '₈'
-                || *c == '₉'
-        })
-        .repeated()
-        .at_least(1)
-        .collect::<String>()
+-> impl Parser<'src, ParserInput<'src>, String, extra::Err<ParseError<'src>>> + Clone {
+    unit_content()
 }
 
 /// Optional spanned unit
 pub fn optional_unit<'src>()
--> impl Parser<'src, &'src str, Option<Spanned<String>>, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, Option<Spanned<String>>, extra::Err<ParseError<'src>>> + Clone
+{
     spanned(unit()).or_not()
 }
 
 // === Common attribute parsers (DRY helpers) ===
 
 /// Parse `: keyword(string_lit)` pattern used for title/symbol attributes
-/// Example: `: title("My Title")`
 pub fn attr_string<'src>(
-    keyword: &'static str,
-) -> impl Parser<'src, &'src str, Spanned<String>, extra::Err<ParseError<'src>>> + Clone {
-    just(':')
-        .padded_by(ws())
-        .ignore_then(text::keyword(keyword))
-        .ignore_then(
-            spanned(string_lit())
-                .padded_by(ws())
-                .delimited_by(just('('), just(')')),
-        )
+    token: Token,
+) -> impl Parser<'src, ParserInput<'src>, Spanned<String>, extra::Err<ParseError<'src>>> + Clone {
+    just(Token::Colon)
+        .ignore_then(just(token))
+        .ignore_then(spanned(string_lit()).delimited_by(just(Token::LParen), just(Token::RParen)))
 }
 
 /// Parse `: keyword(path)` pattern used for strata attributes
-/// Example: `: strata(terra.crust)`
 pub fn attr_path<'src>(
-    keyword: &'static str,
-) -> impl Parser<'src, &'src str, Spanned<Path>, extra::Err<ParseError<'src>>> + Clone {
-    just(':')
-        .padded_by(ws())
-        .ignore_then(text::keyword(keyword))
-        .ignore_then(
-            spanned_path()
-                .padded_by(ws())
-                .delimited_by(just('('), just(')')),
-        )
+    token: Token,
+) -> impl Parser<'src, ParserInput<'src>, Spanned<Path>, extra::Err<ParseError<'src>>> + Clone {
+    just(Token::Colon)
+        .ignore_then(just(token))
+        .ignore_then(spanned_path().delimited_by(just(Token::LParen), just(Token::RParen)))
 }
 
 /// Parse `: keyword` pattern (no value) used for flag attributes
-/// Example: `: initial`, `: terminal`
 pub fn attr_flag<'src>(
-    keyword: &'static str,
-) -> impl Parser<'src, &'src str, (), extra::Err<ParseError<'src>>> + Clone {
-    just(':')
-        .padded_by(ws())
-        .ignore_then(text::keyword(keyword))
-        .ignored()
+    token: Token,
+) -> impl Parser<'src, ParserInput<'src>, (), extra::Err<ParseError<'src>>> + Clone {
+    just(Token::Colon).ignore_then(just(token)).ignored()
 }
 
 /// Parse `: keyword(int)` pattern returning a spanned integer
-/// Example: `: stride(4)`
 pub fn attr_int<'src>(
-    keyword: &'static str,
-) -> impl Parser<'src, &'src str, Spanned<u32>, extra::Err<ParseError<'src>>> + Clone {
-    just(':')
-        .padded_by(ws())
-        .ignore_then(text::keyword(keyword))
-        .ignore_then(
-            spanned(text::int(10).map(|s: &str| {
-                s.parse::<u32>().unwrap_or_else(|e| {
-                    panic!(
-                        "Internal parser error: matched integer pattern '{}' but parse failed: {}",
-                        s, e
-                    )
-                })
-            }))
-            .padded_by(ws())
-            .delimited_by(just('('), just(')')),
-        )
+    token: Token,
+) -> impl Parser<'src, ParserInput<'src>, Spanned<u32>, extra::Err<ParseError<'src>>> + Clone {
+    just(Token::Colon).ignore_then(just(token)).ignore_then(
+        spanned(select! {
+            Token::Integer(i) => i as u32,
+        })
+        .delimited_by(just(Token::LParen), just(Token::RParen)),
+    )
+}
+
+pub fn doc_comment<'src>()
+-> impl Parser<'src, ParserInput<'src>, Option<String>, extra::Err<ParseError<'src>>> + Clone {
+    select! {
+        Token::DocComment(s) => s,
+    }
+    .repeated()
+    .collect::<Vec<_>>()
+    .map(|lines| {
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
+    })
+}
+
+pub fn module_doc<'src>()
+-> impl Parser<'src, ParserInput<'src>, Option<String>, extra::Err<ParseError<'src>>> + Clone {
+    select! {
+        Token::ModuleDoc(s) => s,
+    }
+    .repeated()
+    .collect::<Vec<_>>()
+    .map(|lines| {
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
+    })
 }

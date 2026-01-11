@@ -1,32 +1,26 @@
 //! Type and function definition parsers.
-//!
-//! This module handles:
-//! - `type.name { ... }` custom type definitions
-//! - `fn.name(...) -> Type { ... }` pure functions
-//! - Type expressions (Scalar, Vec2/3/4, Named)
 
 use chumsky::prelude::*;
 
 use crate::ast::{FnDef, FnParam, Range, TypeDef, TypeExpr, TypeField};
 
-use super::super::ParseError;
 use super::super::expr::spanned_expr;
-use super::super::primitives::{float, ident, spanned, spanned_path, unit_string, ws};
+use super::super::lexer::Token;
+use super::super::primitives::{float, ident, spanned, spanned_path, unit_string};
+use super::super::{ParseError, ParserInput};
 
 // === Type Definitions ===
 
-pub fn type_def<'src>() -> impl Parser<'src, &'src str, TypeDef, extra::Err<ParseError<'src>>> {
-    text::keyword("type")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn type_def<'src>()
+-> impl Parser<'src, ParserInput<'src>, TypeDef, extra::Err<ParseError<'src>>> {
+    just(Token::Type)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned(ident()))
-        .padded_by(ws())
         .then(
             type_field()
-                .padded_by(ws())
                 .repeated()
                 .collect()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(name, fields)| TypeDef {
             doc: None,
@@ -35,71 +29,75 @@ pub fn type_def<'src>() -> impl Parser<'src, &'src str, TypeDef, extra::Err<Pars
         })
 }
 
-fn type_field<'src>() -> impl Parser<'src, &'src str, TypeField, extra::Err<ParseError<'src>>> {
+fn type_field<'src>()
+-> impl Parser<'src, ParserInput<'src>, TypeField, extra::Err<ParseError<'src>>> {
     spanned(ident())
-        .then_ignore(just(':').padded_by(ws()))
+        .then_ignore(just(Token::Colon))
         .then(spanned(type_expr()))
         .map(|(name, ty)| TypeField { name, ty })
 }
 
 pub fn type_expr<'src>()
--> impl Parser<'src, &'src str, TypeExpr, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, TypeExpr, extra::Err<ParseError<'src>>> + Clone {
     recursive(|type_expr_recurse| {
         choice((
-            // Scalar<unit, range>
-            text::keyword("Scalar")
-                .ignore_then(
-                    just('<')
-                        .padded_by(ws())
+            // Scalar or Scalar<unit, range>
+            just(Token::Scalar)
+                .then(
+                    just(Token::LAngle)
                         .ignore_then(unit_string())
-                        .then(just(',').padded_by(ws()).ignore_then(range()).or_not())
-                        .then_ignore(just('>').padded_by(ws())),
+                        .then(just(Token::Comma).ignore_then(range()).or_not())
+                        .then_ignore(just(Token::RAngle))
+                        .or_not(),
                 )
-                .map(|(unit, range)| TypeExpr::Scalar { unit, range }),
-            // Vec2/Vec3/Vec4<unit> or Vec2/Vec3/Vec4<unit, magnitude: range>
+                .map(|(_, maybe_params)| match maybe_params {
+                    Some((unit, range)) => TypeExpr::Scalar { unit, range },
+                    None => TypeExpr::Scalar {
+                        unit: "".to_string(),
+                        range: None,
+                    },
+                }),
+            // Vec2/Vec3/Vec4 or Vec2/Vec3/Vec4<unit> or Vec2/Vec3/Vec4<unit, magnitude: range>
             choice((
-                text::keyword("Vec2").to(2u8),
-                text::keyword("Vec3").to(3u8),
-                text::keyword("Vec4").to(4u8),
+                just(Token::Vec2).to(2u8),
+                just(Token::Vec3).to(3u8),
+                just(Token::Vec4).to(4u8),
             ))
             .then(
-                just('<')
-                    .padded_by(ws())
+                just(Token::LAngle)
                     .ignore_then(unit_string())
                     .then(
-                        just(',')
-                            .padded_by(ws())
-                            .ignore_then(text::keyword("magnitude"))
-                            .ignore_then(just(':').padded_by(ws()))
+                        just(Token::Comma)
+                            .ignore_then(just(Token::Magnitude))
+                            .ignore_then(just(Token::Colon))
                             .ignore_then(magnitude_value())
                             .or_not(),
                     )
-                    .then_ignore(just('>').padded_by(ws())),
+                    .then_ignore(just(Token::RAngle))
+                    .or_not(),
             )
-            .map(|(dim, (unit, magnitude))| TypeExpr::Vector {
-                dim,
-                unit,
-                magnitude,
+            .map(|(dim, maybe_params)| match maybe_params {
+                Some((unit, magnitude)) => TypeExpr::Vector {
+                    dim,
+                    unit,
+                    magnitude,
+                },
+                None => TypeExpr::Vector {
+                    dim,
+                    unit: "".to_string(),
+                    magnitude: None,
+                },
             }),
             // Tensor<rows, cols, unit>
-            text::keyword("Tensor")
+            just(Token::Tensor)
                 .ignore_then(
-                    just('<')
-                        .padded_by(ws())
-                        .ignore_then(
-                            text::int(10)
-                                .map(|s: &str| s.parse::<u8>().unwrap_or(0))
-                                .padded_by(ws()),
-                        )
-                        .then_ignore(just(',').padded_by(ws()))
-                        .then(
-                            text::int(10)
-                                .map(|s: &str| s.parse::<u8>().unwrap_or(0))
-                                .padded_by(ws()),
-                        )
-                        .then_ignore(just(',').padded_by(ws()))
+                    just(Token::LAngle)
+                        .ignore_then(select! { Token::Integer(i) => i as u8 })
+                        .then_ignore(just(Token::Comma))
+                        .then(select! { Token::Integer(i) => i as u8 })
+                        .then_ignore(just(Token::Comma))
                         .then(unit_string())
-                        .then_ignore(just('>').padded_by(ws())),
+                        .then_ignore(just(Token::RAngle)),
                 )
                 .map(|((rows, cols), unit)| TypeExpr::Tensor {
                     rows,
@@ -108,24 +106,15 @@ pub fn type_expr<'src>()
                     constraints: Vec::new(),
                 }),
             // Grid<width, height, element_type>
-            text::keyword("Grid")
+            just(Token::Grid)
                 .ignore_then(
-                    just('<')
-                        .padded_by(ws())
-                        .ignore_then(
-                            text::int(10)
-                                .map(|s: &str| s.parse::<u32>().unwrap_or(0))
-                                .padded_by(ws()),
-                        )
-                        .then_ignore(just(',').padded_by(ws()))
-                        .then(
-                            text::int(10)
-                                .map(|s: &str| s.parse::<u32>().unwrap_or(0))
-                                .padded_by(ws()),
-                        )
-                        .then_ignore(just(',').padded_by(ws()))
+                    just(Token::LAngle)
+                        .ignore_then(select! { Token::Integer(i) => i as u32 })
+                        .then_ignore(just(Token::Comma))
+                        .then(select! { Token::Integer(i) => i as u32 })
+                        .then_ignore(just(Token::Comma))
                         .then(type_expr_recurse.clone())
-                        .then_ignore(just('>').padded_by(ws())),
+                        .then_ignore(just(Token::RAngle)),
                 )
                 .map(|((width, height), element_type)| TypeExpr::Grid {
                     width,
@@ -133,12 +122,11 @@ pub fn type_expr<'src>()
                     element_type: Box::new(element_type),
                 }),
             // Seq<element_type>
-            text::keyword("Seq")
+            just(Token::Seq)
                 .ignore_then(
-                    just('<')
-                        .padded_by(ws())
+                    just(Token::LAngle)
                         .ignore_then(type_expr_recurse)
-                        .then_ignore(just('>').padded_by(ws())),
+                        .then_ignore(just(Token::RAngle)),
                 )
                 .map(|element_type| TypeExpr::Seq {
                     element_type: Box::new(element_type),
@@ -150,9 +138,10 @@ pub fn type_expr<'src>()
     })
 }
 
-fn range<'src>() -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> + Clone {
+fn range<'src>() -> impl Parser<'src, ParserInput<'src>, Range, extra::Err<ParseError<'src>>> + Clone
+{
     float()
-        .then_ignore(just("..").padded_by(ws()))
+        .then_ignore(just(Token::DotDot))
         .then(float())
         .map(|(min, max)| Range { min, max })
 }
@@ -160,11 +149,11 @@ fn range<'src>() -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'s
 /// Parses a magnitude value, which can be either a range (min..max) or a single value.
 /// A single value is converted to an exact range (value..value).
 fn magnitude_value<'src>()
--> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, Range, extra::Err<ParseError<'src>>> + Clone {
     choice((
         // Range: 1e10..1e12
         float()
-            .then_ignore(just("..").padded_by(ws()))
+            .then_ignore(just(Token::DotDot))
             .then(float())
             .map(|(min, max)| Range { min, max }),
         // Single value: 1 -> Range { min: 1, max: 1 }
@@ -174,38 +163,31 @@ fn magnitude_value<'src>()
 
 // === Function Definitions ===
 
-pub fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseError<'src>>> {
-    text::keyword("fn")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn fn_def<'src>() -> impl Parser<'src, ParserInput<'src>, FnDef, extra::Err<ParseError<'src>>> {
+    just(Token::Fn)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             spanned(ident())
-                .separated_by(just(',').padded_by(ws()))
-                .collect()
-                .delimited_by(just('<').padded_by(ws()), just('>').padded_by(ws()))
+                .separated_by(just(Token::Comma))
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LAngle), just(Token::RAngle))
                 .or_not()
-                .map(|o| o.unwrap_or_default()),
+                .map(|o: Option<Vec<_>>| o.unwrap_or_default()),
         )
         .then(
             fn_param()
-                .padded_by(ws())
-                .separated_by(just(',').padded_by(ws()))
+                .separated_by(just(Token::Comma))
                 .allow_trailing()
                 .collect()
-                .delimited_by(just('(').padded_by(ws()), just(')').padded_by(ws())),
+                .delimited_by(just(Token::LParen), just(Token::RParen)),
         )
         .then(
-            just("->")
-                .padded_by(ws())
+            just(Token::Arrow)
                 .ignore_then(spanned(type_expr()))
                 .or_not(),
         )
-        .then(
-            spanned_expr()
-                .padded_by(ws())
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-        )
+        .then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
         .map(|((((path, generics), params), return_type), body)| FnDef {
             doc: None,
             path,
@@ -216,11 +198,11 @@ pub fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseErr
         })
 }
 
-fn fn_param<'src>() -> impl Parser<'src, &'src str, FnParam, extra::Err<ParseError<'src>>> + Clone {
+fn fn_param<'src>()
+-> impl Parser<'src, ParserInput<'src>, FnParam, extra::Err<ParseError<'src>>> + Clone {
     spanned(ident())
         .then(
-            just(':')
-                .padded_by(ws())
+            just(Token::Colon)
                 .ignore_then(spanned(type_expr()))
                 .or_not(),
         )

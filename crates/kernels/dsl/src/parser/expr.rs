@@ -1,156 +1,103 @@
 //! Expression parser for the Continuum DSL.
-//!
-//! This module implements the expression grammar with proper operator precedence.
-//! Expressions can appear in resolve blocks, measure blocks, assertions, and
-//! other executable contexts.
-//!
-//! # Operator Precedence (lowest to highest)
-//!
-//! 1. **Ternary**: `if cond { then } else { else }`
-//! 2. **Logical OR**: `or`
-//! 3. **Logical AND**: `and`
-//! 4. **Comparison**: `<`, `<=`, `>`, `>=`, `==`, `!=`
-//! 5. **Addition/Subtraction**: `+`, `-`
-//! 6. **Multiplication/Division**: `*`, `/`, `%`
-//! 7. **Exponentiation**: `^`
-//! 8. **Unary**: `-`, `!`
-//! 9. **Primary**: Literals, identifiers, function calls, parentheses
-//!
-//! # Expression Types
-//!
-//! - **Literals**: `42`, `3.14`, `"string"`
-//! - **References**: `signal.name`, `config.value`, `const.physics.g`
-//! - **Keywords**: `prev`, `dt_raw`, `collected`, `payload`
-//! - **Math constants**: `PI` / `π`, `TAU` / `τ`, `E` / `ℯ`, `PHI` / `φ`
-//! - **Function calls**: `sin(x)`, `clamp(v, 0, 1)`, `integrate(prev, rate)`
-//! - **Let bindings**: `let x = expr in body`
-//! - **Conditionals**: `if cond { a } else { b }`
-//!
-//! # Compile Time Optimization
-//!
-//! The parser uses strategic `.boxed()` calls to prevent exponential compile
-//! time growth from deeply nested generic types.
 
+use chumsky::input::MapExtra;
 use chumsky::prelude::*;
 
 use crate::ast::{AggregateOp, BinaryOp, CallArg, Expr, Literal, MathConst, Spanned, UnaryOp};
 
-use super::ParseError;
-use super::primitives::{ident, number, path, string_lit, unit, ws};
-
-/// Type alias for parser Extra to ensure consistency across helper functions
-type Ex<'src> = extra::Err<ParseError<'src>>;
+use super::lexer::Token;
+use super::primitives::{ident, number, path, string_lit, unit};
+use super::{ParseError, ParserInput};
 
 /// Type alias for boxed spanned expression parser
-type SpannedExprBox<'src> = Boxed<'src, 'src, &'src str, Spanned<Expr>, Ex<'src>>;
+type SpannedExprBox<'src> =
+    Boxed<'src, 'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>>;
 
 /// Helper to create a span covering two spanned values
-fn span_union<T, U>(left: &Spanned<T>, right: &Spanned<U>) -> std::ops::Range<usize> {
-    left.span.start..right.span.end
+fn span_union<T, U>(left: &Spanned<T>, right: &Spanned<U>) -> SimpleSpan {
+    SimpleSpan::from(left.span.start..right.span.end)
 }
 
 /// Expression parser - returns just the expression without span info
-///
-/// Uses `.boxed()` at strategic points to reduce compile times by breaking the type chain.
-/// Without boxing, chumsky's parser combinators create deeply nested generic types that
-/// cause exponential compile time growth.
 #[allow(dead_code)]
-pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
+pub fn expr<'src>()
+-> impl Parser<'src, ParserInput<'src>, Expr, extra::Err<ParseError<'src>>> + Clone {
     spanned_expr_inner().map(|spanned| spanned.node)
 }
 
 /// Internal spanned expression parser - produces `Spanned<Expr>` with proper spans throughout
-fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
+fn spanned_expr_inner<'src>()
+-> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
     recursive(|expr| {
-        // Box the recursive expr (which returns Spanned<Expr>) to prevent type explosion
         let expr_boxed: SpannedExprBox<'src> = expr.clone().boxed();
 
-        // Single argument parser - handles both named (name: expr) and positional (expr)
-        // Named arguments use `name: value` syntax
         let call_arg = choice((
-            // Named argument: name: value
-            // Use look-ahead to distinguish from a path expression followed by comparison
             ident()
-                .then_ignore(just(':').padded_by(ws()))
+                .then_ignore(just(Token::Colon))
                 .then(expr_boxed.clone())
                 .map(|(name, value)| CallArg::named(name, value)),
-            // Positional argument: just an expression
             expr_boxed.clone().map(CallArg::positional),
         ));
 
-        // Arguments list for function calls - produces Vec<CallArg>
         let args = call_arg
-            .separated_by(just(',').padded_by(ws()))
+            .separated_by(just(Token::Comma))
             .allow_trailing()
             .collect::<Vec<_>>()
-            .delimited_by(just('(').padded_by(ws()), just(')').padded_by(ws()));
+            .delimited_by(just(Token::LParen), just(Token::RParen));
 
-        // Entity expression atoms - boxed to reduce type complexity
-        // Returns Spanned<Expr>
         let entity_atoms = entity_expr_atoms_spanned(expr_boxed.clone()).boxed();
 
-        // Core atoms (non-entity) - wrap with map_with to capture spans
         let core_atoms = choice((
-            text::keyword("prev").to(Expr::Prev),
-            just("dt_raw").to(Expr::DtRaw),
-            // Math constants (ASCII and Unicode)
-            just("PI").or(just("π")).to(Expr::MathConst(MathConst::Pi)),
-            just("TAU")
-                .or(just("τ"))
-                .to(Expr::MathConst(MathConst::Tau)),
-            just("PHI")
-                .or(just("φ"))
-                .to(Expr::MathConst(MathConst::Phi)),
-            just("E").or(just("ℯ")).to(Expr::MathConst(MathConst::E)),
-            just("I").or(just("ⅈ")).to(Expr::MathConst(MathConst::I)),
-            text::keyword("payload").to(Expr::Payload),
-            text::keyword("collected").to(Expr::Collected),
-            text::keyword("signal")
-                .ignore_then(just('.'))
+            just(Token::Prev).to(Expr::Prev),
+            just(Token::DtRaw).to(Expr::DtRaw),
+            just(Token::Pi).to(Expr::MathConst(MathConst::Pi)),
+            just(Token::Tau).to(Expr::MathConst(MathConst::Tau)),
+            just(Token::Phi).to(Expr::MathConst(MathConst::Phi)),
+            just(Token::E).to(Expr::MathConst(MathConst::E)),
+            just(Token::I).to(Expr::MathConst(MathConst::I)),
+            just(Token::Payload).to(Expr::Payload),
+            just(Token::Collected).to(Expr::Collected),
+            just(Token::Signal)
+                .ignore_then(just(Token::Dot))
                 .ignore_then(path())
                 .map(Expr::SignalRef),
-            text::keyword("const")
-                .ignore_then(just('.'))
+            just(Token::Const)
+                .ignore_then(just(Token::Dot))
                 .ignore_then(path())
                 .map(Expr::ConstRef),
-            text::keyword("config")
-                .ignore_then(just('.'))
+            just(Token::Config)
+                .ignore_then(just(Token::Dot))
                 .ignore_then(path())
                 .map(Expr::ConfigRef),
-            text::keyword("field")
-                .ignore_then(just('.'))
+            just(Token::Field)
+                .ignore_then(just(Token::Dot))
                 .ignore_then(path())
                 .map(Expr::FieldRef),
         ))
-        .map_with(|e, extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            Spanned::new(e, span.start..span.end)
+        .map_with(|e, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+            Spanned::new(e, extra.span().into())
         })
         .boxed();
 
-        // Additional atoms (function calls, literals, paths)
         let other_atoms = choice((
-            // Function call: name(args) or path.to.func(args)
             path()
-                .map_with(|p, extra| {
-                    let span: chumsky::span::SimpleSpan = extra.span();
-                    Spanned::new(Expr::Path(p), span.start..span.end)
+                .map_with(|p, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                    Spanned::new(Expr::Path(p), extra.span().into())
                 })
                 .then(args.clone())
-                .map_with(|(func, args), extra| {
-                    let span: chumsky::span::SimpleSpan = extra.span();
-                    Spanned::new(
-                        Expr::Call {
-                            function: Box::new(func),
-                            args,
-                        },
-                        span.start..span.end,
-                    )
-                }),
-            number()
-                .then(unit().padded_by(ws()).or_not())
-                .map_with(|(lit, unit_opt), extra| {
-                    let span: chumsky::span::SimpleSpan = extra.span();
+                .map_with(
+                    |(func, args), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                        Spanned::new(
+                            Expr::Call {
+                                function: Box::new(func),
+                                args,
+                            },
+                            extra.span().into(),
+                        )
+                    },
+                ),
+            number().then(unit().or_not()).map_with(
+                |(lit, unit_opt), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
                     let e = match unit_opt {
                         Some(u) => Expr::LiteralWithUnit {
                             value: lit,
@@ -158,81 +105,67 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                         },
                         None => Expr::Literal(lit),
                     };
-                    Spanned::new(e, span.start..span.end)
-                }),
-            string_lit().map_with(|s, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(Expr::Literal(Literal::String(s)), span.start..span.end)
+                    Spanned::new(e, extra.span().into())
+                },
+            ),
+            string_lit().map_with(|s, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                Spanned::new(Expr::Literal(Literal::String(s)), extra.span().into())
             }),
             expr_boxed
                 .clone()
-                .padded_by(ws())
-                .delimited_by(just('('), just(')')),
-            // Plain path (must come after function call attempt)
-            path().map_with(|p, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(Expr::Path(p), span.start..span.end)
+                .delimited_by(just(Token::LParen), just(Token::RParen)),
+            path().map_with(|p, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                Spanned::new(Expr::Path(p), extra.span().into())
             }),
         ))
         .boxed();
 
-        // Combine all atoms - all now return Spanned<Expr>
-        let atom = choice((entity_atoms, core_atoms, other_atoms))
-            .padded_by(ws())
-            .boxed();
+        let atom = choice((entity_atoms, core_atoms, other_atoms)).boxed();
 
-        // Arguments with span end position for accurate MethodCall spans
-        let args_with_span = args.clone().map_with(|a, extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            (a, span.end)
-        });
+        let args_with_span =
+            args.clone()
+                .map_with(|a, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                    (a, extra.span().end)
+                });
 
-        // Method calls: expr.method(args) - now works with Spanned<Expr>
         let postfix = atom.foldl(
-            just('.')
-                .padded_by(ws())
-                .ignore_then(ident().map_with(|m, extra| {
-                    let span: chumsky::span::SimpleSpan = extra.span();
-                    (m, span.start..span.end)
-                }))
+            just(Token::Dot)
+                .ignore_then(ident().map_with(
+                    |m, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| (m, extra.span()),
+                ))
                 .then(args_with_span.or_not())
                 .repeated(),
-            |obj, ((method, method_span), maybe_args)| {
-                let (new_expr, span_end) = match maybe_args {
-                    Some((args, paren_end)) => (
-                        Expr::MethodCall {
-                            object: Box::new(obj.clone()),
-                            method,
-                            args,
-                        },
-                        paren_end,
-                    ),
-                    None => (
-                        Expr::FieldAccess {
-                            object: Box::new(obj.clone()),
-                            field: method,
-                        },
-                        method_span.end,
-                    ),
+            |obj: Spanned<Expr>, ((method, method_span), maybe_args)| {
+                let actual_end = match maybe_args {
+                    Some((_, end)) => end,
+                    None => method_span.end,
                 };
-                Spanned::new(new_expr, obj.span.start..span_end)
+                let new_expr = match maybe_args {
+                    Some((args, _paren_end)) => Expr::MethodCall {
+                        object: Box::new(obj.clone()),
+                        method,
+                        args,
+                    },
+                    None => Expr::FieldAccess {
+                        object: Box::new(obj.clone()),
+                        field: method,
+                    },
+                };
+                Spanned::new(new_expr, (obj.span.start..actual_end).into())
             },
         );
 
-        // Unary operators: negation (-) and logical not (! or 'not')
-        // The 'not' keyword uses text::keyword to ensure proper word boundary handling
         let unary = choice((
-            just('-').to(UnaryOp::Neg),
-            just('!').to(UnaryOp::Not),
-            text::keyword("not").to(UnaryOp::Not),
+            just(Token::Minus).to(UnaryOp::Neg),
+            just(Token::Not).to(UnaryOp::Not),
+            just(Token::NotKeyword).to(UnaryOp::Not),
         ))
-        .map_with(|op, extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            (op, span.start)
+        .map_with(|op, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+            (op, extra.span().start)
         })
         .repeated()
         .foldr(postfix, |(op, op_start), operand| {
-            let span = op_start..operand.span.end;
+            let span = (op_start..operand.span.end).into();
             Spanned::new(
                 Expr::Unary {
                     op,
@@ -242,12 +175,13 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             )
         });
 
-        // Binary operators - helper macro to reduce repetition
         let product = unary.clone().foldl(
-            choice((just('*').to(BinaryOp::Mul), just('/').to(BinaryOp::Div)))
-                .padded_by(ws())
-                .then(unary)
-                .repeated(),
+            choice((
+                just(Token::Star).to(BinaryOp::Mul),
+                just(Token::Slash).to(BinaryOp::Div),
+            ))
+            .then(unary)
+            .repeated(),
             |left, (op, right)| {
                 let span = span_union(&left, &right);
                 Spanned::new(
@@ -256,16 +190,18 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                         left: Box::new(left),
                         right: Box::new(right),
                     },
-                    span,
+                    span.into(),
                 )
             },
         );
 
         let sum = product.clone().foldl(
-            choice((just('+').to(BinaryOp::Add), just('-').to(BinaryOp::Sub)))
-                .padded_by(ws())
-                .then(product)
-                .repeated(),
+            choice((
+                just(Token::Plus).to(BinaryOp::Add),
+                just(Token::Minus).to(BinaryOp::Sub),
+            ))
+            .then(product)
+            .repeated(),
             |left, (op, right)| {
                 let span = span_union(&left, &right);
                 Spanned::new(
@@ -274,25 +210,22 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                         left: Box::new(left),
                         right: Box::new(right),
                     },
-                    span,
+                    span.into(),
                 )
             },
         );
 
-        // Comparison operators do NOT chain: a < b < c is disallowed
-        // Use .or_not() instead of .repeated() to prevent chaining
         let comparison = sum
             .clone()
             .then(
                 choice((
-                    just("==").to(BinaryOp::Eq),
-                    just("!=").to(BinaryOp::Ne),
-                    just("<=").to(BinaryOp::Le),
-                    just(">=").to(BinaryOp::Ge),
-                    just('<').to(BinaryOp::Lt),
-                    just('>').to(BinaryOp::Gt),
+                    just(Token::Equals).to(BinaryOp::Eq),
+                    just(Token::NotEquals).to(BinaryOp::Ne),
+                    just(Token::LessEquals).to(BinaryOp::Le),
+                    just(Token::GreaterEquals).to(BinaryOp::Ge),
+                    just(Token::LAngle).to(BinaryOp::Lt),
+                    just(Token::RAngle).to(BinaryOp::Gt),
                 ))
-                .padded_by(ws())
                 .then(sum)
                 .or_not(),
             )
@@ -305,72 +238,61 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                             left: Box::new(left),
                             right: Box::new(right),
                         },
-                        span,
+                        span.into(),
                     )
                 }
                 None => left,
             });
 
-        // Logical AND has lower precedence than comparison
-        // Accept both '&&' and 'and' keyword
         let and_op = choice((
-            just("&&").to(BinaryOp::And),
-            text::keyword("and").to(BinaryOp::And),
+            just(Token::And).to(BinaryOp::And),
+            just(Token::AndKeyword).to(BinaryOp::And),
         ));
-        let logical_and = comparison.clone().foldl(
-            and_op.padded_by(ws()).then(comparison).repeated(),
-            |left, (op, right)| {
-                let span = span_union(&left, &right);
-                Spanned::new(
-                    Expr::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span,
-                )
-            },
-        );
+        let logical_and =
+            comparison
+                .clone()
+                .foldl(and_op.then(comparison).repeated(), |left, (op, right)| {
+                    let span = span_union(&left, &right);
+                    Spanned::new(
+                        Expr::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        span.into(),
+                    )
+                });
 
-        // Logical OR has lower precedence than AND
-        // Accept both '||' and 'or' keyword
         let or_op = choice((
-            just("||").to(BinaryOp::Or),
-            text::keyword("or").to(BinaryOp::Or),
+            just(Token::Or).to(BinaryOp::Or),
+            just(Token::OrKeyword).to(BinaryOp::Or),
         ));
-        let logical_or = logical_and.clone().foldl(
-            or_op.padded_by(ws()).then(logical_and).repeated(),
-            |left, (op, right)| {
-                let span = span_union(&left, &right);
-                Spanned::new(
-                    Expr::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span,
-                )
-            },
-        );
+        let logical_or =
+            logical_and
+                .clone()
+                .foldl(or_op.then(logical_and).repeated(), |left, (op, right)| {
+                    let span = span_union(&left, &right);
+                    Spanned::new(
+                        Expr::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        span.into(),
+                    )
+                });
 
-        // Box logical_or before using in if_expr to reduce type complexity
         let logical_or_boxed = logical_or.clone().boxed();
 
-        // Let expression: let name = value in body
-        // Multiple lets chain together: let a = 1 in let b = 2 in a + b
-        let let_expr = text::keyword("let")
-            .padded_by(ws())
-            .map_with(|_, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                span.start
-            })
+        let let_expr = just(Token::Let)
+            .map_with(|_, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| extra.span().start)
             .then(ident())
-            .then_ignore(just('=').padded_by(ws()))
+            .then_ignore(just(Token::Assign))
             .then(expr_boxed.clone())
-            .then_ignore(text::keyword("in").padded_by(ws()))
+            .then_ignore(just(Token::In))
             .then(expr_boxed.clone())
             .map(|(((let_start, name), value), body)| {
-                let span = let_start..body.span.end;
+                let span = (let_start..body.span.end).into();
                 Spanned::new(
                     Expr::Let {
                         name,
@@ -381,266 +303,246 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                 )
             });
 
-        // If expression: if condition { then } else { else }
-        // The condition uses logical_or (not expr) to avoid infinite recursion
-        // (conditions shouldn't be let or if expressions without braces)
-        let if_expr = text::keyword("if")
-            .padded_by(ws())
-            .map_with(|_, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                span.start
-            })
+        let if_expr = just(Token::If)
+            .map_with(|_, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| extra.span().start)
             .then(logical_or_boxed)
             .then(
                 expr_boxed
                     .clone()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .then(
-                text::keyword("else")
-                    .padded_by(ws())
-                    .ignore_then(
-                        expr_boxed
-                            .padded_by(ws())
-                            .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-                    )
+                just(Token::Else)
+                    .ignore_then(expr_boxed.delimited_by(just(Token::LBrace), just(Token::RBrace)))
                     .or_not(),
             )
-            .map(|(((if_start, condition), then_branch), else_branch)| {
-                let span_end = else_branch
-                    .as_ref()
-                    .map(|e| e.span.end)
-                    .unwrap_or(then_branch.span.end);
-                Spanned::new(
-                    Expr::If {
-                        condition: Box::new(condition),
-                        then_branch: Box::new(then_branch),
-                        else_branch: else_branch.map(Box::new),
-                    },
-                    if_start..span_end,
-                )
-            });
+            .map(
+                |(((if_start, condition), then_branch), else_branch): (
+                    ((_, _), _),
+                    Option<Spanned<Expr>>,
+                )| {
+                    let span_end = else_branch
+                        .as_ref()
+                        .map(|e| e.span.end)
+                        .unwrap_or(then_branch.span.end);
+                    Spanned::new(
+                        Expr::If {
+                            condition: Box::new(condition),
+                            then_branch: Box::new(then_branch),
+                            else_branch: else_branch.map(Box::new),
+                        },
+                        (if_start..span_end).into(),
+                    )
+                },
+            );
 
-        // Let and if expressions have lowest precedence - they consume the rest as body
         choice((let_expr, if_expr, logical_or))
     })
 }
 
-/// Entity expression atoms (spanned) - separated to reduce type complexity
 fn entity_expr_atoms_spanned<'src>(
     expr_boxed: SpannedExprBox<'src>,
-) -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
+) -> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        // self.field - current entity instance field access
-        text::keyword("self")
-            .ignore_then(just('.').padded_by(ws()))
+        just(Token::SelfToken)
+            .ignore_then(just(Token::Dot))
             .ignore_then(ident())
-            .map_with(|field, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(Expr::SelfField(field), span.start..span.end)
-            }),
-        // entity.path["name"] - entity instance access
-        text::keyword("entity")
-            .ignore_then(just('.'))
+            .map_with(
+                |field, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                    Spanned::new(Expr::SelfField(field), extra.span().into())
+                },
+            ),
+        just(Token::Entity)
+            .ignore_then(just(Token::Dot))
             .ignore_then(path())
             .then(
-                just('[')
-                    .padded_by(ws())
-                    .ignore_then(expr_boxed.clone().padded_by(ws()))
-                    .then_ignore(just(']').padded_by(ws()))
+                just(Token::LBracket)
+                    .ignore_then(expr_boxed.clone())
+                    .then_ignore(just(Token::RBracket))
                     .or_not(),
             )
-            .map_with(|(entity, instance), extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                let e = match instance {
-                    Some(inst) => Expr::EntityAccess {
-                        entity,
-                        instance: Box::new(inst),
-                    },
-                    None => Expr::EntityRef(entity),
-                };
-                Spanned::new(e, span.start..span.end)
-            }),
-        // count(entity.path) - special case, body is implicit "1" with span from count keyword
-        text::keyword("count")
+            .map_with(
+                |(entity, instance), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                    let e = match instance {
+                        Some(inst) => Expr::EntityAccess {
+                            entity,
+                            instance: Box::new(inst),
+                        },
+                        None => Expr::EntityRef(entity),
+                    };
+                    Spanned::new(e, extra.span().into())
+                },
+            ),
+        just(Token::Count)
             .ignore_then(
-                just('(')
-                    .padded_by(ws())
-                    .ignore_then(text::keyword("entity"))
-                    .ignore_then(just('.'))
+                just(Token::LParen)
+                    .ignore_then(just(Token::Entity))
+                    .ignore_then(just(Token::Dot))
                     .ignore_then(path())
-                    .then_ignore(just(')').padded_by(ws())),
+                    .then_ignore(just(Token::RParen)),
             )
-            .map_with(|entity, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                // Use the full span for the implicit body since it's synthetic
-                Spanned::new(
-                    Expr::Aggregate {
-                        op: AggregateOp::Count,
-                        entity,
-                        body: Box::new(Spanned::new(
-                            Expr::Literal(Literal::Integer(1)),
-                            span.start..span.end,
-                        )),
-                    },
-                    span.start..span.end,
-                )
-            }),
-        // other(entity.path) - self-exclusion for N-body
-        text::keyword("other")
+            .map_with(
+                |entity, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                    let span = extra.span();
+                    Spanned::new(
+                        Expr::Aggregate {
+                            op: AggregateOp::Count,
+                            entity,
+                            body: Box::new(Spanned::new(
+                                Expr::Literal(Literal::Integer(1)),
+                                span.into(),
+                            )),
+                        },
+                        span.into(),
+                    )
+                },
+            ),
+        just(Token::Other)
             .ignore_then(
-                just('(')
-                    .padded_by(ws())
-                    .ignore_then(text::keyword("entity"))
-                    .ignore_then(just('.'))
+                just(Token::LParen)
+                    .ignore_then(just(Token::Entity))
+                    .ignore_then(just(Token::Dot))
                     .ignore_then(path())
-                    .then_ignore(just(')').padded_by(ws())),
+                    .then_ignore(just(Token::RParen)),
             )
-            .map_with(|entity, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(Expr::Other(entity), span.start..span.end)
-            }),
-        // pairs(entity.path) - pairwise iteration
-        text::keyword("pairs")
+            .map_with(
+                |entity, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                    Spanned::new(Expr::Other(entity), extra.span().into())
+                },
+            ),
+        just(Token::Pairs)
             .ignore_then(
-                just('(')
-                    .padded_by(ws())
-                    .ignore_then(text::keyword("entity"))
-                    .ignore_then(just('.'))
+                just(Token::LParen)
+                    .ignore_then(just(Token::Entity))
+                    .ignore_then(just(Token::Dot))
                     .ignore_then(path())
-                    .then_ignore(just(')').padded_by(ws())),
+                    .then_ignore(just(Token::RParen)),
             )
-            .map_with(|entity, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                Spanned::new(Expr::Pairs(entity), span.start..span.end)
-            }),
+            .map_with(
+                |entity, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                    Spanned::new(Expr::Pairs(entity), extra.span().into())
+                },
+            ),
     ))
     .or(entity_aggregate_atoms_spanned(expr_boxed))
 }
 
-/// Entity aggregate operations (spanned) - further split to reduce type complexity
 fn entity_aggregate_atoms_spanned<'src>(
     expr_boxed: SpannedExprBox<'src>,
-) -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
-    // Aggregate with body: sum(entity.path, expr)
+) -> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
     let aggregate_with_body = aggregate_op_with_body()
         .then(
-            just('(')
-                .padded_by(ws())
-                .ignore_then(text::keyword("entity"))
-                .ignore_then(just('.'))
+            just(Token::LParen)
+                .ignore_then(just(Token::Entity))
+                .ignore_then(just(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(',').padded_by(ws()))
+                .then_ignore(just(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(')').padded_by(ws())),
+                .then_ignore(just(Token::RParen)),
         )
-        .map_with(|(op, (entity, body)), extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            Spanned::new(
-                Expr::Aggregate {
-                    op,
-                    entity,
-                    body: Box::new(body),
-                },
-                span.start..span.end,
-            )
-        });
+        .map_with(
+            |(op, (entity, body)), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                Spanned::new(
+                    Expr::Aggregate {
+                        op,
+                        entity,
+                        body: Box::new(body),
+                    },
+                    extra.span().into(),
+                )
+            },
+        );
 
-    // filter(entity.path, predicate)
-    let filter_expr = text::keyword("filter")
+    let filter_expr = just(Token::Filter)
         .ignore_then(
-            just('(')
-                .padded_by(ws())
-                .ignore_then(text::keyword("entity"))
-                .ignore_then(just('.'))
+            just(Token::LParen)
+                .ignore_then(just(Token::Entity))
+                .ignore_then(just(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(',').padded_by(ws()))
+                .then_ignore(just(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(')').padded_by(ws())),
+                .then_ignore(just(Token::RParen)),
         )
-        .map_with(|(entity, predicate), extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            Spanned::new(
-                Expr::Filter {
-                    entity,
-                    predicate: Box::new(predicate),
-                },
-                span.start..span.end,
-            )
-        });
+        .map_with(
+            |(entity, predicate), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                Spanned::new(
+                    Expr::Filter {
+                        entity,
+                        predicate: Box::new(predicate),
+                    },
+                    extra.span().into(),
+                )
+            },
+        );
 
-    // first(entity.path, predicate)
-    let first_expr = text::keyword("first")
+    let first_expr = just(Token::First)
         .ignore_then(
-            just('(')
-                .padded_by(ws())
-                .ignore_then(text::keyword("entity"))
-                .ignore_then(just('.'))
+            just(Token::LParen)
+                .ignore_then(just(Token::Entity))
+                .ignore_then(just(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(',').padded_by(ws()))
+                .then_ignore(just(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(')').padded_by(ws())),
+                .then_ignore(just(Token::RParen)),
         )
-        .map_with(|(entity, predicate), extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            Spanned::new(
-                Expr::First {
-                    entity,
-                    predicate: Box::new(predicate),
-                },
-                span.start..span.end,
-            )
-        });
+        .map_with(
+            |(entity, predicate), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                Spanned::new(
+                    Expr::First {
+                        entity,
+                        predicate: Box::new(predicate),
+                    },
+                    extra.span().into(),
+                )
+            },
+        );
 
-    // nearest(entity.path, position)
-    let nearest_expr = text::keyword("nearest")
+    let nearest_expr = just(Token::Nearest)
         .ignore_then(
-            just('(')
-                .padded_by(ws())
-                .ignore_then(text::keyword("entity"))
-                .ignore_then(just('.'))
+            just(Token::LParen)
+                .ignore_then(just(Token::Entity))
+                .ignore_then(just(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(',').padded_by(ws()))
+                .then_ignore(just(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(')').padded_by(ws())),
+                .then_ignore(just(Token::RParen)),
         )
-        .map_with(|(entity, position), extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            Spanned::new(
-                Expr::Nearest {
-                    entity,
-                    position: Box::new(position),
-                },
-                span.start..span.end,
-            )
-        });
+        .map_with(
+            |(entity, position), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                Spanned::new(
+                    Expr::Nearest {
+                        entity,
+                        position: Box::new(position),
+                    },
+                    extra.span().into(),
+                )
+            },
+        );
 
-    // within(entity.path, position, radius)
-    let within_expr = text::keyword("within")
+    let within_expr = just(Token::Within)
         .ignore_then(
-            just('(')
-                .padded_by(ws())
-                .ignore_then(text::keyword("entity"))
-                .ignore_then(just('.'))
+            just(Token::LParen)
+                .ignore_then(just(Token::Entity))
+                .ignore_then(just(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(',').padded_by(ws()))
+                .then_ignore(just(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(',').padded_by(ws()))
+                .then_ignore(just(Token::Comma))
                 .then(expr_boxed)
-                .then_ignore(just(')').padded_by(ws())),
+                .then_ignore(just(Token::RParen)),
         )
-        .map_with(|((entity, position), radius), extra| {
-            let span: chumsky::span::SimpleSpan = extra.span();
-            Spanned::new(
-                Expr::Within {
-                    entity,
-                    position: Box::new(position),
-                    radius: Box::new(radius),
-                },
-                span.start..span.end,
-            )
-        });
+        .map_with(
+            |((entity, position), radius), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                Spanned::new(
+                    Expr::Within {
+                        entity,
+                        position: Box::new(position),
+                        radius: Box::new(radius),
+                    },
+                    extra.span().into(),
+                )
+            },
+        );
 
     choice((
         aggregate_with_body,
@@ -651,21 +553,21 @@ fn entity_aggregate_atoms_spanned<'src>(
     ))
 }
 
-/// Spanned expression - public API that uses the internal spanned parser
-pub fn spanned_expr<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
+pub fn spanned_expr<'src>()
+-> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
     spanned_expr_inner()
 }
 
-/// Parser for aggregate operations that take a body expression
-fn aggregate_op_with_body<'src>() -> impl Parser<'src, &'src str, AggregateOp, Ex<'src>> + Clone {
+fn aggregate_op_with_body<'src>()
+-> impl Parser<'src, ParserInput<'src>, AggregateOp, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        text::keyword("sum").to(AggregateOp::Sum),
-        text::keyword("product").to(AggregateOp::Product),
-        text::keyword("min").to(AggregateOp::Min),
-        text::keyword("max").to(AggregateOp::Max),
-        text::keyword("mean").to(AggregateOp::Mean),
-        text::keyword("any").to(AggregateOp::Any),
-        text::keyword("all").to(AggregateOp::All),
-        text::keyword("none").to(AggregateOp::None),
+        just(Token::Sum).to(AggregateOp::Sum),
+        just(Token::Product).to(AggregateOp::Product),
+        just(Token::Min).to(AggregateOp::Min),
+        just(Token::Max).to(AggregateOp::Max),
+        just(Token::Mean).to(AggregateOp::Mean),
+        just(Token::Any).to(AggregateOp::Any),
+        just(Token::All).to(AggregateOp::All),
+        just(Token::None).to(AggregateOp::None),
     ))
 }

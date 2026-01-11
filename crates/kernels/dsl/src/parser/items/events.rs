@@ -1,9 +1,4 @@
 //! Event-related parsers (impulses, fractures, chronicles).
-//!
-//! This module handles:
-//! - `impulse.name { ... }` external causal inputs
-//! - `fracture.name { ... }` tension detectors
-//! - `chronicle.name { ... }` observer event handlers
 
 use chumsky::prelude::*;
 
@@ -12,26 +7,24 @@ use crate::ast::{
     ObserveHandler, Spanned, TypeExpr,
 };
 
-use super::super::ParseError;
 use super::super::expr::spanned_expr;
-use super::super::primitives::{ident, spanned, spanned_path, ws};
+use super::super::lexer::Token;
+use super::super::primitives::{ident, spanned, spanned_path};
+use super::super::{ParseError, ParserInput};
 use super::types::type_expr;
 
 // === Impulse ===
 
-pub fn impulse_def<'src>() -> impl Parser<'src, &'src str, ImpulseDef, extra::Err<ParseError<'src>>>
-{
-    text::keyword("impulse")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn impulse_def<'src>()
+-> impl Parser<'src, ParserInput<'src>, ImpulseDef, extra::Err<ParseError<'src>>> {
+    just(Token::Impulse)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             impulse_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = ImpulseDef {
@@ -58,19 +51,13 @@ enum ImpulseContent {
 }
 
 fn impulse_content<'src>()
--> impl Parser<'src, &'src str, ImpulseContent, extra::Err<ParseError<'src>>> {
+-> impl Parser<'src, ParserInput<'src>, ImpulseContent, extra::Err<ParseError<'src>>> {
     choice((
-        just(':')
-            .padded_by(ws())
+        just(Token::Colon)
             .ignore_then(spanned(type_expr()))
             .map(ImpulseContent::Type),
-        text::keyword("apply")
-            .padded_by(ws())
-            .ignore_then(
-                spanned_expr()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
+        just(Token::Apply)
+            .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
             .map(|body| ImpulseContent::Apply(ApplyBlock { body })),
     ))
 }
@@ -78,18 +65,15 @@ fn impulse_content<'src>()
 // === Fracture ===
 
 pub fn fracture_def<'src>()
--> impl Parser<'src, &'src str, FractureDef, extra::Err<ParseError<'src>>> {
-    text::keyword("fracture")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+-> impl Parser<'src, ParserInput<'src>, FractureDef, extra::Err<ParseError<'src>>> {
+    just(Token::Fracture)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             fracture_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut conditions = vec![];
@@ -116,38 +100,33 @@ enum FractureContent {
 }
 
 fn fracture_content<'src>()
--> impl Parser<'src, &'src str, FractureContent, extra::Err<ParseError<'src>>> {
+-> impl Parser<'src, ParserInput<'src>, FractureContent, extra::Err<ParseError<'src>>> {
     choice((
-        text::keyword("when")
-            .padded_by(ws())
+        just(Token::When)
             .ignore_then(
                 spanned_expr()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(FractureContent::When),
-        text::keyword("emit")
-            .padded_by(ws())
+        just(Token::Emit)
             .ignore_then(
                 emit_statement()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(FractureContent::Emit),
     ))
 }
 
 fn emit_statement<'src>()
--> impl Parser<'src, &'src str, EmitStatement, extra::Err<ParseError<'src>>> + Clone {
-    text::keyword("signal")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+-> impl Parser<'src, ParserInput<'src>, EmitStatement, extra::Err<ParseError<'src>>> + Clone {
+    just(Token::Signal)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
-        .then_ignore(just("<-").padded_by(ws()))
+        .then_ignore(just(Token::EmitArrow))
         .then(spanned_expr())
         .map(|(target, value)| EmitStatement { target, value })
 }
@@ -155,17 +134,14 @@ fn emit_statement<'src>()
 // === Chronicle ===
 
 pub fn chronicle_def<'src>()
--> impl Parser<'src, &'src str, ChronicleDef, extra::Err<ParseError<'src>>> {
-    text::keyword("chronicle")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+-> impl Parser<'src, ParserInput<'src>, ChronicleDef, extra::Err<ParseError<'src>>> {
+    just(Token::Chronicle)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             observe_block()
-                .padded_by(ws())
                 .or_not()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(path, observe)| ChronicleDef {
             doc: None,
@@ -174,40 +150,34 @@ pub fn chronicle_def<'src>()
         })
 }
 
-fn observe_block<'src>() -> impl Parser<'src, &'src str, ObserveBlock, extra::Err<ParseError<'src>>>
-{
-    text::keyword("observe")
-        .padded_by(ws())
+fn observe_block<'src>()
+-> impl Parser<'src, ParserInput<'src>, ObserveBlock, extra::Err<ParseError<'src>>> {
+    just(Token::Observe)
         .ignore_then(
             observe_handler()
-                .padded_by(ws())
                 .repeated()
                 .collect()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|handlers| ObserveBlock { handlers })
 }
 
 fn observe_handler<'src>()
--> impl Parser<'src, &'src str, ObserveHandler, extra::Err<ParseError<'src>>> {
-    text::keyword("when")
-        .padded_by(ws())
+-> impl Parser<'src, ParserInput<'src>, ObserveHandler, extra::Err<ParseError<'src>>> {
+    just(Token::When)
         .ignore_then(spanned_expr())
         .then(
-            text::keyword("emit")
-                .padded_by(ws())
-                .ignore_then(text::keyword("event"))
-                .padded_by(ws())
-                .ignore_then(just('.'))
+            just(Token::Emit)
+                .ignore_then(just(Token::Event))
+                .ignore_then(just(Token::Dot))
                 .ignore_then(spanned_path())
                 .then(
                     event_field()
-                        .padded_by(ws())
                         .repeated()
                         .collect()
-                        .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                        .delimited_by(just(Token::LBrace), just(Token::RBrace)),
                 )
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(condition, (event_name, event_fields))| ObserveHandler {
             condition,
@@ -217,8 +187,9 @@ fn observe_handler<'src>()
 }
 
 fn event_field<'src>()
--> impl Parser<'src, &'src str, (Spanned<String>, Spanned<Expr>), extra::Err<ParseError<'src>>> {
+-> impl Parser<'src, ParserInput<'src>, (Spanned<String>, Spanned<Expr>), extra::Err<ParseError<'src>>>
+{
     spanned(ident())
-        .then_ignore(just(':').padded_by(ws()))
+        .then_ignore(just(Token::Colon))
         .then(spanned_expr())
 }
