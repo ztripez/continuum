@@ -1,30 +1,16 @@
-<<<<<<< HEAD
-# Terra World - Root Configuration
-# =============================================================================
-# This file defines the shared strata, eras, and time configuration
-# that all domain modules use.
-#
-# Domain-specific signals, fields, fractures, and their local configs are
-# defined in their respective module files:
-#   - stellar/stellar.cdsl: Stars, moons, orbital mechanics, tidal effects
-#   - geophysics/geophysics.cdsl: Planetary physics, crust, tectonics
-#   - atmosphere/atmosphere.cdsl: Radiative transfer, water vapor, clouds
-#   - hydrology/hydrology.cdsl: Water cycle, precipitation, runoff
-#   - ecology/ecology.cdsl: Biosphere, carbon cycling, productivity
-# =============================================================================
-=======
 //! Terra World - Root Configuration
-//!
+//! =============================================================================
 //! This file defines the shared strata, eras, and time configuration
-//! that all domain modules (geophysics, atmosphere, hydrology, ecology) use.
+//! that all domain modules use.
 //!
 //! Domain-specific signals, fields, fractures, and their local configs are
 //! defined in their respective module files:
+//!   - stellar/stellar.cdsl: Stars, moons, orbital mechanics, tidal effects
 //!   - geophysics/geophysics.cdsl: Planetary physics, crust, tectonics
 //!   - atmosphere/atmosphere.cdsl: Radiative transfer, water vapor, clouds
 //!   - hydrology/hydrology.cdsl: Water cycle, precipitation, runoff
 //!   - ecology/ecology.cdsl: Biosphere, carbon cycling, productivity
->>>>>>> origin/main
+//! =============================================================================
 
 world.terra {
     : title("Terra Geophysics Simulation")
