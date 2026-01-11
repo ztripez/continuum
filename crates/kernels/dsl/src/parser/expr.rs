@@ -181,6 +181,7 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         });
 
         // Method calls: expr.method(args) - now works with Spanned<Expr>
+        // Boxed to reduce type complexity from foldl chains.
         let postfix = atom.foldl(
             just('.')
                 .padded_by(ws())
@@ -210,10 +211,12 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                 };
                 Spanned::new(new_expr, obj.span.start..span_end)
             },
-        );
+        )
+        .boxed();
 
         // Unary operators: negation (-) and logical not (! or 'not')
         // The 'not' keyword uses text::keyword to ensure proper word boundary handling
+        // Boxed to prevent type explosion in operator chains.
         let unary = choice((
             just('-').to(UnaryOp::Neg),
             just('!').to(UnaryOp::Not),
@@ -233,9 +236,10 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     },
                     span,
                 )
-            });
+            })
+            .boxed();
 
-        // Binary operators - helper macro to reduce repetition
+        // Binary operators - boxed to prevent exponential type growth
         let product = unary.clone().foldl(
             choice((just('*').to(BinaryOp::Mul), just('/').to(BinaryOp::Div)))
                 .padded_by(ws())
@@ -252,7 +256,8 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     span,
                 )
             },
-        );
+        )
+        .boxed();
 
         let sum = product.clone().foldl(
             choice((just('+').to(BinaryOp::Add), just('-').to(BinaryOp::Sub)))
@@ -270,7 +275,8 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     span,
                 )
             },
-        );
+        )
+        .boxed();
 
         // Comparison operators do NOT chain: a < b < c is disallowed
         // Use .or_not() instead of .repeated() to prevent chaining
@@ -302,7 +308,8 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     )
                 }
                 None => left,
-            });
+            })
+            .boxed();
 
         // Logical AND has lower precedence than comparison
         // Accept both '&&' and 'and' keyword
@@ -326,7 +333,8 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     span,
                 )
             },
-        );
+        )
+        .boxed();
 
         // Logical OR has lower precedence than AND
         // Accept both '||' and 'or' keyword
@@ -350,10 +358,11 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     span,
                 )
             },
-        );
+        )
+        .boxed();
 
-        // Box logical_or before using in if_expr to reduce type complexity
-        let logical_or_boxed = logical_or.clone().boxed();
+        // logical_or already boxed above, use directly
+        let logical_or_boxed = logical_or.clone();
 
         // Emit expression: signal.path <- value
         // Emits a value to a signal target. Used in fracture emit blocks.

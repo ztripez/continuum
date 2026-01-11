@@ -145,7 +145,7 @@ signal.atmosphere.surface_temp {
         let dt_temp = net_power / config.atmosphere.surface_temp.heat_capacity_j_k in
 
         vec3(
-            clamp(t_mean + dt_temp * dt_raw, 50.0, 500.0),
+            clamp(integrate(t_mean, dt_temp), 50.0, 500.0),
             prev.y + collected,
             prev.z + collected
         )
