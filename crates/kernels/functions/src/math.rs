@@ -70,6 +70,29 @@ pub fn modulo(a: f64, b: f64) -> f64 {
     ((a % b) + b) % b
 }
 
+/// Wrap value to range: `wrap(value, min, max)` → value wrapped to [min, max)
+///
+/// Useful for cyclic values like angles (0 to 2π) or phases.
+///
+/// # Panics
+///
+/// Panics if `min` or `max` are not finite, or if `max <= min`.
+#[kernel_fn(name = "wrap")]
+pub fn wrap(value: f64, min: f64, max: f64) -> f64 {
+    assert!(min.is_finite(), "wrap: min must be finite, got {}", min);
+    assert!(max.is_finite(), "wrap: max must be finite, got {}", max);
+    assert!(
+        max > min,
+        "wrap: max must be greater than min, got range [{}, {})",
+        min,
+        max
+    );
+
+    let range = max - min;
+    let offset = value - min;
+    min + ((offset % range) + range) % range
+}
+
 // === Variadic ===
 
 /// Minimum: `min(a, b, ...)`
@@ -151,5 +174,40 @@ mod tests {
         assert_eq!(eval("clamp", &[5.0, 0.0, 10.0], 1.0), Some(5.0));
         assert_eq!(eval("clamp", &[-5.0, 0.0, 10.0], 1.0), Some(0.0));
         assert_eq!(eval("clamp", &[15.0, 0.0, 10.0], 1.0), Some(10.0));
+    }
+
+    #[test]
+    fn test_eval_wrap() {
+        use std::f64::consts::PI;
+
+        // Value within range stays the same
+        assert_eq!(eval("wrap", &[1.0, 0.0, 10.0], 1.0), Some(1.0));
+
+        // Value above max wraps around
+        assert_eq!(eval("wrap", &[12.0, 0.0, 10.0], 1.0), Some(2.0));
+
+        // Value below min wraps around
+        assert_eq!(eval("wrap", &[-2.0, 0.0, 10.0], 1.0), Some(8.0));
+
+        // Angle wrapping (0 to 2π)
+        let tau = 2.0 * PI;
+        let result = eval("wrap", &[tau + 1.0, 0.0, tau], 1.0).unwrap();
+        assert!((result - 1.0).abs() < 1e-10);
+
+        // Negative angle
+        let result = eval("wrap", &[-PI, 0.0, tau], 1.0).unwrap();
+        assert!((result - PI).abs() < 1e-10);
+    }
+
+    #[test]
+    #[should_panic(expected = "wrap: max must be greater than min")]
+    fn test_eval_wrap_invalid_range() {
+        eval("wrap", &[1.0, 10.0, 0.0], 1.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "wrap: max must be greater than min")]
+    fn test_eval_wrap_zero_range() {
+        eval("wrap", &[1.0, 10.0, 10.0], 1.0);
     }
 }

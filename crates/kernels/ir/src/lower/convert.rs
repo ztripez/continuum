@@ -300,6 +300,7 @@ impl Lowerer {
             | Expr::ConfigRef(_)
             | Expr::FieldRef(_)
             | Expr::Collected
+            | Expr::SimTime
             | Expr::MathConst(_) => false,
         }
     }

@@ -80,6 +80,8 @@ pub struct MemberResolveContext<'a, T> {
     pub members: &'a MemberSignalBuffer,
     /// Time step
     pub dt: Dt,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }
 
 /// Typed context for scalar member signal resolution.
@@ -274,6 +276,7 @@ pub fn resolve_scalar_l1<F>(
     signals: &SignalStorage,
     members: &MemberSignalBuffer,
     dt: Dt,
+    sim_time: f64,
     config: ChunkConfig,
 ) -> Vec<f64>
 where
@@ -288,6 +291,7 @@ where
                 signals,
                 members,
                 dt,
+                sim_time,
             };
             resolver(&ctx)
         },
@@ -305,6 +309,7 @@ pub fn resolve_vec3_l1<F>(
     signals: &SignalStorage,
     members: &MemberSignalBuffer,
     dt: Dt,
+    sim_time: f64,
     config: ChunkConfig,
 ) -> Vec<[f64; 3]>
 where
@@ -319,6 +324,7 @@ where
                 signals,
                 members,
                 dt,
+                sim_time,
             };
             resolver(&ctx)
         },
@@ -338,6 +344,7 @@ pub fn resolve_member_signal_l1<F>(
     signals: &SignalStorage,
     members: &MemberSignalBuffer,
     dt: Dt,
+    sim_time: f64,
     config: ChunkConfig,
 ) -> Vec<Value>
 where
@@ -352,6 +359,7 @@ where
                 signals,
                 members,
                 dt,
+                sim_time,
             };
             resolver(&ctx)
         },
@@ -380,6 +388,7 @@ pub trait MemberSignalResolver: Send + Sync {
     /// * `signals` - Global signal storage
     /// * `members` - Member signal buffer
     /// * `dt` - Time step
+    /// * `sim_time` - Accumulated simulation time in seconds
     ///
     /// # Returns
     ///
@@ -390,6 +399,7 @@ pub trait MemberSignalResolver: Send + Sync {
         signals: &SignalStorage,
         members: &MemberSignalBuffer,
         dt: Dt,
+        sim_time: f64,
     ) -> Vec<Self::Value>;
 }
 
@@ -434,12 +444,21 @@ where
         signals: &SignalStorage,
         members: &MemberSignalBuffer,
         dt: Dt,
+        sim_time: f64,
     ) -> Vec<f64> {
         let config = ChunkConfig {
             chunk_size: optimal_chunk_size(prev_values.len()),
             ..self.config
         };
-        resolve_scalar_l1(prev_values, &self.resolver, signals, members, dt, config)
+        resolve_scalar_l1(
+            prev_values,
+            &self.resolver,
+            signals,
+            members,
+            dt,
+            sim_time,
+            config,
+        )
     }
 }
 
@@ -482,12 +501,21 @@ where
         signals: &SignalStorage,
         members: &MemberSignalBuffer,
         dt: Dt,
+        sim_time: f64,
     ) -> Vec<[f64; 3]> {
         let config = ChunkConfig {
             chunk_size: optimal_chunk_size(prev_values.len()),
             ..self.config
         };
-        resolve_vec3_l1(prev_values, &self.resolver, signals, members, dt, config)
+        resolve_vec3_l1(
+            prev_values,
+            &self.resolver,
+            signals,
+            members,
+            dt,
+            sim_time,
+            config,
+        )
     }
 }
 
@@ -555,6 +583,7 @@ mod tests {
             &signals,
             &members,
             Dt(1.0),
+            0.0,
             config,
         );
 
@@ -578,6 +607,7 @@ mod tests {
             &signals,
             &members,
             Dt(1.0),
+            0.0,
             config,
         );
 
@@ -602,6 +632,7 @@ mod tests {
             &signals,
             &members,
             Dt(1.0),
+            0.0,
             config,
         );
 
@@ -611,6 +642,7 @@ mod tests {
             &signals,
             &members,
             Dt(1.0),
+            0.0,
             config,
         );
 
@@ -632,6 +664,7 @@ mod tests {
             &signals,
             &members,
             Dt(1.0),
+            0.0,
             config,
         );
 
@@ -655,6 +688,7 @@ mod tests {
             &signals,
             &members,
             Dt(1.0),
+            0.0,
             config,
         );
 
@@ -674,7 +708,7 @@ mod tests {
         let signals = create_test_signals();
         let members = create_test_members(5);
 
-        let results = resolver.resolve_all(&prev_values, &signals, &members, Dt(1.0));
+        let results = resolver.resolve_all(&prev_values, &signals, &members, Dt(1.0), 0.0);
 
         assert_eq!(results, vec![2.0, 3.0, 4.0, 5.0, 6.0]);
     }
@@ -688,7 +722,7 @@ mod tests {
         let signals = create_test_signals();
         let members = create_test_members(3);
 
-        let results = resolver.resolve_all(&prev_values, &signals, &members, Dt(0.5));
+        let results = resolver.resolve_all(&prev_values, &signals, &members, Dt(0.5), 0.0);
 
         assert_eq!(results, vec![5.0, 5.0, 5.0]);
     }
@@ -715,6 +749,7 @@ mod tests {
             &signals,
             &members,
             Dt(1.0),
+            0.0,
             config,
         );
 
@@ -738,6 +773,7 @@ mod tests {
             &signals,
             &members,
             Dt(1.0),
+            0.0,
             config,
         );
 

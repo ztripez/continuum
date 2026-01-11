@@ -695,22 +695,10 @@ impl SymbolIndex {
                 self.index_expr(condition);
             }
         }
-        if !def.emit.is_empty() {
-            extra.push((
-                "emit".to_string(),
-                format!("{} emission(s)", def.emit.len()),
-            ));
-            // Index references in emit statements
-            for emit in &def.emit {
-                // The target path is a signal reference
-                self.references.push(SymbolReference {
-                    span: emit.target.span.clone(),
-                    kind: SymbolKind::Signal,
-                    target_path: emit.target.node.to_string(),
-                });
-                // Index the value expression too
-                self.index_expr(&emit.value);
-            }
+        if let Some(ref emit) = def.emit {
+            extra.push(("emit".to_string(), "1 emission(s)".to_string()));
+            // Index references in emit statement
+            self.index_expr(emit);
         }
 
         self.symbols.push(IndexedSymbol {
@@ -992,6 +980,15 @@ impl SpannedExprVisitor for RefCollector<'_> {
             span,
             kind: SymbolKind::Entity,
             target_path: path.to_string(),
+        });
+        true
+    }
+
+    fn visit_emit_signal(&mut self, span: Range<usize>, target: &Path) -> bool {
+        self.references.push(SymbolReference {
+            span,
+            kind: SymbolKind::Signal,
+            target_path: target.to_string(),
         });
         true
     }

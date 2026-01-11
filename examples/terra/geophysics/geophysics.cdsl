@@ -3,6 +3,34 @@
 #
 # This module provides the foundational geophysical signals that other
 # modules (atmosphere, hydrology, ecology) depend on.
+#
+# =============================================================================
+# Limitations (see issue #182)
+# =============================================================================
+#
+# The following old reference (Rust) structures cannot be directly represented
+# in the current CDSL due to language constraints:
+#
+# 1. CrustSurface (per-sample-point arrays):
+#    - elevation_m: Vec<f32>
+#    - thickness_m: Vec<f32>
+#    CDSL does not support variable-length arrays. These are represented as
+#    aggregate scalar signals (crust.elevation, crust.thickness).
+#
+# 2. CrustLayers (layered shell structures):
+#    - shells: Vec<LayerShell> with composition arrays per shell
+#    CDSL entities are flat collections. Multi-level hierarchies require
+#    multiple entity types or runtime spatial sampling.
+#
+# 3. PlateBoundarySegments (typed segment lists):
+#    - segments: Vec<BoundarySegment> with per-segment BoundaryType
+#    Segment-level classification requires runtime spatial analysis.
+#    Provided instead: activity proxy signals (divergent_activity,
+#    convergent_activity, transform_activity) for aggregate estimates.
+#
+# These limitations are architectural - CDSL signals are single values or
+# entity-associated members, not spatial arrays. Spatial data structures
+# are handled by the runtime's Field and Lens systems.
 # =============================================================================
 
 # =============================================================================
@@ -131,6 +159,21 @@ config {
     tectonics.initial_activity: 1.0
     tectonics.reference_shear: 30.0
     tectonics.initial_plate_count: 12
+
+    # Plate entity configuration
+    plates.count: 12
+    plates.min_count: 5
+    plates.max_count: 50
+    plates.oceanic_fraction: 0.71
+    plates.max_oceanic_age_myr: 280.0
+    plates.age_min_myr: 0.0
+    plates.age_max_myr: 4000.0
+    plates.thickness_min_m: 5000.0
+    plates.thickness_max_m: 70000.0
+    plates.continental_thickness_threshold_m: 30000.0
+    plates.buoyancy_min: 0.0
+    plates.buoyancy_max: 1.0
+    plates.continental_buoyancy_threshold: 0.5
 }
 
 # =============================================================================
@@ -213,7 +256,6 @@ signal.rotation.state {
     : strata(rotation)
     : title("Rotation State")
     : symbol("theta,omega")
-    : uses(dt_raw)
 
     config {
         initial_phase: 0.0
@@ -221,11 +263,10 @@ signal.rotation.state {
     }
 
     resolve {
-        # Phase advances with angular velocity
-        # phase += omega * dt
-        let phase = prev.x + prev.y * dt_raw in
+        # Phase advances with angular velocity using integrate
+        let phase = integrate(prev.x, prev.y) in
         let omega = prev.y + collected in
-        vec2(mod(phase, 6.283185307), omega)
+        vec2(mod(phase, TAU), omega)
     }
 
     assert {
@@ -234,22 +275,75 @@ signal.rotation.state {
     }
 }
 
-# Spin axis in world coordinates (obliquity and precession encoded)
+# Axial obliquity (tilt angle from ecliptic normal)
+# Earth: ~23.4 degrees = 0.409 rad
+signal.rotation.obliquity {
+    : Scalar<rad, 0..PI>
+    : strata(rotation)
+    : title("Axial Obliquity")
+    : symbol("epsilon")
+
+    config {
+        initial: 0.409
+        precession_rate: 0.0  # rad/s, can evolve via tidal effects
+    }
+
+    resolve {
+        # Obliquity can evolve due to tidal torques and perturbations
+        prev + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Obliquity cannot be negative"
+        prev <= PI : warn, "Obliquity cannot exceed PI"
+    }
+}
+
+# Precession angle (rotation of spin axis around ecliptic normal)
+# Earth: completes one cycle in ~26,000 years
+signal.rotation.precession {
+    : Scalar<rad, 0..TAU>
+    : strata(rotation)
+    : title("Precession Angle")
+    : symbol("psi")
+
+    config {
+        initial: 0.0
+        rate: 7.7e-12  # rad/s, ~26,000 year period
+    }
+
+    resolve {
+        # Precession advances at a rate determined by torques
+        mod(integrate(prev, config.rotation.precession.rate) + collected, TAU)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Precession angle cannot be negative"
+        prev <= TAU : warn, "Precession angle cannot exceed TAU"
+    }
+}
+
+# Spin axis in world coordinates (computed from obliquity and precession)
+# +Y is ecliptic normal, spin axis tilts from +Y by obliquity
 signal.rotation.spin_axis {
     : Vec3<1>
     : strata(rotation)
     : title("Spin Axis World")
     : symbol("n_spin")
 
-    config {
-        initial_obliquity: 0.409
-        initial_precession: 0.0
-    }
-
     resolve {
-        # Spin axis from obliquity (theta from +Y) and precession (phi around Y)
-        # For Earth: obliquity ~23.4 deg = 0.409 rad
-        prev + collected
+        # Compute unit vector from spherical angles
+        # obliquity = angle from +Y axis
+        # precession = rotation around Y axis in XZ plane
+        let obl = signal.rotation.obliquity in
+        let prec = signal.rotation.precession in
+        let sin_obl = sin(obl) in
+        let cos_obl = cos(obl) in
+        vec3(
+            sin_obl * sin(prec),   # x component
+            cos_obl,               # y component (ecliptic normal)
+            sin_obl * cos(prec)    # z component
+        )
     }
 
     assert {
@@ -297,7 +391,8 @@ signal.core.heat_power {
     resolve {
         # Radiogenic decay reduces heat production over time
         # Earth's core heat flow is ~2-6 TW
-        decay(prev, config.core.heat_power.radiogenic_halflife_gyr * 3.1536e16) + collected
+        # Clamp to prevent negative accumulation from heat budget fracture
+        max(decay(prev, config.core.heat_power.radiogenic_halflife_gyr * 3.1536e16) + collected, 0.0)
     }
 
     assert {
@@ -312,7 +407,6 @@ signal.mantle.heat_content {
     : strata(thermal)
     : title("Mantle Heat Content")
     : symbol("Q_mantle")
-    : uses(dt_raw)
 
     config {
         initial_heat: 8.0e30
@@ -321,7 +415,7 @@ signal.mantle.heat_content {
     resolve {
         # Heat content changes with net power input: dQ/dt = P_in
         # Earth's mantle: mass ~4e24 kg, Cp ~1200 J/kg/K, T ~1600K = 8e30 J
-        prev + signal.core.heat_power * dt_raw + collected
+        integrate(prev, signal.core.heat_power) + collected
     }
 
     assert {
@@ -679,14 +773,14 @@ signal.tectonics.activity {
     }
 }
 
-# Plate count diagnostic
+# Plate count diagnostic (now derived from plate entity)
 signal.tectonics.plate_count {
     : Scalar<1, 0..64>
     : strata(tectonics)
     : title("Plate Count")
 
     resolve {
-        clamp(prev + collected, 0.0, 64.0)
+        count(entity.terra.plate)
     }
 
     assert {
@@ -702,12 +796,677 @@ signal.mantle.viscosity {
     : title("Mantle Viscosity")
     : symbol("eta")
 
+    config {
+        initial: 1e21  # Earth's effective mantle viscosity (Pa*s)
+    }
+
     resolve {
-        prev + collected
+        if prev == 0.0 {
+            config.mantle.viscosity.initial + collected
+        } else {
+            prev + collected
+        }
     }
 
     assert {
         prev >= 0.0 : warn, "Viscosity cannot be negative"
+    }
+}
+
+# =============================================================================
+# Mantle Convection Signals (from old mantle_flow.rs)
+# =============================================================================
+
+# Effective Rayleigh number - dimensionless measure of convection vigor
+# Ra ~ Q/ν (heat power / viscosity) normalized to Earth-like conditions
+signal.mantle.rayleigh_number {
+    : Scalar<1, 0..1e10>
+    : strata(tectonics)
+    : title("Effective Rayleigh Number")
+    : symbol("Ra")
+
+    config {
+        reference_heat_power: 4.0e13   # W (40 TW, Earth reference)
+        reference_viscosity: 1.0e21    # Pa*s (Earth reference)
+    }
+
+    resolve {
+        # Normalized Rayleigh: Ra_eff ~ (Q/Q_ref) / (ν/ν_ref)
+        let q_norm = signal.core.heat_power / config.mantle.rayleigh_number.reference_heat_power in
+        let nu_norm = signal.mantle.viscosity / config.mantle.rayleigh_number.reference_viscosity in
+        if nu_norm > 0.0 {
+            q_norm / nu_norm
+        } else {
+            1.0
+        }
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Rayleigh number cannot be negative"
+    }
+}
+
+# Convection cell count - derived from Rayleigh number
+# More vigorous convection produces more cells
+signal.mantle.convection_cells {
+    : Scalar<1, 2..12>
+    : strata(tectonics)
+    : title("Convection Cell Count")
+    : symbol("N_cells")
+
+    config {
+        reference_ra: 1.0e6            # Reference Rayleigh number
+        mode_count: 4                  # Earth-like cell count
+        exponent: 0.4                  # Scaling exponent
+        min_count: 2
+        max_count: 12
+    }
+
+    resolve {
+        # n = mode * (Ra / Ra_ref)^exponent
+        # Guard against negative Rayleigh (would cause NaN in pow with fractional exponent)
+        let ra = max(signal.mantle.rayleigh_number, 0.0) in
+        let ratio = ra / config.mantle.convection_cells.reference_ra in
+        let n = config.mantle.convection_cells.mode_count * pow(ratio, config.mantle.convection_cells.exponent) in
+        clamp(n, config.mantle.convection_cells.min_count, config.mantle.convection_cells.max_count)
+    }
+
+    assert {
+        prev >= 2.0 : warn, "Convection cells below minimum"
+        prev <= 12.0 : warn, "Convection cells above maximum"
+    }
+}
+
+# Mantle flow strength - vortex velocity scale (cm/yr)
+# Higher heat power drives more vigorous convection
+signal.mantle.flow_strength {
+    : Scalar<cm/yr, 0..50>
+    : strata(tectonics)
+    : title("Mantle Flow Strength")
+    : symbol("v_mantle")
+
+    config {
+        base_strength: 5.0             # cm/yr (typical Earth mantle)
+        reference_heat_power: 4.0e13   # W
+        exponent: 0.3                  # Strength scaling exponent
+    }
+
+    resolve {
+        # strength ~ base * (Q/Q_ref)^exponent
+        let ratio = signal.core.heat_power / config.mantle.flow_strength.reference_heat_power in
+        let scale = pow(max(ratio, 0.0), config.mantle.flow_strength.exponent) in
+        config.mantle.flow_strength.base_strength * scale + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Flow strength cannot be negative"
+    }
+}
+
+# =============================================================================
+# Advanced Tectonic Signals
+# =============================================================================
+
+# Orogeny rate - rate of mountain building from plate collisions
+signal.tectonics.orogeny_rate {
+    : Scalar<m/Myr, 0..10000>
+    : strata(tectonics)
+    : title("Orogeny Rate")
+    : symbol("dh/dt")
+
+    config {
+        stress_factor: 1e-8            # Conversion from stress to uplift rate
+        activity_factor: 100.0         # Base rate per unit activity
+    }
+
+    resolve {
+        # Orogeny driven by boundary stress and tectonic activity
+        let stress_contribution = signal.tectonics.boundary_stress * config.tectonics.orogeny_rate.stress_factor in
+        let activity_contribution = signal.tectonics.activity * config.tectonics.orogeny_rate.activity_factor in
+        stress_contribution + activity_contribution + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Orogeny rate cannot be negative"
+    }
+}
+
+# Volcanism index - volcanic activity level from thermal state
+signal.tectonics.volcanism {
+    : Scalar<1, 0..100>
+    : strata(tectonics)
+    : title("Volcanism Index")
+    : symbol("V_idx")
+
+    config {
+        reference_mantle_temp: 1600.0  # K
+        temp_sensitivity: 0.01         # Index per K above reference
+        flow_factor: 0.5               # Contribution from mantle flow
+    }
+
+    resolve {
+        # Volcanism driven by excess mantle temperature and convection strength
+        let temp_excess = max(signal.mantle.temp - config.tectonics.volcanism.reference_mantle_temp, 0.0) in
+        let temp_contribution = temp_excess * config.tectonics.volcanism.temp_sensitivity in
+        let flow_contribution = signal.mantle.flow_strength * config.tectonics.volcanism.flow_factor in
+        clamp(temp_contribution + flow_contribution + collected, 0.0, 100.0)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Volcanism index cannot be negative"
+        prev <= 100.0 : warn, "Volcanism index exceeds maximum"
+    }
+}
+
+# Subduction rate - rate at which oceanic crust is recycled
+signal.tectonics.subduction_rate {
+    : Scalar<km²/Myr, 0..10>
+    : strata(tectonics)
+    : title("Subduction Rate")
+    : symbol("A_sub")
+
+    config {
+        velocity_factor: 1e-6          # Conversion from plate velocity
+        boundary_factor: 0.1           # Factor for boundary length contribution
+    }
+
+    resolve {
+        # Subduction rate driven by plate velocities and convergent boundaries
+        let velocity_contribution = signal.plates.boundary_shear * 1e6 * config.tectonics.subduction_rate.velocity_factor in
+        let oceanic_fraction = signal.plates.oceanic_count / max(signal.plates.count, 1.0) in
+        velocity_contribution * oceanic_fraction * signal.tectonics.activity + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Subduction rate cannot be negative"
+    }
+}
+
+# Seafloor spreading rate - rate of new oceanic crust creation
+signal.tectonics.spreading_rate {
+    : Scalar<km²/Myr, 0..10>
+    : strata(tectonics)
+    : title("Seafloor Spreading Rate")
+    : symbol("A_spread")
+
+    config {
+        mantle_coupling: 0.2           # Coupling to mantle flow
+    }
+
+    resolve {
+        # Spreading rate roughly balances subduction over long timescales
+        # Driven by mantle upwelling strength
+        let flow_contribution = signal.mantle.flow_strength * config.tectonics.spreading_rate.mantle_coupling in
+        let activity_contribution = signal.tectonics.activity in
+        flow_contribution * activity_contribution + collected
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Spreading rate cannot be negative"
+    }
+}
+
+# =============================================================================
+# Tectonic Plate Entity
+# =============================================================================
+
+entity.terra.plate {
+    : count(config.plates.count)
+    : count(5..64)
+}
+
+# -----------------------------------------------------------------------------
+# Plate Physical Properties
+# -----------------------------------------------------------------------------
+
+# Plate type: 0 = oceanic, 1 = continental
+# Initialized via scenario or worldgen; 0 = oceanic, 1 = continental
+member.terra.plate.kind {
+    : Scalar<1, 0..1>
+    : strata(tectonics)
+    : title("Plate Type")
+    : symbol("k_plate")
+
+    # Default to oceanic (0.0); scenario/worldgen can override
+    initial { 0.0 }
+
+    resolve { prev + collected }
+}
+
+# Plate age in millions of years
+# Oceanic plates age and eventually subduct; continental plates can be billions of years old
+member.terra.plate.age {
+    : Scalar<Myr, 0..5000>
+    : strata(tectonics)
+    : title("Plate Age")
+    : symbol("t_plate")
+
+    config {
+        max_oceanic_age_myr: 280.0
+        initial_age_myr: 100.0
+    }
+
+    initial { config.terra.plate.age.initial_age_myr }
+
+    resolve {
+        # Plates age with simulation time (rate = 1 Myr per 3.1536e13 seconds)
+        # Oceanic plates are capped at max age (subduction recycling)
+        let new_age = integrate(prev, 3.1688e-14) in  # 1/3.1536e13 Myr/s
+        if self.kind < 0.5 {
+            # Oceanic: cap at max age
+            min(new_age, config.terra.plate.age.max_oceanic_age_myr)
+        } else {
+            # Continental: no cap
+            new_age
+        }
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Plate age cannot be negative"
+    }
+}
+
+# Plate lithosphere thickness
+member.terra.plate.thickness {
+    : Scalar<m, 5000..70000>
+    : strata(tectonics)
+    : title("Plate Thickness")
+    : symbol("h_plate")
+
+    config {
+        initial_thickness_m: 35000.0
+    }
+
+    initial { config.terra.plate.thickness.initial_thickness_m }
+
+    resolve {
+        clamp(prev + collected, 5000.0, 70000.0)
+    }
+
+    assert {
+        prev >= 5000.0 : warn, "Plate thickness below minimum"
+        prev <= 70000.0 : warn, "Plate thickness above maximum"
+    }
+}
+
+# Plate buoyancy (0 = dense/subductable, 1 = buoyant/resistant)
+# Lower buoyancy = more likely to subduct
+member.terra.plate.buoyancy {
+    : Scalar<1, 0..1>
+    : strata(tectonics)
+    : title("Plate Buoyancy")
+    : symbol("b_plate")
+
+    config {
+        initial_buoyancy: 0.3
+    }
+
+    initial { config.terra.plate.buoyancy.initial_buoyancy }
+
+    resolve {
+        clamp(prev + collected, 0.0, 1.0)
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Plate buoyancy cannot be negative"
+        prev <= 1.0 : warn, "Plate buoyancy cannot exceed 1"
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Geometry (seed direction on sphere)
+# -----------------------------------------------------------------------------
+
+# Plate seed direction in body frame (unit vector defining plate center)
+member.terra.plate.seed_direction {
+    : Vec3<1>
+    : strata(tectonics)
+    : title("Plate Seed Direction")
+    : symbol("n_plate")
+
+    # Default to +Z axis; scenario/worldgen distributes plates over sphere
+    initial { vec3(0.0, 0.0, 1.0) }
+
+    resolve {
+        # Normalize to maintain unit vector
+        normalize(prev + collected)
+    }
+
+    assert {
+        abs(length(prev) - 1.0) < 0.01 : warn, "Plate seed should be unit vector"
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Kinematics
+# -----------------------------------------------------------------------------
+
+# Plate angular velocity (rotation axis and rate in body frame)
+member.terra.plate.omega {
+    : Vec3<rad/s>
+    : strata(tectonics)
+    : title("Plate Angular Velocity")
+    : symbol("omega_plate")
+
+    config {
+        scale: 1.0
+    }
+
+    # Start at rest; mantle flow will drive plate motion
+    initial { vec3(0.0, 0.0, 0.0) }
+
+    resolve {
+        # Plate motion derived from mantle flow and collected impulses
+        config.terra.plate.omega.scale * (prev + collected)
+    }
+}
+
+# Plate surface velocity magnitude at equator of rotation
+member.terra.plate.velocity {
+    : Scalar<m/s, 0..1>
+    : strata(tectonics)
+    : title("Plate Velocity")
+    : symbol("v_plate")
+
+    resolve {
+        # v = omega * R (velocity at planet radius)
+        length(self.omega) * signal.planet.radius
+    }
+
+    assert {
+        prev >= 0.0 : warn, "Plate velocity cannot be negative"
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Aggregate Plate Signals
+# -----------------------------------------------------------------------------
+
+# Number of plates (derived from entity count)
+signal.plates.count {
+    : Scalar<1, 0..64>
+    : strata(tectonics)
+    : title("Number of Plates")
+    : symbol("N_plates")
+
+    resolve {
+        count(entity.terra.plate)
+    }
+}
+
+# Mean plate age
+signal.plates.mean_age {
+    : Scalar<Myr, 0..5000>
+    : strata(tectonics)
+    : title("Mean Plate Age")
+    : symbol("t_mean")
+
+    resolve {
+        mean(entity.terra.plate, self.age)
+    }
+}
+
+# Mean plate thickness
+signal.plates.mean_thickness {
+    : Scalar<m, 5000..70000>
+    : strata(tectonics)
+    : title("Mean Plate Thickness")
+    : symbol("h_mean")
+
+    resolve {
+        mean(entity.terra.plate, self.thickness)
+    }
+}
+
+# Oceanic plate count
+signal.plates.oceanic_count {
+    : Scalar<1, 0..64>
+    : strata(tectonics)
+    : title("Oceanic Plate Count")
+    : symbol("N_oceanic")
+
+    resolve {
+        sum(entity.terra.plate, if self.kind < 0.5 { 1.0 } else { 0.0 })
+    }
+}
+
+# Continental plate count
+signal.plates.continental_count {
+    : Scalar<1, 0..64>
+    : strata(tectonics)
+    : title("Continental Plate Count")
+    : symbol("N_continental")
+
+    resolve {
+        sum(entity.terra.plate, if self.kind >= 0.5 { 1.0 } else { 0.0 })
+    }
+}
+
+# Maximum boundary shear (approximation from plate velocities)
+signal.plates.boundary_shear {
+    : Scalar<m/s, 0..1>
+    : strata(tectonics)
+    : title("Plate Boundary Shear")
+    : symbol("tau_boundary")
+
+    resolve {
+        # Approximate shear as max velocity difference between plates
+        let max_v = max(entity.terra.plate, self.velocity) in
+        let min_v = min(entity.terra.plate, self.velocity) in
+        max_v - min_v + collected
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Enhanced Plate Catalog Aggregates
+# Provides additional statistics from the plate entity collection
+# -----------------------------------------------------------------------------
+
+# Mean plate buoyancy
+signal.plates.mean_buoyancy {
+    : Scalar<1, 0..1>
+    : strata(tectonics)
+    : title("Mean Plate Buoyancy")
+    : symbol("b_mean")
+
+    resolve {
+        mean(entity.terra.plate, self.buoyancy)
+    }
+}
+
+# Total buoyancy (proxy for continental mass)
+signal.plates.total_buoyancy {
+    : Scalar<1, 0..64>
+    : strata(tectonics)
+    : title("Total Plate Buoyancy")
+    : symbol("b_sum")
+
+    resolve {
+        sum(entity.terra.plate, self.buoyancy)
+    }
+}
+
+# Maximum plate age (oldest plate)
+signal.plates.max_age {
+    : Scalar<Myr, 0..5000>
+    : strata(tectonics)
+    : title("Maximum Plate Age")
+    : symbol("t_max")
+
+    resolve {
+        max(entity.terra.plate, self.age)
+    }
+}
+
+# Minimum plate age (youngest plate)
+signal.plates.min_age {
+    : Scalar<Myr, 0..5000>
+    : strata(tectonics)
+    : title("Minimum Plate Age")
+    : symbol("t_min")
+
+    resolve {
+        min(entity.terra.plate, self.age)
+    }
+}
+
+# Total crustal area proxy (sum of thicknesses as volume proxy)
+signal.plates.total_thickness {
+    : Scalar<m, 0..1000000>
+    : strata(tectonics)
+    : title("Total Plate Thickness")
+    : symbol("h_sum")
+
+    resolve {
+        sum(entity.terra.plate, self.thickness)
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Motion Aggregates
+# Statistics for plate kinematics across the plate catalog
+# -----------------------------------------------------------------------------
+
+# Mean plate velocity magnitude
+signal.plates.mean_velocity {
+    : Scalar<m/s, 0..1>
+    : strata(tectonics)
+    : title("Mean Plate Velocity")
+    : symbol("v_mean")
+
+    resolve {
+        mean(entity.terra.plate, self.velocity)
+    }
+}
+
+# Maximum plate velocity
+signal.plates.max_velocity {
+    : Scalar<m/s, 0..1>
+    : strata(tectonics)
+    : title("Maximum Plate Velocity")
+    : symbol("v_max")
+
+    resolve {
+        max(entity.terra.plate, self.velocity)
+    }
+}
+
+# Minimum plate velocity
+signal.plates.min_velocity {
+    : Scalar<m/s, 0..0.1>
+    : strata(tectonics)
+    : title("Minimum Plate Velocity")
+    : symbol("v_min")
+
+    resolve {
+        min(entity.terra.plate, self.velocity)
+    }
+}
+
+# Mean angular velocity magnitude
+signal.plates.mean_omega {
+    : Scalar<rad/s, 0..1e-8>
+    : strata(tectonics)
+    : title("Mean Angular Velocity")
+    : symbol("omega_mean")
+
+    resolve {
+        mean(entity.terra.plate, length(self.omega))
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Boundary Classification Signals
+# Derived estimates for different boundary types based on plate kinematics
+# Note: True boundary segment classification requires spatial sampling which
+# is implemented in the runtime. These provide aggregate approximations.
+# -----------------------------------------------------------------------------
+
+# Velocity variance (high variance indicates diverse plate motions)
+signal.plates.velocity_variance {
+    : Scalar<m²/s², 0..1>
+    : strata(tectonics)
+    : title("Plate Velocity Variance")
+    : symbol("sigma_v²")
+
+    resolve {
+        # Variance = E[X²] - E[X]²
+        let mean_v = signal.plates.mean_velocity in
+        let mean_v_sq = mean(entity.terra.plate, self.velocity * self.velocity) in
+        max(mean_v_sq - mean_v * mean_v, 0.0)
+    }
+}
+
+# Spreading rate proxy - divergent boundary activity
+# Estimated from mantle upwelling and plate separation
+signal.plates.divergent_activity {
+    : Scalar<1, 0..10>
+    : strata(tectonics)
+    : title("Divergent Boundary Activity")
+    : symbol("A_div")
+
+    config {
+        flow_sensitivity: 0.5
+        velocity_sensitivity: 10.0
+    }
+
+    resolve {
+        # Divergent activity correlates with mantle upwelling and plate velocities
+        let flow_factor = signal.mantle.flow_strength * config.plates.divergent_activity.flow_sensitivity in
+        let velocity_factor = signal.plates.mean_velocity * config.plates.divergent_activity.velocity_sensitivity in
+        clamp(flow_factor + velocity_factor + collected, 0.0, 10.0)
+    }
+}
+
+# Subduction rate proxy - convergent boundary activity
+# Estimated from oceanic plate area and boundary shear
+signal.plates.convergent_activity {
+    : Scalar<1, 0..10>
+    : strata(tectonics)
+    : title("Convergent Boundary Activity")
+    : symbol("A_conv")
+
+    config {
+        shear_sensitivity: 20.0
+        oceanic_weight: 0.1
+    }
+
+    resolve {
+        # Convergent activity driven by boundary shear and oceanic plate count
+        let shear_factor = signal.plates.boundary_shear * config.plates.convergent_activity.shear_sensitivity in
+        let oceanic_factor = signal.plates.oceanic_count * config.plates.convergent_activity.oceanic_weight in
+        clamp(shear_factor * oceanic_factor + collected, 0.0, 10.0)
+    }
+}
+
+# Transform fault activity proxy
+# Lateral motion without significant convergence or divergence
+signal.plates.transform_activity {
+    : Scalar<1, 0..10>
+    : strata(tectonics)
+    : title("Transform Boundary Activity")
+    : symbol("A_trans")
+
+    config {
+        velocity_variance_weight: 100.0
+    }
+
+    resolve {
+        # Transform activity correlates with velocity variance (plates moving in different directions)
+        let variance_contribution = signal.plates.velocity_variance * config.plates.transform_activity.velocity_variance_weight in
+        clamp(variance_contribution + collected, 0.0, 10.0)
+    }
+}
+
+# Total boundary activity index
+signal.plates.total_boundary_activity {
+    : Scalar<1, 0..30>
+    : strata(tectonics)
+    : title("Total Boundary Activity")
+    : symbol("A_total")
+
+    resolve {
+        signal.plates.divergent_activity + signal.plates.convergent_activity + signal.plates.transform_activity
     }
 }
 
@@ -765,6 +1524,239 @@ fracture.core.decay_heat {
 
     emit {
         signal.core.temp <- 10.0
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Thermal-Mechanical Coupling (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Thermal-mechanical coupling: modulate mantle flow vigor based on heat content.
+# Higher mantle heat -> more vigorous convection -> faster plate motion.
+fracture.thermal.mechanical_coupling {
+    : strata(thermal)
+
+    config {
+        reference_heat_j: 8.0e30          # Earth-like mantle heat content (J)
+        coupling_strength: 0.1            # 0.0 = no coupling, 1.0 = full coupling
+        base_flow_strength: 5.0           # cm/yr reference
+    }
+
+    when {
+        # Activate when heat content deviates significantly from reference
+        abs(signal.mantle.heat_content - config.fracture.thermal.mechanical_coupling.reference_heat_j) > 1e29
+    }
+
+    emit {
+        # Compute heat ratio: >1 means hotter, <1 means cooler
+        let ratio = signal.mantle.heat_content / config.fracture.thermal.mechanical_coupling.reference_heat_j in
+        let delta = (ratio - 1.0) * config.fracture.thermal.mechanical_coupling.coupling_strength * config.fracture.thermal.mechanical_coupling.base_flow_strength in
+        signal.mantle.flow_strength <- delta
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Mantle Heat Budget (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Mantle heat budget: models long-term thermal evolution via:
+# - Radiogenic heating (decays with time)
+# - Core-mantle boundary heat flux
+# - Surface heat loss (temperature-dependent)
+fracture.thermal.heat_budget {
+    : strata(thermal)
+
+    config {
+        radiogenic_power_w: 2.0e13        # Initial radiogenic power (W)
+        radiogenic_halflife_gyr: 2.5      # Radiogenic decay half-life
+        surface_loss_coefficient: 1.0e-17 # Surface loss scaling
+        core_transfer_efficiency: 0.5     # Core heat transfer efficiency
+    }
+
+    when {
+        # Always active - continuous heat budget
+        signal.mantle.heat_content > 0.0
+    }
+
+    emit {
+        # Radiogenic heating contribution
+        let radiogenic = config.fracture.thermal.heat_budget.radiogenic_power_w in
+
+        # Core heat contribution (from core.heat_power with efficiency)
+        # Guard against negative heat power feeding back
+        let core_contribution = max(signal.core.heat_power, 0.0) * config.fracture.thermal.heat_budget.core_transfer_efficiency in
+
+        # Surface heat loss (proportional to heat content above reference)
+        let reference = 8.0e30 in
+        let excess_ratio = signal.mantle.heat_content / reference in
+        let surface_loss = excess_ratio * config.fracture.thermal.heat_budget.surface_loss_coefficient * signal.mantle.heat_content in
+
+        # Net power change - cap surface loss to not exceed available heat
+        let net_input = radiogenic + core_contribution in
+        let capped_loss = min(surface_loss, net_input + max(signal.core.heat_power, 0.0)) in
+
+        # Emit net change (will be non-negative if current heat_power >= 0)
+        signal.core.heat_power <- net_input - capped_loss
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Tectonic Uplift/Subsidence (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Convergent boundary uplift: plate collision drives crustal thickening
+fracture.tectonics.convergent_uplift {
+    : strata(tectonics)
+
+    config {
+        uplift_m_per_myr: 500.0           # Uplift rate at full convergence
+        thicken_m_per_myr: 200.0          # Thickening rate
+        convergence_threshold: 0.01       # Boundary shear threshold for activation
+    }
+
+    when {
+        signal.plates.boundary_shear > config.fracture.tectonics.convergent_uplift.convergence_threshold
+        signal.tectonics.activity > 0.5
+    }
+
+    emit {
+        # Normalized convergence factor
+        let conv_factor = signal.plates.boundary_shear / 0.1 in
+        let dt_myr = 0.001 in  # Approximate dt in Myr
+
+        signal.crust.thickness <- conv_factor * config.fracture.tectonics.convergent_uplift.thicken_m_per_myr * dt_myr
+        signal.crust.elevation <- conv_factor * config.fracture.tectonics.convergent_uplift.uplift_m_per_myr * dt_myr * 0.001
+    }
+}
+
+# Divergent boundary subsidence: plate separation drives crustal thinning
+fracture.tectonics.divergent_subsidence {
+    : strata(tectonics)
+
+    config {
+        subside_m_per_myr: 300.0          # Subsidence rate at full divergence
+        thin_m_per_myr: 150.0             # Thinning rate
+        divergence_threshold: 0.005       # Minimum activity for divergence
+    }
+
+    when {
+        signal.mantle.flow_strength > 3.0
+        signal.crust.thickness > 10000
+    }
+
+    emit {
+        # Divergence driven by mantle upwelling
+        let div_factor = signal.mantle.flow_strength / 10.0 in
+        let dt_myr = 0.001 in
+
+        signal.crust.thickness <- -div_factor * config.fracture.tectonics.divergent_subsidence.thin_m_per_myr * dt_myr
+        signal.topography.dynamic_offset <- div_factor * 50.0
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Wilson Cycle Dynamics (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Plate fragmentation: high boundary shear can rift plates apart
+# Creates new oceanic basins between continental fragments
+fracture.tectonics.wilson_fragmentation {
+    : strata(tectonics)
+
+    config {
+        fragmentation_period_myr: 400.0   # Mean time between fragmentations
+        shear_threshold: 0.1              # Minimum shear for fragmentation
+    }
+
+    when {
+        # High boundary shear indicates internal strain accumulation
+        signal.plates.boundary_shear > config.fracture.tectonics.wilson_fragmentation.shear_threshold
+        signal.plates.count > 1
+        signal.plates.count < 50
+    }
+
+    emit {
+        # Fragmentation releases boundary stress and creates new oceanic crust
+        signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.5
+        signal.topography.dynamic_offset <- 100.0
+        # Note: actual plate creation requires entity mutation (not yet in CDSL)
+    }
+}
+
+# Plate merger (supercontinent formation): continental collision merges plates
+fracture.tectonics.wilson_merger {
+    : strata(tectonics)
+
+    config {
+        merger_period_myr: 30.0           # Mean time for collision merger
+        convergence_threshold: 50.0       # mm/yr equivalent threshold
+    }
+
+    when {
+        # Continental collision at high convergence rate
+        signal.plates.boundary_shear > 0.15
+        signal.plates.continental_count > 2
+        signal.tectonics.activity > 1.5
+    }
+
+    emit {
+        # Merger builds mountains and thickens crust
+        signal.crust.thickness <- 2000.0
+        signal.crust.elevation <- 500.0
+        signal.tectonics.boundary_stress <- signal.tectonics.boundary_stress * 0.3
+        # Note: actual plate merger requires entity mutation
+    }
+}
+
+# Subduction recycling: old oceanic plates sink into mantle
+fracture.tectonics.wilson_subduction {
+    : strata(tectonics)
+
+    config {
+        subduction_age_threshold_myr: 180.0   # Age at which oceanic crust subducts
+        subduction_probability_per_myr: 0.01  # 1% per Myr chance
+    }
+
+    when {
+        # Old oceanic crust becomes negatively buoyant
+        signal.plates.mean_age > config.fracture.tectonics.wilson_subduction.subduction_age_threshold_myr
+        signal.plates.oceanic_count > 0
+    }
+
+    emit {
+        # Subduction releases heat and volatiles to mantle
+        signal.mantle.temp <- 10.0
+        signal.tectonics.volcanism <- 5.0
+        # Note: actual plate removal requires entity mutation
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Motion from Mantle Flow (from old fracture.rs)
+# -----------------------------------------------------------------------------
+
+# Derive plate motion from mantle convection
+# Mantle flow vortices drive plate angular velocities
+fracture.tectonics.derive_motion {
+    : strata(tectonics)
+
+    config {
+        omega_scale: 1e-15               # rad/s per unit flow
+        flow_coupling: 0.8               # Coupling strength to mantle
+    }
+
+    when {
+        signal.mantle.flow_strength > 0.1
+        signal.plates.count > 0
+    }
+
+    emit {
+        # Plate motion derived from mantle flow
+        let flow_factor = signal.mantle.flow_strength * config.fracture.tectonics.derive_motion.flow_coupling in
+
+        # Update tectonic activity based on flow-induced motion
+        signal.tectonics.activity <- flow_factor * 0.1
+        signal.plates.boundary_shear <- flow_factor * 1e-3
     }
 }
 
@@ -879,5 +1871,192 @@ field.thermal.heat_flow {
 
     measure {
         signal.surface.heat_flow
+    }
+}
+
+field.plates.velocity_map {
+    : Scalar<m/s>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Plate Velocity Field")
+
+    measure {
+        signal.plates.boundary_shear
+    }
+}
+
+field.plates.age_map {
+    : Scalar<Myr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Mean Plate Age Field")
+
+    measure {
+        signal.plates.mean_age
+    }
+}
+
+field.mantle.rayleigh {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Rayleigh Number Field")
+
+    measure {
+        signal.mantle.rayleigh_number
+    }
+}
+
+field.mantle.flow {
+    : Scalar<cm/yr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Mantle Flow Strength Field")
+
+    measure {
+        signal.mantle.flow_strength
+    }
+}
+
+field.tectonics.orogeny {
+    : Scalar<m/Myr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Orogeny Rate Field")
+
+    measure {
+        signal.tectonics.orogeny_rate
+    }
+}
+
+field.tectonics.volcanism_map {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Volcanism Index Field")
+
+    measure {
+        signal.tectonics.volcanism
+    }
+}
+
+field.tectonics.subduction {
+    : Scalar<km²/Myr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Subduction Rate Field")
+
+    measure {
+        signal.tectonics.subduction_rate
+    }
+}
+
+field.tectonics.spreading {
+    : Scalar<km²/Myr>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Seafloor Spreading Field")
+
+    measure {
+        signal.tectonics.spreading_rate
+    }
+}
+
+# =============================================================================
+# Geophysics Impulses
+# =============================================================================
+# External causal inputs that influence geophysics state.
+# These are emitted by fractures or external systems and applied during
+# the Collect phase.
+
+# -----------------------------------------------------------------------------
+# Plate Collision Impulse
+# -----------------------------------------------------------------------------
+# Triggered when two tectonic plates collide, representing a contact event
+# that affects plate dynamics and can trigger seismic/orogenic effects.
+
+type.PlateCollisionPayload {
+    plate_a: Scalar<1>           # First plate ID
+    plate_b: Scalar<1>           # Second plate ID
+    energy: Scalar<J>            # Collision energy
+}
+
+impulse.tectonics.plate_collision {
+    : PlateCollisionPayload
+    : title("Plate Collision")
+    : symbol("×")
+
+    config {
+        # Energy transfer efficiency to orogeny
+        orogeny_efficiency: 0.3
+        # Energy transfer to seismic activity
+        seismic_efficiency: 0.1
+        # Minimum energy threshold for significant effects
+        min_significant_energy_j: 1.0e18
+    }
+
+    apply {
+        # Only process collisions above threshold
+        if payload.energy > config.impulse.tectonics.plate_collision.min_significant_energy_j {
+            # Collision energy contributes to mountain building
+            let orogeny_contribution =
+                payload.energy * config.impulse.tectonics.plate_collision.orogeny_efficiency
+                / (1.0e21 * dt_myr) in
+
+            signal.tectonics.orogeny_rate <- orogeny_contribution;
+
+            # Collision energy also increases volcanic activity in collision zones
+            let activity_boost = payload.energy / 1.0e22 in
+            signal.tectonics.activity <- activity_boost
+        }
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Volcanic Impulse
+# -----------------------------------------------------------------------------
+# Deterministic volcanic venting tied to crustal tension and hydration.
+# Deposits heat, releases volatiles, and adds ejecta to the surface.
+
+type.VolcanicImpulsePayload {
+    index: Scalar<1>             # Crust sample index where impulse originates
+    shell: Scalar<1>             # Shell index affected (0 = surface)
+    heat_j: Scalar<J>            # Heat deposited into the shell
+    volatiles: Scalar<1>         # Volatile release magnitude (arbitrary units)
+    ejecta_thickness_m: Scalar<m> # Local crustal thickening from deposits
+}
+
+impulse.tectonics.volcanic {
+    : VolcanicImpulsePayload
+    : title("Volcanic Impulse")
+    : symbol("🌋")
+
+    config {
+        # Volatile to CO2 conversion factor
+        volatile_to_co2_factor: 0.1
+        # Heat transfer efficiency to surface
+        surface_heat_efficiency: 0.5
+        # Minimum heat for significant eruption
+        min_eruption_heat_j: 1.0e12
+    }
+
+    apply {
+        if payload.heat_j > config.impulse.tectonics.volcanic.min_eruption_heat_j {
+            # Heat deposited increases local thermal budget
+            let surface_heat =
+                payload.heat_j * config.impulse.tectonics.volcanic.surface_heat_efficiency in
+            signal.thermal.surface_flux <- surface_heat / 1.0e18;
+
+            # Volatiles released contribute to atmospheric CO2
+            let co2_release =
+                payload.volatiles * config.impulse.tectonics.volcanic.volatile_to_co2_factor in
+            signal.atmosphere.co2_ppmv <- co2_release;
+
+            # Volcanic activity index boost
+            signal.tectonics.volcanism <- payload.volatiles / 10.0;
+
+            # Ejecta contributes to crustal thickening signal
+            signal.crust.thickness <- payload.ejecta_thickness_m
+        }
     }
 }

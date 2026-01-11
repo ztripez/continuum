@@ -39,18 +39,29 @@
 //! hold owned copies of constants and config, avoiding shared state.
 
 mod contexts;
+mod member_interp;
 
 #[cfg(test)]
 mod tests;
+
+// Re-export member interpreter types
+pub use member_interp::{
+    InterpValue, MemberInterpContext, MemberResolverFn, Vec3MemberResolverFn,
+    build_member_resolver, build_vec3_member_resolver, interpret_expr,
+};
+
+use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
 use continuum_foundation::{EraId, FieldId, SignalId, StratumId};
 use continuum_runtime::executor::{
-    AssertionFn, AssertionSeverity, EraConfig, FractureFn, MeasureFn, ResolverFn, TransitionFn,
+    AggregateResolverFn, AssertionFn, AssertionSeverity, EraConfig, FractureFn, MeasureFn,
+    ResolverFn, TransitionFn,
 };
 // Import functions crate to ensure kernels are registered
 use continuum_functions as _;
+use continuum_runtime::soa_storage::MemberSignalBuffer;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::{Dt, Value};
 use continuum_vm::{BytecodeChunk, execute};
@@ -59,6 +70,124 @@ use crate::{
     AssertionSeverity as IrAssertionSeverity, CompiledEra, CompiledExpr, CompiledFracture,
     CompiledWorld, ValueType, codegen,
 };
+
+/// Checks if an expression contains any entity-related constructs.
+///
+/// Entity expressions (Aggregate, SelfField, EntityAccess, etc.) require the
+/// EntityExecutor for evaluation and cannot be compiled to bytecode. This
+/// function recursively checks an expression tree for any such constructs.
+///
+/// # Returns
+///
+/// `true` if the expression or any sub-expression contains entity constructs
+fn contains_entity_expression(expr: &CompiledExpr) -> bool {
+    match expr {
+        // Entity-related expressions
+        CompiledExpr::SelfField(_)
+        | CompiledExpr::EntityAccess { .. }
+        | CompiledExpr::Aggregate { .. }
+        | CompiledExpr::Other { .. }
+        | CompiledExpr::Pairs { .. }
+        | CompiledExpr::Filter { .. }
+        | CompiledExpr::First { .. }
+        | CompiledExpr::Nearest { .. }
+        | CompiledExpr::Within { .. } => true,
+
+        // Impulse-related expressions (also not bytecode-compatible)
+        CompiledExpr::Payload | CompiledExpr::PayloadField(_) | CompiledExpr::EmitSignal { .. } => {
+            true
+        }
+
+        // Recursive cases - check sub-expressions
+        CompiledExpr::Binary { left, right, .. } => {
+            contains_entity_expression(left) || contains_entity_expression(right)
+        }
+        CompiledExpr::Unary { operand, .. } => contains_entity_expression(operand),
+        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
+            args.iter().any(contains_entity_expression)
+        }
+        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_entity_expression),
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            contains_entity_expression(condition)
+                || contains_entity_expression(then_branch)
+                || contains_entity_expression(else_branch)
+        }
+        CompiledExpr::Let { value, body, .. } => {
+            contains_entity_expression(value) || contains_entity_expression(body)
+        }
+        CompiledExpr::FieldAccess { object, .. } => contains_entity_expression(object),
+
+        // Leaf expressions - no entity constructs
+        CompiledExpr::Literal(_)
+        | CompiledExpr::Prev
+        | CompiledExpr::DtRaw
+        | CompiledExpr::SimTime
+        | CompiledExpr::Collected
+        | CompiledExpr::Signal(_)
+        | CompiledExpr::Const(_)
+        | CompiledExpr::Config(_)
+        | CompiledExpr::Local(_) => false,
+    }
+}
+
+/// Evaluates an initial expression for a member signal.
+///
+/// Initial expressions are evaluated once at entity creation time, before
+/// simulation begins. They typically reference only:
+/// - Literals (e.g., `25.0`)
+/// - Config values (e.g., `config.stellar.default_rotation_period_days`)
+/// - Constants (e.g., `const.stellar.solar_mass_kg`)
+/// - Simple arithmetic operations
+///
+/// # Arguments
+///
+/// * `expr` - The compiled expression to evaluate
+/// * `constants` - World constants lookup table
+/// * `config` - World config lookup table
+///
+/// # Returns
+///
+/// The evaluated value as a [`Value`] (Scalar, Vec2, Vec3, Vec4).
+///
+/// # Panics
+///
+/// Panics if the expression references runtime-only values like `prev`, `dt`,
+/// signals, or entity-specific data (`self.*`).
+pub fn eval_initial_expr(
+    expr: &CompiledExpr,
+    constants: &IndexMap<String, f64>,
+    config: &IndexMap<String, f64>,
+) -> Value {
+    // Create minimal context for evaluation
+    // Initial expressions should not use prev, dt, signals, or member data
+    let empty_signals = SignalStorage::default();
+    let empty_members = MemberSignalBuffer::new();
+
+    let mut ctx = MemberInterpContext {
+        prev: InterpValue::Scalar(0.0), // Not used in initial expressions
+        index: 0,
+        dt: 0.0,       // Not used in initial expressions
+        sim_time: 0.0, // Not used in initial expressions
+        signals: &empty_signals,
+        members: &empty_members,
+        constants,
+        config,
+        locals: HashMap::new(),
+        entity_prefix: String::new(),
+        read_current: false, // Read from previous (doesn't matter for empty storage)
+    };
+
+    let result = interpret_expr(expr, &mut ctx);
+
+    match result {
+        InterpValue::Scalar(v) => Value::Scalar(v),
+        InterpValue::Vec3(v) => Value::Vec3(v),
+    }
+}
 
 use contexts::{
     AssertionContext, FractureExecContext, MeasureContext, ResolverContext, SharedContextData,
@@ -131,17 +260,19 @@ fn build_transition_fn(
     let constants = constants.clone();
     let config = config.clone();
 
-    Some(Box::new(move |signals: &SignalStorage| {
+    Some(Box::new(move |signals: &SignalStorage, sim_time: f64| {
         // Evaluate each transition condition in order
         // First matching condition wins
         for (target_era, bytecode) in &transitions {
             let ctx = TransitionContext {
+                sim_time,
                 shared: SharedContextData {
                     constants: &constants,
                     config: &config,
                     signals,
                 },
             };
+
             let result = execute(bytecode, &ctx);
             if result != 0.0 {
                 return Some(EraId(target_era.0.clone()));
@@ -217,24 +348,38 @@ pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> 
 /// This allows vector operations to be expressed as scalar operations at the
 /// bytecode level while maintaining type safety at the signal level.
 ///
+/// # Entity Expressions
+///
+/// Signals containing entity-related expressions (Aggregate, SelfField, etc.)
+/// cannot be compiled to bytecode and require the EntityExecutor. This function
+/// returns `None` for such signals, indicating they need special handling.
+///
 /// # Returns
 ///
-/// - `Some(ResolverFn)` if the signal has a resolve expression
-/// - `None` if the signal has no resolve logic (externally driven)
+/// - `Some(ResolverFn)` if the signal has a bytecode-compatible resolve expression
+/// - `None` if the signal has no resolve logic, is externally driven, or requires EntityExecutor
 pub fn build_signal_resolver(
     signal: &crate::CompiledSignal,
     world: &CompiledWorld,
 ) -> Option<ResolverFn> {
     // Check for component-wise resolution (vector signals)
     if let Some(ref components) = signal.resolve_components {
+        // Check if any component contains entity expressions
+        if components.iter().any(contains_entity_expression) {
+            return None; // Requires EntityExecutor
+        }
         return Some(build_vector_resolver(components, &signal.value_type, world));
     }
 
     // Fall back to scalar resolution
-    signal
-        .resolve
-        .as_ref()
-        .map(|expr| build_resolver(expr, world, signal.uses_dt_raw))
+    signal.resolve.as_ref().and_then(|expr| {
+        // Check if the expression contains entity constructs
+        if contains_entity_expression(expr) {
+            None // Requires EntityExecutor
+        } else {
+            Some(build_resolver(expr, world, signal.uses_dt_raw))
+        }
+    })
 }
 
 /// Builds a resolver for vector signals with per-component expressions.
@@ -257,6 +402,7 @@ fn build_vector_resolver(
             prev: ctx.prev,
             inputs: ctx.inputs,
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -325,6 +471,7 @@ pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: b
             prev: ctx.prev,
             inputs: ctx.inputs,
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -342,6 +489,12 @@ pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: b
 /// and emit results to the field buffer. They run during the Measure phase
 /// and have no effect on causal simulation.
 ///
+/// # Entity Expressions
+///
+/// Fields containing entity-related expressions (Aggregate, SelfField, etc.)
+/// cannot be compiled to bytecode and require special handling. This function
+/// returns `None` for such fields.
+///
 /// # Closure Capture
 ///
 /// The returned closure captures:
@@ -354,20 +507,31 @@ pub fn build_resolver(expr: &CompiledExpr, world: &CompiledWorld, uses_dt_raw: b
 /// - `field_id`: The ID of the field to emit to
 /// - `expr`: The compiled measure expression
 /// - `world`: The compiled world (for constants and config)
+///
+/// # Returns
+///
+/// - `Some(MeasureFn)` if the expression is bytecode-compatible
+/// - `None` if the expression requires EntityExecutor
 pub fn build_field_measure(
     field_id: &FieldId,
     expr: &CompiledExpr,
     world: &CompiledWorld,
-) -> MeasureFn {
+) -> Option<MeasureFn> {
+    // Check if the expression contains entity constructs
+    if contains_entity_expression(expr) {
+        return None; // Requires EntityExecutor
+    }
+
     let field_id = FieldId(field_id.0.clone());
     // Pre-compile to bytecode
     let bytecode = codegen::compile(expr);
     let constants = world.constants.clone();
     let config = world.config.clone();
 
-    Box::new(move |ctx| {
+    Some(Box::new(move |ctx| {
         let exec_ctx = MeasureContext {
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -376,7 +540,7 @@ pub fn build_field_measure(
         };
         let result = execute(&bytecode, &exec_ctx);
         ctx.fields.emit_scalar(field_id.clone(), result);
-    })
+    }))
 }
 
 /// Builds a fracture detection function.
@@ -421,6 +585,7 @@ pub fn build_fracture(fracture: &CompiledFracture, world: &CompiledWorld) -> Fra
     Box::new(move |ctx| {
         let exec_ctx = FractureExecContext {
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -476,6 +641,7 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
             current: ctx.current,
             prev: ctx.prev,
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
@@ -497,4 +663,52 @@ pub fn convert_assertion_severity(severity: IrAssertionSeverity) -> AssertionSev
         IrAssertionSeverity::Error => AssertionSeverity::Error,
         IrAssertionSeverity::Fatal => AssertionSeverity::Fatal,
     }
+}
+
+/// Builds an aggregate resolver for signals that depend on member signal data.
+///
+/// This function creates a closure that evaluates aggregate expressions like
+/// `sum(entity.particle, self.mass)` over all entity instances. The closure
+/// captures constants and config at build time and accesses member signals at
+/// evaluation time.
+///
+/// # Arguments
+///
+/// * `expr` - The compiled expression containing the aggregate
+/// * `world` - The compiled world containing constants and config
+///
+/// # Returns
+///
+/// An `AggregateResolverFn` that computes the aggregate value when called.
+pub fn build_aggregate_resolver(expr: &CompiledExpr, world: &CompiledWorld) -> AggregateResolverFn {
+    use member_interp::{InterpValue, MemberInterpContext, interpret_expr};
+    use std::collections::HashMap;
+
+    let expr = expr.clone();
+    let constants = world.constants.clone();
+    let config = world.config.clone();
+
+    Box::new(
+        move |signals: &SignalStorage, members: &MemberSignalBuffer, dt: Dt, sim_time: f64| {
+            // Create a context for interpretation
+            // For aggregate signals, we don't have a "self" instance - the aggregate
+            // iterates over all instances internally
+            let mut ctx = MemberInterpContext {
+                prev: InterpValue::Scalar(0.0), // Not used for aggregate signals
+                index: 0,                       // Will be set by aggregate iteration
+                dt: dt.seconds(),
+                sim_time,
+                signals,
+                members,
+                constants: &constants,
+                config: &config,
+                locals: HashMap::new(),
+                entity_prefix: String::new(), // Will be set by aggregate during iteration
+                read_current: true, // Read current tick values (member resolution already complete)
+            };
+
+            let result = interpret_expr(&expr, &mut ctx);
+            Value::Scalar(result.as_scalar())
+        },
+    )
 }

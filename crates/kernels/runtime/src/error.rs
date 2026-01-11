@@ -131,4 +131,8 @@ pub enum Error {
         /// Description of the divergence.
         message: String,
     },
+
+    /// Generic error message.
+    #[error("{0}")]
+    Generic(String),
 }

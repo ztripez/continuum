@@ -378,6 +378,8 @@ pub struct CompiledImpulse {
 pub struct CompiledFracture {
     /// Unique identifier for the fracture.
     pub id: FractureId,
+    /// Stratum binding.
+    pub stratum: StratumId,
     /// Signals this fracture reads
     pub reads: Vec<SignalId>,
     /// Condition expressions (all must be true)
@@ -491,6 +493,9 @@ pub struct CompiledMember {
     pub reads: Vec<SignalId>,
     /// Other member signals this member reads.
     pub member_reads: Vec<MemberId>,
+    /// Initial value expression (evaluated once at entity creation).
+    /// If None, the member starts at 0.0 (or zero vector for Vec types).
+    pub initial: Option<CompiledExpr>,
     /// The resolve expression.
     pub resolve: Option<CompiledExpr>,
     /// Assertions to validate after resolution.
@@ -895,6 +900,24 @@ pub enum CompiledExpr {
     },
     /// Local variable reference
     Local(String),
+
+    // === Impulse expressions ===
+    /// Impulse payload reference: `payload`
+    Payload,
+
+    /// Impulse payload field access: `payload.magnitude`
+    PayloadField(String),
+
+    /// Emit a value to a signal: `signal.X <- value`
+    ///
+    /// Used in impulse apply blocks and fracture emit blocks.
+    /// This is a side-effect operation that writes to a signal.
+    EmitSignal {
+        /// The target signal to emit to
+        target: SignalId,
+        /// The value to emit
+        value: Box<CompiledExpr>,
+    },
 
     // === Entity expressions ===
     /// Access current entity instance field: self.mass

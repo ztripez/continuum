@@ -144,6 +144,10 @@ pub enum LowerError {
         /// The expected type for this constraint.
         expected_type: String,
     },
+
+    /// Generic error message.
+    #[error("{0}")]
+    Generic(String),
 }
 
 /// Lower a parsed compilation unit to the typed intermediate representation.

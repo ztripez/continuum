@@ -20,13 +20,14 @@ use tracing::{error, info, instrument, trace};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
+use crate::soa_storage::{MemberSignalBuffer, ValueType as MemberValueType};
 use crate::storage::{
-    EmittedEventRecord, EventBuffer, FieldBuffer, FieldSample, FractureQueue, InputChannels,
-    SignalStorage,
+    EmittedEventRecord, EntityInstances, EntityStorage, EventBuffer, FieldBuffer, FieldSample,
+    FractureQueue, InputChannels, SignalStorage,
 };
 use crate::types::{
-    Dt, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value, WarmupConfig,
-    WarmupResult,
+    Dt, EntityId, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value,
+    WarmupConfig, WarmupResult,
 };
 
 // Re-export public types
@@ -55,7 +56,15 @@ pub use phases::{
 pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
 
 /// Function that evaluates era transition conditions
-pub type TransitionFn = Box<dyn Fn(&SignalStorage) -> Option<EraId> + Send + Sync>;
+pub type TransitionFn = Box<dyn Fn(&SignalStorage, f64) -> Option<EraId> + Send + Sync>;
+
+/// Function that evaluates aggregate expressions over member signals.
+///
+/// These resolvers run after member signal resolution (Phase 3c) and can access
+/// both global signals and member signal data for aggregate computations like
+/// `sum(entity.particle, self.mass)`.
+pub type AggregateResolverFn =
+    Box<dyn Fn(&SignalStorage, &MemberSignalBuffer, Dt, f64) -> Value + Send + Sync>;
 
 /// Era configuration
 pub struct EraConfig {
@@ -71,6 +80,10 @@ pub struct EraConfig {
 pub struct Runtime {
     /// Signal storage
     signals: SignalStorage,
+    /// Entity storage for per-instance state
+    entities: EntityStorage,
+    /// Member signal storage (SoA for vectorized execution)
+    member_signals: MemberSignalBuffer,
     /// Input channels for Collect phase
     input_channels: InputChannels,
     /// Field buffer for Measure phase
@@ -81,6 +94,8 @@ pub struct Runtime {
     fracture_queue: FractureQueue,
     /// Current tick number
     tick: u64,
+    /// Accumulated simulation time in seconds
+    sim_time: f64,
     /// Current era
     current_era: EraId,
     /// Era configurations (IndexMap for deterministic iteration order)
@@ -103,11 +118,14 @@ impl Runtime {
         info!(era = %initial_era, "runtime created");
         Self {
             signals: SignalStorage::default(),
+            entities: EntityStorage::default(),
+            member_signals: MemberSignalBuffer::new(),
             input_channels: InputChannels::default(),
             field_buffer: FieldBuffer::default(),
             event_buffer: EventBuffer::default(),
             fracture_queue: FractureQueue::default(),
             tick: 0,
+            sim_time: 0.0,
             current_era: initial_era,
             eras,
             dags,
@@ -175,6 +193,126 @@ impl Runtime {
     pub fn init_signal(&mut self, id: SignalId, value: Value) {
         tracing::debug!(signal = %id, ?value, "signal initialized");
         self.signals.init(id, value);
+    }
+
+    /// Initialize an entity type with its instances
+    pub fn init_entity(&mut self, id: EntityId, instances: EntityInstances) {
+        let count = instances.count();
+        tracing::debug!(entity = %id, count, "entity initialized");
+        self.entities.init_entity(id, instances);
+    }
+
+    /// Register a member signal type
+    ///
+    /// Must be called before `init_member_instances` for all member signals.
+    pub fn register_member_signal(&mut self, signal_name: &str, value_type: MemberValueType) {
+        tracing::debug!(
+            signal = signal_name,
+            ?value_type,
+            "member signal registered"
+        );
+        self.member_signals
+            .register_signal(signal_name.to_string(), value_type);
+    }
+
+    /// Initialize storage for all registered member signals
+    ///
+    /// Must be called after all member signals are registered with `register_member_signal`.
+    pub fn init_member_instances(&mut self, instance_count: usize) {
+        tracing::debug!(count = instance_count, "member instances initialized");
+        self.member_signals.init_instances(instance_count);
+    }
+
+    /// Register the instance count for a specific entity.
+    ///
+    /// Call this after `init_member_instances` to track per-entity instance counts
+    /// for aggregate operations. Aggregates will use this count instead of the
+    /// global instance count when iterating over entity members.
+    pub fn register_entity_count(&mut self, entity_id: &str, count: usize) {
+        tracing::debug!(
+            entity = entity_id,
+            count,
+            "entity instance count registered"
+        );
+        self.member_signals.register_entity_count(entity_id, count);
+    }
+
+    /// Register a scalar member resolver function
+    ///
+    /// The resolver should be built using `build_member_resolver` from the IR,
+    /// which captures constants and config at build time.
+    pub fn register_member_resolver(&mut self, _signal_name: String, resolver: ScalarResolverFn) {
+        tracing::debug!(signal = %_signal_name, "scalar member resolver registered");
+        self.phase_executor
+            .register_member_resolver(crate::executor::phases::MemberResolver::Scalar(resolver));
+    }
+
+    /// Register a Vec3 member resolver function
+    ///
+    /// The resolver should be built using `build_vec3_member_resolver` from the IR,
+    /// which captures constants and config at build time.
+    pub fn register_vec3_member_resolver(
+        &mut self,
+        _signal_name: String,
+        resolver: Vec3ResolverFn,
+    ) {
+        tracing::debug!(signal = %_signal_name, "vec3 member resolver registered");
+        self.phase_executor
+            .register_member_resolver(crate::executor::phases::MemberResolver::Vec3(resolver));
+    }
+
+    /// Register an aggregate resolver for a signal that depends on member signal data.
+    ///
+    /// These resolvers run after member signal resolution (Phase 3c) and can compute
+    /// aggregates like `sum(entity.particle, self.mass)`.
+    pub fn register_aggregate_resolver(
+        &mut self,
+        signal_id: SignalId,
+        resolver: AggregateResolverFn,
+    ) {
+        tracing::debug!(signal = %signal_id, "aggregate resolver registered");
+        self.phase_executor.register_aggregate_resolver(resolver);
+    }
+
+    /// Get a member signal value for a specific instance
+    pub fn get_member_signal(&self, signal_name: &str, instance_idx: usize) -> Option<Value> {
+        self.member_signals.get_current(signal_name, instance_idx)
+    }
+
+    /// Set a member signal value for a specific instance.
+    ///
+    /// Used for initializing member signals with non-zero values before execution starts.
+    pub fn set_member_signal(&mut self, signal_name: &str, instance_idx: usize, value: Value) {
+        self.member_signals
+            .set_current(signal_name, instance_idx, value);
+    }
+
+    /// Commit member initial values by advancing the buffer.
+    ///
+    /// After setting initial values with `set_member_signal`, call this to make
+    /// those values available as "previous" values for resolvers that read `prev`.
+    pub fn commit_member_initials(&mut self) {
+        self.member_signals.advance_tick();
+    }
+
+    /// Get access to member signal buffer
+    pub fn member_signals(&self) -> &MemberSignalBuffer {
+        &self.member_signals
+    }
+
+    /// Get the number of instances for an entity type
+    pub fn entity_count(&self, id: &EntityId) -> usize {
+        self.entities.count(id)
+    }
+
+    /// Get access to entity storage (for aggregate computations)
+    pub fn entities(&self) -> &EntityStorage {
+        &self.entities
+    }
+
+    /// Get mutable access to entity storage
+    pub fn entities_mut(&mut self) -> &mut EntityStorage {
+        &mut self.entities
     }
 
     /// Get current tick number
@@ -247,7 +385,8 @@ impl Runtime {
     /// Must be called before execute_tick. Runs all registered warmup
     /// functions until convergence or max iterations.
     pub fn execute_warmup(&mut self) -> Result<WarmupResult> {
-        self.warmup_executor.execute(&mut self.signals)
+        self.warmup_executor
+            .execute(&mut self.signals, self.sim_time)
     }
 
     /// Execute a single tick
@@ -281,6 +420,7 @@ impl Runtime {
             &self.current_era,
             self.tick,
             dt,
+            self.sim_time,
             &strata_states,
             &self.dags,
             &self.signals,
@@ -288,14 +428,16 @@ impl Runtime {
             &mut self.pending_impulses,
         )?;
 
-        // Phase 3: Resolve
+        // Phase 3: Resolve global signals (including member signals and aggregates in DAG order)
         self.phase_executor.execute_resolve(
             &self.current_era,
             self.tick,
             dt,
+            self.sim_time,
             &strata_states,
             &self.dags,
             &mut self.signals,
+            &mut self.member_signals,
             &mut self.input_channels,
             &self.assertion_checker,
         )?;
@@ -304,6 +446,7 @@ impl Runtime {
         self.phase_executor.execute_fracture(
             &self.current_era,
             dt,
+            self.sim_time,
             &self.dags,
             &self.signals,
             &mut self.fracture_queue,
@@ -314,6 +457,7 @@ impl Runtime {
             &self.current_era,
             self.tick,
             dt,
+            self.sim_time,
             &strata_states,
             &self.dags,
             &self.signals,
@@ -336,7 +480,10 @@ impl Runtime {
 
         // Advance state
         self.signals.advance_tick();
+        self.entities.advance_tick();
+        self.member_signals.advance_tick();
         self.fracture_queue.drain_into(&mut self.input_channels);
+        self.sim_time += dt.seconds();
         self.tick += 1;
 
         trace!("tick complete");
@@ -346,7 +493,7 @@ impl Runtime {
     fn check_era_transition(&mut self) -> Result<()> {
         let era_config = self.eras.get(&self.current_era).unwrap();
         if let Some(ref transition) = era_config.transition
-            && let Some(next_era) = transition(&self.signals)
+            && let Some(next_era) = transition(&self.signals, self.sim_time)
         {
             if !self.eras.contains_key(&next_era) {
                 error!(era = %next_era, "transition to unknown era");
@@ -926,7 +1073,7 @@ mod tests {
         let era_a_config = EraConfig {
             dt: Dt(1.0),
             strata: strata_a.clone(),
-            transition: Some(Box::new(move |signals| {
+            transition: Some(Box::new(move |signals, _sim_time| {
                 if let Some(value) = signals.get(&signal_id_clone) {
                     if value.as_scalar().unwrap_or(0.0) >= 5.0 {
                         return Some(era_b_clone.clone());

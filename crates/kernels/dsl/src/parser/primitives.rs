@@ -155,9 +155,22 @@ pub fn module_doc<'src>()
 /// Parses an ASCII identifier.
 ///
 /// Identifiers start with a letter or underscore and contain alphanumeric
-/// characters or underscores. Examples: `terra`, `surface_temp`, `_internal`.
+/// characters or underscores. Examples: `terra`, `surface_temp`, `_internal`, `co2`.
+///
+/// Note: We use a custom parser instead of `text::ascii::ident()` to ensure
+/// consistent behavior across chumsky versions, explicitly matching [a-zA-Z_][a-zA-Z0-9_]*.
 pub fn ident<'src>() -> impl Parser<'src, &'src str, String, extra::Err<ParseError<'src>>> + Clone {
-    text::ascii::ident().map(|s: &str| s.to_string())
+    // First character: letter or underscore
+    // Remaining characters: letter, digit, or underscore
+    any()
+        .filter(|c: &char| c.is_ascii_alphabetic() || *c == '_')
+        .then(
+            any()
+                .filter(|c: &char| c.is_ascii_alphanumeric() || *c == '_')
+                .repeated()
+                .collect::<String>(),
+        )
+        .map(|(first, rest): (char, String)| format!("{}{}", first, rest))
 }
 
 /// Parses a dot-separated path of identifiers.

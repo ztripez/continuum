@@ -792,8 +792,8 @@ fn collect_clamp_in_item(item: &Item, spans: &mut Vec<std::ops::Range<usize>>) {
             for condition in &def.conditions {
                 collect_clamp_in_expr(condition, spans);
             }
-            for emit in &def.emit {
-                collect_clamp_in_expr(&emit.value, spans);
+            if let Some(ref emit) = def.emit {
+                collect_clamp_in_expr(emit, spans);
             }
         }
         Item::ChronicleDef(def) => {
@@ -933,6 +933,7 @@ fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<u
         | Expr::Prev
         | Expr::PrevField(_)
         | Expr::DtRaw
+        | Expr::SimTime
         | Expr::Payload
         | Expr::PayloadField(_)
         | Expr::SignalRef(_)
@@ -2209,13 +2210,8 @@ fn add_nested_folding_ranges(doc: &str, item: &Item, ranges: &mut Vec<FoldingRan
             for cond in &def.conditions {
                 add_block_folding(doc, cond.span.start, cond.span.end, ranges);
             }
-            for emission in &def.emit {
-                add_block_folding(
-                    doc,
-                    emission.value.span.start,
-                    emission.value.span.end,
-                    ranges,
-                );
+            if let Some(ref emit) = def.emit {
+                add_block_folding(doc, emit.span.start, emit.span.end, ranges);
             }
         }
         Item::MemberDef(def) => {

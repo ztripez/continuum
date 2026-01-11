@@ -8,6 +8,7 @@
 use chumsky::prelude::*;
 
 use crate::ast::{FnDef, FnParam, Range, TypeDef, TypeExpr, TypeField};
+use crate::math_consts;
 
 use super::super::ParseError;
 use super::super::expr::spanned_expr;
@@ -150,25 +151,53 @@ pub fn type_expr<'src>()
     })
 }
 
+/// Parses a numeric value that can be either a float literal or a math constant.
+/// Math constants like PI, TAU, E, PHI are looked up from the registry.
+fn numeric_value<'src>() -> impl Parser<'src, &'src str, f64, extra::Err<ParseError<'src>>> + Clone
+{
+    choice((
+        // Float literal
+        float(),
+        // Math constant (uppercase identifiers like PI, TAU, E, PHI, SQRT2, etc.)
+        // Also supports Unicode variants like π, τ, φ, ℯ
+        // Must start with uppercase letter/underscore/unicode, but can contain digits afterwards
+        any()
+            .filter(|c: &char| c.is_ascii_uppercase() || *c == '_' || !c.is_ascii())
+            .then(
+                any()
+                    .filter(|c: &char| {
+                        c.is_ascii_uppercase() || c.is_ascii_digit() || *c == '_' || !c.is_ascii()
+                    })
+                    .repeated(),
+            )
+            .to_slice()
+            .try_map(|name: &str, span| {
+                math_consts::lookup(name)
+                    .ok_or_else(|| Rich::custom(span, format!("unknown math constant '{name}'")))
+            }),
+    ))
+}
+
 fn range<'src>() -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> + Clone {
-    float()
+    numeric_value()
         .then_ignore(just("..").padded_by(ws()))
-        .then(float())
+        .then(numeric_value())
         .map(|(min, max)| Range { min, max })
 }
 
 /// Parses a magnitude value, which can be either a range (min..max) or a single value.
 /// A single value is converted to an exact range (value..value).
+/// Supports both float literals and math constants.
 fn magnitude_value<'src>()
 -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        // Range: 1e10..1e12
-        float()
+        // Range: 1e10..1e12 or 0..PI
+        numeric_value()
             .then_ignore(just("..").padded_by(ws()))
-            .then(float())
+            .then(numeric_value())
             .map(|(min, max)| Range { min, max }),
         // Single value: 1 -> Range { min: 1, max: 1 }
-        float().map(|v| Range { min: v, max: v }),
+        numeric_value().map(|v| Range { min: v, max: v }),
     ))
 }
 

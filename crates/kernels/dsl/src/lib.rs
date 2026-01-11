@@ -5,6 +5,7 @@
 
 pub mod ast;
 mod loader;
+pub mod math_consts;
 mod parser;
 pub mod validate;
 
