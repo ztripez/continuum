@@ -185,7 +185,11 @@ pub enum SsaInstruction {
     },
 
     /// Unary operation.
-    UnaryOp { dst: VReg, op: UnaryOpIr, operand: VReg },
+    UnaryOp {
+        dst: VReg,
+        op: UnaryOpIr,
+        operand: VReg,
+    },
 
     /// User-defined function call.
     Call {
@@ -210,18 +214,24 @@ pub enum SsaInstruction {
     },
 
     /// Field access on a value.
-    FieldAccess { dst: VReg, object: VReg, field: String },
+    FieldAccess {
+        dst: VReg,
+        object: VReg,
+        field: String,
+    },
 
     /// Phi node for control flow merge.
     ///
     /// Selects a value based on which predecessor block was executed.
-    Phi { dst: VReg, arms: Vec<(BlockId, VReg)> },
+    Phi {
+        dst: VReg,
+        arms: Vec<(BlockId, VReg)>,
+    },
 
     /// Store to a local variable.
     StoreLocal { name: String, value: VReg },
 
     // === Entity operations ===
-
     /// Access current entity instance field.
     SelfField { dst: VReg, field: String },
 
@@ -315,11 +325,19 @@ impl SsaInstruction {
             SsaInstruction::UnaryOp { dst, op, operand } => {
                 format!("{} = {:?}({})", dst, op, operand)
             }
-            SsaInstruction::Call { dst, function, args } => {
+            SsaInstruction::Call {
+                dst,
+                function,
+                args,
+            } => {
                 let args_str: Vec<_> = args.iter().map(|a| a.to_string()).collect();
                 format!("{} = Call({}, [{}])", dst, function, args_str.join(", "))
             }
-            SsaInstruction::KernelCall { dst, function, args } => {
+            SsaInstruction::KernelCall {
+                dst,
+                function,
+                args,
+            } => {
                 let args_str: Vec<_> = args.iter().map(|a| a.to_string()).collect();
                 format!(
                     "{} = KernelCall({}, [{}])",
@@ -347,10 +365,7 @@ impl SsaInstruction {
                 format!("{} = FieldAccess({}, {})", dst, object, field)
             }
             SsaInstruction::Phi { dst, arms } => {
-                let arms_str: Vec<_> = arms
-                    .iter()
-                    .map(|(b, v)| format!("{}: {}", b, v))
-                    .collect();
+                let arms_str: Vec<_> = arms.iter().map(|(b, v)| format!("{}: {}", b, v)).collect();
                 format!("{} = Phi([{}])", dst, arms_str.join(", "))
             }
             SsaInstruction::StoreLocal { name, value } => {

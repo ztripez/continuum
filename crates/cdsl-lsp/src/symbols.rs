@@ -23,7 +23,7 @@
 
 use std::ops::Range;
 
-use continuum_dsl::ast::{
+use continuum_compiler::dsl::ast::{
     ChronicleDef, CompilationUnit, ConfigBlock, ConfigEntry, ConstBlock, ConstEntry, EntityDef,
     EraDef, Expr, FieldDef, FnDef, FractureDef, ImpulseDef, Item, Literal, MemberDef, OperatorBody,
     OperatorDef, Path, SignalDef, Spanned, SpannedExprVisitor, StrataDef, TypeDef, TypeExpr,
@@ -567,10 +567,7 @@ impl SymbolIndex {
                 kind: SymbolKind::Function,
                 path: def.path.node.to_string(),
                 doc: def.doc.clone(),
-                ty: def
-                    .return_type
-                    .as_ref()
-                    .map(|t| format_type_expr(&t.node)),
+                ty: def.return_type.as_ref().map(|t| format_type_expr(&t.node)),
                 title: None,
                 symbol: None,
                 strata: None,
@@ -698,22 +695,10 @@ impl SymbolIndex {
                 self.index_expr(condition);
             }
         }
-        if !def.emit.is_empty() {
-            extra.push((
-                "emit".to_string(),
-                format!("{} emission(s)", def.emit.len()),
-            ));
-            // Index references in emit statements
-            for emit in &def.emit {
-                // The target path is a signal reference
-                self.references.push(SymbolReference {
-                    span: emit.target.span.clone(),
-                    kind: SymbolKind::Signal,
-                    target_path: emit.target.node.to_string(),
-                });
-                // Index the value expression too
-                self.index_expr(&emit.value);
-            }
+        if let Some(ref emit) = def.emit {
+            extra.push(("emit".to_string(), "1 emission(s)".to_string()));
+            // Index references in emit statement
+            self.index_expr(emit);
         }
 
         self.symbols.push(IndexedSymbol {
@@ -763,13 +748,13 @@ impl SymbolIndex {
         let mut extra = Vec::new();
 
         if let Some(ref count_source) = def.count_source {
-            extra.push((
-                "count_source".to_string(),
-                count_source.node.to_string(),
-            ));
+            extra.push(("count_source".to_string(), count_source.node.to_string()));
         }
         if let Some(ref bounds) = def.count_bounds {
-            extra.push(("count".to_string(), format!("{}..{}", bounds.min, bounds.max)));
+            extra.push((
+                "count".to_string(),
+                format!("{}..{}", bounds.min, bounds.max),
+            ));
         }
 
         self.symbols.push(IndexedSymbol {
@@ -832,7 +817,10 @@ impl SymbolIndex {
             extra.push(("version".to_string(), version.node.clone()));
         }
         if let Some(ref policy) = def.policy {
-            extra.push(("policy".to_string(), format!("{} entry(ies)", policy.entries.len())));
+            extra.push((
+                "policy".to_string(),
+                format!("{} entry(ies)", policy.entries.len()),
+            ));
         }
 
         self.symbols.push(IndexedSymbol {
@@ -992,6 +980,15 @@ impl SpannedExprVisitor for RefCollector<'_> {
             span,
             kind: SymbolKind::Entity,
             target_path: path.to_string(),
+        });
+        true
+    }
+
+    fn visit_emit_signal(&mut self, span: Range<usize>, target: &Path) -> bool {
+        self.references.push(SymbolReference {
+            span,
+            kind: SymbolKind::Signal,
+            target_path: target.to_string(),
         });
         true
     }
@@ -1308,7 +1305,7 @@ signal.thermal.gradient {
     }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1357,7 +1354,7 @@ signal.thermal.gradient {
     }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1397,7 +1394,7 @@ signal.thermal.gradient {
     }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1441,7 +1438,7 @@ fracture.test {
     emit { signal.core.temp <- 5.0 }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1486,7 +1483,7 @@ strata.thermal {
     : stride(1)
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1518,7 +1515,7 @@ field.thermal.display {
 
 fn.math.double(x) { x * 2 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1542,7 +1539,10 @@ fn.math.double(x) { x * 2 }
         assert_eq!(field.doc, Some("Surface temperature display."));
 
         // Check function completion
-        let func = completions.iter().find(|c| c.path == "math.double").unwrap();
+        let func = completions
+            .iter()
+            .find(|c| c.path == "math.double")
+            .unwrap();
         assert_eq!(func.kind, SymbolKind::Function);
     }
 
@@ -1583,7 +1583,7 @@ signal.thermal.gradient {
     }
 }
 "#;
-        let (ast, errors) = continuum_dsl::parse(src);
+        let (ast, errors) = continuum_compiler::dsl::parse(src);
         assert!(errors.is_empty(), "Parse errors: {:?}", errors);
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
@@ -1591,16 +1591,19 @@ signal.thermal.gradient {
 
         // Should have references to core.temp, undefined.signal, and some.value (const)
         assert!(
-            refs.iter().any(|r| r.target_path == "core.temp" && r.kind == SymbolKind::Signal),
+            refs.iter()
+                .any(|r| r.target_path == "core.temp" && r.kind == SymbolKind::Signal),
             "Should have signal reference to core.temp"
         );
         assert!(
-            refs.iter().any(|r| r.target_path == "undefined.signal" && r.kind == SymbolKind::Signal),
+            refs.iter()
+                .any(|r| r.target_path == "undefined.signal" && r.kind == SymbolKind::Signal),
             "Should have signal reference to undefined.signal"
         );
         // const references now have kind=Const and path without prefix
         assert!(
-            refs.iter().any(|r| r.target_path == "some.value" && r.kind == SymbolKind::Const),
+            refs.iter()
+                .any(|r| r.target_path == "some.value" && r.kind == SymbolKind::Const),
             "Should have const reference to some.value"
         );
 

@@ -64,7 +64,7 @@ use std::ops::Range as StdRange;
 // Re-export all types for convenience
 pub use expr::*;
 pub use items::*;
-pub use visitor::{uses_dt_raw, walk_expr, walk_spanned_expr, ExprVisitor, SpannedExprVisitor};
+pub use visitor::{ExprVisitor, SpannedExprVisitor, uses_dt_raw, walk_expr, walk_spanned_expr};
 
 /// Source span representing a byte range in the source file.
 ///

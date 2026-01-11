@@ -10,6 +10,6 @@ mod parser;
 pub mod validate;
 
 pub use ast::*;
-pub use loader::{collect_cdsl_files, load_file, load_world, LoadError, LoadResult};
+pub use loader::{LoadError, LoadResult, collect_cdsl_files, load_file, load_world};
 pub use parser::parse;
-pub use validate::{validate, ValidationError};
+pub use validate::{ValidationError, validate};

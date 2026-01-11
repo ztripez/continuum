@@ -12,20 +12,19 @@
 extern crate continuum_functions;
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process;
 
 use chrono::Local;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
-use continuum_dsl::load_world;
-use continuum_foundation::{FieldId, SignalId};
-use continuum_ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture,
-    build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
+use continuum_compiler::ir::{
+    build_assertion, build_era_configs, build_field_measure, build_fracture, build_signal_resolver,
+    compile, convert_assertion_severity, get_initial_signal_value,
 };
+use continuum_foundation::{FieldId, SignalId};
 use continuum_runtime::executor::Runtime;
 use continuum_runtime::storage::FieldSample;
 use continuum_runtime::types::{Dt, Value};
@@ -87,21 +86,27 @@ fn main() {
 
     let args = Args::parse();
 
-    // Load world
+    // Load and compile world using unified compiler
     info!("Loading world from: {}", args.world_dir.display());
-    let load_result = match load_world(&args.world_dir) {
-        Ok(r) => r,
-        Err(e) => {
-            error!("Error loading world: {}", e);
-            process::exit(1);
+    let world = match continuum_compiler::compile_from_dir(&args.world_dir) {
+        Ok(w) => {
+            info!("Successfully compiled world");
+            w
         }
-    };
-
-    // Lower to IR
-    let world = match lower(&load_result.unit) {
-        Ok(w) => w,
-        Err(e) => {
-            error!("Lowering error: {}", e);
+        Err(diagnostics) => {
+            for diag in diagnostics {
+                let file_str = diag
+                    .file
+                    .as_ref()
+                    .map(|f| format!("{}: ", f.display()))
+                    .unwrap_or_default();
+                let span_str = diag
+                    .span
+                    .as_ref()
+                    .map(|s| format!("at {:?}: ", s))
+                    .unwrap_or_default();
+                error!("{}{}{}", file_str, span_str, diag.message);
+            }
             process::exit(1);
         }
     };
@@ -246,7 +251,7 @@ fn main() {
             let snap_json = serde_json::to_string_pretty(&snapshot).expect("serialization failed");
             let snap_path = run_dir.join(format!("tick_{:06}.json", step));
             fs::write(snap_path, snap_json).expect("failed to write snapshot");
-            
+
             info!("Captured snapshot at tick {}", step);
         }
     }

@@ -3,13 +3,14 @@
 //! This crate provides utilities for end-to-end testing of the full
 //! simulation pipeline: Parse → Lower → Compile → Execute → Verify.
 
-use continuum_dsl::parse;
-use continuum_foundation::{EraId, FieldId, SignalId};
-use continuum_ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture,
-    build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
-    CompiledWorld,
+use std::collections::HashMap;
+use std::path::PathBuf;
+
+use continuum_compiler::ir::{
+    CompiledWorld, build_assertion, build_era_configs, build_field_measure, build_fracture,
+    build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value,
 };
+use continuum_foundation::{EraId, FieldId, SignalId};
 use continuum_runtime::executor::Runtime;
 use continuum_runtime::types::Value;
 
@@ -29,18 +30,19 @@ impl TestHarness {
     ///
     /// Panics if parsing, lowering, or compilation fails.
     pub fn from_source(source: &str) -> Self {
-        // Parse
-        let (unit, errors) = parse(source);
-        if !errors.is_empty() {
-            panic!("Parse errors: {:?}", errors);
-        }
-        let unit = unit.expect("Parsing failed");
+        // Use unified compiler
+        let mut source_map = HashMap::new();
+        source_map.insert(PathBuf::from("test.cdsl"), source);
 
-        // Lower
-        let world = lower(&unit).expect("Lowering failed");
+        let world = match continuum_compiler::compile(&source_map) {
+            Ok(w) => w,
+            Err(diagnostics) => {
+                panic!("Compilation failed: {:?}", diagnostics);
+            }
+        };
 
-        // Compile
-        let compilation = compile(&world).expect("Compilation failed");
+        // Compile to DAGs
+        let compilation = compile(&world).expect("DAG compilation failed");
 
         // Find initial era
         let initial_era = world
@@ -152,7 +154,9 @@ impl TestHarness {
     }
 
     /// Drain field samples (clears the buffer).
-    pub fn drain_fields(&mut self) -> indexmap::IndexMap<FieldId, Vec<continuum_runtime::storage::FieldSample>> {
+    pub fn drain_fields(
+        &mut self,
+    ) -> indexmap::IndexMap<FieldId, Vec<continuum_runtime::storage::FieldSample>> {
         self.runtime.drain_fields()
     }
 }

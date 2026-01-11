@@ -7,13 +7,13 @@ use chumsky::prelude::*;
 
 use crate::ast::{ConfigBlock, ConfigEntry, ConstBlock, ConstEntry};
 
-use super::super::primitives::{doc_comment, literal, optional_unit, spanned, spanned_path, ws};
 use super::super::ParseError;
+use super::super::primitives::{doc_comment, literal, optional_unit, spanned, spanned_path, ws};
 
 // === Const Block ===
 
-pub fn const_block<'src>(
-) -> impl Parser<'src, &'src str, ConstBlock, extra::Err<ParseError<'src>>> {
+pub fn const_block<'src>() -> impl Parser<'src, &'src str, ConstBlock, extra::Err<ParseError<'src>>>
+{
     text::keyword("const")
         .padded_by(ws())
         .ignore_then(
@@ -26,8 +26,8 @@ pub fn const_block<'src>(
         .map(|entries| ConstBlock { entries })
 }
 
-pub fn const_entry<'src>(
-) -> impl Parser<'src, &'src str, ConstEntry, extra::Err<ParseError<'src>>> + Clone {
+pub fn const_entry<'src>()
+-> impl Parser<'src, &'src str, ConstEntry, extra::Err<ParseError<'src>>> + Clone {
     doc_comment()
         .then_ignore(ws()) // Consume whitespace after doc comment (or leading ws if no doc)
         .then(spanned_path())
@@ -44,8 +44,8 @@ pub fn const_entry<'src>(
 
 // === Config Block ===
 
-pub fn config_block<'src>(
-) -> impl Parser<'src, &'src str, ConfigBlock, extra::Err<ParseError<'src>>> {
+pub fn config_block<'src>()
+-> impl Parser<'src, &'src str, ConfigBlock, extra::Err<ParseError<'src>>> {
     text::keyword("config")
         .padded_by(ws())
         .ignore_then(
@@ -58,8 +58,8 @@ pub fn config_block<'src>(
         .map(|entries| ConfigBlock { entries })
 }
 
-pub fn config_entry<'src>(
-) -> impl Parser<'src, &'src str, ConfigEntry, extra::Err<ParseError<'src>>> + Clone {
+pub fn config_entry<'src>()
+-> impl Parser<'src, &'src str, ConfigEntry, extra::Err<ParseError<'src>>> + Clone {
     doc_comment()
         .then_ignore(ws()) // Consume whitespace after doc comment (or leading ws if no doc)
         .then(spanned_path())

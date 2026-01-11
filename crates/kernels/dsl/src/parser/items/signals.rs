@@ -13,9 +13,11 @@ use crate::ast::{
     TypeExpr,
 };
 
-use super::super::expr::spanned_expr;
-use super::super::primitives::{attr_flag, attr_path, attr_string, float, spanned, spanned_path, ws};
 use super::super::ParseError;
+use super::super::expr::spanned_expr;
+use super::super::primitives::{
+    attr_flag, attr_path, attr_string, float, spanned, spanned_path, ws,
+};
 use super::common::{assert_block, topology};
 use super::config::{config_entry, const_entry};
 use super::types::type_expr;
@@ -88,8 +90,8 @@ enum SignalContent {
     SeqConstraint(SeqConstraint),
 }
 
-fn signal_content<'src>(
-) -> impl Parser<'src, &'src str, SignalContent, extra::Err<ParseError<'src>>> {
+fn signal_content<'src>()
+-> impl Parser<'src, &'src str, SignalContent, extra::Err<ParseError<'src>>> {
     choice((
         attr_path("strata").map(SignalContent::Strata),
         attr_string("title").map(SignalContent::Title),
@@ -264,8 +266,8 @@ fn field_content<'src>() -> impl Parser<'src, &'src str, FieldContent, extra::Er
 
 // === Operator ===
 
-pub fn operator_def<'src>(
-) -> impl Parser<'src, &'src str, OperatorDef, extra::Err<ParseError<'src>>> {
+pub fn operator_def<'src>()
+-> impl Parser<'src, &'src str, OperatorDef, extra::Err<ParseError<'src>>> {
     text::keyword("operator")
         .padded_by(ws())
         .ignore_then(just('.'))
@@ -307,8 +309,8 @@ enum OperatorContent {
     Assert(crate::ast::AssertBlock),
 }
 
-fn operator_content<'src>(
-) -> impl Parser<'src, &'src str, OperatorContent, extra::Err<ParseError<'src>>> {
+fn operator_content<'src>()
+-> impl Parser<'src, &'src str, OperatorContent, extra::Err<ParseError<'src>>> {
     choice((
         attr_path("strata").map(OperatorContent::Strata),
         just(':')

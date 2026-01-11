@@ -30,7 +30,7 @@
 //! }
 //! ```
 
-use crate::ast::{uses_dt_raw, CompilationUnit, Expr, Item, Spanned};
+use crate::ast::{CompilationUnit, Expr, Item, Spanned, uses_dt_raw};
 
 /// A semantic validation error with source location.
 ///
@@ -79,7 +79,12 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
 
     for item in &unit.items {
         // Check for unknown function calls in all expressions
-        collect_unknown_functions(&item.node, &user_functions, &user_function_names, &mut errors);
+        collect_unknown_functions(
+            &item.node,
+            &user_functions,
+            &user_function_names,
+            &mut errors,
+        );
 
         match &item.node {
             Item::SignalDef(signal) => {
@@ -177,10 +182,20 @@ fn collect_unknown_functions(
     match item {
         Item::SignalDef(signal) => {
             if let Some(resolve) = &signal.resolve {
-                check_expr_for_unknown_functions(&resolve.body, user_functions, user_function_names, errors);
+                check_expr_for_unknown_functions(
+                    &resolve.body,
+                    user_functions,
+                    user_function_names,
+                    errors,
+                );
             }
             if let Some(warmup) = &signal.warmup {
-                check_expr_for_unknown_functions(&warmup.iterate, user_functions, user_function_names, errors);
+                check_expr_for_unknown_functions(
+                    &warmup.iterate,
+                    user_functions,
+                    user_function_names,
+                    errors,
+                );
             }
         }
         Item::OperatorDef(op) => {
@@ -195,17 +210,32 @@ fn collect_unknown_functions(
         }
         Item::FieldDef(field) => {
             if let Some(measure) = &field.measure {
-                check_expr_for_unknown_functions(&measure.body, user_functions, user_function_names, errors);
+                check_expr_for_unknown_functions(
+                    &measure.body,
+                    user_functions,
+                    user_function_names,
+                    errors,
+                );
             }
         }
         Item::ImpulseDef(impulse) => {
             if let Some(apply) = &impulse.apply {
-                check_expr_for_unknown_functions(&apply.body, user_functions, user_function_names, errors);
+                check_expr_for_unknown_functions(
+                    &apply.body,
+                    user_functions,
+                    user_function_names,
+                    errors,
+                );
             }
         }
         Item::FractureDef(fracture) => {
             for condition in &fracture.conditions {
-                check_expr_for_unknown_functions(condition, user_functions, user_function_names, errors);
+                check_expr_for_unknown_functions(
+                    condition,
+                    user_functions,
+                    user_function_names,
+                    errors,
+                );
             }
             if let Some(emit) = &fracture.emit {
                 check_expr_for_unknown_functions(emit, user_functions, user_function_names, errors);
@@ -286,7 +316,11 @@ fn check_expr_recursive(
                 check_expr_recursive(&arg.value, user_functions, user_function_names, errors);
             }
         }
-        Expr::MethodCall { object, method, args } => {
+        Expr::MethodCall {
+            object,
+            method,
+            args,
+        } => {
             if !is_known_method(method, user_function_names) {
                 errors.push(ValidationError {
                     message: format!("unknown method '{}'", method),
@@ -300,76 +334,88 @@ fn check_expr_recursive(
         }
         // For other expressions, just recurse into children
         _ => match &expr.node {
-                Expr::Binary { left, right, .. } => {
-                    check_expr_recursive(left, user_functions, user_function_names, errors);
-                    check_expr_recursive(right, user_functions, user_function_names, errors);
+            Expr::Binary { left, right, .. } => {
+                check_expr_recursive(left, user_functions, user_function_names, errors);
+                check_expr_recursive(right, user_functions, user_function_names, errors);
+            }
+            Expr::Unary { operand, .. } => {
+                check_expr_recursive(operand, user_functions, user_function_names, errors);
+            }
+            Expr::FieldAccess { object, .. } => {
+                check_expr_recursive(object, user_functions, user_function_names, errors);
+            }
+            Expr::Let { value, body, .. } => {
+                check_expr_recursive(value, user_functions, user_function_names, errors);
+                check_expr_recursive(body, user_functions, user_function_names, errors);
+            }
+            Expr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                check_expr_recursive(condition, user_functions, user_function_names, errors);
+                check_expr_recursive(then_branch, user_functions, user_function_names, errors);
+                if let Some(e) = else_branch {
+                    check_expr_recursive(e, user_functions, user_function_names, errors);
                 }
-                Expr::Unary { operand, .. } => {
-                    check_expr_recursive(operand, user_functions, user_function_names, errors);
+            }
+            Expr::For { iter, body, .. } => {
+                check_expr_recursive(iter, user_functions, user_function_names, errors);
+                check_expr_recursive(body, user_functions, user_function_names, errors);
+            }
+            Expr::Block(exprs) => {
+                for e in exprs {
+                    check_expr_recursive(e, user_functions, user_function_names, errors);
                 }
-                Expr::FieldAccess { object, .. } => {
-                    check_expr_recursive(object, user_functions, user_function_names, errors);
+            }
+            Expr::EmitSignal { value, .. } => {
+                check_expr_recursive(value, user_functions, user_function_names, errors);
+            }
+            Expr::EmitField {
+                position, value, ..
+            } => {
+                check_expr_recursive(position, user_functions, user_function_names, errors);
+                check_expr_recursive(value, user_functions, user_function_names, errors);
+            }
+            Expr::Struct(fields) => {
+                for (_, e) in fields {
+                    check_expr_recursive(e, user_functions, user_function_names, errors);
                 }
-                Expr::Let { value, body, .. } => {
-                    check_expr_recursive(value, user_functions, user_function_names, errors);
-                    check_expr_recursive(body, user_functions, user_function_names, errors);
-                }
-                Expr::If { condition, then_branch, else_branch } => {
-                    check_expr_recursive(condition, user_functions, user_function_names, errors);
-                    check_expr_recursive(then_branch, user_functions, user_function_names, errors);
-                    if let Some(e) = else_branch {
-                        check_expr_recursive(e, user_functions, user_function_names, errors);
-                    }
-                }
-                Expr::For { iter, body, .. } => {
-                    check_expr_recursive(iter, user_functions, user_function_names, errors);
-                    check_expr_recursive(body, user_functions, user_function_names, errors);
-                }
-                Expr::Block(exprs) => {
-                    for e in exprs {
-                        check_expr_recursive(e, user_functions, user_function_names, errors);
-                    }
-                }
-                Expr::EmitSignal { value, .. } => {
-                    check_expr_recursive(value, user_functions, user_function_names, errors);
-                }
-                Expr::EmitField { position, value, .. } => {
-                    check_expr_recursive(position, user_functions, user_function_names, errors);
-                    check_expr_recursive(value, user_functions, user_function_names, errors);
-                }
-                Expr::Struct(fields) => {
-                    for (_, e) in fields {
-                        check_expr_recursive(e, user_functions, user_function_names, errors);
-                    }
-                }
-                Expr::Map { sequence, function } => {
-                    check_expr_recursive(sequence, user_functions, user_function_names, errors);
-                    check_expr_recursive(function, user_functions, user_function_names, errors);
-                }
-                Expr::Fold { sequence, init, function } => {
-                    check_expr_recursive(sequence, user_functions, user_function_names, errors);
-                    check_expr_recursive(init, user_functions, user_function_names, errors);
-                    check_expr_recursive(function, user_functions, user_function_names, errors);
-                }
-                Expr::EntityAccess { instance, .. } => {
-                    check_expr_recursive(instance, user_functions, user_function_names, errors);
-                }
-                Expr::Aggregate { body, .. } => {
-                    check_expr_recursive(body, user_functions, user_function_names, errors);
-                }
-                Expr::Filter { predicate, .. } | Expr::First { predicate, .. } => {
-                    check_expr_recursive(predicate, user_functions, user_function_names, errors);
-                }
-                Expr::Nearest { position, .. } => {
-                    check_expr_recursive(position, user_functions, user_function_names, errors);
-                }
-                Expr::Within { position, radius, .. } => {
-                    check_expr_recursive(position, user_functions, user_function_names, errors);
-                    check_expr_recursive(radius, user_functions, user_function_names, errors);
-                }
-                // Leaf nodes - no children
-                _ => {}
-            },
+            }
+            Expr::Map { sequence, function } => {
+                check_expr_recursive(sequence, user_functions, user_function_names, errors);
+                check_expr_recursive(function, user_functions, user_function_names, errors);
+            }
+            Expr::Fold {
+                sequence,
+                init,
+                function,
+            } => {
+                check_expr_recursive(sequence, user_functions, user_function_names, errors);
+                check_expr_recursive(init, user_functions, user_function_names, errors);
+                check_expr_recursive(function, user_functions, user_function_names, errors);
+            }
+            Expr::EntityAccess { instance, .. } => {
+                check_expr_recursive(instance, user_functions, user_function_names, errors);
+            }
+            Expr::Aggregate { body, .. } => {
+                check_expr_recursive(body, user_functions, user_function_names, errors);
+            }
+            Expr::Filter { predicate, .. } | Expr::First { predicate, .. } => {
+                check_expr_recursive(predicate, user_functions, user_function_names, errors);
+            }
+            Expr::Nearest { position, .. } => {
+                check_expr_recursive(position, user_functions, user_function_names, errors);
+            }
+            Expr::Within {
+                position, radius, ..
+            } => {
+                check_expr_recursive(position, user_functions, user_function_names, errors);
+                check_expr_recursive(radius, user_functions, user_function_names, errors);
+            }
+            // Leaf nodes - no children
+            _ => {}
+        },
     }
 }
 
@@ -395,7 +441,11 @@ mod tests {
         let unit = result.unwrap();
         let errors = validate(&unit);
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("uses dt_raw but does not declare : dt_raw"));
+        assert!(
+            errors[0]
+                .message
+                .contains("uses dt_raw but does not declare : dt_raw")
+        );
     }
 
     #[test]
@@ -456,7 +506,11 @@ mod tests {
         let unit = result.unwrap();
         let errors = validate(&unit);
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("unknown method 'unknown_method'"));
+        assert!(
+            errors[0]
+                .message
+                .contains("unknown method 'unknown_method'")
+        );
     }
 
     #[test]

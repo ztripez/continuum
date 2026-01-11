@@ -170,7 +170,8 @@ impl Compiler {
             Expr::SignalComponent(signal, component) => {
                 let signal_idx = self.chunk.add_signal(signal);
                 let component_idx = self.chunk.add_component(component);
-                self.chunk.emit(Op::LoadSignalComponent(signal_idx, component_idx));
+                self.chunk
+                    .emit(Op::LoadSignalComponent(signal_idx, component_idx));
             }
 
             Expr::PrevComponent(component) => {
@@ -292,9 +293,10 @@ impl Compiler {
             }
 
             Expr::Local(name) => {
-                let slot = *self.locals.get(name).unwrap_or_else(|| {
-                    panic!("compiler bug: unknown local variable '{name}'")
-                });
+                let slot = *self
+                    .locals
+                    .get(name)
+                    .unwrap_or_else(|| panic!("compiler bug: unknown local variable '{name}'"));
                 self.chunk.emit(Op::LoadLocal(slot));
             }
         }
@@ -350,7 +352,13 @@ mod tests {
 
         assert_eq!(chunk.ops.len(), 2);
         assert_eq!(chunk.ops[0], Op::Const(-5.0));
-        assert!(matches!(chunk.ops[1], Op::Call { kernel: 0, arity: 1 }));
+        assert!(matches!(
+            chunk.ops[1],
+            Op::Call {
+                kernel: 0,
+                arity: 1
+            }
+        ));
         assert_eq!(chunk.kernels[0], "abs");
     }
 

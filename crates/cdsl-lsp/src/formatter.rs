@@ -180,7 +180,10 @@ fn format_line(line: &str) -> String {
                 // Colon in type annotations or key-value pairs
                 result.push(c);
                 // Add space after if not already present and next char isn't special
-                if chars.peek().is_some_and(|&nc| !nc.is_whitespace() && nc != ':') {
+                if chars
+                    .peek()
+                    .is_some_and(|&nc| !nc.is_whitespace() && nc != ':')
+                {
                     result.push(' ');
                 }
             }
@@ -247,7 +250,11 @@ fn is_unit_start(preceding: &str) -> bool {
             .rev()
             .collect();
         // Types typically start with uppercase
-        if last_word.chars().next().is_some_and(|c| c.is_ascii_uppercase()) {
+        if last_word
+            .chars()
+            .next()
+            .is_some_and(|c| c.is_ascii_uppercase())
+        {
             return true;
         }
     }
@@ -263,7 +270,10 @@ fn is_unary_context(preceding: &str) -> bool {
     }
 
     let last_char = trimmed.chars().last().unwrap();
-    matches!(last_char, '(' | '[' | '{' | ',' | '=' | '<' | '>' | '+' | '-' | '*' | '/' | ':')
+    matches!(
+        last_char,
+        '(' | '[' | '{' | ',' | '=' | '<' | '>' | '+' | '-' | '*' | '/' | ':'
+    )
 }
 
 /// Ensure there's a space before the current position.
@@ -290,7 +300,8 @@ mod tests {
     #[test]
     fn test_basic_indentation() {
         let input = "signal.test {\n: Scalar<K>\nresolve {\nprev + 1.0\n}\n}";
-        let expected = "signal.test {\n    : Scalar<K>\n    resolve {\n        prev + 1.0\n    }\n}\n";
+        let expected =
+            "signal.test {\n    : Scalar<K>\n    resolve {\n        prev + 1.0\n    }\n}\n";
         assert_eq!(format(input), expected);
     }
 

@@ -58,14 +58,12 @@ impl GpuContext {
         );
 
         // Request device
-        let (device, queue) = pollster::block_on(adapter.request_device(
-            &wgpu::DeviceDescriptor {
-                label: Some("Continuum GPU"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
-                ..Default::default()
-            },
-        ))
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("Continuum GPU"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            ..Default::default()
+        }))
         .map_err(|e: wgpu::RequestDeviceError| GpuError::DeviceRequest(e.to_string()))?;
 
         Ok(Self {
@@ -128,7 +126,8 @@ impl GpuContext {
 
     /// Upload data to a buffer.
     pub fn upload_buffer<T: bytemuck::Pod>(&self, buffer: &wgpu::Buffer, data: &[T]) {
-        self.queue.write_buffer(buffer, 0, bytemuck::cast_slice(data));
+        self.queue
+            .write_buffer(buffer, 0, bytemuck::cast_slice(data));
     }
 
     /// Submit commands and wait for completion.

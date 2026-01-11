@@ -183,7 +183,8 @@ impl FieldEmitter {
             // Scalar field - single sample at origin
             vec![FieldSample {
                 position: [0.0, 0.0, 0.0],
-                value: self.evaluate_expression_cpu(&emission.signal_inputs, emission.expression_id),
+                value: self
+                    .evaluate_expression_cpu(&emission.signal_inputs, emission.expression_id),
             }]
         } else if emission.positions.len() >= self.config.cpu_parallel_threshold {
             // Spatial field with many samples - parallel iteration
@@ -192,7 +193,8 @@ impl FieldEmitter {
                 .par_iter()
                 .map(|&pos| FieldSample {
                     position: pos,
-                    value: self.evaluate_expression_cpu(&emission.signal_inputs, emission.expression_id),
+                    value: self
+                        .evaluate_expression_cpu(&emission.signal_inputs, emission.expression_id),
                 })
                 .collect()
         } else {
@@ -202,7 +204,8 @@ impl FieldEmitter {
                 .iter()
                 .map(|&pos| FieldSample {
                     position: pos,
-                    value: self.evaluate_expression_cpu(&emission.signal_inputs, emission.expression_id),
+                    value: self
+                        .evaluate_expression_cpu(&emission.signal_inputs, emission.expression_id),
                 })
                 .collect()
         };
@@ -330,9 +333,7 @@ mod tests {
         let emitter = FieldEmitter::with_config(config);
 
         // Generate positions above threshold
-        let positions: Vec<[f64; 3]> = (0..100)
-            .map(|i| [i as f64, 0.0, 0.0])
-            .collect();
+        let positions: Vec<[f64; 3]> = (0..100).map(|i| [i as f64, 0.0, 0.0]).collect();
 
         let emission = FieldEmission {
             field_id: FieldId::from("test.parallel"),

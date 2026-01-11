@@ -91,9 +91,7 @@ pub const fn fnv1a64_path(parts: &[&str]) -> u64 {
 /// Intentionally only accepts string literals to keep it const + stable.
 #[macro_export]
 macro_rules! stable_id {
-    ($path:literal) => {{
-        $crate::stable_hash::fnv1a64_str($path)
-    }};
+    ($path:literal) => {{ $crate::stable_hash::fnv1a64_str($path) }};
 }
 
 #[cfg(test)]
@@ -175,10 +173,7 @@ mod tests {
             fnv1a64_path(&["terra", "plates", "velocity"]),
             fnv1a64_str("terra.plates.velocity")
         );
-        assert_eq!(
-            fnv1a64_path(&["a", "b", "c", "d"]),
-            fnv1a64_str("a.b.c.d")
-        );
+        assert_eq!(fnv1a64_path(&["a", "b", "c", "d"]), fnv1a64_str("a.b.c.d"));
     }
 
     /// Test fnv1a64_path with empty array and single element.

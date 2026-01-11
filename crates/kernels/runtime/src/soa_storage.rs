@@ -422,8 +422,7 @@ impl<T: Copy + Default> TypedBuffer<T> {
     /// Push a value
     pub fn push(&mut self, value: T) {
         unsafe {
-            self.inner
-                .push_raw(&value as *const T as *const u8);
+            self.inner.push_raw(&value as *const T as *const u8);
         }
     }
 
@@ -431,8 +430,7 @@ impl<T: Copy + Default> TypedBuffer<T> {
     pub fn set(&mut self, index: usize, value: T) {
         assert!(index < self.len(), "Index out of bounds");
         unsafe {
-            self.inner
-                .set_raw(index, &value as *const T as *const u8);
+            self.inner.set_raw(index, &value as *const T as *const u8);
         }
     }
 

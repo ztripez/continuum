@@ -49,8 +49,8 @@ use chumsky::prelude::*;
 
 use crate::ast::Item;
 
-use super::primitives::doc_comment;
 use super::ParseError;
+use super::primitives::doc_comment;
 
 // Re-export public parsers
 pub use config::{config_block, const_block};
@@ -122,5 +122,12 @@ pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<
             def.doc = doc;
             Item::MemberDef(def)
         }),
+        // Special case: check for fracture keyword specifically to avoid member conflict
+        doc_comment()
+            .then(text::keyword("fracture").ignore_then(fracture_def()))
+            .map(|(doc, mut def)| {
+                def.doc = doc;
+                Item::FractureDef(def)
+            }),
     ))
 }

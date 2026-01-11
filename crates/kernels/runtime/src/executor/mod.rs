@@ -20,15 +20,11 @@ use tracing::{error, info, instrument, trace};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
-<<<<<<< HEAD
 use crate::soa_storage::{MemberSignalBuffer, ValueType as MemberValueType};
 use crate::storage::{
-    EntityInstances, EntityStorage, FieldBuffer, FieldSample, FractureQueue, InputChannels,
-    SignalStorage,
+    EmittedEventRecord, EntityInstances, EntityStorage, EventBuffer, FieldBuffer, FieldSample,
+    FractureQueue, InputChannels, SignalStorage,
 };
-=======
-use crate::storage::{EmittedEventRecord, EventBuffer, FieldBuffer, FieldSample, FractureQueue, InputChannels, SignalStorage};
->>>>>>> origin/main
 use crate::types::{
     Dt, EntityId, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value,
     WarmupConfig, WarmupResult,
@@ -37,17 +33,8 @@ use crate::types::{
 // Re-export public types
 pub use assertions::{AssertionChecker, AssertionFn, AssertionSeverity, SignalAssertion};
 pub use context::{
-<<<<<<< HEAD
-    AssertContext, CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext,
-    WarmupContext,
-=======
-    AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext,
-    ResolveContext, WarmupContext,
-};
-pub use member_executor::{
-    ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver, ScalarResolveContext,
-    ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
->>>>>>> origin/main
+    AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext,
+    MeasureContext, ResolveContext, WarmupContext,
 };
 pub use kernel_registry::LaneKernelRegistry;
 pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
@@ -58,18 +45,14 @@ pub use l3_kernel::{
 };
 pub use lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
 pub use lowering_strategy::{LoweringHeuristics, LoweringStrategy};
-<<<<<<< HEAD
 pub use member_executor::{
     ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver,
     ScalarResolveContext, ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
 };
 pub use phases::{
-    CollectFn, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn, MeasureParallelConfig,
-    PhaseExecutor, ResolverFn,
+    ChronicleFn, CollectFn, EmittedEvent, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn,
+    MeasureParallelConfig, PhaseExecutor, ResolverFn,
 };
-=======
-pub use phases::{ChronicleFn, CollectFn, EmittedEvent, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn, MeasureParallelConfig, PhaseExecutor, ResolverFn};
->>>>>>> origin/main
 pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
 
 /// Function that evaluates era transition conditions
@@ -1432,7 +1415,12 @@ mod tests {
         // Register chronicle: emit event when temperature > 100
         let signal_id_clone = signal_id.clone();
         runtime.register_chronicle(Box::new(move |ctx| {
-            let temp = ctx.signals.get(&signal_id_clone).unwrap().as_scalar().unwrap();
+            let temp = ctx
+                .signals
+                .get(&signal_id_clone)
+                .unwrap()
+                .as_scalar()
+                .unwrap();
             if temp > 100.0 {
                 vec![EmittedEvent {
                     name: "high_temperature".to_string(),
@@ -1523,7 +1511,12 @@ mod tests {
         // Register chronicle: emit event only when pressure > 100 (never true)
         let signal_id_clone = signal_id.clone();
         runtime.register_chronicle(Box::new(move |ctx| {
-            let pressure = ctx.signals.get(&signal_id_clone).unwrap().as_scalar().unwrap();
+            let pressure = ctx
+                .signals
+                .get(&signal_id_clone)
+                .unwrap()
+                .as_scalar()
+                .unwrap();
             if pressure > 100.0 {
                 vec![EmittedEvent {
                     name: "high_pressure".to_string(),

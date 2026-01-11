@@ -29,7 +29,7 @@ pub fn length(args: &[f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{get, is_known, Arity};
+    use continuum_kernel_registry::{Arity, get, is_known};
 
     #[test]
     fn test_vec2_registered() {

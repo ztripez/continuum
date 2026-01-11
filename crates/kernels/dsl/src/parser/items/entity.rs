@@ -10,8 +10,8 @@ use chumsky::prelude::*;
 
 use crate::ast::{CountBounds, EntityDef, Path, Spanned};
 
-use super::super::primitives::{spanned_path, ws};
 use super::super::ParseError;
+use super::super::primitives::{spanned_path, ws};
 
 // === Entity ===
 
@@ -74,8 +74,8 @@ enum EntityContent {
     CountBounds(CountBounds),
 }
 
-fn entity_content<'src>(
-) -> impl Parser<'src, &'src str, EntityContent, extra::Err<ParseError<'src>>> {
+fn entity_content<'src>()
+-> impl Parser<'src, &'src str, EntityContent, extra::Err<ParseError<'src>>> {
     choice((
         // : count(config.path) - count from config
         just(':')
@@ -103,8 +103,8 @@ fn entity_content<'src>(
     ))
 }
 
-fn count_bounds<'src>(
-) -> impl Parser<'src, &'src str, CountBounds, extra::Err<ParseError<'src>>> + Clone {
+fn count_bounds<'src>()
+-> impl Parser<'src, &'src str, CountBounds, extra::Err<ParseError<'src>>> + Clone {
     text::int(10)
         .map(|s: &str| s.parse::<u32>().unwrap_or(0))
         .then_ignore(just("..").padded_by(ws()))

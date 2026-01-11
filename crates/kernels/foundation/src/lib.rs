@@ -20,7 +20,7 @@ pub use field::FieldSample;
 
 // Re-export stable hash items at crate root
 pub use stable_hash::{
-    fnv1a64, fnv1a64_mix, fnv1a64_path, fnv1a64_str, FNV1A_OFFSET_BASIS_64, FNV1A_PRIME_64,
+    FNV1A_OFFSET_BASIS_64, FNV1A_PRIME_64, fnv1a64, fnv1a64_mix, fnv1a64_path, fnv1a64_str,
 };
 
 /// Simulation timestep in seconds.

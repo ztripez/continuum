@@ -1921,7 +1921,10 @@ fn test_terra_file_parses() {
     let ast = ast.unwrap();
     assert!(ast.items.len() > 0, "terra.cdsl should have items");
     // Verify module doc was captured
-    assert!(ast.module_doc.is_some(), "terra.cdsl should have module doc");
+    assert!(
+        ast.module_doc.is_some(),
+        "terra.cdsl should have module doc"
+    );
 }
 
 #[test]
@@ -1993,10 +1996,7 @@ fn test_doc_comments_in_config_block() {
         Item::ConfigBlock(block) => {
             assert_eq!(block.entries.len(), 3);
             // First entry has doc
-            assert_eq!(
-                block.entries[0].doc.as_ref().unwrap(),
-                "First doc comment"
-            );
+            assert_eq!(block.entries[0].doc.as_ref().unwrap(), "First doc comment");
             // Second entry has multi-line doc
             assert_eq!(
                 block.entries[1].doc.as_ref().unwrap(),
@@ -2078,7 +2078,11 @@ fn test_atmosphere_file_parses() {
                         "atmosphere.initial_surface_temp should have doc comment"
                     );
                     assert!(
-                        first_entry.doc.as_ref().unwrap().contains("Radiative balance"),
+                        first_entry
+                            .doc
+                            .as_ref()
+                            .unwrap()
+                            .contains("Radiative balance"),
                         "doc should contain 'Radiative balance'"
                     );
                 }

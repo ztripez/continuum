@@ -253,7 +253,7 @@ dependencies = [
 name = "cdsl-lsp"
 version = "0.1.0"
 dependencies = [
- "continuum-dsl",
+ "continuum-compiler",
  "dashmap 6.1.0",
  "tokio",
  "tower-lsp",
@@ -384,6 +384,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b05b61dc5112cbb17e4b6cd61790d9845d13888356391624cbe7e41efeac1e75"
 
 [[package]]
+name = "continuum-compiler"
+version = "0.1.0"
+dependencies = [
+ "ariadne",
+ "chumsky",
+ "continuum-dsl",
+ "continuum-ir",
+ "indexmap",
+ "tempfile",
+ "thiserror",
+ "tracing",
+]
+
+[[package]]
 name = "continuum-dsl"
 version = "0.1.0"
 dependencies = [
@@ -490,10 +504,9 @@ dependencies = [
 name = "continuum-tests"
 version = "0.1.0"
 dependencies = [
- "continuum-dsl",
+ "continuum-compiler",
  "continuum-foundation",
  "continuum-functions",
- "continuum-ir",
  "continuum-runtime",
  "continuum-vm",
  "indexmap",
@@ -505,10 +518,9 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "clap",
- "continuum-dsl",
+ "continuum-compiler",
  "continuum-foundation",
  "continuum-functions",
- "continuum-ir",
  "continuum-runtime",
  "indexmap",
  "serde",

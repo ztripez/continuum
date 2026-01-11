@@ -9,4 +9,4 @@ mod executor;
 
 pub use bytecode::{BytecodeChunk, Op, SlotId};
 pub use compiler::compile_expr;
-pub use executor::{execute, ExecutionContext};
+pub use executor::{ExecutionContext, execute};

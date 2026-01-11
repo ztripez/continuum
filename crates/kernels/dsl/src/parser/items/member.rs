@@ -7,9 +7,9 @@ use chumsky::prelude::*;
 
 use crate::ast::{ConfigEntry, MemberDef, ResolveBlock, Spanned};
 
+use super::super::ParseError;
 use super::super::expr::spanned_expr;
 use super::super::primitives::{attr_path, attr_string, spanned, spanned_path, ws};
-use super::super::ParseError;
 use super::common::assert_block;
 use super::config::config_entry;
 use super::types::type_expr;
@@ -88,8 +88,8 @@ enum MemberContent {
     Assert(crate::ast::AssertBlock),
 }
 
-fn member_content<'src>(
-) -> impl Parser<'src, &'src str, MemberContent, extra::Err<ParseError<'src>>> {
+fn member_content<'src>()
+-> impl Parser<'src, &'src str, MemberContent, extra::Err<ParseError<'src>>> {
     choice((
         // : strata(path) - must come before Type to avoid matching "strata" as Named type
         attr_path("strata").map(MemberContent::Strata),

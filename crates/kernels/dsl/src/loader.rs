@@ -35,7 +35,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::ast::{CompilationUnit, Item};
-use crate::{parse, validate, ValidationError};
+use crate::{ValidationError, parse, validate};
 
 /// Errors that can occur during world loading.
 ///
@@ -97,7 +97,11 @@ impl std::fmt::Display for LoadError {
                 write!(f, "'{}' is not a valid directory", path.display())
             }
             LoadError::MissingWorldDefinition(path) => {
-                write!(f, "no world definition found in '{}' (missing world {{ }} block in .cdsl)", path.display())
+                write!(
+                    f,
+                    "no world definition found in '{}' (missing world {{ }} block in .cdsl)",
+                    path.display()
+                )
             }
             LoadError::ReadError { path, error } => {
                 write!(f, "error reading {}: {}", path.display(), error)
@@ -209,7 +213,9 @@ pub fn load_world(world_dir: &Path) -> Result<LoadResult, LoadError> {
                     return Err(LoadError::ValidationErrors {
                         path: file.clone(),
                         errors: vec![ValidationError {
-                            message: "multiple world definitions found (already defined in another file)".to_string(),
+                            message:
+                                "multiple world definitions found (already defined in another file)"
+                                    .to_string(),
                             span: item.span.clone(),
                         }],
                     });

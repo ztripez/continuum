@@ -24,7 +24,9 @@ use super::{BlockId, SsaFunction, SsaInstruction, Terminator, VReg};
 pub fn lower_to_ssa(expr: &CompiledExpr) -> SsaFunction {
     let mut ctx = LoweringContext::new();
     let result = ctx.lower_expr(expr, BlockId(0));
-    ctx.func.block_mut(ctx.current_block).terminate(Terminator::Return(result));
+    ctx.func
+        .block_mut(ctx.current_block)
+        .terminate(Terminator::Return(result));
     ctx.func
 }
 
@@ -230,7 +232,10 @@ impl LoweringContext {
                 let dst = self.func.alloc_vreg();
                 self.emit(SsaInstruction::Phi {
                     dst,
-                    arms: vec![(then_exit_block, then_result), (else_exit_block, else_result)],
+                    arms: vec![
+                        (then_exit_block, then_result),
+                        (else_exit_block, else_result),
+                    ],
                 });
                 dst
             }

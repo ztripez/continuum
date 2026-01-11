@@ -11,16 +11,14 @@ use std::process;
 
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
-use continuum_dsl::load_world;
-use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
-use continuum_ir::{
-    build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
+use continuum_compiler::ir::{
+    ValueType, build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
     build_fracture, build_member_resolver, build_signal_resolver, build_vec3_member_resolver,
-    compile, convert_assertion_severity, eval_initial_expr, get_initial_signal_value, lower,
-    validate,
+    compile, convert_assertion_severity, eval_initial_expr, get_initial_signal_value,
 };
+use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
 use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
 use continuum_runtime::storage::{EntityInstances, FieldSample, InstanceData};
@@ -100,26 +98,28 @@ fn main() {
         }
     }
 
-    // Load world
+    // Load and compile world using unified compiler
     info!("Loading world from: {}", world_dir.display());
 
-    let load_result = match load_world(world_dir) {
-        Ok(r) => r,
-        Err(e) => {
-            error!("Error loading world: {}", e);
-            process::exit(1);
+    let world = match continuum_compiler::compile_from_dir(world_dir) {
+        Ok(w) => {
+            info!("Successfully compiled world");
+            w
         }
-    };
-
-    info!("Found {} .cdsl file(s)", load_result.files.len());
-    info!("Parsed {} total items", load_result.unit.items.len());
-
-    // Lower to IR
-    info!("Lowering to IR...");
-    let world = match lower(&load_result.unit) {
-        Ok(w) => w,
-        Err(e) => {
-            error!("Lowering error: {}", e);
+        Err(diagnostics) => {
+            for diag in diagnostics {
+                let file_str = diag
+                    .file
+                    .as_ref()
+                    .map(|f| format!("{}: ", f.display()))
+                    .unwrap_or_default();
+                let span_str = diag
+                    .span
+                    .as_ref()
+                    .map(|s| format!("at {:?}: ", s))
+                    .unwrap_or_default();
+                error!("{}{}{}", file_str, span_str, diag.message);
+            }
             process::exit(1);
         }
     };
@@ -130,18 +130,6 @@ fn main() {
     info!("  Fields: {}", world.fields.len());
     info!("  Constants: {}", world.constants.len());
     info!("  Config: {}", world.config.len());
-
-    // Validate IR
-    info!("Validating...");
-    let warnings = validate(&world);
-    if warnings.is_empty() {
-        info!("  No warnings");
-    } else {
-        warn!("{} warning(s):", warnings.len());
-        for warning in &warnings {
-            warn!("  - {} (in {})", warning.message, warning.entity);
-        }
-    }
 
     // Compile to DAGs
     info!("Compiling to DAGs...");
@@ -236,16 +224,19 @@ fn main() {
             // Signal has no resolve expression - just register a no-op placeholder
             let signal_name = signal_id.0.clone();
             let placeholder: ResolverFn = Box::new(move |_ctx| {
-                panic!(
-                    "Signal '{}' has no resolve expression",
-                    signal_name
-                );
+                panic!("Signal '{}' has no resolve expression", signal_name);
             });
             let idx = runtime.register_resolver(placeholder);
-            info!("  Registered placeholder for {} (idx={}) - no resolve expr", signal_id, idx);
+            info!(
+                "  Registered placeholder for {} (idx={}) - no resolve expr",
+                signal_id, idx
+            );
         }
     }
-    info!("  Total: {} resolvers, {} aggregate resolvers", resolver_count, aggregate_count);
+    info!(
+        "  Total: {} resolvers, {} aggregate resolvers",
+        resolver_count, aggregate_count
+    );
 
     // Register assertions
     let mut assertion_count = 0;
@@ -287,7 +278,10 @@ fn main() {
         info!("  Registered {} field measures", field_count);
     }
     if skipped_fields > 0 {
-        info!("  Skipped {} fields with entity expressions (EntityExecutor not yet implemented)", skipped_fields);
+        info!(
+            "  Skipped {} fields with entity expressions (EntityExecutor not yet implemented)",
+            skipped_fields
+        );
     }
 
     // Register fracture detectors
@@ -343,10 +337,10 @@ fn main() {
                 if &member.entity_id == entity_id {
                     // Use default value based on member's value type
                     let initial_value = match member.value_type {
-                        continuum_ir::ValueType::Scalar { .. } => Value::Scalar(0.0),
-                        continuum_ir::ValueType::Vec2 { .. } => Value::Vec2([0.0; 2]),
-                        continuum_ir::ValueType::Vec3 { .. } => Value::Vec3([0.0; 3]),
-                        continuum_ir::ValueType::Vec4 { .. } => Value::Vec4([0.0; 4]),
+                        ValueType::Scalar { .. } => Value::Scalar(0.0),
+                        ValueType::Vec2 { .. } => Value::Vec2([0.0; 2]),
+                        ValueType::Vec3 { .. } => Value::Vec3([0.0; 3]),
+                        ValueType::Vec4 { .. } => Value::Vec4([0.0; 4]),
                         _ => Value::Scalar(0.0),
                     };
                     fields.insert(member.signal_name.clone(), initial_value);
@@ -395,10 +389,10 @@ fn main() {
         // Register member signals (use full member ID to avoid name collisions)
         for (member_id, member) in &world.members {
             let value_type = match member.value_type {
-                continuum_ir::ValueType::Scalar { .. } => MemberValueType::Scalar,
-                continuum_ir::ValueType::Vec2 { .. } => MemberValueType::Vec2,
-                continuum_ir::ValueType::Vec3 { .. } => MemberValueType::Vec3,
-                continuum_ir::ValueType::Vec4 { .. } => MemberValueType::Vec4,
+                ValueType::Scalar { .. } => MemberValueType::Scalar,
+                ValueType::Vec2 { .. } => MemberValueType::Vec2,
+                ValueType::Vec3 { .. } => MemberValueType::Vec3,
+                ValueType::Vec4 { .. } => MemberValueType::Vec4,
                 _ => MemberValueType::Scalar,
             };
             // Use full member ID (e.g., "stellar.star.mass") instead of just signal_name ("mass")
@@ -429,10 +423,7 @@ fn main() {
                     eval_initial_expr(initial_expr, &world.constants, &world.config);
 
                 // Get the correct instance count for this member's entity
-                let instance_count = entity_counts
-                    .get(&member.entity_id.0)
-                    .copied()
-                    .unwrap_or(1);
+                let instance_count = entity_counts.get(&member.entity_id.0).copied().unwrap_or(1);
 
                 // Set initial value for all instances of this member
                 for instance_idx in 0..instance_count {
@@ -465,7 +456,7 @@ fn main() {
 
                 // Use the appropriate builder based on value type
                 match member.value_type {
-                    continuum_ir::ValueType::Vec3 { .. } => {
+                    ValueType::Vec3 { .. } => {
                         let resolver = build_vec3_member_resolver(
                             resolve_expr,
                             &world.constants,
@@ -496,10 +487,7 @@ fn main() {
                     }
                 }
             } else {
-                info!(
-                    "  Skipped member {} - no resolve expression",
-                    member_id
-                );
+                info!("  Skipped member {} - no resolve expression", member_id);
             }
         }
         info!(
@@ -587,8 +575,8 @@ fn main() {
                             fields: field_values,
                         };
 
-                        let snap_json = serde_json::to_string_pretty(&snapshot)
-                            .expect("serialization failed");
+                        let snap_json =
+                            serde_json::to_string_pretty(&snapshot).expect("serialization failed");
                         let snap_path = dir.join(format!("tick_{:06}.json", step));
                         if let Err(e) = fs::write(&snap_path, snap_json) {
                             error!("Failed to write snapshot: {}", e);

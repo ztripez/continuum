@@ -272,6 +272,7 @@ fn build_transition_fn(
                     signals,
                 },
             };
+
             let result = execute(bytecode, &ctx);
             if result != 0.0 {
                 return Some(EraId(target_era.0.clone()));

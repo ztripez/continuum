@@ -50,6 +50,7 @@ pub mod types;
 pub mod vectorized;
 
 pub use error::{Error, Result};
+pub use executor::cost_model::{ComplexityScore, ComplexityThresholds, CostModel, CostWeights};
 pub use executor::{
     AssertContext, AssertionChecker, AssertionFn, AssertionSeverity, ChunkConfig, CollectContext,
     CollectFn, EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, LaneKernel,
@@ -59,12 +60,9 @@ pub use executor::{
     ScalarResolveContext, ScalarResolverFn, TransitionFn, Vec3KernelFn, Vec3L1Kernel,
     Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn, WarmupContext, WarmupExecutor, WarmupFn,
 };
-pub use executor::cost_model::{
-    ComplexityScore, ComplexityThresholds, CostModel, CostWeights,
-};
 pub use soa_storage::{
     AlignedBuffer, MemberSignalBuffer, MemberSignalMeta, MemberSignalRegistry, PopulationStorage,
-    TypedBuffer, ValueType, SIMD_ALIGNMENT,
+    SIMD_ALIGNMENT, TypedBuffer, ValueType,
 };
 pub use types::*;
 pub use vectorized::{

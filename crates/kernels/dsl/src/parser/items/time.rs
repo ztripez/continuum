@@ -10,9 +10,11 @@ use crate::ast::{
     EraDef, Spanned, StrataDef, StrataState, StrataStateKind, Transition, ValueWithUnit,
 };
 
-use super::super::expr::spanned_expr;
-use super::super::primitives::{attr_flag, attr_int, attr_string, ident, literal, spanned, spanned_path, unit, ws};
 use super::super::ParseError;
+use super::super::expr::spanned_expr;
+use super::super::primitives::{
+    attr_flag, attr_int, attr_string, ident, literal, spanned, spanned_path, unit, ws,
+};
 
 // === Strata ===
 
@@ -55,8 +57,8 @@ enum StrataAttr {
     Stride(Spanned<u32>),
 }
 
-fn strata_attr<'src>(
-) -> impl Parser<'src, &'src str, StrataAttr, extra::Err<ParseError<'src>>> + Clone {
+fn strata_attr<'src>()
+-> impl Parser<'src, &'src str, StrataAttr, extra::Err<ParseError<'src>>> + Clone {
     choice((
         attr_string("title").map(StrataAttr::Title),
         attr_string("symbol").map(StrataAttr::Symbol),
@@ -115,8 +117,8 @@ enum EraContent {
     Transition(Transition),
 }
 
-fn era_content<'src>(
-) -> impl Parser<'src, &'src str, EraContent, extra::Err<ParseError<'src>>> + Clone {
+fn era_content<'src>()
+-> impl Parser<'src, &'src str, EraContent, extra::Err<ParseError<'src>>> + Clone {
     choice((
         attr_flag("initial").to(EraContent::Initial),
         attr_flag("terminal").to(EraContent::Terminal),
@@ -149,24 +151,24 @@ fn era_content<'src>(
     ))
 }
 
-fn value_with_unit<'src>(
-) -> impl Parser<'src, &'src str, ValueWithUnit, extra::Err<ParseError<'src>>> + Clone {
+fn value_with_unit<'src>()
+-> impl Parser<'src, &'src str, ValueWithUnit, extra::Err<ParseError<'src>>> + Clone {
     literal()
         .padded_by(ws())
         .then(unit())
         .map(|(value, unit)| ValueWithUnit { value, unit })
 }
 
-fn strata_state<'src>(
-) -> impl Parser<'src, &'src str, StrataState, extra::Err<ParseError<'src>>> + Clone {
+fn strata_state<'src>()
+-> impl Parser<'src, &'src str, StrataState, extra::Err<ParseError<'src>>> + Clone {
     spanned_path()
         .then_ignore(just(':').padded_by(ws()))
         .then(strata_state_kind())
         .map(|(strata, state)| StrataState { strata, state })
 }
 
-fn strata_state_kind<'src>(
-) -> impl Parser<'src, &'src str, StrataStateKind, extra::Err<ParseError<'src>>> + Clone {
+fn strata_state_kind<'src>()
+-> impl Parser<'src, &'src str, StrataStateKind, extra::Err<ParseError<'src>>> + Clone {
     choice((
         text::keyword("active")
             .ignore_then(
@@ -186,8 +188,8 @@ fn strata_state_kind<'src>(
     ))
 }
 
-fn transition<'src>(
-) -> impl Parser<'src, &'src str, Transition, extra::Err<ParseError<'src>>> + Clone {
+fn transition<'src>()
+-> impl Parser<'src, &'src str, Transition, extra::Err<ParseError<'src>>> + Clone {
     text::keyword("to")
         .padded_by(ws())
         .ignore_then(just(':').padded_by(ws()))

@@ -34,7 +34,7 @@ pub fn relax_to(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{eval, get, is_known, Arity};
+    use continuum_kernel_registry::{Arity, eval, get, is_known};
 
     #[test]
     fn test_integrate_registered() {

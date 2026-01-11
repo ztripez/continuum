@@ -289,7 +289,6 @@ impl ParallelFieldBuffer {
         }
         result
     }
-
 }
 
 impl Default for ParallelFieldBuffer {
@@ -831,11 +830,7 @@ mod tests {
         let mut buffer = FieldBuffer::default();
         let field_id: FieldId = "terra.temp".into();
 
-        buffer.emit(
-            field_id.clone(),
-            [1.0, 2.0, 3.0],
-            Value::Scalar(300.0),
-        );
+        buffer.emit(field_id.clone(), [1.0, 2.0, 3.0], Value::Scalar(300.0));
 
         let samples = buffer.get_samples(&field_id).unwrap();
         assert_eq!(samples.len(), 1);

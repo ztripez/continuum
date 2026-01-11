@@ -118,9 +118,7 @@ fn impulse_content<'src>()
 
 pub fn fracture_def<'src>()
 -> impl Parser<'src, &'src str, FractureDef, extra::Err<ParseError<'src>>> {
-    text::keyword("fracture")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+    just('.')
         .ignore_then(spanned_path())
         .padded_by(ws())
         .then(
@@ -229,7 +227,11 @@ pub fn chronicle_def<'src>()
                 .or_not()
                 .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
         )
-        .map(|(path, observe)| ChronicleDef { doc: None, path, observe })
+        .map(|(path, observe)| ChronicleDef {
+            doc: None,
+            path,
+            observe,
+        })
 }
 
 fn observe_block<'src>() -> impl Parser<'src, &'src str, ObserveBlock, extra::Err<ParseError<'src>>>

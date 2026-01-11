@@ -488,15 +488,9 @@ pub enum FusionUnsafe {
         signal: SignalId,
     },
     /// Phase mismatch: operators are in different phases.
-    PhaseMismatch {
-        op_a: OperatorId,
-        op_b: OperatorId,
-    },
+    PhaseMismatch { op_a: OperatorId, op_b: OperatorId },
     /// Stratum mismatch: operators are in different strata.
-    StratumMismatch {
-        op_a: OperatorId,
-        op_b: OperatorId,
-    },
+    StratumMismatch { op_a: OperatorId, op_b: OperatorId },
 }
 
 impl FusionValidator {
@@ -821,7 +815,9 @@ pub fn analyze_fusion(world: &CompiledWorld) -> FusionAnalysis {
     stats.fused_operators_created = fused_operators.len();
 
     // Calculate estimated savings
-    stats.estimated_call_savings = stats.operators_fused.saturating_sub(stats.fused_operators_created);
+    stats.estimated_call_savings = stats
+        .operators_fused
+        .saturating_sub(stats.fused_operators_created);
     stats.estimated_read_savings = beneficial_groups
         .iter()
         .filter(|g| g.fusion_type == FusionType::SharedReads)
@@ -847,11 +843,7 @@ impl std::fmt::Display for FusionStats {
             "  Analyzed {} operators, found {} candidate groups",
             self.total_operators, self.candidate_groups
         )?;
-        writeln!(
-            f,
-            "  {} groups passed safety validation",
-            self.safe_groups
-        )?;
+        writeln!(f, "  {} groups passed safety validation", self.safe_groups)?;
         writeln!(
             f,
             "  {} groups passed cost analysis",
@@ -905,19 +897,44 @@ mod tests {
     #[test]
     fn test_find_shared_write_groups() {
         let deps = vec![
-            make_op_deps("heat_source", "terra", OperatorPhaseIr::Collect, &[], &["temperature"]),
-            make_op_deps("solar_input", "terra", OperatorPhaseIr::Collect, &["solar_flux"], &["temperature"]),
-            make_op_deps("geothermal", "terra", OperatorPhaseIr::Collect, &[], &["temperature"]),
-            make_op_deps("unrelated", "terra", OperatorPhaseIr::Collect, &[], &["pressure"]),
+            make_op_deps(
+                "heat_source",
+                "terra",
+                OperatorPhaseIr::Collect,
+                &[],
+                &["temperature"],
+            ),
+            make_op_deps(
+                "solar_input",
+                "terra",
+                OperatorPhaseIr::Collect,
+                &["solar_flux"],
+                &["temperature"],
+            ),
+            make_op_deps(
+                "geothermal",
+                "terra",
+                OperatorPhaseIr::Collect,
+                &[],
+                &["temperature"],
+            ),
+            make_op_deps(
+                "unrelated",
+                "terra",
+                OperatorPhaseIr::Collect,
+                &[],
+                &["pressure"],
+            ),
         ];
 
         let detector = FusionCandidateDetector::default();
         let candidates = detector.find_candidates(&deps);
 
         // Should find the temperature writers group
-        let temp_group = candidates
-            .iter()
-            .find(|g| g.fusion_type == FusionType::SharedWrite && g.shared_resources.contains(&"temperature".to_string()));
+        let temp_group = candidates.iter().find(|g| {
+            g.fusion_type == FusionType::SharedWrite
+                && g.shared_resources.contains(&"temperature".to_string())
+        });
         assert!(temp_group.is_some());
         assert_eq!(temp_group.unwrap().operators.len(), 3);
     }
@@ -925,8 +942,20 @@ mod tests {
     #[test]
     fn test_find_shared_read_groups() {
         let deps = vec![
-            make_op_deps("pressure_calc", "terra", OperatorPhaseIr::Collect, &["density", "depth"], &["pressure"]),
-            make_op_deps("buoyancy_calc", "terra", OperatorPhaseIr::Collect, &["density", "gravity"], &["buoyancy"]),
+            make_op_deps(
+                "pressure_calc",
+                "terra",
+                OperatorPhaseIr::Collect,
+                &["density", "depth"],
+                &["pressure"],
+            ),
+            make_op_deps(
+                "buoyancy_calc",
+                "terra",
+                OperatorPhaseIr::Collect,
+                &["density", "gravity"],
+                &["buoyancy"],
+            ),
         ];
 
         let mut detector = FusionCandidateDetector::default();
@@ -949,7 +978,10 @@ mod tests {
         ];
 
         let group = FusionGroup {
-            operators: vec![OperatorId("op_a".to_string()), OperatorId("op_b".to_string())],
+            operators: vec![
+                OperatorId("op_a".to_string()),
+                OperatorId("op_b".to_string()),
+            ],
             fusion_type: FusionType::SharedReads,
             shared_resources: vec!["x".to_string()],
             benefit_score: 1.0,
@@ -967,7 +999,10 @@ mod tests {
         ];
 
         let group = FusionGroup {
-            operators: vec![OperatorId("op_a".to_string()), OperatorId("op_b".to_string())],
+            operators: vec![
+                OperatorId("op_a".to_string()),
+                OperatorId("op_b".to_string()),
+            ],
             fusion_type: FusionType::SharedReads,
             shared_resources: vec![],
             benefit_score: 1.0,
@@ -978,7 +1013,11 @@ mod tests {
         assert!(result.is_err());
 
         let errors = result.unwrap_err();
-        assert!(errors.iter().any(|e| matches!(e, FusionUnsafe::ReadWriteConflict { .. })));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, FusionUnsafe::ReadWriteConflict { .. }))
+        );
     }
 
     #[test]
@@ -989,7 +1028,10 @@ mod tests {
         ];
 
         let group = FusionGroup {
-            operators: vec![OperatorId("op_a".to_string()), OperatorId("op_b".to_string())],
+            operators: vec![
+                OperatorId("op_a".to_string()),
+                OperatorId("op_b".to_string()),
+            ],
             fusion_type: FusionType::SharedReads,
             shared_resources: vec!["x".to_string()],
             benefit_score: 1.0,
@@ -1003,9 +1045,27 @@ mod tests {
     #[test]
     fn test_cost_model_should_fuse() {
         let deps = vec![
-            make_op_deps("op_a", "terra", OperatorPhaseIr::Collect, &["x", "y", "z"], &[]),
-            make_op_deps("op_b", "terra", OperatorPhaseIr::Collect, &["x", "y", "z"], &[]),
-            make_op_deps("op_c", "terra", OperatorPhaseIr::Collect, &["x", "y", "z"], &[]),
+            make_op_deps(
+                "op_a",
+                "terra",
+                OperatorPhaseIr::Collect,
+                &["x", "y", "z"],
+                &[],
+            ),
+            make_op_deps(
+                "op_b",
+                "terra",
+                OperatorPhaseIr::Collect,
+                &["x", "y", "z"],
+                &[],
+            ),
+            make_op_deps(
+                "op_c",
+                "terra",
+                OperatorPhaseIr::Collect,
+                &["x", "y", "z"],
+                &[],
+            ),
         ];
 
         let group = FusionGroup {
@@ -1031,7 +1091,10 @@ mod tests {
         ];
 
         let group = FusionGroup {
-            operators: vec![OperatorId("op_a".to_string()), OperatorId("op_b".to_string())],
+            operators: vec![
+                OperatorId("op_a".to_string()),
+                OperatorId("op_b".to_string()),
+            ],
             fusion_type: FusionType::SharedReads,
             shared_resources: vec![], // No shared resources
             benefit_score: 0.5,

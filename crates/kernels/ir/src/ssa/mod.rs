@@ -36,7 +36,7 @@ mod validate;
 
 pub use lower::lower_to_ssa;
 pub use types::*;
-pub use validate::{validate_ssa, SsaValidationError};
+pub use validate::{SsaValidationError, validate_ssa};
 
 #[cfg(test)]
 mod tests;

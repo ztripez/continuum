@@ -13,6 +13,8 @@ use continuum_tests::TestHarness;
 #[test]
 fn test_simple_world_executes() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         strata.terra {}
 
         era.main {
@@ -51,6 +53,8 @@ fn test_simple_world_executes() {
 #[test]
 fn test_signal_dependency_chain() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         strata.terra {}
 
         era.main {
@@ -114,6 +118,8 @@ fn test_signal_dependency_chain() {
 #[test]
 fn test_execution_is_deterministic() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         strata.terra {}
 
         era.main {
@@ -162,6 +168,8 @@ fn test_execution_is_deterministic() {
 #[test]
 fn test_era_transitions_work() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         strata.terra {}
 
         era.era_a {
@@ -221,6 +229,8 @@ fn test_era_transitions_work() {
 #[test]
 fn test_parallel_independent_signals() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         strata.terra {}
 
         era.main {
@@ -256,6 +266,8 @@ fn test_parallel_independent_signals() {
 #[test]
 fn test_constants_in_resolve() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         const {
             physics.gravity: 9.81
             physics.time_scale: 2.0
@@ -290,6 +302,8 @@ fn test_constants_in_resolve() {
 #[test]
 fn test_config_in_resolve() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         config {
             simulation.decay_rate: 0.5
             terra.initial_energy: 100.0
@@ -331,6 +345,8 @@ fn test_config_in_resolve() {
 #[test]
 fn test_kernel_functions() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         config {
             terra.initial_temp: 1000.0
         }
@@ -372,6 +388,8 @@ fn test_kernel_functions() {
 #[test]
 fn test_complex_expression() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         const {
             scale: 2.0
         }
@@ -423,6 +441,8 @@ fn test_complex_expression() {
 #[test]
 fn test_conditional_expression() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         strata.terra {}
 
         era.main {
@@ -475,6 +495,8 @@ fn test_conditional_expression() {
 #[test]
 fn test_multiple_strata() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         strata.terra {}
         strata.climate {}
 
@@ -512,6 +534,8 @@ fn test_multiple_strata() {
 #[test]
 fn test_tick_context() {
     let source = r#"
+        world.test { : title("Simple World") }
+
         strata.terra {}
 
         era.main {
