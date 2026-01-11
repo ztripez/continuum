@@ -397,7 +397,9 @@ fn test_parse_vec4_unit_quaternion() {
                 } => {
                     assert_eq!(*dim, 4);
                     assert_eq!(unit, "1");
-                    let mag = magnitude.as_ref().expect("should have magnitude constraint");
+                    let mag = magnitude
+                        .as_ref()
+                        .expect("should have magnitude constraint");
                     // Single value 1 is converted to range 1..1
                     assert_eq!(mag.min, 1.0);
                     assert_eq!(mag.max, 1.0);
@@ -589,7 +591,10 @@ fn test_parse_function_call_nested() {
                     assert_eq!(args.len(), 2);
                     // First arg should be min(prev, 1000)
                     match &args[0].value.node {
-                        Expr::Call { function, args: inner_args } => {
+                        Expr::Call {
+                            function,
+                            args: inner_args,
+                        } => {
                             match &function.node {
                                 Expr::Path(p) => assert_eq!(p.join("."), "min"),
                                 _ => panic!("expected Path"),
@@ -1104,7 +1109,11 @@ signal.test.conditional {
             assert!(def.resolve.is_some());
             let resolve = def.resolve.as_ref().unwrap();
             match &resolve.body.node {
-                Expr::If { condition, then_branch, else_branch } => {
+                Expr::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                } => {
                     // Verify condition is prev > 0.0
                     match &condition.node {
                         Expr::Binary { op, .. } => {
@@ -1179,7 +1188,11 @@ signal.test.else_if {
             assert!(def.resolve.is_some());
             let resolve = def.resolve.as_ref().unwrap();
             match &resolve.body.node {
-                Expr::If { condition, then_branch: _, else_branch } => {
+                Expr::If {
+                    condition,
+                    then_branch: _,
+                    else_branch,
+                } => {
                     // First condition: prev > 100.0
                     match &condition.node {
                         Expr::Binary { op, .. } => {
@@ -1190,7 +1203,11 @@ signal.test.else_if {
                     // Else branch should be another If (the else-if)
                     let else_if = else_branch.as_ref().expect("should have else branch");
                     match &else_if.node {
-                        Expr::If { condition: cond2, else_branch: else2, .. } => {
+                        Expr::If {
+                            condition: cond2,
+                            else_branch: else2,
+                            ..
+                        } => {
                             // Second condition: prev > 50.0
                             match &cond2.node {
                                 Expr::Binary { op, .. } => {
@@ -1201,7 +1218,9 @@ signal.test.else_if {
                             // Should have another else-if or else
                             let else_if2 = else2.as_ref().expect("should have second else branch");
                             match &else_if2.node {
-                                Expr::If { else_branch: else3, .. } => {
+                                Expr::If {
+                                    else_branch: else3, ..
+                                } => {
                                     // Final else should exist
                                     assert!(else3.is_some(), "should have final else");
                                 }
@@ -1318,7 +1337,10 @@ signal.test.double_neg {
         Item::SignalDef(def) => {
             let resolve = def.resolve.as_ref().unwrap();
             match &resolve.body.node {
-                Expr::Unary { op: outer_op, operand } => {
+                Expr::Unary {
+                    op: outer_op,
+                    operand,
+                } => {
                     assert_eq!(*outer_op, UnaryOp::Neg);
                     match &operand.node {
                         Expr::Unary { op: inner_op, .. } => {
@@ -1748,12 +1770,15 @@ fn test_parse_world_def() {
     match &unit.items[0].node {
         Item::WorldDef(def) => {
             assert_eq!(def.path.node.join("."), "terra");
-            assert_eq!(def.title.as_ref().unwrap().node, "Earth Planetary Simulation");
+            assert_eq!(
+                def.title.as_ref().unwrap().node,
+                "Earth Planetary Simulation"
+            );
             assert_eq!(def.version.as_ref().unwrap().node, "1.0.0");
-            
+
             let policy = def.policy.as_ref().expect("expected policy block");
             assert_eq!(policy.entries.len(), 2);
-            
+
             assert_eq!(policy.entries[0].path.node.join("."), "determinism");
             match &policy.entries[0].value.node {
                 Literal::String(s) => assert_eq!(s, "strict"),
@@ -1761,5 +1786,75 @@ fn test_parse_world_def() {
             }
         }
         _ => panic!("expected WorldDef"),
+    }
+}
+
+#[test]
+fn test_parse_math_constant_with_digit() {
+    let source = r#"
+        signal.test.const {
+            : Scalar
+            resolve {
+                SQRT2 * FRAC_1_PI
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::SignalDef(def) => {
+            let resolve = def.resolve.as_ref().unwrap();
+            match &resolve.body.node {
+                Expr::Binary { op, left, right } => {
+                    assert_eq!(*op, BinaryOp::Mul);
+                    // SQRT2
+                    match &left.node {
+                        Expr::Literal(Literal::Float(val)) => {
+                            assert!((val - std::f64::consts::SQRT_2).abs() < 1e-10);
+                        }
+                        _ => panic!("expected Literal for SQRT2, got {:?}", left.node),
+                    }
+                    // FRAC_1_PI
+                    match &right.node {
+                        Expr::Literal(Literal::Float(val)) => {
+                            assert!((val - std::f64::consts::FRAC_1_PI).abs() < 1e-10);
+                        }
+                        _ => panic!("expected Literal for FRAC_1_PI, got {:?}", right.node),
+                    }
+                }
+                _ => panic!("expected Binary"),
+            }
+        }
+        _ => panic!("expected SignalDef"),
+    }
+}
+
+#[test]
+fn test_parse_fracture_emit_semicolons() {
+    let source = r#"
+        fracture.test {
+            when { true }
+            emit {
+                signal.a <- 1.0;
+                signal.b <- 2.0
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    match &unit.items[0].node {
+        Item::FractureDef(def) => {
+            let emit = def.emit.as_ref().unwrap();
+            match &emit.node {
+                Expr::Block(exprs) => {
+                    assert_eq!(exprs.len(), 2);
+                }
+                _ => panic!("expected Block"),
+            }
+        }
+        _ => panic!("expected FractureDef"),
     }
 }

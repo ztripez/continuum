@@ -34,9 +34,10 @@
 use chumsky::prelude::*;
 
 use crate::ast::{AggregateOp, BinaryOp, CallArg, Expr, Literal, MathConst, Spanned, UnaryOp};
+use crate::math_consts;
 
-use super::primitives::{ident, number, path, string_lit, unit, ws};
 use super::ParseError;
+use super::primitives::{ident, number, path, string_lit, unit, ws};
 
 /// Type alias for parser Extra to ensure consistency across helper functions
 type Ex<'src> = extra::Err<ParseError<'src>>;
@@ -56,11 +57,13 @@ fn span_union<T, U>(left: &Spanned<T>, right: &Spanned<U>) -> std::ops::Range<us
 /// cause exponential compile time growth.
 #[allow(dead_code)]
 pub fn expr<'src>() -> impl Parser<'src, &'src str, Expr, Ex<'src>> + Clone {
-    spanned_expr_inner().map(|spanned| spanned.node)
+    spanned_expr_builder(false).map(|spanned| spanned.node)
 }
 
-/// Internal spanned expression parser - produces `Spanned<Expr>` with proper spans throughout
-fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
+/// Internal spanned expression parser builder - produces `Spanned<Expr>` with proper spans throughout
+fn spanned_expr_builder<'src>(
+    allow_emit: bool,
+) -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
     recursive(|expr| {
         // Box the recursive expr (which returns Spanned<Expr>) to prevent type explosion
         let expr_boxed: SpannedExprBox<'src> = expr.clone().boxed();
@@ -94,12 +97,48 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             text::keyword("prev").to(Expr::Prev),
             just("dt_raw").to(Expr::DtRaw),
             just("sim_time").to(Expr::SimTime),
-            // Math constants (ASCII and Unicode)
-            just("PI").or(just("π")).to(Expr::MathConst(MathConst::Pi)),
-            just("TAU").or(just("τ")).to(Expr::MathConst(MathConst::Tau)),
-            just("PHI").or(just("φ")).to(Expr::MathConst(MathConst::Phi)),
-            just("E").or(just("ℯ")).to(Expr::MathConst(MathConst::E)),
-            just("I").or(just("ⅈ")).to(Expr::MathConst(MathConst::I)),
+            // Math constants (ASCII and Unicode) and dynamic constants from registry
+            choice((
+                just("PI").or(just("π")).to(Expr::MathConst(MathConst::Pi)),
+                just("TAU")
+                    .or(just("τ"))
+                    .to(Expr::MathConst(MathConst::Tau)),
+                just("PHI")
+                    .or(just("φ"))
+                    .to(Expr::MathConst(MathConst::Phi)),
+                just("E").or(just("ℯ")).to(Expr::MathConst(MathConst::E)),
+                just("I").or(just("ⅈ")).to(Expr::MathConst(MathConst::I)),
+                // Dynamic lookup for constants with digits (e.g., SQRT2)
+                // Must be wrapped in attempt() to allow backtracking if lookup fails
+                // so that it can be parsed as an identifier/path later
+                any()
+                    .filter(|c: &char| c.is_ascii_uppercase() || *c == '_' || !c.is_ascii())
+                    .then(
+                        any()
+                            .filter(|c: &char| {
+                                c.is_ascii_uppercase()
+                                    || c.is_ascii_digit()
+                                    || *c == '_'
+                                    || !c.is_ascii()
+                            })
+                            .repeated(),
+                    )
+                    .to_slice()
+                    .try_map(|name: &str, span| {
+                        if let Some(val) = math_consts::lookup(name) {
+                            Ok(Expr::Literal(Literal::Float(val)))
+                        } else {
+                            Err(Rich::custom(span, format!("unknown constant")))
+                        }
+                    }), // Only consume if lookup succeeds
+                        // If lookup fails, this parser fails, and choice() moves to next option
+                        // But we need to ensure we haven't consumed input irrevocably?
+                        // try_map fails after to_slice consumed.
+                        // chumsky choice() backtracks unless committed. We haven't used just().
+                        // But to_slice() consumes.
+                        // So we might need .attempt() or .rewind() equivalent?
+                        // In chumsky 0.12, choice backtracks by default on error.
+            )),
             text::keyword("payload").to(Expr::Payload),
             text::keyword("collected").to(Expr::Collected),
             text::keyword("signal")
@@ -149,7 +188,10 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                 .map_with(|(lit, unit_opt), extra| {
                     let span: chumsky::span::SimpleSpan = extra.span();
                     let e = match unit_opt {
-                        Some(u) => Expr::LiteralWithUnit { value: lit, unit: u },
+                        Some(u) => Expr::LiteralWithUnit {
+                            value: lit,
+                            unit: u,
+                        },
                         None => Expr::Literal(lit),
                     };
                     Spanned::new(e, span.start..span.end)
@@ -183,37 +225,38 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
 
         // Method calls: expr.method(args) - now works with Spanned<Expr>
         // Boxed to reduce type complexity from foldl chains.
-        let postfix = atom.foldl(
-            just('.')
-                .padded_by(ws())
-                .ignore_then(ident().map_with(|m, extra| {
-                    let span: chumsky::span::SimpleSpan = extra.span();
-                    (m, span.start..span.end)
-                }))
-                .then(args_with_span.or_not())
-                .repeated(),
-            |obj, ((method, method_span), maybe_args)| {
-                let (new_expr, span_end) = match maybe_args {
-                    Some((args, paren_end)) => (
-                        Expr::MethodCall {
-                            object: Box::new(obj.clone()),
-                            method,
-                            args,
-                        },
-                        paren_end,
-                    ),
-                    None => (
-                        Expr::FieldAccess {
-                            object: Box::new(obj.clone()),
-                            field: method,
-                        },
-                        method_span.end,
-                    ),
-                };
-                Spanned::new(new_expr, obj.span.start..span_end)
-            },
-        )
-        .boxed();
+        let postfix = atom
+            .foldl(
+                just('.')
+                    .padded_by(ws())
+                    .ignore_then(ident().map_with(|m, extra| {
+                        let span: chumsky::span::SimpleSpan = extra.span();
+                        (m, span.start..span.end)
+                    }))
+                    .then(args_with_span.or_not())
+                    .repeated(),
+                |obj, ((method, method_span), maybe_args)| {
+                    let (new_expr, span_end) = match maybe_args {
+                        Some((args, paren_end)) => (
+                            Expr::MethodCall {
+                                object: Box::new(obj.clone()),
+                                method,
+                                args,
+                            },
+                            paren_end,
+                        ),
+                        None => (
+                            Expr::FieldAccess {
+                                object: Box::new(obj.clone()),
+                                field: method,
+                            },
+                            method_span.end,
+                        ),
+                    };
+                    Spanned::new(new_expr, obj.span.start..span_end)
+                },
+            )
+            .boxed();
 
         // Unary operators: negation (-) and logical not (! or 'not')
         // The 'not' keyword uses text::keyword to ensure proper word boundary handling
@@ -223,61 +266,65 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             just('!').to(UnaryOp::Not),
             text::keyword("not").to(UnaryOp::Not),
         ))
-            .map_with(|op, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
-                (op, span.start)
-            })
-            .repeated()
-            .foldr(postfix, |(op, op_start), operand| {
-                let span = op_start..operand.span.end;
-                Spanned::new(
-                    Expr::Unary {
-                        op,
-                        operand: Box::new(operand),
-                    },
-                    span,
-                )
-            })
-            .boxed();
+        .map_with(|op, extra| {
+            let span: chumsky::span::SimpleSpan = extra.span();
+            (op, span.start)
+        })
+        .repeated()
+        .foldr(postfix, |(op, op_start), operand| {
+            let span = op_start..operand.span.end;
+            Spanned::new(
+                Expr::Unary {
+                    op,
+                    operand: Box::new(operand),
+                },
+                span,
+            )
+        })
+        .boxed();
 
         // Binary operators - boxed to prevent exponential type growth
-        let product = unary.clone().foldl(
-            choice((just('*').to(BinaryOp::Mul), just('/').to(BinaryOp::Div)))
-                .padded_by(ws())
-                .then(unary)
-                .repeated(),
-            |left, (op, right)| {
-                let span = span_union(&left, &right);
-                Spanned::new(
-                    Expr::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span,
-                )
-            },
-        )
-        .boxed();
+        let product = unary
+            .clone()
+            .foldl(
+                choice((just('*').to(BinaryOp::Mul), just('/').to(BinaryOp::Div)))
+                    .padded_by(ws())
+                    .then(unary)
+                    .repeated(),
+                |left, (op, right)| {
+                    let span = span_union(&left, &right);
+                    Spanned::new(
+                        Expr::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        span,
+                    )
+                },
+            )
+            .boxed();
 
-        let sum = product.clone().foldl(
-            choice((just('+').to(BinaryOp::Add), just('-').to(BinaryOp::Sub)))
-                .padded_by(ws())
-                .then(product)
-                .repeated(),
-            |left, (op, right)| {
-                let span = span_union(&left, &right);
-                Spanned::new(
-                    Expr::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span,
-                )
-            },
-        )
-        .boxed();
+        let sum = product
+            .clone()
+            .foldl(
+                choice((just('+').to(BinaryOp::Add), just('-').to(BinaryOp::Sub)))
+                    .padded_by(ws())
+                    .then(product)
+                    .repeated(),
+                |left, (op, right)| {
+                    let span = span_union(&left, &right);
+                    Spanned::new(
+                        Expr::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        span,
+                    )
+                },
+            )
+            .boxed();
 
         // Comparison operators do NOT chain: a < b < c is disallowed
         // Use .or_not() instead of .repeated() to prevent chaining
@@ -318,24 +365,23 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             just("&&").to(BinaryOp::And),
             text::keyword("and").to(BinaryOp::And),
         ));
-        let logical_and = comparison.clone().foldl(
-            and_op
-                .padded_by(ws())
-                .then(comparison)
-                .repeated(),
-            |left, (op, right)| {
-                let span = span_union(&left, &right);
-                Spanned::new(
-                    Expr::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span,
-                )
-            },
-        )
-        .boxed();
+        let logical_and = comparison
+            .clone()
+            .foldl(
+                and_op.padded_by(ws()).then(comparison).repeated(),
+                |left, (op, right)| {
+                    let span = span_union(&left, &right);
+                    Spanned::new(
+                        Expr::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        span,
+                    )
+                },
+            )
+            .boxed();
 
         // Logical OR has lower precedence than AND
         // Accept both '||' and 'or' keyword
@@ -343,24 +389,23 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
             just("||").to(BinaryOp::Or),
             text::keyword("or").to(BinaryOp::Or),
         ));
-        let logical_or = logical_and.clone().foldl(
-            or_op
-                .padded_by(ws())
-                .then(logical_and)
-                .repeated(),
-            |left, (op, right)| {
-                let span = span_union(&left, &right);
-                Spanned::new(
-                    Expr::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span,
-                )
-            },
-        )
-        .boxed();
+        let logical_or = logical_and
+            .clone()
+            .foldl(
+                or_op.padded_by(ws()).then(logical_and).repeated(),
+                |left, (op, right)| {
+                    let span = span_union(&left, &right);
+                    Spanned::new(
+                        Expr::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        span,
+                    )
+                },
+            )
+            .boxed();
 
         // logical_or already boxed above, use directly
         let logical_or_boxed = logical_or.clone();
@@ -490,10 +535,14 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                 .boxed()
         };
 
-        // Expression without let - includes emit, if-else, and logical_or but NOT let expressions.
+        // Expression without let - includes emit (if allowed), if-else, and logical_or but NOT let expressions.
         // Used for the value part of let bindings to prevent recursive let parsing while still
         // allowing if-else expressions like: let x = if cond { a } else { b } in ...
-        let expr_without_let = choice((emit_expr.clone(), if_expr.clone(), logical_or.clone())).boxed();
+        let mut without_let_parsers = vec![if_expr.clone(), logical_or.clone()];
+        if allow_emit {
+            without_let_parsers.insert(0, emit_expr.clone());
+        }
+        let expr_without_let = choice(without_let_parsers).boxed();
 
         // Let expression: let name = value in body
         // Multiple lets chain together: let a = 1 in let b = 2 in a + b
@@ -541,7 +590,11 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         };
 
         // Let and if expressions have lowest precedence - they consume the rest as body
-        choice((emit_expr, let_expr, if_expr, logical_or))
+        let mut final_parsers = vec![let_expr, if_expr, logical_or];
+        if allow_emit {
+            final_parsers.insert(0, emit_expr);
+        }
+        choice(final_parsers)
     })
 }
 
@@ -771,7 +824,13 @@ fn entity_aggregate_atoms_spanned<'src>(
 
 /// Spanned expression - public API that uses the internal spanned parser
 pub fn spanned_expr<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone {
-    spanned_expr_inner()
+    spanned_expr_builder(false)
+}
+
+/// Spanned effect expression - includes side effects like emit (signal <- value)
+pub fn spanned_effect_expr<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<'src>> + Clone
+{
+    spanned_expr_builder(true)
 }
 
 /// Parser for aggregate operations that take a body expression
