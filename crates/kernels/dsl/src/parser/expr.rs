@@ -61,17 +61,9 @@ fn spanned_expr_inner<'src>(
             just(Token::Payload).to(Expr::Payload),
             just(Token::Collected).to(Expr::Collected),
             // Look up constants from the registry
-            ident().try_map(|name, span| {
-                if let Some(val) = math_consts::lookup(&name) {
-                    Ok(Expr::Literal(Literal::Float(val)))
-                } else {
-                    // This is tricky because we want to backtrack if it's not a constant
-                    // so it can be parsed as a Path.
-                    // But try_map doesn't easily allow "failure that backtracks to next choice".
-                    // However, we are inside a core_atoms choice.
-                    Err(Rich::custom(span.into(), format!("unknown constant")))
-                }
-            }),
+            ident()
+                .filter(|name| math_consts::lookup(name).is_some())
+                .map(|name| Expr::Literal(Literal::Float(math_consts::lookup(&name).unwrap()))),
             just(Token::Signal)
                 .ignore_then(just(Token::Dot))
                 .ignore_then(path())
@@ -126,6 +118,11 @@ fn spanned_expr_inner<'src>(
             string_lit().map_with(|s, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
                 Spanned::new(Expr::Literal(Literal::String(s)), extra.span().into())
             }),
+            select! { Token::Bool(b) => Expr::Literal(Literal::Bool(b)) }.map_with(
+                |e, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                    Spanned::new(e, extra.span().into())
+                },
+            ),
             expr_boxed
                 .clone()
                 .delimited_by(just(Token::LParen), just(Token::RParen)),

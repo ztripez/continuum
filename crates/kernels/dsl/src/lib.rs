@@ -11,5 +11,6 @@ pub mod validate;
 
 pub use ast::*;
 pub use loader::{LoadError, LoadResult, collect_cdsl_files, load_file, load_world};
+pub use parser::lexer::Token;
 pub use parser::parse;
 pub use validate::{ValidationError, validate};

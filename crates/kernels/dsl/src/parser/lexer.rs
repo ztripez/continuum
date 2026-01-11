@@ -10,209 +10,209 @@ use std::fmt;
 #[logos(skip r"/\*([^*]|\*[^/])*\*/")]
 pub enum Token {
     // --- Keywords ---
-    #[token("world")]
+    #[token("world", priority = 2)]
     World,
-    #[token("strata")]
+    #[token("strata", priority = 2)]
     Strata,
-    #[token("era")]
+    #[token("era", priority = 2)]
     Era,
-    #[token("signal")]
+    #[token("signal", priority = 2)]
     Signal,
-    #[token("field")]
+    #[token("field", priority = 2)]
     Field,
-    #[token("operator")]
+    #[token("operator", priority = 2)]
     Operator,
-    #[token("fn")]
+    #[token("fn", priority = 2)]
     Fn,
-    #[token("type")]
+    #[token("type", priority = 2)]
     Type,
-    #[token("impulse")]
+    #[token("impulse", priority = 2)]
     Impulse,
-    #[token("fracture")]
+    #[token("fracture", priority = 2)]
     Fracture,
-    #[token("chronicle")]
+    #[token("chronicle", priority = 2)]
     Chronicle,
-    #[token("entity")]
+    #[token("entity", priority = 2)]
     Entity,
-    #[token("count")]
+    #[token("count", priority = 2)]
     Count,
-    #[token("member")]
+    #[token("member", priority = 2)]
     Member,
-    #[token("const")]
+    #[token("const", priority = 2)]
     Const,
-    #[token("config")]
+    #[token("config", priority = 2)]
     Config,
-    #[token("policy")]
+    #[token("policy", priority = 2)]
     Policy,
-    #[token("version")]
+    #[token("version", priority = 2)]
     Version,
 
-    #[token("resolve")]
+    #[token("resolve", priority = 2)]
     Resolve,
-    #[token("measure")]
+    #[token("measure", priority = 2)]
     Measure,
-    #[token("when")]
+    #[token("when", priority = 2)]
     When,
-    #[token("emit")]
+    #[token("emit", priority = 2)]
     Emit,
-    #[token("assert")]
+    #[token("assert", priority = 2)]
     Assert,
-    #[token("transition")]
+    #[token("transition", priority = 2)]
     Transition,
-    #[token("dt")]
+    #[token("dt", priority = 2)]
     Dt,
-    #[token("to")]
+    #[token("to", priority = 2)]
     To,
-    #[token("gated")]
+    #[token("gated", priority = 2)]
     Gated,
 
-    #[token("apply")]
+    #[token("apply", priority = 2)]
     Apply,
-    #[token("observe")]
+    #[token("observe", priority = 2)]
     Observe,
-    #[token("event")]
+    #[token("event", priority = 2)]
     Event,
 
-    #[token("warn")]
+    #[token("warn", priority = 2)]
     Warn,
-    #[token("error")]
+    #[token("error", priority = 2)]
     Error,
-    #[token("fatal")]
+    #[token("fatal", priority = 2)]
     Fatal,
-    #[token("sphere_surface")]
+    #[token("sphere_surface", priority = 2)]
     SphereSurface,
-    #[token("point_cloud")]
+    #[token("point_cloud", priority = 2)]
     PointCloud,
-    #[token("volume")]
+    #[token("volume", priority = 2)]
     Volume,
 
-    #[token("if")]
+    #[token("if", priority = 2)]
     If,
-    #[token("else")]
+    #[token("else", priority = 2)]
     Else,
-    #[token("let")]
+    #[token("let", priority = 2)]
     Let,
-    #[token("in")]
+    #[token("in", priority = 2)]
     In,
-    #[token("for")]
+    #[token("for", priority = 2)]
     For,
 
-    #[token("prev")]
+    #[token("prev", priority = 2)]
     Prev,
-    #[token("dt_raw")]
+    #[token("dt_raw", priority = 2)]
     DtRaw,
-    #[token("sim_time")]
+    #[token("sim_time", priority = 2)]
     SimTime,
-    #[token("collected")]
+    #[token("collected", priority = 2)]
     Collected,
-    #[token("payload")]
+    #[token("payload", priority = 2)]
     Payload,
 
     // --- Attribute Keywords (often used after :) ---
-    #[token("initial")]
+    #[token("initial", priority = 2)]
     Initial,
-    #[token("terminal")]
+    #[token("terminal", priority = 2)]
     Terminal,
-    #[token("stride")]
+    #[token("stride", priority = 2)]
     Stride,
-    #[token("title")]
+    #[token("title", priority = 2)]
     Title,
-    #[token("symbol")]
+    #[token("symbol", priority = 2)]
     Symbol,
-    #[token("uses")]
+    #[token("uses", priority = 2)]
     Uses,
-    #[token("active")]
+    #[token("active", priority = 2)]
     Active,
-    #[token("converge")]
+    #[token("converge", priority = 2)]
     Converge,
-    #[token("warmup")]
+    #[token("warmup", priority = 2)]
     Warmup,
-    #[token("iterate")]
+    #[token("iterate", priority = 2)]
     Iterate,
 
     // --- Built-in Types ---
-    #[token("Scalar")]
+    #[token("Scalar", priority = 2)]
     Scalar,
-    #[token("Vec2")]
+    #[token("Vec2", priority = 2)]
     Vec2,
-    #[token("Vec3")]
+    #[token("Vec3", priority = 2)]
     Vec3,
-    #[token("Vec4")]
+    #[token("Vec4", priority = 2)]
     Vec4,
-    #[token("Vector")]
+    #[token("Vector", priority = 2)]
     Vector,
-    #[token("Tensor")]
+    #[token("Tensor", priority = 2)]
     Tensor,
-    #[token("Grid")]
+    #[token("Grid", priority = 2)]
     Grid,
-    #[token("Seq")]
+    #[token("Seq", priority = 2)]
     Seq,
-    #[token("magnitude")]
+    #[token("magnitude", priority = 2)]
     Magnitude,
-    #[token("symmetric")]
+    #[token("symmetric", priority = 2)]
     Symmetric,
-    #[token("positive_definite")]
+    #[token("positive_definite", priority = 2)]
     PositiveDefinite,
-    #[token("each")]
+    #[token("each", priority = 2)]
     Each,
-    #[token("sum")]
+    #[token("sum", priority = 2)]
     Sum,
-    #[token("product")]
+    #[token("product", priority = 2)]
     Product,
-    #[token("min")]
+    #[token("min", priority = 2)]
     Min,
-    #[token("max")]
+    #[token("max", priority = 2)]
     Max,
-    #[token("mean")]
+    #[token("mean", priority = 2)]
     Mean,
-    #[token("any")]
+    #[token("any", priority = 2)]
     Any,
-    #[token("all")]
+    #[token("all", priority = 2)]
     All,
-    #[token("none")]
+    #[token("none", priority = 2)]
     None,
-    #[token("phase")]
+    #[token("phase", priority = 2)]
     Phase,
-    #[token("collect")]
+    #[token("collect", priority = 2)]
     Collect,
-    #[token("topology")]
+    #[token("topology", priority = 2)]
     Topology,
-    #[token("self")]
+    #[token("self", priority = 2)]
     SelfToken,
-    #[token("filter")]
+    #[token("filter", priority = 2)]
     Filter,
-    #[token("first")]
+    #[token("first", priority = 2)]
     First,
-    #[token("nearest")]
+    #[token("nearest", priority = 2)]
     Nearest,
-    #[token("within")]
+    #[token("within", priority = 2)]
     Within,
-    #[token("other")]
+    #[token("other", priority = 2)]
     Other,
-    #[token("pairs")]
+    #[token("pairs", priority = 2)]
     Pairs,
-    #[token("not")]
+    #[token("not", priority = 2)]
     NotKeyword,
-    #[token("and")]
+    #[token("and", priority = 2)]
     AndKeyword,
-    #[token("or")]
+    #[token("or", priority = 2)]
     OrKeyword,
 
     // --- Math Constants ---
-    #[token("PI")]
-    #[token("π")]
+    #[token("PI", priority = 2)]
+    #[token("π", priority = 2)]
     Pi,
-    #[token("TAU")]
-    #[token("τ")]
+    #[token("TAU", priority = 2)]
+    #[token("τ", priority = 2)]
     Tau,
-    #[token("PHI")]
-    #[token("φ")]
+    #[token("PHI", priority = 2)]
+    #[token("φ", priority = 2)]
     Phi,
-    #[token("E")]
-    #[token("ℯ")]
+    #[token("E", priority = 2)]
+    #[token("ℯ", priority = 2)]
     E,
-    #[token("I")]
-    #[token("ⅈ")]
+    #[token("I", priority = 2)]
+    #[token("ⅈ", priority = 2)]
     I,
 
     // --- Operators & Punctuation ---
@@ -275,8 +275,8 @@ pub enum Token {
     RBrace,
 
     // --- Literals ---
-    #[token("true", |_| true)]
-    #[token("false", |_| false)]
+    #[token("true", |_| true, priority = 2)]
+    #[token("false", |_| false, priority = 2)]
     Bool(bool),
 
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string(), priority = 1)]

@@ -89,13 +89,8 @@ fn member_content<'src>()
             )
             .map(MemberContent::Config),
         // initial { expr }
-        text::keyword("initial")
-            .padded_by(ws())
-            .ignore_then(
-                spanned_expr()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
+        just(Token::Initial)
+            .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
             .map(|body| MemberContent::Initial(ResolveBlock { body })),
         // resolve { expr }
         just(Token::Resolve)
@@ -184,7 +179,19 @@ mod tests {
             resolve { prev }
         }"#;
 
-        let result = member_def().parse(src);
+        fn lex_map(
+            tok_span: (
+                Result<Token, <Token as logos::Logos>::Error>,
+                std::ops::Range<usize>,
+            ),
+        ) -> Token {
+            tok_span.0.unwrap_or(Token::Error)
+        }
+
+        let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
+        let stream = Stream::from_iter(lexer);
+
+        let result = member_def().parse(stream);
         assert!(result.has_output());
         let member = result.into_output().unwrap();
         assert_eq!(member.path.node.to_string(), "stellar.star.rotation_period");

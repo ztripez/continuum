@@ -22,9 +22,26 @@ where
 /// Parses an identifier or a keyword that can act as an identifier.
 pub fn ident<'src>()
 -> impl Parser<'src, ParserInput<'src>, String, extra::Err<ParseError<'src>>> + Clone {
-    choice((
-        select! { Token::Ident(name) => name },
-        // Common keywords that are allowed as identifiers in paths/names
+    let base_ident = select! { Token::Ident(name) => name };
+
+    let kw_group1 = choice((
+        just(Token::World).to("world".to_string()),
+        just(Token::Strata).to("strata".to_string()),
+        just(Token::Era).to("era".to_string()),
+        just(Token::Signal).to("signal".to_string()),
+        just(Token::Field).to("field".to_string()),
+        just(Token::Operator).to("operator".to_string()),
+        just(Token::Fn).to("fn".to_string()),
+        just(Token::Type).to("type".to_string()),
+        just(Token::Impulse).to("impulse".to_string()),
+        just(Token::Fracture).to("fracture".to_string()),
+        just(Token::Chronicle).to("chronicle".to_string()),
+        just(Token::Entity).to("entity".to_string()),
+        just(Token::Member).to("member".to_string()),
+        just(Token::Const).to("const".to_string()),
+        just(Token::Config).to("config".to_string()),
+        just(Token::Policy).to("policy".to_string()),
+        just(Token::Version).to("version".to_string()),
         just(Token::Initial).to("initial".to_string()),
         just(Token::Terminal).to("terminal".to_string()),
         just(Token::Stride).to("stride".to_string()),
@@ -33,13 +50,15 @@ pub fn ident<'src>()
         just(Token::Active).to("active".to_string()),
         just(Token::Converge).to("converge".to_string()),
         just(Token::Warmup).to("warmup".to_string()),
+    ));
+
+    let kw_group2 = choice((
         just(Token::Iterate).to("iterate".to_string()),
         just(Token::Phase).to("phase".to_string()),
         just(Token::Magnitude).to("magnitude".to_string()),
         just(Token::Symmetric).to("symmetric".to_string()),
         just(Token::PositiveDefinite).to("positive_definite".to_string()),
         just(Token::Topology).to("topology".to_string()),
-        // Math/Aggregate-like keywords often used as functions
         just(Token::Min).to("min".to_string()),
         just(Token::Max).to("max".to_string()),
         just(Token::Mean).to("mean".to_string()),
@@ -49,7 +68,47 @@ pub fn ident<'src>()
         just(Token::All).to("all".to_string()),
         just(Token::None).to("none".to_string()),
         just(Token::First).to("first".to_string()),
-    ))
+        just(Token::Nearest).to("nearest".to_string()),
+        just(Token::Within).to("within".to_string()),
+        just(Token::Other).to("other".to_string()),
+        just(Token::Pairs).to("pairs".to_string()),
+        just(Token::Filter).to("filter".to_string()),
+        just(Token::Event).to("event".to_string()),
+        just(Token::Observe).to("observe".to_string()),
+        just(Token::Apply).to("apply".to_string()),
+        just(Token::When).to("when".to_string()),
+        just(Token::Emit).to("emit".to_string()),
+    ));
+
+    let kw_group3 = choice((
+        just(Token::Assert).to("assert".to_string()),
+        just(Token::Resolve).to("resolve".to_string()),
+        just(Token::Measure).to("measure".to_string()),
+        just(Token::Collect).to("collect".to_string()),
+        just(Token::Transition).to("transition".to_string()),
+        just(Token::Gated).to("gated".to_string()),
+        just(Token::Dt).to("dt".to_string()),
+        just(Token::To).to("to".to_string()),
+        just(Token::Warn).to("warn".to_string()),
+        just(Token::Error).to("error".to_string()),
+        just(Token::Fatal).to("fatal".to_string()),
+        just(Token::Pi).to("PI".to_string()),
+        just(Token::Tau).to("TAU".to_string()),
+        just(Token::Phi).to("PHI".to_string()),
+        just(Token::E).to("E".to_string()),
+        just(Token::I).to("I".to_string()),
+        just(Token::Scalar).to("Scalar".to_string()),
+        just(Token::Vec2).to("Vec2".to_string()),
+        just(Token::Vec3).to("Vec3".to_string()),
+        just(Token::Vec4).to("Vec4".to_string()),
+        just(Token::Vector).to("Vector".to_string()),
+        just(Token::Tensor).to("Tensor".to_string()),
+        just(Token::Grid).to("Grid".to_string()),
+        just(Token::Seq).to("Seq".to_string()),
+        just(Token::Uses).to("uses".to_string()),
+    ));
+
+    choice((base_ident, kw_group1, kw_group2, kw_group3))
 }
 
 /// Parses a dot-separated path of identifiers.
@@ -85,10 +144,19 @@ pub fn float<'src>()
     }
 }
 
-/// Number literal
+/// Number literal (with optional sign)
 pub fn number<'src>()
 -> impl Parser<'src, ParserInput<'src>, Literal, extra::Err<ParseError<'src>>> + Clone {
-    float().map(Literal::Float)
+    just(Token::Minus)
+        .or_not()
+        .then(float())
+        .map(|(minus, val)| {
+            if minus.is_some() {
+                Literal::Float(-val)
+            } else {
+                Literal::Float(val)
+            }
+        })
 }
 
 /// Literal value
