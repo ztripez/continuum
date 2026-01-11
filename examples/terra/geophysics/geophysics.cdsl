@@ -3,6 +3,34 @@
 #
 # This module provides the foundational geophysical signals that other
 # modules (atmosphere, hydrology, ecology) depend on.
+#
+# =============================================================================
+# Limitations (see issue #182)
+# =============================================================================
+#
+# The following old reference (Rust) structures cannot be directly represented
+# in the current CDSL due to language constraints:
+#
+# 1. CrustSurface (per-sample-point arrays):
+#    - elevation_m: Vec<f32>
+#    - thickness_m: Vec<f32>
+#    CDSL does not support variable-length arrays. These are represented as
+#    aggregate scalar signals (crust.elevation, crust.thickness).
+#
+# 2. CrustLayers (layered shell structures):
+#    - shells: Vec<LayerShell> with composition arrays per shell
+#    CDSL entities are flat collections. Multi-level hierarchies require
+#    multiple entity types or runtime spatial sampling.
+#
+# 3. PlateBoundarySegments (typed segment lists):
+#    - segments: Vec<BoundarySegment> with per-segment BoundaryType
+#    Segment-level classification requires runtime spatial analysis.
+#    Provided instead: activity proxy signals (divergent_activity,
+#    convergent_activity, transform_activity) for aggregate estimates.
+#
+# These limitations are architectural - CDSL signals are single values or
+# entity-associated members, not spatial arrays. Spatial data structures
+# are handled by the runtime's Field and Lens systems.
 # =============================================================================
 
 # =============================================================================
@@ -1199,6 +1227,219 @@ signal.plates.boundary_shear {
         let max_v = max(entity.terra.plate, self.velocity) in
         let min_v = min(entity.terra.plate, self.velocity) in
         max_v - min_v + collected
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Enhanced Plate Catalog Aggregates
+# Provides additional statistics from the plate entity collection
+# -----------------------------------------------------------------------------
+
+# Mean plate buoyancy
+signal.plates.mean_buoyancy {
+    : Scalar<1, 0..1>
+    : strata(tectonics)
+    : title("Mean Plate Buoyancy")
+    : symbol("b_mean")
+
+    resolve {
+        mean(entity.terra.plate, self.buoyancy)
+    }
+}
+
+# Total buoyancy (proxy for continental mass)
+signal.plates.total_buoyancy {
+    : Scalar<1, 0..64>
+    : strata(tectonics)
+    : title("Total Plate Buoyancy")
+    : symbol("b_sum")
+
+    resolve {
+        sum(entity.terra.plate, self.buoyancy)
+    }
+}
+
+# Maximum plate age (oldest plate)
+signal.plates.max_age {
+    : Scalar<Myr, 0..5000>
+    : strata(tectonics)
+    : title("Maximum Plate Age")
+    : symbol("t_max")
+
+    resolve {
+        max(entity.terra.plate, self.age)
+    }
+}
+
+# Minimum plate age (youngest plate)
+signal.plates.min_age {
+    : Scalar<Myr, 0..5000>
+    : strata(tectonics)
+    : title("Minimum Plate Age")
+    : symbol("t_min")
+
+    resolve {
+        min(entity.terra.plate, self.age)
+    }
+}
+
+# Total crustal area proxy (sum of thicknesses as volume proxy)
+signal.plates.total_thickness {
+    : Scalar<m, 0..1000000>
+    : strata(tectonics)
+    : title("Total Plate Thickness")
+    : symbol("h_sum")
+
+    resolve {
+        sum(entity.terra.plate, self.thickness)
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Motion Aggregates
+# Statistics for plate kinematics across the plate catalog
+# -----------------------------------------------------------------------------
+
+# Mean plate velocity magnitude
+signal.plates.mean_velocity {
+    : Scalar<m/s, 0..1>
+    : strata(tectonics)
+    : title("Mean Plate Velocity")
+    : symbol("v_mean")
+
+    resolve {
+        mean(entity.terra.plate, self.velocity)
+    }
+}
+
+# Maximum plate velocity
+signal.plates.max_velocity {
+    : Scalar<m/s, 0..1>
+    : strata(tectonics)
+    : title("Maximum Plate Velocity")
+    : symbol("v_max")
+
+    resolve {
+        max(entity.terra.plate, self.velocity)
+    }
+}
+
+# Minimum plate velocity
+signal.plates.min_velocity {
+    : Scalar<m/s, 0..0.1>
+    : strata(tectonics)
+    : title("Minimum Plate Velocity")
+    : symbol("v_min")
+
+    resolve {
+        min(entity.terra.plate, self.velocity)
+    }
+}
+
+# Mean angular velocity magnitude
+signal.plates.mean_omega {
+    : Scalar<rad/s, 0..1e-8>
+    : strata(tectonics)
+    : title("Mean Angular Velocity")
+    : symbol("omega_mean")
+
+    resolve {
+        mean(entity.terra.plate, length(self.omega))
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Plate Boundary Classification Signals
+# Derived estimates for different boundary types based on plate kinematics
+# Note: True boundary segment classification requires spatial sampling which
+# is implemented in the runtime. These provide aggregate approximations.
+# -----------------------------------------------------------------------------
+
+# Velocity variance (high variance indicates diverse plate motions)
+signal.plates.velocity_variance {
+    : Scalar<m²/s², 0..1>
+    : strata(tectonics)
+    : title("Plate Velocity Variance")
+    : symbol("sigma_v²")
+
+    resolve {
+        # Variance = E[X²] - E[X]²
+        let mean_v = signal.plates.mean_velocity in
+        let mean_v_sq = mean(entity.terra.plate, self.velocity * self.velocity) in
+        max(mean_v_sq - mean_v * mean_v, 0.0)
+    }
+}
+
+# Spreading rate proxy - divergent boundary activity
+# Estimated from mantle upwelling and plate separation
+signal.plates.divergent_activity {
+    : Scalar<1, 0..10>
+    : strata(tectonics)
+    : title("Divergent Boundary Activity")
+    : symbol("A_div")
+
+    config {
+        flow_sensitivity: 0.5
+        velocity_sensitivity: 10.0
+    }
+
+    resolve {
+        # Divergent activity correlates with mantle upwelling and plate velocities
+        let flow_factor = signal.mantle.flow_strength * config.plates.divergent_activity.flow_sensitivity in
+        let velocity_factor = signal.plates.mean_velocity * config.plates.divergent_activity.velocity_sensitivity in
+        clamp(flow_factor + velocity_factor + collected, 0.0, 10.0)
+    }
+}
+
+# Subduction rate proxy - convergent boundary activity
+# Estimated from oceanic plate area and boundary shear
+signal.plates.convergent_activity {
+    : Scalar<1, 0..10>
+    : strata(tectonics)
+    : title("Convergent Boundary Activity")
+    : symbol("A_conv")
+
+    config {
+        shear_sensitivity: 20.0
+        oceanic_weight: 0.1
+    }
+
+    resolve {
+        # Convergent activity driven by boundary shear and oceanic plate count
+        let shear_factor = signal.plates.boundary_shear * config.plates.convergent_activity.shear_sensitivity in
+        let oceanic_factor = signal.plates.oceanic_count * config.plates.convergent_activity.oceanic_weight in
+        clamp(shear_factor * oceanic_factor + collected, 0.0, 10.0)
+    }
+}
+
+# Transform fault activity proxy
+# Lateral motion without significant convergence or divergence
+signal.plates.transform_activity {
+    : Scalar<1, 0..10>
+    : strata(tectonics)
+    : title("Transform Boundary Activity")
+    : symbol("A_trans")
+
+    config {
+        velocity_variance_weight: 100.0
+    }
+
+    resolve {
+        # Transform activity correlates with velocity variance (plates moving in different directions)
+        let variance_contribution = signal.plates.velocity_variance * config.plates.transform_activity.velocity_variance_weight in
+        clamp(variance_contribution + collected, 0.0, 10.0)
+    }
+}
+
+# Total boundary activity index
+signal.plates.total_boundary_activity {
+    : Scalar<1, 0..30>
+    : strata(tectonics)
+    : title("Total Boundary Activity")
+    : symbol("A_total")
+
+    resolve {
+        signal.plates.divergent_activity + signal.plates.convergent_activity + signal.plates.transform_activity
     }
 }
 
