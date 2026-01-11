@@ -216,6 +216,31 @@ signal.atmosphere.co2_ppmv {
     }
 }
 
+# Methane concentration in atmosphere
+# Important greenhouse gas with ~12 year lifetime
+signal.atmosphere.ch4_ppmv {
+    : Scalar<ppmv, 0..50>
+    : strata(atmosphere)
+    : title("CH4 Concentration")
+    : symbol("CH4")
+
+    config {
+        initial: 1.8
+        min: 0.0
+        max: 50.0
+    }
+
+    resolve {
+        # Methane changes through oxidation decay and biogenic/volcanic sources
+        clamp(prev + collected, config.atmosphere.ch4_ppmv.min, config.atmosphere.ch4_ppmv.max)
+    }
+
+    assert {
+        prev >= config.atmosphere.ch4_ppmv.min : warn, "CH4 below minimum"
+        prev <= config.atmosphere.ch4_ppmv.max : warn, "CH4 above maximum"
+    }
+}
+
 # =============================================================================
 # Cloud Cover
 # =============================================================================
