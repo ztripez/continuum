@@ -2,6 +2,60 @@ use super::*;
 use crate::ast::{BinaryOp, Expr, Item, Literal, TypeExpr, UnaryOp};
 
 #[test]
+fn test_parse_comparison_with_unit_repro() {
+    let source = r#"
+        fracture.test {
+            when {
+                signal.temp > 350.0 <K>
+            }
+            emit {
+                signal.vapor <- 50.0
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    for err in &errors {
+        println!("Error at {}: {}", err.span().start, err.reason());
+    }
+    assert!(
+        errors.is_empty(),
+        "Reproduction of comparison with unit failed: {:?}",
+        errors
+    );
+    assert!(result.is_some());
+}
+
+#[test]
+fn test_parse_member_followed_by_fracture_repro() {
+    let source = r#"
+        member.test.signal {
+            : Scalar
+            : strata(test)
+            resolve { prev }
+        }
+
+        fracture.atmosphere.runaway_greenhouse {
+            when {
+                signal.atmosphere.surface_temp.x > 350.0
+            }
+            emit {
+                signal.atmosphere.water_vapor <- 50.0
+            }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    for err in &errors {
+        println!("Error at {}: {}", err.span().start, err.reason());
+    }
+    assert!(
+        errors.is_empty(),
+        "Failed to parse member followed by fracture: {:?}",
+        errors
+    );
+    assert!(result.is_some());
+}
+
+#[test]
 fn test_parse_const_block() {
     let source = r#"
         const {

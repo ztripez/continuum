@@ -19,11 +19,11 @@ pub mod vectorized;
 pub use codegen::compile as compile_to_bytecode;
 pub use compile::{CompilationResult, CompileError, compile};
 pub use interpret::{
+    InterpValue, MemberInterpContext, MemberResolverFn, Vec3MemberResolverFn,
     build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
     build_fracture, build_member_resolver, build_resolver, build_signal_resolver,
     build_vec3_member_resolver, convert_assertion_severity, eval_initial_expr,
-    get_initial_signal_value, get_initial_value, InterpValue, MemberInterpContext,
-    MemberResolverFn, Vec3MemberResolverFn,
+    get_initial_signal_value, get_initial_value,
 };
 pub use lower::{LowerError, lower};
 pub use types::*;

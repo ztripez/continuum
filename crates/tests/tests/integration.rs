@@ -96,20 +96,20 @@ fn test_signal_dependency_chain() {
     // Tick 1: base resolves to 10, others read previous tick's values (0)
     harness.tick();
     assert_eq!(harness.get_scalar("terra.base"), Some(10.0));
-    assert_eq!(harness.get_scalar("terra.doubled"), Some(0.0));  // 0.0 * 2.0
-    assert_eq!(harness.get_scalar("terra.final"), Some(5.0));   // 0.0 + 5.0
+    assert_eq!(harness.get_scalar("terra.doubled"), Some(0.0)); // 0.0 * 2.0
+    assert_eq!(harness.get_scalar("terra.final"), Some(5.0)); // 0.0 + 5.0
 
     // Tick 2: doubled now sees base=10 from previous tick
     harness.tick();
     assert_eq!(harness.get_scalar("terra.base"), Some(10.0));
     assert_eq!(harness.get_scalar("terra.doubled"), Some(20.0)); // 10.0 * 2.0
-    assert_eq!(harness.get_scalar("terra.final"), Some(5.0));    // 0.0 + 5.0
+    assert_eq!(harness.get_scalar("terra.final"), Some(5.0)); // 0.0 + 5.0
 
     // Tick 3: final now sees doubled=20 from previous tick
     harness.tick();
     assert_eq!(harness.get_scalar("terra.base"), Some(10.0));
     assert_eq!(harness.get_scalar("terra.doubled"), Some(20.0)); // 10.0 * 2.0
-    assert_eq!(harness.get_scalar("terra.final"), Some(25.0));   // 20.0 + 5.0
+    assert_eq!(harness.get_scalar("terra.final"), Some(25.0)); // 20.0 + 5.0
 }
 
 /// Test that execution is deterministic.

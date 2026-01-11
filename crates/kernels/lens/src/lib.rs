@@ -50,7 +50,7 @@ pub mod gpu {
         /// Returns f64 values but uses f32 computation on the GPU.
         pub fn query_scalar_batch(
             &mut self,
-            samples: &[( [f64; 3], f64 )],
+            samples: &[([f64; 3], f64)],
             positions: &[[f64; 3]],
         ) -> Result<Vec<f64>, String> {
             if samples.is_empty() || positions.is_empty() {
@@ -160,7 +160,10 @@ pub mod gpu {
             });
             encoder.copy_buffer_to_buffer(&output_buffer, 0, &staging, 0, (query_count as u64) * 4);
             self.context.queue().submit(Some(encoder.finish()));
-            let _ = self.context.device().poll(wgpu::PollType::wait_indefinitely());
+            let _ = self
+                .context
+                .device()
+                .poll(wgpu::PollType::wait_indefinitely());
 
             let buffer_slice = staging.slice(..);
             let (sender, receiver) = std::sync::mpsc::channel();
@@ -183,7 +186,6 @@ pub mod gpu {
 
             Ok(out_f32.into_iter().map(|v| v as f64).collect())
         }
-
     }
 
     #[derive(Clone, Copy, Pod, Zeroable)]
@@ -422,12 +424,7 @@ impl FieldStorage {
             .map(|(_, recon)| Arc::clone(recon))
     }
 
-    fn cache_insert(
-        &mut self,
-        tick: u64,
-        recon: Arc<dyn FieldReconstruction>,
-        max_cached: usize,
-    ) {
+    fn cache_insert(&mut self, tick: u64, recon: Arc<dyn FieldReconstruction>, max_cached: usize) {
         if let Some(pos) = self.cache.iter().position(|(t, _)| *t == tick) {
             self.cache.remove(pos);
         }
@@ -681,7 +678,6 @@ impl FieldReconstruction for NearestNeighborReconstruction {
         }
         best_value
     }
-
 }
 
 impl FieldLens {
@@ -719,11 +715,7 @@ impl FieldLens {
     /// Record a batch of fields for a single tick, preserving field order.
     ///
     /// Uses IndexMap order for deterministic ingestion.
-    pub fn record_many(
-        &mut self,
-        tick: u64,
-        fields: IndexMap<FieldId, Vec<FieldSample>>,
-    ) {
+    pub fn record_many(&mut self, tick: u64, fields: IndexMap<FieldId, Vec<FieldSample>>) {
         for (field_id, samples) in fields {
             self.record(FieldSnapshot {
                 field_id,
@@ -766,9 +758,7 @@ impl FieldLens {
             });
         }
 
-        let recon = Arc::new(NearestNeighborReconstruction::new(
-            frame.samples.clone(),
-        ));
+        let recon = Arc::new(NearestNeighborReconstruction::new(frame.samples.clone()));
         let recon: Arc<dyn FieldReconstruction> = recon;
 
         let max_cached = self
@@ -1792,11 +1782,17 @@ mod tests {
             })
             .expect("request ok");
 
-        assert_eq!(lens.refinement_status(handle), Some(RefinementStatus::Pending));
+        assert_eq!(
+            lens.refinement_status(handle),
+            Some(RefinementStatus::Pending)
+        );
 
         let drained = lens.drain_refinements(1);
         assert_eq!(drained.len(), 1);
-        assert_eq!(lens.refinement_status(handle), Some(RefinementStatus::Sampling));
+        assert_eq!(
+            lens.refinement_status(handle),
+            Some(RefinementStatus::Sampling)
+        );
 
         lens.cancel_refinement(handle);
         assert_eq!(lens.refinement_status(handle), None);
