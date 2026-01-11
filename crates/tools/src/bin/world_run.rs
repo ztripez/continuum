@@ -14,14 +14,14 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use continuum_dsl::load_world;
-use continuum_foundation::{FieldId, SignalId};
+use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
 use continuum_ir::{
     build_assertion, build_era_configs, build_field_measure, build_fracture,
     build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
     validate,
 };
 use continuum_runtime::executor::{ResolverFn, Runtime};
-use continuum_runtime::storage::FieldSample;
+use continuum_runtime::storage::{EntityInstances, FieldSample, InstanceData};
 use continuum_runtime::types::{Dt, Value};
 
 #[derive(Serialize, Deserialize)]
@@ -288,6 +288,50 @@ fn main() {
             Value::Scalar(v) => info!("  Initialized signal {} = {}", signal_id, v),
             _ => info!("  Initialized signal {} = {:?}", signal_id, value),
         }
+    }
+
+    // Initialize entities
+    for (entity_id, entity) in &world.entities {
+        // Determine instance count from config or default
+        let count = if let Some(ref count_source) = entity.count_source {
+            world
+                .config
+                .get(count_source)
+                .map(|v| *v as usize)
+                .unwrap_or(1)
+        } else {
+            1
+        };
+
+        // Create instances with unique IDs
+        let mut instances = EntityInstances::new();
+        for i in 0..count {
+            let instance_id = InstanceId(format!("{}_{}", entity_id.0, i));
+
+            // Initialize member fields for this instance
+            let mut fields = indexmap::IndexMap::new();
+            for (_member_id, member) in &world.members {
+                if &member.entity_id == entity_id {
+                    // Use default value based on member's value type
+                    let initial_value = match member.value_type {
+                        continuum_ir::ValueType::Scalar { .. } => Value::Scalar(0.0),
+                        continuum_ir::ValueType::Vec2 { .. } => Value::Vec2([0.0; 2]),
+                        continuum_ir::ValueType::Vec3 { .. } => Value::Vec3([0.0; 3]),
+                        continuum_ir::ValueType::Vec4 { .. } => Value::Vec4([0.0; 4]),
+                        _ => Value::Scalar(0.0),
+                    };
+                    fields.insert(member.signal_name.clone(), initial_value);
+                }
+            }
+
+            instances.insert(instance_id, InstanceData::new(fields));
+        }
+
+        runtime.init_entity(EntityId(entity_id.0.clone()), instances);
+        info!(
+            "  Initialized entity {} with {} instances",
+            entity_id, count
+        );
     }
 
     // Prepare snapshot directory if requested

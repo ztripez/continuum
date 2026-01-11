@@ -20,10 +20,13 @@ use tracing::{error, info, instrument, trace};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
-use crate::storage::{FieldBuffer, FieldSample, FractureQueue, InputChannels, SignalStorage};
+use crate::storage::{
+    EntityInstances, EntityStorage, FieldBuffer, FieldSample, FractureQueue, InputChannels,
+    SignalStorage,
+};
 use crate::types::{
-    Dt, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value, WarmupConfig,
-    WarmupResult,
+    Dt, EntityId, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value,
+    WarmupConfig, WarmupResult,
 };
 
 // Re-export public types
@@ -65,6 +68,8 @@ pub struct EraConfig {
 pub struct Runtime {
     /// Signal storage
     signals: SignalStorage,
+    /// Entity storage for per-instance state
+    entities: EntityStorage,
     /// Input channels for Collect phase
     input_channels: InputChannels,
     /// Field buffer for Measure phase
@@ -95,6 +100,7 @@ impl Runtime {
         info!(era = %initial_era, "runtime created");
         Self {
             signals: SignalStorage::default(),
+            entities: EntityStorage::default(),
             input_channels: InputChannels::default(),
             field_buffer: FieldBuffer::default(),
             fracture_queue: FractureQueue::default(),
@@ -161,6 +167,28 @@ impl Runtime {
     pub fn init_signal(&mut self, id: SignalId, value: Value) {
         tracing::debug!(signal = %id, ?value, "signal initialized");
         self.signals.init(id, value);
+    }
+
+    /// Initialize an entity type with its instances
+    pub fn init_entity(&mut self, id: EntityId, instances: EntityInstances) {
+        let count = instances.count();
+        tracing::debug!(entity = %id, count, "entity initialized");
+        self.entities.init_entity(id, instances);
+    }
+
+    /// Get the number of instances for an entity type
+    pub fn entity_count(&self, id: &EntityId) -> usize {
+        self.entities.count(id)
+    }
+
+    /// Get access to entity storage (for aggregate computations)
+    pub fn entities(&self) -> &EntityStorage {
+        &self.entities
+    }
+
+    /// Get mutable access to entity storage
+    pub fn entities_mut(&mut self) -> &mut EntityStorage {
+        &mut self.entities
     }
 
     /// Get current tick number
@@ -301,6 +329,7 @@ impl Runtime {
 
         // Advance state
         self.signals.advance_tick();
+        self.entities.advance_tick();
         self.fracture_queue.drain_into(&mut self.input_channels);
         self.tick += 1;
 
