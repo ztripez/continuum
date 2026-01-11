@@ -741,4 +741,72 @@ fracture.test.thermal_coupling {
             undefined_warnings
         );
     }
+
+    #[test]
+    fn test_multiple_let_bindings_and_emits_no_warning() {
+        // Test pattern matching terra fractures: multiple let bindings with multiple emits
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+config {
+    test.burn_fraction: 0.1
+    test.release_fraction: 0.8
+}
+
+signal.test.biomass {
+    : Scalar<kg>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+signal.test.carbon {
+    : Scalar<kg>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+signal.test.released {
+    : Scalar<kg>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+fracture.test.fire {
+    when {
+        signal.test.biomass > 10.0
+    }
+
+    emit {
+        let biomass = signal.test.biomass in
+        let burned = biomass * config.test.burn_fraction in
+        signal.test.biomass <- -burned
+
+        let released = burned * config.test.release_fraction in
+        signal.test.released <- released
+
+        signal.test.carbon <- burned - released
+    }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should NOT warn about let-bound variables being undefined signals
+        let undefined_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UndefinedSymbol)
+            .filter(|w| {
+                w.message.contains("biomass")
+                    || w.message.contains("burned")
+                    || w.message.contains("released")
+            })
+            .collect();
+        assert!(
+            undefined_warnings.is_empty(),
+            "expected no UndefinedSymbol warnings for let-bound variables, got: {:?}",
+            undefined_warnings
+        );
+    }
 }

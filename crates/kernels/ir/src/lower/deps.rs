@@ -17,6 +17,8 @@ struct SignalRefCollector<'a> {
     refs: Vec<SignalId>,
     constants: &'a HashSet<String>,
     config: &'a HashSet<String>,
+    /// Let-bound variable names (to exclude from signal refs)
+    locals: HashSet<String>,
 }
 
 impl<'a> SignalRefCollector<'a> {
@@ -25,6 +27,7 @@ impl<'a> SignalRefCollector<'a> {
             refs: Vec::new(),
             constants,
             config,
+            locals: HashSet::new(),
         }
     }
 
@@ -44,11 +47,20 @@ impl ExprVisitor for SignalRefCollector<'_> {
 
     fn visit_path(&mut self, path: &Path) -> bool {
         let joined = path.join(".");
-        // Only treat as signal ref if not a constant or config
-        if !self.constants.contains(&joined) && !self.config.contains(&joined) {
+        // Only treat as signal ref if not a constant, config, or local variable
+        if !self.constants.contains(&joined)
+            && !self.config.contains(&joined)
+            && !self.locals.contains(&joined)
+        {
             let id = SignalId::from(joined.as_str());
             self.add_if_new(id);
         }
+        true
+    }
+
+    fn visit_let(&mut self, name: &str) -> bool {
+        // Track let-bound variable to exclude from signal refs
+        self.locals.insert(name.to_string());
         true
     }
 }
