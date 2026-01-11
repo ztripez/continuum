@@ -449,6 +449,42 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
                 // Access component of a vector member field
                 InterpValue::Scalar(ctx.self_field_component(member_field, field))
             }
+            CompiledExpr::EntityAccess {
+                entity,
+                instance,
+                field: _,
+            } => {
+                // Access a specific entity instance's member field
+                // e.g., entity.stellar.star[0].variability_factor
+                let instance_idx: usize = instance
+                    .0
+                    .parse()
+                    .expect("EntityAccess instance must be a numeric index");
+                let full_path = format!("{}.{}", entity.0, field);
+                let value = if ctx.read_current {
+                    ctx.members.get_current(&full_path, instance_idx)
+                } else {
+                    ctx.members.get_previous(&full_path, instance_idx)
+                };
+                match value {
+                    Some(continuum_runtime::types::Value::Scalar(v)) => InterpValue::Scalar(v),
+                    Some(continuum_runtime::types::Value::Vec3(v)) => InterpValue::Vec3(v),
+                    Some(v) => {
+                        if let Some(s) = v.as_scalar() {
+                            InterpValue::Scalar(s)
+                        } else {
+                            panic!(
+                                "Entity member '{}' instance {} has unsupported type: {:?}",
+                                full_path, instance_idx, v
+                            )
+                        }
+                    }
+                    None => panic!(
+                        "Entity member '{}' not found for instance {}",
+                        full_path, instance_idx
+                    ),
+                }
+            }
             _ => {
                 // Evaluate the object and extract component
                 let obj_value = interpret_expr(object, ctx);
@@ -730,8 +766,8 @@ fn eval_unary_scalar(op: UnaryOpIr, v: f64) -> f64 {
 /// Evaluate a built-in function call with InterpValue args.
 fn eval_function(name: &str, args: &[InterpValue]) -> InterpValue {
     match name {
-        // Vec3 constructor
-        "Vec3" if args.len() == 3 => {
+        // Vec3 constructor (both Vec3 and vec3 are supported)
+        "Vec3" | "vec3" if args.len() == 3 => {
             InterpValue::Vec3([
                 args[0].as_scalar(),
                 args[1].as_scalar(),

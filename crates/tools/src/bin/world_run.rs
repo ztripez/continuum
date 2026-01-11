@@ -18,7 +18,8 @@ use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
 use continuum_ir::{
     build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
     build_fracture, build_member_resolver, build_signal_resolver, build_vec3_member_resolver,
-    compile, convert_assertion_severity, get_initial_signal_value, lower, validate,
+    compile, convert_assertion_severity, eval_initial_expr, get_initial_signal_value, lower,
+    validate,
 };
 use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
@@ -403,6 +404,34 @@ fn main() {
             world.members.len(),
             member_instance_count
         );
+
+        // Set initial values for members with initial expressions
+        let mut initialized_count = 0;
+        for (member_id, member) in &world.members {
+            if let Some(ref initial_expr) = member.initial {
+                let initial_value =
+                    eval_initial_expr(initial_expr, &world.constants, &world.config);
+
+                // Set initial value for all instances of this member
+                for instance_idx in 0..member_instance_count {
+                    runtime.set_member_signal(&member_id.0, instance_idx, initial_value.clone());
+                }
+
+                info!(
+                    "  Initialized member {} with value {:?}",
+                    member_id, initial_value
+                );
+                initialized_count += 1;
+            }
+        }
+        if initialized_count > 0 {
+            info!(
+                "  Set initial values for {} member signals",
+                initialized_count
+            );
+            // Commit initial values so they become "previous" values for resolvers
+            runtime.commit_member_initials();
+        }
 
         // Build and register member resolvers
         let mut scalar_resolver_count = 0;

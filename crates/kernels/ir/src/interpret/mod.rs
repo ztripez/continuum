@@ -46,9 +46,11 @@ mod tests;
 
 // Re-export member interpreter types
 pub use member_interp::{
-    build_member_resolver, build_vec3_member_resolver, InterpValue, MemberInterpContext,
-    MemberResolverFn, Vec3MemberResolverFn,
+    build_member_resolver, build_vec3_member_resolver, interpret_expr, InterpValue,
+    MemberInterpContext, MemberResolverFn, Vec3MemberResolverFn,
 };
+
+use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
@@ -129,6 +131,61 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         | CompiledExpr::Const(_)
         | CompiledExpr::Config(_)
         | CompiledExpr::Local(_) => false,
+    }
+}
+
+/// Evaluates an initial expression for a member signal.
+///
+/// Initial expressions are evaluated once at entity creation time, before
+/// simulation begins. They typically reference only:
+/// - Literals (e.g., `25.0`)
+/// - Config values (e.g., `config.stellar.default_rotation_period_days`)
+/// - Constants (e.g., `const.stellar.solar_mass_kg`)
+/// - Simple arithmetic operations
+///
+/// # Arguments
+///
+/// * `expr` - The compiled expression to evaluate
+/// * `constants` - World constants lookup table
+/// * `config` - World config lookup table
+///
+/// # Returns
+///
+/// The evaluated value as a [`Value`] (Scalar, Vec2, Vec3, Vec4).
+///
+/// # Panics
+///
+/// Panics if the expression references runtime-only values like `prev`, `dt`,
+/// signals, or entity-specific data (`self.*`).
+pub fn eval_initial_expr(
+    expr: &CompiledExpr,
+    constants: &IndexMap<String, f64>,
+    config: &IndexMap<String, f64>,
+) -> Value {
+    // Create minimal context for evaluation
+    // Initial expressions should not use prev, dt, signals, or member data
+    let empty_signals = SignalStorage::default();
+    let empty_members = MemberSignalBuffer::new();
+
+    let mut ctx = MemberInterpContext {
+        prev: InterpValue::Scalar(0.0), // Not used in initial expressions
+        index: 0,
+        dt: 0.0,       // Not used in initial expressions
+        sim_time: 0.0, // Not used in initial expressions
+        signals: &empty_signals,
+        members: &empty_members,
+        constants,
+        config,
+        locals: HashMap::new(),
+        entity_prefix: String::new(),
+        read_current: false, // Read from previous (doesn't matter for empty storage)
+    };
+
+    let result = interpret_expr(expr, &mut ctx);
+
+    match result {
+        InterpValue::Scalar(v) => Value::Scalar(v),
+        InterpValue::Vec3(v) => Value::Vec3(v),
     }
 }
 

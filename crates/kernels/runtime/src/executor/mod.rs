@@ -251,6 +251,21 @@ impl Runtime {
         self.member_signals.get_current(signal_name, instance_idx)
     }
 
+    /// Set a member signal value for a specific instance.
+    ///
+    /// Used for initializing member signals with non-zero values before execution starts.
+    pub fn set_member_signal(&mut self, signal_name: &str, instance_idx: usize, value: Value) {
+        self.member_signals.set_current(signal_name, instance_idx, value);
+    }
+
+    /// Commit member initial values by advancing the buffer.
+    ///
+    /// After setting initial values with `set_member_signal`, call this to make
+    /// those values available as "previous" values for resolvers that read `prev`.
+    pub fn commit_member_initials(&mut self) {
+        self.member_signals.advance_tick();
+    }
+
     /// Get access to member signal buffer
     pub fn member_signals(&self) -> &MemberSignalBuffer {
         &self.member_signals

@@ -638,13 +638,15 @@ pub struct ObserveHandler {
 /// member.human.person.age {
 ///     : Scalar
 ///     : strata(human.physiology)
+///     initial { 0.0 }
 ///     resolve { integrate(prev, 1) }
 /// }
 ///
-/// member.human.person.homeostasis {
-///     : Scalar<1, 0..1>
-///     : strata(human.physiology)
-///     resolve { clamp(prev + collected, 0.0, 1.0) }
+/// member.stellar.star.rotation_period {
+///     : Scalar<day, 0.1..100>
+///     : strata(stellar.activity)
+///     initial { config.stellar.default_rotation_period_days }
+///     resolve { prev }
 /// }
 /// ```
 ///
@@ -668,6 +670,8 @@ pub struct MemberDef {
     pub symbol: Option<Spanned<String>>,
     /// Member-local config with defaults.
     pub local_config: Vec<ConfigEntry>,
+    /// Initial value expression (evaluated once at entity creation).
+    pub initial: Option<ResolveBlock>,
     /// Resolution expression evaluated each tick (per instance).
     pub resolve: Option<ResolveBlock>,
     /// Assertions validated after resolution.

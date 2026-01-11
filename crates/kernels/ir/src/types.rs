@@ -488,6 +488,9 @@ pub struct CompiledMember {
     pub reads: Vec<SignalId>,
     /// Other member signals this member reads.
     pub member_reads: Vec<MemberId>,
+    /// Initial value expression (evaluated once at entity creation).
+    /// If None, the member starts at 0.0 (or zero vector for Vec types).
+    pub initial: Option<CompiledExpr>,
     /// The resolve expression.
     pub resolve: Option<CompiledExpr>,
     /// Assertions to validate after resolution.

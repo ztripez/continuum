@@ -105,6 +105,7 @@ member.stellar.star.mass {
     : title("Star Mass")
     : symbol("M_star")
 
+    initial { config.stellar.default_star_mass }
     resolve { prev }
 }
 
@@ -114,6 +115,7 @@ member.stellar.star.radius {
     : title("Star Radius")
     : symbol("R_star")
 
+    initial { config.stellar.default_star_radius }
     resolve { prev }
 }
 
@@ -123,6 +125,7 @@ member.stellar.star.luminosity_base {
     : title("Base Luminosity")
     : symbol("L_base")
 
+    initial { config.stellar.default_luminosity }
     resolve { prev }
 }
 
@@ -132,6 +135,7 @@ member.stellar.star.teff {
     : title("Effective Temperature")
     : symbol("T_eff")
 
+    initial { config.stellar.default_teff }
     resolve { prev }
 }
 
@@ -141,6 +145,7 @@ member.stellar.star.luminosity_evolution_rate {
     : title("Luminosity Evolution Rate")
     : symbol("dL/dt")
 
+    initial { const.stellar.main_sequence_evolution_rate }
     resolve { prev }
 }
 
@@ -154,6 +159,7 @@ member.stellar.star.orbit_radius {
     : title("Orbit Semi-major Axis")
     : symbol("a_star")
 
+    initial { 0.0 }
     resolve { prev }
 }
 
@@ -163,6 +169,7 @@ member.stellar.star.orbit_eccentricity {
     : title("Orbit Eccentricity")
     : symbol("e_star")
 
+    initial { 0.0 }
     resolve { prev }
 }
 
@@ -187,6 +194,7 @@ member.stellar.star.orbit_inclination {
     : title("Orbit Inclination")
     : symbol("i_star")
 
+    initial { 0.0 }
     resolve { prev }
 }
 
@@ -242,6 +250,7 @@ member.stellar.star.rotation_period {
     : title("Rotation Period")
     : symbol("P_rot")
 
+    initial { config.stellar.default_rotation_period_days }
     resolve { prev }
 }
 
@@ -251,6 +260,7 @@ member.stellar.star.spot_amplitude {
     : title("Starspot Amplitude")
     : symbol("A_spot")
 
+    initial { config.stellar.default_spot_amplitude }
     resolve { prev }
 }
 
@@ -260,6 +270,7 @@ member.stellar.star.activity_cycle_period {
     : title("Activity Cycle Period")
     : symbol("P_cycle")
 
+    initial { config.stellar.default_activity_cycle_years }
     resolve { prev }
 }
 
@@ -269,6 +280,7 @@ member.stellar.star.flare_rate {
     : title("Flare Rate")
     : symbol("R_flare")
 
+    initial { config.stellar.default_flare_rate_per_day }
     resolve { prev }
 }
 
@@ -339,7 +351,9 @@ member.stellar.star.flux {
     : symbol("F_star")
 
     resolve {
-        self.luminosity / (4.0 * PI * self.distance * self.distance)
+        # For single star at center, use planet orbit distance; for binary stars, use star distance
+        let d = max(self.distance, config.stellar.default_planet_orbit_radius) in
+        self.luminosity / (4.0 * PI * d * d)
     }
 }
 
@@ -362,6 +376,7 @@ member.stellar.moon.mass {
     : title("Moon Mass")
     : symbol("M_moon")
 
+    initial { config.stellar.default_moon_mass }
     resolve { prev }
 }
 
@@ -371,6 +386,7 @@ member.stellar.moon.radius {
     : title("Moon Radius")
     : symbol("R_moon")
 
+    initial { config.stellar.default_moon_radius }
     resolve { prev }
 }
 
@@ -384,6 +400,7 @@ member.stellar.moon.orbit_radius {
     : title("Orbit Semi-major Axis")
     : symbol("a_moon")
 
+    initial { config.stellar.default_moon_orbit_radius }
     resolve {
         # Apply tidal recession if configured
         prev + self.tidal_recession_rate
@@ -396,6 +413,7 @@ member.stellar.moon.orbit_eccentricity {
     : title("Orbit Eccentricity")
     : symbol("e_moon")
 
+    initial { 0.0549 }
     resolve { prev }
 }
 
@@ -420,6 +438,7 @@ member.stellar.moon.orbit_inclination {
     : title("Orbit Inclination")
     : symbol("i_moon")
 
+    initial { 0.0898 }
     resolve { prev }
 }
 
@@ -429,6 +448,7 @@ member.stellar.moon.tidal_recession_rate {
     : title("Tidal Recession Rate")
     : symbol("dr/dt")
 
+    initial { 0.0 }
     resolve { prev }
 }
 

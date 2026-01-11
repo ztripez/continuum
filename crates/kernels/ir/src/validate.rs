@@ -171,9 +171,14 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
 ///
 /// A member is considered "uninitialized" if:
 /// - Its resolve expression is just `prev` (maintains previous value)
-/// - There's no explicit initialization (initial blocks not yet implemented)
+/// - There's no explicit `initial { expr }` block
 fn check_uninitialized_members(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
     for (member_id, member) in &world.members {
+        // Skip if member has an explicit initial block
+        if member.initial.is_some() {
+            continue;
+        }
+
         if let Some(resolve) = &member.resolve {
             // Check if the resolve is just `prev` - meaning it maintains state
             // without any computation. This member will stay at 0.0 forever.
@@ -651,5 +656,37 @@ member.test.entity.age {
             .filter(|w| w.code == WarningCode::UninitializedMember)
             .collect();
         assert!(uninit_warnings.is_empty());
+    }
+
+    #[test]
+    fn test_member_with_initial_no_warning() {
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+config {
+    test.default_value: 25.0
+}
+
+member.test.entity.value {
+    : Scalar<1>
+    : strata(test)
+    initial { config.test.default_value }
+    resolve { prev }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should NOT warn - member has explicit initial block
+        let uninit_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UninitializedMember)
+            .collect();
+        assert!(
+            uninit_warnings.is_empty(),
+            "expected no UninitializedMember warning for member with initial block"
+        );
     }
 }
