@@ -40,7 +40,7 @@ const {
 # =============================================================================
 
 config {
-    # Radiative balance
+    /// Radiative balance
     atmosphere.initial_surface_temp: 288.0
     atmosphere.heat_capacity_j_k: 5e23
     atmosphere.emissivity: 0.95
@@ -74,14 +74,14 @@ config {
 # Atmosphere Functions
 # =============================================================================
 
-# Tetens formula for saturation vapor pressure
+/// Tetens formula for saturation vapor pressure
 fn.atmosphere.saturation_vapor_pressure(temperature_k) {
     # e_sat(T) = 610.94 * exp((17.625 * T_C) / (T_C + 243.04))
     let t_celsius = temperature_k - 273.15 in
     610.94 * exp((17.625 * t_celsius) / (t_celsius + 243.04))
 }
 
-# Equilibrium water vapor column mass
+/// Equilibrium water vapor column mass
 fn.atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
     let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k) in
     let rh = clamp(relative_humidity, 0.0, 1.0) in

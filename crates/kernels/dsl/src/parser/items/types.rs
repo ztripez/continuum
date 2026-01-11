@@ -28,7 +28,7 @@ pub fn type_def<'src>() -> impl Parser<'src, &'src str, TypeDef, extra::Err<Pars
                 .collect()
                 .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
         )
-        .map(|(name, fields)| TypeDef { name, fields })
+        .map(|(name, fields)| TypeDef { doc: None, name, fields })
 }
 
 fn type_field<'src>() -> impl Parser<'src, &'src str, TypeField, extra::Err<ParseError<'src>>> {
@@ -203,6 +203,7 @@ pub fn fn_def<'src>() -> impl Parser<'src, &'src str, FnDef, extra::Err<ParseErr
                 .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
         )
         .map(|((((path, generics), params), return_type), body)| FnDef {
+            doc: None,
             path,
             generics,
             params,

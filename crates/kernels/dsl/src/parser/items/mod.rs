@@ -49,6 +49,7 @@ use chumsky::prelude::*;
 
 use crate::ast::Item;
 
+use super::primitives::doc_comment;
 use super::ParseError;
 
 // Re-export public parsers
@@ -62,22 +63,64 @@ pub use types::{fn_def, type_def};
 pub use world::world_def;
 
 /// Main entry point for parsing top-level items.
+///
+/// Doc comments (`///`) are captured before items that support them
+/// and stored in the item's `doc` field.
 pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<'src>>> {
     choice((
+        // World definition (no doc comments - it's a manifest)
         world_def().map(Item::WorldDef),
+        // Config blocks don't have doc comments (they're structural, not semantic items)
         const_block().map(Item::ConstBlock),
         config_block().map(Item::ConfigBlock),
-        type_def().map(Item::TypeDef),
-        fn_def().map(Item::FnDef),
-        strata_def().map(Item::StrataDef),
-        era_def().map(Item::EraDef),
-        signal_def().map(Item::SignalDef),
-        field_def().map(Item::FieldDef),
-        operator_def().map(Item::OperatorDef),
-        impulse_def().map(Item::ImpulseDef),
-        fracture_def().map(Item::FractureDef),
-        chronicle_def().map(Item::ChronicleDef),
-        entity_def().map(Item::EntityDef),
-        member_def().map(Item::MemberDef),
+        // All other items support doc comments
+        doc_comment().then(type_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::TypeDef(def)
+        }),
+        doc_comment().then(fn_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::FnDef(def)
+        }),
+        doc_comment().then(strata_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::StrataDef(def)
+        }),
+        doc_comment().then(era_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::EraDef(def)
+        }),
+        doc_comment().then(signal_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::SignalDef(def)
+        }),
+        doc_comment().then(field_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::FieldDef(def)
+        }),
+        doc_comment().then(operator_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::OperatorDef(def)
+        }),
+        doc_comment().then(impulse_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::ImpulseDef(def)
+        }),
+        doc_comment().then(fracture_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::FractureDef(def)
+        }),
+        doc_comment().then(chronicle_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::ChronicleDef(def)
+        }),
+        doc_comment().then(entity_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::EntityDef(def)
+        }),
+        doc_comment().then(member_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::MemberDef(def)
+        }),
     ))
 }

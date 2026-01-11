@@ -1,0 +1,7 @@
+{
+  "[cdsl]": {
+    "editor.codeLens": true
+  },
+  "editor.codeLens": true,
+  "cdsl.trace.server": "verbose"
+}

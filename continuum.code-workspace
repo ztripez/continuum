@@ -4,6 +4,9 @@
 			"path": "."
 		},
 		{
+			"path": "tools/vscode-cdsl"
+		},
+		{
 			"path": "../../continuum-alpha/continuum-alpha"
 		}
 	],
