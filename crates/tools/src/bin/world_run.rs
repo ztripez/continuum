@@ -17,8 +17,8 @@ use continuum_dsl::load_world;
 use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
 use continuum_ir::{
     build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
-    build_fracture, build_member_resolver, build_signal_resolver, compile,
-    convert_assertion_severity, get_initial_signal_value, lower, validate,
+    build_fracture, build_member_resolver, build_signal_resolver, build_vec3_member_resolver,
+    compile, convert_assertion_severity, get_initial_signal_value, lower, validate,
 };
 use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
@@ -405,19 +405,45 @@ fn main() {
         );
 
         // Build and register member resolvers
-        let mut member_resolver_count = 0;
+        let mut scalar_resolver_count = 0;
+        let mut vec3_resolver_count = 0;
         for (member_id, member) in &world.members {
             if let Some(ref resolve_expr) = member.resolve {
                 // Entity prefix is the entity ID (e.g., "terra.plate" for "terra.plate.age")
                 let entity_prefix = &member.entity_id.0;
-                let resolver = build_member_resolver(resolve_expr, &world.constants, &world.config, entity_prefix);
-                // Use full member ID to match the registration above
-                runtime.register_member_resolver(member_id.0.clone(), resolver);
-                info!(
-                    "  Registered member resolver for {} (entity={})",
-                    member_id, entity_prefix
-                );
-                member_resolver_count += 1;
+
+                // Use the appropriate builder based on value type
+                match member.value_type {
+                    continuum_ir::ValueType::Vec3 { .. } => {
+                        let resolver = build_vec3_member_resolver(
+                            resolve_expr,
+                            &world.constants,
+                            &world.config,
+                            entity_prefix,
+                        );
+                        runtime.register_vec3_member_resolver(member_id.0.clone(), resolver);
+                        info!(
+                            "  Registered Vec3 member resolver for {} (entity={})",
+                            member_id, entity_prefix
+                        );
+                        vec3_resolver_count += 1;
+                    }
+                    _ => {
+                        // Scalar (and other types for now)
+                        let resolver = build_member_resolver(
+                            resolve_expr,
+                            &world.constants,
+                            &world.config,
+                            entity_prefix,
+                        );
+                        runtime.register_member_resolver(member_id.0.clone(), resolver);
+                        info!(
+                            "  Registered scalar member resolver for {} (entity={})",
+                            member_id, entity_prefix
+                        );
+                        scalar_resolver_count += 1;
+                    }
+                }
             } else {
                 info!(
                     "  Skipped member {} - no resolve expression",
@@ -425,7 +451,12 @@ fn main() {
                 );
             }
         }
-        info!("  Total: {} member resolvers registered", member_resolver_count);
+        info!(
+            "  Total: {} scalar + {} Vec3 = {} member resolvers registered",
+            scalar_resolver_count,
+            vec3_resolver_count,
+            scalar_resolver_count + vec3_resolver_count
+        );
     }
 
     // Prepare snapshot directory if requested

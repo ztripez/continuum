@@ -81,9 +81,12 @@ pub struct Runtime {
     entities: EntityStorage,
     /// Member signal storage (SoA for vectorized execution)
     member_signals: MemberSignalBuffer,
-    /// Member resolver functions indexed by signal name
+    /// Scalar member resolver functions indexed by signal name
     /// Uses ScalarResolverFn which captures constants/config at build time
     member_resolvers: IndexMap<String, ScalarResolverFn>,
+    /// Vec3 member resolver functions indexed by signal name
+    /// Uses Vec3ResolverFn which captures constants/config at build time
+    vec3_member_resolvers: IndexMap<String, Vec3ResolverFn>,
     /// Aggregate resolvers for signals that depend on member signal data
     /// Maps signal ID to (resolver_fn) - runs after member signal resolution
     aggregate_resolvers: IndexMap<SignalId, AggregateResolverFn>,
@@ -120,6 +123,7 @@ impl Runtime {
             entities: EntityStorage::default(),
             member_signals: MemberSignalBuffer::new(),
             member_resolvers: IndexMap::new(),
+            vec3_member_resolvers: IndexMap::new(),
             aggregate_resolvers: IndexMap::new(),
             input_channels: InputChannels::default(),
             field_buffer: FieldBuffer::default(),
@@ -212,13 +216,22 @@ impl Runtime {
         self.member_signals.init_instances(instance_count);
     }
 
-    /// Register a member resolver function
+    /// Register a scalar member resolver function
     ///
     /// The resolver should be built using `build_member_resolver` from the IR,
     /// which captures constants and config at build time.
     pub fn register_member_resolver(&mut self, signal_name: String, resolver: ScalarResolverFn) {
-        tracing::debug!(signal = %signal_name, "member resolver registered");
+        tracing::debug!(signal = %signal_name, "scalar member resolver registered");
         self.member_resolvers.insert(signal_name, resolver);
+    }
+
+    /// Register a Vec3 member resolver function
+    ///
+    /// The resolver should be built using `build_vec3_member_resolver` from the IR,
+    /// which captures constants and config at build time.
+    pub fn register_vec3_member_resolver(&mut self, signal_name: String, resolver: Vec3ResolverFn) {
+        tracing::debug!(signal = %signal_name, "vec3 member resolver registered");
+        self.vec3_member_resolvers.insert(signal_name, resolver);
     }
 
     /// Register an aggregate resolver for a signal that depends on member signal data.
@@ -410,14 +423,15 @@ impl Runtime {
 
     /// Execute member signal resolution using L1 parallel execution.
     ///
-    /// Iterates over all registered member resolvers and executes them for each instance
-    /// in parallel using the chunked L1 execution strategy. This runs after global signal
-    /// resolution so that member expressions can access resolved global signals.
+    /// Iterates over all registered member resolvers (scalar and Vec3) and executes them
+    /// for each instance in parallel using the chunked L1 execution strategy. This runs
+    /// after global signal resolution so that member expressions can access resolved
+    /// global signals.
     #[instrument(skip(self), name = "member_resolve")]
     fn execute_member_resolve(&mut self, dt: Dt) -> Result<()> {
-        use member_executor::{resolve_scalar_l1, ChunkConfig};
+        use member_executor::{resolve_scalar_l1, resolve_vec3_l1, ChunkConfig};
 
-        if self.member_resolvers.is_empty() {
+        if self.member_resolvers.is_empty() && self.vec3_member_resolvers.is_empty() {
             return Ok(());
         }
 
@@ -427,16 +441,16 @@ impl Runtime {
         }
 
         trace!(
-            resolvers = self.member_resolvers.len(),
+            scalar_resolvers = self.member_resolvers.len(),
+            vec3_resolvers = self.vec3_member_resolvers.len(),
             instances = instance_count,
             "resolving member signals"
         );
 
-        // Get signal names to iterate over (copy keys to avoid borrow issues)
-        let signal_names: Vec<String> = self.member_resolvers.keys().cloned().collect();
+        // Execute scalar member resolvers
+        let scalar_signal_names: Vec<String> = self.member_resolvers.keys().cloned().collect();
 
-        // Execute each member resolver using L1 parallel strategy
-        for signal_name in signal_names {
+        for signal_name in scalar_signal_names {
             // Collect previous values as Vec<f64>
             let prev_values: Vec<f64> = (0..instance_count)
                 .map(|i| {
@@ -480,6 +494,58 @@ impl Runtime {
 
                 trace!(signal = %signal_name, instance = instance_idx, value, "member signal resolved");
                 self.member_signals.set_current(&signal_name, instance_idx, Value::Scalar(value));
+            }
+        }
+
+        // Execute Vec3 member resolvers
+        let vec3_signal_names: Vec<String> = self.vec3_member_resolvers.keys().cloned().collect();
+
+        for signal_name in vec3_signal_names {
+            // Collect previous values as Vec<[f64; 3]>
+            let prev_values: Vec<[f64; 3]> = (0..instance_count)
+                .map(|i| {
+                    self.member_signals
+                        .get_previous(&signal_name, i)
+                        .and_then(|v| v.as_vec3())
+                        .unwrap_or([0.0, 0.0, 0.0])
+                })
+                .collect();
+
+            let resolver = self.vec3_member_resolvers.get(&signal_name).unwrap();
+            let config = ChunkConfig::auto(instance_count);
+
+            // Execute in parallel using L1 strategy
+            let results = resolve_vec3_l1(
+                &prev_values,
+                |ctx| resolver(ctx),
+                &self.signals,
+                &self.member_signals,
+                dt,
+                config,
+            );
+
+            // Validate and write results back
+            for (instance_idx, value) in results.into_iter().enumerate() {
+                // Check for numeric errors (any component)
+                for (comp_idx, &comp) in value.iter().enumerate() {
+                    if comp.is_nan() {
+                        error!(signal = %signal_name, instance = instance_idx, component = comp_idx, "NaN result in Vec3 member signal");
+                        return Err(Error::NumericError {
+                            signal: SignalId(signal_name.clone()),
+                            message: format!("NaN result in component {} for instance {}", comp_idx, instance_idx),
+                        });
+                    }
+                    if comp.is_infinite() {
+                        error!(signal = %signal_name, instance = instance_idx, component = comp_idx, "infinite result in Vec3 member signal");
+                        return Err(Error::NumericError {
+                            signal: SignalId(signal_name.clone()),
+                            message: format!("Infinite result in component {} for instance {}", comp_idx, instance_idx),
+                        });
+                    }
+                }
+
+                trace!(signal = %signal_name, instance = instance_idx, ?value, "Vec3 member signal resolved");
+                self.member_signals.set_current(&signal_name, instance_idx, Value::Vec3(value));
             }
         }
 
