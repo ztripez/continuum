@@ -28,7 +28,9 @@
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use continuum_foundation::{EraId, EntityId as FoundationEntityId, MemberId, MemberSignalId, SignalId, StratumId};
+use continuum_foundation::{
+    EntityId as FoundationEntityId, EraId, MemberId, MemberSignalId, SignalId, StratumId,
+};
 use continuum_runtime::dag::{
     AggregateBarrier, BarrierDagBuilder, CycleError, DagBuilder, DagNode, DagSet, EraDags,
     ExecutableDag, NodeId, NodeKind,
@@ -57,9 +59,9 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         | CompiledExpr::Within { .. } => true,
 
         // Impulse-related expressions (also not bytecode-compatible)
-        CompiledExpr::Payload
-        | CompiledExpr::PayloadField(_)
-        | CompiledExpr::EmitSignal { .. } => true,
+        CompiledExpr::Payload | CompiledExpr::PayloadField(_) | CompiledExpr::EmitSignal { .. } => {
+            true
+        }
 
         // Recursive cases - check sub-expressions
         CompiledExpr::Binary { left, right, .. } => {
@@ -97,7 +99,68 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
     }
 }
 
+/// Checks if an expression contains operations not supported by the member interpreter.
+///
+/// The member interpreter supports `SelfField` but currently does not support
+/// `EntityAccess`, `Aggregate`, `EmitSignal`, or `Impulse` related ops.
+/// Member signals containing `SelfField` should be compiled (to use the interpreter),
+/// while those with unsupported ops should be skipped (or error).
+fn contains_unsupported_member_op(expr: &CompiledExpr) -> bool {
+    match expr {
+        // Supported by member interpreter
+        CompiledExpr::SelfField(_) => false,
+
+        // Unsupported by member interpreter
+        CompiledExpr::EntityAccess { .. }
+        | CompiledExpr::Aggregate { .. }
+        | CompiledExpr::Other { .. }
+        | CompiledExpr::Pairs { .. }
+        | CompiledExpr::Filter { .. }
+        | CompiledExpr::First { .. }
+        | CompiledExpr::Nearest { .. }
+        | CompiledExpr::Within { .. }
+        | CompiledExpr::Payload
+        | CompiledExpr::PayloadField(_)
+        | CompiledExpr::EmitSignal { .. } => true,
+
+        // Recursive cases
+        CompiledExpr::Binary { left, right, .. } => {
+            contains_unsupported_member_op(left) || contains_unsupported_member_op(right)
+        }
+        CompiledExpr::Unary { operand, .. } => contains_unsupported_member_op(operand),
+        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
+            args.iter().any(contains_unsupported_member_op)
+        }
+        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_unsupported_member_op),
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            contains_unsupported_member_op(condition)
+                || contains_unsupported_member_op(then_branch)
+                || contains_unsupported_member_op(else_branch)
+        }
+        CompiledExpr::Let { value, body, .. } => {
+            contains_unsupported_member_op(value) || contains_unsupported_member_op(body)
+        }
+        CompiledExpr::FieldAccess { object, .. } => contains_unsupported_member_op(object),
+
+        // Leaf expressions - no unsupported constructs
+        CompiledExpr::Literal(_)
+        | CompiledExpr::Prev
+        | CompiledExpr::DtRaw
+        | CompiledExpr::SimTime
+        | CompiledExpr::Collected
+        | CompiledExpr::Signal(_)
+        | CompiledExpr::Const(_)
+        | CompiledExpr::Config(_)
+        | CompiledExpr::Local(_) => false,
+    }
+}
+
 /// Errors that can occur during DAG compilation.
+
 ///
 /// These errors represent problems converting the IR into executable DAGs.
 /// They typically indicate structural issues that prevent deterministic
@@ -530,8 +593,9 @@ impl<'a> Compiler<'a> {
                 continue;
             };
 
-            // Skip members with entity expressions (require EntityExecutor, not bytecode)
-            if contains_entity_expression(resolve_expr) {
+            // Skip members with unsupported entity expressions (e.g. EntityAccess, EmitSignal)
+            // But ALLOW SelfField, which is supported by member interpreter
+            if contains_unsupported_member_op(resolve_expr) {
                 continue;
             }
 
@@ -604,8 +668,9 @@ impl<'a> Compiler<'a> {
                 continue;
             };
 
-            // Skip members with entity expressions (require EntityExecutor, not bytecode)
-            if contains_entity_expression(resolve_expr) {
+            // Skip members with unsupported entity expressions (e.g. EntityAccess, EmitSignal)
+            // But ALLOW SelfField, which is supported by member interpreter
+            if contains_unsupported_member_op(resolve_expr) {
                 continue;
             }
 
@@ -731,10 +796,8 @@ impl<'a> Compiler<'a> {
         match body {
             CompiledExpr::SelfField(field_name) => Some(field_name.clone()),
             // Recurse into binary expressions
-            CompiledExpr::Binary { left, right, .. } => {
-                Self::extract_member_name_from_body(left)
-                    .or_else(|| Self::extract_member_name_from_body(right))
-            }
+            CompiledExpr::Binary { left, right, .. } => Self::extract_member_name_from_body(left)
+                .or_else(|| Self::extract_member_name_from_body(right)),
             // Recurse into unary expressions
             CompiledExpr::Unary { operand, .. } => Self::extract_member_name_from_body(operand),
             // Recurse into conditionals
@@ -881,7 +944,7 @@ impl<'a> Compiler<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{lower, CompiledWorld};
+    use crate::{CompiledWorld, lower};
     use continuum_dsl::parse;
 
     fn parse_and_lower(src: &str) -> CompiledWorld {
@@ -1082,7 +1145,11 @@ mod tests {
 
         // Aggregate should have been assigned an index
         assert!(!result.aggregate_indices.is_empty());
-        assert!(result.aggregate_indices.contains_key("agg.stellar.total_mass.0"));
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.stellar.total_mass.0")
+        );
     }
 
     #[test]
@@ -1118,7 +1185,11 @@ mod tests {
 
         // Should have aggregates
         assert!(!result.aggregate_indices.is_empty());
-        assert!(result.aggregate_indices.contains_key("agg.human.person_count.0"));
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.human.person_count.0")
+        );
     }
 
     #[test]
@@ -1162,10 +1233,69 @@ mod tests {
 
         // Should have two aggregates
         assert_eq!(result.aggregate_indices.len(), 2);
-        assert!(result.aggregate_indices.contains_key("agg.stellar.total_mass.0"));
-        assert!(result.aggregate_indices.contains_key("agg.stellar.max_radius.0"));
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.stellar.total_mass.0")
+        );
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.stellar.max_radius.0")
+        );
 
         // Should have two member signals
         assert_eq!(result.member_indices.len(), 2);
+    }
+
+    #[test]
+    fn test_compile_member_referencing_self_field() {
+        let src = r#"
+            strata.bio {}
+            era.main { : initial }
+
+            entity.bio.cell { : count(1..10) }
+
+            member.bio.cell.energy {
+                : Scalar
+                : strata(bio)
+                resolve { prev }
+            }
+
+            member.bio.cell.health {
+                : Scalar
+                : strata(bio)
+                resolve { self.energy * 0.5 }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let result = compile(&world).unwrap();
+
+        let health_id = continuum_foundation::MemberId::from("bio.cell.health");
+
+        // Check if index assigned (it usually is)
+        assert!(result.member_indices.contains_key(&health_id));
+
+        // CRITICAL CHECK: Check if it exists in the DAG
+        let era_dags = result.dags.get_era(&EraId("main".to_string())).unwrap();
+        let dag = era_dags
+            .get(Phase::Resolve, &StratumId("bio".to_string()))
+            .unwrap();
+
+        let mut found = false;
+        for level in &dag.levels {
+            for node in &level.nodes {
+                if let NodeKind::MemberSignalResolve { member_signal, .. } = &node.kind {
+                    if member_signal.signal_name == "health" {
+                        found = true;
+                    }
+                }
+            }
+        }
+        assert!(
+            found,
+            "Member signal referencing self.field was skipped in DAG!"
+        );
     }
 }
