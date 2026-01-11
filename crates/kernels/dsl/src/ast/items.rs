@@ -521,6 +521,10 @@ pub struct ImpulseDef {
     pub path: Spanned<Path>,
     /// Type of data carried by the impulse.
     pub payload_type: Option<Spanned<TypeExpr>>,
+    /// Human-readable title.
+    pub title: Option<Spanned<String>>,
+    /// Symbol for display.
+    pub symbol: Option<Spanned<String>>,
     /// Impulse-local config.
     pub local_config: Vec<ConfigEntry>,
     /// Application logic when impulse fires.

@@ -1732,7 +1732,7 @@ impulse.tectonics.plate_collision {
                 payload.energy * config.impulse.tectonics.plate_collision.orogeny_efficiency
                 / (1.0e21 * dt_myr) in
 
-            signal.tectonics.orogeny_rate <- orogeny_contribution
+            signal.tectonics.orogeny_rate <- orogeny_contribution;
 
             # Collision energy also increases volcanic activity in collision zones
             let activity_boost = payload.energy / 1.0e22 in
@@ -1774,15 +1774,15 @@ impulse.tectonics.volcanic {
             # Heat deposited increases local thermal budget
             let surface_heat =
                 payload.heat_j * config.impulse.tectonics.volcanic.surface_heat_efficiency in
-            signal.thermal.surface_flux <- surface_heat / 1.0e18
+            signal.thermal.surface_flux <- surface_heat / 1.0e18;
 
             # Volatiles released contribute to atmospheric CO2
             let co2_release =
                 payload.volatiles * config.impulse.tectonics.volcanic.volatile_to_co2_factor in
-            signal.atmosphere.co2_ppmv <- co2_release
+            signal.atmosphere.co2_ppmv <- co2_release;
 
             # Volcanic activity index boost
-            signal.tectonics.volcanism <- payload.volatiles / 10.0
+            signal.tectonics.volcanism <- payload.volatiles / 10.0;
 
             # Ejecta contributes to crustal thickening signal
             signal.crust.thickness <- payload.ejecta_thickness_m

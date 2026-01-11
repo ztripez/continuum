@@ -12,6 +12,8 @@ use crate::ast::{
     ObserveHandler, Path, Spanned, TypeExpr,
 };
 
+use super::super::primitives::{attr_string};
+
 use super::super::expr::spanned_expr;
 use super::super::primitives::{attr_path, ident, spanned, spanned_path, ws};
 use super::super::ParseError;
@@ -38,12 +40,17 @@ pub fn impulse_def<'src>(
             let mut def = ImpulseDef {
                 path,
                 payload_type: None,
+                title: None,
+                symbol: None,
                 local_config: vec![],
                 apply: None,
             };
             for content in contents {
                 match content {
                     ImpulseContent::Type(t) => def.payload_type = Some(t),
+                    ImpulseContent::Title(t) => def.title = Some(t),
+                    ImpulseContent::Symbol(s) => def.symbol = Some(s),
+                    ImpulseContent::Config(c) => def.local_config = c,
                     ImpulseContent::Apply(a) => def.apply = Some(a),
                 }
             }
@@ -54,24 +61,55 @@ pub fn impulse_def<'src>(
 #[derive(Clone)]
 enum ImpulseContent {
     Type(Spanned<TypeExpr>),
+    Title(Spanned<String>),
+    Symbol(Spanned<String>),
+    Config(Vec<ConfigEntry>),
     Apply(ApplyBlock),
 }
 
 fn impulse_content<'src>(
 ) -> impl Parser<'src, &'src str, ImpulseContent, extra::Err<ParseError<'src>>> {
     choice((
+        // Attributes with arguments - must come before generic type parser
+        attr_string("title").map(ImpulseContent::Title),
+        attr_string("symbol").map(ImpulseContent::Symbol),
+        // Type expression: `: TypeExpr`
         just(':')
             .padded_by(ws())
             .ignore_then(spanned(type_expr()))
             .map(ImpulseContent::Type),
+        // Config block: `config { ... }`
+        text::keyword("config")
+            .padded_by(ws())
+            .ignore_then(
+                config_entry()
+                    .padded_by(ws())
+                    .repeated()
+                    .collect()
+                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+            )
+            .map(ImpulseContent::Config),
+        // Apply block: `apply { expr; expr; ... }` - supports semicolon-separated expressions
         text::keyword("apply")
             .padded_by(ws())
             .ignore_then(
                 spanned_expr()
                     .padded_by(ws())
+                    .separated_by(just(';').padded_by(ws()))
+                    .allow_trailing()
+                    .at_least(1)
+                    .collect::<Vec<_>>()
                     .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
             )
-            .map(|body| ImpulseContent::Apply(ApplyBlock { body })),
+            .map_with(|exprs, extra| {
+                let span: chumsky::span::SimpleSpan = extra.span();
+                let body = if exprs.len() == 1 {
+                    exprs.into_iter().next().unwrap()
+                } else {
+                    Spanned::new(Expr::Block(exprs), span.start..span.end)
+                };
+                ImpulseContent::Apply(ApplyBlock { body })
+            }),
     ))
 }
 

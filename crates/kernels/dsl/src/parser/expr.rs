@@ -357,6 +357,7 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
 
         // Emit expression: signal.path <- value
         // Emits a value to a signal target. Used in fracture emit blocks.
+        // Boxed to reduce type complexity in deeply nested expressions.
         let emit_expr = text::keyword("signal")
             .ignore_then(just('.'))
             .ignore_then(path())
@@ -375,10 +376,12 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     },
                     span,
                 )
-            });
+            })
+            .boxed();
 
         // Let expression: let name = value in body
         // Multiple lets chain together: let a = 1 in let b = 2 in a + b
+        // Boxed to reduce type complexity and prevent stack overflow with chained lets.
         let let_expr = text::keyword("let")
             .padded_by(ws())
             .map_with(|_, extra| {
@@ -400,7 +403,8 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                     },
                     span,
                 )
-            });
+            })
+            .boxed();
 
         // If expression: if condition { then } else { else }
         // Also supports: if cond { a } else if cond2 { b } else { c }
@@ -408,11 +412,28 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         // Uses iterative parsing of else-if chains to avoid recursive parser issues.
         // Pattern: if COND { BLOCK } (else if COND { BLOCK })* (else { BLOCK })?
         let if_expr = {
-            // Braced expression: { expr }
+            // Braced block: { expr ; expr ; ... } or { expr }
+            // Supports semicolon-separated expressions for sequencing
             let braced = just('{')
                 .padded_by(ws())
-                .ignore_then(expr_boxed.clone().padded_by(ws()))
-                .then_ignore(just('}').padded_by(ws()));
+                .ignore_then(
+                    expr_boxed
+                        .clone()
+                        .padded_by(ws())
+                        .separated_by(just(';').padded_by(ws()))
+                        .allow_trailing()
+                        .at_least(1)
+                        .collect::<Vec<_>>(),
+                )
+                .then_ignore(just('}').padded_by(ws()))
+                .map_with(|exprs, extra| {
+                    let span: chumsky::span::SimpleSpan = extra.span();
+                    if exprs.len() == 1 {
+                        exprs.into_iter().next().unwrap()
+                    } else {
+                        Spanned::new(Expr::Block(exprs), span.start..span.end)
+                    }
+                });
 
             // Initial if clause: if COND { BLOCK }
             let if_head = text::keyword("if")
@@ -481,6 +502,7 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
                         if_start..final_span_end,
                     )
                 })
+                .boxed()
         };
 
         // Let and if expressions have lowest precedence - they consume the rest as body
