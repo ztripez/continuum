@@ -235,11 +235,10 @@ signal.rotation.state {
     }
 
     resolve {
-        # Phase advances with angular velocity
-        # phase += omega * dt
-        let phase = prev.x + prev.y * dt_raw in
+        # Phase advances with angular velocity using integrate
+        let phase = integrate(prev.x, prev.y) in
         let omega = prev.y + collected in
-        vec2(mod(phase, 6.283185307), omega)
+        vec2(mod(phase, TAU), omega)
     }
 
     assert {
@@ -287,7 +286,7 @@ signal.rotation.precession {
 
     resolve {
         # Precession advances at a rate determined by torques
-        wrap(prev + config.rotation.precession.rate * dt_raw + collected, 0.0, TAU)
+        mod(integrate(prev, config.rotation.precession.rate) + collected, TAU)
     }
 
     assert {
@@ -387,7 +386,7 @@ signal.mantle.heat_content {
     resolve {
         # Heat content changes with net power input: dQ/dt = P_in
         # Earth's mantle: mass ~4e24 kg, Cp ~1200 J/kg/K, T ~1600K = 8e30 J
-        prev + signal.core.heat_power * dt_raw + collected
+        integrate(prev, signal.core.heat_power) + collected
     }
 
     assert {
@@ -1013,9 +1012,9 @@ member.terra.plate.age {
     }
 
     resolve {
-        # Plates age with simulation time
+        # Plates age with simulation time (rate = 1 Myr per 3.1536e13 seconds)
         # Oceanic plates are capped at max age (subduction recycling)
-        let new_age = prev + dt_raw / 3.1536e13 in  # Convert seconds to Myr
+        let new_age = integrate(prev, 3.1688e-14) in  # 1/3.1536e13 Myr/s
         if self.kind < 0.5 {
             # Oceanic: cap at max age
             min(new_age, config.terra.plate.age.max_oceanic_age_myr)

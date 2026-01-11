@@ -114,9 +114,9 @@ signal.hydrology.water_mass {
 
     resolve {
         # Water budget: precipitation - evaporation + external inputs
-        let evap_loss = signal.hydrology.evaporation_rate * dt_raw * 5.1e14 in  # Earth surface area
-        let precip_gain = signal.hydrology.precipitation_rate * dt_raw * 5.1e14 in
-        clamp(prev + precip_gain - evap_loss + collected, config.hydrology.water_mass.min, config.hydrology.water_mass.max)
+        # Net rate = (precip - evap) * surface_area
+        let net_rate = (signal.hydrology.precipitation_rate - signal.hydrology.evaporation_rate) * 5.1e14 in
+        clamp(integrate(prev, net_rate) + collected, config.hydrology.water_mass.min, config.hydrology.water_mass.max)
     }
 
     assert {
@@ -145,9 +145,9 @@ signal.hydrology.ice_mass {
             # Freezing conditions - ice can accumulate
             prev + collected
         } else {
-            # Melting/sublimation conditions
-            let sublimation = config.hydrology.ice_mass.sublimation_rate * dt_raw * 1e13 in
-            max(prev - sublimation + collected, 0.0)
+            # Melting/sublimation conditions - sublimation rate * area
+            let sublimation_rate = config.hydrology.ice_mass.sublimation_rate * 1e13 in
+            max(integrate(prev, -sublimation_rate) + collected, 0.0)
         }
     }
 
@@ -275,10 +275,11 @@ signal.hydrology.sediment_load {
     resolve {
         # Sediment transport depends on runoff and slope
         let runoff = signal.hydrology.runoff_accumulation in
-        let erosion = runoff * config.hydrology.sediment_load.erosion_rate * dt_raw / 1e12 in
-        let deposition = prev * config.hydrology.sediment_load.deposition_rate * dt_raw in
+        let erosion_rate = runoff * config.hydrology.sediment_load.erosion_rate / 1e12 in
+        let deposition_rate = prev * config.hydrology.sediment_load.deposition_rate in
+        let net_rate = erosion_rate - deposition_rate in
 
-        clamp(prev + erosion - deposition + collected, 0.0, config.hydrology.sediment_load.max_load)
+        clamp(integrate(prev, net_rate) + collected, 0.0, config.hydrology.sediment_load.max_load)
     }
 
     assert {
@@ -373,8 +374,8 @@ signal.hydrology.groundwater_saturation {
         # Saturation changes from infiltration (increase) and baseflow (decrease)
         let infiltration = signal.hydrology.infiltration_rate in
         let baseflow = signal.hydrology.baseflow_rate in
-        let net_flux = (infiltration - baseflow) * dt_raw / config.hydrology.groundwater_saturation.max_capacity_kg_m2 in
-        clamp(prev + net_flux + collected, 0.0, 1.0)
+        let net_rate = (infiltration - baseflow) / config.hydrology.groundwater_saturation.max_capacity_kg_m2 in
+        clamp(integrate(prev, net_rate) + collected, 0.0, 1.0)
     }
 
     assert {
