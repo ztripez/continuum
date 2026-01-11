@@ -278,7 +278,7 @@ signal.rotation.state {
 # Axial obliquity (tilt angle from ecliptic normal)
 # Earth: ~23.4 degrees = 0.409 rad
 signal.rotation.obliquity {
-    : Scalar<rad, 0..3.14159>
+    : Scalar<rad, 0..PI>
     : strata(rotation)
     : title("Axial Obliquity")
     : symbol("epsilon")
@@ -302,7 +302,7 @@ signal.rotation.obliquity {
 # Precession angle (rotation of spin axis around ecliptic normal)
 # Earth: completes one cycle in ~26,000 years
 signal.rotation.precession {
-    : Scalar<rad, 0..6.28318>
+    : Scalar<rad, 0..TAU>
     : strata(rotation)
     : title("Precession Angle")
     : symbol("psi")
