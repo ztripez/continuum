@@ -136,6 +136,7 @@ impl ComplexityScore {
                 | Op::LoadPrev
                 | Op::LoadPrevComponent(_)
                 | Op::LoadDt
+                | Op::LoadSimTime
                 | Op::LoadInputs
                 | Op::LoadInputsComponent(_)
                 | Op::LoadConst(_)

@@ -577,6 +577,7 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
         }
         CompiledExpr::Prev => "prev".hash(hasher),
         CompiledExpr::DtRaw => "dt_raw".hash(hasher),
+        CompiledExpr::SimTime => "sim_time".hash(hasher),
         CompiledExpr::Collected => "collected".hash(hasher),
         CompiledExpr::Signal(id) => {
             "signal".hash(hasher);

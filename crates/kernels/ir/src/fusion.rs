@@ -209,6 +209,7 @@ impl OperatorDeps {
             CompiledExpr::Literal(_)
             | CompiledExpr::Prev
             | CompiledExpr::DtRaw
+            | CompiledExpr::SimTime
             | CompiledExpr::Collected
             | CompiledExpr::Local(_)
             | CompiledExpr::SelfField(_)

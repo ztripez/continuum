@@ -308,6 +308,7 @@ impl<'a> Compiler<'a> {
             CompiledExpr::Literal(_)
             | CompiledExpr::Prev
             | CompiledExpr::DtRaw
+            | CompiledExpr::SimTime
             | CompiledExpr::Collected
             | CompiledExpr::SelfField(_)
             | CompiledExpr::EntityAccess { .. }

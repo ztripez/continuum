@@ -109,6 +109,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         CompiledExpr::Literal(v) => Expr::Literal(*v),
         CompiledExpr::Prev => Expr::Prev,
         CompiledExpr::DtRaw => Expr::DtRaw,
+        CompiledExpr::SimTime => Expr::SimTime,
         CompiledExpr::Collected => Expr::Collected,
         CompiledExpr::Signal(id) => Expr::Signal(id.0.clone()),
         CompiledExpr::Const(name) => Expr::Const(name.clone()),
@@ -291,6 +292,9 @@ mod tests {
         }
         fn dt(&self) -> f64 {
             0.1
+        }
+        fn sim_time(&self) -> f64 {
+            10.0
         }
         fn inputs(&self) -> f64 {
             5.0

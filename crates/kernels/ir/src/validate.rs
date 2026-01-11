@@ -380,9 +380,9 @@ fn check_expr_symbols(
             check_expr_symbols(radius, context, defined_signals, defined_constants, defined_config, warnings);
             check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
         }
-        // Literals, Prev, DtRaw, Collected, Local don't need checking
+        // Literals, Prev, DtRaw, SimTime, Collected, Local don't need checking
         // Local variables are validated at parse/lower time
-        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::Collected | CompiledExpr::Local(_) => {}
+        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::SimTime | CompiledExpr::Collected | CompiledExpr::Local(_) => {}
     }
 }
 
