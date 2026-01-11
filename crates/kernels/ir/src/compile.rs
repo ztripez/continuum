@@ -238,12 +238,15 @@ impl<'a> Compiler<'a> {
             self.operator_indices.insert(op_id.0.clone(), idx);
         }
 
-        // Assign field indices (only for fields with measure expressions)
+        // Assign field indices (only for fields with measure expressions that are bytecode-compatible)
+        // Fields with entity expressions are skipped - they require EntityExecutor at runtime
         let mut field_idx = 0;
         for (field_id, field) in &self.world.fields {
-            if field.measure.is_some() {
-                self.field_indices.insert(field_id.0.clone(), field_idx);
-                field_idx += 1;
+            if let Some(ref measure) = field.measure {
+                if !contains_entity_expression(measure) {
+                    self.field_indices.insert(field_id.0.clone(), field_idx);
+                    field_idx += 1;
+                }
             }
         }
 
@@ -815,26 +818,29 @@ impl<'a> Compiler<'a> {
 
         // Fields with measure expressions become OperatorMeasure nodes
         // Fields without measure expressions would be FieldEmit nodes (for dependency tracking only)
+        // Fields with entity expressions are skipped - they require EntityExecutor
         for (field_id, field) in &self.world.fields {
             if field.stratum != *stratum_id {
                 continue;
             }
 
-            // Only create nodes for fields that have measure expressions
-            if field.measure.is_some() {
-                let node = DagNode {
-                    id: NodeId(format!("field.{}", field_id.0)),
-                    reads: field
-                        .reads
-                        .iter()
-                        .map(|s| continuum_runtime::SignalId(s.0.clone()))
-                        .collect(),
-                    writes: None,
-                    kind: NodeKind::OperatorMeasure {
-                        operator_idx: self.field_indices[&field_id.0],
-                    },
-                };
-                builder.add_node(node);
+            // Only create nodes for fields that have bytecode-compatible measure expressions
+            if let Some(ref measure) = field.measure {
+                if !contains_entity_expression(measure) {
+                    let node = DagNode {
+                        id: NodeId(format!("field.{}", field_id.0)),
+                        reads: field
+                            .reads
+                            .iter()
+                            .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                            .collect(),
+                        writes: None,
+                        kind: NodeKind::OperatorMeasure {
+                            operator_idx: self.field_indices[&field_id.0],
+                        },
+                    };
+                    builder.add_node(node);
+                }
             }
         }
 
