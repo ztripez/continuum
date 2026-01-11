@@ -849,9 +849,6 @@ impl LanguageServer for Backend {
                 })),
                 folding_range_provider: Some(FoldingRangeProviderCapability::Simple(true)),
                 workspace_symbol_provider: Some(OneOf::Left(true)),
-                code_lens_provider: Some(CodeLensOptions {
-                    resolve_provider: Some(false),
-                }),
                 ..Default::default()
             },
             server_info: Some(ServerInfo {
@@ -1470,61 +1467,6 @@ impl LanguageServer for Backend {
         results.truncate(100);
 
         Ok(Some(results))
-    }
-
-    async fn code_lens(&self, params: CodeLensParams) -> Result<Option<Vec<CodeLens>>> {
-        let uri = &params.text_document.uri;
-
-        let doc = match self.documents.get(uri) {
-            Some(doc) => doc.clone(),
-            None => return Ok(None),
-        };
-
-        let index = match self.symbol_indices.get(uri) {
-            Some(index) => index,
-            None => return Ok(None),
-        };
-
-        let mut lenses = Vec::new();
-
-        // For each symbol definition in this file, count references across workspace
-        for (info, span) in index.get_all_definitions() {
-            let mut ref_count = 0;
-
-            // Count references across all files
-            for entry in self.symbol_indices.iter() {
-                for (ref_info, _) in entry.value().get_all_references() {
-                    if ref_info.target_path == info.path && ref_info.kind == info.kind {
-                        ref_count += 1;
-                    }
-                }
-            }
-
-            let (line, character) = offset_to_position(&doc, span.start);
-
-            let title = if ref_count == 0 {
-                "0 references".to_string()
-            } else if ref_count == 1 {
-                "1 reference".to_string()
-            } else {
-                format!("{} references", ref_count)
-            };
-
-            lenses.push(CodeLens {
-                range: Range {
-                    start: Position::new(line, character),
-                    end: Position::new(line, character),
-                },
-                command: Some(Command {
-                    title,
-                    command: "editor.action.findReferences".to_string(),
-                    arguments: None,
-                }),
-                data: None,
-            });
-        }
-
-        Ok(Some(lenses))
     }
 
     async fn semantic_tokens_full(
