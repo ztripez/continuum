@@ -68,6 +68,12 @@ impl LoweringContext {
                 dst
             }
 
+            CompiledExpr::SimTime => {
+                let dst = self.func.alloc_vreg();
+                self.emit(SsaInstruction::LoadSimTime { dst });
+                dst
+            }
+
             CompiledExpr::Collected => {
                 let dst = self.func.alloc_vreg();
                 self.emit(SsaInstruction::LoadCollected { dst });
@@ -300,6 +306,15 @@ impl LoweringContext {
             | CompiledExpr::Nearest { .. }
             | CompiledExpr::Within { .. } => {
                 // These need special handling by the entity executor
+                // For now, emit a placeholder constant
+                let dst = self.func.alloc_vreg();
+                self.emit(SsaInstruction::LoadConst { dst, value: 0.0 });
+                dst
+            }
+
+            // Impulse expressions - handled by impulse executor
+            CompiledExpr::Payload | CompiledExpr::PayloadField(_) | CompiledExpr::EmitSignal { .. } => {
+                // These need special handling by the impulse executor
                 // For now, emit a placeholder constant
                 let dst = self.func.alloc_vreg();
                 self.emit(SsaInstruction::LoadConst { dst, value: 0.0 });

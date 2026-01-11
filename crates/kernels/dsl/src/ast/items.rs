@@ -541,6 +541,10 @@ pub struct ImpulseDef {
     pub path: Spanned<Path>,
     /// Type of data carried by the impulse.
     pub payload_type: Option<Spanned<TypeExpr>>,
+    /// Human-readable title.
+    pub title: Option<Spanned<String>>,
+    /// Symbol for display.
+    pub symbol: Option<Spanned<String>>,
     /// Impulse-local config.
     pub local_config: Vec<ConfigEntry>,
     /// Application logic when impulse fires.
@@ -579,19 +583,14 @@ pub struct FractureDef {
     pub doc: Option<String>,
     /// Fracture path.
     pub path: Spanned<Path>,
+    /// Stratum this fracture belongs to.
+    pub strata: Option<Spanned<Path>>,
+    /// Fracture-local config with defaults.
+    pub local_config: Vec<ConfigEntry>,
     /// Trigger conditions.
     pub conditions: Vec<Spanned<Expr>>,
-    /// Emissions when triggered.
-    pub emit: Vec<EmitStatement>,
-}
-
-/// Statement emitting an impulse or event when fracture triggers.
-#[derive(Debug, Clone, PartialEq)]
-pub struct EmitStatement {
-    /// Target impulse or event path.
-    pub target: Spanned<Path>,
-    /// Value to emit.
-    pub value: Spanned<Expr>,
+    /// Emit expression when triggered. Contains signal emit expressions.
+    pub emit: Option<Spanned<Expr>>,
 }
 
 // === Chronicle ===
@@ -663,13 +662,15 @@ pub struct ObserveHandler {
 /// member.human.person.age {
 ///     : Scalar
 ///     : strata(human.physiology)
+///     initial { 0.0 }
 ///     resolve { integrate(prev, 1) }
 /// }
 ///
-/// member.human.person.homeostasis {
-///     : Scalar<1, 0..1>
-///     : strata(human.physiology)
-///     resolve { clamp(prev + collected, 0.0, 1.0) }
+/// member.stellar.star.rotation_period {
+///     : Scalar<day, 0.1..100>
+///     : strata(stellar.activity)
+///     initial { config.stellar.default_rotation_period_days }
+///     resolve { prev }
 /// }
 /// ```
 ///
@@ -695,6 +696,8 @@ pub struct MemberDef {
     pub symbol: Option<Spanned<String>>,
     /// Member-local config with defaults.
     pub local_config: Vec<ConfigEntry>,
+    /// Initial value expression (evaluated once at entity creation).
+    pub initial: Option<ResolveBlock>,
     /// Resolution expression evaluated each tick (per instance).
     pub resolve: Option<ResolveBlock>,
     /// Assertions validated after resolution.

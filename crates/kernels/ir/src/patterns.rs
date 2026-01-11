@@ -577,6 +577,7 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
         }
         CompiledExpr::Prev => "prev".hash(hasher),
         CompiledExpr::DtRaw => "dt_raw".hash(hasher),
+        CompiledExpr::SimTime => "sim_time".hash(hasher),
         CompiledExpr::Collected => "collected".hash(hasher),
         CompiledExpr::Signal(id) => {
             "signal".hash(hasher);
@@ -651,6 +652,16 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
         CompiledExpr::Local(name) => {
             "local".hash(hasher);
             name.hash(hasher);
+        }
+        CompiledExpr::Payload => "payload".hash(hasher),
+        CompiledExpr::PayloadField(field) => {
+            "payload_field".hash(hasher);
+            field.hash(hasher);
+        }
+        CompiledExpr::EmitSignal { target, value } => {
+            "emit_signal".hash(hasher);
+            target.0.hash(hasher);
+            hash_expr_structure(value, hasher);
         }
         CompiledExpr::SelfField(field) => {
             "self_field".hash(hasher);

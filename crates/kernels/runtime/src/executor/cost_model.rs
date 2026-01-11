@@ -136,6 +136,7 @@ impl ComplexityScore {
                 | Op::LoadPrev
                 | Op::LoadPrevComponent(_)
                 | Op::LoadDt
+                | Op::LoadSimTime
                 | Op::LoadInputs
                 | Op::LoadInputsComponent(_)
                 | Op::LoadConst(_)
@@ -425,7 +426,7 @@ impl CostModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use continuum_vm::compiler::{compile_expr, BinaryOp, Expr};
+    use continuum_vm::compiler::{BinaryOp, Expr, compile_expr};
 
     fn compile_simple_expr() -> BytecodeChunk {
         // prev + dt
@@ -669,9 +670,18 @@ mod tests {
         let complex_score = model.analyze(&complex_bytecode);
 
         // Verify classification
-        assert!(simple_score.is_simple(&model.thresholds), "simple should be simple");
-        assert!(!complex_score.is_simple(&model.thresholds), "complex should not be simple");
-        assert!(complex_score.is_heavy(&model.thresholds), "complex should be heavy");
+        assert!(
+            simple_score.is_simple(&model.thresholds),
+            "simple should be simple"
+        );
+        assert!(
+            !complex_score.is_simple(&model.thresholds),
+            "complex should not be simple"
+        );
+        assert!(
+            complex_score.is_heavy(&model.thresholds),
+            "complex should be heavy"
+        );
 
         // === Large population (>= 50k) ===
         // Simple → L2
@@ -763,8 +773,7 @@ mod tests {
         let model = CostModel::with_thresholds(
             10_000, // L2 threshold
             1_000,  // L3 threshold
-            true,
-            true,
+            true, true,
         );
 
         let bytecode = compile_simple_expr();
@@ -828,8 +837,14 @@ mod tests {
         let model = CostModel::default();
 
         // Document expected default values
-        assert_eq!(model.l2_population_threshold, 50_000, "L2 threshold regression");
-        assert_eq!(model.l3_population_threshold, 2_000, "L3 threshold regression");
+        assert_eq!(
+            model.l2_population_threshold, 50_000,
+            "L2 threshold regression"
+        );
+        assert_eq!(
+            model.l3_population_threshold, 2_000,
+            "L3 threshold regression"
+        );
         assert!(model.l2_available, "L2 should be available by default");
         assert!(model.l3_available, "L3 should be available by default");
 

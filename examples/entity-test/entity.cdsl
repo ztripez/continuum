@@ -1,0 +1,124 @@
+# Entity Test World
+# Tests entity member signals and aggregate operations
+
+world.entity_test {
+    : title("Entity Test")
+    : version("0.1.0")
+}
+
+const {
+    physics.gravity: 9.81
+    physics.growth_rate: 0.1
+}
+
+config {
+    test.initial_mass: 100.0
+    test.initial_energy: 50.0
+    test.decay_rate: 0.01
+}
+
+strata.simulation {
+    : title("Simulation")
+    : symbol("S")
+    : stride(1)
+}
+
+era.main {
+    : initial
+    : terminal
+    : title("Main")
+    : dt(1 <s>)
+
+    strata {
+        simulation: active
+    }
+}
+
+# Define an entity with 5 particles
+entity.test.particle {
+    : count(5..5)
+}
+
+# Scalar member: mass (increases over time based on growth rate)
+member.test.particle.mass {
+    : Scalar<kg, 0..1000>
+    : strata(simulation)
+    : title("Particle Mass")
+    : symbol("m")
+
+    resolve {
+        prev + const.physics.growth_rate * dt_raw
+    }
+}
+
+# Scalar member: energy (decays over time)
+member.test.particle.energy {
+    : Scalar<J, 0..1000>
+    : strata(simulation)
+    : title("Particle Energy")
+    : symbol("E")
+
+    resolve {
+        prev * (1.0 - config.test.decay_rate * dt_raw)
+    }
+}
+
+# Scalar member: combined (demonstrates self-reference)
+member.test.particle.combined {
+    : Scalar<1, 0..10000>
+    : strata(simulation)
+    : title("Combined Value")
+    : symbol("C")
+
+    resolve {
+        self.mass + self.energy
+    }
+}
+
+# Global signal: total mass of all particles (uses aggregate)
+signal.test.total_mass {
+    : Scalar<kg, 0..5000>
+    : strata(simulation)
+    : title("Total Mass")
+    : symbol("M_total")
+
+    resolve {
+        sum(entity.test.particle, self.mass)
+    }
+}
+
+# Global signal: mean energy of all particles
+signal.test.mean_energy {
+    : Scalar<J, 0..1000>
+    : strata(simulation)
+    : title("Mean Energy")
+    : symbol("E_mean")
+
+    resolve {
+        mean(entity.test.particle, self.energy)
+    }
+}
+
+# Global signal: particle count
+signal.test.particle_count {
+    : Scalar<1, 0..100>
+    : strata(simulation)
+    : title("Particle Count")
+    : symbol("N")
+
+    resolve {
+        count(entity.test.particle)
+    }
+}
+
+# Field for observing total mass
+field.test.total_mass_field {
+    : Scalar<kg>
+    : strata(simulation)
+    : topology(point_cloud)
+    : title("Total Mass Field")
+
+    measure {
+        signal.test.total_mass
+    }
+}

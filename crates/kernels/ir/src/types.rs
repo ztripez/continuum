@@ -30,7 +30,10 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId, OperatorId, SignalId, StratumId, TypeId};
+use continuum_foundation::{
+    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
+    OperatorId, SignalId, StratumId, TypeId,
+};
 
 // Re-export StratumState from foundation for backwards compatibility
 pub use continuum_foundation::StratumState;
@@ -375,6 +378,8 @@ pub struct CompiledImpulse {
 pub struct CompiledFracture {
     /// Unique identifier for the fracture.
     pub id: FractureId,
+    /// Stratum binding.
+    pub stratum: StratumId,
     /// Signals this fracture reads
     pub reads: Vec<SignalId>,
     /// Condition expressions (all must be true)
@@ -488,6 +493,9 @@ pub struct CompiledMember {
     pub reads: Vec<SignalId>,
     /// Other member signals this member reads.
     pub member_reads: Vec<MemberId>,
+    /// Initial value expression (evaluated once at entity creation).
+    /// If None, the member starts at 0.0 (or zero vector for Vec types).
+    pub initial: Option<CompiledExpr>,
     /// The resolve expression.
     pub resolve: Option<CompiledExpr>,
     /// Assertions to validate after resolution.
@@ -805,6 +813,8 @@ pub enum CompiledExpr {
     Prev,
     /// Raw dt value
     DtRaw,
+    /// Accumulated simulation time in seconds
+    SimTime,
     /// Collected/accumulated inputs from Collect phase
     Collected,
     /// Reference to a signal
@@ -891,8 +901,25 @@ pub enum CompiledExpr {
     /// Local variable reference
     Local(String),
 
-    // === Entity expressions ===
+    // === Impulse expressions ===
+    /// Impulse payload reference: `payload`
+    Payload,
 
+    /// Impulse payload field access: `payload.magnitude`
+    PayloadField(String),
+
+    /// Emit a value to a signal: `signal.X <- value`
+    ///
+    /// Used in impulse apply blocks and fracture emit blocks.
+    /// This is a side-effect operation that writes to a signal.
+    EmitSignal {
+        /// The target signal to emit to
+        target: SignalId,
+        /// The value to emit
+        value: Box<CompiledExpr>,
+    },
+
+    // === Entity expressions ===
     /// Access current entity instance field: self.mass
     SelfField(String),
 

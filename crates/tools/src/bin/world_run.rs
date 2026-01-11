@@ -14,14 +14,16 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use continuum_dsl::load_world;
-use continuum_foundation::{FieldId, SignalId};
+use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
 use continuum_ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture,
-    build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value, lower,
+    build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
+    build_fracture, build_member_resolver, build_signal_resolver, build_vec3_member_resolver,
+    compile, convert_assertion_severity, eval_initial_expr, get_initial_signal_value, lower,
     validate,
 };
-use continuum_runtime::executor::Runtime;
-use continuum_runtime::storage::FieldSample;
+use continuum_runtime::executor::{ResolverFn, Runtime};
+use continuum_runtime::soa_storage::ValueType as MemberValueType;
+use continuum_runtime::storage::{EntityInstances, FieldSample, InstanceData};
 use continuum_runtime::types::{Dt, Value};
 
 #[derive(Serialize, Deserialize)]
@@ -198,12 +200,52 @@ fn main() {
     let mut runtime = Runtime::new(initial_era.clone(), era_configs, compilation.dags);
 
     // Register resolvers
+    // IMPORTANT: Must register in the same order as DAG builder expects (all signals)
+    // Signals with entity expressions get:
+    //   1. A placeholder resolver (maintains index ordering for DAG)
+    //   2. An aggregate resolver (runs in Phase 3c after member resolution)
+    let mut resolver_count = 0;
+    let mut aggregate_count = 0;
     for (signal_id, signal) in &world.signals {
         if let Some(resolver) = build_signal_resolver(signal, &world) {
             let idx = runtime.register_resolver(resolver);
             info!("  Registered resolver for {} (idx={})", signal_id, idx);
+            resolver_count += 1;
+        } else if let Some(ref resolve_expr) = signal.resolve {
+            // Signal has entity expressions - register placeholder for DAG ordering
+            // and a separate aggregate resolver for Phase 3c
+            let signal_name = signal_id.0.clone();
+            let placeholder: ResolverFn = Box::new(move |_ctx| {
+                // This placeholder should never be called - aggregates run in Phase 3c
+                panic!(
+                    "Signal '{}' placeholder called - aggregate signals run in Phase 3c",
+                    signal_name
+                );
+            });
+            let idx = runtime.register_resolver(placeholder);
+
+            // Build and register the actual aggregate resolver
+            let aggregate_resolver = build_aggregate_resolver(resolve_expr, &world);
+            runtime.register_aggregate_resolver(SignalId(signal_id.0.clone()), aggregate_resolver);
+            info!(
+                "  Registered aggregate resolver for {} (placeholder idx={})",
+                signal_id, idx
+            );
+            aggregate_count += 1;
+        } else {
+            // Signal has no resolve expression - just register a no-op placeholder
+            let signal_name = signal_id.0.clone();
+            let placeholder: ResolverFn = Box::new(move |_ctx| {
+                panic!(
+                    "Signal '{}' has no resolve expression",
+                    signal_name
+                );
+            });
+            let idx = runtime.register_resolver(placeholder);
+            info!("  Registered placeholder for {} (idx={}) - no resolve expr", signal_id, idx);
         }
     }
+    info!("  Total: {} resolvers, {} aggregate resolvers", resolver_count, aggregate_count);
 
     // Register assertions
     let mut assertion_count = 0;
@@ -225,18 +267,27 @@ fn main() {
     }
 
     // Register field measure functions
+    // Fields with entity expressions (aggregates, etc.) are skipped - they require EntityExecutor
     let mut field_count = 0;
+    let mut skipped_fields = 0;
     for (field_id, field) in &world.fields {
         if let Some(ref expr) = field.measure {
             let runtime_id = FieldId(field_id.0.clone());
-            let measure_fn = build_field_measure(&runtime_id, expr, &world);
-            let idx = runtime.register_measure_op(measure_fn);
-            info!("  Registered field measure for {} (idx={})", field_id, idx);
-            field_count += 1;
+            if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
+                let idx = runtime.register_measure_op(measure_fn);
+                info!("  Registered field measure for {} (idx={})", field_id, idx);
+                field_count += 1;
+            } else {
+                // Field contains entity expressions - requires EntityExecutor (not implemented yet)
+                skipped_fields += 1;
+            }
         }
     }
     if field_count > 0 {
         info!("  Registered {} field measures", field_count);
+    }
+    if skipped_fields > 0 {
+        info!("  Skipped {} fields with entity expressions (EntityExecutor not yet implemented)", skipped_fields);
     }
 
     // Register fracture detectors
@@ -259,6 +310,204 @@ fn main() {
             Value::Scalar(v) => info!("  Initialized signal {} = {}", signal_id, v),
             _ => info!("  Initialized signal {} = {:?}", signal_id, value),
         }
+    }
+
+    // Initialize entities
+    for (entity_id, entity) in &world.entities {
+        // Determine instance count from config, bounds, or default
+        let count = if let Some(ref count_source) = entity.count_source {
+            world
+                .config
+                .get(count_source)
+                .map(|v| *v as usize)
+                .unwrap_or(1)
+        } else if let Some((min, max)) = entity.count_bounds {
+            // If bounds are fixed (min == max), use that; otherwise use min
+            if min == max {
+                min as usize
+            } else {
+                min as usize
+            }
+        } else {
+            1
+        };
+
+        // Create instances with unique IDs
+        let mut instances = EntityInstances::new();
+        for i in 0..count {
+            let instance_id = InstanceId(format!("{}_{}", entity_id.0, i));
+
+            // Initialize member fields for this instance
+            let mut fields = indexmap::IndexMap::new();
+            for (_member_id, member) in &world.members {
+                if &member.entity_id == entity_id {
+                    // Use default value based on member's value type
+                    let initial_value = match member.value_type {
+                        continuum_ir::ValueType::Scalar { .. } => Value::Scalar(0.0),
+                        continuum_ir::ValueType::Vec2 { .. } => Value::Vec2([0.0; 2]),
+                        continuum_ir::ValueType::Vec3 { .. } => Value::Vec3([0.0; 3]),
+                        continuum_ir::ValueType::Vec4 { .. } => Value::Vec4([0.0; 4]),
+                        _ => Value::Scalar(0.0),
+                    };
+                    fields.insert(member.signal_name.clone(), initial_value);
+                }
+            }
+
+            instances.insert(instance_id, InstanceData::new(fields));
+        }
+
+        runtime.init_entity(EntityId(entity_id.0.clone()), instances);
+        info!(
+            "  Initialized entity {} with {} instances",
+            entity_id, count
+        );
+    }
+
+    // Initialize member signals for SoA execution
+    if !world.members.is_empty() {
+        info!("Initializing member signals...");
+
+        // Build per-entity instance counts and find max for storage allocation
+        let mut entity_counts: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        for (entity_id, entity) in &world.entities {
+            let count = if let Some(ref count_source) = entity.count_source {
+                world
+                    .config
+                    .get(count_source)
+                    .map(|v| *v as usize)
+                    .unwrap_or(1)
+            } else if let Some((min, max)) = entity.count_bounds {
+                if min == max {
+                    min as usize
+                } else {
+                    min as usize
+                }
+            } else {
+                1
+            };
+            entity_counts.insert(entity_id.0.clone(), count);
+        }
+
+        // Use max instance count for storage allocation (signals need enough slots for largest entity)
+        let max_instance_count = entity_counts.values().copied().max().unwrap_or(1);
+
+        // Register member signals (use full member ID to avoid name collisions)
+        for (member_id, member) in &world.members {
+            let value_type = match member.value_type {
+                continuum_ir::ValueType::Scalar { .. } => MemberValueType::Scalar,
+                continuum_ir::ValueType::Vec2 { .. } => MemberValueType::Vec2,
+                continuum_ir::ValueType::Vec3 { .. } => MemberValueType::Vec3,
+                continuum_ir::ValueType::Vec4 { .. } => MemberValueType::Vec4,
+                _ => MemberValueType::Scalar,
+            };
+            // Use full member ID (e.g., "stellar.star.mass") instead of just signal_name ("mass")
+            // to avoid collisions between entities with same-named members
+            runtime.register_member_signal(&member_id.0, value_type);
+        }
+
+        // Initialize member instances with max count for storage
+        runtime.init_member_instances(max_instance_count);
+
+        // Register per-entity instance counts for aggregate operations
+        for (entity_id, count) in &entity_counts {
+            runtime.register_entity_count(entity_id, *count);
+            info!("  Registered entity {} with {} instances", entity_id, count);
+        }
+
+        info!(
+            "  Initialized {} member signals (max {} instances)",
+            world.members.len(),
+            max_instance_count
+        );
+
+        // Set initial values for members with initial expressions
+        let mut initialized_count = 0;
+        for (member_id, member) in &world.members {
+            if let Some(ref initial_expr) = member.initial {
+                let initial_value =
+                    eval_initial_expr(initial_expr, &world.constants, &world.config);
+
+                // Get the correct instance count for this member's entity
+                let instance_count = entity_counts
+                    .get(&member.entity_id.0)
+                    .copied()
+                    .unwrap_or(1);
+
+                // Set initial value for all instances of this member
+                for instance_idx in 0..instance_count {
+                    runtime.set_member_signal(&member_id.0, instance_idx, initial_value.clone());
+                }
+
+                info!(
+                    "  Initialized member {} with value {:?} ({} instances)",
+                    member_id, initial_value, instance_count
+                );
+                initialized_count += 1;
+            }
+        }
+        if initialized_count > 0 {
+            info!(
+                "  Set initial values for {} member signals",
+                initialized_count
+            );
+            // Commit initial values so they become "previous" values for resolvers
+            runtime.commit_member_initials();
+        }
+
+        // Build and register member resolvers
+        let mut scalar_resolver_count = 0;
+        let mut vec3_resolver_count = 0;
+        for (member_id, member) in &world.members {
+            if let Some(ref resolve_expr) = member.resolve {
+                // Entity prefix is the entity ID (e.g., "terra.plate" for "terra.plate.age")
+                let entity_prefix = &member.entity_id.0;
+
+                // Use the appropriate builder based on value type
+                match member.value_type {
+                    continuum_ir::ValueType::Vec3 { .. } => {
+                        let resolver = build_vec3_member_resolver(
+                            resolve_expr,
+                            &world.constants,
+                            &world.config,
+                            entity_prefix,
+                        );
+                        runtime.register_vec3_member_resolver(member_id.0.clone(), resolver);
+                        info!(
+                            "  Registered Vec3 member resolver for {} (entity={})",
+                            member_id, entity_prefix
+                        );
+                        vec3_resolver_count += 1;
+                    }
+                    _ => {
+                        // Scalar (and other types for now)
+                        let resolver = build_member_resolver(
+                            resolve_expr,
+                            &world.constants,
+                            &world.config,
+                            entity_prefix,
+                        );
+                        runtime.register_member_resolver(member_id.0.clone(), resolver);
+                        info!(
+                            "  Registered scalar member resolver for {} (entity={})",
+                            member_id, entity_prefix
+                        );
+                        scalar_resolver_count += 1;
+                    }
+                }
+            } else {
+                info!(
+                    "  Skipped member {} - no resolve expression",
+                    member_id
+                );
+            }
+        }
+        info!(
+            "  Total: {} scalar + {} Vec3 = {} member resolvers registered",
+            scalar_resolver_count,
+            vec3_resolver_count,
+            scalar_resolver_count + vec3_resolver_count
+        );
     }
 
     // Prepare snapshot directory if requested

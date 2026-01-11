@@ -12,11 +12,28 @@ use crate::error::{Error, Result};
 use crate::storage::{EventBuffer, FieldBuffer, FractureQueue, InputChannels, SignalStorage};
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 
+use super::AggregateResolverFn;
 use super::assertions::AssertionChecker;
+<<<<<<< HEAD
+use super::context::{
+    CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext,
+};
+use super::member_executor::{
+    ChunkConfig, ScalarResolverFn, Vec3ResolverFn, resolve_scalar_l1, resolve_vec3_l1,
+};
+use crate::soa_storage::MemberSignalBuffer;
+=======
 use super::context::{ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext, ResolveContext};
+>>>>>>> origin/main
 
 /// Function that resolves a signal value
 pub type ResolverFn = Box<dyn Fn(&ResolveContext) -> Value + Send + Sync>;
+
+/// Member resolver variant (Scalar or Vec3)
+pub enum MemberResolver {
+    Scalar(ScalarResolverFn),
+    Vec3(Vec3ResolverFn),
+}
 
 /// Function that executes a collect operator
 pub type CollectFn = Box<dyn Fn(&CollectContext) + Send + Sync>;
@@ -85,6 +102,10 @@ impl Default for FractureParallelConfig {
 pub struct PhaseExecutor {
     /// Resolver functions indexed by resolver_idx
     pub resolvers: Vec<ResolverFn>,
+    /// Member resolver functions
+    pub member_resolvers: Vec<MemberResolver>,
+    /// Aggregate resolver functions
+    pub aggregate_resolvers: Vec<AggregateResolverFn>,
     /// Collect operator functions
     pub collect_ops: Vec<CollectFn>,
     /// Measure operator functions
@@ -133,6 +154,8 @@ impl PhaseExecutor {
     ) -> Self {
         Self {
             resolvers: Vec::new(),
+            member_resolvers: Vec::new(),
+            aggregate_resolvers: Vec::new(),
             collect_ops: Vec::new(),
             measure_ops: Vec::new(),
             fractures: Vec::new(),
@@ -147,6 +170,20 @@ impl PhaseExecutor {
     pub fn register_resolver(&mut self, resolver: ResolverFn) -> usize {
         let idx = self.resolvers.len();
         self.resolvers.push(resolver);
+        idx
+    }
+
+    /// Register a member resolver function
+    pub fn register_member_resolver(&mut self, resolver: MemberResolver) -> usize {
+        let idx = self.member_resolvers.len();
+        self.member_resolvers.push(resolver);
+        idx
+    }
+
+    /// Register an aggregate resolver function
+    pub fn register_aggregate_resolver(&mut self, resolver: AggregateResolverFn) -> usize {
+        let idx = self.aggregate_resolvers.len();
+        self.aggregate_resolvers.push(resolver);
         idx
     }
 
@@ -192,6 +229,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
+        sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
@@ -205,6 +243,7 @@ impl PhaseExecutor {
             let mut ctx = ImpulseContext {
                 signals,
                 channels: input_channels,
+                sim_time,
             };
             trace!(handler_idx, "applying impulse");
             handler(&mut ctx, &payload);
@@ -233,6 +272,7 @@ impl PhaseExecutor {
                             signals,
                             channels: input_channels,
                             dt,
+                            sim_time,
                         };
                         op(&ctx);
                     }
@@ -249,9 +289,11 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
+        sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &mut SignalStorage,
+        member_signals: &mut MemberSignalBuffer,
         input_channels: &mut InputChannels,
         assertion_checker: &AssertionChecker,
     ) -> Result<()> {
@@ -271,71 +313,149 @@ impl PhaseExecutor {
             trace!(stratum = %dag.stratum, levels = dag.levels.len(), "resolving stratum");
 
             for level in &dag.levels {
-                // Collect signal IDs and drain inputs BEFORE parallel iteration
-                let signal_inputs: Vec<(SignalId, usize, f64)> = level
-                    .nodes
-                    .iter()
-                    .filter_map(|node| {
-                        if let NodeKind::SignalResolve {
+                // Collect tasks for parallel execution
+                let mut signal_tasks = Vec::new();
+                let mut member_tasks = Vec::new();
+                let mut aggregate_tasks = Vec::new();
+
+                for node in &level.nodes {
+                    match &node.kind {
+                        NodeKind::SignalResolve {
                             signal,
                             resolver_idx,
-                        } = &node.kind
-                        {
+                        } => {
                             let inputs = input_channels.drain_sum(signal);
-                            Some((signal.clone(), *resolver_idx, inputs))
-                        } else {
-                            None
+                            signal_tasks.push((signal.clone(), *resolver_idx, inputs));
                         }
-                    })
-                    .collect();
-
-                // Parallelize resolution
-                let results: Vec<Result<(SignalId, Value)>> = signal_inputs
-                    .par_iter()
-                    .map(|(signal, resolver_idx, inputs)| {
-                        let prev = signals
-                            .get_prev(signal)
-                            .ok_or_else(|| Error::SignalNotFound(signal.clone()))?;
-                        let resolver = &self.resolvers[*resolver_idx];
-                        let ctx = ResolveContext {
-                            prev,
-                            signals,
-                            inputs: *inputs,
-                            dt,
-                        };
-                        let value = resolver(&ctx);
-                        Ok((signal.clone(), value))
-                    })
-                    .collect();
-
-                // Apply results sequentially for determinism and check assertions
-                for result in results {
-                    let (signal, value) = result?;
-
-                    // Check for numeric errors
-                    if let Value::Scalar(v) = &value {
-                        if v.is_nan() {
-                            error!(signal = %signal, "NaN result");
-                            return Err(Error::NumericError {
-                                signal: signal.clone(),
-                                message: "NaN result".to_string(),
-                            });
+                        NodeKind::MemberSignalResolve {
+                            member_signal,
+                            kernel_idx,
+                        } => {
+                            member_tasks.push((member_signal.clone(), *kernel_idx));
                         }
-                        if v.is_infinite() {
-                            error!(signal = %signal, "infinite result");
-                            return Err(Error::NumericError {
-                                signal: signal.clone(),
-                                message: "Infinite result".to_string(),
-                            });
+                        NodeKind::PopulationAggregate {
+                            output_signal,
+                            aggregate_idx,
+                            ..
+                        } => {
+                            aggregate_tasks.push((output_signal.clone(), *aggregate_idx));
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Execute tasks groups sequentially to avoid borrow conflicts,
+                // but parallelize within each group.
+
+                // 1. Member Signal Resolution (Sequential over member types, parallel over instances)
+                for (member_signal, kernel_idx) in member_tasks {
+                    let signal_name = &member_signal.signal_name;
+                    let count = member_signals.instance_count_for_signal(signal_name);
+                    let resolver = &self.member_resolvers[kernel_idx];
+
+                    match resolver {
+                        MemberResolver::Scalar(f) => {
+                            let prev: Vec<f64> = (0..count)
+                                .map(|i| {
+                                    member_signals
+                                        .get_previous(signal_name, i)
+                                        .and_then(|v| v.as_scalar())
+                                        .unwrap_or(0.0)
+                                })
+                                .collect();
+                            let config = ChunkConfig::auto(count);
+                            let values = resolve_scalar_l1(
+                                &prev,
+                                |ctx| f(ctx),
+                                signals,
+                                member_signals,
+                                dt,
+                                sim_time,
+                                config,
+                            );
+                            for (i, v) in values.into_iter().enumerate() {
+                                member_signals.set_current(signal_name, i, Value::Scalar(v));
+                            }
+                        }
+                        MemberResolver::Vec3(f) => {
+                            let prev: Vec<[f64; 3]> = (0..count)
+                                .map(|i| {
+                                    member_signals
+                                        .get_previous(signal_name, i)
+                                        .and_then(|v| v.as_vec3())
+                                        .unwrap_or([0.0, 0.0, 0.0])
+                                })
+                                .collect();
+                            let config = ChunkConfig::auto(count);
+                            let values = resolve_vec3_l1(
+                                &prev,
+                                |ctx| f(ctx),
+                                signals,
+                                member_signals,
+                                dt,
+                                sim_time,
+                                config,
+                            );
+                            for (i, v) in values.into_iter().enumerate() {
+                                member_signals.set_current(signal_name, i, Value::Vec3(v));
+                            }
                         }
                     }
+                }
 
-                    // Check assertions before committing the value
-                    let prev = signals.get_prev(&signal).unwrap_or(&value);
-                    assertion_checker.check_signal(&signal, &value, prev, signals, dt)?;
+                // 2. Signal Resolution (Parallel)
+                if !signal_tasks.is_empty() {
+                    let results: Vec<Result<(SignalId, Value)>> = signal_tasks
+                        .par_iter()
+                        .map(|(signal, resolver_idx, inputs)| {
+                            let prev = signals
+                                .get_prev(signal)
+                                .ok_or_else(|| Error::SignalNotFound(signal.clone()))?;
+                            let resolver = &self.resolvers[*resolver_idx];
+                            let ctx = ResolveContext {
+                                prev,
+                                signals,
+                                inputs: *inputs,
+                                dt,
+                                sim_time,
+                            };
+                            let value = resolver(&ctx);
+                            Ok((signal.clone(), value))
+                        })
+                        .collect();
 
-                    trace!(signal = %signal, ?value, "signal resolved");
-                    signals.set_current(signal, value);
+                    for res in results {
+                        if let Ok((signal, value)) = res {
+                            let prev = signals.get_prev(&signal).unwrap_or(&value);
+                            assertion_checker
+                                .check_signal(&signal, &value, prev, signals, dt, sim_time)?;
+                            signals.set_current(signal, value);
+                        }
+                    }
+                }
+
+                // 3. Population Aggregates (Parallel)
+                if !aggregate_tasks.is_empty() {
+                    let results: Vec<Result<(SignalId, Value)>> = aggregate_tasks
+                        .par_iter()
+                        .map(|(signal, aggregate_idx)| {
+                            if let Some(resolver) = self.aggregate_resolvers.get(*aggregate_idx) {
+                                let value = resolver(signals, member_signals, dt, sim_time);
+                                Ok((signal.clone(), value))
+                            } else {
+                                Err(Error::Generic(format!(
+                                    "Aggregate resolver {} not found",
+                                    aggregate_idx
+                                )))
+                            }
+                        })
+                        .collect::<Vec<_>>();
+
+                    for res in results {
+                        if let Ok((signal, value)) = res {
+                            signals.set_current(signal, value);
+                        }
+                    }
                 }
             }
         }
@@ -352,6 +472,7 @@ impl PhaseExecutor {
         &self,
         era: &EraId,
         dt: Dt,
+        sim_time: f64,
         dags: &DagSet,
         signals: &SignalStorage,
         fracture_queue: &mut FractureQueue,
@@ -387,7 +508,11 @@ impl PhaseExecutor {
             // Below threshold - evaluate sequentially to avoid parallelism overhead
             for &fracture_idx in &all_fracture_indices {
                 let fracture = &self.fractures[fracture_idx];
-                let ctx = FractureContext { signals, dt };
+                let ctx = FractureContext {
+                    signals,
+                    dt,
+                    sim_time,
+                };
                 if let Some(outputs) = fracture(&ctx) {
                     debug!(fracture_idx, outputs = outputs.len(), "fracture emitted");
                     for (signal, value) in outputs {
@@ -402,7 +527,11 @@ impl PhaseExecutor {
                 .par_iter()
                 .filter_map(|&fracture_idx| {
                     let fracture = &self.fractures[fracture_idx];
-                    let ctx = FractureContext { signals, dt };
+                    let ctx = FractureContext {
+                        signals,
+                        dt,
+                        sim_time,
+                    };
                     fracture(&ctx).map(|outputs| (fracture_idx, outputs))
                 })
                 .collect();
@@ -438,6 +567,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
+        sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
@@ -449,10 +579,9 @@ impl PhaseExecutor {
         let eligible_dags: Vec<_> = era_dags
             .for_phase(Phase::Measure)
             .filter(|dag| {
-                let stratum_state = strata_states
-                    .get(&dag.stratum)
-                    .copied()
-                    .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+                let stratum_state = strata_states.get(&dag.stratum).copied().unwrap_or_else(|| {
+                    panic!("stratum {:?} not found in strata_states", dag.stratum)
+                });
                 stratum_state.is_eligible(tick)
             })
             .collect();
@@ -495,6 +624,7 @@ impl PhaseExecutor {
                     signals,
                     fields: field_buffer,
                     dt,
+                    sim_time,
                 };
                 op(&mut ctx);
             }
@@ -509,6 +639,7 @@ impl PhaseExecutor {
                         signals,
                         fields: &mut local_buffer,
                         dt,
+                        sim_time,
                     };
                     op(&mut ctx);
                     local_buffer

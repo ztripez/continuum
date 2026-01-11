@@ -58,6 +58,8 @@ pub enum Expr {
     Prev,
     /// Load the time step (dt)
     DtRaw,
+    /// Load the accumulated simulation time in seconds
+    SimTime,
     /// Load the sum of inputs for the current signal
     Collected,
     /// Access a component of the collected vector value (e.g., collected.x, collected.y)
@@ -145,6 +147,10 @@ impl Compiler {
 
             Expr::DtRaw => {
                 self.chunk.emit(Op::LoadDt);
+            }
+
+            Expr::SimTime => {
+                self.chunk.emit(Op::LoadSimTime);
             }
 
             Expr::Collected => {

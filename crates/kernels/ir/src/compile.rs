@@ -28,7 +28,9 @@
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use continuum_foundation::{EraId, EntityId as FoundationEntityId, MemberId, MemberSignalId, SignalId, StratumId};
+use continuum_foundation::{
+    EntityId as FoundationEntityId, EraId, MemberId, MemberSignalId, SignalId, StratumId,
+};
 use continuum_runtime::dag::{
     AggregateBarrier, BarrierDagBuilder, CycleError, DagBuilder, DagNode, DagSet, EraDags,
     ExecutableDag, NodeId, NodeKind,
@@ -38,7 +40,127 @@ use continuum_runtime::types::{EntityId as RuntimeEntityId, Phase};
 
 use crate::{AggregateOpIr, CompiledExpr, CompiledWorld, OperatorPhaseIr};
 
+/// Checks if an expression contains any entity-related constructs.
+///
+/// Entity expressions (Aggregate, SelfField, EntityAccess, etc.) require the
+/// EntityExecutor for evaluation and cannot be compiled to bytecode. Signals
+/// with such expressions should not be added to the bytecode DAG.
+fn contains_entity_expression(expr: &CompiledExpr) -> bool {
+    match expr {
+        // Entity-related expressions
+        CompiledExpr::SelfField(_)
+        | CompiledExpr::EntityAccess { .. }
+        | CompiledExpr::Aggregate { .. }
+        | CompiledExpr::Other { .. }
+        | CompiledExpr::Pairs { .. }
+        | CompiledExpr::Filter { .. }
+        | CompiledExpr::First { .. }
+        | CompiledExpr::Nearest { .. }
+        | CompiledExpr::Within { .. } => true,
+
+        // Impulse-related expressions (also not bytecode-compatible)
+        CompiledExpr::Payload | CompiledExpr::PayloadField(_) | CompiledExpr::EmitSignal { .. } => {
+            true
+        }
+
+        // Recursive cases - check sub-expressions
+        CompiledExpr::Binary { left, right, .. } => {
+            contains_entity_expression(left) || contains_entity_expression(right)
+        }
+        CompiledExpr::Unary { operand, .. } => contains_entity_expression(operand),
+        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
+            args.iter().any(contains_entity_expression)
+        }
+        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_entity_expression),
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            contains_entity_expression(condition)
+                || contains_entity_expression(then_branch)
+                || contains_entity_expression(else_branch)
+        }
+        CompiledExpr::Let { value, body, .. } => {
+            contains_entity_expression(value) || contains_entity_expression(body)
+        }
+        CompiledExpr::FieldAccess { object, .. } => contains_entity_expression(object),
+
+        // Leaf expressions - no entity constructs
+        CompiledExpr::Literal(_)
+        | CompiledExpr::Prev
+        | CompiledExpr::DtRaw
+        | CompiledExpr::SimTime
+        | CompiledExpr::Collected
+        | CompiledExpr::Signal(_)
+        | CompiledExpr::Const(_)
+        | CompiledExpr::Config(_)
+        | CompiledExpr::Local(_) => false,
+    }
+}
+
+/// Checks if an expression contains operations not supported by the member interpreter.
+///
+/// The member interpreter supports `SelfField` but currently does not support
+/// `EntityAccess`, `Aggregate`, `EmitSignal`, or `Impulse` related ops.
+/// Member signals containing `SelfField` should be compiled (to use the interpreter),
+/// while those with unsupported ops should be skipped (or error).
+fn contains_unsupported_member_op(expr: &CompiledExpr) -> bool {
+    match expr {
+        // Supported by member interpreter
+        CompiledExpr::SelfField(_) => false,
+
+        // Unsupported by member interpreter
+        CompiledExpr::EntityAccess { .. }
+        | CompiledExpr::Aggregate { .. }
+        | CompiledExpr::Other { .. }
+        | CompiledExpr::Pairs { .. }
+        | CompiledExpr::Filter { .. }
+        | CompiledExpr::First { .. }
+        | CompiledExpr::Nearest { .. }
+        | CompiledExpr::Within { .. }
+        | CompiledExpr::Payload
+        | CompiledExpr::PayloadField(_)
+        | CompiledExpr::EmitSignal { .. } => true,
+
+        // Recursive cases
+        CompiledExpr::Binary { left, right, .. } => {
+            contains_unsupported_member_op(left) || contains_unsupported_member_op(right)
+        }
+        CompiledExpr::Unary { operand, .. } => contains_unsupported_member_op(operand),
+        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
+            args.iter().any(contains_unsupported_member_op)
+        }
+        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_unsupported_member_op),
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            contains_unsupported_member_op(condition)
+                || contains_unsupported_member_op(then_branch)
+                || contains_unsupported_member_op(else_branch)
+        }
+        CompiledExpr::Let { value, body, .. } => {
+            contains_unsupported_member_op(value) || contains_unsupported_member_op(body)
+        }
+        CompiledExpr::FieldAccess { object, .. } => contains_unsupported_member_op(object),
+
+        // Leaf expressions - no unsupported constructs
+        CompiledExpr::Literal(_)
+        | CompiledExpr::Prev
+        | CompiledExpr::DtRaw
+        | CompiledExpr::SimTime
+        | CompiledExpr::Collected
+        | CompiledExpr::Signal(_)
+        | CompiledExpr::Const(_)
+        | CompiledExpr::Config(_)
+        | CompiledExpr::Local(_) => false,
+    }
+}
+
 /// Errors that can occur during DAG compilation.
+
 ///
 /// These errors represent problems converting the IR into executable DAGs.
 /// They typically indicate structural issues that prevent deterministic
@@ -184,12 +306,15 @@ impl<'a> Compiler<'a> {
             self.operator_indices.insert(op_id.0.clone(), idx);
         }
 
-        // Assign field indices (only for fields with measure expressions)
+        // Assign field indices (only for fields with measure expressions that are bytecode-compatible)
+        // Fields with entity expressions are skipped - they require EntityExecutor at runtime
         let mut field_idx = 0;
         for (field_id, field) in &self.world.fields {
-            if field.measure.is_some() {
-                self.field_indices.insert(field_id.0.clone(), field_idx);
-                field_idx += 1;
+            if let Some(ref measure) = field.measure {
+                if !contains_entity_expression(measure) {
+                    self.field_indices.insert(field_id.0.clone(), field_idx);
+                    field_idx += 1;
+                }
             }
         }
 
@@ -304,17 +429,23 @@ impl<'a> Compiler<'a> {
                 Self::extract_aggregates_recursive(radius, aggregates);
                 Self::extract_aggregates_recursive(body, aggregates);
             }
+            CompiledExpr::EmitSignal { value, .. } => {
+                Self::extract_aggregates_recursive(value, aggregates);
+            }
             // Leaf nodes - no recursion needed
             CompiledExpr::Literal(_)
             | CompiledExpr::Prev
             | CompiledExpr::DtRaw
+            | CompiledExpr::SimTime
             | CompiledExpr::Collected
             | CompiledExpr::SelfField(_)
             | CompiledExpr::EntityAccess { .. }
             | CompiledExpr::Signal(_)
             | CompiledExpr::Config(_)
             | CompiledExpr::Const(_)
-            | CompiledExpr::Local(_) => {}
+            | CompiledExpr::Local(_)
+            | CompiledExpr::Payload
+            | CompiledExpr::PayloadField(_) => {}
         }
     }
 
@@ -428,17 +559,30 @@ impl<'a> Compiler<'a> {
             }
 
             // Skip signals without resolve expressions
-            if signal.resolve.is_none() {
+            let Some(ref resolve_expr) = signal.resolve else {
+                continue;
+            };
+
+            // Skip signals with entity expressions (require EntityExecutor, not bytecode)
+            if contains_entity_expression(resolve_expr) {
                 continue;
             }
 
+            // Also check component expressions for vector signals
+            if let Some(ref components) = signal.resolve_components {
+                if components.iter().any(contains_entity_expression) {
+                    continue;
+                }
+            }
+
+            // Per docs/execution/phases.md: Resolve "reads resolved signals from the
+            // previous tick" and "must be deterministic and order-independent".
+            // Signal references always read previous tick values, so there are no
+            // same-tick dependencies between signals. Use empty reads to allow
+            // parallel resolution.
             let node = DagNode {
                 id: NodeId(format!("sig.{}", signal_id.0)),
-                reads: signal
-                    .reads
-                    .iter()
-                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
-                    .collect(),
+                reads: std::collections::HashSet::new(), // No same-tick dependencies
                 writes: Some(continuum_runtime::SignalId(signal_id.0.clone())),
                 kind: NodeKind::SignalResolve {
                     signal: continuum_runtime::SignalId(signal_id.0.clone()),
@@ -455,7 +599,13 @@ impl<'a> Compiler<'a> {
             }
 
             // Skip members without resolve expressions
-            if member.resolve.is_none() {
+            let Some(ref resolve_expr) = member.resolve else {
+                continue;
+            };
+
+            // Skip members with unsupported entity expressions (e.g. EntityAccess, EmitSignal)
+            // But ALLOW SelfField, which is supported by member interpreter
+            if contains_unsupported_member_op(resolve_expr) {
                 continue;
             }
 
@@ -464,13 +614,10 @@ impl<'a> Compiler<'a> {
                 member.signal_name.clone(),
             );
 
+            // Per docs: signal references read previous tick values, no same-tick deps
             let node = DagNode {
                 id: NodeId(format!("member.{}", member_id.0)),
-                reads: member
-                    .reads
-                    .iter()
-                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
-                    .collect(),
+                reads: std::collections::HashSet::new(), // No same-tick dependencies
                 writes: None, // Member signals don't write to global signal namespace
                 kind: NodeKind::MemberSignalResolve {
                     member_signal: member_signal_id,
@@ -527,7 +674,13 @@ impl<'a> Compiler<'a> {
             }
 
             // Skip members without resolve expressions
-            if member.resolve.is_none() {
+            let Some(ref resolve_expr) = member.resolve else {
+                continue;
+            };
+
+            // Skip members with unsupported entity expressions (e.g. EntityAccess, EmitSignal)
+            // But ALLOW SelfField, which is supported by member interpreter
+            if contains_unsupported_member_op(resolve_expr) {
                 continue;
             }
 
@@ -598,34 +751,42 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        // Add regular signal resolve nodes (those without aggregates)
+        // Add regular signal resolve nodes (those without aggregates or entity expressions)
         for (signal_id, signal) in &self.world.signals {
             if signal.stratum != *stratum_id {
                 continue;
             }
 
             // Skip signals without resolve expressions
-            if signal.resolve.is_none() {
+            let Some(ref resolve) = signal.resolve else {
+                continue;
+            };
+
+            // Skip signals that ARE aggregates (they're handled by aggregate barriers)
+            if !Self::extract_aggregates(resolve).is_empty() {
                 continue;
             }
 
-            // Skip signals that ARE aggregates (they're handled by aggregate barriers)
-            if let Some(ref resolve) = signal.resolve {
-                if !Self::extract_aggregates(resolve).is_empty() {
+            // Skip signals with entity expressions (require EntityExecutor, not bytecode)
+            if contains_entity_expression(resolve) {
+                continue;
+            }
+
+            // Also check component expressions for vector signals
+            if let Some(ref components) = signal.resolve_components {
+                if components.iter().any(contains_entity_expression) {
                     continue;
                 }
             }
 
-            let reads: Vec<continuum_runtime::SignalId> = signal
-                .reads
-                .iter()
-                .map(|s| continuum_runtime::SignalId(s.0.clone()))
-                .collect();
-
+            // Signal references read from the PREVIOUS tick's values, so they
+            // don't create same-tick dependencies. Pass empty reads to avoid
+            // creating DAG edges between signals.
+            // (signal.reads is informational only - for analysis, not scheduling)
             builder.add_signal_resolve(
                 continuum_runtime::SignalId(signal_id.0.clone()),
                 self.resolver_indices[signal_id],
-                &reads,
+                &[],
             );
         }
 
@@ -639,11 +800,34 @@ impl<'a> Compiler<'a> {
 
     /// Extract the member signal name from an aggregate body expression.
     ///
-    /// Returns `Some(name)` if the body is a simple `self.X` reference,
-    /// `None` otherwise.
+    /// Recursively searches for `self.X` references in the expression tree.
+    /// Returns the first member signal name found.
     fn extract_member_name_from_body(body: &CompiledExpr) -> Option<String> {
         match body {
             CompiledExpr::SelfField(field_name) => Some(field_name.clone()),
+            // Recurse into binary expressions
+            CompiledExpr::Binary { left, right, .. } => Self::extract_member_name_from_body(left)
+                .or_else(|| Self::extract_member_name_from_body(right)),
+            // Recurse into unary expressions
+            CompiledExpr::Unary { operand, .. } => Self::extract_member_name_from_body(operand),
+            // Recurse into conditionals
+            CompiledExpr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => Self::extract_member_name_from_body(condition)
+                .or_else(|| Self::extract_member_name_from_body(then_branch))
+                .or_else(|| Self::extract_member_name_from_body(else_branch)),
+            // Recurse into let expressions
+            CompiledExpr::Let { value, body, .. } => Self::extract_member_name_from_body(value)
+                .or_else(|| Self::extract_member_name_from_body(body)),
+            // Recurse into function calls
+            CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
+                args.iter().find_map(Self::extract_member_name_from_body)
+            }
+            // Recurse into field access
+            CompiledExpr::FieldAccess { object, .. } => Self::extract_member_name_from_body(object),
+            // Leaf nodes that don't contain member references
             _ => None,
         }
     }
@@ -667,15 +851,12 @@ impl<'a> Compiler<'a> {
     ) -> Result<Option<ExecutableDag>, CompileError> {
         let mut builder = DagBuilder::new(Phase::Fracture, (*stratum_id).clone());
 
-        // Fractures aren't bound to a specific stratum in IR
-        // Add all fractures to the first stratum only (to avoid duplicating execution)
-        let first_stratum = self.world.strata.keys().next();
-        if first_stratum != Some(stratum_id) {
-            let dag = builder.build()?;
-            return Ok(if dag.is_empty() { None } else { Some(dag) });
-        }
-
         for (fracture_id, fracture) in &self.world.fractures {
+            // Only include fractures bound to this stratum
+            if fracture.stratum != *stratum_id {
+                continue;
+            }
+
             let node = DagNode {
                 id: NodeId(format!("frac.{}", fracture_id.0)),
                 reads: fracture
@@ -707,26 +888,29 @@ impl<'a> Compiler<'a> {
 
         // Fields with measure expressions become OperatorMeasure nodes
         // Fields without measure expressions would be FieldEmit nodes (for dependency tracking only)
+        // Fields with entity expressions are skipped - they require EntityExecutor
         for (field_id, field) in &self.world.fields {
             if field.stratum != *stratum_id {
                 continue;
             }
 
-            // Only create nodes for fields that have measure expressions
-            if field.measure.is_some() {
-                let node = DagNode {
-                    id: NodeId(format!("field.{}", field_id.0)),
-                    reads: field
-                        .reads
-                        .iter()
-                        .map(|s| continuum_runtime::SignalId(s.0.clone()))
-                        .collect(),
-                    writes: None,
-                    kind: NodeKind::OperatorMeasure {
-                        operator_idx: self.field_indices[&field_id.0],
-                    },
-                };
-                builder.add_node(node);
+            // Only create nodes for fields that have bytecode-compatible measure expressions
+            if let Some(ref measure) = field.measure {
+                if !contains_entity_expression(measure) {
+                    let node = DagNode {
+                        id: NodeId(format!("field.{}", field_id.0)),
+                        reads: field
+                            .reads
+                            .iter()
+                            .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                            .collect(),
+                        writes: None,
+                        kind: NodeKind::OperatorMeasure {
+                            operator_idx: self.field_indices[&field_id.0],
+                        },
+                    };
+                    builder.add_node(node);
+                }
             }
         }
 
@@ -789,7 +973,7 @@ impl<'a> Compiler<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{lower, CompiledWorld};
+    use crate::{CompiledWorld, lower};
     use continuum_dsl::parse;
 
     fn parse_and_lower(src: &str) -> CompiledWorld {
@@ -990,7 +1174,11 @@ mod tests {
 
         // Aggregate should have been assigned an index
         assert!(!result.aggregate_indices.is_empty());
-        assert!(result.aggregate_indices.contains_key("agg.stellar.total_mass.0"));
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.stellar.total_mass.0")
+        );
     }
 
     #[test]
@@ -1026,7 +1214,11 @@ mod tests {
 
         // Should have aggregates
         assert!(!result.aggregate_indices.is_empty());
-        assert!(result.aggregate_indices.contains_key("agg.human.person_count.0"));
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.human.person_count.0")
+        );
     }
 
     #[test]
@@ -1070,10 +1262,69 @@ mod tests {
 
         // Should have two aggregates
         assert_eq!(result.aggregate_indices.len(), 2);
-        assert!(result.aggregate_indices.contains_key("agg.stellar.total_mass.0"));
-        assert!(result.aggregate_indices.contains_key("agg.stellar.max_radius.0"));
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.stellar.total_mass.0")
+        );
+        assert!(
+            result
+                .aggregate_indices
+                .contains_key("agg.stellar.max_radius.0")
+        );
 
         // Should have two member signals
         assert_eq!(result.member_indices.len(), 2);
+    }
+
+    #[test]
+    fn test_compile_member_referencing_self_field() {
+        let src = r#"
+            strata.bio {}
+            era.main { : initial }
+
+            entity.bio.cell { : count(1..10) }
+
+            member.bio.cell.energy {
+                : Scalar
+                : strata(bio)
+                resolve { prev }
+            }
+
+            member.bio.cell.health {
+                : Scalar
+                : strata(bio)
+                resolve { self.energy * 0.5 }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let result = compile(&world).unwrap();
+
+        let health_id = continuum_foundation::MemberId::from("bio.cell.health");
+
+        // Check if index assigned (it usually is)
+        assert!(result.member_indices.contains_key(&health_id));
+
+        // CRITICAL CHECK: Check if it exists in the DAG
+        let era_dags = result.dags.get_era(&EraId("main".to_string())).unwrap();
+        let dag = era_dags
+            .get(Phase::Resolve, &StratumId("bio".to_string()))
+            .unwrap();
+
+        let mut found = false;
+        for level in &dag.levels {
+            for node in &level.nodes {
+                if let NodeKind::MemberSignalResolve { member_signal, .. } = &node.kind {
+                    if member_signal.signal_name == "health" {
+                        found = true;
+                    }
+                }
+            }
+        }
+        assert!(
+            found,
+            "Member signal referencing self.field was skipped in DAG!"
+        );
     }
 }

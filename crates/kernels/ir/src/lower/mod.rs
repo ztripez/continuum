@@ -121,7 +121,9 @@ pub enum LowerError {
     /// For dt-robustness auditing, signals that depend on the raw time
     /// step must declare this with `: uses(dt_raw)`. This makes explicit
     /// which signals may behave differently with different time steps.
-    #[error("signal '{0}' uses dt_raw without explicit `: uses(dt_raw)` declaration - this is required for dt-robustness auditing")]
+    #[error(
+        "signal '{0}' uses dt_raw without explicit `: uses(dt_raw)` declaration - this is required for dt-robustness auditing"
+    )]
     UndeclaredDtRawUsage(String),
 
     /// Type constraints were applied to an incompatible type.
@@ -129,7 +131,9 @@ pub enum LowerError {
     /// Tensor constraints (`:symmetric`, `:positive_definite`) can only be applied
     /// to Tensor types. Sequence constraints (`:each()`, `:sum()`) can only be
     /// applied to Seq types.
-    #[error("signal '{signal}' has {constraint_kind} constraint but type is {actual_type}, not {expected_type}")]
+    #[error(
+        "signal '{signal}' has {constraint_kind} constraint but type is {actual_type}, not {expected_type}"
+    )]
     MismatchedConstraint {
         /// The signal path where the mismatch occurred.
         signal: String,
@@ -140,6 +144,10 @@ pub enum LowerError {
         /// The expected type for this constraint.
         expected_type: String,
     },
+
+    /// Generic error message.
+    #[error("{0}")]
+    Generic(String),
 }
 
 /// Lower a parsed compilation unit to the typed intermediate representation.

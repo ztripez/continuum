@@ -96,6 +96,7 @@ impl Lowerer {
             }
             Expr::Prev | Expr::PrevField(_) => CompiledExpr::Prev,
             Expr::DtRaw => CompiledExpr::DtRaw,
+            Expr::SimTime => CompiledExpr::SimTime,
             Expr::Collected => CompiledExpr::Collected,
             Expr::Path(path) => {
                 // Check for local variable first (single-segment paths only)
@@ -178,7 +179,8 @@ impl Lowerer {
 
                         // Build nested let expressions: let param1 = arg1 in let param2 = arg2 in body
                         let mut result = user_fn.body.clone();
-                        for (param, arg) in user_fn.params.iter().rev().zip(lowered_args.iter().rev())
+                        for (param, arg) in
+                            user_fn.params.iter().rev().zip(lowered_args.iter().rev())
                         {
                             result = CompiledExpr::Let {
                                 name: param.clone(),
@@ -199,12 +201,19 @@ impl Lowerer {
                     }
                 }
             }
-            Expr::MethodCall { object, method, args } => {
+            Expr::MethodCall {
+                object,
+                method,
+                args,
+            } => {
                 // Method calls are lowered to function calls with object as first argument
                 // e.g., obj.method(a, b) -> method(obj, a, b)
                 let lowered_obj = self.lower_expr_with_context(&object.node, ctx);
                 let lowered_args: Vec<_> = std::iter::once(lowered_obj)
-                    .chain(args.iter().map(|a| self.lower_expr_with_context(&a.value.node, ctx)))
+                    .chain(
+                        args.iter()
+                            .map(|a| self.lower_expr_with_context(&a.value.node, ctx)),
+                    )
                     .collect();
 
                 CompiledExpr::Call {
@@ -249,7 +258,9 @@ impl Lowerer {
                     ast::MathConst::E => std::f64::consts::E,
                     ast::MathConst::Phi => 1.618_033_988_749_895,
                     ast::MathConst::I => {
-                        panic!("MathConst::I (imaginary unit) cannot be represented as a real number")
+                        panic!(
+                            "MathConst::I (imaginary unit) cannot be represented as a real number"
+                        )
                     }
                 };
                 CompiledExpr::Literal(val)
@@ -258,7 +269,9 @@ impl Lowerer {
             // These require more complex lowering or are handled specially
             Expr::Block(exprs) => {
                 if exprs.is_empty() {
-                    panic!("Empty block expression has no value - blocks must contain at least one expression")
+                    panic!(
+                        "Empty block expression has no value - blocks must contain at least one expression"
+                    )
                 } else {
                     // For now, just evaluate to the last expression
                     self.lower_expr_with_context(&exprs.last().unwrap().node, ctx)
@@ -277,11 +290,18 @@ impl Lowerer {
             }
 
             Expr::EntityAccess { entity, instance } => {
-                // instance expression must be a string literal for the instance ID
+                // instance expression must be a literal for the instance ID
+                // Supports: string ("primary"), integer (0), or float that's an integer (0.0)
                 let inst_id = match &instance.node {
                     Expr::Literal(Literal::String(s)) => InstanceId::from(s.as_str()),
+                    Expr::Literal(Literal::Integer(n)) => InstanceId::from(n.to_string().as_str()),
+                    Expr::Literal(Literal::Float(n)) => {
+                        // Convert float to integer string if it's a whole number
+                        let int_val = *n as i64;
+                        InstanceId::from(int_val.to_string().as_str())
+                    }
                     other => panic!(
-                        "EntityAccess instance must be a string literal, got {:?} - dynamic instance lookups are not supported",
+                        "EntityAccess instance must be a literal (string, integer, or float), got {:?} - dynamic instance lookups are not supported",
                         other
                     ),
                 };
@@ -336,6 +356,14 @@ impl Lowerer {
                 position: Box::new(self.lower_expr_with_context(&position.node, ctx)),
                 radius: Box::new(self.lower_expr_with_context(&radius.node, ctx)),
                 body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+            },
+
+            // === Impulse expressions ===
+            Expr::Payload => CompiledExpr::Payload,
+            Expr::PayloadField(field) => CompiledExpr::PayloadField(field.clone()),
+            Expr::EmitSignal { target, value } => CompiledExpr::EmitSignal {
+                target: SignalId::from(target.join(".").as_str()),
+                value: Box::new(self.lower_expr_with_context(&value.node, ctx)),
             },
 
             // Remaining expressions that need more complex handling

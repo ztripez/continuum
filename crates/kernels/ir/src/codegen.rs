@@ -109,6 +109,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         CompiledExpr::Literal(v) => Expr::Literal(*v),
         CompiledExpr::Prev => Expr::Prev,
         CompiledExpr::DtRaw => Expr::DtRaw,
+        CompiledExpr::SimTime => Expr::SimTime,
         CompiledExpr::Collected => Expr::Collected,
         CompiledExpr::Signal(id) => Expr::Signal(id.0.clone()),
         CompiledExpr::Const(name) => Expr::Const(name.clone()),
@@ -245,6 +246,23 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
                 entity.0
             );
         }
+
+        // Impulse expressions should be handled by impulse executor
+        CompiledExpr::Payload => {
+            panic!("Payload reached bytecode compiler - impulse expressions must use ImpulseExecutor");
+        }
+        CompiledExpr::PayloadField(field) => {
+            panic!(
+                "PayloadField({}) reached bytecode compiler - impulse expressions must use ImpulseExecutor",
+                field
+            );
+        }
+        CompiledExpr::EmitSignal { target, .. } => {
+            panic!(
+                "EmitSignal({}) reached bytecode compiler - impulse expressions must use ImpulseExecutor",
+                target.0
+            );
+        }
     }
 }
 
@@ -291,6 +309,9 @@ mod tests {
         }
         fn dt(&self) -> f64 {
             0.1
+        }
+        fn sim_time(&self) -> f64 {
+            10.0
         }
         fn inputs(&self) -> f64 {
             5.0

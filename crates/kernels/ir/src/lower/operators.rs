@@ -18,7 +18,10 @@ impl Lowerer {
 
         // Check for duplicate operator definition
         if self.operators.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("operator.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition(format!(
+                "operator.{}",
+                id.0
+            )));
         }
 
         let stratum = def

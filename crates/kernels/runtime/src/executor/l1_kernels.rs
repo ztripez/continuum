@@ -15,7 +15,7 @@ use crate::vectorized::{EntityIndex, MemberSignalId};
 use super::lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
 use super::lowering_strategy::LoweringStrategy;
 use super::member_executor::{
-    optimal_chunk_size, parallel_chunked_map, ScalarResolveContext, Vec3ResolveContext,
+    ScalarResolveContext, Vec3ResolveContext, optimal_chunk_size, parallel_chunked_map,
 };
 
 // ============================================================================
@@ -120,6 +120,7 @@ impl LaneKernel for ScalarL1Kernel {
                     signals,
                     members: member_signals,
                     dt,
+                    sim_time: 0.0, // TODO: Add sim_time to LaneKernel trait
                 };
                 (self.resolver)(&ctx)
             },
@@ -237,6 +238,7 @@ impl LaneKernel for Vec3L1Kernel {
                     signals,
                     members: member_signals,
                     dt,
+                    sim_time: 0.0, // TODO: Add sim_time to LaneKernel trait
                 };
                 (self.resolver)(&ctx)
             },
@@ -315,9 +317,7 @@ mod tests {
 
         // Execute
         let signals = SignalStorage::default();
-        let result = kernel
-            .execute(&signals, &mut population, Dt(1.0))
-            .unwrap();
+        let result = kernel.execute(&signals, &mut population, Dt(1.0)).unwrap();
 
         assert_eq!(result.instances_processed, 10);
         assert!(result.execution_ns.is_some());
@@ -366,9 +366,7 @@ mod tests {
 
         // Execute
         let signals = SignalStorage::default();
-        let result = kernel
-            .execute(&signals, &mut population, Dt(1.0))
-            .unwrap();
+        let result = kernel.execute(&signals, &mut population, Dt(1.0)).unwrap();
 
         assert_eq!(result.instances_processed, 5);
 

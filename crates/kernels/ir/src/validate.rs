@@ -86,6 +86,13 @@ pub enum WarningCode {
     /// This may indicate a typo in the function name or a missing kernel
     /// registration.
     UnknownFunction,
+
+    /// A member signal has no initialization and uses `prev` in its resolver.
+    ///
+    /// Members without initialization start at 0.0, which may cause NaN or
+    /// incorrect values when used in division or other operations. Consider
+    /// adding explicit initialization via config defaults or an initial expression.
+    UninitializedMember,
 }
 
 /// Validates a compiled world and returns any warnings.
@@ -118,6 +125,7 @@ pub fn validate(world: &CompiledWorld) -> Vec<CompileWarning> {
 
     check_range_assertions(world, &mut warnings);
     check_undefined_symbols(world, &mut warnings);
+    check_uninitialized_members(world, &mut warnings);
 
     // Log warnings
     for warning in &warnings {
@@ -153,6 +161,49 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
             });
         }
     }
+}
+
+/// Checks for member signals that have no initialization.
+///
+/// Members with `resolve { prev }` or similar patterns that just maintain state
+/// will start at 0.0 (from zeroed memory). This can cause NaN when these values
+/// are used in division operations.
+///
+/// A member is considered "uninitialized" if:
+/// - Its resolve expression is just `prev` (maintains previous value)
+/// - There's no explicit `initial { expr }` block
+fn check_uninitialized_members(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
+    for (member_id, member) in &world.members {
+        // Skip if member has an explicit initial block
+        if member.initial.is_some() {
+            continue;
+        }
+
+        if let Some(resolve) = &member.resolve {
+            // Check if the resolve is just `prev` - meaning it maintains state
+            // without any computation. This member will stay at 0.0 forever.
+            if is_prev_only_resolver(resolve) {
+                warnings.push(CompileWarning {
+                    code: WarningCode::UninitializedMember,
+                    message: format!(
+                        "member '{}' uses 'resolve {{ prev }}' but has no initialization - \
+                         will start at 0.0 which may cause NaN in dependent calculations",
+                        member_id.0
+                    ),
+                    entity: member_id.0.clone(),
+                });
+            }
+        }
+    }
+}
+
+/// Checks if a resolve expression is just `prev` (state-maintaining only).
+///
+/// Returns true for expressions like:
+/// - `prev` - just the previous value
+/// - `prev + 0` or similar no-ops could be detected in the future
+fn is_prev_only_resolver(expr: &CompiledExpr) -> bool {
+    matches!(expr, CompiledExpr::Prev)
 }
 
 /// Checks if a function name is registered in the kernel registry.
@@ -319,40 +370,128 @@ fn check_expr_symbols(
                 });
             }
             for arg in args {
-                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+                check_expr_symbols(
+                    arg,
+                    context,
+                    defined_signals,
+                    defined_constants,
+                    defined_config,
+                    warnings,
+                );
             }
         }
         CompiledExpr::DtRobustCall { args, .. } => {
             // dt-robust operators are known by definition, just check args
             for arg in args {
-                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+                check_expr_symbols(
+                    arg,
+                    context,
+                    defined_signals,
+                    defined_constants,
+                    defined_config,
+                    warnings,
+                );
             }
         }
         CompiledExpr::KernelCall { args, .. } => {
             // Kernel functions are engine-provided, just check args
             // TODO: Could validate that specific kernel function names are known
             for arg in args {
-                check_expr_symbols(arg, context, defined_signals, defined_constants, defined_config, warnings);
+                check_expr_symbols(
+                    arg,
+                    context,
+                    defined_signals,
+                    defined_constants,
+                    defined_config,
+                    warnings,
+                );
             }
         }
         CompiledExpr::Binary { left, right, .. } => {
-            check_expr_symbols(left, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(right, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                left,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                right,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::Unary { operand, .. } => {
-            check_expr_symbols(operand, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                operand,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
-        CompiledExpr::If { condition, then_branch, else_branch } => {
-            check_expr_symbols(condition, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(then_branch, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(else_branch, context, defined_signals, defined_constants, defined_config, warnings);
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            check_expr_symbols(
+                condition,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                then_branch,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                else_branch,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::Let { value, body, .. } => {
-            check_expr_symbols(value, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                value,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::FieldAccess { object, .. } => {
-            check_expr_symbols(object, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                object,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         // Entity expressions - recurse into sub-expressions
         CompiledExpr::SelfField(_) => {}
@@ -360,29 +499,117 @@ fn check_expr_symbols(
             // Entity access validation happens at runtime
         }
         CompiledExpr::Aggregate { body, .. } => {
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::Other { body, .. } | CompiledExpr::Pairs { body, .. } => {
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
-        CompiledExpr::Filter { predicate, body, .. } => {
-            check_expr_symbols(predicate, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+        CompiledExpr::Filter {
+            predicate, body, ..
+        } => {
+            check_expr_symbols(
+                predicate,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::First { predicate, .. } => {
-            check_expr_symbols(predicate, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                predicate,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
         CompiledExpr::Nearest { position, .. } => {
-            check_expr_symbols(position, context, defined_signals, defined_constants, defined_config, warnings);
+            check_expr_symbols(
+                position,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
-        CompiledExpr::Within { position, radius, body, .. } => {
-            check_expr_symbols(position, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(radius, context, defined_signals, defined_constants, defined_config, warnings);
-            check_expr_symbols(body, context, defined_signals, defined_constants, defined_config, warnings);
+        CompiledExpr::Within {
+            position,
+            radius,
+            body,
+            ..
+        } => {
+            check_expr_symbols(
+                position,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                radius,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+            check_expr_symbols(
+                body,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
         }
-        // Literals, Prev, DtRaw, Collected, Local don't need checking
+        CompiledExpr::EmitSignal { value, .. } => {
+            check_expr_symbols(
+                value,
+                context,
+                defined_signals,
+                defined_constants,
+                defined_config,
+                warnings,
+            );
+        }
+        // Literals, Prev, DtRaw, SimTime, Collected, Local, Payload don't need checking
         // Local variables are validated at parse/lower time
-        CompiledExpr::Literal(_) | CompiledExpr::Prev | CompiledExpr::DtRaw | CompiledExpr::Collected | CompiledExpr::Local(_) => {}
+        // Payload expressions are validated in impulse context
+        CompiledExpr::Literal(_)
+        | CompiledExpr::Prev
+        | CompiledExpr::DtRaw
+        | CompiledExpr::SimTime
+        | CompiledExpr::Collected
+        | CompiledExpr::Local(_)
+        | CompiledExpr::Payload
+        | CompiledExpr::PayloadField(_) => {}
     }
 }
 
@@ -540,8 +767,220 @@ mod tests {
         // No undefined symbol or unknown function warnings
         let symbol_warnings: Vec<_> = warnings
             .iter()
-            .filter(|w| matches!(w.code, WarningCode::UndefinedSymbol | WarningCode::UnknownFunction))
+            .filter(|w| {
+                matches!(
+                    w.code,
+                    WarningCode::UndefinedSymbol | WarningCode::UnknownFunction
+                )
+            })
             .collect();
-        assert!(symbol_warnings.is_empty(), "unexpected warnings: {:?}", symbol_warnings);
+        assert!(
+            symbol_warnings.is_empty(),
+            "unexpected warnings: {:?}",
+            symbol_warnings
+        );
+    }
+
+    #[test]
+    fn test_uninitialized_member_warns() {
+        // Note: member signals can be defined without entity declaration for lowering
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+member.test.entity.value {
+    : Scalar<1>
+    : strata(test)
+    resolve { prev }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should warn about uninitialized member
+        let uninit_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UninitializedMember)
+            .collect();
+        assert_eq!(uninit_warnings.len(), 1);
+        assert!(uninit_warnings[0].message.contains("test.entity.value"));
+        assert!(uninit_warnings[0].message.contains("prev"));
+    }
+
+    #[test]
+    fn test_member_with_computation_no_warning() {
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+member.test.entity.age {
+    : Scalar<yr>
+    : strata(test)
+    resolve { integrate(prev, 1.0) }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should NOT warn - member has actual computation (integrate)
+        let uninit_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UninitializedMember)
+            .collect();
+        assert!(uninit_warnings.is_empty());
+    }
+
+    #[test]
+    fn test_member_with_initial_no_warning() {
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+config {
+    test.default_value: 25.0
+}
+
+member.test.entity.value {
+    : Scalar<1>
+    : strata(test)
+    initial { config.test.default_value }
+    resolve { prev }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should NOT warn - member has explicit initial block
+        let uninit_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UninitializedMember)
+            .collect();
+        assert!(
+            uninit_warnings.is_empty(),
+            "expected no UninitializedMember warning for member with initial block"
+        );
+    }
+
+    #[test]
+    fn test_let_binding_in_fracture_emit_no_warning() {
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+config {
+    test.threshold: 100.0
+    test.coupling_strength: 0.5
+}
+
+signal.test.heat {
+    : Scalar<J>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+signal.test.flow {
+    : Scalar<W>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+fracture.test.thermal_coupling {
+    when {
+        signal.test.heat > config.test.threshold
+    }
+
+    emit {
+        let ratio = signal.test.heat / config.test.threshold in
+        let delta = (ratio - 1.0) * config.test.coupling_strength in
+        signal.test.flow <- delta
+    }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should NOT warn about let-bound variables being undefined signals
+        let undefined_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UndefinedSymbol)
+            .filter(|w| w.message.contains("ratio") || w.message.contains("delta"))
+            .collect();
+        assert!(
+            undefined_warnings.is_empty(),
+            "expected no UndefinedSymbol warnings for let-bound variables, got: {:?}",
+            undefined_warnings
+        );
+    }
+
+    #[test]
+    fn test_multiple_let_bindings_and_emits_no_warning() {
+        // Test pattern matching terra fractures: multiple let bindings with multiple emits
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+config {
+    test.burn_fraction: 0.1
+    test.release_fraction: 0.8
+}
+
+signal.test.biomass {
+    : Scalar<kg>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+signal.test.carbon {
+    : Scalar<kg>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+signal.test.released {
+    : Scalar<kg>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+fracture.test.fire {
+    when {
+        signal.test.biomass > 10.0
+    }
+
+    emit {
+        let biomass = signal.test.biomass in
+        let burned = biomass * config.test.burn_fraction in
+        signal.test.biomass <- -burned;
+
+        let released = burned * config.test.release_fraction in
+        signal.test.released <- released;
+
+        signal.test.carbon <- burned - released
+    }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        // Should NOT warn about let-bound variables being undefined signals
+        let undefined_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::UndefinedSymbol)
+            .filter(|w| {
+                w.message.contains("biomass")
+                    || w.message.contains("burned")
+                    || w.message.contains("released")
+            })
+            .collect();
+        assert!(
+            undefined_warnings.is_empty(),
+            "expected no UndefinedSymbol warnings for let-bound variables, got: {:?}",
+            undefined_warnings
+        );
     }
 }
