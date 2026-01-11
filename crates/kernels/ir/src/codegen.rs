@@ -253,7 +253,9 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
 
         // Impulse expressions should be handled by impulse executor
         CompiledExpr::Payload => {
-            panic!("Payload reached bytecode compiler - impulse expressions must use ImpulseExecutor");
+            panic!(
+                "Payload reached bytecode compiler - impulse expressions must use ImpulseExecutor"
+            );
         }
         CompiledExpr::PayloadField(field) => {
             panic!(

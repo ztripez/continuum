@@ -191,10 +191,7 @@ mod tests {
         let result = member_def().parse(src);
         assert!(result.has_output());
         let member = result.into_output().unwrap();
-        assert_eq!(
-            member.path.node.to_string(),
-            "stellar.star.rotation_period"
-        );
+        assert_eq!(member.path.node.to_string(), "stellar.star.rotation_period");
         assert!(member.initial.is_some(), "initial block should be parsed");
         assert!(member.resolve.is_some());
     }

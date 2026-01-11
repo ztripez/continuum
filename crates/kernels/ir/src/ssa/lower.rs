@@ -318,7 +318,9 @@ impl LoweringContext {
             }
 
             // Impulse expressions - handled by impulse executor
-            CompiledExpr::Payload | CompiledExpr::PayloadField(_) | CompiledExpr::EmitSignal { .. } => {
+            CompiledExpr::Payload
+            | CompiledExpr::PayloadField(_)
+            | CompiledExpr::EmitSignal { .. } => {
                 // These need special handling by the impulse executor
                 // For now, emit a placeholder constant
                 let dst = self.func.alloc_vreg();

@@ -44,10 +44,10 @@ use std::collections::HashMap;
 
 use indexmap::IndexMap;
 
+use continuum_runtime::SignalId;
 use continuum_runtime::executor::member_executor::{ScalarResolveContext, Vec3ResolveContext};
 use continuum_runtime::soa_storage::MemberSignalBuffer;
 use continuum_runtime::storage::SignalStorage;
-use continuum_runtime::SignalId;
 
 use crate::{AggregateOpIr, BinaryOpIr, CompiledExpr, DtRobustOperator, UnaryOpIr};
 
@@ -366,9 +366,11 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
         CompiledExpr::Signal(id) => ctx.signal(&id.0),
         CompiledExpr::Const(name) => InterpValue::Scalar(ctx.constant(name)),
         CompiledExpr::Config(name) => InterpValue::Scalar(ctx.config(name)),
-        CompiledExpr::Local(name) => ctx.locals.get(name).copied().unwrap_or_else(|| {
-            panic!("Local variable '{}' not found", name)
-        }),
+        CompiledExpr::Local(name) => ctx
+            .locals
+            .get(name)
+            .copied()
+            .unwrap_or_else(|| panic!("Local variable '{}' not found", name)),
 
         // Entity-specific expressions
         CompiledExpr::SelfField(field) => ctx.self_field(field),
@@ -388,13 +390,15 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
 
         // Function calls
         CompiledExpr::Call { function, args } => {
-            let arg_values: Vec<InterpValue> = args.iter().map(|a| interpret_expr(a, ctx)).collect();
+            let arg_values: Vec<InterpValue> =
+                args.iter().map(|a| interpret_expr(a, ctx)).collect();
             eval_function(function, &arg_values)
         }
 
         // Kernel calls
         CompiledExpr::KernelCall { function, args } => {
-            let arg_values: Vec<f64> = args.iter()
+            let arg_values: Vec<f64> = args
+                .iter()
                 .map(|a| interpret_expr(a, ctx).as_scalar())
                 .collect();
             let kernel_name = format!("kernel.{}", function);
@@ -409,7 +413,8 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
             args,
             method: _,
         } => {
-            let arg_values: Vec<f64> = args.iter()
+            let arg_values: Vec<f64> = args
+                .iter()
                 .map(|a| interpret_expr(a, ctx).as_scalar())
                 .collect();
             InterpValue::Scalar(eval_dt_robust(*operator, &arg_values, ctx.dt))
@@ -543,14 +548,26 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
                 }
                 AggregateOpIr::Count => values.len() as f64,
                 AggregateOpIr::Any => {
-                    if values.iter().any(|v| v.abs() > f64::EPSILON) { 1.0 } else { 0.0 }
+                    if values.iter().any(|v| v.abs() > f64::EPSILON) {
+                        1.0
+                    } else {
+                        0.0
+                    }
                 }
                 AggregateOpIr::All => {
-                    if values.iter().all(|v| v.abs() > f64::EPSILON) { 1.0 } else { 0.0 }
+                    if values.iter().all(|v| v.abs() > f64::EPSILON) {
+                        1.0
+                    } else {
+                        0.0
+                    }
                 }
                 AggregateOpIr::None => {
                     // True (1.0) if no values are non-zero
-                    if values.iter().all(|v| v.abs() <= f64::EPSILON) { 1.0 } else { 0.0 }
+                    if values.iter().all(|v| v.abs() <= f64::EPSILON) {
+                        1.0
+                    } else {
+                        0.0
+                    }
                 }
             };
             InterpValue::Scalar(result)
@@ -636,21 +653,17 @@ fn eval_binary_op(op: BinaryOpIr, l: InterpValue, r: InterpValue) -> InterpValue
             InterpValue::Vec3(eval_binary_vec3(op, l, r))
         }
         // Scalar-Vec3 (broadcast scalar to all components)
-        (InterpValue::Scalar(s), InterpValue::Vec3(v)) => {
-            InterpValue::Vec3([
-                eval_binary_scalar(op, s, v[0]),
-                eval_binary_scalar(op, s, v[1]),
-                eval_binary_scalar(op, s, v[2]),
-            ])
-        }
+        (InterpValue::Scalar(s), InterpValue::Vec3(v)) => InterpValue::Vec3([
+            eval_binary_scalar(op, s, v[0]),
+            eval_binary_scalar(op, s, v[1]),
+            eval_binary_scalar(op, s, v[2]),
+        ]),
         // Vec3-Scalar (broadcast scalar to all components)
-        (InterpValue::Vec3(v), InterpValue::Scalar(s)) => {
-            InterpValue::Vec3([
-                eval_binary_scalar(op, v[0], s),
-                eval_binary_scalar(op, v[1], s),
-                eval_binary_scalar(op, v[2], s),
-            ])
-        }
+        (InterpValue::Vec3(v), InterpValue::Scalar(s)) => InterpValue::Vec3([
+            eval_binary_scalar(op, v[0], s),
+            eval_binary_scalar(op, v[1], s),
+            eval_binary_scalar(op, v[2], s),
+        ]),
     }
 }
 
@@ -768,54 +781,48 @@ fn eval_unary_scalar(op: UnaryOpIr, v: f64) -> f64 {
 fn eval_function(name: &str, args: &[InterpValue]) -> InterpValue {
     match name {
         // Vec3 constructor (both Vec3 and vec3 are supported)
-        "Vec3" | "vec3" if args.len() == 3 => {
-            InterpValue::Vec3([
-                args[0].as_scalar(),
-                args[1].as_scalar(),
-                args[2].as_scalar(),
-            ])
-        }
+        "Vec3" | "vec3" if args.len() == 3 => InterpValue::Vec3([
+            args[0].as_scalar(),
+            args[1].as_scalar(),
+            args[2].as_scalar(),
+        ]),
 
         // Vector length/magnitude - returns scalar
-        "length" | "magnitude" if args.len() == 1 => {
-            match args[0] {
-                InterpValue::Scalar(v) => InterpValue::Scalar(v.abs()),
-                InterpValue::Vec3(v) => {
-                    InterpValue::Scalar((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
-                }
+        "length" | "magnitude" if args.len() == 1 => match args[0] {
+            InterpValue::Scalar(v) => InterpValue::Scalar(v.abs()),
+            InterpValue::Vec3(v) => {
+                InterpValue::Scalar((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt())
             }
-        }
+        },
 
         // Vector normalize - preserves type
-        "normalize" if args.len() == 1 => {
-            match args[0] {
-                InterpValue::Scalar(v) => {
-                    InterpValue::Scalar(if v.abs() > f64::EPSILON { v.signum() } else { 0.0 })
-                }
-                InterpValue::Vec3(v) => {
-                    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-                    if len > f64::EPSILON {
-                        InterpValue::Vec3([v[0] / len, v[1] / len, v[2] / len])
-                    } else {
-                        InterpValue::Vec3([0.0, 0.0, 0.0])
-                    }
+        "normalize" if args.len() == 1 => match args[0] {
+            InterpValue::Scalar(v) => InterpValue::Scalar(if v.abs() > f64::EPSILON {
+                v.signum()
+            } else {
+                0.0
+            }),
+            InterpValue::Vec3(v) => {
+                let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+                if len > f64::EPSILON {
+                    InterpValue::Vec3([v[0] / len, v[1] / len, v[2] / len])
+                } else {
+                    InterpValue::Vec3([0.0, 0.0, 0.0])
                 }
             }
-        }
+        },
 
         // Dot product - returns scalar
-        "dot" if args.len() == 2 => {
-            match (&args[0], &args[1]) {
-                (InterpValue::Vec3(a), InterpValue::Vec3(b)) => {
-                    InterpValue::Scalar(a[0] * b[0] + a[1] * b[1] + a[2] * b[2])
-                }
-                _ => {
-                    let a = args[0].as_scalar();
-                    let b = args[1].as_scalar();
-                    InterpValue::Scalar(a * b)
-                }
+        "dot" if args.len() == 2 => match (&args[0], &args[1]) {
+            (InterpValue::Vec3(a), InterpValue::Vec3(b)) => {
+                InterpValue::Scalar(a[0] * b[0] + a[1] * b[1] + a[2] * b[2])
             }
-        }
+            _ => {
+                let a = args[0].as_scalar();
+                let b = args[1].as_scalar();
+                InterpValue::Scalar(a * b)
+            }
+        },
 
         // Cross product - returns Vec3
         "cross" if args.len() == 2 => {
@@ -927,7 +934,8 @@ pub fn build_member_resolver(
     let entity_prefix = entity_prefix.to_string();
 
     Box::new(move |ctx: &ScalarResolveContext| {
-        let mut interp_ctx = MemberInterpContext::from_scalar_context(ctx, &constants, &config, &entity_prefix);
+        let mut interp_ctx =
+            MemberInterpContext::from_scalar_context(ctx, &constants, &config, &entity_prefix);
         interpret_expr(&expr, &mut interp_ctx).as_scalar()
     })
 }
@@ -961,7 +969,8 @@ pub fn build_vec3_member_resolver(
     let entity_prefix = entity_prefix.to_string();
 
     Box::new(move |ctx: &Vec3ResolveContext| {
-        let mut interp_ctx = MemberInterpContext::from_vec3_context(ctx, &constants, &config, &entity_prefix);
+        let mut interp_ctx =
+            MemberInterpContext::from_vec3_context(ctx, &constants, &config, &entity_prefix);
         interpret_expr(&expr, &mut interp_ctx).as_vec3()
     })
 }
@@ -994,9 +1003,21 @@ mod tests {
 
         // Set some previous values
         for i in 0..count {
-            buffer.set_current(&format!("{}.age", TEST_ENTITY_PREFIX), i, Value::Scalar((i + 1) as f64 * 10.0));
-            buffer.set_current(&format!("{}.mass", TEST_ENTITY_PREFIX), i, Value::Scalar(100.0 + i as f64));
-            buffer.set_current(&format!("{}.position", TEST_ENTITY_PREFIX), i, Value::Vec3([i as f64, 0.0, 0.0]));
+            buffer.set_current(
+                &format!("{}.age", TEST_ENTITY_PREFIX),
+                i,
+                Value::Scalar((i + 1) as f64 * 10.0),
+            );
+            buffer.set_current(
+                &format!("{}.mass", TEST_ENTITY_PREFIX),
+                i,
+                Value::Scalar(100.0 + i as f64),
+            );
+            buffer.set_current(
+                &format!("{}.position", TEST_ENTITY_PREFIX),
+                i,
+                Value::Vec3([i as f64, 0.0, 0.0]),
+            );
         }
         buffer.advance_tick();
 
@@ -1032,7 +1053,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(0.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(0.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         let expr = CompiledExpr::Literal(42.0);
         assert_eq!(interpret_expr(&expr, &mut ctx).as_scalar(), 42.0);
@@ -1044,7 +1072,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(123.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(123.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         let expr = CompiledExpr::Prev;
         assert_eq!(interpret_expr(&expr, &mut ctx).as_scalar(), 123.0);
@@ -1056,7 +1091,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(0.0), 1, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(0.0),
+            1,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // Instance 1 has age = 20.0 (from setup: (1+1)*10 = 20)
         let expr = CompiledExpr::SelfField("age".to_string());
@@ -1069,7 +1111,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(100.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(100.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         let expr = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
@@ -1085,7 +1134,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(0.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(0.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         let expr = CompiledExpr::Signal(SignalId::from("global.temp"));
         assert_eq!(interpret_expr(&expr, &mut ctx).as_scalar(), 25.0);
@@ -1098,7 +1154,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(50.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(50.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // Instance 0: age = 10.0, temp = 25.0
         // Result: 50 + 10 * 25 * 0.1 = 50 + 25 = 75
@@ -1183,7 +1246,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(0.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(0.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // Sum of all ages: 10 + 20 + 30 = 60
         let expr = CompiledExpr::Aggregate {
@@ -1202,7 +1272,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(0.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(0.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // Mean of all ages: (10 + 20 + 30) / 3 = 20
         let expr = CompiledExpr::Aggregate {
@@ -1221,7 +1298,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(0.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(0.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // Min of all ages: 10
         let min_expr = CompiledExpr::Aggregate {
@@ -1248,7 +1332,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(0.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(0.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // Count of all instances: 3
         let expr = CompiledExpr::Aggregate {
@@ -1269,7 +1360,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Vec3([1.0, 2.0, 3.0]), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Vec3([1.0, 2.0, 3.0]),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         let expr = CompiledExpr::Prev;
         assert_eq!(interpret_expr(&expr, &mut ctx).as_vec3(), [1.0, 2.0, 3.0]);
@@ -1281,7 +1379,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Vec3([1.0, 2.0, 3.0]), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Vec3([1.0, 2.0, 3.0]),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // prev + prev (Vec3 + Vec3)
         let expr = CompiledExpr::Binary {
@@ -1298,7 +1403,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Vec3([1.0, 2.0, 3.0]), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Vec3([1.0, 2.0, 3.0]),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // prev * 2.0 (Vec3 * scalar)
         let expr = CompiledExpr::Binary {
@@ -1315,7 +1427,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Vec3([1.0, 2.0, 3.0]), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Vec3([1.0, 2.0, 3.0]),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // prev.y
         let expr = CompiledExpr::FieldAccess {
@@ -1331,7 +1450,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(0.0), 1, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(0.0),
+            1,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // Instance 1 has position = [1.0, 0.0, 0.0]
         let expr = CompiledExpr::SelfField("position".to_string());
@@ -1344,7 +1470,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Vec3([3.0, 4.0, 0.0]), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Vec3([3.0, 4.0, 0.0]),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // length(prev) = sqrt(9 + 16 + 0) = 5
         let expr = CompiledExpr::Call {
@@ -1360,7 +1493,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Vec3([3.0, 4.0, 0.0]), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Vec3([3.0, 4.0, 0.0]),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // normalize(prev) = [0.6, 0.8, 0.0]
         let expr = CompiledExpr::Call {
@@ -1379,7 +1519,14 @@ mod tests {
         let members = create_test_members(3);
         let constants = IndexMap::new();
         let config = IndexMap::new();
-        let mut ctx = create_test_context(InterpValue::Scalar(0.0), 0, &signals, &members, &constants, &config);
+        let mut ctx = create_test_context(
+            InterpValue::Scalar(0.0),
+            0,
+            &signals,
+            &members,
+            &constants,
+            &config,
+        );
 
         // Vec3(1.0, 2.0, 3.0)
         let expr = CompiledExpr::Call {

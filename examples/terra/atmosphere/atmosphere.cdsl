@@ -476,7 +476,7 @@ fracture.atmosphere.runaway_greenhouse {
     }
 
     emit {
-        signal.atmosphere.water_vapor <- 50.0
+        signal.atmosphere.water_vapor <- 50.0;
         signal.atmosphere.co2_ppmv <- 100.0
     }
 }
@@ -639,7 +639,7 @@ fracture.atmosphere.methane_oxidation {
         let co2_produced = decay_rate * config.fracture.atmosphere.methane_oxidation.co2_per_ch4 * 1e-6 in
 
         # Update both species
-        signal.atmosphere.ch4_ppmv <- -decay_rate * 1e-6
+        signal.atmosphere.ch4_ppmv <- -decay_rate * 1e-6;
         signal.atmosphere.co2_ppmv <- co2_produced
     }
 }
