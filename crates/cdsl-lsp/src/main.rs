@@ -153,6 +153,27 @@ impl Backend {
                     ..Default::default()
                 });
             }
+
+            // Check for missing required attributes
+            let missing_attrs = collect_missing_attributes(ast);
+            for attr in missing_attrs {
+                let (start_line, start_char) = offset_to_position(text, attr.span.start);
+                let (end_line, end_char) = offset_to_position(text, attr.span.end);
+
+                diagnostics.push(Diagnostic {
+                    range: Range {
+                        start: Position::new(start_line, start_char),
+                        end: Position::new(end_line, end_char),
+                    },
+                    severity: Some(attr.severity),
+                    source: Some("cdsl".to_string()),
+                    message: format!(
+                        "Missing {} for '{}'",
+                        attr.attribute, attr.symbol_path
+                    ),
+                    ..Default::default()
+                });
+            }
         }
 
         // Publish diagnostics
@@ -908,6 +929,89 @@ fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<u
         | Expr::Other(_)
         | Expr::Pairs(_) => {}
     }
+}
+
+/// Information about a missing required attribute.
+struct MissingAttributeInfo {
+    span: std::ops::Range<usize>,
+    symbol_path: String,
+    attribute: &'static str,
+    severity: DiagnosticSeverity,
+}
+
+/// Collect diagnostics for missing required attributes in the AST.
+fn collect_missing_attributes(ast: &CompilationUnit) -> Vec<MissingAttributeInfo> {
+    let mut diagnostics = Vec::new();
+
+    for item in &ast.items {
+        match &item.node {
+            Item::SignalDef(def) => {
+                // Signal should have strata
+                if def.strata.is_none() {
+                    diagnostics.push(MissingAttributeInfo {
+                        span: def.path.span.clone(),
+                        symbol_path: def.path.node.to_string(),
+                        attribute: "strata",
+                        severity: DiagnosticSeverity::WARNING,
+                    });
+                }
+                // Signal should have resolve block
+                if def.resolve.is_none() {
+                    diagnostics.push(MissingAttributeInfo {
+                        span: def.path.span.clone(),
+                        symbol_path: def.path.node.to_string(),
+                        attribute: "resolve block",
+                        severity: DiagnosticSeverity::WARNING,
+                    });
+                }
+            }
+            Item::FieldDef(def) => {
+                // Field should have strata
+                if def.strata.is_none() {
+                    diagnostics.push(MissingAttributeInfo {
+                        span: def.path.span.clone(),
+                        symbol_path: def.path.node.to_string(),
+                        attribute: "strata",
+                        severity: DiagnosticSeverity::WARNING,
+                    });
+                }
+                // Field should have measure block
+                if def.measure.is_none() {
+                    diagnostics.push(MissingAttributeInfo {
+                        span: def.path.span.clone(),
+                        symbol_path: def.path.node.to_string(),
+                        attribute: "measure block",
+                        severity: DiagnosticSeverity::WARNING,
+                    });
+                }
+            }
+            Item::OperatorDef(def) => {
+                // Operator should have strata
+                if def.strata.is_none() {
+                    diagnostics.push(MissingAttributeInfo {
+                        span: def.path.span.clone(),
+                        symbol_path: def.path.node.to_string(),
+                        attribute: "strata",
+                        severity: DiagnosticSeverity::WARNING,
+                    });
+                }
+            }
+            Item::MemberDef(def) => {
+                // Member should have strata
+                if def.strata.is_none() {
+                    diagnostics.push(MissingAttributeInfo {
+                        span: def.path.span.clone(),
+                        symbol_path: def.path.node.to_string(),
+                        attribute: "strata",
+                        severity: DiagnosticSeverity::WARNING,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    diagnostics
 }
 
 #[tower_lsp::async_trait]
