@@ -45,7 +45,10 @@ mod member_interp;
 mod tests;
 
 // Re-export member interpreter types
-pub use member_interp::{build_member_resolver, MemberInterpContext, MemberResolverFn};
+pub use member_interp::{
+    build_member_resolver, build_vec3_member_resolver, InterpValue, MemberInterpContext,
+    MemberResolverFn, Vec3MemberResolverFn,
+};
 
 use indexmap::IndexMap;
 
@@ -620,7 +623,7 @@ pub fn build_aggregate_resolver(
     expr: &CompiledExpr,
     world: &CompiledWorld,
 ) -> AggregateResolverFn {
-    use member_interp::{interpret_expr, MemberInterpContext};
+    use member_interp::{interpret_expr, InterpValue, MemberInterpContext};
     use std::collections::HashMap;
 
     let expr = expr.clone();
@@ -632,8 +635,8 @@ pub fn build_aggregate_resolver(
         // For aggregate signals, we don't have a "self" instance - the aggregate
         // iterates over all instances internally
         let mut ctx = MemberInterpContext {
-            prev: 0.0,                  // Not used for aggregate signals
-            index: 0,                   // Will be set by aggregate iteration
+            prev: InterpValue::Scalar(0.0), // Not used for aggregate signals
+            index: 0,                       // Will be set by aggregate iteration
             dt: dt.seconds(),
             signals,
             members,
@@ -645,6 +648,6 @@ pub fn build_aggregate_resolver(
         };
 
         let result = interpret_expr(&expr, &mut ctx);
-        Value::Scalar(result)
+        Value::Scalar(result.as_scalar())
     })
 }
