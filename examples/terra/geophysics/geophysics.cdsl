@@ -863,7 +863,8 @@ signal.mantle.convection_cells {
 
     resolve {
         # n = mode * (Ra / Ra_ref)^exponent
-        let ra = signal.mantle.rayleigh_number in
+        # Guard against negative Rayleigh (would cause NaN in pow with fractional exponent)
+        let ra = max(signal.mantle.rayleigh_number, 0.0) in
         let ratio = ra / config.mantle.convection_cells.reference_ra in
         let n = config.mantle.convection_cells.mode_count * pow(ratio, config.mantle.convection_cells.exponent) in
         clamp(n, config.mantle.convection_cells.min_count, config.mantle.convection_cells.max_count)
