@@ -19,6 +19,9 @@ pub trait ExecutionContext {
     /// Get dt (time step)
     fn dt(&self) -> f64;
 
+    /// Get accumulated simulation time in seconds
+    fn sim_time(&self) -> f64;
+
     /// Get sum of inputs for current signal
     fn inputs(&self) -> f64;
 
@@ -67,6 +70,10 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> f64 {
 
             Op::LoadDt => {
                 stack.push(ctx.dt());
+            }
+
+            Op::LoadSimTime => {
+                stack.push(ctx.sim_time());
             }
 
             Op::LoadInputs => {
@@ -249,6 +256,9 @@ mod tests {
         fn dt(&self) -> f64 {
             0.1
         }
+        fn sim_time(&self) -> f64 {
+            10.0
+        }
         fn inputs(&self) -> f64 {
             5.0
         }
@@ -392,6 +402,10 @@ mod tests {
 
         fn dt(&self) -> f64 {
             0.1
+        }
+
+        fn sim_time(&self) -> f64 {
+            10.0
         }
 
         fn inputs(&self) -> f64 {

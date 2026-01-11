@@ -96,6 +96,7 @@ impl Lowerer {
             }
             Expr::Prev | Expr::PrevField(_) => CompiledExpr::Prev,
             Expr::DtRaw => CompiledExpr::DtRaw,
+            Expr::SimTime => CompiledExpr::SimTime,
             Expr::Collected => CompiledExpr::Collected,
             Expr::Path(path) => {
                 // Check for local variable first (single-segment paths only)

@@ -68,6 +68,12 @@ impl LoweringContext {
                 dst
             }
 
+            CompiledExpr::SimTime => {
+                let dst = self.func.alloc_vreg();
+                self.emit(SsaInstruction::LoadSimTime { dst });
+                dst
+            }
+
             CompiledExpr::Collected => {
                 let dst = self.func.alloc_vreg();
                 self.emit(SsaInstruction::LoadCollected { dst });

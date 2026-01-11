@@ -383,12 +383,13 @@ fn check_expr_symbols(
         CompiledExpr::EmitSignal { value, .. } => {
             check_expr_symbols(value, context, defined_signals, defined_constants, defined_config, warnings);
         }
-        // Literals, Prev, DtRaw, Collected, Local, Payload don't need checking
+        // Literals, Prev, DtRaw, SimTime, Collected, Local, Payload don't need checking
         // Local variables are validated at parse/lower time
         // Payload expressions are validated in impulse context
         CompiledExpr::Literal(_)
         | CompiledExpr::Prev
         | CompiledExpr::DtRaw
+        | CompiledExpr::SimTime
         | CompiledExpr::Collected
         | CompiledExpr::Local(_)
         | CompiledExpr::Payload

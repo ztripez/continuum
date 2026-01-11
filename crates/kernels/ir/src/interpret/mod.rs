@@ -123,6 +123,7 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         CompiledExpr::Literal(_)
         | CompiledExpr::Prev
         | CompiledExpr::DtRaw
+        | CompiledExpr::SimTime
         | CompiledExpr::Collected
         | CompiledExpr::Signal(_)
         | CompiledExpr::Const(_)
@@ -638,6 +639,7 @@ pub fn build_aggregate_resolver(
             prev: InterpValue::Scalar(0.0), // Not used for aggregate signals
             index: 0,                       // Will be set by aggregate iteration
             dt: dt.seconds(),
+            sim_time: 0.0, // TODO: Pass sim_time to aggregate resolver
             signals,
             members,
             constants: &constants,

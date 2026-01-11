@@ -306,6 +306,12 @@ impl L2VectorizedExecutor {
                 vregs[dst.0 as usize] = Some(VRegBuffer::uniform(dt));
             }
 
+            SsaInstruction::LoadSimTime { dst } => {
+                // SimTime is uniform across all entities (accumulated simulation time)
+                // For now, use 0.0 as L2 doesn't track sim_time yet
+                vregs[dst.0 as usize] = Some(VRegBuffer::uniform(0.0));
+            }
+
             SsaInstruction::LoadSignal { dst, signal } => {
                 // Load signal value - for now assume scalar signals are uniform
                 if let Some(value) = signals.get_resolved(&continuum_runtime::SignalId(

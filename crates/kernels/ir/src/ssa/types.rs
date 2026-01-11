@@ -155,6 +155,9 @@ pub enum SsaInstruction {
     /// Load the raw dt (time step) value.
     LoadDt { dst: VReg },
 
+    /// Load the accumulated simulation time in seconds.
+    LoadSimTime { dst: VReg },
+
     /// Load the collected/accumulated value from Collect phase.
     LoadCollected { dst: VReg },
 
@@ -238,6 +241,7 @@ impl SsaInstruction {
         match self {
             SsaInstruction::LoadPrev { dst }
             | SsaInstruction::LoadDt { dst }
+            | SsaInstruction::LoadSimTime { dst }
             | SsaInstruction::LoadCollected { dst }
             | SsaInstruction::LoadSignal { dst, .. }
             | SsaInstruction::LoadConst { dst, .. }
@@ -262,6 +266,7 @@ impl SsaInstruction {
         match self {
             SsaInstruction::LoadPrev { .. }
             | SsaInstruction::LoadDt { .. }
+            | SsaInstruction::LoadSimTime { .. }
             | SsaInstruction::LoadCollected { .. }
             | SsaInstruction::LoadSignal { .. }
             | SsaInstruction::LoadConst { .. }
@@ -293,6 +298,7 @@ impl SsaInstruction {
         match self {
             SsaInstruction::LoadPrev { dst } => format!("{} = LoadPrev", dst),
             SsaInstruction::LoadDt { dst } => format!("{} = LoadDt", dst),
+            SsaInstruction::LoadSimTime { dst } => format!("{} = LoadSimTime", dst),
             SsaInstruction::LoadCollected { dst } => format!("{} = LoadCollected", dst),
             SsaInstruction::LoadSignal { dst, signal } => {
                 format!("{} = LoadSignal({})", dst, signal.0)

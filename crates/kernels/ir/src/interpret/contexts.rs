@@ -103,6 +103,10 @@ impl ExecutionContext for ResolverContext<'_> {
         self.dt
     }
 
+    fn sim_time(&self) -> f64 {
+        0.0 // Not yet tracked in resolver context
+    }
+
     fn inputs(&self) -> f64 {
         self.inputs
     }
@@ -166,6 +170,10 @@ impl ExecutionContext for AssertionContext<'_> {
         self.dt
     }
 
+    fn sim_time(&self) -> f64 {
+        0.0 // Not yet tracked in assertion context
+    }
+
     fn inputs(&self) -> f64 {
         0.0 // Not used in assertions
     }
@@ -206,6 +214,10 @@ impl ExecutionContext for TransitionContext<'_> {
     }
 
     fn dt(&self) -> f64 {
+        0.0 // Not used in transitions
+    }
+
+    fn sim_time(&self) -> f64 {
         0.0 // Not used in transitions
     }
 
@@ -253,6 +265,10 @@ impl ExecutionContext for MeasureContext<'_> {
         self.dt
     }
 
+    fn sim_time(&self) -> f64 {
+        0.0 // Not yet tracked in measure context
+    }
+
     fn inputs(&self) -> f64 {
         0.0 // Not used in measure
     }
@@ -295,6 +311,10 @@ impl ExecutionContext for FractureExecContext<'_> {
 
     fn dt(&self) -> f64 {
         self.dt
+    }
+
+    fn sim_time(&self) -> f64 {
+        0.0 // Not yet tracked in fracture context
     }
 
     fn inputs(&self) -> f64 {

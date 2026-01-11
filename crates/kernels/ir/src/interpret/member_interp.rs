@@ -146,6 +146,8 @@ pub struct MemberInterpContext<'a> {
     pub index: usize,
     /// Time step in seconds
     pub dt: f64,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
     /// Read-only access to global signals
     pub signals: &'a SignalStorage,
     /// Read-only access to member signal buffer
@@ -183,6 +185,7 @@ impl<'a> MemberInterpContext<'a> {
             prev: InterpValue::Scalar(ctx.prev),
             index: ctx.index.0,
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             signals: ctx.signals,
             members: ctx.members,
             constants,
@@ -211,6 +214,7 @@ impl<'a> MemberInterpContext<'a> {
             prev: InterpValue::Vec3(ctx.prev),
             index: ctx.index.0,
             dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
             signals: ctx.signals,
             members: ctx.members,
             constants,
@@ -357,6 +361,7 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
         CompiledExpr::Literal(v) => InterpValue::Scalar(*v),
         CompiledExpr::Prev => ctx.prev,
         CompiledExpr::DtRaw => InterpValue::Scalar(ctx.dt),
+        CompiledExpr::SimTime => InterpValue::Scalar(ctx.sim_time),
         CompiledExpr::Collected => InterpValue::Scalar(0.0), // Members don't use collected inputs
         CompiledExpr::Signal(id) => ctx.signal(&id.0),
         CompiledExpr::Const(name) => InterpValue::Scalar(ctx.constant(name)),
@@ -973,6 +978,7 @@ mod tests {
             prev,
             index,
             dt: 0.1,
+            sim_time: 0.0,
             signals,
             members,
             constants,

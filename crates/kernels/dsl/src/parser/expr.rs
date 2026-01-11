@@ -93,6 +93,7 @@ fn spanned_expr_inner<'src>() -> impl Parser<'src, &'src str, Spanned<Expr>, Ex<
         let core_atoms = choice((
             text::keyword("prev").to(Expr::Prev),
             just("dt_raw").to(Expr::DtRaw),
+            just("sim_time").to(Expr::SimTime),
             // Math constants (ASCII and Unicode)
             just("PI").or(just("π")).to(Expr::MathConst(MathConst::Pi)),
             just("TAU").or(just("τ")).to(Expr::MathConst(MathConst::Tau)),

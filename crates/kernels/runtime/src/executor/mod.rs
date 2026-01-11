@@ -98,6 +98,8 @@ pub struct Runtime {
     fracture_queue: FractureQueue,
     /// Current tick number
     tick: u64,
+    /// Accumulated simulation time in seconds
+    sim_time: f64,
     /// Current era
     current_era: EraId,
     /// Era configurations (IndexMap for deterministic iteration order)
@@ -129,6 +131,7 @@ impl Runtime {
             field_buffer: FieldBuffer::default(),
             fracture_queue: FractureQueue::default(),
             tick: 0,
+            sim_time: 0.0,
             current_era: initial_era,
             eras,
             dags,
@@ -415,6 +418,7 @@ impl Runtime {
         self.entities.advance_tick();
         self.member_signals.advance_tick();
         self.fracture_queue.drain_into(&mut self.input_channels);
+        self.sim_time += dt.seconds();
         self.tick += 1;
 
         trace!("tick complete");
@@ -471,6 +475,7 @@ impl Runtime {
                 &self.signals,
                 &self.member_signals,
                 dt,
+                self.sim_time,
                 config,
             );
 
@@ -521,6 +526,7 @@ impl Runtime {
                 &self.signals,
                 &self.member_signals,
                 dt,
+                self.sim_time,
                 config,
             );
 

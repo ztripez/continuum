@@ -805,6 +805,8 @@ pub enum CompiledExpr {
     Prev,
     /// Raw dt value
     DtRaw,
+    /// Accumulated simulation time in seconds
+    SimTime,
     /// Collected/accumulated inputs from Collect phase
     Collected,
     /// Reference to a signal

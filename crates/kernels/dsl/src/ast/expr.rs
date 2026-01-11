@@ -76,6 +76,9 @@ pub enum Expr {
     /// Raw (unscaled) time step for dt-robust expressions: `dt_raw`.
     DtRaw,
 
+    /// Accumulated simulation time in seconds: `sim_time`.
+    SimTime,
+
     /// Impulse payload in apply blocks: `payload`.
     Payload,
 

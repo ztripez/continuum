@@ -247,6 +247,9 @@ pub fn walk_expr<V: ExprVisitor + ?Sized>(visitor: &mut V, expr: &Expr) {
         Expr::DtRaw => {
             visitor.visit_dt_raw();
         }
+        Expr::SimTime => {
+            // sim_time is a leaf node like dt_raw
+        }
         Expr::Literal(lit) => {
             visitor.visit_literal(lit);
         }

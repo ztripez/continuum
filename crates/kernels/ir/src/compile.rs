@@ -88,6 +88,7 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         CompiledExpr::Literal(_)
         | CompiledExpr::Prev
         | CompiledExpr::DtRaw
+        | CompiledExpr::SimTime
         | CompiledExpr::Collected
         | CompiledExpr::Signal(_)
         | CompiledExpr::Const(_)
@@ -359,6 +360,7 @@ impl<'a> Compiler<'a> {
             CompiledExpr::Literal(_)
             | CompiledExpr::Prev
             | CompiledExpr::DtRaw
+            | CompiledExpr::SimTime
             | CompiledExpr::Collected
             | CompiledExpr::SelfField(_)
             | CompiledExpr::EntityAccess { .. }

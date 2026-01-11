@@ -25,6 +25,9 @@ pub enum Op {
     /// Push dt (time step)
     LoadDt,
 
+    /// Push accumulated simulation time in seconds
+    LoadSimTime,
+
     /// Push sum of inputs for current signal
     LoadInputs,
 
