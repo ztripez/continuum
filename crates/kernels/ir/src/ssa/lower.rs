@@ -295,7 +295,7 @@ impl LoweringContext {
                 self.emit(SsaInstruction::Aggregate {
                     dst,
                     op: *op,
-                    entity: entity.0.clone(),
+                    entity: entity.to_string(),
                     body_block,
                 });
                 dst

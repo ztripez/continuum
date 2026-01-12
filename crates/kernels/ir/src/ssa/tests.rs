@@ -64,7 +64,7 @@ fn test_lower_signal() {
     let block = &ssa.blocks[0];
     assert!(matches!(
         &block.instructions[0],
-        SsaInstruction::LoadSignal { signal, .. } if signal.0 == "temperature"
+        SsaInstruction::LoadSignal { signal, .. } if signal.to_string() == "temperature"
     ));
 
     assert!(validate_ssa(&ssa).is_ok());

@@ -12,19 +12,19 @@ use super::{LowerError, Lowerer};
 
 impl Lowerer {
     pub(crate) fn lower_signal(&mut self, def: &ast::SignalDef) -> Result<(), LowerError> {
-        let id = SignalId::from(def.path.node.join(".").as_str());
-        let signal_path = def.path.node.join(".");
+        let id = SignalId::from(def.path.node.clone());
+        let signal_path = def.path.node.to_string();
 
         // Check for duplicate signal definition
         if self.signals.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("signal.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition(format!("signal.{}", id)));
         }
 
         // Determine stratum
         let stratum = def
             .strata
             .as_ref()
-            .map(|s| StratumId::from(s.node.join(".").as_str()))
+            .map(|s| StratumId::from(s.node.clone()))
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
@@ -32,7 +32,7 @@ impl Lowerer {
 
         // Process local const blocks - add to global constants with signal-prefixed keys
         for entry in &def.local_consts {
-            let local_key = entry.path.node.join(".");
+            let local_key = entry.path.node.to_string();
             // Add with full signal path prefix: signal.path.local_key
             let full_key = format!("{}.{}", signal_path, local_key);
             let value = self.literal_to_f64(&entry.value.node)?;
@@ -41,7 +41,7 @@ impl Lowerer {
 
         // Process local config blocks - add to global config with signal-prefixed keys
         for entry in &def.local_config {
-            let local_key = entry.path.node.join(".");
+            let local_key = entry.path.node.to_string();
             // Add with full signal path prefix: signal.path.local_key
             let full_key = format!("{}.{}", signal_path, local_key);
             let value = self.literal_to_f64(&entry.value.node)?;
@@ -110,17 +110,17 @@ impl Lowerer {
     }
 
     pub(crate) fn lower_field(&mut self, def: &ast::FieldDef) -> Result<(), LowerError> {
-        let id = FieldId::from(def.path.node.join(".").as_str());
+        let id = FieldId::from(def.path.node.clone());
 
         // Check for duplicate field definition
         if self.fields.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("field.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition(format!("field.{}", id)));
         }
 
         let stratum = def
             .strata
             .as_ref()
-            .map(|s| StratumId::from(s.node.join(".").as_str()))
+            .map(|s| StratumId::from(s.node.clone()))
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists

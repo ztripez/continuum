@@ -303,7 +303,7 @@ impl<'a> Compiler<'a> {
 
         // Assign operator indices
         for (idx, (op_id, _)) in self.world.operators.iter().enumerate() {
-            self.operator_indices.insert(op_id.0.clone(), idx);
+            self.operator_indices.insert(op_id.to_string(), idx);
         }
 
         // Assign field indices (only for fields with measure expressions that are bytecode-compatible)
@@ -312,7 +312,7 @@ impl<'a> Compiler<'a> {
         for (field_id, field) in &self.world.fields {
             if let Some(ref measure) = field.measure {
                 if !contains_entity_expression(measure) {
-                    self.field_indices.insert(field_id.0.clone(), field_idx);
+                    self.field_indices.insert(field_id.to_string(), field_idx);
                     field_idx += 1;
                 }
             }
@@ -320,12 +320,12 @@ impl<'a> Compiler<'a> {
 
         // Assign fracture indices
         for (idx, (fracture_id, _)) in self.world.fractures.iter().enumerate() {
-            self.fracture_indices.insert(fracture_id.0.clone(), idx);
+            self.fracture_indices.insert(fracture_id.to_string(), idx);
         }
 
         // Assign chronicle indices
         for (idx, (chronicle_id, _)) in self.world.chronicles.iter().enumerate() {
-            self.chronicle_indices.insert(chronicle_id.0.clone(), idx);
+            self.chronicle_indices.insert(chronicle_id.to_string(), idx);
         }
     }
 
@@ -367,7 +367,7 @@ impl<'a> Compiler<'a> {
         match expr {
             CompiledExpr::Aggregate { op, entity, body } => {
                 aggregates.push(AggregateInfo {
-                    entity_id: FoundationEntityId(entity.0.clone()),
+                    entity_id: FoundationEntityId::from(entity.to_string()),
                     op: *op,
                     body: (**body).clone(),
                 });
@@ -497,15 +497,15 @@ impl<'a> Compiler<'a> {
             }
 
             let node = DagNode {
-                id: NodeId(format!("op.{}", op_id.0)),
+                id: NodeId(format!("op.{}", op_id.to_string())),
                 reads: operator
                     .reads
                     .iter()
-                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                    .map(|s| SignalId::from(s.to_string()))
                     .collect(),
                 writes: None, // Operators don't write signals directly
                 kind: NodeKind::OperatorCollect {
-                    operator_idx: self.operator_indices[&op_id.0],
+                    operator_idx: self.operator_indices[&op_id.to_string()],
                 },
             };
             builder.add_node(node);
@@ -581,11 +581,11 @@ impl<'a> Compiler<'a> {
             // same-tick dependencies between signals. Use empty reads to allow
             // parallel resolution.
             let node = DagNode {
-                id: NodeId(format!("sig.{}", signal_id.0)),
+                id: NodeId(format!("sig.{}", signal_id)),
                 reads: std::collections::HashSet::new(), // No same-tick dependencies
-                writes: Some(continuum_runtime::SignalId(signal_id.0.clone())),
+                writes: Some(SignalId::from(signal_id.to_string())),
                 kind: NodeKind::SignalResolve {
-                    signal: continuum_runtime::SignalId(signal_id.0.clone()),
+                    signal: SignalId::from(signal_id.to_string()),
                     resolver_idx: self.resolver_indices[signal_id],
                 },
             };
@@ -609,14 +609,12 @@ impl<'a> Compiler<'a> {
                 continue;
             }
 
-            let member_signal_id = MemberSignalId::new(
-                continuum_runtime::types::EntityId(member.entity_id.0.clone()),
-                member.signal_name.clone(),
-            );
+            let member_signal_id =
+                MemberSignalId::new(member.entity_id.clone(), member.signal_name.clone());
 
             // Per docs: signal references read previous tick values, no same-tick deps
             let node = DagNode {
-                id: NodeId(format!("member.{}", member_id.0)),
+                id: NodeId(format!("member.{}", member_id.to_string())),
                 reads: std::collections::HashSet::new(), // No same-tick dependencies
                 writes: None, // Member signals don't write to global signal namespace
                 kind: NodeKind::MemberSignalResolve {
@@ -684,10 +682,8 @@ impl<'a> Compiler<'a> {
                 continue;
             }
 
-            let member_signal_id = MemberSignalId::new(
-                RuntimeEntityId(member.entity_id.0.clone()),
-                member.signal_name.clone(),
-            );
+            let member_signal_id =
+                MemberSignalId::new(member.entity_id.clone(), member.signal_name.clone());
 
             builder.add_member_signal_resolve(
                 member_signal_id.clone(),
@@ -711,7 +707,7 @@ impl<'a> Compiler<'a> {
                             .unwrap_or_else(|| {
                                 panic!(
                                     "Entity '{}' has no member signals for count aggregate",
-                                    agg_info.entity_id.0
+                                    agg_info.entity_id.to_string()
                                 )
                             })
                     }
@@ -723,17 +719,15 @@ impl<'a> Compiler<'a> {
                     }),
                 };
 
-                let member_signal_id = MemberSignalId::new(
-                    RuntimeEntityId(agg_info.entity_id.0.clone()),
-                    member_name.clone(),
-                );
+                let member_signal_id =
+                    MemberSignalId::new(agg_info.entity_id.clone(), member_name.clone());
 
                 // Create the aggregate ID
-                let agg_id = format!("agg.{}.{}", signal_id.0, agg_idx);
+                let agg_id = format!("agg.{}.{}", signal_id.to_string(), agg_idx);
 
                 // The output signal is the signal that contains this aggregate
                 // For now, assume the entire resolve expression is just the aggregate
-                let output_signal = continuum_runtime::SignalId(signal_id.0.clone());
+                let output_signal = signal_id.clone();
 
                 let barrier = AggregateBarrier {
                     id: NodeId(agg_id.clone()),
@@ -783,11 +777,7 @@ impl<'a> Compiler<'a> {
             // don't create same-tick dependencies. Pass empty reads to avoid
             // creating DAG edges between signals.
             // (signal.reads is informational only - for analysis, not scheduling)
-            builder.add_signal_resolve(
-                continuum_runtime::SignalId(signal_id.0.clone()),
-                self.resolver_indices[signal_id],
-                &[],
-            );
+            builder.add_signal_resolve(signal_id.clone(), self.resolver_indices[signal_id], &[]);
         }
 
         let dag = builder.build()?;
@@ -838,7 +828,7 @@ impl<'a> Compiler<'a> {
     /// over entities but don't need a specific one.
     fn find_any_member_of_entity(&self, entity_id: &FoundationEntityId) -> Option<String> {
         for (_member_id, member) in &self.world.members {
-            if member.entity_id.0 == entity_id.0 {
+            if member.entity_id.to_string() == entity_id.to_string() {
                 return Some(member.signal_name.clone());
             }
         }
@@ -858,15 +848,15 @@ impl<'a> Compiler<'a> {
             }
 
             let node = DagNode {
-                id: NodeId(format!("frac.{}", fracture_id.0)),
+                id: NodeId(format!("frac.{}", fracture_id)),
                 reads: fracture
                     .reads
                     .iter()
-                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                    .map(|s| SignalId::from(s.to_string()))
                     .collect(),
                 writes: None,
                 kind: NodeKind::Fracture {
-                    fracture_idx: self.fracture_indices[&fracture_id.0],
+                    fracture_idx: self.fracture_indices[&fracture_id.to_string()],
                 },
             };
             builder.add_node(node);
@@ -898,15 +888,15 @@ impl<'a> Compiler<'a> {
             if let Some(ref measure) = field.measure {
                 if !contains_entity_expression(measure) {
                     let node = DagNode {
-                        id: NodeId(format!("field.{}", field_id.0)),
+                        id: NodeId(format!("field.{}", field_id)),
                         reads: field
                             .reads
                             .iter()
-                            .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                            .map(|s| SignalId::from(s.to_string()))
                             .collect(),
                         writes: None,
                         kind: NodeKind::OperatorMeasure {
-                            operator_idx: self.field_indices[&field_id.0],
+                            operator_idx: self.field_indices[&field_id.to_string()],
                         },
                     };
                     builder.add_node(node);
@@ -925,15 +915,15 @@ impl<'a> Compiler<'a> {
             }
 
             let node = DagNode {
-                id: NodeId(format!("op.{}", op_id.0)),
+                id: NodeId(format!("op.{}", op_id)),
                 reads: operator
                     .reads
                     .iter()
-                    .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                    .map(|s| SignalId::from(s.to_string()))
                     .collect(),
                 writes: None,
                 kind: NodeKind::OperatorMeasure {
-                    operator_idx: self.operator_indices[&op_id.0],
+                    operator_idx: self.operator_indices[&op_id.to_string()],
                 },
             };
             builder.add_node(node);
@@ -946,15 +936,15 @@ impl<'a> Compiler<'a> {
         if first_stratum == Some(stratum_id) {
             for (chronicle_id, chronicle) in &self.world.chronicles {
                 let node = DagNode {
-                    id: NodeId(format!("chronicle.{}", chronicle_id.0)),
+                    id: NodeId(format!("chronicle.{}", chronicle_id)),
                     reads: chronicle
                         .reads
                         .iter()
-                        .map(|s| continuum_runtime::SignalId(s.0.clone()))
+                        .map(|s| SignalId::from(s.to_string()))
                         .collect(),
                     writes: None,
                     kind: NodeKind::ChronicleObserve {
-                        chronicle_idx: self.chronicle_indices[&chronicle_id.0],
+                        chronicle_idx: self.chronicle_indices[&chronicle_id.to_string()],
                     },
                 };
                 builder.add_node(node);
@@ -1307,9 +1297,10 @@ mod tests {
         assert!(result.member_indices.contains_key(&health_id));
 
         // CRITICAL CHECK: Check if it exists in the DAG
-        let era_dags = result.dags.get_era(&EraId("main".to_string())).unwrap();
+        let era_dags = result.dags.get_era(&EraId::from("main")).unwrap();
+        // Check resolve DAG for bio stratum
         let dag = era_dags
-            .get(Phase::Resolve, &StratumId("bio".to_string()))
+            .get(Phase::Resolve, &StratumId::from("bio"))
             .unwrap();
 
         let mut found = false;

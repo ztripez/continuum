@@ -1291,7 +1291,7 @@ fn test_lower_entity_empty() {
     let world = lower(&unit).unwrap();
 
     let entity = world.entities.get(&EntityId::from("stellar.moon")).unwrap();
-    assert_eq!(entity.id.0, "stellar.moon");
+    assert_eq!(entity.id.to_string(), "stellar.moon");
     assert!(entity.count_source.is_none());
     assert!(entity.count_bounds.is_none());
 }
@@ -1386,7 +1386,7 @@ fn test_lower_chronicle_basic() {
         .chronicles
         .get(&ChronicleId::from("thermal.events"))
         .unwrap();
-    assert_eq!(chronicle.id.0, "thermal.events");
+    assert_eq!(chronicle.id.to_string(), "thermal.events");
     assert_eq!(chronicle.handlers.len(), 1);
 }
 
@@ -1909,7 +1909,7 @@ fn test_lower_typedef_basic() {
     let world = lower(&unit).unwrap();
 
     let type_def = world.types.get(&TypeId::from("PlateState")).unwrap();
-    assert_eq!(type_def.id.0, "PlateState");
+    assert_eq!(type_def.id.to_string(), "PlateState");
     assert_eq!(type_def.fields.len(), 2);
     assert_eq!(type_def.fields[0].name, "position");
     assert_eq!(type_def.fields[1].name, "velocity");
@@ -2563,7 +2563,7 @@ fn test_vec3_signal_reference_expanded() {
                     CompiledExpr::FieldAccess { object, field } => {
                         match object.as_ref() {
                             CompiledExpr::Signal(id) => {
-                                assert_eq!(id.0, "test.velocity");
+                                assert_eq!(id.to_string(), "test.velocity");
                             }
                             other => panic!("object should be Signal, got {:?}", other),
                         }

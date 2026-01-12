@@ -13,18 +13,18 @@ use super::{LowerError, Lowerer};
 
 impl Lowerer {
     pub(crate) fn lower_entity(&mut self, def: &EntityDef) -> Result<(), LowerError> {
-        let id = EntityId::from(def.path.node.join(".").as_str());
+        let id = EntityId::from(def.path.node.clone());
 
         // Check for duplicate entity definition
         if self.entities.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("entity.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition(format!("entity.{}", id)));
         }
 
         // Count source from config path
         let count_source = def
             .count_source
             .as_ref()
-            .map(|p| p.node.join(".").replace("config.", ""));
+            .map(|p| p.node.to_string().replace("config.", ""));
 
         // Count bounds
         let count_bounds = def.count_bounds.as_ref().map(|b| (b.min, b.max));

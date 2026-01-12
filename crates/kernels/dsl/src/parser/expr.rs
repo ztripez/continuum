@@ -4,10 +4,9 @@ use chumsky::input::MapExtra;
 use chumsky::prelude::*;
 
 use crate::ast::{AggregateOp, BinaryOp, CallArg, Expr, Literal, MathConst, Spanned, UnaryOp};
-use crate::math_consts;
 
 use super::lexer::Token;
-use super::primitives::{ident, number, path, string_lit, unit};
+use super::primitives::{ident, number, path, string_lit, tok, unit};
 use super::{ParseError, ParserInput};
 
 /// Type alias for boxed spanned expression parser
@@ -35,49 +34,51 @@ fn spanned_expr_inner<'src>(
 
         let call_arg = choice((
             ident()
-                .then_ignore(just(Token::Colon))
+                .then_ignore(tok(Token::Colon))
                 .then(expr_boxed.clone())
                 .map(|(name, value)| CallArg::named(name, value)),
             expr_boxed.clone().map(CallArg::positional),
         ));
 
         let args = call_arg
-            .separated_by(just(Token::Comma))
+            .separated_by(tok(Token::Comma))
             .allow_trailing()
             .collect::<Vec<_>>()
-            .delimited_by(just(Token::LParen), just(Token::RParen));
+            .delimited_by(tok(Token::LParen), tok(Token::RParen));
 
         let entity_atoms = entity_expr_atoms_spanned(expr_boxed.clone()).boxed();
 
         let core_atoms = choice((
-            just(Token::Prev).to(Expr::Prev),
-            just(Token::DtRaw).to(Expr::DtRaw),
-            just(Token::SimTime).to(Expr::SimTime),
-            just(Token::Pi).to(Expr::MathConst(MathConst::Pi)),
-            just(Token::Tau).to(Expr::MathConst(MathConst::Tau)),
-            just(Token::Phi).to(Expr::MathConst(MathConst::Phi)),
-            just(Token::E).to(Expr::MathConst(MathConst::E)),
-            just(Token::I).to(Expr::MathConst(MathConst::I)),
-            just(Token::Payload).to(Expr::Payload),
-            just(Token::Collected).to(Expr::Collected),
+            tok(Token::Prev).to(Expr::Prev),
+            tok(Token::DtRaw).to(Expr::DtRaw),
+            tok(Token::SimTime).to(Expr::SimTime),
+            tok(Token::Pi).to(Expr::MathConst(MathConst::Pi)),
+            tok(Token::Tau).to(Expr::MathConst(MathConst::Tau)),
+            tok(Token::Phi).to(Expr::MathConst(MathConst::Phi)),
+            tok(Token::E).to(Expr::MathConst(MathConst::E)),
+            tok(Token::I).to(Expr::MathConst(MathConst::I)),
+            tok(Token::Payload).to(Expr::Payload),
+            tok(Token::Collected).to(Expr::Collected),
             // Look up constants from the registry
             ident()
-                .filter(|name| math_consts::lookup(name).is_some())
-                .map(|name| Expr::Literal(Literal::Float(math_consts::lookup(&name).unwrap()))),
-            just(Token::Signal)
-                .ignore_then(just(Token::Dot))
+                .filter(|name| crate::math_consts::lookup(name).is_some())
+                .map(|name| {
+                    Expr::Literal(Literal::Float(crate::math_consts::lookup(&name).unwrap()))
+                }),
+            tok(Token::Signal)
+                .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
                 .map(Expr::SignalRef),
-            just(Token::Const)
-                .ignore_then(just(Token::Dot))
+            tok(Token::Const)
+                .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
                 .map(Expr::ConstRef),
-            just(Token::Config)
-                .ignore_then(just(Token::Dot))
+            tok(Token::Config)
+                .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
                 .map(Expr::ConfigRef),
-            just(Token::Field)
-                .ignore_then(just(Token::Dot))
+            tok(Token::Field)
+                .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
                 .map(Expr::FieldRef),
         ))
@@ -125,7 +126,7 @@ fn spanned_expr_inner<'src>(
             ),
             expr_boxed
                 .clone()
-                .delimited_by(just(Token::LParen), just(Token::RParen)),
+                .delimited_by(tok(Token::LParen), tok(Token::RParen)),
             path().map_with(|p, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
                 Spanned::new(Expr::Path(p), extra.span().into())
             }),
@@ -141,7 +142,7 @@ fn spanned_expr_inner<'src>(
                 });
 
         let postfix = atom.foldl(
-            just(Token::Dot)
+            tok(Token::Dot)
                 .ignore_then(ident().map_with(
                     |m, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| (m, extra.span()),
                 ))
@@ -168,9 +169,9 @@ fn spanned_expr_inner<'src>(
         );
 
         let unary = choice((
-            just(Token::Minus).to(UnaryOp::Neg),
-            just(Token::Not).to(UnaryOp::Not),
-            just(Token::NotKeyword).to(UnaryOp::Not),
+            tok(Token::Minus).to(UnaryOp::Neg),
+            tok(Token::Not).to(UnaryOp::Not),
+            tok(Token::NotKeyword).to(UnaryOp::Not),
         ))
         .map_with(|op, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
             (op, extra.span().start)
@@ -192,8 +193,8 @@ fn spanned_expr_inner<'src>(
             .clone()
             .foldl(
                 choice((
-                    just(Token::Star).to(BinaryOp::Mul),
-                    just(Token::Slash).to(BinaryOp::Div),
+                    tok(Token::Star).to(BinaryOp::Mul),
+                    tok(Token::Slash).to(BinaryOp::Div),
                 ))
                 .then(unary)
                 .repeated(),
@@ -215,8 +216,8 @@ fn spanned_expr_inner<'src>(
             .clone()
             .foldl(
                 choice((
-                    just(Token::Plus).to(BinaryOp::Add),
-                    just(Token::Minus).to(BinaryOp::Sub),
+                    tok(Token::Plus).to(BinaryOp::Add),
+                    tok(Token::Minus).to(BinaryOp::Sub),
                 ))
                 .then(product)
                 .repeated(),
@@ -238,12 +239,12 @@ fn spanned_expr_inner<'src>(
             .clone()
             .then(
                 choice((
-                    just(Token::Equals).to(BinaryOp::Eq),
-                    just(Token::NotEquals).to(BinaryOp::Ne),
-                    just(Token::LessEquals).to(BinaryOp::Le),
-                    just(Token::GreaterEquals).to(BinaryOp::Ge),
-                    just(Token::LAngle).to(BinaryOp::Lt),
-                    just(Token::RAngle).to(BinaryOp::Gt),
+                    tok(Token::Equals).to(BinaryOp::Eq),
+                    tok(Token::NotEquals).to(BinaryOp::Ne),
+                    tok(Token::LessEquals).to(BinaryOp::Le),
+                    tok(Token::GreaterEquals).to(BinaryOp::Ge),
+                    tok(Token::LAngle).to(BinaryOp::Lt),
+                    tok(Token::RAngle).to(BinaryOp::Gt),
                 ))
                 .then(sum)
                 .or_not(),
@@ -265,8 +266,8 @@ fn spanned_expr_inner<'src>(
             .boxed();
 
         let and_op = choice((
-            just(Token::And).to(BinaryOp::And),
-            just(Token::AndKeyword).to(BinaryOp::And),
+            tok(Token::And).to(BinaryOp::And),
+            tok(Token::AndKeyword).to(BinaryOp::And),
         ));
         let logical_and = comparison
             .clone()
@@ -284,8 +285,8 @@ fn spanned_expr_inner<'src>(
             .boxed();
 
         let or_op = choice((
-            just(Token::Or).to(BinaryOp::Or),
-            just(Token::OrKeyword).to(BinaryOp::Or),
+            tok(Token::Or).to(BinaryOp::Or),
+            tok(Token::OrKeyword).to(BinaryOp::Or),
         ));
         let logical_or = logical_and
             .clone()
@@ -305,13 +306,13 @@ fn spanned_expr_inner<'src>(
         let logical_or_boxed = logical_or.clone();
 
         // Emit expression: signal.path <- value
-        let emit_expr = just(Token::Signal)
-            .ignore_then(just(Token::Dot))
+        let emit_expr = tok(Token::Signal)
+            .ignore_then(tok(Token::Dot))
             .ignore_then(path())
             .map_with(|p, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
                 (p, extra.span().start)
             })
-            .then_ignore(just(Token::EmitArrow))
+            .then_ignore(tok(Token::EmitArrow))
             .then(expr_boxed.clone())
             .map(|((target, start), value)| {
                 let span = (start..value.span.end).into();
@@ -328,16 +329,16 @@ fn spanned_expr_inner<'src>(
         // If expression: if condition { then } else { else }
         let if_expr = {
             // Braced block: { expr ; expr ; ... } or { expr }
-            let braced = just(Token::LBrace)
+            let braced = tok(Token::LBrace)
                 .ignore_then(
                     expr_boxed
                         .clone()
-                        .separated_by(just(Token::Semicolon).or_not()) // Wait, is Semicolon a token?
+                        .separated_by(tok(Token::Semicolon).or_not())
                         .allow_trailing()
                         .at_least(1)
                         .collect::<Vec<_>>(),
                 )
-                .then_ignore(just(Token::RBrace))
+                .then_ignore(tok(Token::RBrace))
                 .map_with(
                     |exprs, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
                         let span = extra.span();
@@ -349,17 +350,17 @@ fn spanned_expr_inner<'src>(
                     },
                 );
 
-            let if_head = just(Token::If)
+            let if_head = tok(Token::If)
                 .map_with(|_, e: &mut MapExtra<'src, '_, ParserInput<'src>, _>| e.span().start)
                 .then(logical_or_boxed.clone())
                 .then(braced.clone());
 
-            let else_if_clause = just(Token::Else)
-                .ignore_then(just(Token::If))
+            let else_if_clause = tok(Token::Else)
+                .ignore_then(tok(Token::If))
                 .ignore_then(logical_or_boxed.clone())
                 .then(braced.clone());
 
-            let else_final = just(Token::Else).ignore_then(braced.clone());
+            let else_final = tok(Token::Else).ignore_then(braced.clone());
 
             if_head
                 .then(else_if_clause.repeated().collect::<Vec<_>>())
@@ -410,14 +411,14 @@ fn spanned_expr_inner<'src>(
 
         // Let expression: let name = value in body
         let let_expr = {
-            let let_binding = just(Token::Let)
+            let let_binding = tok(Token::Let)
                 .map_with(|_, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
                     extra.span().start
                 })
                 .then(ident())
-                .then_ignore(just(Token::Assign))
+                .then_ignore(tok(Token::Assign))
                 .then(expr_without_let)
-                .then_ignore(just(Token::In));
+                .then_ignore(tok(Token::In));
 
             let_binding
                 .repeated()
@@ -454,21 +455,21 @@ fn entity_expr_atoms_spanned<'src>(
     expr_boxed: SpannedExprBox<'src>,
 ) -> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        just(Token::SelfToken)
-            .ignore_then(just(Token::Dot))
+        tok(Token::SelfToken)
+            .ignore_then(tok(Token::Dot))
             .ignore_then(ident())
             .map_with(
                 |field, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
                     Spanned::new(Expr::SelfField(field), extra.span().into())
                 },
             ),
-        just(Token::Entity)
-            .ignore_then(just(Token::Dot))
+        tok(Token::Entity)
+            .ignore_then(tok(Token::Dot))
             .ignore_then(path())
             .then(
-                just(Token::LBracket)
+                tok(Token::LBracket)
                     .ignore_then(expr_boxed.clone())
-                    .then_ignore(just(Token::RBracket))
+                    .then_ignore(tok(Token::RBracket))
                     .or_not(),
             )
             .map_with(
@@ -483,13 +484,13 @@ fn entity_expr_atoms_spanned<'src>(
                     Spanned::new(e, extra.span().into())
                 },
             ),
-        just(Token::Count)
+        tok(Token::Count)
             .ignore_then(
-                just(Token::LParen)
-                    .ignore_then(just(Token::Entity))
-                    .ignore_then(just(Token::Dot))
+                tok(Token::LParen)
+                    .ignore_then(tok(Token::Entity))
+                    .ignore_then(tok(Token::Dot))
                     .ignore_then(path())
-                    .then_ignore(just(Token::RParen)),
+                    .then_ignore(tok(Token::RParen)),
             )
             .map_with(
                 |entity, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
@@ -507,26 +508,26 @@ fn entity_expr_atoms_spanned<'src>(
                     )
                 },
             ),
-        just(Token::Other)
+        tok(Token::Other)
             .ignore_then(
-                just(Token::LParen)
-                    .ignore_then(just(Token::Entity))
-                    .ignore_then(just(Token::Dot))
+                tok(Token::LParen)
+                    .ignore_then(tok(Token::Entity))
+                    .ignore_then(tok(Token::Dot))
                     .ignore_then(path())
-                    .then_ignore(just(Token::RParen)),
+                    .then_ignore(tok(Token::RParen)),
             )
             .map_with(
                 |entity, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
                     Spanned::new(Expr::Other(entity), extra.span().into())
                 },
             ),
-        just(Token::Pairs)
+        tok(Token::Pairs)
             .ignore_then(
-                just(Token::LParen)
-                    .ignore_then(just(Token::Entity))
-                    .ignore_then(just(Token::Dot))
+                tok(Token::LParen)
+                    .ignore_then(tok(Token::Entity))
+                    .ignore_then(tok(Token::Dot))
                     .ignore_then(path())
-                    .then_ignore(just(Token::RParen)),
+                    .then_ignore(tok(Token::RParen)),
             )
             .map_with(
                 |entity, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
@@ -542,13 +543,13 @@ fn entity_aggregate_atoms_spanned<'src>(
 ) -> impl Parser<'src, ParserInput<'src>, Spanned<Expr>, extra::Err<ParseError<'src>>> + Clone {
     let aggregate_with_body = aggregate_op_with_body()
         .then(
-            just(Token::LParen)
-                .ignore_then(just(Token::Entity))
-                .ignore_then(just(Token::Dot))
+            tok(Token::LParen)
+                .ignore_then(tok(Token::Entity))
+                .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(Token::Comma))
+                .then_ignore(tok(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(Token::RParen)),
+                .then_ignore(tok(Token::RParen)),
         )
         .map_with(
             |(op, (entity, body)), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
@@ -563,15 +564,15 @@ fn entity_aggregate_atoms_spanned<'src>(
             },
         );
 
-    let filter_expr = just(Token::Filter)
+    let filter_expr = tok(Token::Filter)
         .ignore_then(
-            just(Token::LParen)
-                .ignore_then(just(Token::Entity))
-                .ignore_then(just(Token::Dot))
+            tok(Token::LParen)
+                .ignore_then(tok(Token::Entity))
+                .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(Token::Comma))
+                .then_ignore(tok(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(Token::RParen)),
+                .then_ignore(tok(Token::RParen)),
         )
         .map_with(
             |(entity, predicate), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
@@ -585,15 +586,15 @@ fn entity_aggregate_atoms_spanned<'src>(
             },
         );
 
-    let first_expr = just(Token::First)
+    let first_expr = tok(Token::First)
         .ignore_then(
-            just(Token::LParen)
-                .ignore_then(just(Token::Entity))
-                .ignore_then(just(Token::Dot))
+            tok(Token::LParen)
+                .ignore_then(tok(Token::Entity))
+                .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(Token::Comma))
+                .then_ignore(tok(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(Token::RParen)),
+                .then_ignore(tok(Token::RParen)),
         )
         .map_with(
             |(entity, predicate), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
@@ -607,15 +608,15 @@ fn entity_aggregate_atoms_spanned<'src>(
             },
         );
 
-    let nearest_expr = just(Token::Nearest)
+    let nearest_expr = tok(Token::Nearest)
         .ignore_then(
-            just(Token::LParen)
-                .ignore_then(just(Token::Entity))
-                .ignore_then(just(Token::Dot))
+            tok(Token::LParen)
+                .ignore_then(tok(Token::Entity))
+                .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(Token::Comma))
+                .then_ignore(tok(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(Token::RParen)),
+                .then_ignore(tok(Token::RParen)),
         )
         .map_with(
             |(entity, position), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
@@ -629,17 +630,17 @@ fn entity_aggregate_atoms_spanned<'src>(
             },
         );
 
-    let within_expr = just(Token::Within)
+    let within_expr = tok(Token::Within)
         .ignore_then(
-            just(Token::LParen)
-                .ignore_then(just(Token::Entity))
-                .ignore_then(just(Token::Dot))
+            tok(Token::LParen)
+                .ignore_then(tok(Token::Entity))
+                .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
-                .then_ignore(just(Token::Comma))
+                .then_ignore(tok(Token::Comma))
                 .then(expr_boxed.clone())
-                .then_ignore(just(Token::Comma))
+                .then_ignore(tok(Token::Comma))
                 .then(expr_boxed)
-                .then_ignore(just(Token::RParen)),
+                .then_ignore(tok(Token::RParen)),
         )
         .map_with(
             |((entity, position), radius), extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
@@ -676,13 +677,13 @@ pub fn spanned_effect_expr<'src>()
 fn aggregate_op_with_body<'src>()
 -> impl Parser<'src, ParserInput<'src>, AggregateOp, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        just(Token::Sum).to(AggregateOp::Sum),
-        just(Token::Product).to(AggregateOp::Product),
-        just(Token::Min).to(AggregateOp::Min),
-        just(Token::Max).to(AggregateOp::Max),
-        just(Token::Mean).to(AggregateOp::Mean),
-        just(Token::Any).to(AggregateOp::Any),
-        just(Token::All).to(AggregateOp::All),
-        just(Token::None).to(AggregateOp::None),
+        tok(Token::Sum).to(AggregateOp::Sum),
+        tok(Token::Product).to(AggregateOp::Product),
+        tok(Token::Min).to(AggregateOp::Min),
+        tok(Token::Max).to(AggregateOp::Max),
+        tok(Token::Mean).to(AggregateOp::Mean),
+        tok(Token::Any).to(AggregateOp::Any),
+        tok(Token::All).to(AggregateOp::All),
+        tok(Token::None).to(AggregateOp::None),
     ))
 }

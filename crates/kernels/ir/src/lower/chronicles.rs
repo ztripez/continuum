@@ -16,14 +16,11 @@ impl Lowerer {
     /// Chronicles observe simulation state and emit events for logging and analytics.
     /// They cannot affect causality - removing all chronicles must not change simulation results.
     pub(crate) fn lower_chronicle(&mut self, def: &ast::ChronicleDef) -> Result<(), LowerError> {
-        let id = ChronicleId::from(def.path.node.join(".").as_str());
+        let id = ChronicleId::from(def.path.node.clone());
 
         // Check for duplicate chronicle definition
         if self.chronicles.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!(
-                "chronicle.{}",
-                id.0
-            )));
+            return Err(LowerError::DuplicateDefinition(format!("chronicle.{}", id)));
         }
 
         // Collect signal reads from all handlers
@@ -46,7 +43,7 @@ impl Lowerer {
                 .iter()
                 .map(|h| CompiledObserveHandler {
                     condition: self.lower_expr(&h.condition.node),
-                    event_name: h.event_name.node.join("."),
+                    event_name: h.event_name.node.to_string(),
                     event_fields: h
                         .event_fields
                         .iter()

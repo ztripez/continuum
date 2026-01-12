@@ -7,7 +7,7 @@
 
 use indexmap::IndexMap;
 
-use continuum_runtime::SignalId;
+use continuum_foundation::SignalId;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
 use continuum_vm::ExecutionContext;
@@ -26,7 +26,7 @@ pub(crate) struct SharedContextData<'a> {
 impl SharedContextData<'_> {
     /// Get signal value by name
     fn signal(&self, name: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
+        let runtime_id = SignalId::from(name);
         match self.signals.get(&runtime_id) {
             Some(v) => v.as_scalar().unwrap_or_else(|| {
                 panic!(
@@ -40,7 +40,7 @@ impl SharedContextData<'_> {
 
     /// Get signal component by name and component (x, y, z, w)
     fn signal_component(&self, name: &str, component: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
+        let runtime_id = SignalId::from(name);
         match self.signals.get(&runtime_id) {
             Some(v) => v.component(component).unwrap_or_else(|| {
                 panic!(

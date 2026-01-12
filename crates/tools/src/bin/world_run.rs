@@ -18,7 +18,7 @@ use continuum_compiler::ir::{
     build_fracture, build_member_resolver, build_signal_resolver, build_vec3_member_resolver,
     compile, convert_assertion_severity, eval_initial_expr, get_initial_signal_value,
 };
-use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
+use continuum_foundation::InstanceId;
 use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
 use continuum_runtime::storage::{EntityInstances, FieldSample, InstanceData};
@@ -202,7 +202,7 @@ fn main() {
         } else if let Some(ref resolve_expr) = signal.resolve {
             // Signal has entity expressions - register placeholder for DAG ordering
             // and a separate aggregate resolver for Phase 3c
-            let signal_name = signal_id.0.clone();
+            let signal_name = signal_id.to_string();
             let placeholder: ResolverFn = Box::new(move |_ctx| {
                 // This placeholder should never be called - aggregates run in Phase 3c
                 panic!(
@@ -214,7 +214,7 @@ fn main() {
 
             // Build and register the actual aggregate resolver
             let aggregate_resolver = build_aggregate_resolver(resolve_expr, &world);
-            runtime.register_aggregate_resolver(SignalId(signal_id.0.clone()), aggregate_resolver);
+            runtime.register_aggregate_resolver(signal_id.clone(), aggregate_resolver);
             info!(
                 "  Registered aggregate resolver for {} (placeholder idx={})",
                 signal_id, idx
@@ -222,7 +222,7 @@ fn main() {
             aggregate_count += 1;
         } else {
             // Signal has no resolve expression - just register a no-op placeholder
-            let signal_name = signal_id.0.clone();
+            let signal_name = signal_id.to_string();
             let placeholder: ResolverFn = Box::new(move |_ctx| {
                 panic!("Signal '{}' has no resolve expression", signal_name);
             });
@@ -245,7 +245,7 @@ fn main() {
             let assertion_fn = build_assertion(&assertion.condition, &world);
             let severity = convert_assertion_severity(assertion.severity);
             runtime.register_assertion(
-                SignalId(signal_id.0.clone()),
+                signal_id.clone(),
                 assertion_fn,
                 severity,
                 assertion.message.clone(),
@@ -263,7 +263,7 @@ fn main() {
     let mut skipped_fields = 0;
     for (field_id, field) in &world.fields {
         if let Some(ref expr) = field.measure {
-            let runtime_id = FieldId(field_id.0.clone());
+            let runtime_id = field_id.clone();
             if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
                 let idx = runtime.register_measure_op(measure_fn);
                 info!("  Registered field measure for {} (idx={})", field_id, idx);
@@ -299,7 +299,7 @@ fn main() {
     // Initialize signals
     for (signal_id, _signal) in &world.signals {
         let value = get_initial_signal_value(&world, signal_id);
-        runtime.init_signal(SignalId(signal_id.0.clone()), value.clone());
+        runtime.init_signal(signal_id.clone(), value.clone());
         match value {
             Value::Scalar(v) => info!("  Initialized signal {} = {}", signal_id, v),
             _ => info!("  Initialized signal {} = {:?}", signal_id, value),
@@ -329,7 +329,7 @@ fn main() {
         // Create instances with unique IDs
         let mut instances = EntityInstances::new();
         for i in 0..count {
-            let instance_id = InstanceId(format!("{}_{}", entity_id.0, i));
+            let instance_id = InstanceId::from(format!("{}_{}", entity_id, i));
 
             // Initialize member fields for this instance
             let mut fields = indexmap::IndexMap::new();
@@ -350,7 +350,7 @@ fn main() {
             instances.insert(instance_id, InstanceData::new(fields));
         }
 
-        runtime.init_entity(EntityId(entity_id.0.clone()), instances);
+        runtime.init_entity(entity_id.clone(), instances);
         info!(
             "  Initialized entity {} with {} instances",
             entity_id, count
@@ -380,7 +380,7 @@ fn main() {
             } else {
                 1
             };
-            entity_counts.insert(entity_id.0.clone(), count);
+            entity_counts.insert(entity_id.to_string(), count);
         }
 
         // Use max instance count for storage allocation (signals need enough slots for largest entity)
@@ -397,7 +397,7 @@ fn main() {
             };
             // Use full member ID (e.g., "stellar.star.mass") instead of just signal_name ("mass")
             // to avoid collisions between entities with same-named members
-            runtime.register_member_signal(&member_id.0, value_type);
+            runtime.register_member_signal(&member_id.to_string(), value_type);
         }
 
         // Initialize member instances with max count for storage
@@ -423,11 +423,18 @@ fn main() {
                     eval_initial_expr(initial_expr, &world.constants, &world.config);
 
                 // Get the correct instance count for this member's entity
-                let instance_count = entity_counts.get(&member.entity_id.0).copied().unwrap_or(1);
+                let instance_count = entity_counts
+                    .get(&member.entity_id.to_string())
+                    .copied()
+                    .unwrap_or(1);
 
                 // Set initial value for all instances of this member
                 for instance_idx in 0..instance_count {
-                    runtime.set_member_signal(&member_id.0, instance_idx, initial_value.clone());
+                    runtime.set_member_signal(
+                        &member_id.to_string(),
+                        instance_idx,
+                        initial_value.clone(),
+                    );
                 }
 
                 info!(
@@ -452,7 +459,7 @@ fn main() {
         for (member_id, member) in &world.members {
             if let Some(ref resolve_expr) = member.resolve {
                 // Entity prefix is the entity ID (e.g., "terra.plate" for "terra.plate.age")
-                let entity_prefix = &member.entity_id.0;
+                let entity_prefix = &member.entity_id.to_string();
 
                 // Use the appropriate builder based on value type
                 match member.value_type {
@@ -463,7 +470,7 @@ fn main() {
                             &world.config,
                             entity_prefix,
                         );
-                        runtime.register_vec3_member_resolver(member_id.0.clone(), resolver);
+                        runtime.register_vec3_member_resolver(member_id.to_string(), resolver);
                         info!(
                             "  Registered Vec3 member resolver for {} (entity={})",
                             member_id, entity_prefix
@@ -478,7 +485,7 @@ fn main() {
                             &world.config,
                             entity_prefix,
                         );
-                        runtime.register_member_resolver(member_id.0.clone(), resolver);
+                        runtime.register_member_resolver(member_id.to_string(), resolver);
                         info!(
                             "  Registered scalar member resolver for {} (entity={})",
                             member_id, entity_prefix
@@ -511,8 +518,8 @@ fn main() {
             seed: 0, // TODO: threaded seed support
             steps: num_steps,
             stride: save_stride,
-            signals: world.signals.keys().map(|id| id.0.clone()).collect(),
-            fields: world.fields.keys().map(|id| id.0.clone()).collect(),
+            signals: world.signals.keys().map(|id| id.to_string()).collect(),
+            fields: world.fields.keys().map(|id| id.to_string()).collect(),
         };
         let manifest_json = serde_json::to_string_pretty(&manifest).expect("serialization failed");
         fs::write(dir.join("run.json"), manifest_json).expect("failed to write run.json");
@@ -534,7 +541,7 @@ fn main() {
                 // Print signal values
                 let mut first = true;
                 for (signal_id, _) in &world.signals {
-                    let runtime_id = SignalId(signal_id.0.clone());
+                    let runtime_id = signal_id.clone();
                     if let Some(value) = runtime.get_signal(&runtime_id) {
                         if !first {
                             print!(", ");
@@ -556,8 +563,8 @@ fn main() {
                     if step % save_stride == 0 {
                         let mut signal_values = std::collections::HashMap::new();
                         for id in world.signals.keys() {
-                            if let Some(val) = runtime.get_signal(&SignalId(id.0.clone())) {
-                                signal_values.insert(id.0.clone(), val.clone());
+                            if let Some(val) = runtime.get_signal(id) {
+                                signal_values.insert(id.to_string(), val.clone());
                             }
                         }
 
@@ -565,7 +572,7 @@ fn main() {
                         // Drain fields so they are captured (and cleared for next tick)
                         let all_fields = runtime.drain_fields();
                         for (id, samples) in &all_fields {
-                            field_values.insert(id.0.clone(), samples.clone());
+                            field_values.insert(id.to_string(), samples.clone());
                         }
 
                         let snapshot = TickSnapshot {

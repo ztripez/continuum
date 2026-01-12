@@ -7,7 +7,7 @@ use crate::math_consts;
 
 use super::super::expr::spanned_expr;
 use super::super::lexer::Token;
-use super::super::primitives::{float, ident, spanned, spanned_path, unit_string};
+use super::super::primitives::{float, ident, spanned, spanned_path, tok, unit_string};
 use super::super::{ParseError, ParserInput};
 
 // === Type Definitions ===
@@ -142,7 +142,7 @@ pub fn type_expr<'src>()
 /// Parses a numeric value that can be either a float literal or a math constant.
 fn numeric_value<'src>()
 -> impl Parser<'src, ParserInput<'src>, f64, extra::Err<ParseError<'src>>> + Clone {
-    choice((
+    let value = choice((
         float(),
         // Specific math constant tokens
         just(Token::Pi).to(std::f64::consts::PI),
@@ -154,7 +154,12 @@ fn numeric_value<'src>()
             math_consts::lookup(&name)
                 .ok_or_else(|| Rich::custom(span.into(), format!("unknown math constant '{name}'")))
         }),
-    ))
+    ));
+
+    tok(Token::Minus)
+        .or_not()
+        .then(value)
+        .map(|(minus, val)| if minus.is_some() { -val } else { val })
 }
 
 fn range<'src>() -> impl Parser<'src, ParserInput<'src>, Range, extra::Err<ParseError<'src>>> + Clone

@@ -20,11 +20,11 @@ struct LetBinding<'a> {
 
 impl Lowerer {
     pub(crate) fn lower_impulse(&mut self, def: &ast::ImpulseDef) -> Result<(), LowerError> {
-        let id = ImpulseId::from(def.path.node.join(".").as_str());
+        let id = ImpulseId::from(def.path.node.clone());
 
         // Check for duplicate impulse definition
         if self.impulses.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("impulse.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition(format!("impulse.{}", id)));
         }
 
         let impulse = CompiledImpulse {
@@ -46,20 +46,17 @@ impl Lowerer {
     }
 
     pub(crate) fn lower_fracture(&mut self, def: &ast::FractureDef) -> Result<(), LowerError> {
-        let id = FractureId::from(def.path.node.join(".").as_str());
-        let fracture_path = def.path.node.join(".");
+        let id = FractureId::from(def.path.node.clone());
+        let fracture_path = def.path.node.to_string();
 
         // Check for duplicate fracture definition
         if self.fractures.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!(
-                "fracture.{}",
-                id.0
-            )));
+            return Err(LowerError::DuplicateDefinition(format!("fracture.{}", id)));
         }
 
         // Process local config blocks - add to global config with fracture-prefixed keys
         for entry in &def.local_config {
-            let local_key = entry.path.node.join(".");
+            let local_key = entry.path.node.to_string();
             // Add with full fracture path prefix: config.fracture.path.local_key
             let full_key = format!("fracture.{}.{}", fracture_path, local_key);
             let value = self.literal_to_f64(&entry.value.node)?;
@@ -68,9 +65,9 @@ impl Lowerer {
 
         // Determine stratum binding
         let stratum = if let Some(s) = &def.strata {
-            let id = StratumId::from(s.node.join(".").as_str());
+            let id = StratumId::from(s.node.clone());
             if !self.strata.contains_key(&id) {
-                return Err(LowerError::UndefinedStratum(id.0));
+                return Err(LowerError::UndefinedStratum(id.to_string()));
             }
             id
         } else {
@@ -110,7 +107,7 @@ impl Lowerer {
             emits: emits
                 .into_iter()
                 .map(|(target, value_expr)| CompiledEmit {
-                    target: SignalId::from(target.join(".").as_str()),
+                    target: SignalId::from(target),
                     value: value_expr,
                 })
                 .collect(),

@@ -7,11 +7,76 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Path {
+    pub segments: Vec<String>,
+}
+
+impl Path {
+    pub fn new(segments: Vec<String>) -> Self {
+        Self { segments }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        Self {
+            segments: s.split('.').map(String::from).collect(),
+        }
+    }
+
+    pub fn join(&self, sep: &str) -> String {
+        self.segments.join(sep)
+    }
+}
+
+impl fmt::Display for Path {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.segments.join("."))
+    }
+}
+
+impl From<&str> for Path {
+    fn from(s: &str) -> Self {
+        Self::from_str(s)
+    }
+}
+
+impl From<String> for Path {
+    fn from(s: String) -> Self {
+        Self::from_str(&s)
+    }
+}
+
+impl PartialEq<&str> for Path {
+    fn eq(&self, other: &&str) -> bool {
+        self.to_string() == *other
+    }
+}
+
+impl PartialEq<String> for Path {
+    fn eq(&self, other: &String) -> bool {
+        &self.to_string() == other
+    }
+}
+
 macro_rules! define_id {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
         #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-        pub struct $name(pub String);
+        pub struct $name(pub Path);
+
+        impl $name {
+            pub fn new(p: impl Into<Path>) -> Self {
+                Self(p.into())
+            }
+
+            pub fn as_str(&self) -> String {
+                self.0.to_string()
+            }
+
+            pub fn path(&self) -> &Path {
+                &self.0
+            }
+        }
 
         impl fmt::Display for $name {
             fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -21,7 +86,19 @@ macro_rules! define_id {
 
         impl From<&str> for $name {
             fn from(s: &str) -> Self {
-                Self(s.to_string())
+                Self(Path::from_str(s))
+            }
+        }
+
+        impl From<String> for $name {
+            fn from(s: String) -> Self {
+                Self(Path::from_str(&s))
+            }
+        }
+
+        impl From<Path> for $name {
+            fn from(p: Path) -> Self {
+                Self(p)
             }
         }
     };

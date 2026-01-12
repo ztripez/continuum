@@ -1725,7 +1725,7 @@ mod tests {
             right: Box::new(CompiledExpr::Collected),
         };
 
-        let entity_id = EntityId("test_entity".to_string());
+        let entity_id = EntityId::from("test_entity");
         let kernel = generate_l2_kernel(&entity_id, "temperature", &expr, 10_000);
 
         // Verify kernel properties via LaneKernel trait
@@ -1819,7 +1819,7 @@ mod tests {
 
         // Add two strata
         coverage.stratum_coverage.insert(
-            StratumId("stratum_a".to_string()),
+            StratumId::from("stratum_a"),
             StratumCoverage {
                 total_signals: 60,
                 vectorizable_signals: 50,
@@ -1827,7 +1827,7 @@ mod tests {
             },
         );
         coverage.stratum_coverage.insert(
-            StratumId("stratum_b".to_string()),
+            StratumId::from("stratum_b"),
             StratumCoverage {
                 total_signals: 40,
                 vectorizable_signals: 30,
@@ -1877,7 +1877,7 @@ mod tests {
         // Create a batch that qualifies for L2
         let batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -1898,7 +1898,7 @@ mod tests {
         // Create a batch that's too small for SIMD
         let batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![SignalId::from("a"), SignalId::from("b")], // Only 2 signals
         };
@@ -1923,7 +1923,7 @@ mod tests {
         // Create a batch with custom pattern
         let batch = SignalBatch {
             pattern: ExpressionPattern::Custom(12345),
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -1953,7 +1953,7 @@ mod tests {
         // Create a batch with population below minimum
         let batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -1983,7 +1983,7 @@ mod tests {
         // Create multiple batches with different outcomes
         let l2_batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -1995,7 +1995,7 @@ mod tests {
 
         let l1_batch = SignalBatch {
             pattern: ExpressionPattern::Custom(999),
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("e"),
@@ -2017,7 +2017,7 @@ mod tests {
     fn test_summarize_partition() {
         let l2_batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -2031,7 +2031,7 @@ mod tests {
         // Custom pattern batch with enough signals to avoid "batch too small"
         let l1_batch = SignalBatch {
             pattern: ExpressionPattern::Custom(999),
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("f"),

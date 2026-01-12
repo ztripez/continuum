@@ -1,7 +1,8 @@
 //! Primitive parser combinators for the Continuum DSL.
 
-use chumsky::input::{self, MapExtra};
+use chumsky::input;
 use chumsky::prelude::*;
+use chumsky::span::SimpleSpan;
 
 use super::lexer::Token;
 use super::{ParseError, ParserInput};
@@ -14,9 +15,14 @@ pub fn spanned<'src, I, O>(
 where
     I: input::Input<'src, Span = SimpleSpan, Token = Token>,
 {
-    parser.map_with(|value, extra: &mut MapExtra<'src, '_, I, _>| {
-        Spanned::new(value, extra.span().into())
-    })
+    parser.map_with(|value, extra| Spanned::new(value, extra.span().into()))
+}
+
+/// Helper to match a token, ignoring its span in the input
+pub fn tok<'src>(
+    token: Token,
+) -> impl Parser<'src, ParserInput<'src>, Token, extra::Err<ParseError<'src>>> + Clone {
+    just(token)
 }
 
 /// Parses an identifier or a keyword that can act as an identifier.
@@ -25,87 +31,87 @@ pub fn ident<'src>()
     let base_ident = select! { Token::Ident(name) => name };
 
     let kw_group1 = choice((
-        just(Token::World).to("world".to_string()),
-        just(Token::Strata).to("strata".to_string()),
-        just(Token::Era).to("era".to_string()),
-        just(Token::Signal).to("signal".to_string()),
-        just(Token::Field).to("field".to_string()),
-        just(Token::Operator).to("operator".to_string()),
-        just(Token::Fn).to("fn".to_string()),
-        just(Token::Type).to("type".to_string()),
-        just(Token::Impulse).to("impulse".to_string()),
-        just(Token::Fracture).to("fracture".to_string()),
-        just(Token::Chronicle).to("chronicle".to_string()),
-        just(Token::Entity).to("entity".to_string()),
-        just(Token::Member).to("member".to_string()),
-        just(Token::Const).to("const".to_string()),
-        just(Token::Config).to("config".to_string()),
-        just(Token::Policy).to("policy".to_string()),
-        just(Token::Version).to("version".to_string()),
-        just(Token::Initial).to("initial".to_string()),
-        just(Token::Terminal).to("terminal".to_string()),
-        just(Token::Stride).to("stride".to_string()),
-        just(Token::Title).to("title".to_string()),
-        just(Token::Symbol).to("symbol".to_string()),
-        just(Token::Active).to("active".to_string()),
-        just(Token::Converge).to("converge".to_string()),
-        just(Token::Warmup).to("warmup".to_string()),
+        tok(Token::World).to("world".to_string()),
+        tok(Token::Strata).to("strata".to_string()),
+        tok(Token::Era).to("era".to_string()),
+        tok(Token::Signal).to("signal".to_string()),
+        tok(Token::Field).to("field".to_string()),
+        tok(Token::Operator).to("operator".to_string()),
+        tok(Token::Fn).to("fn".to_string()),
+        tok(Token::Type).to("type".to_string()),
+        tok(Token::Impulse).to("impulse".to_string()),
+        tok(Token::Fracture).to("fracture".to_string()),
+        tok(Token::Chronicle).to("chronicle".to_string()),
+        tok(Token::Entity).to("entity".to_string()),
+        tok(Token::Member).to("member".to_string()),
+        tok(Token::Const).to("const".to_string()),
+        tok(Token::Config).to("config".to_string()),
+        tok(Token::Policy).to("policy".to_string()),
+        tok(Token::Version).to("version".to_string()),
+        tok(Token::Initial).to("initial".to_string()),
+        tok(Token::Terminal).to("terminal".to_string()),
+        tok(Token::Stride).to("stride".to_string()),
+        tok(Token::Title).to("title".to_string()),
+        tok(Token::Symbol).to("symbol".to_string()),
+        tok(Token::Active).to("active".to_string()),
+        tok(Token::Converge).to("converge".to_string()),
+        tok(Token::Warmup).to("warmup".to_string()),
     ));
 
     let kw_group2 = choice((
-        just(Token::Iterate).to("iterate".to_string()),
-        just(Token::Phase).to("phase".to_string()),
-        just(Token::Magnitude).to("magnitude".to_string()),
-        just(Token::Symmetric).to("symmetric".to_string()),
-        just(Token::PositiveDefinite).to("positive_definite".to_string()),
-        just(Token::Topology).to("topology".to_string()),
-        just(Token::Min).to("min".to_string()),
-        just(Token::Max).to("max".to_string()),
-        just(Token::Mean).to("mean".to_string()),
-        just(Token::Sum).to("sum".to_string()),
-        just(Token::Product).to("product".to_string()),
-        just(Token::Any).to("any".to_string()),
-        just(Token::All).to("all".to_string()),
-        just(Token::None).to("none".to_string()),
-        just(Token::First).to("first".to_string()),
-        just(Token::Nearest).to("nearest".to_string()),
-        just(Token::Within).to("within".to_string()),
-        just(Token::Other).to("other".to_string()),
-        just(Token::Pairs).to("pairs".to_string()),
-        just(Token::Filter).to("filter".to_string()),
-        just(Token::Event).to("event".to_string()),
-        just(Token::Observe).to("observe".to_string()),
-        just(Token::Apply).to("apply".to_string()),
-        just(Token::When).to("when".to_string()),
-        just(Token::Emit).to("emit".to_string()),
+        tok(Token::Iterate).to("iterate".to_string()),
+        tok(Token::Phase).to("phase".to_string()),
+        tok(Token::Magnitude).to("magnitude".to_string()),
+        tok(Token::Symmetric).to("symmetric".to_string()),
+        tok(Token::PositiveDefinite).to("positive_definite".to_string()),
+        tok(Token::Topology).to("topology".to_string()),
+        tok(Token::Min).to("min".to_string()),
+        tok(Token::Max).to("max".to_string()),
+        tok(Token::Mean).to("mean".to_string()),
+        tok(Token::Sum).to("sum".to_string()),
+        tok(Token::Product).to("product".to_string()),
+        tok(Token::Any).to("any".to_string()),
+        tok(Token::All).to("all".to_string()),
+        tok(Token::None).to("none".to_string()),
+        tok(Token::First).to("first".to_string()),
+        tok(Token::Nearest).to("nearest".to_string()),
+        tok(Token::Within).to("within".to_string()),
+        tok(Token::Other).to("other".to_string()),
+        tok(Token::Pairs).to("pairs".to_string()),
+        tok(Token::Filter).to("filter".to_string()),
+        tok(Token::Event).to("event".to_string()),
+        tok(Token::Observe).to("observe".to_string()),
+        tok(Token::Apply).to("apply".to_string()),
+        tok(Token::When).to("when".to_string()),
+        tok(Token::Emit).to("emit".to_string()),
     ));
 
     let kw_group3 = choice((
-        just(Token::Assert).to("assert".to_string()),
-        just(Token::Resolve).to("resolve".to_string()),
-        just(Token::Measure).to("measure".to_string()),
-        just(Token::Collect).to("collect".to_string()),
-        just(Token::Transition).to("transition".to_string()),
-        just(Token::Gated).to("gated".to_string()),
-        just(Token::Dt).to("dt".to_string()),
-        just(Token::To).to("to".to_string()),
-        just(Token::Warn).to("warn".to_string()),
-        just(Token::Error).to("error".to_string()),
-        just(Token::Fatal).to("fatal".to_string()),
-        just(Token::Pi).to("PI".to_string()),
-        just(Token::Tau).to("TAU".to_string()),
-        just(Token::Phi).to("PHI".to_string()),
-        just(Token::E).to("E".to_string()),
-        just(Token::I).to("I".to_string()),
-        just(Token::Scalar).to("Scalar".to_string()),
-        just(Token::Vec2).to("Vec2".to_string()),
-        just(Token::Vec3).to("Vec3".to_string()),
-        just(Token::Vec4).to("Vec4".to_string()),
-        just(Token::Vector).to("Vector".to_string()),
-        just(Token::Tensor).to("Tensor".to_string()),
-        just(Token::Grid).to("Grid".to_string()),
-        just(Token::Seq).to("Seq".to_string()),
-        just(Token::Uses).to("uses".to_string()),
+        tok(Token::Assert).to("assert".to_string()),
+        tok(Token::Resolve).to("resolve".to_string()),
+        tok(Token::Measure).to("measure".to_string()),
+        tok(Token::Collect).to("collect".to_string()),
+        tok(Token::Transition).to("transition".to_string()),
+        tok(Token::Gated).to("gated".to_string()),
+        tok(Token::Dt).to("dt".to_string()),
+        tok(Token::To).to("to".to_string()),
+        tok(Token::Warn).to("warn".to_string()),
+        tok(Token::Error).to("error".to_string()),
+        tok(Token::Fatal).to("fatal".to_string()),
+        tok(Token::Pi).to("PI".to_string()),
+        tok(Token::Tau).to("TAU".to_string()),
+        tok(Token::Phi).to("PHI".to_string()),
+        tok(Token::E).to("E".to_string()),
+        tok(Token::I).to("I".to_string()),
+        tok(Token::Scalar).to("Scalar".to_string()),
+        tok(Token::Vec2).to("Vec2".to_string()),
+        tok(Token::Vec3).to("Vec3".to_string()),
+        tok(Token::Vec4).to("Vec4".to_string()),
+        tok(Token::Vector).to("Vector".to_string()),
+        tok(Token::Tensor).to("Tensor".to_string()),
+        tok(Token::Grid).to("Grid".to_string()),
+        tok(Token::Seq).to("Seq".to_string()),
+        tok(Token::Uses).to("uses".to_string()),
     ));
 
     choice((base_ident, kw_group1, kw_group2, kw_group3))
@@ -115,7 +121,7 @@ pub fn ident<'src>()
 pub fn path<'src>()
 -> impl Parser<'src, ParserInput<'src>, Path, extra::Err<ParseError<'src>>> + Clone {
     ident()
-        .separated_by(just(Token::Dot))
+        .separated_by(tok(Token::Dot))
         .at_least(1)
         .collect::<Vec<_>>()
         .map(Path::new)
@@ -147,7 +153,7 @@ pub fn float<'src>()
 /// Number literal (with optional sign)
 pub fn number<'src>()
 -> impl Parser<'src, ParserInput<'src>, Literal, extra::Err<ParseError<'src>>> + Clone {
-    just(Token::Minus)
+    tok(Token::Minus)
         .or_not()
         .then(float())
         .map(|(minus, val)| {
@@ -172,9 +178,9 @@ pub fn literal<'src>()
 /// Unit in angle brackets: `<K>`, `<W/m²>`
 pub fn unit<'src>()
 -> impl Parser<'src, ParserInput<'src>, String, extra::Err<ParseError<'src>>> + Clone {
-    just(Token::LAngle)
+    tok(Token::LAngle)
         .ignore_then(unit_content())
-        .then_ignore(just(Token::RAngle))
+        .then_ignore(tok(Token::RAngle))
 }
 
 /// Internal helper to match unit content tokens
@@ -183,8 +189,8 @@ fn unit_content<'src>()
     // Reconstruct unit from tokens
     choice((
         ident(),
-        just(Token::Slash).to("/".to_string()),
-        just(Token::Star).to("*".to_string()),
+        tok(Token::Slash).to("/".to_string()),
+        tok(Token::Star).to("*".to_string()),
         select! {
             Token::Integer(i) => i.to_string(),
             Token::UnitPart(s) => s,
@@ -215,36 +221,36 @@ pub fn optional_unit<'src>()
 pub fn attr_string<'src>(
     token: Token,
 ) -> impl Parser<'src, ParserInput<'src>, Spanned<String>, extra::Err<ParseError<'src>>> + Clone {
-    just(Token::Colon)
-        .ignore_then(just(token))
-        .ignore_then(spanned(string_lit()).delimited_by(just(Token::LParen), just(Token::RParen)))
+    tok(Token::Colon)
+        .ignore_then(tok(token))
+        .ignore_then(spanned(string_lit()).delimited_by(tok(Token::LParen), tok(Token::RParen)))
 }
 
 /// Parse `: keyword(path)` pattern used for strata attributes
 pub fn attr_path<'src>(
     token: Token,
 ) -> impl Parser<'src, ParserInput<'src>, Spanned<Path>, extra::Err<ParseError<'src>>> + Clone {
-    just(Token::Colon)
-        .ignore_then(just(token))
-        .ignore_then(spanned_path().delimited_by(just(Token::LParen), just(Token::RParen)))
+    tok(Token::Colon)
+        .ignore_then(tok(token))
+        .ignore_then(spanned_path().delimited_by(tok(Token::LParen), tok(Token::RParen)))
 }
 
 /// Parse `: keyword` pattern (no value) used for flag attributes
 pub fn attr_flag<'src>(
     token: Token,
 ) -> impl Parser<'src, ParserInput<'src>, (), extra::Err<ParseError<'src>>> + Clone {
-    just(Token::Colon).ignore_then(just(token)).ignored()
+    tok(Token::Colon).ignore_then(tok(token)).ignored()
 }
 
 /// Parse `: keyword(int)` pattern returning a spanned integer
 pub fn attr_int<'src>(
     token: Token,
 ) -> impl Parser<'src, ParserInput<'src>, Spanned<u32>, extra::Err<ParseError<'src>>> + Clone {
-    just(Token::Colon).ignore_then(just(token)).ignore_then(
+    tok(Token::Colon).ignore_then(tok(token)).ignore_then(
         spanned(select! {
             Token::Integer(i) => i as u32,
         })
-        .delimited_by(just(Token::LParen), just(Token::RParen)),
+        .delimited_by(tok(Token::LParen), tok(Token::RParen)),
     )
 }
 

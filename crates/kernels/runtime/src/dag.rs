@@ -415,7 +415,7 @@ impl BarrierDagBuilder {
 
         // If there's a corresponding member signal node, create a synthetic
         // signal ID for dependency tracking
-        let member_dep_signal = SignalId(format!("__member.{}", barrier.member_signal));
+        let member_dep_signal = SignalId::from(format!("__member.{}", barrier.member_signal));
         reads.insert(member_dep_signal.clone());
 
         // Update the member signal node to "write" this synthetic signal
@@ -718,10 +718,10 @@ mod tests {
     fn make_node(id: &str, reads: &[&str], writes: Option<&str>) -> DagNode {
         DagNode {
             id: NodeId(id.to_string()),
-            reads: reads.iter().map(|s| SignalId(s.to_string())).collect(),
-            writes: writes.map(|s| SignalId(s.to_string())),
+            reads: reads.iter().map(|s| SignalId::from(*s)).collect(),
+            writes: writes.map(|s| SignalId::from(s)),
             kind: NodeKind::SignalResolve {
-                signal: SignalId(writes.unwrap_or(id).to_string()),
+                signal: SignalId::from(writes.unwrap_or(id)),
                 resolver_idx: 0,
             },
         }
@@ -845,7 +845,7 @@ mod tests {
 
     #[test]
     fn test_dag_builder_creates_correct_structure() {
-        let mut builder = DagBuilder::new(Phase::Resolve, StratumId("terra".to_string()));
+        let mut builder = DagBuilder::new(Phase::Resolve, StratumId::from("terra"));
         builder.add_node(make_node("a", &[], Some("sig.a")));
         builder.add_node(make_node("b", &["sig.a"], Some("sig.b")));
 
@@ -862,11 +862,11 @@ mod tests {
         let mut era_dags = EraDags::default();
 
         // Add DAGs for different phases
-        let mut collect_builder = DagBuilder::new(Phase::Collect, StratumId("terra".to_string()));
+        let mut collect_builder = DagBuilder::new(Phase::Collect, StratumId::from("terra"));
         collect_builder.add_node(make_node("collect_op", &[], None));
         era_dags.insert(collect_builder.build().unwrap());
 
-        let mut resolve_builder = DagBuilder::new(Phase::Resolve, StratumId("terra".to_string()));
+        let mut resolve_builder = DagBuilder::new(Phase::Resolve, StratumId::from("terra"));
         resolve_builder.add_node(make_node("resolver", &[], Some("sig.x")));
         era_dags.insert(resolve_builder.build().unwrap());
 
@@ -886,21 +886,21 @@ mod tests {
 
         // Era 1
         let mut era1 = EraDags::default();
-        let builder1 = DagBuilder::new(Phase::Resolve, StratumId("terra".to_string()));
+        let builder1 = DagBuilder::new(Phase::Resolve, StratumId::from("terra"));
         era1.insert(builder1.build().unwrap());
-        dag_set.insert_era(EraId("era1".to_string()), era1);
+        dag_set.insert_era(EraId::from("era1"), era1);
 
         // Era 2
         let mut era2 = EraDags::default();
-        let builder2 = DagBuilder::new(Phase::Resolve, StratumId("terra".to_string()));
+        let builder2 = DagBuilder::new(Phase::Resolve, StratumId::from("terra"));
         era2.insert(builder2.build().unwrap());
-        dag_set.insert_era(EraId("era2".to_string()), era2);
+        dag_set.insert_era(EraId::from("era2"), era2);
 
         assert_eq!(dag_set.era_count(), 2);
         assert!(!dag_set.is_empty());
-        assert!(dag_set.get_era(&EraId("era1".to_string())).is_some());
-        assert!(dag_set.get_era(&EraId("era2".to_string())).is_some());
-        assert!(dag_set.get_era(&EraId("era3".to_string())).is_none());
+        assert!(dag_set.get_era(&EraId::from("era1")).is_some());
+        assert!(dag_set.get_era(&EraId::from("era2")).is_some());
+        assert!(dag_set.get_era(&EraId::from("era3")).is_none());
     }
 
     #[test]
@@ -908,8 +908,8 @@ mod tests {
         let mut era_dags = EraDags::default();
 
         // Same phase, different strata
-        let builder_terra = DagBuilder::new(Phase::Resolve, StratumId("terra".to_string()));
-        let builder_climate = DagBuilder::new(Phase::Resolve, StratumId("climate".to_string()));
+        let builder_terra = DagBuilder::new(Phase::Resolve, StratumId::from("terra"));
+        let builder_climate = DagBuilder::new(Phase::Resolve, StratumId::from("climate"));
 
         era_dags.insert(builder_terra.build().unwrap());
         era_dags.insert(builder_climate.build().unwrap());
@@ -917,17 +917,17 @@ mod tests {
         // Should be able to get each separately
         assert!(
             era_dags
-                .get(Phase::Resolve, &StratumId("terra".to_string()))
+                .get(Phase::Resolve, &StratumId::from("terra"))
                 .is_some()
         );
         assert!(
             era_dags
-                .get(Phase::Resolve, &StratumId("climate".to_string()))
+                .get(Phase::Resolve, &StratumId::from("climate"))
                 .is_some()
         );
         assert!(
             era_dags
-                .get(Phase::Resolve, &StratumId("nonexistent".to_string()))
+                .get(Phase::Resolve, &StratumId::from("nonexistent"))
                 .is_none()
         );
     }
@@ -959,11 +959,11 @@ mod tests {
 
     #[test]
     fn test_barrier_dag_builder_member_signal_before_aggregate() {
-        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("physics".to_string()));
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId::from("physics"));
 
         // Add member signal resolution for person.age
         let member_signal = MemberSignalId {
-            entity_id: EntityId("person".to_string()),
+            entity_id: EntityId::from("person"),
             signal_name: "age".to_string(),
         };
         builder.add_member_signal_resolve(member_signal.clone(), 0);
@@ -973,7 +973,7 @@ mod tests {
             id: NodeId("mean_age_barrier".to_string()),
             member_signal: member_signal.clone(),
             reduction_op: ReductionOp::Mean,
-            output_signal: SignalId("population.mean_age".to_string()),
+            output_signal: SignalId::from("population.mean_age"),
             aggregate_idx: 0,
         });
 
@@ -999,11 +999,11 @@ mod tests {
 
     #[test]
     fn test_barrier_dag_builder_signal_after_aggregate() {
-        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("physics".to_string()));
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId::from("physics"));
 
         // Add member signal resolution
         let member_signal = MemberSignalId {
-            entity_id: EntityId("particle".to_string()),
+            entity_id: EntityId::from("particle"),
             signal_name: "energy".to_string(),
         };
         builder.add_member_signal_resolve(member_signal.clone(), 0);
@@ -1013,15 +1013,15 @@ mod tests {
             id: NodeId("total_energy_barrier".to_string()),
             member_signal: member_signal.clone(),
             reduction_op: ReductionOp::Sum,
-            output_signal: SignalId("system.total_energy".to_string()),
+            output_signal: SignalId::from("system.total_energy"),
             aggregate_idx: 0,
         });
 
         // Add a global signal that reads the aggregate
         builder.add_signal_resolve(
-            SignalId("system.energy_ratio".to_string()),
+            SignalId::from("system.energy_ratio"),
             1,
-            &[SignalId("system.total_energy".to_string())],
+            &[SignalId::from("system.total_energy")],
         );
 
         let dag = builder.build().expect("should build without cycles");
@@ -1044,10 +1044,10 @@ mod tests {
 
     #[test]
     fn test_barrier_dag_builder_multiple_aggregates() {
-        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("physics".to_string()));
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId::from("physics"));
 
         let member_signal = MemberSignalId {
-            entity_id: EntityId("cell".to_string()),
+            entity_id: EntityId::from("cell"),
             signal_name: "temperature".to_string(),
         };
         builder.add_member_signal_resolve(member_signal.clone(), 0);
@@ -1057,7 +1057,7 @@ mod tests {
             id: NodeId("min_temp".to_string()),
             member_signal: member_signal.clone(),
             reduction_op: ReductionOp::Min,
-            output_signal: SignalId("grid.min_temp".to_string()),
+            output_signal: SignalId::from("grid.min_temp"),
             aggregate_idx: 0,
         });
 
@@ -1065,7 +1065,7 @@ mod tests {
             id: NodeId("max_temp".to_string()),
             member_signal: member_signal.clone(),
             reduction_op: ReductionOp::Max,
-            output_signal: SignalId("grid.max_temp".to_string()),
+            output_signal: SignalId::from("grid.max_temp"),
             aggregate_idx: 1,
         });
 
@@ -1079,14 +1079,14 @@ mod tests {
 
     #[test]
     fn test_barrier_stats() {
-        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("test".to_string()));
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId::from("test"));
 
         let ms1 = MemberSignalId {
-            entity_id: EntityId("a".to_string()),
+            entity_id: EntityId::from("a"),
             signal_name: "x".to_string(),
         };
         let ms2 = MemberSignalId {
-            entity_id: EntityId("b".to_string()),
+            entity_id: EntityId::from("b"),
             signal_name: "y".to_string(),
         };
 
@@ -1097,7 +1097,7 @@ mod tests {
             id: NodeId("agg1".to_string()),
             member_signal: ms1,
             reduction_op: ReductionOp::Sum,
-            output_signal: SignalId("out1".to_string()),
+            output_signal: SignalId::from("out1"),
             aggregate_idx: 0,
         });
 
@@ -1113,10 +1113,10 @@ mod tests {
 
     #[test]
     fn test_verify_barrier_semantics_valid() {
-        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId("test".to_string()));
+        let mut builder = BarrierDagBuilder::new(Phase::Resolve, StratumId::from("test"));
 
         let member_signal = MemberSignalId {
-            entity_id: EntityId("entity".to_string()),
+            entity_id: EntityId::from("entity"),
             signal_name: "value".to_string(),
         };
         builder.add_member_signal_resolve(member_signal.clone(), 0);
@@ -1125,15 +1125,11 @@ mod tests {
             id: NodeId("agg".to_string()),
             member_signal,
             reduction_op: ReductionOp::Sum,
-            output_signal: SignalId("sum".to_string()),
+            output_signal: SignalId::from("sum"),
             aggregate_idx: 0,
         });
 
-        builder.add_signal_resolve(
-            SignalId("derived".to_string()),
-            0,
-            &[SignalId("sum".to_string())],
-        );
+        builder.add_signal_resolve(SignalId::from("derived"), 0, &[SignalId::from("sum")]);
 
         let dag = builder.build().unwrap();
         assert!(verify_barrier_semantics(&dag).is_ok());
@@ -1146,10 +1142,10 @@ mod tests {
         // The member node must appear first in the level so it's registered
         // before the aggregate is processed.
         let member_signal = MemberSignalId {
-            entity_id: EntityId("entity".to_string()),
+            entity_id: EntityId::from("entity"),
             signal_name: "value".to_string(),
         };
-        let output_signal = SignalId("sum".to_string());
+        let output_signal = SignalId::from("sum");
 
         // Member signal resolve - processed first within level 0
         let member_node = DagNode {
@@ -1168,7 +1164,7 @@ mod tests {
             reads: HashSet::new(),
             writes: Some(output_signal.clone()),
             kind: NodeKind::PopulationAggregate {
-                entity_id: EntityId("entity".to_string()),
+                entity_id: EntityId::from("entity"),
                 member_signal: member_signal.clone(),
                 reduction_op: ReductionOp::Sum,
                 output_signal: output_signal.clone(),
@@ -1178,7 +1174,7 @@ mod tests {
 
         let dag = ExecutableDag {
             phase: Phase::Resolve,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             levels: vec![Level {
                 // Member first so it's registered before aggregate is checked
                 nodes: vec![member_node, aggregate_node],
@@ -1210,11 +1206,11 @@ mod tests {
         // Construct a DAG where a signal reading from aggregate
         // is at the same level as the aggregate (wrong order)
         let member_signal = MemberSignalId {
-            entity_id: EntityId("entity".to_string()),
+            entity_id: EntityId::from("entity"),
             signal_name: "value".to_string(),
         };
-        let aggregate_signal = SignalId("sum".to_string());
-        let derived_signal = SignalId("derived".to_string());
+        let aggregate_signal = SignalId::from("sum");
+        let derived_signal = SignalId::from("derived");
 
         // Level 0: Member signal resolve
         let member_node = DagNode {
@@ -1233,7 +1229,7 @@ mod tests {
             reads: HashSet::new(),
             writes: Some(aggregate_signal.clone()),
             kind: NodeKind::PopulationAggregate {
-                entity_id: EntityId("entity".to_string()),
+                entity_id: EntityId::from("entity"),
                 member_signal: member_signal.clone(),
                 reduction_op: ReductionOp::Sum,
                 output_signal: aggregate_signal.clone(),
@@ -1257,7 +1253,7 @@ mod tests {
 
         let dag = ExecutableDag {
             phase: Phase::Resolve,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             levels: vec![
                 Level {
                     nodes: vec![member_node],

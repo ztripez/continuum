@@ -6,7 +6,7 @@ use crate::ast::{ConfigEntry, MemberDef, ResolveBlock, Spanned};
 
 use super::super::expr::spanned_expr;
 use super::super::lexer::Token;
-use super::super::primitives::{attr_path, attr_string, spanned, spanned_path};
+use super::super::primitives::{attr_path, attr_string, spanned, spanned_path, tok};
 use super::super::{ParseError, ParserInput};
 use super::common::assert_block;
 use super::config::config_entry;
@@ -16,14 +16,14 @@ use super::types::type_expr;
 
 pub fn member_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, MemberDef, extra::Err<ParseError<'src>>> {
-    just(Token::Member)
-        .ignore_then(just(Token::Dot))
+    tok(Token::Member)
+        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             member_content()
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = MemberDef {
@@ -76,25 +76,25 @@ fn member_content<'src>()
         // : symbol("...")
         attr_string(Token::Symbol).map(MemberContent::Symbol),
         // : Type - comes after specific attributes
-        just(Token::Colon)
+        tok(Token::Colon)
             .ignore_then(spanned(type_expr()))
             .map(MemberContent::Type),
         // config { entries }
-        just(Token::Config)
+        tok(Token::Config)
             .ignore_then(
                 config_entry()
                     .repeated()
                     .collect()
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                    .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
             )
             .map(MemberContent::Config),
         // initial { expr }
-        just(Token::Initial)
-            .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        tok(Token::Initial)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|body| MemberContent::Initial(ResolveBlock { body })),
         // resolve { expr }
-        just(Token::Resolve)
-            .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        tok(Token::Resolve)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|body| MemberContent::Resolve(ResolveBlock { body })),
         // assert { assertions }
         assert_block().map(MemberContent::Assert),
@@ -107,6 +107,16 @@ mod tests {
     use chumsky::input::Stream;
     use logos::Logos;
 
+    fn lex_map(
+        tok_span: (
+            Result<Token, <Token as logos::Logos>::Error>,
+            std::ops::Range<usize>,
+        ),
+    ) -> (Token, SimpleSpan) {
+        let token = tok_span.0.unwrap_or(Token::Error);
+        (token, SimpleSpan::from(tok_span.1))
+    }
+
     #[test]
     fn test_parse_simple_member() {
         let src = r#"member.human.person.age {
@@ -115,17 +125,8 @@ mod tests {
             resolve { prev + 1 }
         }"#;
 
-        fn lex_map(
-            tok_span: (
-                Result<Token, <Token as logos::Logos>::Error>,
-                std::ops::Range<usize>,
-            ),
-        ) -> Token {
-            tok_span.0.unwrap_or(Token::Error)
-        }
-
         let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
-        let stream = Stream::from_iter(lexer);
+        let stream = Stream::from_iter(lexer).spanned(SimpleSpan::from(src.len()..src.len()));
 
         let result = member_def().parse(stream);
         assert!(result.has_output());
@@ -150,17 +151,8 @@ mod tests {
             resolve { prev }
         }"#;
 
-        fn lex_map(
-            tok_span: (
-                Result<Token, <Token as logos::Logos>::Error>,
-                std::ops::Range<usize>,
-            ),
-        ) -> Token {
-            tok_span.0.unwrap_or(Token::Error)
-        }
-
         let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
-        let stream = Stream::from_iter(lexer);
+        let stream = Stream::from_iter(lexer).spanned(SimpleSpan::from(src.len()..src.len()));
 
         let result = member_def().parse(stream);
         assert!(result.has_output());
@@ -179,17 +171,8 @@ mod tests {
             resolve { prev }
         }"#;
 
-        fn lex_map(
-            tok_span: (
-                Result<Token, <Token as logos::Logos>::Error>,
-                std::ops::Range<usize>,
-            ),
-        ) -> Token {
-            tok_span.0.unwrap_or(Token::Error)
-        }
-
         let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
-        let stream = Stream::from_iter(lexer);
+        let stream = Stream::from_iter(lexer).spanned(SimpleSpan::from(src.len()..src.len()));
 
         let result = member_def().parse(stream);
         assert!(result.has_output());

@@ -53,7 +53,7 @@ fn test_build_transition_fn() {
     // Signal at 30, should transition (30 < 50 is true)
     let result = transition_fn(&signals, 0.0);
     assert!(result.is_some());
-    assert_eq!(result.unwrap().0, "next_era");
+    assert_eq!(result.unwrap().to_string(), "next_era");
 }
 
 #[test]

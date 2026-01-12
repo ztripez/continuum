@@ -10,7 +10,9 @@ use crate::ast::{
 
 use super::super::expr::spanned_expr;
 use super::super::lexer::Token;
-use super::super::primitives::{attr_flag, attr_path, attr_string, float, spanned, spanned_path};
+use super::super::primitives::{
+    attr_flag, attr_path, attr_string, float, spanned, spanned_path, tok,
+};
 use super::super::{ParseError, ParserInput};
 use super::common::{assert_block, topology};
 use super::config::{config_entry, const_entry};
@@ -20,14 +22,14 @@ use super::types::type_expr;
 
 pub fn signal_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, SignalDef, extra::Err<ParseError<'src>>> {
-    just(Token::Signal)
-        .ignore_then(just(Token::Dot))
+    tok(Token::Signal)
+        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             signal_content()
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = SignalDef {
@@ -89,62 +91,62 @@ fn signal_content<'src>()
         attr_string(Token::Title).map(SignalContent::Title),
         attr_string(Token::Symbol).map(SignalContent::Symbol),
         attr_flag(Token::DtRaw).to(SignalContent::DtRaw),
-        just(Token::Colon)
-            .ignore_then(just(Token::Uses))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
             .ignore_then(
-                just(Token::LParen)
-                    .ignore_then(just(Token::DtRaw))
-                    .then_ignore(just(Token::RParen)),
+                tok(Token::LParen)
+                    .ignore_then(tok(Token::DtRaw))
+                    .then_ignore(tok(Token::RParen)),
             )
             .to(SignalContent::DtRaw),
         // Tensor constraints: `: symmetric`, `: positive_definite`
-        just(Token::Colon)
-            .ignore_then(just(Token::Symmetric))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Symmetric))
             .to(SignalContent::TensorConstraint(TensorConstraint::Symmetric)),
-        just(Token::Colon)
-            .ignore_then(just(Token::PositiveDefinite))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::PositiveDefinite))
             .to(SignalContent::TensorConstraint(
                 TensorConstraint::PositiveDefinite,
             )),
         // Sequence constraints: `: each(min..max)`, `: sum(min..max)`
-        just(Token::Colon)
-            .ignore_then(just(Token::Each))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Each))
             .ignore_then(
-                just(Token::LParen)
+                tok(Token::LParen)
                     .ignore_then(constraint_range())
-                    .then_ignore(just(Token::RParen)),
+                    .then_ignore(tok(Token::RParen)),
             )
             .map(|r| SignalContent::SeqConstraint(SeqConstraint::Each(r))),
-        just(Token::Colon)
-            .ignore_then(just(Token::Sum))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Sum))
             .ignore_then(
-                just(Token::LParen)
+                tok(Token::LParen)
                     .ignore_then(constraint_range())
-                    .then_ignore(just(Token::RParen)),
+                    .then_ignore(tok(Token::RParen)),
             )
             .map(|r| SignalContent::SeqConstraint(SeqConstraint::Sum(r))),
         // Type expression: `: TypeExpr`
-        just(Token::Colon)
+        tok(Token::Colon)
             .ignore_then(spanned(type_expr()))
             .map(SignalContent::Type),
-        just(Token::Const)
+        tok(Token::Const)
             .ignore_then(
                 const_entry()
                     .repeated()
                     .collect()
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                    .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
             )
             .map(SignalContent::LocalConst),
-        just(Token::Config)
+        tok(Token::Config)
             .ignore_then(
                 config_entry()
                     .repeated()
                     .collect()
-                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                    .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
             )
             .map(SignalContent::LocalConfig),
-        just(Token::Resolve)
-            .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        tok(Token::Resolve)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|body| SignalContent::Resolve(ResolveBlock { body })),
         assert_block().map(SignalContent::Assert),
     ))
@@ -154,7 +156,7 @@ fn signal_content<'src>()
 fn constraint_range<'src>()
 -> impl Parser<'src, ParserInput<'src>, Range, extra::Err<ParseError<'src>>> {
     float()
-        .then_ignore(just(Token::DotDot))
+        .then_ignore(tok(Token::DotDot))
         .then(float())
         .map(|(min, max)| Range { min, max })
 }
@@ -163,14 +165,14 @@ fn constraint_range<'src>()
 
 pub fn field_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, FieldDef, extra::Err<ParseError<'src>>> {
-    just(Token::Field)
-        .ignore_then(just(Token::Dot))
+    tok(Token::Field)
+        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             field_content()
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = FieldDef {
@@ -211,17 +213,17 @@ fn field_content<'src>()
 -> impl Parser<'src, ParserInput<'src>, FieldContent, extra::Err<ParseError<'src>>> {
     choice((
         attr_path(Token::Strata).map(FieldContent::Strata),
-        just(Token::Colon)
-            .ignore_then(just(Token::Topology))
-            .ignore_then(spanned(topology()).delimited_by(just(Token::LParen), just(Token::RParen)))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Topology))
+            .ignore_then(spanned(topology()).delimited_by(tok(Token::LParen), tok(Token::RParen)))
             .map(FieldContent::Topology),
         attr_string(Token::Title).map(FieldContent::Title),
         attr_string(Token::Symbol).map(FieldContent::Symbol),
-        just(Token::Colon)
+        tok(Token::Colon)
             .ignore_then(spanned(type_expr()))
             .map(FieldContent::Type),
-        just(Token::Measure)
-            .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        tok(Token::Measure)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|body| FieldContent::Measure(MeasureBlock { body })),
     ))
 }
@@ -230,14 +232,14 @@ fn field_content<'src>()
 
 pub fn operator_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, OperatorDef, extra::Err<ParseError<'src>>> {
-    just(Token::Operator)
-        .ignore_then(just(Token::Dot))
+    tok(Token::Operator)
+        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             operator_content()
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = OperatorDef {
@@ -272,22 +274,22 @@ fn operator_content<'src>()
 -> impl Parser<'src, ParserInput<'src>, OperatorContent, extra::Err<ParseError<'src>>> {
     choice((
         attr_path(Token::Strata).map(OperatorContent::Strata),
-        just(Token::Colon)
-            .ignore_then(just(Token::Phase))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Phase))
             .ignore_then(
                 spanned(choice((
-                    just(Token::Warmup).to(OperatorPhase::Warmup),
-                    just(Token::Collect).to(OperatorPhase::Collect),
-                    just(Token::Measure).to(OperatorPhase::Measure),
+                    tok(Token::Warmup).to(OperatorPhase::Warmup),
+                    tok(Token::Collect).to(OperatorPhase::Collect),
+                    tok(Token::Measure).to(OperatorPhase::Measure),
                 )))
-                .delimited_by(just(Token::LParen), just(Token::RParen)),
+                .delimited_by(tok(Token::LParen), tok(Token::RParen)),
             )
             .map(OperatorContent::Phase),
-        just(Token::Collect)
-            .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        tok(Token::Collect)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|e| OperatorContent::Body(OperatorBody::Collect(e))),
-        just(Token::Measure)
-            .ignore_then(spanned_expr().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        tok(Token::Measure)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|e| OperatorContent::Body(OperatorBody::Measure(e))),
         assert_block().map(OperatorContent::Assert),
     ))

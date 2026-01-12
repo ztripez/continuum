@@ -155,9 +155,9 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
                 code: WarningCode::MissingRangeAssertion,
                 message: format!(
                     "signal '{}' has a range constraint but no assertions to validate it at runtime",
-                    signal_id.0
+                    signal_id
                 ),
-                entity: signal_id.0.clone(),
+                entity: signal_id.to_string(),
             });
         }
     }
@@ -188,9 +188,9 @@ fn check_uninitialized_members(world: &CompiledWorld, warnings: &mut Vec<Compile
                     message: format!(
                         "member '{}' uses 'resolve {{ prev }}' but has no initialization - \
                          will start at 0.0 which may cause NaN in dependent calculations",
-                        member_id.0
+                        member_id
                     ),
-                    entity: member_id.0.clone(),
+                    entity: member_id.to_string(),
                 });
             }
         }
@@ -221,9 +221,12 @@ fn is_known_function(name: &str) -> bool {
 /// undefined signals, constants, config values, or unknown functions.
 fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
     // Collect all defined symbols
-    let mut defined_signals: HashSet<&str> = HashSet::new();
+    let mut defined_signals: HashSet<String> = HashSet::new();
     for signal_id in world.signals.keys() {
-        defined_signals.insert(&signal_id.0);
+        defined_signals.insert(signal_id.to_string());
+    }
+    for member_id in world.members.keys() {
+        defined_signals.insert(member_id.to_string());
     }
 
     let defined_constants: HashSet<&str> = world.constants.keys().map(|s| s.as_str()).collect();
@@ -234,7 +237,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
         if let Some(resolve) = &signal.resolve {
             check_expr_symbols(
                 resolve,
-                &format!("signal.{}", signal_id.0),
+                &format!("signal.{}", signal_id),
                 &defined_signals,
                 &defined_constants,
                 &defined_config,
@@ -244,7 +247,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
         for assertion in &signal.assertions {
             check_expr_symbols(
                 &assertion.condition,
-                &format!("signal.{} assert", signal_id.0),
+                &format!("signal.{} assert", signal_id),
                 &defined_signals,
                 &defined_constants,
                 &defined_config,
@@ -258,7 +261,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
         if let Some(measure) = &field.measure {
             check_expr_symbols(
                 measure,
-                &format!("field.{}", field_id.0),
+                &format!("field.{}", field_id),
                 &defined_signals,
                 &defined_constants,
                 &defined_config,
@@ -272,7 +275,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
         for condition in &fracture.conditions {
             check_expr_symbols(
                 condition,
-                &format!("fracture.{}", fracture_id.0),
+                &format!("fracture.{}", fracture_id),
                 &defined_signals,
                 &defined_constants,
                 &defined_config,
@@ -282,7 +285,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
         for emit in &fracture.emits {
             check_expr_symbols(
                 &emit.value,
-                &format!("fracture.{}", fracture_id.0),
+                &format!("fracture.{}", fracture_id),
                 &defined_signals,
                 &defined_constants,
                 &defined_config,
@@ -296,7 +299,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
         for transition in &era.transitions {
             check_expr_symbols(
                 &transition.condition,
-                &format!("era.{} transition", era_id.0),
+                &format!("era.{} transition", era_id),
                 &defined_signals,
                 &defined_constants,
                 &defined_config,
@@ -316,19 +319,19 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
 fn check_expr_symbols(
     expr: &CompiledExpr,
     context: &str,
-    defined_signals: &HashSet<&str>,
+    defined_signals: &HashSet<String>,
     defined_constants: &HashSet<&str>,
     defined_config: &HashSet<&str>,
     warnings: &mut Vec<CompileWarning>,
 ) {
     match expr {
         CompiledExpr::Signal(signal_id) => {
-            if !defined_signals.contains(signal_id.0.as_str()) {
+            if !defined_signals.contains(&signal_id.to_string()) {
                 warnings.push(CompileWarning {
                     code: WarningCode::UndefinedSymbol,
                     message: format!(
                         "undefined signal '{}' in {} (possible typo?)",
-                        signal_id.0, context
+                        signal_id, context
                     ),
                     entity: context.to_string(),
                 });

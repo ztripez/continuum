@@ -24,7 +24,7 @@ use continuum_compiler::ir::{
     build_assertion, build_era_configs, build_field_measure, build_fracture, build_signal_resolver,
     compile, convert_assertion_severity, get_initial_signal_value,
 };
-use continuum_foundation::{FieldId, SignalId};
+// use continuum_foundation::EraId;
 use continuum_runtime::executor::Runtime;
 use continuum_runtime::storage::FieldSample;
 use continuum_runtime::types::{Dt, Value};
@@ -153,7 +153,7 @@ fn main() {
             let assertion_fn = build_assertion(&assertion.condition, &world);
             let severity = convert_assertion_severity(assertion.severity);
             runtime.register_assertion(
-                SignalId(signal_id.0.clone()),
+                signal_id.clone(),
                 assertion_fn,
                 severity,
                 assertion.message.clone(),
@@ -163,7 +163,7 @@ fn main() {
 
     for (field_id, field) in &world.fields {
         if let Some(ref expr) = field.measure {
-            let runtime_id = FieldId(field_id.0.clone());
+            let runtime_id = field_id.clone();
             // Skip fields with entity expressions (aggregates, etc.)
             if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
                 runtime.register_measure_op(measure_fn);
@@ -178,7 +178,7 @@ fn main() {
     // Initialize signals
     for (signal_id, _) in &world.signals {
         runtime.init_signal(
-            SignalId(signal_id.0.clone()),
+            signal_id.clone(),
             get_initial_signal_value(&world, signal_id),
         );
     }
@@ -195,8 +195,8 @@ fn main() {
         seed: args.seed,
         steps: args.steps,
         stride: args.stride,
-        signals: world.signals.keys().map(|id| id.0.clone()).collect(),
-        fields: world.fields.keys().map(|id| id.0.clone()).collect(),
+        signals: world.signals.keys().map(|id| id.to_string()).collect(),
+        fields: world.fields.keys().map(|id| id.to_string()).collect(),
     };
     let manifest_json = serde_json::to_string_pretty(&manifest).expect("serialization failed");
     fs::write(run_dir.join("run.json"), manifest_json).expect("failed to write run.json");
@@ -205,7 +205,7 @@ fn main() {
 
     // Filter requested fields
     let requested_fields: Vec<String> = if args.fields.is_empty() {
-        world.fields.keys().map(|id| id.0.clone()).collect()
+        world.fields.keys().map(|id| id.to_string()).collect()
     } else {
         args.fields
             .split(',')
@@ -227,8 +227,8 @@ fn main() {
         if step % args.stride == 0 {
             let mut signal_values = std::collections::HashMap::new();
             for id in world.signals.keys() {
-                if let Some(val) = runtime.get_signal(&SignalId(id.0.clone())) {
-                    signal_values.insert(id.0.clone(), val.clone());
+                if let Some(val) = runtime.get_signal(id) {
+                    signal_values.insert(id.to_string(), val.clone());
                 }
             }
 

@@ -14,20 +14,18 @@ use super::{LowerError, Lowerer};
 
 impl Lowerer {
     pub(crate) fn lower_operator(&mut self, def: &ast::OperatorDef) -> Result<(), LowerError> {
-        let id = OperatorId::from(def.path.node.join(".").as_str());
+        let id = OperatorId::from(def.path.node.clone());
 
         // Check for duplicate operator definition
         if self.operators.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!(
-                "operator.{}",
-                id.0
-            )));
+            return Err(LowerError::DuplicateDefinition(format!("operator.{}", id)));
         }
 
+        // Determine stratum
         let stratum = def
             .strata
             .as_ref()
-            .map(|s| StratumId::from(s.node.join(".").as_str()))
+            .map(|s| StratumId::from(s.node.clone()))
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
@@ -78,11 +76,11 @@ impl Lowerer {
     }
 
     pub(crate) fn lower_fn(&mut self, def: &FnDef) -> Result<(), LowerError> {
-        let id = FnId::from(def.path.node.join(".").as_str());
+        let id = FnId::from(def.path.node.clone());
 
         // Check for duplicate function definition
         if self.functions.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("fn.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition(format!("fn.{}", id)));
         }
 
         // Collect parameter names

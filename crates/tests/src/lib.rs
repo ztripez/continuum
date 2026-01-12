@@ -78,7 +78,7 @@ impl TestHarness {
                 let assertion_fn = build_assertion(&assertion.condition, &world);
                 let severity = convert_assertion_severity(assertion.severity);
                 runtime.register_assertion(
-                    SignalId(signal_id.0.clone()),
+                    signal_id.clone(),
                     assertion_fn,
                     severity,
                     assertion.message.clone(),
@@ -90,7 +90,7 @@ impl TestHarness {
         // Skip fields with entity expressions (aggregates, etc.)
         for (field_id, field) in &world.fields {
             if let Some(ref expr) = field.measure {
-                let runtime_id = FieldId(field_id.0.clone());
+                let runtime_id = field_id.clone();
                 if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
                     runtime.register_measure_op(measure_fn);
                 }
@@ -106,7 +106,7 @@ impl TestHarness {
         // Initialize signals
         for (signal_id, _signal) in &world.signals {
             let value = get_initial_signal_value(&world, signal_id);
-            runtime.init_signal(SignalId(signal_id.0.clone()), value);
+            runtime.init_signal(signal_id.clone(), value);
         }
 
         Self { runtime, world }
@@ -130,7 +130,7 @@ impl TestHarness {
 
     /// Get a signal's current value.
     pub fn get_signal(&self, name: &str) -> Option<&Value> {
-        self.runtime.get_signal(&SignalId(name.to_string()))
+        self.runtime.get_signal(&SignalId::from(name))
     }
 
     /// Get a signal's scalar value.

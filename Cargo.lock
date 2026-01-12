@@ -417,6 +417,7 @@ version = "0.1.0"
 dependencies = [
  "ariadne",
  "chumsky 1.0.0-alpha.8",
+ "continuum-foundation",
  "continuum-functions",
  "continuum-kernel-registry",
  "logos",

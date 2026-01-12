@@ -284,7 +284,7 @@ fn test_l2_kernel_struct_properties() {
     let ssa = Arc::new(lower_to_ssa(&expr));
 
     let kernel = ScalarL2Kernel::new(
-        MemberSignalId::new(EntityId("test".to_string()), "signal".to_string()),
+        MemberSignalId::new(EntityId::from("test"), "signal".to_string()),
         "test.signal".to_string(),
         ssa,
         100,
@@ -292,7 +292,7 @@ fn test_l2_kernel_struct_properties() {
 
     assert_eq!(kernel.strategy(), LoweringStrategy::VectorKernel);
     assert_eq!(kernel.population_hint(), 100);
-    assert_eq!(kernel.member_signal_id().entity_id.0, "test");
+    assert_eq!(kernel.member_signal_id().entity_id.to_string(), "test");
     assert_eq!(kernel.member_signal_id().signal_name, "signal");
 }
 

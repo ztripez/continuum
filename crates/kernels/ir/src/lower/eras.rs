@@ -6,7 +6,7 @@
 use indexmap::IndexMap;
 
 use continuum_dsl::ast::{self, StrataStateKind};
-use continuum_foundation::{EraId, StratumId};
+use continuum_foundation::{EraId, Path, StratumId};
 
 use crate::{BinaryOpIr, CompiledEra, CompiledExpr, CompiledTransition, StratumState};
 
@@ -14,11 +14,11 @@ use super::{LowerError, Lowerer};
 
 impl Lowerer {
     pub(crate) fn lower_era(&mut self, def: &ast::EraDef) -> Result<(), LowerError> {
-        let id = EraId::from(def.name.node.as_str());
+        let id = EraId::from(Path::from_str(def.name.node.as_str()));
 
         // Check for duplicate era definition
         if self.eras.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("era.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition(format!("era.{}", id)));
         }
 
         // Convert dt to seconds
@@ -31,7 +31,7 @@ impl Lowerer {
         // Convert strata states
         let mut strata_states = IndexMap::new();
         for state in &def.strata_states {
-            let stratum_id = StratumId::from(state.strata.node.join(".").as_str());
+            let stratum_id = StratumId::from(state.strata.node.clone());
             let ir_state = match &state.state {
                 StrataStateKind::Active => StratumState::Active,
                 StrataStateKind::ActiveWithStride(s) => StratumState::ActiveWithStride(*s),
@@ -62,7 +62,7 @@ impl Lowerer {
                 };
 
                 CompiledTransition {
-                    target_era: EraId::from(t.target.node.join(".").as_str()),
+                    target_era: EraId::from(t.target.node.clone()),
                     condition,
                 }
             })

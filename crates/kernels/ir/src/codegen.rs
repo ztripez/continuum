@@ -111,7 +111,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         CompiledExpr::DtRaw => Expr::DtRaw,
         CompiledExpr::SimTime => Expr::SimTime,
         CompiledExpr::Collected => Expr::Collected,
-        CompiledExpr::Signal(id) => Expr::Signal(id.0.clone()),
+        CompiledExpr::Signal(id) => Expr::Signal(id.to_string()),
         CompiledExpr::Const(name) => Expr::Const(name.clone()),
         CompiledExpr::Config(name) => Expr::Config(name.clone()),
         CompiledExpr::Binary { op, left, right } => Expr::Binary {
@@ -170,7 +170,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
             match object.as_ref() {
                 CompiledExpr::Signal(id) => {
                     // Convert to SignalComponent for vector component access
-                    Expr::SignalComponent(id.0.clone(), field.clone())
+                    Expr::SignalComponent(id.to_string(), field.clone())
                 }
                 CompiledExpr::Prev => {
                     // Convert to PrevComponent for vector prev component access
@@ -205,49 +205,49 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         } => {
             panic!(
                 "EntityAccess({}.{}.{}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0, instance.0, field
+                entity, instance, field
             );
         }
         CompiledExpr::Aggregate { op, entity, .. } => {
             panic!(
                 "Aggregate({:?} over {}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                op, entity.0
+                op, entity
             );
         }
         CompiledExpr::Other { entity, .. } => {
             panic!(
                 "Other({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::Pairs { entity, .. } => {
             panic!(
                 "Pairs({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::Filter { entity, .. } => {
             panic!(
                 "Filter({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::First { entity, .. } => {
             panic!(
                 "First({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::Nearest { entity, .. } => {
             panic!(
                 "Nearest({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::Within { entity, .. } => {
             panic!(
                 "Within({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
 
@@ -266,7 +266,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         CompiledExpr::EmitSignal { target, .. } => {
             panic!(
                 "EmitSignal({}) reached bytecode compiler - impulse expressions must use ImpulseExecutor",
-                target.0
+                target
             );
         }
     }

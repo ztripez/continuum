@@ -16,12 +16,12 @@ impl Lowerer {
     /// Member signals follow the path structure: `entity_path.signal_name`
     /// For example, `human.person.age` belongs to entity `human.person` with signal `age`.
     pub(crate) fn lower_member(&mut self, def: &ast::MemberDef) -> Result<(), LowerError> {
-        let full_path = def.path.node.join(".");
-        let id = MemberId::from(full_path.as_str());
+        let full_path = def.path.node.to_string();
+        let id = MemberId::from(def.path.node.clone());
 
         // Check for duplicate member definition
         if self.members.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("member.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition(format!("member.{}", id)));
         }
 
         // Extract entity path and signal name from the full path
@@ -34,15 +34,16 @@ impl Lowerer {
             )));
         }
 
-        let entity_path = segments[..segments.len() - 1].join(".");
+        let mut entity_path_node = def.path.node.clone();
+        entity_path_node.segments.pop();
         let signal_name = segments.last().unwrap().clone();
-        let entity_id = EntityId::from(entity_path.as_str());
+        let entity_id = EntityId::from(entity_path_node);
 
         // Determine stratum
         let stratum = def
             .strata
             .as_ref()
-            .map(|s| StratumId::from(s.node.join(".").as_str()))
+            .map(|s| StratumId::from(s.node.clone()))
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
@@ -50,7 +51,7 @@ impl Lowerer {
 
         // Process local config blocks - add to global config with member-prefixed keys
         for entry in &def.local_config {
-            let local_key = entry.path.node.join(".");
+            let local_key = entry.path.node.to_string();
             let full_key = format!("{}.{}", full_path, local_key);
             let value = self.literal_to_f64(&entry.value.node)?;
             self.config.insert(full_key, value);

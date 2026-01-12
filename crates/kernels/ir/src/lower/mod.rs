@@ -224,20 +224,20 @@ impl Lowerer {
     /// Validate that a stratum exists, returning UndefinedStratum error if not.
     pub(crate) fn validate_stratum(&self, stratum: &StratumId) -> Result<(), LowerError> {
         // "default" stratum is always valid (implicit)
-        if stratum.0 == "default" {
+        if stratum.to_string() == "default" {
             return Ok(());
         }
         if !self.strata.contains_key(stratum) {
-            return Err(LowerError::UndefinedStratum(stratum.0.clone()));
+            return Err(LowerError::UndefinedStratum(stratum.to_string()));
         }
         Ok(())
     }
 
     /// Lower a custom type definition to CompiledType.
     fn lower_type_def(&mut self, def: &TypeDef) -> Result<(), LowerError> {
-        let id = TypeId::from(def.name.node.as_str());
+        let id = TypeId::from(def.name.node.clone());
         if self.types.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("type.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition(format!("type.{}", id)));
         }
 
         let fields: Vec<CompiledTypeField> = def
@@ -282,7 +282,7 @@ impl Lowerer {
             match &item.node {
                 Item::ConstBlock(block) => {
                     for entry in &block.entries {
-                        let key = entry.path.node.join(".");
+                        let key = entry.path.node.to_string();
                         if self.constants.contains_key(&key) {
                             return Err(LowerError::DuplicateDefinition(format!("const.{}", key)));
                         }
@@ -292,7 +292,7 @@ impl Lowerer {
                 }
                 Item::ConfigBlock(block) => {
                     for entry in &block.entries {
-                        let key = entry.path.node.join(".");
+                        let key = entry.path.node.to_string();
                         if self.config.contains_key(&key) {
                             return Err(LowerError::DuplicateDefinition(format!("config.{}", key)));
                         }
@@ -304,9 +304,9 @@ impl Lowerer {
                     self.lower_fn(def)?;
                 }
                 Item::StrataDef(def) => {
-                    let id = StratumId::from(def.path.node.join(".").as_str());
+                    let id = StratumId::from(def.path.node.clone());
                     if self.strata.contains_key(&id) {
-                        return Err(LowerError::DuplicateDefinition(format!("strata.{}", id.0)));
+                        return Err(LowerError::DuplicateDefinition(format!("strata.{}", id)));
                     }
                     let stratum = CompiledStratum {
                         id: id.clone(),

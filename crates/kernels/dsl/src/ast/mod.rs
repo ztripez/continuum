@@ -152,42 +152,7 @@ pub enum Item {
     MemberDef(MemberDef),
 }
 
-/// Dot-separated path identifying a named entity in the DSL.
-///
-/// Paths are used for signal references (`signal.terra.temperature`),
-/// function names (`fn.math.lerp`), strata (`strata.terra`), and other
-/// namespaced identifiers.
-///
-/// # Example
-///
-/// ```ignore
-/// let path = Path::new(vec!["terra".into(), "surface".into(), "temp".into()]);
-/// assert_eq!(path.to_string(), "terra.surface.temp");
-/// assert_eq!(path.join("/"), "terra/surface/temp");
-/// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Path {
-    /// Individual path segments (e.g., `["terra", "surface", "temp"]`).
-    pub segments: Vec<String>,
-}
-
-impl Path {
-    /// Creates a new path from segments.
-    pub fn new(segments: Vec<String>) -> Self {
-        Self { segments }
-    }
-
-    /// Joins segments with a custom separator.
-    pub fn join(&self, sep: &str) -> String {
-        self.segments.join(sep)
-    }
-}
-
-impl std::fmt::Display for Path {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.segments.join("."))
-    }
-}
+pub use continuum_foundation::Path;
 
 // === Types ===
 
