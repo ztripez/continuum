@@ -11,7 +11,11 @@ use crate::{CompiledExpr, CompiledField, CompiledSignal, CompiledWarmup, Topolog
 use super::{LowerError, Lowerer};
 
 impl Lowerer {
-    pub(crate) fn lower_signal(&mut self, def: &ast::SignalDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_signal(
+        &mut self,
+        def: &ast::SignalDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
         let id = SignalId::from(def.path.node.clone());
         let signal_path = def.path.node.to_string();
 
@@ -92,6 +96,7 @@ impl Lowerer {
         let (resolve, resolve_components) = self.expand_resolve_for_type(resolve, &value_type);
 
         let signal = CompiledSignal {
+            span,
             id: id.clone(),
             stratum,
             title: def.title.as_ref().map(|s| s.node.clone()),

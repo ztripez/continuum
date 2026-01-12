@@ -66,6 +66,7 @@ fn test_build_fracture() {
     let world = CompiledWorld {
         constants: IndexMap::new(),
         config: IndexMap::new(),
+        nodes: IndexMap::new(),
         functions: IndexMap::new(),
         strata: IndexMap::new(),
         eras: IndexMap::new(),

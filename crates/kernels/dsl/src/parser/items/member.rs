@@ -104,7 +104,7 @@ fn member_content<'src>()
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chumsky::input::Stream;
+    use chumsky::input::{Input, Stream};
     use logos::Logos;
 
     fn lex_map(
@@ -112,9 +112,14 @@ mod tests {
             Result<Token, <Token as logos::Logos>::Error>,
             std::ops::Range<usize>,
         ),
-    ) -> (Token, SimpleSpan) {
-        let token = tok_span.0.unwrap_or(Token::Error);
-        (token, SimpleSpan::from(tok_span.1))
+    ) -> (Token, std::ops::Range<usize>) {
+        let (token, range) = tok_span;
+        (token.unwrap_or(Token::Error), range)
+    }
+
+    fn attach_span(token_span: (Token, std::ops::Range<usize>)) -> (Token, SimpleSpan) {
+        let (token, range) = token_span;
+        (token, SimpleSpan::from(range))
     }
 
     #[test]
@@ -126,7 +131,10 @@ mod tests {
         }"#;
 
         let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
-        let stream = Stream::from_iter(lexer).spanned(SimpleSpan::from(src.len()..src.len()));
+        let stream = Stream::from_iter(lexer).map(
+            SimpleSpan::from(src.len()..src.len()),
+            attach_span as fn(_) -> _,
+        );
 
         let result = member_def().parse(stream);
         assert!(result.has_output());
@@ -152,7 +160,10 @@ mod tests {
         }"#;
 
         let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
-        let stream = Stream::from_iter(lexer).spanned(SimpleSpan::from(src.len()..src.len()));
+        let stream = Stream::from_iter(lexer).map(
+            SimpleSpan::from(src.len()..src.len()),
+            attach_span as fn(_) -> _,
+        );
 
         let result = member_def().parse(stream);
         assert!(result.has_output());
@@ -172,7 +183,10 @@ mod tests {
         }"#;
 
         let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
-        let stream = Stream::from_iter(lexer).spanned(SimpleSpan::from(src.len()..src.len()));
+        let stream = Stream::from_iter(lexer).map(
+            SimpleSpan::from(src.len()..src.len()),
+            attach_span as fn(_) -> _,
+        );
 
         let result = member_def().parse(stream);
         assert!(result.has_output());
