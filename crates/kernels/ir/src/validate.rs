@@ -613,7 +613,7 @@ fn check_expr_symbols(
         // Literals, Prev, DtRaw, SimTime, Collected, Local, Payload don't need checking
         // Local variables are validated at parse/lower time
         // Payload expressions are validated in impulse context
-        CompiledExpr::Literal(_)
+        CompiledExpr::Literal(..)
         | CompiledExpr::Prev
         | CompiledExpr::DtRaw
         | CompiledExpr::SimTime

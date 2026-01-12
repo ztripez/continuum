@@ -87,7 +87,7 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         CompiledExpr::FieldAccess { object, .. } => contains_entity_expression(object),
 
         // Leaf expressions - no entity constructs
-        CompiledExpr::Literal(_)
+        CompiledExpr::Literal(..)
         | CompiledExpr::Prev
         | CompiledExpr::DtRaw
         | CompiledExpr::SimTime
@@ -147,7 +147,7 @@ fn contains_unsupported_member_op(expr: &CompiledExpr) -> bool {
         CompiledExpr::FieldAccess { object, .. } => contains_unsupported_member_op(object),
 
         // Leaf expressions - no unsupported constructs
-        CompiledExpr::Literal(_)
+        CompiledExpr::Literal(..)
         | CompiledExpr::Prev
         | CompiledExpr::DtRaw
         | CompiledExpr::SimTime
@@ -439,7 +439,7 @@ impl<'a> Compiler<'a> {
                 Self::extract_aggregates_recursive(value, aggregates);
             }
             // Leaf nodes - no recursion needed
-            CompiledExpr::Literal(_)
+            CompiledExpr::Literal(..)
             | CompiledExpr::Prev
             | CompiledExpr::DtRaw
             | CompiledExpr::SimTime
@@ -714,7 +714,7 @@ impl<'a> Compiler<'a> {
                 // For count with literal body, find any member signal of the entity
                 // For other aggregates, expect a self.X reference
                 let member_name = match (&agg_info.op, &agg_info.body) {
-                    (AggregateOpIr::Count, CompiledExpr::Literal(_)) => {
+                    (AggregateOpIr::Count, CompiledExpr::Literal(..)) => {
                         // Count with literal body - find any member of this entity
                         self.find_any_member_of_entity(&agg_info.entity_id)
                             .unwrap_or_else(|| {

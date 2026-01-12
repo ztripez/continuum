@@ -80,7 +80,7 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         }
         CompiledExpr::FieldAccess { object, .. } => contains_entity_expression(object),
 
-        CompiledExpr::Literal(_)
+        CompiledExpr::Literal(..)
         | CompiledExpr::Prev
         | CompiledExpr::DtRaw
         | CompiledExpr::SimTime

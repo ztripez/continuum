@@ -43,6 +43,23 @@ struct TickSnapshot {
     fields: std::collections::HashMap<String, Vec<FieldSample>>,
 }
 
+fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
+    let mut line = 0;
+    let mut col = 0;
+    for (i, c) in text.chars().enumerate() {
+        if i == offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
+}
+
 fn main() {
     continuum_tools::init_logging();
 
@@ -101,28 +118,46 @@ fn main() {
     // Load and compile world using unified compiler
     info!("Loading world from: {}", world_dir.display());
 
-    let world = match continuum_compiler::compile_from_dir(world_dir) {
-        Ok(w) => {
-            info!("Successfully compiled world");
-            w
-        }
-        Err(diagnostics) => {
-            for diag in diagnostics {
-                let file_str = diag
-                    .file
-                    .as_ref()
-                    .map(|f| format!("{}: ", f.display()))
-                    .unwrap_or_default();
-                let span_str = diag
-                    .span
-                    .as_ref()
-                    .map(|s| format!("at {:?}: ", s))
-                    .unwrap_or_default();
-                error!("{}{}{}", file_str, span_str, diag.message);
+    let compile_result = continuum_compiler::compile_from_dir_result(world_dir);
+
+    if compile_result.has_errors() {
+        for diag in compile_result.diagnostics {
+            if diag.severity == continuum_compiler::Severity::Error {
+                let loc = if let (Some(file), Some(span)) = (&diag.file, &diag.span) {
+                    if let Some(source) = compile_result.sources.get(file) {
+                        let (line, col) = offset_to_line_col(source, span.start);
+                        format!("{}:{}:{} ", file.display(), line + 1, col + 1)
+                    } else {
+                        format!("{}:at {:?} ", file.display(), span)
+                    }
+                } else {
+                    String::new()
+                };
+                error!("{}{}", loc, diag.message);
             }
-            process::exit(1);
         }
-    };
+        process::exit(1);
+    }
+
+    // Print warnings
+    for diag in &compile_result.diagnostics {
+        if diag.severity == continuum_compiler::Severity::Warning {
+            let loc = if let (Some(file), Some(span)) = (&diag.file, &diag.span) {
+                if let Some(source) = compile_result.sources.get(file) {
+                    let (line, col) = offset_to_line_col(source, span.start);
+                    format!("{}:{}:{} ", file.display(), line + 1, col + 1)
+                } else {
+                    format!("{}:at {:?} ", file.display(), span)
+                }
+            } else {
+                String::new()
+            };
+            tracing::warn!("{}{}", loc, diag.message);
+        }
+    }
+
+    let world = compile_result.world.expect("no world despite no errors");
+    info!("Successfully compiled world");
 
     let strata = world.strata();
     let eras = world.eras();

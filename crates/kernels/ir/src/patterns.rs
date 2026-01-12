@@ -309,8 +309,9 @@ fn try_match_clamped_accumulator(expr: &CompiledExpr) -> Option<ExpressionPatter
             // Check if first arg is prev + collected
             if try_match_simple_accumulator(&args[0]).is_some() {
                 let has_min =
-                    !matches!(&args[1], CompiledExpr::Literal(v) if *v == f64::NEG_INFINITY);
-                let has_max = !matches!(&args[2], CompiledExpr::Literal(v) if *v == f64::INFINITY);
+                    !matches!(&args[1], CompiledExpr::Literal(v, _) if *v == f64::NEG_INFINITY);
+                let has_max =
+                    !matches!(&args[2], CompiledExpr::Literal(v, _) if *v == f64::INFINITY);
                 return Some(ExpressionPattern::ClampedAccumulator { has_min, has_max });
             }
             None
@@ -318,8 +319,9 @@ fn try_match_clamped_accumulator(expr: &CompiledExpr) -> Option<ExpressionPatter
         CompiledExpr::Call { function, args } if function == "clamp" && args.len() == 3 => {
             if try_match_simple_accumulator(&args[0]).is_some() {
                 let has_min =
-                    !matches!(&args[1], CompiledExpr::Literal(v) if *v == f64::NEG_INFINITY);
-                let has_max = !matches!(&args[2], CompiledExpr::Literal(v) if *v == f64::INFINITY);
+                    !matches!(&args[1], CompiledExpr::Literal(v, _) if *v == f64::NEG_INFINITY);
+                let has_max =
+                    !matches!(&args[2], CompiledExpr::Literal(v, _) if *v == f64::INFINITY);
                 return Some(ExpressionPattern::ClampedAccumulator { has_min, has_max });
             }
             None
@@ -426,26 +428,30 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
 
     fn is_scaled_prev(e: &CompiledExpr) -> bool {
         matches!(
-            e,
-            CompiledExpr::Binary {
-                op: BinaryOpIr::Mul,
-                left,
-                right
-            } if matches!(left.as_ref(), CompiledExpr::Prev | CompiledExpr::Literal(_))
-                && matches!(right.as_ref(), CompiledExpr::Prev | CompiledExpr::Literal(_))
+                    e,
+                    CompiledExpr::Binary {
+                        op: BinaryOpIr::Mul,
+                        left,
+                        right
+                    } if matches!(left.as_ref(), CompiledExpr::Prev |         CompiledExpr::Literal(..)
         )
+                        && matches!(right.as_ref(), CompiledExpr::Prev |         CompiledExpr::Literal(..)
+        )
+                )
     }
 
     fn is_scaled_collected(e: &CompiledExpr) -> bool {
         matches!(
-            e,
-            CompiledExpr::Binary {
-                op: BinaryOpIr::Mul,
-                left,
-                right
-            } if matches!(left.as_ref(), CompiledExpr::Collected | CompiledExpr::Literal(_))
-                && matches!(right.as_ref(), CompiledExpr::Collected | CompiledExpr::Literal(_))
+                    e,
+                    CompiledExpr::Binary {
+                        op: BinaryOpIr::Mul,
+                        left,
+                        right
+                    } if matches!(left.as_ref(), CompiledExpr::Collected |         CompiledExpr::Literal(..)
         )
+                        && matches!(right.as_ref(), CompiledExpr::Collected |         CompiledExpr::Literal(..)
+        )
+                )
     }
 
     match expr {
@@ -457,7 +463,7 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
             let left_is_linear = is_scaled_prev(left) || is_scaled_collected(left);
             let right_is_linear = is_scaled_prev(right)
                 || is_scaled_collected(right)
-                || matches!(right.as_ref(), CompiledExpr::Literal(_));
+                || matches!(right.as_ref(), CompiledExpr::Literal(..));
 
             if left_is_linear && right_is_linear {
                 return Some(ExpressionPattern::LinearTransform);
@@ -470,7 +476,7 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
             } = left.as_ref()
             {
                 if try_match_linear_transform(left).is_some()
-                    && matches!(right.as_ref(), CompiledExpr::Literal(_))
+                    && matches!(right.as_ref(), CompiledExpr::Literal(..))
                 {
                     return Some(ExpressionPattern::LinearTransform);
                 }
@@ -576,7 +582,7 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
     std::mem::discriminant(expr).hash(hasher);
 
     match expr {
-        CompiledExpr::Literal(_) => {
+        CompiledExpr::Literal(..) => {
             // Don't hash the value, just the fact that it's a literal
             "literal".hash(hasher);
         }

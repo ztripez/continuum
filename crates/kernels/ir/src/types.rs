@@ -547,7 +547,7 @@ pub enum OperatorPhaseIr {
 /// A compiled expression tree ready for bytecode generation or interpretation.
 #[derive(Debug, Clone)]
 pub enum CompiledExpr {
-    Literal(f64),
+    Literal(f64, Option<crate::units::Unit>),
     Prev,
     DtRaw,
     SimTime,

@@ -215,7 +215,7 @@ impl OperatorDeps {
                 self.extract_from_expr(value);
             }
             // These don't add dependencies to our tracking
-            CompiledExpr::Literal(_)
+            CompiledExpr::Literal(..)
             | CompiledExpr::Prev
             | CompiledExpr::DtRaw
             | CompiledExpr::SimTime

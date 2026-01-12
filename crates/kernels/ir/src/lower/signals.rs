@@ -348,7 +348,7 @@ impl Lowerer {
             },
 
             // Literals stay as-is (scalar broadcast)
-            Literal(v) => Literal(*v),
+            Literal(v, _) => Literal(*v, None),
             DtRaw => DtRaw,
             SimTime => SimTime,
             Const(name) => Const(name.clone()),

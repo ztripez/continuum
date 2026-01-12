@@ -52,7 +52,7 @@ impl LoweringContext {
         self.current_block = block;
 
         match expr {
-            CompiledExpr::Literal(value) => {
+            CompiledExpr::Literal(value, _) => {
                 let dst = self.func.alloc_vreg();
                 self.emit(SsaInstruction::LoadConst { dst, value: *value });
                 dst

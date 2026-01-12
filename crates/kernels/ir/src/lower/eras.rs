@@ -47,7 +47,7 @@ impl Lowerer {
             .map(|t| {
                 // Combine all conditions with AND
                 let condition = if t.conditions.is_empty() {
-                    CompiledExpr::Literal(1.0) // always true
+                    CompiledExpr::Literal(1.0, None) // always true
                 } else if t.conditions.len() == 1 {
                     self.lower_expr(&t.conditions[0].node)
                 } else {

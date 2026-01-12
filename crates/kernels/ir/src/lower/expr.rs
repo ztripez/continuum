@@ -90,10 +90,11 @@ impl Lowerer {
         ctx: &LoweringContext<'_>,
     ) -> CompiledExpr {
         match expr {
-            Expr::Literal(lit) => CompiledExpr::Literal(self.literal_to_f64_unchecked(lit)),
-            Expr::LiteralWithUnit { value, .. } => {
-                CompiledExpr::Literal(self.literal_to_f64_unchecked(value))
-            }
+            Expr::Literal(lit) => CompiledExpr::Literal(self.literal_to_f64_unchecked(lit), None),
+            Expr::LiteralWithUnit { value, unit } => CompiledExpr::Literal(
+                self.literal_to_f64_unchecked(value),
+                crate::units::Unit::parse(unit),
+            ),
             Expr::Prev | Expr::PrevField(_) => CompiledExpr::Prev,
             Expr::DtRaw => CompiledExpr::DtRaw,
             Expr::SimTime => CompiledExpr::SimTime,
@@ -235,7 +236,7 @@ impl Lowerer {
                     else_branch
                         .as_ref()
                         .map(|e| self.lower_expr_with_context(&e.node, ctx))
-                        .unwrap_or(CompiledExpr::Literal(0.0)),
+                        .unwrap_or(CompiledExpr::Literal(0.0, None)),
                 ),
             },
             Expr::Let { name, value, body } => {
@@ -262,7 +263,7 @@ impl Lowerer {
                         )
                     }
                 };
-                CompiledExpr::Literal(val)
+                CompiledExpr::Literal(val, None)
             }
             // Block, For, Map, Fold, Struct, EmitSignal, EmitField, FieldRef, Payload, PayloadField
             // These require more complex lowering or are handled specially
@@ -320,19 +321,19 @@ impl Lowerer {
                 // other() should only be used within aggregation context
                 CompiledExpr::Other {
                     entity: EntityId::from(path.clone()),
-                    body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+                    body: Box::new(CompiledExpr::Literal(1.0, None)), // placeholder
                 }
             }
 
             Expr::Pairs(path) => CompiledExpr::Pairs {
                 entity: EntityId::from(path.clone()),
-                body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+                body: Box::new(CompiledExpr::Literal(1.0, None)), // placeholder
             },
 
             Expr::Filter { entity, predicate } => CompiledExpr::Filter {
                 entity: EntityId::from(entity.clone()),
                 predicate: Box::new(self.lower_expr_with_context(&predicate.node, ctx)),
-                body: Box::new(CompiledExpr::Literal(1.0)), // placeholder for nested body
+                body: Box::new(CompiledExpr::Literal(1.0, None)), // placeholder for nested body
             },
 
             Expr::First { entity, predicate } => CompiledExpr::First {
@@ -353,7 +354,7 @@ impl Lowerer {
                 entity: EntityId::from(entity.clone()),
                 position: Box::new(self.lower_expr_with_context(&position.node, ctx)),
                 radius: Box::new(self.lower_expr_with_context(&radius.node, ctx)),
-                body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+                body: Box::new(CompiledExpr::Literal(1.0, None)), // placeholder
             },
 
             // === Impulse expressions ===

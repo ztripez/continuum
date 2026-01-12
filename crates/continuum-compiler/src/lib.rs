@@ -60,6 +60,8 @@ pub struct CompileResult {
     pub world: Option<CompiledWorld>,
     /// All diagnostics (errors, warnings, hints) produced during compilation.
     pub diagnostics: Vec<Diagnostic>,
+    /// Map of file paths to their source content (for line/col mapping).
+    pub sources: HashMap<PathBuf, String>,
 }
 
 impl CompileResult {
@@ -76,6 +78,49 @@ impl CompileResult {
             Ok(self.world.unwrap())
         }
     }
+
+    /// Format all diagnostics into a human-readable string with line/column info.
+    pub fn format_diagnostics(&self) -> String {
+        let mut output = String::new();
+        for diag in &self.diagnostics {
+            let severity = match diag.severity {
+                Severity::Error => "error",
+                Severity::Warning => "warning",
+                Severity::Hint => "hint",
+            };
+
+            let loc = if let (Some(file), Some(span)) = (&diag.file, &diag.span) {
+                if let Some(source) = self.sources.get(file) {
+                    let (line, col) = offset_to_line_col(source, span.start);
+                    format!("{}:{}:{}", file.display(), line + 1, col + 1)
+                } else {
+                    format!("{}:at {:?}", file.display(), span)
+                }
+            } else {
+                "unknown".to_string()
+            };
+
+            output.push_str(&format!("{}: {}: {}\n", loc, severity, diag.message));
+        }
+        output
+    }
+}
+
+fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
+    let mut line = 0;
+    let mut col = 0;
+    for (i, c) in text.chars().enumerate() {
+        if i == offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
 }
 
 /// Primary entry point for compiling a Continuum world from source.
@@ -83,6 +128,11 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
     let mut diagnostics = Vec::new();
     let mut units = Vec::new();
     let mut has_world_def = false;
+    let mut sources = HashMap::new();
+
+    for (path, source) in source_map {
+        sources.insert(path.clone(), source.to_string());
+    }
 
     // 1. Parse all files
     for (path, source) in source_map {
@@ -122,6 +172,7 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
         return CompileResult {
             world: None,
             diagnostics,
+            sources,
         };
     }
 
@@ -133,6 +184,7 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
         return CompileResult {
             world: None,
             diagnostics,
+            sources,
         };
     }
 
@@ -150,6 +202,7 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
             return CompileResult {
                 world: None,
                 diagnostics,
+                sources,
             };
         }
     };
@@ -211,24 +264,29 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
     CompileResult {
         world: Some(world),
         diagnostics,
+        sources,
     }
 }
 
-/// Helper function to load and compile a world from a directory.
-pub fn compile_from_dir(world_dir: &Path) -> Result<CompiledWorld, Vec<Diagnostic>> {
-    let mut source_map = HashMap::new();
+/// Helper function to load and compile a world from a directory, returning full CompileResult.
+pub fn compile_from_dir_result(world_dir: &Path) -> CompileResult {
     let files = collect_cdsl_files(world_dir);
-
+    let mut source_map = HashMap::new();
     let mut sources = Vec::new();
+
     for path in &files {
         match std::fs::read_to_string(path) {
             Ok(content) => sources.push(content),
             Err(e) => {
-                return Err(vec![Diagnostic::error(format!(
-                    "failed to read {}: {}",
-                    path.display(),
-                    e
-                ))]);
+                return CompileResult {
+                    world: None,
+                    diagnostics: vec![Diagnostic::error(format!(
+                        "failed to read {}: {}",
+                        path.display(),
+                        e
+                    ))],
+                    sources: HashMap::new(),
+                };
             }
         }
     }
@@ -237,7 +295,12 @@ pub fn compile_from_dir(world_dir: &Path) -> Result<CompiledWorld, Vec<Diagnosti
         source_map.insert(path.clone(), content.as_str());
     }
 
-    compile(&source_map).success()
+    compile(&source_map)
+}
+
+/// Helper function to load and compile a world from a directory.
+pub fn compile_from_dir(world_dir: &Path) -> Result<CompiledWorld, Vec<Diagnostic>> {
+    compile_from_dir_result(world_dir).success()
 }
 
 fn collect_cdsl_files(dir: &Path) -> Vec<PathBuf> {

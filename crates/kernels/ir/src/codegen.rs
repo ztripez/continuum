@@ -106,7 +106,7 @@ fn dt_robust_operator_name(op: DtRobustOperator) -> String {
 /// `SignalComponent` for vector component extraction.
 fn convert_expr(expr: &CompiledExpr) -> Expr {
     match expr {
-        CompiledExpr::Literal(v) => Expr::Literal(*v),
+        CompiledExpr::Literal(v, _) => Expr::Literal(*v),
         CompiledExpr::Prev => Expr::Prev,
         CompiledExpr::DtRaw => Expr::DtRaw,
         CompiledExpr::SimTime => Expr::SimTime,

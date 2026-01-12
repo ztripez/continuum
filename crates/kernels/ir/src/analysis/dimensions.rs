@@ -47,7 +47,8 @@ pub fn analyze_dimensions(world: &CompiledWorld) -> Vec<DimensionalDiagnostic> {
                     infer_unit(resolve, world, &symbol_units, Some(id.to_string()))
                 {
                     if let Some(declared) = symbol_units.get(&id.to_string()) {
-                        if inferred != *declared {
+                        // Promotion: Allow dimensionless resolution for a declared unit
+                        if inferred != *declared && !inferred.is_dimensionless() {
                             let err = DimensionError::IncompatibleUnits {
                                 expected: *declared,
                                 found: inferred,
@@ -86,7 +87,7 @@ fn infer_unit(
     current_signal: Option<String>,
 ) -> Result<Unit, DimensionError> {
     match expr {
-        CompiledExpr::Literal(_) => Ok(Unit::dimensionless()),
+        CompiledExpr::Literal(_, unit) => Ok(unit.clone().unwrap_or_else(Unit::dimensionless)),
         CompiledExpr::Prev => {
             if let Some(ref id) = current_signal {
                 Ok(symbol_units.get(id).cloned().unwrap_or_default())
@@ -131,7 +132,7 @@ fn infer_unit(
                 BinaryOpIr::Div => Ok(u_left.divide(&u_right)),
                 BinaryOpIr::Pow => {
                     // Only support integer powers for dimensional analysis for now
-                    if let CompiledExpr::Literal(val) = &**right {
+                    if let CompiledExpr::Literal(val, _) = &**right {
                         if val.fract() == 0.0 {
                             Ok(u_left.power(*val as i8))
                         } else {

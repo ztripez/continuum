@@ -340,7 +340,7 @@ impl ExecutionContext for MemberInterpContext<'_> {
 
 pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> InterpValue {
     match expr {
-        CompiledExpr::Literal(v) => InterpValue::Scalar(*v),
+        CompiledExpr::Literal(v, _) => InterpValue::Scalar(*v),
         CompiledExpr::Prev => ctx.prev,
         CompiledExpr::DtRaw => InterpValue::Scalar(ctx.dt),
         CompiledExpr::SimTime => InterpValue::Scalar(ctx.sim_time),
