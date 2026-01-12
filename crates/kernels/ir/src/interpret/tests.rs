@@ -24,6 +24,7 @@ fn test_build_transition_fn() {
 
     // Create an era with a transition when temp < 50
     let era = CompiledEra {
+        span: 0..0,
         id: continuum_foundation::EraId::from("test"),
         is_initial: true,
         is_terminal: false,
@@ -67,22 +68,11 @@ fn test_build_fracture() {
         constants: IndexMap::new(),
         config: IndexMap::new(),
         nodes: IndexMap::new(),
-        functions: IndexMap::new(),
-        strata: IndexMap::new(),
-        eras: IndexMap::new(),
-        signals: IndexMap::new(),
-        fields: IndexMap::new(),
-        operators: IndexMap::new(),
-        impulses: IndexMap::new(),
-        fractures: IndexMap::new(),
-        entities: IndexMap::new(),
-        members: IndexMap::new(),
-        chronicles: IndexMap::new(),
-        types: IndexMap::new(),
     };
 
     // Create a fracture that triggers when temp > 100 and emits to energy
     let fracture = CompiledFracture {
+        span: 0..0,
         id: continuum_foundation::FractureId::from("test_fracture"),
         stratum: continuum_foundation::StratumId::from("default"),
         reads: vec![continuum_foundation::SignalId::from("temp")],

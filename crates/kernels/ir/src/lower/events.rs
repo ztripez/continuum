@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use continuum_dsl::ast::{self, Expr, Spanned};
+use continuum_dsl::ast::{self, Expr, Span, Spanned};
 use continuum_foundation::{FractureId, ImpulseId, SignalId, StratumId};
 
 use crate::{CompiledEmit, CompiledExpr, CompiledFracture, CompiledImpulse, ValueType};
@@ -19,7 +19,11 @@ struct LetBinding<'a> {
 }
 
 impl Lowerer {
-    pub(crate) fn lower_impulse(&mut self, def: &ast::ImpulseDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_impulse(
+        &mut self,
+        def: &ast::ImpulseDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
         let id = ImpulseId::from(def.path.node.clone());
 
         // Check for duplicate impulse definition
@@ -28,6 +32,7 @@ impl Lowerer {
         }
 
         let impulse = CompiledImpulse {
+            span,
             id: id.clone(),
             payload_type: def
                 .payload_type
@@ -45,7 +50,11 @@ impl Lowerer {
         Ok(())
     }
 
-    pub(crate) fn lower_fracture(&mut self, def: &ast::FractureDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_fracture(
+        &mut self,
+        def: &ast::FractureDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
         let id = FractureId::from(def.path.node.clone());
         let fracture_path = def.path.node.to_string();
 
@@ -96,6 +105,7 @@ impl Lowerer {
         let emits = self.collect_emit_expressions(def.emit.as_ref().map(|e| &e.node));
 
         let fracture = CompiledFracture {
+            span,
             id: id.clone(),
             stratum,
             reads,

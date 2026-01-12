@@ -3,7 +3,7 @@
 //! This module handles lowering signal and field definitions from AST to IR,
 //! including dependency extraction and dt-robustness validation.
 
-use continuum_dsl::ast;
+use continuum_dsl::ast::{self, Span};
 use continuum_foundation::{FieldId, SignalId, StratumId};
 
 use crate::{CompiledExpr, CompiledField, CompiledSignal, CompiledWarmup, TopologyIr, ValueType};
@@ -114,7 +114,11 @@ impl Lowerer {
         Ok(())
     }
 
-    pub(crate) fn lower_field(&mut self, def: &ast::FieldDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_field(
+        &mut self,
+        def: &ast::FieldDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
         let id = FieldId::from(def.path.node.clone());
 
         // Check for duplicate field definition
@@ -137,6 +141,7 @@ impl Lowerer {
         }
 
         let field = CompiledField {
+            span,
             id: id.clone(),
             stratum,
             title: def.title.as_ref().map(|s| s.node.clone()),

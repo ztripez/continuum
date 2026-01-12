@@ -127,7 +127,8 @@ pub fn eval_initial_expr(
 pub fn build_era_configs(world: &CompiledWorld) -> IndexMap<EraId, EraConfig> {
     let mut configs = IndexMap::new();
 
-    for (era_id, era) in &world.eras {
+    let eras = world.eras();
+    for (era_id, era) in &eras {
         let strata: IndexMap<_, _> = era
             .strata_states
             .iter()
@@ -394,7 +395,8 @@ pub fn get_initial_value(world: &CompiledWorld, signal_id: &SignalId) -> f64 {
 pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> Value {
     let initial_value = get_initial_value(world, signal_id);
 
-    if let Some(signal) = world.signals.get(signal_id) {
+    let signals = world.signals();
+    if let Some(signal) = signals.get(signal_id) {
         match signal.value_type {
             ValueType::Scalar { .. } => Value::Scalar(initial_value),
             ValueType::Vec2 { .. } => Value::Vec2([initial_value; 2]),

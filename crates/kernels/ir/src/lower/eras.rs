@@ -5,7 +5,7 @@
 
 use indexmap::IndexMap;
 
-use continuum_dsl::ast::{self, StrataStateKind};
+use continuum_dsl::ast::{self, Span, StrataStateKind};
 use continuum_foundation::{EraId, Path, StratumId};
 
 use crate::{BinaryOpIr, CompiledEra, CompiledExpr, CompiledTransition, StratumState};
@@ -13,7 +13,7 @@ use crate::{BinaryOpIr, CompiledEra, CompiledExpr, CompiledTransition, StratumSt
 use super::{LowerError, Lowerer};
 
 impl Lowerer {
-    pub(crate) fn lower_era(&mut self, def: &ast::EraDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_era(&mut self, def: &ast::EraDef, span: Span) -> Result<(), LowerError> {
         let id = EraId::from(Path::from_str(def.name.node.as_str()));
 
         // Check for duplicate era definition
@@ -69,6 +69,7 @@ impl Lowerer {
             .collect();
 
         let era = CompiledEra {
+            span,
             id: id.clone(),
             is_initial: def.is_initial,
             is_terminal: def.is_terminal,

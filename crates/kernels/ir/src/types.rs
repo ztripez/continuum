@@ -85,6 +85,7 @@ impl CompiledWorld {
         for (path, node) in &self.nodes {
             if let super::unified_nodes::NodeKind::Signal(props) = &node.kind {
                 let signal = CompiledSignal {
+                    span: node.span.clone(),
                     id: SignalId::from(path.clone()),
                     stratum: node
                         .stratum
@@ -112,6 +113,7 @@ impl CompiledWorld {
         for (path, node) in &self.nodes {
             if let super::unified_nodes::NodeKind::Field(props) = &node.kind {
                 let field = CompiledField {
+                    span: node.span.clone(),
                     id: FieldId::from(path.clone()),
                     stratum: node
                         .stratum
@@ -135,6 +137,7 @@ impl CompiledWorld {
         for (path, node) in &self.nodes {
             if let super::unified_nodes::NodeKind::Operator(props) = &node.kind {
                 let operator = CompiledOperator {
+                    span: node.span.clone(),
                     id: OperatorId::from(path.clone()),
                     stratum: node
                         .stratum
@@ -157,6 +160,7 @@ impl CompiledWorld {
         for (path, node) in &self.nodes {
             if let super::unified_nodes::NodeKind::Era(props) = &node.kind {
                 let era = CompiledEra {
+                    span: node.span.clone(),
                     id: EraId::from(path.clone()),
                     is_initial: props.is_initial,
                     is_terminal: props.is_terminal,
@@ -177,6 +181,7 @@ impl CompiledWorld {
         for (path, node) in &self.nodes {
             if let super::unified_nodes::NodeKind::Stratum(props) = &node.kind {
                 let stratum = CompiledStratum {
+                    span: node.span.clone(),
                     id: StratumId::from(path.clone()),
                     title: props.title.clone(),
                     symbol: props.symbol.clone(),
@@ -194,6 +199,7 @@ impl CompiledWorld {
         for (path, node) in &self.nodes {
             if let super::unified_nodes::NodeKind::Member(props) = &node.kind {
                 let member = CompiledMember {
+                    span: node.span.clone(),
                     id: MemberId::from(path.clone()),
                     entity_id: props.entity_id.clone(),
                     signal_name: props.signal_name.clone(),
@@ -223,6 +229,7 @@ impl CompiledWorld {
         for (path, node) in &self.nodes {
             if let super::unified_nodes::NodeKind::Fracture(props) = &node.kind {
                 let fracture = CompiledFracture {
+                    span: node.span.clone(),
                     id: FractureId::from(path.clone()),
                     stratum: node
                         .stratum
@@ -244,6 +251,7 @@ impl CompiledWorld {
         for (path, node) in &self.nodes {
             if let super::unified_nodes::NodeKind::Entity(props) = &node.kind {
                 let entity = CompiledEntity {
+                    span: node.span.clone(),
                     id: EntityId::from(path.clone()),
                     count_source: props.count_source.clone(),
                     count_bounds: props.count_bounds,
@@ -260,6 +268,7 @@ impl CompiledWorld {
         for (path, node) in &self.nodes {
             if let super::unified_nodes::NodeKind::Chronicle(props) = &node.kind {
                 let chronicle = CompiledChronicle {
+                    span: node.span.clone(),
                     id: ChronicleId::from(path.clone()),
                     reads: node.reads.clone(),
                     handlers: props.handlers.clone(),
@@ -275,6 +284,7 @@ impl CompiledWorld {
         self.nodes.get(id.path()).and_then(|node| {
             if let super::unified_nodes::NodeKind::Signal(props) = &node.kind {
                 Some(CompiledSignal {
+                    span: node.span.clone(),
                     id: id.clone(),
                     stratum: node
                         .stratum
@@ -720,6 +730,7 @@ pub enum IntegrationMethod {
 /// A compiled custom type definition.
 #[derive(Debug, Clone)]
 pub struct CompiledType {
+    pub span: Span,
     pub id: TypeId,
     pub fields: Vec<CompiledTypeField>,
 }

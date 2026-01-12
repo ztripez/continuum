@@ -745,7 +745,8 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
 pub fn group_signals_by_pattern(world: &CompiledWorld) -> Vec<SignalBatch> {
     let mut groups: IndexMap<BatchKey, Vec<SignalId>> = IndexMap::new();
 
-    for (signal_id, signal) in &world.signals {
+    let signals = world.signals();
+    for (signal_id, signal) in &signals {
         // Skip signals without resolve expressions
         let Some(resolve) = &signal.resolve else {
             continue;

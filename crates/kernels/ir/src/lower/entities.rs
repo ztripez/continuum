@@ -4,7 +4,7 @@
 //! Entities are pure index spaces - they define what exists but not what state
 //! it has. Per-entity state is defined via member signals.
 
-use continuum_dsl::ast::EntityDef;
+use continuum_dsl::ast::{EntityDef, Span};
 use continuum_foundation::EntityId;
 
 use crate::CompiledEntity;
@@ -12,7 +12,7 @@ use crate::CompiledEntity;
 use super::{LowerError, Lowerer};
 
 impl Lowerer {
-    pub(crate) fn lower_entity(&mut self, def: &EntityDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_entity(&mut self, def: &EntityDef, span: Span) -> Result<(), LowerError> {
         let id = EntityId::from(def.path.node.clone());
 
         // Check for duplicate entity definition
@@ -30,6 +30,7 @@ impl Lowerer {
         let count_bounds = def.count_bounds.as_ref().map(|b| (b.min, b.max));
 
         let entity = CompiledEntity {
+            span,
             id: id.clone(),
             count_source,
             count_bounds,

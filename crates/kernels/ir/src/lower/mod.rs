@@ -31,7 +31,7 @@
 //!
 //! let (unit, errors) = parse(source);
 //! let world = lower(&unit.unwrap())?;
-//! println!("Signals: {}", world.signals.len());
+//! println!("Signals: {}", world.signals().len());
 //! ```
 //!
 //! # Errors
@@ -176,7 +176,7 @@ pub enum LowerError {
 /// ```ignore
 /// let (unit, _) = continuum_dsl::parse(source);
 /// let world = lower(&unit.unwrap())?;
-/// assert!(!world.signals.is_empty());
+/// assert!(!world.signals().is_empty());
 /// ```
 pub fn lower(unit: &CompilationUnit) -> Result<CompiledWorld, LowerError> {
     let mut lowerer = Lowerer::new();
@@ -258,6 +258,27 @@ impl Lowerer {
         Ok(())
     }
 
+    fn lower_stratum(
+        &mut self,
+        def: &continuum_dsl::ast::StrataDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let id = StratumId::from(def.path.node.clone());
+        if self.strata.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition(format!("strata.{}", id)));
+        }
+
+        let stratum = CompiledStratum {
+            span,
+            id: id.clone(),
+            title: def.title.as_ref().map(|s| s.node.clone()),
+            symbol: def.symbol.as_ref().map(|s| s.node.clone()),
+            default_stride: def.stride.as_ref().map(|s| s.node).unwrap_or(1),
+        };
+        self.strata.insert(id, stratum);
+        Ok(())
+    }
+
     fn finish(self) -> CompiledWorld {
         // Build unified nodes from legacy collections
         let mut nodes = IndexMap::new();
@@ -266,7 +287,7 @@ impl Lowerer {
         for (id, signal) in &self.signals {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0, // TODO: Preserve span information from AST
+                span: signal.span.clone(),
                 stratum: Some(signal.stratum.clone()),
                 reads: signal.reads.clone(),
                 member_reads: Vec::new(),
@@ -290,7 +311,7 @@ impl Lowerer {
         for (id, field) in &self.fields {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: field.span.clone(),
                 stratum: Some(field.stratum.clone()),
                 reads: field.reads.clone(),
                 member_reads: Vec::new(),
@@ -310,7 +331,7 @@ impl Lowerer {
         for (id, operator) in &self.operators {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: operator.span.clone(),
                 stratum: Some(operator.stratum.clone()),
                 reads: operator.reads.clone(),
                 member_reads: Vec::new(),
@@ -329,7 +350,7 @@ impl Lowerer {
         for (id, impulse) in &self.impulses {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: impulse.span.clone(),
                 stratum: None, // Impulses don't belong to specific strata
                 reads: Vec::new(),
                 member_reads: Vec::new(),
@@ -347,7 +368,7 @@ impl Lowerer {
         for (id, fracture) in &self.fractures {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: fracture.span.clone(),
                 stratum: Some(fracture.stratum.clone()),
                 reads: fracture.reads.clone(),
                 member_reads: Vec::new(),
@@ -365,7 +386,7 @@ impl Lowerer {
         for (id, entity) in &self.entities {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: entity.span.clone(),
                 stratum: None, // Entities are pure identity, no execution
                 reads: Vec::new(),
                 member_reads: Vec::new(),
@@ -383,7 +404,7 @@ impl Lowerer {
         for (id, member) in &self.members {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: member.span.clone(),
                 stratum: Some(member.stratum.clone()),
                 reads: member.reads.clone(),
                 member_reads: member.member_reads.clone(),
@@ -408,7 +429,7 @@ impl Lowerer {
         for (id, chronicle) in &self.chronicles {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: chronicle.span.clone(),
                 stratum: None, // Chronicles are observer-only
                 reads: chronicle.reads.clone(),
                 member_reads: Vec::new(),
@@ -425,7 +446,7 @@ impl Lowerer {
         for (id, function) in &self.functions {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: function.span.clone(),
                 stratum: None, // Functions are inlined, don't execute independently
                 reads: Vec::new(),
                 member_reads: Vec::new(),
@@ -443,7 +464,7 @@ impl Lowerer {
         for (id, type_def) in &self.types {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: type_def.span.clone(),
                 stratum: None, // Types are compile-time only
                 reads: Vec::new(),
                 member_reads: Vec::new(),
@@ -458,7 +479,7 @@ impl Lowerer {
         for (id, stratum) in &self.strata {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: stratum.span.clone(),
                 stratum: None, // Strata define execution structure, don't execute themselves
                 reads: Vec::new(),
                 member_reads: Vec::new(),
@@ -477,7 +498,7 @@ impl Lowerer {
         for (id, era) in &self.eras {
             let node = super::unified_nodes::CompiledNode {
                 id: id.path().clone(),
-                span: 0..0,
+                span: era.span.clone(),
                 stratum: None, // Eras define time phases, don't execute themselves
                 reads: Vec::new(),
                 member_reads: Vec::new(),
@@ -533,6 +554,7 @@ impl Lowerer {
                 Item::TypeDef(def) => {
                     self.lower_type_def(def, item.span.clone())?;
                 }
+
                 _ => {}
             }
         }

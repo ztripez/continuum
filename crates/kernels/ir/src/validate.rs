@@ -146,7 +146,8 @@ pub fn validate(world: &CompiledWorld) -> Vec<CompileWarning> {
 /// validate the range at runtime. Without assertions, the range is purely
 /// documentary and violations won't be detected.
 fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
-    for (signal_id, signal) in &world.signals {
+    let signals = world.signals();
+    for (signal_id, signal) in &signals {
         // Check if the signal has a range constraint
         let has_range = matches!(&signal.value_type, ValueType::Scalar { range: Some(_), .. });
 
@@ -173,7 +174,8 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
 /// - Its resolve expression is just `prev` (maintains previous value)
 /// - There's no explicit `initial { expr }` block
 fn check_uninitialized_members(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
-    for (member_id, member) in &world.members {
+    let members = world.members();
+    for (member_id, member) in &members {
         // Skip if member has an explicit initial block
         if member.initial.is_some() {
             continue;
@@ -221,11 +223,17 @@ fn is_known_function(name: &str) -> bool {
 /// undefined signals, constants, config values, or unknown functions.
 fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarning>) {
     // Collect all defined symbols
+    let signals = world.signals();
+    let members = world.members();
+    let fields = world.fields();
+    let fractures = world.fractures();
+    let eras = world.eras();
+
     let mut defined_signals: HashSet<String> = HashSet::new();
-    for signal_id in world.signals.keys() {
+    for signal_id in signals.keys() {
         defined_signals.insert(signal_id.to_string());
     }
-    for member_id in world.members.keys() {
+    for member_id in members.keys() {
         defined_signals.insert(member_id.to_string());
     }
 
@@ -233,7 +241,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
     let defined_config: HashSet<&str> = world.config.keys().map(|s| s.as_str()).collect();
 
     // Check signals
-    for (signal_id, signal) in &world.signals {
+    for (signal_id, signal) in &signals {
         if let Some(resolve) = &signal.resolve {
             check_expr_symbols(
                 resolve,
@@ -257,7 +265,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
     }
 
     // Check fields
-    for (field_id, field) in &world.fields {
+    for (field_id, field) in &fields {
         if let Some(measure) = &field.measure {
             check_expr_symbols(
                 measure,
@@ -271,7 +279,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
     }
 
     // Check fractures
-    for (fracture_id, fracture) in &world.fractures {
+    for (fracture_id, fracture) in &fractures {
         for condition in &fracture.conditions {
             check_expr_symbols(
                 condition,
@@ -295,7 +303,7 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
     }
 
     // Check era transitions
-    for (era_id, era) in &world.eras {
+    for (era_id, era) in &eras {
         for transition in &era.transitions {
             check_expr_symbols(
                 &transition.condition,

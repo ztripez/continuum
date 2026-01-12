@@ -3,7 +3,7 @@
 //! This module handles lowering chronicle definitions from AST to IR.
 //! Chronicles are observer-only event recorders that do not affect causality.
 
-use continuum_dsl::ast;
+use continuum_dsl::ast::{self, Span};
 use continuum_foundation::ChronicleId;
 
 use crate::{CompiledChronicle, CompiledEventField, CompiledObserveHandler};
@@ -15,7 +15,11 @@ impl Lowerer {
     ///
     /// Chronicles observe simulation state and emit events for logging and analytics.
     /// They cannot affect causality - removing all chronicles must not change simulation results.
-    pub(crate) fn lower_chronicle(&mut self, def: &ast::ChronicleDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_chronicle(
+        &mut self,
+        def: &ast::ChronicleDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
         let id = ChronicleId::from(def.path.node.clone());
 
         // Check for duplicate chronicle definition
@@ -59,6 +63,7 @@ impl Lowerer {
         };
 
         let chronicle = CompiledChronicle {
+            span,
             id: id.clone(),
             reads,
             handlers,

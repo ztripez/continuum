@@ -772,8 +772,8 @@ pub fn analyze_fusion(world: &CompiledWorld) -> FusionAnalysis {
     let mut stats = FusionStats::default();
 
     // Step 1: Extract dependencies from all operators
-    let deps: Vec<_> = world
-        .operators
+    let operators = world.operators();
+    let deps: Vec<_> = operators
         .values()
         .map(OperatorDeps::from_operator)
         .collect();
@@ -810,7 +810,7 @@ pub fn analyze_fusion(world: &CompiledWorld) -> FusionAnalysis {
             continue;
         }
 
-        if let Some(fused) = FusedOperator::from_group(group, &world.operators) {
+        if let Some(fused) = FusedOperator::from_group(group, &operators) {
             for id in &fused.original_ids {
                 fused_op_ids.insert(id.clone());
             }

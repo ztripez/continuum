@@ -9,9 +9,8 @@ use std::ops::Range;
 use continuum_foundation::{EntityId, MemberId, Path, SignalId, StratumId};
 
 use super::{
-    AssertionSeverity, CompiledAssertion, CompiledEmit, CompiledExpr, CompiledObserveHandler,
-    CompiledTransition, CompiledTypeField, CompiledWarmup, IntegrationMethod, OperatorPhaseIr,
-    StratumState, TopologyIr, ValueType,
+    CompiledAssertion, CompiledEmit, CompiledExpr, CompiledObserveHandler, CompiledTransition,
+    CompiledTypeField, CompiledWarmup, OperatorPhaseIr, StratumState, TopologyIr, ValueType,
 };
 
 /// A unified compilation node representing any DSL construct.

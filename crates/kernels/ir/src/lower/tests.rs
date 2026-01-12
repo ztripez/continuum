@@ -10,8 +10,8 @@ fn test_lower_empty() {
     use continuum_dsl::ast::CompilationUnit;
     let unit = CompilationUnit::default();
     let world = lower(&unit).unwrap();
-    assert!(world.signals.is_empty());
-    assert!(world.strata.is_empty());
+    assert!(world.signals().is_empty());
+    assert!(world.strata().is_empty());
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn test_lower_strata() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let terra = world.strata.get(&StratumId::from("terra")).unwrap();
+    let terra = world.strata().get(&StratumId::from("terra")).unwrap();
     assert_eq!(terra.title, Some("Terra".to_string()));
     assert_eq!(terra.default_stride, 10);
 }
@@ -91,7 +91,7 @@ fn test_unit_preserved_in_scalar_type() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("terra.temp")).unwrap();
+    let signal = world.signals().get(&SignalId::from("terra.temp")).unwrap();
 
     // Verify the unit is preserved
     match &signal.value_type {
@@ -192,7 +192,7 @@ fn test_dimension_parsed_for_derived_unit() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("terra.force")).unwrap();
+    let signal = world.signals().get(&SignalId::from("terra.force")).unwrap();
 
     // Verify N = kg·m/s² = mass^1 * length^1 * time^-2
     match &signal.value_type {
@@ -299,7 +299,10 @@ fn test_cross_strata_signal_dependency() {
     let world = lower(&unit).unwrap();
 
     // Consumer signal should have alpha.source in its reads
-    let consumer = world.signals.get(&SignalId::from("beta.consumer")).unwrap();
+    let consumer = world
+        .signals()
+        .get(&SignalId::from("beta.consumer"))
+        .unwrap();
     assert!(
         consumer.reads.contains(&SignalId::from("alpha.source")),
         "reads: {:?}",
@@ -325,7 +328,7 @@ fn test_lower_let_expression() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("test.sum")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.sum")).unwrap();
     assert!(signal.resolve.is_some());
 
     // Check the structure of the lowered expression
@@ -434,7 +437,7 @@ fn test_fn_inlining_in_signal() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.result")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.result")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
 
     // The function call should be inlined as:
@@ -481,7 +484,7 @@ fn test_fn_calling_kernel() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.result")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.result")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
 
     // Kernel call should be lowered to KernelCall, not inlined
@@ -522,7 +525,7 @@ fn test_kernel_function_various_names() {
     let world = lower(&unit).unwrap();
 
     // Check kernel.sqrt -> KernelCall("sqrt", ...)
-    let signal_a = world.signals.get(&SignalId::from("test.a")).unwrap();
+    let signal_a = world.signals().get(&SignalId::from("test.a")).unwrap();
     match signal_a.resolve.as_ref().unwrap() {
         CompiledExpr::KernelCall { function, args } => {
             assert_eq!(function, "sqrt");
@@ -532,7 +535,7 @@ fn test_kernel_function_various_names() {
     }
 
     // Check kernel.gravity_acceleration -> KernelCall("gravity_acceleration", ...)
-    let signal_b = world.signals.get(&SignalId::from("test.b")).unwrap();
+    let signal_b = world.signals().get(&SignalId::from("test.b")).unwrap();
     match signal_b.resolve.as_ref().unwrap() {
         CompiledExpr::KernelCall { function, args } => {
             assert_eq!(function, "gravity_acceleration");
@@ -545,7 +548,7 @@ fn test_kernel_function_various_names() {
     }
 
     // Check kernel.mat_vec_mul -> KernelCall("mat_vec_mul", ...)
-    let signal_c = world.signals.get(&SignalId::from("test.c")).unwrap();
+    let signal_c = world.signals().get(&SignalId::from("test.c")).unwrap();
     match signal_c.resolve.as_ref().unwrap() {
         CompiledExpr::KernelCall { function, args } => {
             assert_eq!(function, "mat_vec_mul");
@@ -575,7 +578,7 @@ fn test_dt_robust_operator_recognized() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.value")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
 
     // decay should be recognized as a dt-robust operator
@@ -608,7 +611,7 @@ fn test_integrate_is_dt_robust() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.pos")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.pos")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
 
     match resolve {
@@ -637,7 +640,7 @@ fn test_regular_function_not_dt_robust() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.value")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
 
     // sin should remain as a regular Call
@@ -685,7 +688,7 @@ fn test_signal_local_config() {
     );
 
     // Check the resolve expression references the config correctly
-    let signal = world.signals.get(&SignalId::from("core.temp")).unwrap();
+    let signal = world.signals().get(&SignalId::from("core.temp")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
     match resolve {
         CompiledExpr::Config(key) => {
@@ -806,7 +809,7 @@ fn test_dt_raw_with_declaration_succeeds() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.value")).unwrap();
     assert!(signal.uses_dt_raw);
 }
 
@@ -1063,7 +1066,10 @@ fn test_lower_operator_collect_phase() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    assert!(!world.operators.is_empty(), "operators should not be empty");
+    assert!(
+        !world.operators().is_empty(),
+        "operators should not be empty"
+    );
 }
 
 #[test]
@@ -1087,7 +1093,7 @@ fn test_lower_operator_measure_phase() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    assert!(!world.operators.is_empty());
+    assert!(!world.operators().is_empty());
 }
 
 // ============================================================================
@@ -1109,7 +1115,7 @@ fn test_lower_unary_negation() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.neg")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.neg")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
     match resolve {
         CompiledExpr::Unary { .. } | CompiledExpr::Literal(_) => {}
@@ -1134,7 +1140,10 @@ fn test_lower_comparison_ops() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.compare")).unwrap();
+    let signal = world
+        .signals()
+        .get(&SignalId::from("test.compare"))
+        .unwrap();
     assert!(signal.resolve.is_some());
 }
 
@@ -1159,7 +1168,7 @@ fn test_lower_nested_if() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.nested")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.nested")).unwrap();
     assert!(signal.resolve.is_some());
 }
 
@@ -1186,7 +1195,7 @@ fn test_lower_all_binary_ops() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.ops")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.ops")).unwrap();
     assert!(signal.resolve.is_some());
 }
 
@@ -1245,7 +1254,7 @@ fn test_multi_signal_dependency_chain() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let c = world.signals.get(&SignalId::from("test.c")).unwrap();
+    let c = world.signals().get(&SignalId::from("test.c")).unwrap();
     assert!(c.reads.contains(&SignalId::from("test.a")));
     assert!(c.reads.contains(&SignalId::from("test.b")));
 }
@@ -1265,7 +1274,10 @@ fn test_signal_self_reference_via_prev() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.counter")).unwrap();
+    let signal = world
+        .signals()
+        .get(&SignalId::from("test.counter"))
+        .unwrap();
     // prev doesn't create a read dependency on other signals
     assert!(signal.reads.is_empty() || !signal.reads.contains(&SignalId::from("test.counter")));
 }
@@ -1566,7 +1578,7 @@ fn test_math_const_pi_lowered_to_literal() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("test.angle")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.angle")).unwrap();
 
     let resolve = signal.resolve.as_ref().expect("resolve should be present");
     match resolve {
@@ -1595,7 +1607,7 @@ fn test_math_const_unicode_pi() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("test.angle")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.angle")).unwrap();
 
     let resolve = signal.resolve.as_ref().expect("resolve should be present");
     match resolve {
@@ -1624,7 +1636,7 @@ fn test_math_const_tau() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("test.angle")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.angle")).unwrap();
 
     let resolve = signal.resolve.as_ref().expect("resolve should be present");
     match resolve {
@@ -1657,7 +1669,7 @@ fn test_math_const_e() {
     }
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("test.value")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.value")).unwrap();
 
     let resolve = signal.resolve.as_ref().expect("resolve should be present");
     match resolve {
@@ -1686,7 +1698,7 @@ fn test_math_const_phi() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("test.ratio")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.ratio")).unwrap();
 
     let resolve = signal.resolve.as_ref().expect("resolve should be present");
     match resolve {
@@ -1712,7 +1724,7 @@ fn test_math_const_in_expression() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world.signals.get(&SignalId::from("test.area")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.area")).unwrap();
 
     // Should be Binary { Mul, Literal(PI), Literal(4.0) }
     let resolve = signal.resolve.as_ref().expect("resolve should be present");
@@ -2323,7 +2335,10 @@ fn test_vec3_signal_has_resolve_components() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+    let signal = world
+        .signals()
+        .get(&SignalId::from("test.velocity"))
+        .unwrap();
 
     // Vec3 signals should NOT have resolve (it's expanded to components)
     assert!(
@@ -2357,7 +2372,10 @@ fn test_vec2_signal_has_resolve_components() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.position")).unwrap();
+    let signal = world
+        .signals()
+        .get(&SignalId::from("test.position"))
+        .unwrap();
 
     assert!(
         signal.resolve.is_none(),
@@ -2454,7 +2472,10 @@ fn test_vec3_prev_expanded_to_field_access() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+    let signal = world
+        .signals()
+        .get(&SignalId::from("test.velocity"))
+        .unwrap();
     let components = signal.resolve_components.as_ref().unwrap();
 
     // Each component should be a FieldAccess on Prev
@@ -2495,7 +2516,7 @@ fn test_vec3_collected_expanded_to_field_access() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.force")).unwrap();
+    let signal = world.signals().get(&SignalId::from("test.force")).unwrap();
     let components = signal.resolve_components.as_ref().unwrap();
 
     // Each component should be Binary(Add, FieldAccess(Prev, x/y/z), FieldAccess(Collected, x/y/z))
@@ -2551,7 +2572,10 @@ fn test_vec3_signal_reference_expanded() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.position")).unwrap();
+    let signal = world
+        .signals()
+        .get(&SignalId::from("test.position"))
+        .unwrap();
     let components = signal.resolve_components.as_ref().unwrap();
 
     // Check that signal reference is expanded to component access
@@ -2595,7 +2619,10 @@ fn test_vec3_binary_ops_expanded_componentwise() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+    let signal = world
+        .signals()
+        .get(&SignalId::from("test.velocity"))
+        .unwrap();
     let components = signal.resolve_components.as_ref().unwrap();
 
     for (i, comp) in components.iter().enumerate() {
@@ -2641,7 +2668,10 @@ fn test_vec3_constructor_expanded() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+    let signal = world
+        .signals()
+        .get(&SignalId::from("test.velocity"))
+        .unwrap();
     let components = signal.resolve_components.as_ref().unwrap();
 
     // Component 0 (x) should extract arg 0 = 1.0
@@ -2680,7 +2710,10 @@ fn test_vec3_explicit_component_access_preserved() {
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
 
-    let signal = world.signals.get(&SignalId::from("test.velocity")).unwrap();
+    let signal = world
+        .signals()
+        .get(&SignalId::from("test.velocity"))
+        .unwrap();
     let components = signal.resolve_components.as_ref().unwrap();
 
     // Component 0 should be prev.x (preserved)

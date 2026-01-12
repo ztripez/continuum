@@ -3,7 +3,7 @@
 //! This module handles lowering member signal definitions from AST to IR.
 //! Member signals are per-entity authoritative state with their own resolve blocks.
 
-use continuum_dsl::ast;
+use continuum_dsl::ast::{self, Span};
 use continuum_foundation::{EntityId, MemberId, StratumId};
 
 use crate::{CompiledMember, ValueType};
@@ -15,7 +15,11 @@ impl Lowerer {
     ///
     /// Member signals follow the path structure: `entity_path.signal_name`
     /// For example, `human.person.age` belongs to entity `human.person` with signal `age`.
-    pub(crate) fn lower_member(&mut self, def: &ast::MemberDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_member(
+        &mut self,
+        def: &ast::MemberDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
         let full_path = def.path.node.to_string();
         let id = MemberId::from(def.path.node.clone());
 
@@ -71,12 +75,6 @@ impl Lowerer {
         // which entity instance is being resolved
         let member_reads = Vec::new();
 
-        // Detect dt_raw usage
-        let uses_dt_raw = def
-            .resolve
-            .as_ref()
-            .is_some_and(|r| self.expr_uses_dt_raw(&r.body.node));
-
         // Lower initial expression
         let initial = def.initial.as_ref().map(|i| self.lower_expr(&i.body.node));
 
@@ -101,7 +99,13 @@ impl Lowerer {
                 range: None,
             });
 
+        let uses_dt_raw = def
+            .resolve
+            .as_ref()
+            .is_some_and(|r| self.expr_uses_dt_raw(&r.body.node));
+
         let member = CompiledMember {
+            span,
             id: id.clone(),
             entity_id,
             signal_name,

@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use continuum_dsl::ast::{self, FnDef, OperatorBody};
+use continuum_dsl::ast::{self, FnDef, OperatorBody, Span};
 use continuum_foundation::{FnId, OperatorId, StratumId};
 
 use crate::{CompiledFn, CompiledOperator, OperatorPhaseIr};
@@ -13,7 +13,11 @@ use crate::{CompiledFn, CompiledOperator, OperatorPhaseIr};
 use super::{LowerError, Lowerer};
 
 impl Lowerer {
-    pub(crate) fn lower_operator(&mut self, def: &ast::OperatorDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_operator(
+        &mut self,
+        def: &ast::OperatorDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
         let id = OperatorId::from(def.path.node.clone());
 
         // Check for duplicate operator definition
@@ -63,6 +67,7 @@ impl Lowerer {
             .unwrap_or_default();
 
         let operator = CompiledOperator {
+            span,
             id: id.clone(),
             stratum,
             phase,
@@ -75,7 +80,7 @@ impl Lowerer {
         Ok(())
     }
 
-    pub(crate) fn lower_fn(&mut self, def: &FnDef) -> Result<(), LowerError> {
+    pub(crate) fn lower_fn(&mut self, def: &FnDef, span: Span) -> Result<(), LowerError> {
         let id = FnId::from(def.path.node.clone());
 
         // Check for duplicate function definition
@@ -94,6 +99,7 @@ impl Lowerer {
         let body = self.lower_expr_with_locals(&def.body.node, &locals);
 
         let compiled_fn = CompiledFn {
+            span,
             id: id.clone(),
             params,
             body,
