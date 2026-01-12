@@ -153,10 +153,6 @@ fn numeric_value<'src>()
 -> impl Parser<'src, ParserInput<'src>, f64, extra::Err<ParseError<'src>>> + Clone {
     let value = choice((
         float(),
-        just(Token::Pi).to(std::f64::consts::PI),
-        just(Token::Tau).to(std::f64::consts::TAU),
-        just(Token::E).to(std::f64::consts::E),
-        just(Token::Phi).to(1.618_033_988_749_895),
         ident().try_map(|name: String, span: SimpleSpan| {
             crate::math_consts::lookup(&name)
                 .ok_or_else(|| Rich::custom(span.into(), format!("unknown math constant '{name}'")))

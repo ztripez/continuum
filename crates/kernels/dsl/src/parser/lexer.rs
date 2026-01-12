@@ -198,23 +198,6 @@ pub enum Token {
     #[token("or", priority = 2)]
     OrKeyword,
 
-    // --- Math Constants ---
-    #[token("PI", priority = 2)]
-    #[token("π", priority = 2)]
-    Pi,
-    #[token("TAU", priority = 2)]
-    #[token("τ", priority = 2)]
-    Tau,
-    #[token("PHI", priority = 2)]
-    #[token("φ", priority = 2)]
-    Phi,
-    #[token("E", priority = 2)]
-    #[token("ℯ", priority = 2)]
-    E,
-    #[token("I", priority = 2)]
-    #[token("ⅈ", priority = 2)]
-    I,
-
     // --- Operators & Punctuation ---
     #[token("+")]
     Plus,

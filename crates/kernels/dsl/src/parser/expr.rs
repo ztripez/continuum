@@ -3,7 +3,7 @@
 use chumsky::input::MapExtra;
 use chumsky::prelude::*;
 
-use crate::ast::{AggregateOp, BinaryOp, CallArg, Expr, Literal, MathConst, Spanned, UnaryOp};
+use crate::ast::{AggregateOp, BinaryOp, CallArg, Expr, Literal, Spanned, UnaryOp};
 
 use super::lexer::Token;
 use super::primitives::{ident, number, path, string_lit, tok, unit};
@@ -52,19 +52,8 @@ fn spanned_expr_inner<'src>(
             tok(Token::Prev).to(Expr::Prev),
             tok(Token::DtRaw).to(Expr::DtRaw),
             tok(Token::SimTime).to(Expr::SimTime),
-            tok(Token::Pi).to(Expr::MathConst(MathConst::Pi)),
-            tok(Token::Tau).to(Expr::MathConst(MathConst::Tau)),
-            tok(Token::Phi).to(Expr::MathConst(MathConst::Phi)),
-            tok(Token::E).to(Expr::MathConst(MathConst::E)),
-            tok(Token::I).to(Expr::MathConst(MathConst::I)),
             tok(Token::Payload).to(Expr::Payload),
             tok(Token::Collected).to(Expr::Collected),
-            // Look up constants from the registry
-            ident()
-                .filter(|name| crate::math_consts::lookup(name).is_some())
-                .map(|name| {
-                    Expr::Literal(Literal::Float(crate::math_consts::lookup(&name).unwrap()))
-                }),
             tok(Token::Signal)
                 .ignore_then(tok(Token::Dot))
                 .ignore_then(path())
