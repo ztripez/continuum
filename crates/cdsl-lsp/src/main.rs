@@ -19,6 +19,7 @@ mod formatter;
 mod symbols;
 
 use continuum_kernel_registry as kernel_registry;
+use std::collections::HashMap;
 use std::path::Path;
 
 use dashmap::DashMap;
@@ -50,24 +51,15 @@ const SEMANTIC_TOKEN_TYPES: &[SemanticTokenType] = &[
     SemanticTokenType::CLASS,     // 9: chronicle
     SemanticTokenType::CLASS,     // 10: entity
     SemanticTokenType::KEYWORD,   // 11: keyword
-    SemanticTokenType::NUMBER,    // 12: number
-    SemanticTokenType::STRING,    // 13: string/unit
-    SemanticTokenType::COMMENT,   // 14: comment
-    SemanticTokenType::PARAMETER, // 15: const
-    SemanticTokenType::PARAMETER, // 16: config
-    SemanticTokenType::VARIABLE,  // 17: member
-    SemanticTokenType::NAMESPACE, // 18: world
 ];
 
-/// Semantic token modifiers.
 const SEMANTIC_TOKEN_MODIFIERS: &[SemanticTokenModifier] = &[
-    SemanticTokenModifier::DEFINITION,
     SemanticTokenModifier::DECLARATION,
+    SemanticTokenModifier::DEFINITION,
+    SemanticTokenModifier::READONLY,
 ];
 
-/// The CDSL language server backend.
 struct Backend {
-    /// LSP client for sending notifications.
     client: Client,
     /// Workspace root folders.
     workspace_roots: RwLock<Vec<Url>>,
@@ -80,46 +72,56 @@ struct Backend {
 impl Backend {
     /// Parse a document and publish diagnostics.
     async fn parse_and_publish_diagnostics(&self, uri: Url, text: &str) {
-        let (ast, errors) = parse(text);
+        let path = match uri.to_file_path() {
+            Ok(p) => p,
+            Err(_) => return,
+        };
 
-        // Convert parse errors to LSP diagnostics
-        let mut diagnostics: Vec<Diagnostic> = errors
+        // Use unified compiler to get full diagnostics
+        let mut source_map = HashMap::new();
+        source_map.insert(path.clone(), text);
+
+        let compile_result = continuum_compiler::compile(&source_map);
+
+        let mut diagnostics: Vec<Diagnostic> = compile_result
+            .diagnostics
             .iter()
-            .map(|err| {
-                let span = err.span();
+            .map(|diag| {
+                let span = diag.span.clone().unwrap_or(0..0);
                 let (start_line, start_char) = offset_to_position(text, span.start);
                 let (end_line, end_char) = offset_to_position(text, span.end);
+
+                let severity = match diag.severity {
+                    continuum_compiler::Severity::Error => DiagnosticSeverity::ERROR,
+                    continuum_compiler::Severity::Warning => DiagnosticSeverity::WARNING,
+                    continuum_compiler::Severity::Hint => DiagnosticSeverity::HINT,
+                };
 
                 Diagnostic {
                     range: Range {
                         start: Position::new(start_line, start_char),
                         end: Position::new(end_line, end_char),
                     },
-                    severity: Some(DiagnosticSeverity::ERROR),
+                    severity: Some(severity),
                     source: Some("cdsl".to_string()),
-                    message: format!("{}", err.reason()),
+                    message: diag.message.clone(),
                     ..Default::default()
                 }
             })
             .collect();
 
-        // Build symbol index from AST and collect hints
-        if let Some(ref ast) = ast {
-            // Lower to IR for indexing (individual file context)
-            let world = continuum_ir::lower(ast).unwrap_or_else(|_| continuum_ir::CompiledWorld {
-                constants: indexmap::IndexMap::new(),
-                config: indexmap::IndexMap::new(),
-                nodes: indexmap::IndexMap::new(),
-            });
+        // Update symbol index if we have a world
+        if let Some(world) = &compile_result.world {
+            let (ast, _) = continuum_compiler::dsl::parse(text);
+            if let Some(ast) = ast {
+                let index = SymbolIndex::new(&ast, world);
+                self.symbol_indices.insert(uri.clone(), index);
+            }
+        }
 
-            let index = SymbolIndex::new(ast, &world);
-
-            // Get references for validation before inserting
-            let refs_to_validate = index.get_references_for_validation();
-
-            self.symbol_indices.insert(uri.clone(), index);
-
-            // Collect clamp usage hints
+        // Collect clamp usage hints (still custom for now)
+        let (ast, _) = continuum_compiler::dsl::parse(text);
+        if let Some(ast) = &ast {
             let clamp_spans = collect_clamp_usages(ast);
             for span in clamp_spans {
                 let (start_line, start_char) = offset_to_position(text, span.start);
@@ -139,51 +141,10 @@ impl Backend {
                     ..Default::default()
                 });
             }
-
-            // Check for undefined references
-            let undefined = self.find_undefined_references(&refs_to_validate);
-            for undef in undefined {
-                let (start_line, start_char) = offset_to_position(text, undef.span.start);
-                let (end_line, end_char) = offset_to_position(text, undef.span.end);
-
-                diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: Position::new(start_line, start_char),
-                        end: Position::new(end_line, end_char),
-                    },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    source: Some("cdsl".to_string()),
-                    message: format!(
-                        "Undefined {}: '{}'",
-                        undef.kind.display_name(),
-                        undef.target_path
-                    ),
-                    ..Default::default()
-                });
-            }
-
-            // Check for missing required attributes
-            let missing_attrs = collect_missing_attributes(ast);
-            for attr in missing_attrs {
-                let (start_line, start_char) = offset_to_position(text, attr.span.start);
-                let (end_line, end_char) = offset_to_position(text, attr.span.end);
-
-                diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: Position::new(start_line, start_char),
-                        end: Position::new(end_line, end_char),
-                    },
-                    severity: Some(attr.severity),
-                    source: Some("cdsl".to_string()),
-                    message: format!("Missing {} for '{}'", attr.attribute, attr.symbol_path),
-                    ..Default::default()
-                });
-            }
         }
 
-        // Publish diagnostics
         self.client
-            .publish_diagnostics(uri, diagnostics, None)
+            .publish_diagnostics(uri.clone(), diagnostics, None)
             .await;
     }
 
@@ -205,9 +166,8 @@ impl Backend {
             .into_iter()
             .filter_map(|e| e.ok())
         {
-            let path = entry.path();
-            if path.extension().map(|e| e == "cdsl").unwrap_or(false) {
-                self.index_file(path).await;
+            if entry.path().extension().is_some_and(|e| e == "cdsl") {
+                self.index_file(entry.path()).await;
             }
         }
     }
@@ -219,43 +179,37 @@ impl Backend {
             Err(_) => return,
         };
 
-        // Skip if already indexed from an open document
         if self.documents.contains_key(&uri) {
             return;
         }
 
-        // Read and parse the file
         let text = match std::fs::read_to_string(path) {
             Ok(text) => text,
             Err(_) => return,
         };
 
-        let (ast, _errors) = parse(&text);
+        let mut source_map = HashMap::new();
+        source_map.insert(path.to_path_buf(), &text as &str);
 
-        if let Some(ref ast) = ast {
-            // Lower to IR for indexing (individual file context)
-            let world = continuum_ir::lower(ast).unwrap_or_else(|_| continuum_ir::CompiledWorld {
-                constants: indexmap::IndexMap::new(),
-                config: indexmap::IndexMap::new(),
-                nodes: indexmap::IndexMap::new(),
-            });
+        let compile_result = continuum_compiler::compile(&source_map);
 
-            let index = SymbolIndex::new(ast, &world);
-            self.symbol_indices.insert(uri, index);
+        if let Some(world) = &compile_result.world {
+            let (ast, _) = continuum_compiler::dsl::parse(&text);
+            if let Some(ast) = ast {
+                let index = SymbolIndex::new(&ast, world);
+                self.symbol_indices.insert(uri, index);
+            }
         }
     }
 
-    /// Find undefined references by checking against all indexed symbols.
-    ///
-    /// Returns references that don't have a corresponding definition in any
-    /// indexed file.
+    /// Find undefined references (legacy, now handled by unified compiler)
+    #[allow(dead_code)]
     fn find_undefined_references(
         &self,
         refs: &[ReferenceValidationInfo],
     ) -> Vec<ReferenceValidationInfo> {
         refs.iter()
             .filter(|r| {
-                // Check if definition exists in any indexed file
                 !self.symbol_indices.iter().any(|entry| {
                     entry
                         .value()
@@ -267,54 +221,18 @@ impl Backend {
             .collect()
     }
 
-    /// Check if any indexed file contains a world definition.
+    /// Check if the workspace has a world definition.
     fn has_world_definition(&self) -> bool {
         self.symbol_indices
             .iter()
             .any(|entry| entry.value().has_symbol_kind(CdslSymbolKind::World))
     }
 
-    /// Find duplicate symbol definitions across all indexed files.
-    ///
-    /// Returns a list of (uri, path, span, kind) tuples for symbols that are
-    /// defined more than once. Only the second and subsequent definitions are
-    /// included (the first definition is considered canonical).
-    fn find_duplicate_symbols(&self) -> Vec<(Url, String, std::ops::Range<usize>, CdslSymbolKind)> {
-        use std::collections::HashMap;
-
-        // Collect all symbols: path -> Vec<(uri, span, kind)>
-        let mut all_symbols: HashMap<String, Vec<(Url, std::ops::Range<usize>, CdslSymbolKind)>> =
-            HashMap::new();
-
-        for entry in self.symbol_indices.iter() {
-            let uri = entry.key().clone();
-            for (info, span) in entry.value().get_all_definitions() {
-                all_symbols.entry(info.path.clone()).or_default().push((
-                    uri.clone(),
-                    span,
-                    info.kind,
-                ));
-            }
-        }
-
-        // Find paths with more than one definition
-        let mut duplicates = Vec::new();
-        for (path, occurrences) in all_symbols {
-            if occurrences.len() > 1 {
-                // Skip the first (canonical) definition, report the rest
-                for (uri, span, kind) in occurrences.into_iter().skip(1) {
-                    duplicates.push((uri, path.clone(), span, kind));
-                }
-            }
-        }
-
-        duplicates
-    }
-
-    /// Find unused symbols (defined but never referenced) in a specific file.
+    /// Find all unused symbols across the entire world.
     ///
     /// Returns a list of (path, span, kind) for symbols that have no references
     /// anywhere in the workspace.
+    #[allow(dead_code)]
     fn find_unused_symbols_in_file(
         &self,
         uri: &Url,
@@ -324,7 +242,6 @@ impl Backend {
             None => return vec![],
         };
 
-        // Collect all references across the entire workspace
         let mut all_refs: std::collections::HashSet<(String, CdslSymbolKind)> =
             std::collections::HashSet::new();
 
@@ -334,10 +251,8 @@ impl Backend {
             }
         }
 
-        // Find definitions in this file that have no references
         let mut unused = Vec::new();
         for (info, span) in index.get_all_definitions() {
-            // Skip certain kinds that are entry points or config
             match info.kind {
                 CdslSymbolKind::World
                 | CdslSymbolKind::Era
@@ -355,12 +270,8 @@ impl Backend {
     }
 
     /// Run workspace-level validation and publish diagnostics.
-    ///
-    /// This should be called after workspace scanning is complete.
     async fn validate_workspace(&self) {
-        // Check for missing world definition
         if !self.has_world_definition() {
-            // Find the first indexed file to publish the error
             if let Some(entry) = self.symbol_indices.iter().next() {
                 let uri = entry.key().clone();
                 let text = self
@@ -369,10 +280,8 @@ impl Backend {
                     .map(|v| v.clone())
                     .unwrap_or_default();
 
-                // Get existing diagnostics for this file (if any)
                 let mut diagnostics = Vec::new();
 
-                // Add error at position 0,0
                 diagnostics.push(Diagnostic {
                     range: Range {
                         start: Position::new(0, 0),
@@ -386,7 +295,6 @@ impl Backend {
                     ..Default::default()
                 });
 
-                // Re-parse to get any existing diagnostics
                 if !text.is_empty() {
                     let (_, errors) = parse(&text);
                     for err in &errors {
@@ -412,659 +320,12 @@ impl Backend {
                     .await;
             }
         }
-
-        // Check for duplicate symbols
-        let duplicates = self.find_duplicate_symbols();
-        // Group duplicates by URI
-        let mut duplicates_by_uri: std::collections::HashMap<
-            Url,
-            Vec<(String, std::ops::Range<usize>, CdslSymbolKind)>,
-        > = std::collections::HashMap::new();
-
-        for (uri, path, span, kind) in duplicates {
-            duplicates_by_uri
-                .entry(uri)
-                .or_default()
-                .push((path, span, kind));
-        }
-
-        // Publish warnings for each file with duplicates
-        for (uri, file_duplicates) in duplicates_by_uri {
-            let text = self
-                .documents
-                .get(&uri)
-                .map(|v| v.clone())
-                .or_else(|| {
-                    uri.to_file_path()
-                        .ok()
-                        .and_then(|p| std::fs::read_to_string(p).ok())
-                })
-                .unwrap_or_default();
-
-            // Re-parse to get existing diagnostics
-            let (_, errors) = parse(&text);
-            let mut diagnostics: Vec<Diagnostic> = errors
-                .iter()
-                .map(|err| {
-                    let span = err.span();
-                    let (start_line, start_char) = offset_to_position(&text, span.start);
-                    let (end_line, end_char) = offset_to_position(&text, span.end);
-
-                    Diagnostic {
-                        range: Range {
-                            start: Position::new(start_line, start_char),
-                            end: Position::new(end_line, end_char),
-                        },
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        source: Some("cdsl".to_string()),
-                        message: format!("{}", err.reason()),
-                        ..Default::default()
-                    }
-                })
-                .collect();
-
-            // Add duplicate warnings
-            for (path, span, kind) in file_duplicates {
-                let (start_line, start_char) = offset_to_position(&text, span.start);
-                let (end_line, end_char) = offset_to_position(&text, span.end);
-
-                diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: Position::new(start_line, start_char),
-                        end: Position::new(end_line, end_char),
-                    },
-                    severity: Some(DiagnosticSeverity::WARNING),
-                    source: Some("cdsl".to_string()),
-                    message: format!(
-                        "Duplicate {} definition: '{}' is already defined elsewhere",
-                        kind.display_name(),
-                        path
-                    ),
-                    ..Default::default()
-                });
-            }
-
-            self.client
-                .publish_diagnostics(uri, diagnostics, None)
-                .await;
-        }
-
-        // Check for unused symbols in all files
-        for entry in self.symbol_indices.iter() {
-            let uri = entry.key().clone();
-            let unused = self.find_unused_symbols_in_file(&uri);
-
-            if unused.is_empty() {
-                continue;
-            }
-
-            let text = self
-                .documents
-                .get(&uri)
-                .map(|v| v.clone())
-                .or_else(|| {
-                    uri.to_file_path()
-                        .ok()
-                        .and_then(|p| std::fs::read_to_string(p).ok())
-                })
-                .unwrap_or_default();
-
-            // Re-parse to get existing diagnostics
-            let (_, errors) = parse(&text);
-            let mut diagnostics: Vec<Diagnostic> = errors
-                .iter()
-                .map(|err| {
-                    let span = err.span();
-                    let (start_line, start_char) = offset_to_position(&text, span.start);
-                    let (end_line, end_char) = offset_to_position(&text, span.end);
-
-                    Diagnostic {
-                        range: Range {
-                            start: Position::new(start_line, start_char),
-                            end: Position::new(end_line, end_char),
-                        },
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        source: Some("cdsl".to_string()),
-                        message: format!("{}", err.reason()),
-                        ..Default::default()
-                    }
-                })
-                .collect();
-
-            // Add unused symbol hints
-            for (path, span, kind) in unused {
-                let (start_line, start_char) = offset_to_position(&text, span.start);
-                let (end_line, end_char) = offset_to_position(&text, span.end);
-
-                diagnostics.push(Diagnostic {
-                    range: Range {
-                        start: Position::new(start_line, start_char),
-                        end: Position::new(end_line, end_char),
-                    },
-                    severity: Some(DiagnosticSeverity::HINT),
-                    source: Some("cdsl".to_string()),
-                    message: format!(
-                        "Unused {}: '{}' is never referenced",
-                        kind.display_name(),
-                        path
-                    ),
-                    tags: Some(vec![DiagnosticTag::UNNECESSARY]),
-                    ..Default::default()
-                });
-            }
-
-            self.client
-                .publish_diagnostics(uri, diagnostics, None)
-                .await;
-        }
     }
-}
-
-/// Convert a byte offset to line/column position.
-fn offset_to_position(text: &str, offset: usize) -> (u32, u32) {
-    let mut line = 0u32;
-    let mut col = 0u32;
-    let mut current_offset = 0;
-
-    for ch in text.chars() {
-        if current_offset >= offset {
-            break;
-        }
-        if ch == '\n' {
-            line += 1;
-            col = 0;
-        } else {
-            col += 1;
-        }
-        current_offset += ch.len_utf8();
-    }
-
-    (line, col)
-}
-
-/// Convert an LSP position (line/column) to a byte offset.
-fn position_to_offset(text: &str, position: Position) -> usize {
-    let mut current_line = 0u32;
-    let mut current_col = 0u32;
-    let mut offset = 0;
-
-    for ch in text.chars() {
-        if current_line == position.line && current_col == position.character {
-            return offset;
-        }
-        if ch == '\n' {
-            if current_line == position.line {
-                // Position is beyond line end, return end of line
-                return offset;
-            }
-            current_line += 1;
-            current_col = 0;
-        } else {
-            current_col += 1;
-        }
-        offset += ch.len_utf8();
-    }
-
-    offset
-}
-
-/// Get the identifier at cursor position.
-///
-/// Returns the full identifier under or before the cursor (e.g., "clamp" or "math.lerp").
-/// Used for hover on built-in functions.
-fn get_word_at_cursor(text: &str, offset: usize) -> Option<String> {
-    if offset > text.len() {
-        return None;
-    }
-
-    // Find start of identifier (going backwards)
-    let before = &text[..offset];
-    let start = before
-        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-        .map(|i| i + 1)
-        .unwrap_or(0);
-
-    // Find end of identifier (going forwards)
-    let after = &text[offset..];
-    let end_rel = after
-        .find(|c: char| !c.is_alphanumeric() && c != '_')
-        .unwrap_or(after.len());
-    let end = offset + end_rel;
-
-    if start >= end {
-        return None;
-    }
-
-    let word = &text[start..end];
-    if word.is_empty() {
-        None
-    } else {
-        // Extract just the last segment (the function name) for builtin lookup
-        Some(word.split('.').next_back().unwrap_or(word).to_string())
-    }
-}
-
-/// Get the completion prefix (the text being typed before the cursor).
-///
-/// Returns the text from the start of the current "word" to the cursor position.
-/// A word includes alphanumeric characters, underscores, and dots.
-fn get_completion_prefix(text: &str, position: Position) -> String {
-    let offset = position_to_offset(text, position);
-    let before_cursor = &text[..offset];
-
-    // Find the start of the current word (including dots for paths)
-    let start = before_cursor
-        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-        .map(|i| i + 1)
-        .unwrap_or(0);
-
-    before_cursor[start..].to_string()
-}
-
-/// Detect if the prefix starts with a symbol kind (e.g., "signal.", "field.").
-///
-/// Returns the kind and prefix length if found.
-fn detect_kind_prefix(prefix: &str) -> Option<(CdslSymbolKind, usize)> {
-    let prefixes = [
-        ("signal.", CdslSymbolKind::Signal),
-        ("field.", CdslSymbolKind::Field),
-        ("operator.", CdslSymbolKind::Operator),
-        ("fn.", CdslSymbolKind::Function),
-        ("type.", CdslSymbolKind::Type),
-        ("strata.", CdslSymbolKind::Strata),
-        ("era.", CdslSymbolKind::Era),
-        ("impulse.", CdslSymbolKind::Impulse),
-        ("fracture.", CdslSymbolKind::Fracture),
-        ("chronicle.", CdslSymbolKind::Chronicle),
-        ("entity.", CdslSymbolKind::Entity),
-    ];
-
-    for (pat, kind) in prefixes {
-        if prefix.starts_with(pat) {
-            return Some((kind, pat.len()));
-        }
-    }
-    None
-}
-
-/// Find function call context for signature help.
-///
-/// Searches backwards from cursor to find if we're inside a `fn.path.name(...)` call.
-/// Returns the function path (without "fn." prefix) and the active parameter index.
-fn find_function_call_context(text_before: &str) -> Option<(String, usize)> {
-    // Find the most recent unclosed '('
-    let mut paren_depth = 0;
-    let mut last_call_start = None;
-
-    // Scan backwards through the text
-    let chars: Vec<char> = text_before.chars().collect();
-    let mut i = chars.len();
-
-    while i > 0 {
-        i -= 1;
-        match chars[i] {
-            ')' => paren_depth += 1,
-            '(' => {
-                if paren_depth > 0 {
-                    paren_depth -= 1;
-                } else {
-                    // Found an unclosed '(' - check if it's a fn call
-                    let before_paren = &text_before[..i];
-
-                    // 1. Check for "fn.path" pattern
-                    if let Some(fn_start) = before_paren.rfind("fn.") {
-                        let path_start = fn_start + 3; // Skip "fn."
-                        let path = &text_before[path_start..i];
-
-                        if path
-                            .chars()
-                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
-                            && !path.is_empty()
-                        {
-                            last_call_start = Some((path.to_string(), i + 1));
-                            break;
-                        }
-                    }
-
-                    // 2. Check for plain identifier (could be built-in kernel)
-                    let id_start = before_paren
-                        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-                        .map(|idx| idx + 1)
-                        .unwrap_or(0);
-                    let id = &before_paren[id_start..];
-                    if !id.is_empty()
-                        && id
-                            .chars()
-                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
-                    {
-                        last_call_start = Some((id.to_string(), i + 1));
-                        break;
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    // If we found a function call, count commas to find active parameter
-    if let Some((fn_path, args_start)) = last_call_start {
-        let args_text = &text_before[args_start..];
-        let mut comma_count = 0usize;
-        let mut depth = 0usize;
-
-        for ch in args_text.chars() {
-            match ch {
-                '(' | '[' | '{' => depth += 1,
-                ')' | ']' | '}' => depth = depth.saturating_sub(1),
-                ',' if depth == 0 => comma_count += 1,
-                _ => {}
-            }
-        }
-
-        return Some((fn_path, comma_count));
-    }
-
-    None
-}
-
-/// Collect all spans where `clamp` is used in the AST.
-///
-/// Detects both method calls (value.clamp(min, max)) and function calls.
-fn collect_clamp_usages(ast: &CompilationUnit) -> Vec<std::ops::Range<usize>> {
-    let mut spans = Vec::new();
-
-    for item in &ast.items {
-        collect_clamp_in_item(&item.node, &mut spans);
-    }
-
-    spans
-}
-
-fn collect_clamp_in_item(item: &Item, spans: &mut Vec<std::ops::Range<usize>>) {
-    match item {
-        Item::SignalDef(def) => {
-            if let Some(ref resolve) = def.resolve {
-                collect_clamp_in_expr(&resolve.body, spans);
-            }
-            if let Some(ref assertions) = def.assertions {
-                for assertion in &assertions.assertions {
-                    collect_clamp_in_expr(&assertion.condition, spans);
-                }
-            }
-        }
-        Item::FieldDef(def) => {
-            if let Some(ref measure) = def.measure {
-                collect_clamp_in_expr(&measure.body, spans);
-            }
-        }
-        Item::OperatorDef(def) => {
-            if let Some(ref body) = def.body {
-                use OperatorBody;
-                match body {
-                    OperatorBody::Warmup(expr)
-                    | OperatorBody::Collect(expr)
-                    | OperatorBody::Measure(expr) => {
-                        collect_clamp_in_expr(expr, spans);
-                    }
-                }
-            }
-        }
-        Item::FnDef(def) => {
-            collect_clamp_in_expr(&def.body, spans);
-        }
-        Item::ImpulseDef(def) => {
-            if let Some(ref apply) = def.apply {
-                collect_clamp_in_expr(&apply.body, spans);
-            }
-        }
-        Item::FractureDef(def) => {
-            for condition in &def.conditions {
-                collect_clamp_in_expr(condition, spans);
-            }
-            if let Some(ref emit) = def.emit {
-                collect_clamp_in_expr(emit, spans);
-            }
-        }
-        Item::ChronicleDef(def) => {
-            if let Some(ref observe) = def.observe {
-                for handler in &observe.handlers {
-                    collect_clamp_in_expr(&handler.condition, spans);
-                    for (_, field_expr) in &handler.event_fields {
-                        collect_clamp_in_expr(field_expr, spans);
-                    }
-                }
-            }
-        }
-        Item::EraDef(def) => {
-            for transition in &def.transitions {
-                for condition in &transition.conditions {
-                    collect_clamp_in_expr(condition, spans);
-                }
-            }
-        }
-        _ => {}
-    }
-}
-
-fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<usize>>) {
-    match &expr.node {
-        Expr::MethodCall {
-            object,
-            method,
-            args,
-        } => {
-            if method == "clamp" {
-                spans.push(expr.span.clone());
-            }
-            collect_clamp_in_expr(object, spans);
-            for arg in args {
-                collect_clamp_in_expr(&arg.value, spans);
-            }
-        }
-        Expr::Call { function, args } => {
-            // Check if function is a path ending in "clamp"
-            if let Expr::Path(path) = &function.node {
-                if path.segments.last().map(|s| s.as_str()) == Some("clamp") {
-                    spans.push(expr.span.clone());
-                }
-            }
-            collect_clamp_in_expr(function, spans);
-            for arg in args {
-                collect_clamp_in_expr(&arg.value, spans);
-            }
-        }
-        Expr::Binary { left, right, .. } => {
-            collect_clamp_in_expr(left, spans);
-            collect_clamp_in_expr(right, spans);
-        }
-        Expr::Unary { operand, .. } => {
-            collect_clamp_in_expr(operand, spans);
-        }
-        Expr::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            collect_clamp_in_expr(condition, spans);
-            collect_clamp_in_expr(then_branch, spans);
-            if let Some(else_expr) = else_branch {
-                collect_clamp_in_expr(else_expr, spans);
-            }
-        }
-        Expr::Let { value, body, .. } => {
-            collect_clamp_in_expr(value, spans);
-            collect_clamp_in_expr(body, spans);
-        }
-        Expr::Block(exprs) => {
-            for e in exprs {
-                collect_clamp_in_expr(e, spans);
-            }
-        }
-        Expr::FieldAccess { object, .. } => {
-            collect_clamp_in_expr(object, spans);
-        }
-        Expr::For { iter, body, .. } => {
-            collect_clamp_in_expr(iter, spans);
-            collect_clamp_in_expr(body, spans);
-        }
-        Expr::Struct(fields) => {
-            for (_, value) in fields {
-                collect_clamp_in_expr(value, spans);
-            }
-        }
-        Expr::EmitSignal { value, .. } => {
-            collect_clamp_in_expr(value, spans);
-        }
-        Expr::EmitField {
-            position, value, ..
-        } => {
-            collect_clamp_in_expr(position, spans);
-            collect_clamp_in_expr(value, spans);
-        }
-        Expr::Map { sequence, function } => {
-            collect_clamp_in_expr(sequence, spans);
-            collect_clamp_in_expr(function, spans);
-        }
-        Expr::Fold {
-            sequence,
-            init,
-            function,
-        } => {
-            collect_clamp_in_expr(sequence, spans);
-            collect_clamp_in_expr(init, spans);
-            collect_clamp_in_expr(function, spans);
-        }
-        Expr::Filter { predicate, .. } => {
-            collect_clamp_in_expr(predicate, spans);
-        }
-        Expr::First { predicate, .. } => {
-            collect_clamp_in_expr(predicate, spans);
-        }
-        Expr::Aggregate { body, .. } => {
-            collect_clamp_in_expr(body, spans);
-        }
-        Expr::EntityAccess { instance, .. } => {
-            collect_clamp_in_expr(instance, spans);
-        }
-        Expr::Nearest { position, .. } => {
-            collect_clamp_in_expr(position, spans);
-        }
-        Expr::Within {
-            position, radius, ..
-        } => {
-            collect_clamp_in_expr(position, spans);
-            collect_clamp_in_expr(radius, spans);
-        }
-        // Terminal expressions - no children
-        Expr::Literal(_)
-        | Expr::LiteralWithUnit { .. }
-        | Expr::Path(_)
-        | Expr::Prev
-        | Expr::PrevField(_)
-        | Expr::DtRaw
-        | Expr::SimTime
-        | Expr::Payload
-        | Expr::PayloadField(_)
-        | Expr::SignalRef(_)
-        | Expr::ConstRef(_)
-        | Expr::ConfigRef(_)
-        | Expr::FieldRef(_)
-        | Expr::Collected
-        | Expr::MathConst(_)
-        | Expr::SelfField(_)
-        | Expr::EntityRef(_)
-        | Expr::Other(_)
-        | Expr::Pairs(_) => {}
-    }
-}
-
-/// Information about a missing required attribute.
-struct MissingAttributeInfo {
-    span: std::ops::Range<usize>,
-    symbol_path: String,
-    attribute: &'static str,
-    severity: DiagnosticSeverity,
-}
-
-/// Collect diagnostics for missing required attributes in the AST.
-fn collect_missing_attributes(ast: &CompilationUnit) -> Vec<MissingAttributeInfo> {
-    let mut diagnostics = Vec::new();
-
-    for item in &ast.items {
-        match &item.node {
-            Item::SignalDef(def) => {
-                // Signal should have strata
-                if def.strata.is_none() {
-                    diagnostics.push(MissingAttributeInfo {
-                        span: def.path.span.clone(),
-                        symbol_path: def.path.node.to_string(),
-                        attribute: "strata",
-                        severity: DiagnosticSeverity::WARNING,
-                    });
-                }
-                // Signal should have resolve block
-                if def.resolve.is_none() {
-                    diagnostics.push(MissingAttributeInfo {
-                        span: def.path.span.clone(),
-                        symbol_path: def.path.node.to_string(),
-                        attribute: "resolve block",
-                        severity: DiagnosticSeverity::WARNING,
-                    });
-                }
-            }
-            Item::FieldDef(def) => {
-                // Field should have strata
-                if def.strata.is_none() {
-                    diagnostics.push(MissingAttributeInfo {
-                        span: def.path.span.clone(),
-                        symbol_path: def.path.node.to_string(),
-                        attribute: "strata",
-                        severity: DiagnosticSeverity::WARNING,
-                    });
-                }
-                // Field should have measure block
-                if def.measure.is_none() {
-                    diagnostics.push(MissingAttributeInfo {
-                        span: def.path.span.clone(),
-                        symbol_path: def.path.node.to_string(),
-                        attribute: "measure block",
-                        severity: DiagnosticSeverity::WARNING,
-                    });
-                }
-            }
-            Item::OperatorDef(def) => {
-                // Operator should have strata
-                if def.strata.is_none() {
-                    diagnostics.push(MissingAttributeInfo {
-                        span: def.path.span.clone(),
-                        symbol_path: def.path.node.to_string(),
-                        attribute: "strata",
-                        severity: DiagnosticSeverity::WARNING,
-                    });
-                }
-            }
-            Item::MemberDef(def) => {
-                // Member should have strata
-                if def.strata.is_none() {
-                    diagnostics.push(MissingAttributeInfo {
-                        span: def.path.span.clone(),
-                        symbol_path: def.path.node.to_string(),
-                        attribute: "strata",
-                        severity: DiagnosticSeverity::WARNING,
-                    });
-                }
-            }
-            _ => {}
-        }
-    }
-
-    diagnostics
 }
 
 #[tower_lsp::async_trait]
 impl LanguageServer for Backend {
     async fn initialize(&self, params: InitializeParams) -> Result<InitializeResult> {
-        // Store workspace roots for scanning
         let mut roots = self.workspace_roots.write().await;
         if let Some(folders) = params.workspace_folders {
             for folder in folders {
@@ -1128,18 +389,7 @@ impl LanguageServer for Backend {
             .log_message(MessageType::INFO, "CDSL language server initialized")
             .await;
 
-        // Scan workspace for all .cdsl files
         self.scan_workspace().await;
-
-        let count = self.symbol_indices.len();
-        self.client
-            .log_message(
-                MessageType::INFO,
-                format!("Indexed {} .cdsl files in workspace", count),
-            )
-            .await;
-
-        // Run workspace-level validation (missing world, duplicates)
         self.validate_workspace().await;
     }
 
@@ -1148,20 +398,30 @@ impl LanguageServer for Backend {
     }
 
     async fn did_open(&self, params: DidOpenTextDocumentParams) {
-        let uri = params.text_document.uri;
-        let text = params.text_document.text;
-
-        self.documents.insert(uri.clone(), text.clone());
-        self.parse_and_publish_diagnostics(uri, &text).await;
+        self.documents.insert(
+            params.text_document.uri.clone(),
+            params.text_document.text.clone(),
+        );
+        self.parse_and_publish_diagnostics(params.text_document.uri, &params.text_document.text)
+            .await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
-        let uri = params.text_document.uri;
+        if let Some(change) = params.content_changes.first() {
+            self.documents
+                .insert(params.text_document.uri.clone(), change.text.clone());
+            self.parse_and_publish_diagnostics(params.text_document.uri, &change.text)
+                .await;
+        }
+    }
 
-        // We use FULL sync, so there's only one change with the full content
-        if let Some(change) = params.content_changes.into_iter().next() {
-            self.documents.insert(uri.clone(), change.text.clone());
-            self.parse_and_publish_diagnostics(uri, &change.text).await;
+    async fn did_save(&self, params: DidSaveTextDocumentParams) {
+        if let Some(text) = params.text {
+            self.parse_and_publish_diagnostics(params.text_document.uri, &text)
+                .await;
+        } else if let Some(doc) = self.documents.get(&params.text_document.uri) {
+            self.parse_and_publish_diagnostics(params.text_document.uri, doc.value())
+                .await;
         }
     }
 
@@ -1170,7 +430,6 @@ impl LanguageServer for Backend {
         self.documents.remove(&uri);
         self.symbol_indices.remove(&uri);
 
-        // Clear diagnostics
         self.client.publish_diagnostics(uri, vec![], None).await;
     }
 
@@ -1178,32 +437,23 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
 
-        // Get document text
         let doc = match self.documents.get(uri) {
             Some(doc) => doc.clone(),
             None => return Ok(None),
         };
 
-        // Get the prefix being typed (text from start of word to cursor)
         let prefix = get_completion_prefix(&doc, position);
-
-        // Check if prefix matches a symbol kind (e.g., "signal.", "field.")
         let kind_filter = detect_kind_prefix(&prefix);
 
         let mut items = Vec::new();
 
-        // If we have a kind prefix, show hierarchical path completion
         if let Some((kind, prefix_len)) = kind_filter {
-            // Get the path part after "signal." etc.
             let path_prefix = &prefix[prefix_len..];
-            // Split by dots, filtering empty segments (from trailing dots like "core.")
             let prefix_segments: Vec<&str> =
                 path_prefix.split('.').filter(|s| !s.is_empty()).collect();
             let prefix_depth = prefix_segments.len();
 
-            // Track unique next segments: segment -> Option<(full_path, type, title, doc)>
             struct CompletionData {
-                full_path: String,
                 ty: Option<String>,
                 title: Option<String>,
                 doc: Option<String>,
@@ -1211,12 +461,10 @@ impl LanguageServer for Backend {
             let mut seen_segments: std::collections::HashMap<String, Option<CompletionData>> =
                 std::collections::HashMap::new();
 
-            // Collect completions from ALL indexed files in the world
             for entry in self.symbol_indices.iter() {
                 for info in entry.value().get_completions().filter(|c| c.kind == kind) {
                     let path_segments: Vec<&str> = info.path.split('.').collect();
 
-                    // Check if this path matches the prefix
                     let matches_prefix = prefix_segments
                         .iter()
                         .zip(path_segments.iter())
@@ -1226,24 +474,19 @@ impl LanguageServer for Backend {
                         continue;
                     }
 
-                    // Get the next segment to show
                     if let Some(next_segment) = path_segments.get(prefix_depth) {
                         let is_final = path_segments.len() == prefix_depth + 1;
 
-                        // Build the completion info
                         if is_final {
-                            // This is the final segment - show full info
                             seen_segments.insert(
                                 next_segment.to_string(),
                                 Some(CompletionData {
-                                    full_path: info.path.to_string(),
                                     ty: info.ty.map(|s| s.to_string()),
                                     title: info.title.map(|s| s.to_string()),
                                     doc: info.doc.map(|s| s.to_string()),
                                 }),
                             );
                         } else {
-                            // Intermediate segment - just a namespace
                             seen_segments
                                 .entry(next_segment.to_string())
                                 .or_insert(None);
@@ -1252,12 +495,10 @@ impl LanguageServer for Backend {
                 }
             }
 
-            // Build completion items from unique segments
             for (segment, data) in seen_segments {
                 let is_final = data.is_some();
                 let (detail, documentation) = match data {
                     Some(d) => {
-                        // Build detail line
                         let detail = match (&d.ty, &d.title) {
                             (Some(ty), Some(title)) => format!("{} — {}", ty, title),
                             (Some(ty), None) => ty.clone(),
@@ -1265,34 +506,38 @@ impl LanguageServer for Backend {
                             (None, None) => kind.display_name().to_string(),
                         };
 
-                        // Build rich markdown documentation
-                        let mut doc_parts =
-                            vec![format!("**{}.{}**", kind.display_name(), d.full_path)];
-                        if let Some(ref title) = d.title {
+                        let mut doc_parts = Vec::new();
+                        if let Some(title) = d.title {
                             doc_parts.push(format!("*{}*", title));
                         }
-                        if let Some(ref ty) = d.ty {
+                        if let Some(ty) = d.ty {
                             doc_parts.push(format!("Type: `{}`", ty));
                         }
-                        if let Some(ref doc) = d.doc {
-                            doc_parts.push("---".to_string());
-                            doc_parts.push(doc.clone());
+                        if let Some(doc) = d.doc {
+                            doc_parts.push(doc);
                         }
 
-                        let doc_markdown = doc_parts.join("\n\n");
-                        (detail, Some(doc_markdown))
+                        (Some(detail), Some(doc_parts.join("\n\n")))
                     }
-                    None => ("namespace".to_string(), None),
+                    None => (Some("Namespace".to_string()), None),
                 };
 
                 items.push(CompletionItem {
                     label: segment,
                     kind: Some(if is_final {
-                        cdsl_kind_to_completion_kind(kind)
+                        match kind {
+                            CdslSymbolKind::Signal => CompletionItemKind::VARIABLE,
+                            CdslSymbolKind::Field => CompletionItemKind::PROPERTY,
+                            CdslSymbolKind::Operator => CompletionItemKind::METHOD,
+                            CdslSymbolKind::Function => CompletionItemKind::FUNCTION,
+                            CdslSymbolKind::Type => CompletionItemKind::TYPE_PARAMETER,
+                            CdslSymbolKind::Entity => CompletionItemKind::CLASS,
+                            _ => CompletionItemKind::FIELD,
+                        }
                     } else {
                         CompletionItemKind::MODULE
                     }),
-                    detail: Some(detail),
+                    detail,
                     documentation: documentation.map(|d| {
                         Documentation::MarkupContent(MarkupContent {
                             kind: MarkupKind::Markdown,
@@ -1303,9 +548,7 @@ impl LanguageServer for Backend {
                 });
             }
         } else {
-            // No kind prefix - show keywords and all symbols
             items.extend(vec![
-                // Top-level declarations
                 completion_item("signal", CompletionItemKind::KEYWORD, "Signal declaration"),
                 completion_item("field", CompletionItemKind::KEYWORD, "Field declaration"),
                 completion_item(
@@ -1335,13 +578,11 @@ impl LanguageServer for Backend {
                 completion_item("config", CompletionItemKind::KEYWORD, "Config block"),
                 completion_item("fn", CompletionItemKind::KEYWORD, "Function definition"),
                 completion_item("type", CompletionItemKind::KEYWORD, "Type definition"),
-                // Block keywords
                 completion_item("resolve", CompletionItemKind::KEYWORD, "Resolve block"),
                 completion_item("measure", CompletionItemKind::KEYWORD, "Measure block"),
                 completion_item("when", CompletionItemKind::KEYWORD, "When condition"),
                 completion_item("emit", CompletionItemKind::KEYWORD, "Emit block"),
                 completion_item("assert", CompletionItemKind::KEYWORD, "Assert block"),
-                // Expression keywords
                 completion_item("if", CompletionItemKind::KEYWORD, "Conditional expression"),
                 completion_item("else", CompletionItemKind::KEYWORD, "Else branch"),
                 completion_item("let", CompletionItemKind::KEYWORD, "Let binding"),
@@ -1350,13 +591,11 @@ impl LanguageServer for Backend {
                 completion_item("dt_raw", CompletionItemKind::VARIABLE, "Raw time delta"),
                 completion_item("collected", CompletionItemKind::VARIABLE, "Collected value"),
                 completion_item("payload", CompletionItemKind::VARIABLE, "Impulse payload"),
-                // Types
                 completion_item("Scalar", CompletionItemKind::TYPE_PARAMETER, "Scalar type"),
                 completion_item("Vector", CompletionItemKind::TYPE_PARAMETER, "Vector type"),
                 completion_item("Tensor", CompletionItemKind::TYPE_PARAMETER, "Tensor type"),
             ]);
 
-            // Built-in functions from registry
             for name in kernel_registry::all_names() {
                 if let Some(k) = kernel_registry::get(name) {
                     items.push(CompletionItem {
@@ -1383,7 +622,6 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
-        // Get document and symbol index
         let doc = match self.documents.get(uri) {
             Some(doc) => doc.clone(),
             None => return Ok(None),
@@ -1394,10 +632,8 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        // Convert LSP position to byte offset
         let offset = position_to_offset(&doc, position);
 
-        // Find the definition span
         if let Some(def_span) = index.find_definition_span(offset) {
             let (start_line, start_char) = offset_to_position(&doc, def_span.start);
             let (end_line, end_char) = offset_to_position(&doc, def_span.end);
@@ -1418,18 +654,14 @@ impl LanguageServer for Backend {
         let uri = &params.text_document_position_params.text_document.uri;
         let position = params.text_document_position_params.position;
 
-        // Get document content
         let doc = match self.documents.get(uri) {
             Some(doc) => doc.clone(),
             None => return Ok(None),
         };
 
-        // Convert LSP position to byte offset
         let offset = position_to_offset(&doc, position);
 
-        // Try to find symbol in current file's index
         if let Some(index) = self.symbol_indices.get(uri) {
-            // First try direct lookup in current file
             if let Some(info) = index.find_at_offset(offset) {
                 let markdown = format_hover_markdown(info);
                 return Ok(Some(Hover {
@@ -1441,9 +673,7 @@ impl LanguageServer for Backend {
                 }));
             }
 
-            // Check if we're on a reference to a symbol defined in another file
             if let Some((kind, path)) = index.get_reference_at_offset(offset) {
-                // Search all indexed files for the definition
                 for entry in self.symbol_indices.iter() {
                     if let Some(info) = entry.value().find_definition(kind, path) {
                         let markdown = format_hover_markdown(info);
@@ -1459,7 +689,6 @@ impl LanguageServer for Backend {
             }
         }
 
-        // Try to find a built-in function at cursor
         if let Some(word) = get_word_at_cursor(&doc, offset) {
             if let Some(hover_md) = get_builtin_hover(&word) {
                 return Ok(Some(Hover {
@@ -1478,21 +707,17 @@ impl LanguageServer for Backend {
     async fn formatting(&self, params: DocumentFormattingParams) -> Result<Option<Vec<TextEdit>>> {
         let uri = &params.text_document.uri;
 
-        // Get the document content
         let doc = match self.documents.get(uri) {
             Some(doc) => doc.clone(),
             None => return Ok(None),
         };
 
-        // Format the document
         let formatted = formatter::format(&doc);
 
-        // If no changes, return empty
         if formatted == doc {
             return Ok(Some(vec![]));
         }
 
-        // Calculate the range for the entire document
         let line_count = doc.lines().count() as u32;
         let last_line_len = doc.lines().last().map(|l| l.len() as u32).unwrap_or(0);
 
@@ -1529,7 +754,7 @@ impl LanguageServer for Backend {
                 let (start_line, start_char) = offset_to_position(&doc, span.start);
                 let (end_line, end_char) = offset_to_position(&doc, span.end);
 
-                #[allow(deprecated)] // location field is deprecated but required
+                #[allow(deprecated)]
                 SymbolInformation {
                     name: format!("{}.{}", info.kind.display_name(), info.path),
                     kind: symbol_kind_to_lsp(info.kind),
@@ -1599,17 +824,14 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        // Get text up to cursor position
         let offset = position_to_offset(&doc, position);
         let text_before = &doc[..offset];
 
-        // Find the function call context and active parameter index
         let (fn_path, active_param) = match find_function_call_context(text_before) {
             Some(ctx) => ctx,
             None => return Ok(None),
         };
 
-        // 1. Try to find a user-defined function signature
         for entry in self.symbol_indices.iter() {
             if let Some(sig) = entry.value().get_function_signature(&fn_path) {
                 let params_str: Vec<String> = sig
@@ -1685,12 +907,10 @@ impl LanguageServer for Backend {
             }
         }
 
-        // 2. Try to find a built-in kernel signature
         if let Some(k) = kernel_registry::get(&fn_path) {
             let label = k.signature;
             let mut param_infos = Vec::new();
 
-            // Parse parameter names from signature "name(a, b, ...) -> Scalar"
             if let Some(start) = label.find('(') {
                 if let Some(end) = label.find(')') {
                     let params_part = &label[start + 1..end];
@@ -1748,7 +968,6 @@ impl LanguageServer for Backend {
         let query = params.query.to_lowercase();
         let mut results = Vec::new();
 
-        // Search all indexed files for matching symbols
         for entry in self.symbol_indices.iter() {
             let uri = entry.key().clone();
             let index = entry.value();
@@ -1759,7 +978,6 @@ impl LanguageServer for Backend {
             };
 
             for (info, span) in index.get_all_definitions() {
-                // Match symbol path against query (fuzzy match)
                 let path_lower = info.path.to_lowercase();
                 if query.is_empty() || path_lower.contains(&query) {
                     let (start_line, start_char) = offset_to_position(&doc, span.start);
@@ -1784,7 +1002,6 @@ impl LanguageServer for Backend {
             }
         }
 
-        // Sort by relevance: exact prefix matches first, then by path length
         results.sort_by(|a, b| {
             let a_starts = a.name.to_lowercase().starts_with(&query);
             let b_starts = b.name.to_lowercase().starts_with(&query);
@@ -1795,7 +1012,6 @@ impl LanguageServer for Backend {
             }
         });
 
-        // Limit results to prevent overwhelming the UI
         results.truncate(100);
 
         Ok(Some(results))
@@ -1817,9 +1033,8 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let mut tokens: Vec<(usize, usize, u32, u32)> = Vec::new(); // (start, len, type, modifiers)
+        let mut tokens: Vec<(usize, usize, u32, u32)> = Vec::new();
 
-        // Collect tokens from symbol definition paths (e.g., "terra.temp" in "signal.terra.temp")
         for (kind, span) in index.get_symbol_path_spans() {
             let token_type = match kind {
                 CdslSymbolKind::Signal => 0,
@@ -1833,132 +1048,142 @@ impl LanguageServer for Backend {
                 CdslSymbolKind::Fracture => 8,
                 CdslSymbolKind::Chronicle => 9,
                 CdslSymbolKind::Entity => 10,
-                CdslSymbolKind::Const => 15,
-                CdslSymbolKind::Config => 16,
-                CdslSymbolKind::Member => 17,
-                CdslSymbolKind::World => 18,
+                _ => 11,
             };
-            // Mark as definition
-            tokens.push((span.start, span.end - span.start, token_type, 0b11));
+            tokens.push((span.start, span.end - span.start, token_type, 1));
         }
 
-        // Collect tokens from references
         for (info, span) in index.get_all_references() {
             let token_type = match info.kind {
                 CdslSymbolKind::Signal => 0,
                 CdslSymbolKind::Field => 1,
-                CdslSymbolKind::Operator => 2,
-                CdslSymbolKind::Function => 3,
-                CdslSymbolKind::Type => 4,
-                CdslSymbolKind::Strata => 5,
-                CdslSymbolKind::Era => 6,
-                CdslSymbolKind::Impulse => 7,
-                CdslSymbolKind::Fracture => 8,
-                CdslSymbolKind::Chronicle => 9,
+                CdslSymbolKind::Const => 11,
+                CdslSymbolKind::Config => 11,
                 CdslSymbolKind::Entity => 10,
-                CdslSymbolKind::Const => 15,
-                CdslSymbolKind::Config => 16,
-                CdslSymbolKind::Member => 17,
-                CdslSymbolKind::World => 18,
+                _ => 11,
             };
             tokens.push((span.start, span.end - span.start, token_type, 0));
         }
 
-        // Add keyword tokens
         let keywords = [
-            ("signal", 11),
-            ("field", 11),
-            ("operator", 11),
-            ("strata", 11),
-            ("era", 11),
-            ("fn", 11),
-            ("type", 11),
-            ("const", 11),
-            ("config", 11),
-            ("impulse", 11),
-            ("fracture", 11),
-            ("chronicle", 11),
-            ("entity", 11),
-            ("member", 11),
-            ("world", 11),
-            ("resolve", 11),
-            ("measure", 11),
-            ("collect", 11),
-            ("when", 11),
-            ("emit", 11),
-            ("apply", 11),
-            ("assert", 11),
-            ("observe", 11),
-            ("schema", 11),
-            ("transition", 11),
-            ("policy", 11),
-            ("if", 11),
-            ("else", 11),
-            ("let", 11),
-            ("in", 11),
+            "signal",
+            "field",
+            "operator",
+            "fn",
+            "type",
+            "strata",
+            "era",
+            "impulse",
+            "fracture",
+            "chronicle",
+            "entity",
+            "world",
+            "const",
+            "config",
+            "policy",
+            "version",
+            "initial",
+            "terminal",
+            "stride",
+            "title",
+            "symbol",
+            "uses",
+            "active",
+            "converge",
+            "warmup",
+            "iterate",
+            "phase",
+            "magnitude",
+            "symmetric",
+            "positive_definite",
+            "topology",
+            "min",
+            "max",
+            "mean",
+            "sum",
+            "product",
+            "any",
+            "all",
+            "none",
+            "first",
+            "nearest",
+            "within",
+            "other",
+            "pairs",
+            "filter",
+            "event",
+            "observe",
+            "apply",
+            "when",
+            "emit",
+            "assert",
+            "resolve",
+            "measure",
+            "collect",
+            "transition",
+            "gated",
+            "dt",
+            "to",
+            "warn",
+            "error",
+            "fatal",
+            "Scalar",
+            "Vec2",
+            "Vec3",
+            "Vec4",
+            "Vector",
+            "Tensor",
+            "Grid",
+            "Seq",
+            "if",
+            "else",
+            "let",
+            "in",
+            "prev",
+            "dt_raw",
+            "collected",
+            "payload",
         ];
 
-        for (kw, token_type) in keywords {
+        for kw in keywords {
             let mut search_start = 0;
             while let Some(pos) = doc[search_start..].find(kw) {
                 let abs_pos = search_start + pos;
-                // Check this is a whole word (not part of identifier)
                 let before_ok = abs_pos == 0
                     || !doc[..abs_pos]
                         .chars()
-                        .last()
-                        .map(|c| c.is_alphanumeric() || c == '_')
-                        .unwrap_or(false);
+                        .next_back()
+                        .unwrap()
+                        .is_alphanumeric();
                 let after_ok = abs_pos + kw.len() >= doc.len()
                     || !doc[abs_pos + kw.len()..]
                         .chars()
                         .next()
-                        .map(|c| c.is_alphanumeric() || c == '_')
-                        .unwrap_or(false);
+                        .unwrap()
+                        .is_alphanumeric();
 
                 if before_ok && after_ok {
-                    // Check not inside a comment or string
                     let line_start = doc[..abs_pos].rfind('\n').map(|p| p + 1).unwrap_or(0);
                     let line_before = &doc[line_start..abs_pos];
-                    if !line_before.contains("//") {
-                        tokens.push((abs_pos, kw.len(), token_type, 0));
+                    if !line_before.trim().starts_with("///") {
+                        tokens.push((abs_pos, kw.len(), 11, 0));
                     }
                 }
                 search_start = abs_pos + kw.len();
             }
         }
 
-        // Add comment tokens
-        let mut in_doc_comment = false;
-        for (line_idx, line) in doc.lines().enumerate() {
-            let line_start = doc
-                .lines()
-                .take(line_idx)
-                .map(|l| l.len() + 1)
-                .sum::<usize>();
-            if let Some(pos) = line.find("//") {
-                let comment_start = line_start + pos;
-                let comment_len = line.len() - pos;
-                tokens.push((comment_start, comment_len, 14, 0));
-                in_doc_comment = line[pos..].starts_with("//!");
-            }
-        }
-        let _ = in_doc_comment; // silence warning
-
-        // Sort tokens by position
         tokens.sort_by_key(|t| t.0);
 
-        // Convert to delta encoding
+        let mut last_line = 0;
+        let mut last_start = 0;
         let mut data = Vec::new();
-        let mut prev_line = 0u32;
-        let mut prev_start = 0u32;
 
         for (start, len, token_type, modifiers) in tokens {
             let (line, col) = offset_to_position(&doc, start);
-
-            let delta_line = line - prev_line;
+            let delta_line = line - last_line;
             let delta_start = if delta_line == 0 {
-                col - prev_start
+                col - last_start
             } else {
                 col
             };
@@ -1971,8 +1196,8 @@ impl LanguageServer for Backend {
                 token_modifiers_bitset: modifiers,
             });
 
-            prev_line = line;
-            prev_start = col;
+            last_line = line;
+            last_start = col;
         }
 
         Ok(Some(SemanticTokensResult::Tokens(SemanticTokens {
@@ -1996,9 +1221,7 @@ impl LanguageServer for Backend {
 
         let mut hints = Vec::new();
 
-        // Add type hints for symbol references
         for ref_info in index.get_references_for_validation() {
-            // Look up the definition to get its type
             let type_str = self.symbol_indices.iter().find_map(|entry| {
                 entry
                     .value()
@@ -2043,9 +1266,7 @@ impl LanguageServer for Backend {
 
         let offset = position_to_offset(&doc, position);
 
-        // Check if we're on a renameable symbol
         if let Some(info) = index.find_at_offset(offset) {
-            // Only allow renaming user-defined symbols (not built-ins)
             match info.kind {
                 CdslSymbolKind::Signal
                 | CdslSymbolKind::Field
@@ -2053,8 +1274,6 @@ impl LanguageServer for Backend {
                 | CdslSymbolKind::Function
                 | CdslSymbolKind::Const
                 | CdslSymbolKind::Config => {
-                    // Return the range of the symbol path
-                    // For now, just return the current word range
                     let range = get_word_range(&doc, offset);
                     let (start_line, start_col) = offset_to_position(&doc, range.start);
                     let (end_line, end_col) = offset_to_position(&doc, range.end);
@@ -2073,7 +1292,7 @@ impl LanguageServer for Backend {
     async fn rename(&self, params: RenameParams) -> Result<Option<WorkspaceEdit>> {
         let uri = &params.text_document_position.text_document.uri;
         let position = params.text_document_position.position;
-        let new_name = &params.new_name;
+        let new_name = params.new_name;
 
         let doc = match self.documents.get(uri) {
             Some(doc) => doc.clone(),
@@ -2087,84 +1306,68 @@ impl LanguageServer for Backend {
 
         let offset = position_to_offset(&doc, position);
 
-        // Find the symbol being renamed
-        let (kind, old_path) = if let Some((k, p)) = index.get_reference_at_offset(offset) {
-            (k, p.to_string())
-        } else if let Some(info) = index.find_at_offset(offset) {
-            (info.kind, info.path.clone())
-        } else {
-            return Ok(None);
-        };
-
-        // Collect all edits across all files
-        let mut changes: std::collections::HashMap<Url, Vec<TextEdit>> =
-            std::collections::HashMap::new();
-
-        for entry in self.symbol_indices.iter() {
-            let file_uri = entry.key().clone();
-            let file_index = entry.value();
-
-            // Get the document content
-            let file_doc = if &file_uri == uri {
-                doc.clone()
-            } else if let Some(d) = self.documents.get(&file_uri) {
-                d.clone()
-            } else if let Ok(path) = file_uri.to_file_path() {
-                std::fs::read_to_string(path).unwrap_or_default()
+        let target =
+            if let Some(reference) = index.references.iter().find(|r| r.span.contains(&offset)) {
+                Some((reference.kind, reference.target_path.clone()))
+            } else if let Some(symbol) = index.symbols.iter().find(|s| s.span.contains(&offset)) {
+                Some((symbol.info.kind, symbol.info.path.clone()))
             } else {
-                continue;
+                None
             };
 
-            let mut file_edits = Vec::new();
+        if let Some((kind, path)) = target {
+            let mut changes = HashMap::new();
 
-            // Find references to rename
-            for ref_info in file_index.get_references_for_validation() {
-                if ref_info.kind == kind && ref_info.target_path == old_path {
-                    let (start_line, start_col) =
-                        offset_to_position(&file_doc, ref_info.span.start);
-                    let (end_line, end_col) = offset_to_position(&file_doc, ref_info.span.end);
-                    file_edits.push(TextEdit {
-                        range: Range {
-                            start: Position::new(start_line, start_col),
-                            end: Position::new(end_line, end_col),
-                        },
-                        new_text: format!("{}.{}", kind.display_name(), new_name),
-                    });
+            for entry in self.symbol_indices.iter() {
+                let uri = entry.key().clone();
+                let index = entry.value();
+                let mut edits = Vec::new();
+
+                for symbol in &index.symbols {
+                    if symbol.info.kind == kind && symbol.info.path == path {
+                        let (line, col) = offset_to_position(&doc, symbol.path_span.start);
+                        edits.push(TextEdit {
+                            range: Range {
+                                start: Position::new(line, col),
+                                end: Position::new(
+                                    line,
+                                    col + symbol.info.path.split('.').last().unwrap().len() as u32,
+                                ),
+                            },
+                            new_text: new_name.clone(),
+                        });
+                    }
+                }
+
+                for reference in &index.references {
+                    if reference.kind == kind && reference.target_path == path {
+                        let (line, col) = offset_to_position(&doc, reference.span.start);
+                        edits.push(TextEdit {
+                            range: Range {
+                                start: Position::new(line, col),
+                                end: Position::new(
+                                    line,
+                                    col + reference.target_path.split('.').last().unwrap().len()
+                                        as u32,
+                                ),
+                            },
+                            new_text: new_name.clone(),
+                        });
+                    }
+                }
+
+                if !edits.is_empty() {
+                    changes.insert(uri, edits);
                 }
             }
 
-            // Find definition to rename
-            for (info, span) in file_index.get_all_symbols() {
-                if info.kind == kind && info.path == old_path {
-                    let (start_line, start_col) = offset_to_position(&file_doc, span.start);
-                    let (end_line, end_col) = offset_to_position(&file_doc, span.end);
-                    // The span includes the whole definition, we need just the path part
-                    // For now, we'll let the user edit manually or use a more precise span
-                    // This is a simplification - full rename would need AST modification
-                    file_edits.push(TextEdit {
-                        range: Range {
-                            start: Position::new(start_line, start_col),
-                            end: Position::new(end_line, end_col),
-                        },
-                        new_text: new_name.to_string(),
-                    });
-                }
-            }
-
-            if !file_edits.is_empty() {
-                changes.insert(file_uri, file_edits);
-            }
+            return Ok(Some(WorkspaceEdit {
+                changes: Some(changes),
+                ..Default::default()
+            }));
         }
 
-        if changes.is_empty() {
-            return Ok(None);
-        }
-
-        Ok(Some(WorkspaceEdit {
-            changes: Some(changes),
-            document_changes: None,
-            change_annotations: None,
-        }))
+        Ok(None)
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
@@ -2175,252 +1378,365 @@ impl LanguageServer for Backend {
             None => return Ok(None),
         };
 
-        let (ast, _) = parse(&doc);
-        let ast = match ast {
-            Some(ast) => ast,
+        let index = match self.symbol_indices.get(uri) {
+            Some(index) => index,
             None => return Ok(None),
         };
 
         let mut ranges = Vec::new();
 
-        // Add folding ranges for each top-level item
-        for item in &ast.items {
-            let (start_line, _) = offset_to_position(&doc, item.span.start);
-            let (end_line, _) = offset_to_position(&doc, item.span.end);
+        for symbol in &index.symbols {
+            let (start_line, _) = offset_to_position(&doc, symbol.span.start);
+            let (end_line, _) = offset_to_position(&doc, symbol.span.end);
 
-            // Only create fold if it spans multiple lines
             if end_line > start_line {
                 ranges.push(FoldingRange {
                     start_line,
                     start_character: None,
                     end_line,
                     end_character: None,
-                    kind: Some(FoldingRangeKind::Region),
-                    collapsed_text: Some(get_item_collapsed_text(&item.node)),
+                    kind: None,
+                    collapsed_text: None,
                 });
             }
-
-            // Add folding for nested blocks within items
-            add_nested_folding_ranges(&doc, &item.node, &mut ranges);
         }
 
-        // Add folding for comment blocks
-        add_comment_folding_ranges(&doc, &mut ranges);
+        Ok(Some(ranges))
+    }
+}
 
-        if ranges.is_empty() {
-            Ok(None)
+fn offset_to_position(text: &str, offset: usize) -> (u32, u32) {
+    let mut line = 0;
+    let mut col = 0;
+    for (i, c) in text.chars().enumerate() {
+        if i == offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 0;
         } else {
-            Ok(Some(ranges))
+            col += 1;
         }
     }
+    (line, col)
 }
 
-/// Get collapsed text preview for a folded item.
-fn get_item_collapsed_text(item: &Item) -> String {
-    match item {
-        Item::SignalDef(def) => format!("signal.{} {{ ... }}", def.path.node),
-        Item::FieldDef(def) => format!("field.{} {{ ... }}", def.path.node),
-        Item::OperatorDef(def) => format!("operator.{} {{ ... }}", def.path.node),
-        Item::FnDef(def) => format!("fn.{} {{ ... }}", def.path.node),
-        Item::TypeDef(def) => format!("type.{} {{ ... }}", def.name.node),
-        Item::StrataDef(def) => format!("strata.{} {{ ... }}", def.path.node),
-        Item::EraDef(def) => format!("era.{} {{ ... }}", def.name.node),
-        Item::ImpulseDef(def) => format!("impulse.{} {{ ... }}", def.path.node),
-        Item::FractureDef(def) => format!("fracture.{} {{ ... }}", def.path.node),
-        Item::ChronicleDef(def) => format!("chronicle.{} {{ ... }}", def.path.node),
-        Item::EntityDef(def) => format!("entity.{} {{ ... }}", def.path.node),
-        Item::MemberDef(def) => format!("member.{} {{ ... }}", def.path.node),
-        Item::WorldDef(def) => format!("world.{} {{ ... }}", def.path.node),
-        Item::ConstBlock(_) => "const { ... }".to_string(),
-        Item::ConfigBlock(_) => "config { ... }".to_string(),
+fn position_to_offset(text: &str, pos: Position) -> usize {
+    let mut line = 0;
+    let mut col = 0;
+    for (i, c) in text.chars().enumerate() {
+        if line == pos.line && col == pos.character {
+            return i;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
     }
+    text.len()
 }
 
-/// Add folding ranges for nested blocks (resolve, config, assert, etc.)
-fn add_nested_folding_ranges(doc: &str, item: &Item, ranges: &mut Vec<FoldingRange>) {
+fn get_completion_prefix(text: &str, pos: Position) -> String {
+    let offset = position_to_offset(text, pos);
+    let mut start = offset;
+    while start > 0 {
+        let c = text.as_bytes()[start - 1];
+        if !c.is_ascii_alphanumeric() && c != b'.' && c != b'_' {
+            break;
+        }
+        start -= 1;
+    }
+    text[start..offset].to_string()
+}
+
+fn detect_kind_prefix(prefix: &str) -> Option<(CdslSymbolKind, usize)> {
+    let prefixes = [
+        ("signal.", CdslSymbolKind::Signal),
+        ("field.", CdslSymbolKind::Field),
+        ("operator.", CdslSymbolKind::Operator),
+        ("fn.", CdslSymbolKind::Function),
+        ("type.", CdslSymbolKind::Type),
+        ("strata.", CdslSymbolKind::Strata),
+        ("era.", CdslSymbolKind::Era),
+        ("impulse.", CdslSymbolKind::Impulse),
+        ("fracture.", CdslSymbolKind::Fracture),
+        ("chronicle.", CdslSymbolKind::Chronicle),
+        ("entity.", CdslSymbolKind::Entity),
+    ];
+
+    for (pat, kind) in prefixes {
+        if prefix.starts_with(pat) {
+            return Some((kind, pat.len()));
+        }
+    }
+    None
+}
+
+fn find_function_call_context(text_before: &str) -> Option<(String, usize)> {
+    let mut paren_depth = 0;
+    let mut last_call_start = None;
+
+    let chars: Vec<char> = text_before.chars().collect();
+    let mut i = chars.len();
+
+    while i > 0 {
+        i -= 1;
+        match chars[i] {
+            ')' => paren_depth += 1,
+            '(' => {
+                if paren_depth > 0 {
+                    paren_depth -= 1;
+                } else {
+                    let before_paren = &text_before[..i];
+
+                    if let Some(fn_start) = before_paren.rfind("fn.") {
+                        let path_start = fn_start + 3;
+                        let path = &text_before[path_start..i];
+
+                        if path
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                            && !path.is_empty()
+                        {
+                            last_call_start = Some((path.to_string(), i + 1));
+                            break;
+                        }
+                    }
+
+                    let id_start = before_paren
+                        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+                        .map(|idx| idx + 1)
+                        .unwrap_or(0);
+                    let id = &before_paren[id_start..];
+                    if !id.is_empty()
+                        && id
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                    {
+                        last_call_start = Some((id.to_string(), i + 1));
+                        break;
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if let Some((fn_path, args_start)) = last_call_start {
+        let args_text = &text_before[args_start..];
+        let mut comma_count = 0usize;
+        let mut depth = 0usize;
+
+        for ch in args_text.chars() {
+            match ch {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => comma_count += 1,
+                _ => {}
+            }
+        }
+
+        return Some((fn_path, comma_count));
+    }
+
+    None
+}
+
+fn collect_clamp_usages(ast: &CompilationUnit) -> Vec<std::ops::Range<usize>> {
+    let mut spans = Vec::new();
+    for item in &ast.items {
+        collect_clamp_in_item(&item.node, &mut spans);
+    }
+    spans
+}
+
+fn collect_clamp_in_item(item: &Item, spans: &mut Vec<std::ops::Range<usize>>) {
     match item {
         Item::SignalDef(def) => {
             if let Some(ref resolve) = def.resolve {
-                add_block_folding(doc, resolve.body.span.start, resolve.body.span.end, ranges);
+                collect_clamp_in_expr(&resolve.body, spans);
             }
             if let Some(ref assertions) = def.assertions {
                 for assertion in &assertions.assertions {
-                    add_block_folding(
-                        doc,
-                        assertion.condition.span.start,
-                        assertion.condition.span.end,
-                        ranges,
-                    );
-                }
-            }
-            if !def.local_config.is_empty() {
-                // Local config block - find its span from entries
-                if let (Some(first), Some(last)) =
-                    (def.local_config.first(), def.local_config.last())
-                {
-                    add_block_folding(doc, first.path.span.start, last.value.span.end, ranges);
+                    collect_clamp_in_expr(&assertion.condition, spans);
                 }
             }
         }
         Item::FieldDef(def) => {
             if let Some(ref measure) = def.measure {
-                add_block_folding(doc, measure.body.span.start, measure.body.span.end, ranges);
+                collect_clamp_in_expr(&measure.body, spans);
             }
         }
         Item::OperatorDef(def) => {
             if let Some(ref body) = def.body {
-                // Extract span from the OperatorBody enum variant
-                let expr_span = match body {
-                    OperatorBody::Warmup(expr) => &expr.span,
-                    OperatorBody::Collect(expr) => &expr.span,
-                    OperatorBody::Measure(expr) => &expr.span,
-                };
-                add_block_folding(doc, expr_span.start, expr_span.end, ranges);
+                match body {
+                    OperatorBody::Warmup(expr)
+                    | OperatorBody::Collect(expr)
+                    | OperatorBody::Measure(expr) => {
+                        collect_clamp_in_expr(expr, spans);
+                    }
+                }
             }
         }
         Item::FnDef(def) => {
-            add_block_folding(doc, def.body.span.start, def.body.span.end, ranges);
+            collect_clamp_in_expr(&def.body, spans);
+        }
+        Item::ImpulseDef(def) => {
+            if let Some(ref apply) = def.apply {
+                collect_clamp_in_expr(&apply.body, spans);
+            }
         }
         Item::FractureDef(def) => {
-            for cond in &def.conditions {
-                add_block_folding(doc, cond.span.start, cond.span.end, ranges);
+            for condition in &def.conditions {
+                collect_clamp_in_expr(condition, spans);
             }
             if let Some(ref emit) = def.emit {
-                add_block_folding(doc, emit.span.start, emit.span.end, ranges);
+                collect_clamp_in_expr(emit, spans);
             }
         }
-        Item::MemberDef(def) => {
-            if let Some(ref resolve) = def.resolve {
-                add_block_folding(doc, resolve.body.span.start, resolve.body.span.end, ranges);
+        Item::ChronicleDef(def) => {
+            if let Some(ref observe) = def.observe {
+                for handler in &observe.handlers {
+                    collect_clamp_in_expr(&handler.condition, spans);
+                    for (_, field_expr) in &handler.event_fields {
+                        collect_clamp_in_expr(field_expr, spans);
+                    }
+                }
+            }
+        }
+        Item::EraDef(def) => {
+            for transition in &def.transitions {
+                for condition in &transition.conditions {
+                    collect_clamp_in_expr(condition, spans);
+                }
             }
         }
         _ => {}
     }
 }
 
-/// Add a folding range for a block if it spans multiple lines.
-fn add_block_folding(doc: &str, start: usize, end: usize, ranges: &mut Vec<FoldingRange>) {
-    let (start_line, _) = offset_to_position(doc, start);
-    let (end_line, _) = offset_to_position(doc, end);
-
-    if end_line > start_line {
-        ranges.push(FoldingRange {
-            start_line,
-            start_character: None,
-            end_line,
-            end_character: None,
-            kind: Some(FoldingRangeKind::Region),
-            collapsed_text: None,
-        });
-    }
-}
-
-/// Add folding ranges for consecutive comment blocks.
-fn add_comment_folding_ranges(doc: &str, ranges: &mut Vec<FoldingRange>) {
-    let lines: Vec<&str> = doc.lines().collect();
-    let mut comment_start: Option<u32> = None;
-
-    for (i, line) in lines.iter().enumerate() {
-        let trimmed = line.trim();
-        let is_comment = trimmed.starts_with("//") || trimmed.starts_with('#');
-
-        if is_comment {
-            if comment_start.is_none() {
-                comment_start = Some(i as u32);
+fn collect_clamp_in_expr(expr: &Spanned<Expr>, spans: &mut Vec<std::ops::Range<usize>>) {
+    match &expr.node {
+        Expr::MethodCall {
+            object,
+            method,
+            args,
+            ..
+        } => {
+            if method == "clamp" {
+                spans.push(expr.span.clone());
             }
-        } else if let Some(start) = comment_start {
-            let end = i as u32 - 1;
-            if end > start {
-                ranges.push(FoldingRange {
-                    start_line: start,
-                    start_character: None,
-                    end_line: end,
-                    end_character: None,
-                    kind: Some(FoldingRangeKind::Comment),
-                    collapsed_text: Some("// ...".to_string()),
-                });
+            collect_clamp_in_expr(object, spans);
+            for arg in args {
+                collect_clamp_in_expr(&arg.value, spans);
             }
-            comment_start = None;
         }
-    }
-
-    // Handle comment block at end of file
-    if let Some(start) = comment_start {
-        let end = lines.len() as u32 - 1;
-        if end > start {
-            ranges.push(FoldingRange {
-                start_line: start,
-                start_character: None,
-                end_line: end,
-                end_character: None,
-                kind: Some(FoldingRangeKind::Comment),
-                collapsed_text: Some("// ...".to_string()),
-            });
+        Expr::Call { function, args } => {
+            if let Expr::Path(path) = &function.node {
+                if path.segments.last().map(|s| s.as_str()) == Some("clamp") {
+                    spans.push(expr.span.clone());
+                }
+            }
+            collect_clamp_in_expr(function, spans);
+            for arg in args {
+                collect_clamp_in_expr(&arg.value, spans);
+            }
         }
+        Expr::Binary { left, right, .. } => {
+            collect_clamp_in_expr(left, spans);
+            collect_clamp_in_expr(right, spans);
+        }
+        Expr::Unary { operand, .. } => {
+            collect_clamp_in_expr(operand, spans);
+        }
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_clamp_in_expr(condition, spans);
+            collect_clamp_in_expr(then_branch, spans);
+            if let Some(else_expr) = else_branch {
+                collect_clamp_in_expr(else_expr, spans);
+            }
+        }
+        Expr::Let { value, body, .. } => {
+            collect_clamp_in_expr(value, spans);
+            collect_clamp_in_expr(body, spans);
+        }
+        Expr::Block(exprs) => {
+            for e in exprs {
+                collect_clamp_in_expr(e, spans);
+            }
+        }
+        Expr::FieldAccess { object, .. } => {
+            collect_clamp_in_expr(object, spans);
+        }
+        Expr::For { iter, body, .. } => {
+            collect_clamp_in_expr(iter, spans);
+            collect_clamp_in_expr(body, spans);
+        }
+        Expr::EmitSignal { value, .. } => {
+            collect_clamp_in_expr(value, spans);
+        }
+        Expr::EmitField {
+            position, value, ..
+        } => {
+            collect_clamp_in_expr(position, spans);
+            collect_clamp_in_expr(value, spans);
+        }
+        Expr::Map { sequence, function } => {
+            collect_clamp_in_expr(sequence, spans);
+            collect_clamp_in_expr(function, spans);
+        }
+        Expr::Fold {
+            sequence,
+            init,
+            function,
+        } => {
+            collect_clamp_in_expr(sequence, spans);
+            collect_clamp_in_expr(init, spans);
+            collect_clamp_in_expr(function, spans);
+        }
+        Expr::Filter { predicate, .. } => {
+            collect_clamp_in_expr(predicate, spans);
+        }
+        Expr::First { predicate, .. } => {
+            collect_clamp_in_expr(predicate, spans);
+        }
+        Expr::Nearest { position, .. } => {
+            collect_clamp_in_expr(position, spans);
+        }
+        Expr::Within {
+            position, radius, ..
+        } => {
+            collect_clamp_in_expr(position, spans);
+            collect_clamp_in_expr(radius, spans);
+        }
+        _ => {}
     }
 }
 
-/// Get the word range at a byte offset.
-fn get_word_range(text: &str, offset: usize) -> std::ops::Range<usize> {
-    if offset > text.len() {
-        return offset..offset;
-    }
-
-    // Find start of word
-    let before = &text[..offset];
-    let start = before
-        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-        .map(|i| i + 1)
-        .unwrap_or(0);
-
-    // Find end of word
-    let after = &text[offset..];
-    let end_rel = after
-        .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
-        .unwrap_or(after.len());
-
-    start..(offset + end_rel)
-}
-
-/// Convert our SymbolKind to LSP SymbolKind.
-fn symbol_kind_to_lsp(kind: symbols::SymbolKind) -> SymbolKind {
+fn symbol_kind_to_lsp(kind: CdslSymbolKind) -> SymbolKind {
     match kind {
-        symbols::SymbolKind::Signal => SymbolKind::VARIABLE,
-        symbols::SymbolKind::Field => SymbolKind::FIELD,
-        symbols::SymbolKind::Operator => SymbolKind::OPERATOR,
-        symbols::SymbolKind::Function => SymbolKind::FUNCTION,
-        symbols::SymbolKind::Type => SymbolKind::STRUCT,
-        symbols::SymbolKind::Strata => SymbolKind::NAMESPACE,
-        symbols::SymbolKind::Era => SymbolKind::NAMESPACE,
-        symbols::SymbolKind::Impulse => SymbolKind::EVENT,
-        symbols::SymbolKind::Fracture => SymbolKind::EVENT,
-        symbols::SymbolKind::Chronicle => SymbolKind::CLASS,
-        symbols::SymbolKind::Entity => SymbolKind::CLASS,
-        symbols::SymbolKind::Member => SymbolKind::VARIABLE,
-        symbols::SymbolKind::World => SymbolKind::MODULE,
-        symbols::SymbolKind::Const => SymbolKind::CONSTANT,
-        symbols::SymbolKind::Config => SymbolKind::PROPERTY,
-    }
-}
-
-/// Convert our SymbolKind to LSP CompletionItemKind.
-fn cdsl_kind_to_completion_kind(kind: CdslSymbolKind) -> CompletionItemKind {
-    match kind {
-        CdslSymbolKind::Signal => CompletionItemKind::VARIABLE,
-        CdslSymbolKind::Field => CompletionItemKind::FIELD,
-        CdslSymbolKind::Operator => CompletionItemKind::METHOD,
-        CdslSymbolKind::Function => CompletionItemKind::FUNCTION,
-        CdslSymbolKind::Type => CompletionItemKind::STRUCT,
-        CdslSymbolKind::Strata => CompletionItemKind::MODULE,
-        CdslSymbolKind::Era => CompletionItemKind::MODULE,
-        CdslSymbolKind::Impulse => CompletionItemKind::EVENT,
-        CdslSymbolKind::Fracture => CompletionItemKind::EVENT,
-        CdslSymbolKind::Chronicle => CompletionItemKind::CLASS,
-        CdslSymbolKind::Entity => CompletionItemKind::CLASS,
-        CdslSymbolKind::Member => CompletionItemKind::VARIABLE,
-        CdslSymbolKind::World => CompletionItemKind::MODULE,
-        CdslSymbolKind::Const => CompletionItemKind::CONSTANT,
-        CdslSymbolKind::Config => CompletionItemKind::PROPERTY,
+        CdslSymbolKind::Signal => SymbolKind::VARIABLE,
+        CdslSymbolKind::Field => SymbolKind::PROPERTY,
+        CdslSymbolKind::Operator => SymbolKind::METHOD,
+        CdslSymbolKind::Function => SymbolKind::FUNCTION,
+        CdslSymbolKind::Type => SymbolKind::TYPE_PARAMETER,
+        CdslSymbolKind::Strata => SymbolKind::NAMESPACE,
+        CdslSymbolKind::Era => SymbolKind::NAMESPACE,
+        CdslSymbolKind::Impulse => SymbolKind::EVENT,
+        CdslSymbolKind::Fracture => SymbolKind::EVENT,
+        CdslSymbolKind::Chronicle => SymbolKind::CLASS,
+        CdslSymbolKind::Entity => SymbolKind::CLASS,
+        CdslSymbolKind::Member => SymbolKind::VARIABLE,
+        CdslSymbolKind::World => SymbolKind::CONSTANT,
+        CdslSymbolKind::Const => SymbolKind::CONSTANT,
+        CdslSymbolKind::Config => SymbolKind::CONSTANT,
     }
 }
 
@@ -2431,6 +1747,34 @@ fn completion_item(label: &str, kind: CompletionItemKind, detail: &str) -> Compl
         detail: Some(detail.to_string()),
         ..Default::default()
     }
+}
+
+fn get_word_at_cursor(text: &str, offset: usize) -> Option<String> {
+    let start = text[..offset]
+        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let end = text[offset..]
+        .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+        .map(|i| i + offset)
+        .unwrap_or(text.len());
+    if start < end {
+        Some(text[start..end].to_string())
+    } else {
+        None
+    }
+}
+
+fn get_word_range(text: &str, offset: usize) -> std::ops::Range<usize> {
+    let start = text[..offset]
+        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let end = text[offset..]
+        .find(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+        .map(|i| i + offset)
+        .unwrap_or(text.len());
+    start..end
 }
 
 #[tokio::main]
@@ -2444,6 +1788,5 @@ async fn main() {
         documents: DashMap::new(),
         symbol_indices: DashMap::new(),
     });
-
     Server::new(stdin, stdout, socket).serve(service).await;
 }

@@ -77,20 +77,20 @@ impl SymbolKind {
 
 /// An indexed symbol with its source span.
 #[derive(Debug)]
-struct IndexedSymbol {
+pub struct IndexedSymbol {
     /// Full span of the definition block.
-    span: Range<usize>,
+    pub span: Range<usize>,
     /// Span of just the path (e.g., "terra.temp" in "signal.terra.temp").
-    path_span: Range<usize>,
-    info: SymbolInfo,
+    pub path_span: Range<usize>,
+    pub info: SymbolInfo,
 }
 
 /// A reference to another symbol (e.g., signal.foo inside an expression).
 #[derive(Debug)]
-struct SymbolReference {
-    span: Range<usize>,
-    kind: SymbolKind,
-    target_path: String,
+pub struct SymbolReference {
+    pub span: Range<usize>,
+    pub kind: SymbolKind,
+    pub target_path: String,
 }
 
 /// Completion info for a symbol.
@@ -153,11 +153,11 @@ pub struct ReferenceValidationInfo {
 /// Symbol index for a document.
 #[derive(Debug, Default)]
 pub struct SymbolIndex {
-    symbols: Vec<IndexedSymbol>,
-    references: Vec<SymbolReference>,
-    functions: Vec<FunctionSignature>,
+    pub symbols: Vec<IndexedSymbol>,
+    pub references: Vec<SymbolReference>,
+    pub functions: Vec<FunctionSignature>,
     #[allow(dead_code)]
-    module_doc: Option<String>,
+    pub module_doc: Option<String>,
 }
 
 impl SymbolIndex {
