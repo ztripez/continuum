@@ -1,4 +1,4 @@
-//! IR Interpretation and Runtime Function Building
+//! CLOSURE BUILDERS
 //!
 //! This module builds runtime closures from compiled IR expressions. These
 //! closures capture the necessary context (constants, config, bytecode) and
@@ -17,23 +17,20 @@ pub use member_interp::{
 };
 
 use indexmap::IndexMap;
-use std::collections::HashMap;
 
 use continuum_foundation::{EraId, FieldId, SignalId};
 use continuum_runtime::executor::{
-    AggregateResolverFn, AssertionFn, AssertionSeverity, EraConfig, FractureFn, MeasureFn,
-    ResolverFn, TransitionFn,
+    AggregateResolverFn, AssertionFn, EraConfig, FractureFn, MeasureFn, ResolverFn, TransitionFn,
 };
 // Import functions crate to ensure kernels are registered
 use continuum_functions as _;
-use continuum_runtime::soa_storage::MemberSignalBuffer;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::{Dt, Value};
-use continuum_vm::{BytecodeChunk, execute};
+use continuum_vm::execute;
 
 use crate::{
-    AssertionSeverity as IrAssertionSeverity, CompiledEra, CompiledExpr, CompiledFracture,
-    CompiledWorld, ValueType, codegen,
+    AssertionSeverity as IrAssertionSeverity, CompiledEra, CompiledExpr, CompiledWorld, codegen,
+    units::Unit,
 };
 
 use contexts::{
@@ -62,10 +59,9 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
             contains_entity_expression(left) || contains_entity_expression(right)
         }
         CompiledExpr::Unary { operand, .. } => contains_entity_expression(operand),
-        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
-            args.iter().any(contains_entity_expression)
-        }
-        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_entity_expression),
+        CompiledExpr::Call { args, .. }
+        | CompiledExpr::KernelCall { args, .. }
+        | CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_entity_expression),
         CompiledExpr::If {
             condition,
             then_branch,
@@ -80,47 +76,80 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         }
         CompiledExpr::FieldAccess { object, .. } => contains_entity_expression(object),
 
-        CompiledExpr::Literal(..)
-        | CompiledExpr::Prev
-        | CompiledExpr::DtRaw
-        | CompiledExpr::SimTime
-        | CompiledExpr::Collected
-        | CompiledExpr::Signal(_)
-        | CompiledExpr::Const(_)
-        | CompiledExpr::Config(_)
-        | CompiledExpr::Local(_) => false,
+        _ => false,
     }
 }
 
-/// Evaluates an initial expression for a member signal.
-pub fn eval_initial_expr(
+pub fn build_resolver(
     expr: &CompiledExpr,
-    constants: &IndexMap<String, f64>,
-    config: &IndexMap<String, f64>,
-) -> Value {
-    let empty_signals = SignalStorage::default();
-    let empty_members = MemberSignalBuffer::new();
+    constants: &IndexMap<String, (f64, Option<Unit>)>,
+    config: &IndexMap<String, (f64, Option<Unit>)>,
+) -> ResolverFn {
+    let bytecode = codegen::compile(expr);
+    let constants = constants.clone();
+    let config = config.clone();
 
-    let mut ctx = MemberInterpContext {
-        prev: InterpValue::Scalar(0.0),
-        index: 0,
-        dt: 0.0,
-        sim_time: 0.0,
-        signals: &empty_signals,
-        members: &empty_members,
-        constants,
-        config,
-        locals: HashMap::new(),
-        entity_prefix: String::new(),
-        read_current: false,
-    };
+    Box::new(move |ctx| {
+        let exec_ctx = ResolverContext {
+            prev: ctx.prev,
+            inputs: ctx.inputs,
+            dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
+            shared: SharedContextData {
+                constants: &constants,
+                config: &config,
+                signals: ctx.signals,
+            },
+        };
+        let result = execute(&bytecode, &exec_ctx);
+        Value::Scalar(result)
+    })
+}
 
-    let result = interpret_expr(expr, &mut ctx);
-
-    match result {
-        InterpValue::Scalar(v) => Value::Scalar(v),
-        InterpValue::Vec3(v) => Value::Vec3(v),
+/// Builds a signal resolution function.
+pub fn build_signal_resolver(
+    signal: &crate::CompiledSignal,
+    world: &CompiledWorld,
+) -> Option<ResolverFn> {
+    let resolve_expr = signal.resolve.as_ref()?;
+    if contains_entity_expression(resolve_expr) {
+        return None;
     }
+
+    Some(build_resolver(
+        resolve_expr,
+        &world.constants,
+        &world.config,
+    ))
+}
+
+/// Builds an aggregate resolver function.
+pub fn build_aggregate_resolver(expr: &CompiledExpr, world: &CompiledWorld) -> AggregateResolverFn {
+    let expr = expr.clone();
+    let constants = world.constants.clone();
+    let config = world.config.clone();
+
+    Box::new(move |signals, members, dt, sim_time| {
+        let mut ctx = MemberInterpContext {
+            prev: InterpValue::Scalar(0.0),
+            index: 0,
+            dt: dt.seconds(),
+            sim_time,
+            signals,
+            members,
+            constants: &constants,
+            config: &config,
+            locals: std::collections::HashMap::new(),
+            entity_prefix: String::new(),
+            read_current: true,
+        };
+
+        match interpret_expr(&expr, &mut ctx) {
+            InterpValue::Scalar(v) => Value::Scalar(v),
+            InterpValue::Vec3(v) => Value::Vec3(v),
+            InterpValue::Bool(b) => Value::Scalar(if b { 1.0 } else { 0.0 }),
+        }
+    })
 }
 
 /// Builds runtime era configurations from a compiled world.
@@ -152,8 +181,8 @@ pub fn build_era_configs(world: &CompiledWorld) -> IndexMap<EraId, EraConfig> {
 
 fn build_transition_fn(
     era: &CompiledEra,
-    constants: &IndexMap<String, f64>,
-    config: &IndexMap<String, f64>,
+    constants: &IndexMap<String, (f64, Option<Unit>)>,
+    config: &IndexMap<String, (f64, Option<Unit>)>,
 ) -> Option<TransitionFn> {
     if era.transitions.is_empty() {
         return None;
@@ -218,13 +247,13 @@ pub fn build_field_measure(
 }
 
 /// Builds a fracture detection function.
-pub fn build_fracture(fracture: &CompiledFracture, world: &CompiledWorld) -> FractureFn {
-    let conditions: Vec<BytecodeChunk> = fracture
+pub fn build_fracture(fracture: &crate::CompiledFracture, world: &CompiledWorld) -> FractureFn {
+    let conditions: Vec<_> = fracture
         .conditions
         .iter()
         .map(|c| codegen::compile(c))
         .collect();
-    let emits: Vec<(SignalId, BytecodeChunk)> = fracture
+    let emits: Vec<_> = fracture
         .emits
         .iter()
         .map(|e| (e.target.clone(), codegen::compile(&e.value)))
@@ -243,26 +272,30 @@ pub fn build_fracture(fracture: &CompiledFracture, world: &CompiledWorld) -> Fra
             },
         };
 
-        for condition in &conditions {
-            let result = execute(condition, &exec_ctx);
-            if result == 0.0 {
-                return None;
+        // Check conditions (all must be true)
+        let mut triggered = true;
+        for bytecode in &conditions {
+            if execute(bytecode, &exec_ctx) == 0.0 {
+                triggered = false;
+                break;
             }
         }
 
-        let outputs: Vec<(SignalId, f64)> = emits
-            .iter()
-            .map(|(target, bytecode)| {
+        if triggered {
+            // Apply emissions
+            let mut results = Vec::new();
+            for (target, bytecode) in &emits {
                 let value = execute(bytecode, &exec_ctx);
-                (target.clone(), value)
-            })
-            .collect();
-
-        Some(outputs)
+                results.push((target.clone(), value));
+            }
+            Some(results)
+        } else {
+            None
+        }
     })
 }
 
-/// Builds an assertion function for validating signal invariants.
+/// Builds an assertion function.
 pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionFn {
     let bytecode = codegen::compile(expr);
     let constants = world.constants.clone();
@@ -280,159 +313,58 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
                 signals: ctx.signals,
             },
         };
-        let result = execute(&bytecode, &exec_ctx);
-        result != 0.0
+        execute(&bytecode, &exec_ctx) != 0.0
     })
 }
 
-/// Converts IR assertion severity to runtime assertion severity.
-pub fn convert_assertion_severity(severity: IrAssertionSeverity) -> AssertionSeverity {
-    match severity {
-        IrAssertionSeverity::Warn => AssertionSeverity::Warn,
-        IrAssertionSeverity::Error => AssertionSeverity::Error,
-        IrAssertionSeverity::Fatal => AssertionSeverity::Fatal,
-    }
-}
-
-/// Builds a resolver function for a compiled signal.
-pub fn build_signal_resolver(
-    signal: &crate::CompiledSignal,
-    world: &CompiledWorld,
-) -> Option<ResolverFn> {
-    if let Some(ref components) = signal.resolve_components {
-        if components.iter().any(contains_entity_expression) {
-            return None;
-        }
-        return Some(build_vector_resolver(components, &signal.value_type, world));
-    }
-
-    signal.resolve.as_ref().and_then(|expr| {
-        if contains_entity_expression(expr) {
-            None
-        } else {
-            Some(build_resolver(expr, world, signal.uses_dt_raw))
-        }
-    })
-}
-
-fn build_vector_resolver(
-    components: &[CompiledExpr],
-    value_type: &ValueType,
-    world: &CompiledWorld,
-) -> ResolverFn {
-    let bytecodes: Vec<BytecodeChunk> = components.iter().map(|e| codegen::compile(e)).collect();
-    let constants = world.constants.clone();
-    let config = world.config.clone();
-    let value_type = value_type.clone();
-
-    Box::new(move |ctx| {
-        let exec_ctx = ResolverContext {
-            prev: ctx.prev,
-            inputs: ctx.inputs,
-            dt: ctx.dt.seconds(),
-            sim_time: ctx.sim_time,
-            shared: SharedContextData {
-                constants: &constants,
-                config: &config,
-                signals: ctx.signals,
-            },
-        };
-
-        let results: Vec<f64> = bytecodes.iter().map(|bc| execute(bc, &exec_ctx)).collect();
-
-        match value_type {
-            ValueType::Vec2 { .. } => Value::Vec2([results[0], results[1]]),
-            ValueType::Vec3 { .. } => Value::Vec3([results[0], results[1], results[2]]),
-            ValueType::Vec4 { .. } => Value::Vec4([results[0], results[1], results[2], results[3]]),
-            _ => Value::Scalar(results[0]),
-        }
-    })
-}
-
-pub fn build_resolver(
-    expr: &CompiledExpr,
-    world: &CompiledWorld,
-    _uses_dt_raw: bool,
-) -> ResolverFn {
-    let bytecode = codegen::compile(expr);
-    let constants = world.constants.clone();
-    let config = world.config.clone();
-
-    Box::new(move |ctx| {
-        let exec_ctx = ResolverContext {
-            prev: ctx.prev,
-            inputs: ctx.inputs,
-            dt: ctx.dt.seconds(),
-            sim_time: ctx.sim_time,
-            shared: SharedContextData {
-                constants: &constants,
-                config: &config,
-                signals: ctx.signals,
-            },
-        };
-        let result = execute(&bytecode, &exec_ctx);
-        Value::Scalar(result)
-    })
-}
-
-/// Gets the initial scalar value for a signal from config.
-pub fn get_initial_value(world: &CompiledWorld, signal_id: &SignalId) -> f64 {
-    let signal_path = signal_id.to_string();
-    let parts: Vec<&str> = signal_path.split('.').collect();
-
-    if parts.len() >= 2 {
-        let last = parts.last().unwrap();
-        for (key, value) in &world.config {
-            if key.ends_with(&format!("initial_{}", last)) {
-                return *value;
-            }
-        }
-    }
-    0.0
-}
-
-/// Gets the initial value for a signal with proper type wrapping.
+/// Get initial value for a signal using its warmup expression or resolution.
 pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> Value {
-    let initial_value = get_initial_value(world, signal_id);
+    // Check if defined in config
+    if let Some((value, _)) = world.config.get(&signal_id.to_string()) {
+        return Value::Scalar(*value);
+    }
 
-    let signals = world.signals();
-    if let Some(signal) = signals.get(signal_id) {
-        match signal.value_type {
-            ValueType::Scalar { .. } => Value::Scalar(initial_value),
-            ValueType::Vec2 { .. } => Value::Vec2([initial_value; 2]),
-            ValueType::Vec3 { .. } => Value::Vec3([initial_value; 3]),
-            ValueType::Vec4 { .. } => Value::Vec4([initial_value; 4]),
-            _ => Value::Scalar(initial_value),
-        }
-    } else {
-        Value::Scalar(initial_value)
+    // Default to 0.0 for now
+    Value::Scalar(0.0)
+}
+
+/// Get initial value for a signal (legacy compatibility).
+pub fn get_initial_value(world: &CompiledWorld, signal_id: &SignalId) -> f64 {
+    match get_initial_signal_value(world, signal_id) {
+        Value::Scalar(v) => v,
+        _ => 0.0,
     }
 }
 
-/// Builds an aggregate resolver for signals that depend on member signal data.
-pub fn build_aggregate_resolver(expr: &CompiledExpr, world: &CompiledWorld) -> AggregateResolverFn {
-    let expr = expr.clone();
-    let constants = world.constants.clone();
-    let config = world.config.clone();
+/// Convert IR assertion severity to runtime severity.
+pub fn convert_assertion_severity(
+    severity: IrAssertionSeverity,
+) -> continuum_runtime::executor::AssertionSeverity {
+    match severity {
+        IrAssertionSeverity::Warn => continuum_runtime::executor::AssertionSeverity::Warn,
+        IrAssertionSeverity::Error => continuum_runtime::executor::AssertionSeverity::Error,
+        IrAssertionSeverity::Fatal => continuum_runtime::executor::AssertionSeverity::Fatal,
+    }
+}
 
-    Box::new(
-        move |signals: &SignalStorage, members: &MemberSignalBuffer, dt: Dt, sim_time: f64| {
-            let mut ctx = MemberInterpContext {
-                prev: InterpValue::Scalar(0.0),
-                index: 0,
-                dt: dt.seconds(),
-                sim_time,
-                signals,
-                members,
-                constants: &constants,
-                config: &config,
-                locals: HashMap::new(),
-                entity_prefix: String::new(),
-                read_current: true,
-            };
-
-            let result = interpret_expr(&expr, &mut ctx);
-            Value::Scalar(result.as_f64())
-        },
-    )
+/// Evaluate an expression for initial value (legacy compatibility)
+pub fn eval_initial_expr(
+    expr: &CompiledExpr,
+    constants: &IndexMap<String, (f64, Option<Unit>)>,
+    config: &IndexMap<String, (f64, Option<Unit>)>,
+) -> Value {
+    // This is used for member initials which are resolved before simulation starts
+    // and can only read constants and config.
+    let signals = SignalStorage::default();
+    let shared = SharedContextData {
+        constants,
+        config,
+        signals: &signals,
+    };
+    let ctx = TransitionContext {
+        sim_time: 0.0,
+        shared,
+    };
+    let bytecode = codegen::compile(expr);
+    Value::Scalar(execute(&bytecode, &ctx))
 }

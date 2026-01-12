@@ -182,11 +182,12 @@ pub fn unit<'src>()
 /// Internal helper to match unit content tokens
 fn unit_content<'src>()
 -> impl Parser<'src, ParserInput<'src>, String, extra::Err<ParseError<'src>>> + Clone {
-    // Reconstruct unit from tokens
     choice((
         ident(),
         tok(Token::Slash).to("/".to_string()),
         tok(Token::Star).to("*".to_string()),
+        tok(Token::LParen).to("(".to_string()),
+        tok(Token::RParen).to(")".to_string()),
         select! {
             Token::Integer(i) => i.to_string(),
             Token::UnitPart(s) => s,

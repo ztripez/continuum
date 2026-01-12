@@ -34,9 +34,9 @@ macro_rules! impl_locatable {
 #[derive(Debug)]
 pub struct CompiledWorld {
     /// Global constants (evaluated at compile time)
-    pub constants: IndexMap<String, f64>,
+    pub constants: IndexMap<String, (f64, Option<crate::units::Unit>)>,
     /// Runtime configuration values
-    pub config: IndexMap<String, f64>,
+    pub config: IndexMap<String, (f64, Option<crate::units::Unit>)>,
 
     /// **Unified node architecture**
     /// All DSL nodes in unified form for tooling and analysis
@@ -144,7 +144,7 @@ impl CompiledWorld {
         eras
     }
 
-    /// Get all strata as an IndexMap (backward compatibility)
+    /// Get all stratum nodes from the unified node map.
     pub fn strata(&self) -> IndexMap<StratumId, CompiledStratum> {
         let mut strata = IndexMap::new();
         for (path, node) in &self.nodes {
@@ -163,7 +163,7 @@ impl CompiledWorld {
         strata
     }
 
-    /// Get all members as an IndexMap (backward compatibility)
+    /// Get all member nodes from the unified node map.
     pub fn members(&self) -> IndexMap<MemberId, CompiledMember> {
         let mut members = IndexMap::new();
         for (path, node) in &self.nodes {
@@ -194,7 +194,7 @@ impl CompiledWorld {
         members
     }
 
-    /// Get all fractures as an IndexMap (backward compatibility)
+    /// Get all fracture nodes from the unified node map.
     pub fn fractures(&self) -> IndexMap<FractureId, CompiledFracture> {
         let mut fractures = IndexMap::new();
         for (path, node) in &self.nodes {
@@ -217,7 +217,7 @@ impl CompiledWorld {
         fractures
     }
 
-    /// Get all entities as an IndexMap (backward compatibility)
+    /// Get all entity nodes from the unified node map.
     pub fn entities(&self) -> IndexMap<EntityId, CompiledEntity> {
         let mut entities = IndexMap::new();
         for (path, node) in &self.nodes {
@@ -235,7 +235,7 @@ impl CompiledWorld {
         entities
     }
 
-    /// Get all chronicles as an IndexMap (backward compatibility)
+    /// Get all chronicle nodes from the unified node map.
     pub fn chronicles(&self) -> IndexMap<ChronicleId, CompiledChronicle> {
         let mut chronicles = IndexMap::new();
         for (path, node) in &self.nodes {
@@ -553,8 +553,8 @@ pub enum CompiledExpr {
     SimTime,
     Collected,
     Signal(SignalId),
-    Const(String),
-    Config(String),
+    Const(String, Option<crate::units::Unit>),
+    Config(String, Option<crate::units::Unit>),
     Binary {
         op: BinaryOpIr,
         left: Box<CompiledExpr>,

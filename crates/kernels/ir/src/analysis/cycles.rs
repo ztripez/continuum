@@ -1,7 +1,8 @@
-use crate::CompiledWorld;
-use continuum_foundation::Path;
+use continuum_foundation::{MemberId, Path};
 use std::collections::{HashMap, HashSet};
 use std::ops::Range;
+
+use crate::CompiledWorld;
 
 /// A circular dependency detected in the execution graph.
 #[derive(Debug, Clone)]
@@ -12,31 +13,84 @@ pub struct Cycle {
     pub spans: Vec<Range<usize>>,
 }
 
-/// Detect circular dependencies in the Resolve phase of each stratum.
+/// Detect circular dependencies in the Resolve phase.
+///
+/// Circular dependencies are only possible between nodes in the same stratum,
+/// as cross-stratum dependencies are always resolved using temporal buffering
+/// (reading the previous tick's value if the target stratum hasn't resolved yet).
 pub fn find_cycles(world: &CompiledWorld) -> Vec<Cycle> {
     let mut cycles = Vec::new();
     let signals = world.signals();
     let members = world.members();
 
     // Map each signal to its dependencies (using strings for DFS)
+    // ONLY include dependencies within the same stratum
     let mut deps: HashMap<String, Vec<String>> = HashMap::new();
     let mut spans: HashMap<String, Range<usize>> = HashMap::new();
 
     for (id, signal) in &signals {
         let id_str = id.to_string();
-        deps.insert(
-            id_str.clone(),
-            signal.reads.iter().map(|r| r.to_string()).collect(),
-        );
+        let stratum = &signal.stratum;
+
+        let same_stratum_reads: Vec<String> = signal
+            .reads
+            .iter()
+            .filter(|read_id| {
+                // Check if the referenced signal is in the same stratum
+                if let Some(read_signal) = signals.get(*read_id) {
+                    &read_signal.stratum == stratum
+                } else if let Some(read_member) = members.get(&MemberId::from(read_id.to_string()))
+                {
+                    &read_member.stratum == stratum
+                } else {
+                    false
+                }
+            })
+            .map(|r| r.to_string())
+            .collect();
+
+        deps.insert(id_str.clone(), same_stratum_reads);
         spans.insert(id_str, signal.span.clone());
     }
 
     for (id, member) in &members {
         let id_str = id.to_string();
-        deps.insert(
-            id_str.clone(),
-            member.reads.iter().map(|r| r.to_string()).collect(),
-        );
+        let stratum = &member.stratum;
+
+        let same_stratum_reads: Vec<String> = member
+            .reads
+            .iter()
+            .filter(|read_id| {
+                if let Some(read_signal) = signals.get(*read_id) {
+                    &read_signal.stratum == stratum
+                } else if let Some(read_member) = members.get(&MemberId::from(read_id.to_string()))
+                {
+                    &read_member.stratum == stratum
+                } else {
+                    false
+                }
+            })
+            .map(|r| r.to_string())
+            .collect();
+
+        // Also check member_reads (member-to-member dependencies)
+        let same_stratum_member_reads: Vec<String> = member
+            .member_reads
+            .iter()
+            .filter(|read_id| {
+                if let Some(read_member) = members.get(*read_id) {
+                    &read_member.stratum == stratum
+                } else {
+                    false
+                }
+            })
+            .map(|r| r.to_string())
+            .collect();
+
+        let mut all_same_reads = same_stratum_reads;
+        all_same_reads.extend(same_stratum_member_reads);
+
+        deps.insert(id_str.clone(), all_same_reads);
         spans.insert(id_str, member.span.clone());
     }
 

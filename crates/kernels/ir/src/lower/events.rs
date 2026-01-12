@@ -75,10 +75,13 @@ impl Lowerer {
         // Process local config blocks - add to global config with fracture-prefixed keys
         for entry in &def.local_config {
             let local_key = entry.path.node.to_string();
-            // Add with full fracture path prefix: config.fracture.path.local_key
             let full_key = format!("fracture.{}.{}", fracture_path, local_key);
             let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
-            self.config.insert(full_key, value);
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
         }
 
         // Determine stratum binding

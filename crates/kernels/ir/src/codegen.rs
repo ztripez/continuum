@@ -112,8 +112,8 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         CompiledExpr::SimTime => Expr::SimTime,
         CompiledExpr::Collected => Expr::Collected,
         CompiledExpr::Signal(id) => Expr::Signal(id.to_string()),
-        CompiledExpr::Const(name) => Expr::Const(name.clone()),
-        CompiledExpr::Config(name) => Expr::Config(name.clone()),
+        CompiledExpr::Const(name, _) => Expr::Const(name.clone()),
+        CompiledExpr::Config(name, _) => Expr::Config(name.clone()),
         CompiledExpr::Binary { op, left, right } => Expr::Binary {
             op: convert_binary_op(*op),
             left: Box::new(convert_expr(left)),

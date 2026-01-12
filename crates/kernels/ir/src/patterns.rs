@@ -594,11 +594,11 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
             "signal".hash(hasher);
             id.0.hash(hasher);
         }
-        CompiledExpr::Const(name) => {
+        CompiledExpr::Const(name, _) => {
             "const".hash(hasher);
             name.hash(hasher);
         }
-        CompiledExpr::Config(name) => {
+        CompiledExpr::Config(name, _) => {
             "config".hash(hasher);
             name.hash(hasher);
         }

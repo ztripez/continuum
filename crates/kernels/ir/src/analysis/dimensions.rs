@@ -102,7 +102,9 @@ fn infer_unit(
             .get(&id.to_string())
             .cloned()
             .unwrap_or_default()),
-        CompiledExpr::Const(_) | CompiledExpr::Config(_) => Ok(Unit::dimensionless()),
+        CompiledExpr::Const(_, unit) | CompiledExpr::Config(_, unit) => {
+            Ok(unit.clone().unwrap_or_else(Unit::dimensionless))
+        }
 
         CompiledExpr::Binary { op, left, right } => {
             let u_left = infer_unit(left, world, symbol_units, current_signal.clone())?;

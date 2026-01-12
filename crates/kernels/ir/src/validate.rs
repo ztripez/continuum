@@ -345,7 +345,7 @@ fn check_expr_symbols(
                 });
             }
         }
-        CompiledExpr::Const(name) => {
+        CompiledExpr::Const(name, _) => {
             if !defined_constants.contains(name.as_str()) {
                 warnings.push(CompileWarning {
                     code: WarningCode::UndefinedSymbol,
@@ -357,7 +357,7 @@ fn check_expr_symbols(
                 });
             }
         }
-        CompiledExpr::Config(name) => {
+        CompiledExpr::Config(name, _) => {
             if !defined_config.contains(name.as_str()) {
                 warnings.push(CompileWarning {
                     code: WarningCode::UndefinedSymbol,

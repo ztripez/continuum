@@ -50,7 +50,11 @@ impl Lowerer {
             // Add with full signal path prefix: signal.path.local_key
             let full_key = format!("{}.{}", signal_path, local_key);
             let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
-            self.constants.insert(full_key, value);
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.constants.insert(full_key, (value, unit));
         }
 
         // Process local config blocks - add to global config with signal-prefixed keys
@@ -59,7 +63,37 @@ impl Lowerer {
             // Add with full signal path prefix: signal.path.local_key
             let full_key = format!("{}.{}", signal_path, local_key);
             let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
-            self.config.insert(full_key, value);
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
+        }
+
+        // Process local config blocks - add to global config with signal-prefixed keys
+        for entry in &def.local_config {
+            let local_key = entry.path.node.to_string();
+            // Add with full signal path prefix: signal.path.local_key
+            let full_key = format!("{}.{}", signal_path, local_key);
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
+        }
+
+        // Process local config blocks - add to global config with signal-prefixed keys
+        for entry in &def.local_config {
+            let local_key = entry.path.node.to_string();
+            // Add with full signal path prefix: signal.path.local_key
+            let full_key = format!("{}.{}", signal_path, local_key);
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
         }
 
         // Collect signal dependencies from resolve expression
@@ -376,11 +410,11 @@ impl Lowerer {
             },
 
             // Literals stay as-is (scalar broadcast)
-            Literal(v, _) => Literal(*v, None),
+            Literal(v, unit) => Literal(*v, unit.clone()),
             DtRaw => DtRaw,
             SimTime => SimTime,
-            Const(name) => Const(name.clone()),
-            Config(name) => Config(name.clone()),
+            Const(name, unit) => Const(name.clone(), unit.clone()),
+            Config(name, unit) => Config(name.clone(), unit.clone()),
             Local(name) => Local(name.clone()),
 
             // Payload expressions: expand to component access

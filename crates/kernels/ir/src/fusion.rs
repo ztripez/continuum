@@ -3,59 +3,6 @@
 //! Compile-time analysis to identify operators that can be fused together,
 //! reducing DAG node count, function call overhead, and enabling better
 //! cache utilization.
-//!
-//! # Fusion Opportunities
-//!
-//! ## 1. Same-Signal Accumulation
-//!
-//! Multiple operators writing to the same signal input channel can be fused:
-//!
-//! ```cdsl
-//! operator.heat_source {
-//!     phase: collect
-//!     signal.temperature <- 100.0
-//! }
-//!
-//! operator.solar_input {
-//!     phase: collect
-//!     signal.temperature <- signal.solar_flux * 0.8
-//! }
-//! ```
-//!
-//! ## 2. Shared Input Dependencies
-//!
-//! Operators reading the same signals can share those reads:
-//!
-//! ```cdsl
-//! operator.pressure_calc {
-//!     phase: collect
-//!     let density = signal.density
-//!     signal.pressure <- density * GRAVITY * signal.depth
-//! }
-//!
-//! operator.buoyancy_calc {
-//!     phase: collect
-//!     let density = signal.density
-//!     signal.buoyancy <- (REF_DENSITY - density) * GRAVITY
-//! }
-//! ```
-//!
-//! ## 3. Kernel Call Batching
-//!
-//! Multiple operators calling the same kernel can be batched.
-//!
-//! # Safety
-//!
-//! Fusion is safe when:
-//! - No write-write conflicts (both writing to same signal with ordering)
-//! - No read-write conflicts (one reads what another writes within same level)
-//! - Same phase and stratum
-//!
-//! # Performance
-//!
-//! Fusion is not always beneficial. The [`FusionCostModel`] determines whether
-//! the estimated overhead of a larger fused operator is outweighed by the
-//! savings in call overhead and memory bandwidth.
 
 use std::collections::{HashMap, HashSet};
 
@@ -132,10 +79,10 @@ impl OperatorDeps {
             CompiledExpr::Signal(id) => {
                 self.reads.insert(id.clone());
             }
-            CompiledExpr::Const(name) => {
+            CompiledExpr::Const(name, _) => {
                 self.constants.insert(name.clone());
             }
-            CompiledExpr::Config(name) => {
+            CompiledExpr::Config(name, _) => {
                 self.configs.insert(name.clone());
             }
             CompiledExpr::KernelCall { function, args } => {

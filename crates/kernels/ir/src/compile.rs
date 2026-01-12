@@ -93,8 +93,8 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         | CompiledExpr::SimTime
         | CompiledExpr::Collected
         | CompiledExpr::Signal(_)
-        | CompiledExpr::Const(_)
-        | CompiledExpr::Config(_)
+        | CompiledExpr::Const(..)
+        | CompiledExpr::Config(..)
         | CompiledExpr::Local(_) => false,
     }
 }
@@ -153,8 +153,8 @@ fn contains_unsupported_member_op(expr: &CompiledExpr) -> bool {
         | CompiledExpr::SimTime
         | CompiledExpr::Collected
         | CompiledExpr::Signal(_)
-        | CompiledExpr::Const(_)
-        | CompiledExpr::Config(_)
+        | CompiledExpr::Const(..)
+        | CompiledExpr::Config(..)
         | CompiledExpr::Local(_) => false,
     }
 }
@@ -447,8 +447,8 @@ impl<'a> Compiler<'a> {
             | CompiledExpr::SelfField(_)
             | CompiledExpr::EntityAccess { .. }
             | CompiledExpr::Signal(_)
-            | CompiledExpr::Config(_)
-            | CompiledExpr::Const(_)
+            | CompiledExpr::Config(..)
+            | CompiledExpr::Const(..)
             | CompiledExpr::Local(_)
             | CompiledExpr::Payload
             | CompiledExpr::PayloadField(_) => {}

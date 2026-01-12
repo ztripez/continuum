@@ -18,8 +18,8 @@ use continuum_vm::ExecutionContext;
 /// signals, constants, and config values. Phase-specific contexts
 /// wrap this with additional phase-specific data.
 pub(crate) struct SharedContextData<'a> {
-    pub(crate) constants: &'a IndexMap<String, f64>,
-    pub(crate) config: &'a IndexMap<String, f64>,
+    pub(crate) constants: &'a IndexMap<String, (f64, Option<crate::units::Unit>)>,
+    pub(crate) config: &'a IndexMap<String, (f64, Option<crate::units::Unit>)>,
     pub(crate) signals: &'a SignalStorage,
 }
 
@@ -56,7 +56,7 @@ impl SharedContextData<'_> {
     fn constant(&self, name: &str) -> f64 {
         self.constants
             .get(name)
-            .copied()
+            .map(|(v, _)| *v)
             .unwrap_or_else(|| panic!("Constant '{}' not defined", name))
     }
 
@@ -64,7 +64,7 @@ impl SharedContextData<'_> {
     fn config(&self, name: &str) -> f64 {
         self.config
             .get(name)
-            .copied()
+            .map(|(v, _)| *v)
             .unwrap_or_else(|| panic!("Config value '{}' not defined", name))
     }
 }

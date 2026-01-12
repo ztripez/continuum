@@ -72,7 +72,11 @@ impl Lowerer {
             let local_key = entry.path.node.to_string();
             let full_key = format!("{}.{}", full_path, local_key);
             let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
-            self.config.insert(full_key, value);
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
         }
 
         // Collect signal dependencies from resolve and initial expressions

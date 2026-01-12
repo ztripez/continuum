@@ -355,7 +355,7 @@ fn main() {
             world
                 .config
                 .get(count_source)
-                .map(|v| *v as usize)
+                .map(|(v, _)| *v as usize)
                 .unwrap_or(1)
         } else if let Some((min, max)) = entity.count_bounds {
             // If bounds are fixed (min == max), use that; otherwise use min
@@ -411,7 +411,7 @@ fn main() {
                 world
                     .config
                     .get(count_source)
-                    .map(|v| *v as usize)
+                    .map(|(v, _)| *v as usize)
                     .unwrap_or(1)
             } else if let Some((min, max)) = entity.count_bounds {
                 if min == max {

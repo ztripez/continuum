@@ -143,7 +143,11 @@ pub fn lower_multi(
                             });
                         }
                         let value = lowerer.literal_to_f64(&entry.value.node, &entry.value.span)?;
-                        lowerer.constants.insert(key, value);
+                        let unit = entry
+                            .unit
+                            .as_ref()
+                            .and_then(|u| crate::units::Unit::parse(&u.node));
+                        lowerer.constants.insert(key, (value, unit));
                     }
                 }
                 Item::ConfigBlock(block) => {
@@ -157,7 +161,11 @@ pub fn lower_multi(
                             });
                         }
                         let value = lowerer.literal_to_f64(&entry.value.node, &entry.value.span)?;
-                        lowerer.config.insert(key, value);
+                        let unit = entry
+                            .unit
+                            .as_ref()
+                            .and_then(|u| crate::units::Unit::parse(&u.node));
+                        lowerer.config.insert(key, (value, unit));
                     }
                 }
                 Item::FnDef(def) => {
@@ -216,8 +224,8 @@ pub fn lower_with_file(
 
 pub(crate) struct Lowerer {
     pub(crate) file: Option<std::path::PathBuf>,
-    pub(crate) constants: IndexMap<String, f64>,
-    pub(crate) config: IndexMap<String, f64>,
+    pub(crate) constants: IndexMap<String, (f64, Option<crate::units::Unit>)>,
+    pub(crate) config: IndexMap<String, (f64, Option<crate::units::Unit>)>,
     pub(crate) functions: IndexMap<FnId, CompiledFn>,
     pub(crate) strata: IndexMap<StratumId, CompiledStratum>,
     pub(crate) eras: IndexMap<EraId, CompiledEra>,
@@ -285,7 +293,11 @@ impl Lowerer {
                             });
                         }
                         let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
-                        self.constants.insert(key, value);
+                        let unit = entry
+                            .unit
+                            .as_ref()
+                            .and_then(|u| crate::units::Unit::parse(&u.node));
+                        self.constants.insert(key, (value, unit));
                     }
                 }
                 Item::ConfigBlock(block) => {
@@ -299,7 +311,11 @@ impl Lowerer {
                             });
                         }
                         let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
-                        self.config.insert(key, value);
+                        let unit = entry
+                            .unit
+                            .as_ref()
+                            .and_then(|u| crate::units::Unit::parse(&u.node));
+                        self.config.insert(key, (value, unit));
                     }
                 }
                 Item::FnDef(def) => {

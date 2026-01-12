@@ -106,10 +106,10 @@ impl Lowerer {
                 }
                 // Could be signal, const, or config reference
                 let joined = path.to_string();
-                if self.constants.contains_key(&joined) {
-                    CompiledExpr::Const(joined)
-                } else if self.config.contains_key(&joined) {
-                    CompiledExpr::Config(joined)
+                if let Some((_, unit)) = self.constants.get(&joined) {
+                    CompiledExpr::Const(joined, unit.clone())
+                } else if let Some((_, unit)) = self.config.get(&joined) {
+                    CompiledExpr::Config(joined, unit.clone())
                 } else {
                     CompiledExpr::Signal(SignalId::from(path.clone()))
                 }
@@ -131,8 +131,16 @@ impl Lowerer {
                 }
                 CompiledExpr::Signal(SignalId::from(path.clone()))
             }
-            Expr::ConstRef(path) => CompiledExpr::Const(path.to_string()),
-            Expr::ConfigRef(path) => CompiledExpr::Config(path.to_string()),
+            Expr::ConstRef(path) => {
+                let joined = path.to_string();
+                let unit = self.constants.get(&joined).and_then(|(_, u)| u.clone());
+                CompiledExpr::Const(joined, unit)
+            }
+            Expr::ConfigRef(path) => {
+                let joined = path.to_string();
+                let unit = self.config.get(&joined).and_then(|(_, u)| u.clone());
+                CompiledExpr::Config(joined, unit)
+            }
             Expr::Binary { op, left, right } => CompiledExpr::Binary {
                 op: self.lower_binary_op(*op),
                 left: Box::new(self.lower_expr_with_context(&left.node, ctx)),
