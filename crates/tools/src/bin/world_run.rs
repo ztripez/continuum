@@ -124,10 +124,19 @@ fn main() {
         }
     };
 
-    info!("  Strata: {}", world.strata.len());
-    info!("  Eras: {}", world.eras.len());
-    info!("  Signals: {}", world.signals.len());
-    info!("  Fields: {}", world.fields.len());
+    let strata = world.strata();
+    let eras = world.eras();
+    let signals = world.signals();
+    let fields = world.fields();
+    let fractures = world.fractures();
+    let entities = world.entities();
+    let members = world.members();
+    let chronicles = world.chronicles();
+
+    info!("  Strata: {}", strata.len());
+    info!("  Eras: {}", eras.len());
+    info!("  Signals: {}", signals.len());
+    info!("  Fields: {}", fields.len());
     info!("  Constants: {}", world.constants.len());
     info!("  Config: {}", world.config.len());
 
@@ -150,15 +159,12 @@ fn main() {
     info!("Building runtime...");
 
     // Find initial era
-    let initial_era = world
-        .eras
+    let initial_era = eras
         .iter()
         .find(|(_, era)| era.is_initial)
         .map(|(id, _)| id.clone())
         .unwrap_or_else(|| {
-            world
-                .eras
-                .keys()
+            eras.keys()
                 .next()
                 .cloned()
                 .unwrap_or_else(|| continuum_foundation::EraId::from("default"))
@@ -176,7 +182,7 @@ fn main() {
         }
     }
 
-    for (era_id, era) in &world.eras {
+    for (era_id, era) in &eras {
         let effective_dt = era_configs
             .get(era_id)
             .map(|c| c.dt.0)
@@ -194,7 +200,7 @@ fn main() {
     //   2. An aggregate resolver (runs in Phase 3c after member resolution)
     let mut resolver_count = 0;
     let mut aggregate_count = 0;
-    for (signal_id, signal) in &world.signals {
+    for (signal_id, signal) in &signals {
         if let Some(resolver) = build_signal_resolver(signal, &world) {
             let idx = runtime.register_resolver(resolver);
             info!("  Registered resolver for {} (idx={})", signal_id, idx);
@@ -240,7 +246,7 @@ fn main() {
 
     // Register assertions
     let mut assertion_count = 0;
-    for (signal_id, signal) in &world.signals {
+    for (signal_id, signal) in &signals {
         for assertion in &signal.assertions {
             let assertion_fn = build_assertion(&assertion.condition, &world);
             let severity = convert_assertion_severity(assertion.severity);
@@ -261,7 +267,7 @@ fn main() {
     // Fields with entity expressions (aggregates, etc.) are skipped - they require EntityExecutor
     let mut field_count = 0;
     let mut skipped_fields = 0;
-    for (field_id, field) in &world.fields {
+    for (field_id, field) in &fields {
         if let Some(ref expr) = field.measure {
             let runtime_id = field_id.clone();
             if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
@@ -286,7 +292,7 @@ fn main() {
 
     // Register fracture detectors
     let mut fracture_count = 0;
-    for (fracture_id, fracture) in &world.fractures {
+    for (fracture_id, fracture) in &fractures {
         let fracture_fn = build_fracture(fracture, &world);
         let idx = runtime.register_fracture(fracture_fn);
         info!("  Registered fracture {} (idx={})", fracture_id, idx);
@@ -297,7 +303,7 @@ fn main() {
     }
 
     // Initialize signals
-    for (signal_id, _signal) in &world.signals {
+    for (signal_id, _signal) in &signals {
         let value = get_initial_signal_value(&world, signal_id);
         runtime.init_signal(signal_id.clone(), value.clone());
         match value {
@@ -307,7 +313,7 @@ fn main() {
     }
 
     // Initialize entities
-    for (entity_id, entity) in &world.entities {
+    for (entity_id, entity) in &entities {
         // Determine instance count from config, bounds, or default
         let count = if let Some(ref count_source) = entity.count_source {
             world
@@ -333,7 +339,7 @@ fn main() {
 
             // Initialize member fields for this instance
             let mut fields = indexmap::IndexMap::new();
-            for (_member_id, member) in &world.members {
+            for (_member_id, member) in &members {
                 if &member.entity_id == entity_id {
                     // Use default value based on member's value type
                     let initial_value = match member.value_type {
@@ -358,13 +364,13 @@ fn main() {
     }
 
     // Initialize member signals for SoA execution
-    if !world.members.is_empty() {
+    if !members.is_empty() {
         info!("Initializing member signals...");
 
         // Build per-entity instance counts and find max for storage allocation
         let mut entity_counts: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
-        for (entity_id, entity) in &world.entities {
+        for (entity_id, entity) in &entities {
             let count = if let Some(ref count_source) = entity.count_source {
                 world
                     .config
@@ -387,7 +393,7 @@ fn main() {
         let max_instance_count = entity_counts.values().copied().max().unwrap_or(1);
 
         // Register member signals (use full member ID to avoid name collisions)
-        for (member_id, member) in &world.members {
+        for (member_id, member) in &members {
             let value_type = match member.value_type {
                 ValueType::Scalar { .. } => MemberValueType::Scalar,
                 ValueType::Vec2 { .. } => MemberValueType::Vec2,
@@ -411,13 +417,13 @@ fn main() {
 
         info!(
             "  Initialized {} member signals (max {} instances)",
-            world.members.len(),
+            members.len(),
             max_instance_count
         );
 
         // Set initial values for members with initial expressions
         let mut initialized_count = 0;
-        for (member_id, member) in &world.members {
+        for (member_id, member) in &members {
             if let Some(ref initial_expr) = member.initial {
                 let initial_value =
                     eval_initial_expr(initial_expr, &world.constants, &world.config);
@@ -456,7 +462,7 @@ fn main() {
         // Build and register member resolvers
         let mut scalar_resolver_count = 0;
         let mut vec3_resolver_count = 0;
-        for (member_id, member) in &world.members {
+        for (member_id, member) in &members {
             if let Some(ref resolve_expr) = member.resolve {
                 // Entity prefix is the entity ID (e.g., "terra.plate" for "terra.plate.age")
                 let entity_prefix = &member.entity_id.to_string();
@@ -518,8 +524,8 @@ fn main() {
             seed: 0, // TODO: threaded seed support
             steps: num_steps,
             stride: save_stride,
-            signals: world.signals.keys().map(|id| id.to_string()).collect(),
-            fields: world.fields.keys().map(|id| id.to_string()).collect(),
+            signals: signals.keys().map(|id| id.to_string()).collect(),
+            fields: fields.keys().map(|id| id.to_string()).collect(),
         };
         let manifest_json = serde_json::to_string_pretty(&manifest).expect("serialization failed");
         fs::write(dir.join("run.json"), manifest_json).expect("failed to write run.json");
@@ -540,7 +546,7 @@ fn main() {
 
                 // Print signal values
                 let mut first = true;
-                for (signal_id, _) in &world.signals {
+                for (signal_id, _) in &signals {
                     let runtime_id = signal_id.clone();
                     if let Some(value) = runtime.get_signal(&runtime_id) {
                         if !first {
@@ -562,7 +568,7 @@ fn main() {
                 if let Some(ref dir) = run_dir {
                     if step % save_stride == 0 {
                         let mut signal_values = std::collections::HashMap::new();
-                        for id in world.signals.keys() {
+                        for id in signals.keys() {
                             if let Some(val) = runtime.get_signal(id) {
                                 signal_values.insert(id.to_string(), val.clone());
                             }

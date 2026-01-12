@@ -43,6 +43,7 @@ pub fn ident<'src>()
         tok(Token::Fracture).to("fracture".to_string()),
         tok(Token::Chronicle).to("chronicle".to_string()),
         tok(Token::Entity).to("entity".to_string()),
+        tok(Token::Count).to("count".to_string()),
         tok(Token::Member).to("member".to_string()),
         tok(Token::Const).to("const".to_string()),
         tok(Token::Config).to("config".to_string()),

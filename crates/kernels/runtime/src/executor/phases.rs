@@ -346,8 +346,9 @@ impl PhaseExecutor {
 
                 // 1. Member Signal Resolution (Sequential over member types, parallel over instances)
                 for (member_signal, kernel_idx) in member_tasks {
-                    let signal_name = &member_signal.signal_name;
-                    let count = member_signals.instance_count_for_signal(signal_name);
+                    let full_signal =
+                        format!("{}.{}", member_signal.entity_id, member_signal.signal_name);
+                    let count = member_signals.instance_count_for_signal(&full_signal);
                     let resolver = &self.member_resolvers[kernel_idx];
 
                     match resolver {
@@ -355,7 +356,7 @@ impl PhaseExecutor {
                             let prev: Vec<f64> = (0..count)
                                 .map(|i| {
                                     member_signals
-                                        .get_previous(signal_name, i)
+                                        .get_previous(&full_signal, i)
                                         .and_then(|v| v.as_scalar())
                                         .unwrap_or(0.0)
                                 })
@@ -371,14 +372,14 @@ impl PhaseExecutor {
                                 config,
                             );
                             for (i, v) in values.into_iter().enumerate() {
-                                member_signals.set_current(signal_name, i, Value::Scalar(v));
+                                member_signals.set_current(&full_signal, i, Value::Scalar(v));
                             }
                         }
                         MemberResolver::Vec3(f) => {
                             let prev: Vec<[f64; 3]> = (0..count)
                                 .map(|i| {
                                     member_signals
-                                        .get_previous(signal_name, i)
+                                        .get_previous(&full_signal, i)
                                         .and_then(|v| v.as_vec3())
                                         .unwrap_or([0.0, 0.0, 0.0])
                                 })
@@ -394,7 +395,7 @@ impl PhaseExecutor {
                                 config,
                             );
                             for (i, v) in values.into_iter().enumerate() {
-                                member_signals.set_current(signal_name, i, Value::Vec3(v));
+                                member_signals.set_current(&full_signal, i, Value::Vec3(v));
                             }
                         }
                     }
