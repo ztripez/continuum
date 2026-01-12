@@ -24,6 +24,7 @@ fn test_build_transition_fn() {
 
     // Create an era with a transition when temp < 50
     let era = CompiledEra {
+        file: None,
         span: 0..0,
         id: continuum_foundation::EraId::from("test"),
         is_initial: true,
@@ -38,7 +39,7 @@ fn test_build_transition_fn() {
                 left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from(
                     "temp",
                 ))),
-                right: Box::new(CompiledExpr::Literal(50.0)),
+                right: Box::new(CompiledExpr::Literal(50.0, None)),
             },
         }],
     };
@@ -72,6 +73,7 @@ fn test_build_fracture() {
 
     // Create a fracture that triggers when temp > 100 and emits to energy
     let fracture = CompiledFracture {
+        file: None,
         span: 0..0,
         id: continuum_foundation::FractureId::from("test_fracture"),
         stratum: continuum_foundation::StratumId::from("default"),
@@ -81,11 +83,11 @@ fn test_build_fracture() {
             left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from(
                 "temp",
             ))),
-            right: Box::new(CompiledExpr::Literal(100.0)),
+            right: Box::new(CompiledExpr::Literal(100.0, None)),
         }],
         emits: vec![CompiledEmit {
             target: continuum_foundation::SignalId::from("energy"),
-            value: CompiledExpr::Literal(50.0),
+            value: CompiledExpr::Literal(50.0, None),
         }],
     };
 

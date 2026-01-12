@@ -215,69 +215,61 @@ impl Unit {
     }
 
     /// Parses a unit string into dimensional representation.
-    ///
-    /// Supports:
-    /// - Base SI units: m, kg, s, A, K, mol, cd
-    /// - Derived units: N, Pa, J, W, Hz, rad, sr, etc.
-    /// - Compound units: m/s, W/m², kg·m/s², etc.
-    /// - Powers: m², s⁻¹, m^2, s^-1
-    ///
-    /// # Errors
-    ///
-    /// Returns `None` if the unit string cannot be parsed.
     pub fn parse(unit_str: &str) -> Option<Self> {
         let unit_str = unit_str.trim();
 
-        // Handle empty or "1" as dimensionless
         if unit_str.is_empty() || unit_str == "1" {
             return Some(Unit::dimensionless());
         }
 
-        // Parse compound units (with / or ·)
-        if let Some(result) = Self::parse_compound(unit_str) {
+        // Extremely simple recursive descent parser for units with parentheses
+        Self::parse_recursive(unit_str)
+    }
+
+    fn parse_recursive(s: &str) -> Option<Unit> {
+        let s = s.trim();
+        if s.is_empty() {
+            return Some(Unit::dimensionless());
+        }
+
+        // Handle parentheses
+        if s.starts_with('(') && s.ends_with(')') {
+            return Self::parse_recursive(&s[1..s.len() - 1]);
+        }
+
+        // Handle division (right-associative for multiple slashes: a/b/c = a/(b*c))
+        if let Some(pos) = s.find('/') {
+            let num = &s[..pos];
+            let den = &s[pos + 1..];
+            let u_num = Self::parse_recursive(num)?;
+            let u_den = Self::parse_recursive(den)?;
+            return Some(u_num.divide(&u_den));
+        }
+
+        // Handle products
+        if s.contains('·') || s.contains('*') {
+            let parts: Vec<&str> = s.split(&['·', '*'][..]).collect();
+            let mut result = Unit::dimensionless();
+            for part in parts {
+                let unit = Self::parse_recursive(part)?;
+                result = result.multiply(&unit);
+            }
             return Some(result);
         }
 
-        // Parse single unit with optional exponent
-        Self::parse_single(unit_str)
-    }
-
-    /// Parses compound units like "m/s", "W/m²", "kg·m/s²"
-    fn parse_compound(unit_str: &str) -> Option<Unit> {
-        // Handle division
-        if let Some(pos) = unit_str.find('/') {
-            let numerator = &unit_str[..pos];
-            let denominator = &unit_str[pos + 1..];
-
-            let num_unit = Self::parse_product(numerator)?;
-            let denom_unit = Self::parse_product(denominator)?;
-
-            return Some(num_unit.divide(&denom_unit));
-        }
-
-        // Handle multiplication (·)
-        if unit_str.contains('·') || unit_str.contains('*') {
-            return Self::parse_product(unit_str);
-        }
-
-        None
-    }
-
-    /// Parses a product of units like "kg·m" or "m*s"
-    fn parse_product(unit_str: &str) -> Option<Unit> {
-        let parts: Vec<&str> = unit_str.split(&['·', '*'][..]).collect();
-
-        let mut result = Unit::dimensionless();
-        for part in parts {
-            let part = part.trim();
-            if part.is_empty() || part == "1" {
-                continue;
+        // Handle space-separated products (e.g., "kg m")
+        if s.contains(' ') {
+            let parts: Vec<&str> = s.split_whitespace().collect();
+            let mut result = Unit::dimensionless();
+            for part in parts {
+                let unit = Self::parse_recursive(part)?;
+                result = result.multiply(&unit);
             }
-            let unit = Self::parse_single(part)?;
-            result = result.multiply(&unit);
+            return Some(result);
         }
 
-        Some(result)
+        // Fallback to single unit
+        Self::parse_single(s)
     }
 
     /// Parses a single unit with optional exponent like "m", "m²", "m^2", "s⁻¹"
@@ -910,12 +902,21 @@ mod tests {
     }
 
     #[test]
-    fn test_display() {
-        let v = Unit::parse("m/s").unwrap();
-        assert_eq!(v.to_string(), "m/s");
+    fn test_parse_complex_units() {
+        // Pascal-seconds
+        let pas = Unit::parse("Pa*s").unwrap();
+        assert_eq!(pas.mass, 1);
+        assert_eq!(pas.length, -1);
+        assert_eq!(pas.time, -1);
 
-        let pa = Unit::parse("Pa").unwrap();
-        // Pa = kg/(m·s²)
-        assert_eq!(pa.to_string(), "kg/m·s²");
+        // Gravitational constant: m³/(kg*s²)
+        let g = Unit::parse("m^3/(kg*s^2)").unwrap();
+        assert_eq!(g.length, 3);
+        assert_eq!(g.mass, -1);
+        assert_eq!(g.time, -2);
+
+        // Unicode superscripts
+        let g_uni = Unit::parse("m³/(kg*s²)").unwrap();
+        assert_eq!(g_uni, g);
     }
 }

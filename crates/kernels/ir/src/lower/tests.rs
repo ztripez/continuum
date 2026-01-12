@@ -25,7 +25,10 @@ fn test_lower_const() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    assert_eq!(world.constants.get("physics.gravity"), Some(&9.81));
+    assert!(matches!(
+        world.constants.get("physics.gravity"),
+        Some(&(9.81, _))
+    ));
 }
 
 #[test]
@@ -60,10 +63,8 @@ fn test_negative_range_in_type() {
     assert!(errors.is_empty(), "parse errors: {:?}", errors);
     let unit = unit.unwrap();
     let world = lower(&unit).unwrap();
-    let signal = world
-        .signals
-        .get(&SignalId::from("test.elevation"))
-        .unwrap();
+    let signal = world.signals();
+    let signal = signal.get(&SignalId::from("test.elevation")).unwrap();
 
     // Verify the negative range is captured
     match &signal.value_type {
@@ -130,7 +131,7 @@ fn test_unit_preserved_in_vector_type() {
     // Verify the unit is preserved
     match &signal.value_type {
         ValueType::Vec3 { unit, .. } => {
-            assert_eq!(unit, &Some("m/s".to_string()), "unit should be 'm/s'");
+            assert_eq!(unit, Some("m/s".to_string()), "unit should be 'm/s'");
         }
         _ => panic!("expected Vec3, got {:?}", signal.value_type),
     }
@@ -164,13 +165,13 @@ fn test_dimension_parsed_for_scalar_unit() {
             dimension,
             range,
         } => {
-            assert_eq!(unit, &Some("m/s".to_string()), "unit should be 'm/s'");
+            assert_eq!(unit, Some("m/s".to_string()), "unit should be 'm/s'");
             assert!(dimension.is_some(), "dimension should be parsed");
             let dim = dimension.as_ref().unwrap();
             assert_eq!(dim.length, 1, "length dimension should be 1");
             assert_eq!(dim.time, -1, "time dimension should be -1");
             assert_eq!(dim.mass, 0, "mass dimension should be 0");
-            assert_eq!(range, &None, "no range specified");
+            assert_eq!(range, None, "no range specified");
         }
         _ => panic!("expected Scalar, got {:?}", signal.value_type),
     }
@@ -233,7 +234,7 @@ fn test_dimension_parsed_for_vector_unit() {
         ValueType::Vec3 {
             unit, dimension, ..
         } => {
-            assert_eq!(unit, &Some("m/s²".to_string()), "unit should be 'm/s²'");
+            assert_eq!(unit, Some("m/s²".to_string()), "unit should be 'm/s²'");
             assert!(dimension.is_some(), "dimension should be parsed");
             let dim = dimension.as_ref().unwrap();
             assert_eq!(dim.length, 1, "length dimension should be 1");
@@ -267,8 +268,8 @@ fn test_no_type_annotation_has_no_unit() {
     // Verify no type annotation defaults to Scalar with no unit
     match &signal.value_type {
         ValueType::Scalar { unit, range, .. } => {
-            assert_eq!(unit, &None, "no type annotation should have no unit");
-            assert_eq!(range, &None, "no type annotation should have no range");
+            assert_eq!(unit, None, "no type annotation should have no unit");
+            assert_eq!(range, None, "no type annotation should have no range");
         }
         _ => panic!("expected Scalar, got {:?}", signal.value_type),
     }
@@ -336,11 +337,11 @@ fn test_lower_let_expression() {
     match resolve {
         CompiledExpr::Let { name, value, body } => {
             assert_eq!(name, "a");
-            assert!(matches!(value.as_ref(), CompiledExpr::Literal(10.0)));
+            assert!(matches!(value.as_ref(), CompiledExpr::Literal(10.0, _)));
             match body.as_ref() {
                 CompiledExpr::Let { name, value, body } => {
                     assert_eq!(name, "b");
-                    assert!(matches!(value.as_ref(), CompiledExpr::Literal(20.0)));
+                    assert!(matches!(value.as_ref(), CompiledExpr::Literal(20.0, _)));
                     match body.as_ref() {
                         CompiledExpr::Binary { op, left, right } => {
                             assert!(matches!(op, BinaryOpIr::Add));
@@ -370,7 +371,8 @@ fn test_lower_fn_def() {
     let world = lower(&unit).unwrap();
 
     let fn_id = FnId::from("math.add");
-    let func = world.functions.get(&fn_id).expect("function not found");
+    let func = world.functions();
+    let func = func.get(&fn_id).expect("function not found");
     assert_eq!(func.params, vec!["a", "b"]);
 
     // Check the body is a + b
@@ -403,15 +405,16 @@ fn test_lower_fn_with_const_config() {
     let world = lower(&unit).unwrap();
 
     let fn_id = FnId::from("physics.scaled_gravity");
-    let func = world.functions.get(&fn_id).expect("function not found");
+    let func = world.functions();
+    let func = func.get(&fn_id).expect("function not found");
     assert!(func.params.is_empty());
 
     // Check the body references const and config
     match &func.body {
         CompiledExpr::Binary { op, left, right } => {
             assert!(matches!(op, BinaryOpIr::Mul));
-            assert!(matches!(left.as_ref(), CompiledExpr::Const(s) if s == "physics.gravity"));
-            assert!(matches!(right.as_ref(), CompiledExpr::Config(s) if s == "factor"));
+            assert!(matches!(left.as_ref(), CompiledExpr::Const(s, _) if s == "physics.gravity"));
+            assert!(matches!(right.as_ref(), CompiledExpr::Config(s, _) if s == "factor"));
         }
         _ => panic!("expected Binary, got {:?}", func.body),
     }
@@ -445,11 +448,11 @@ fn test_fn_inlining_in_signal() {
     match resolve {
         CompiledExpr::Let { name, value, body } => {
             assert_eq!(name, "a");
-            assert!(matches!(value.as_ref(), CompiledExpr::Literal(10.0)));
+            assert!(matches!(value.as_ref(), CompiledExpr::Literal(10.0, _)));
             match body.as_ref() {
                 CompiledExpr::Let { name, value, body } => {
                     assert_eq!(name, "b");
-                    assert!(matches!(value.as_ref(), CompiledExpr::Literal(20.0)));
+                    assert!(matches!(value.as_ref(), CompiledExpr::Literal(20.0, _)));
                     match body.as_ref() {
                         CompiledExpr::Binary { op, left, right } => {
                             assert!(matches!(op, BinaryOpIr::Add));
@@ -674,24 +677,20 @@ fn test_signal_local_config() {
     let world = lower(&unit).unwrap();
 
     // Local config should be added to global config with signal path prefix
-    assert_eq!(
+    assert!(matches!(
         world.config.get("core.temp.initial_temp"),
-        Some(&5500.0),
-        "config: {:?}",
-        world.config
-    );
-    assert_eq!(
+        Some(&(5500.0, _))
+    ));
+    assert!(matches!(
         world.config.get("core.temp.decay_rate"),
-        Some(&0.01),
-        "config: {:?}",
-        world.config
-    );
+        Some(&(0.01, _))
+    ));
 
     // Check the resolve expression references the config correctly
     let signal = world.signals().get(&SignalId::from("core.temp")).unwrap();
     let resolve = signal.resolve.as_ref().unwrap();
     match resolve {
-        CompiledExpr::Config(key) => {
+        CompiledExpr::Config(key, _) => {
             assert_eq!(key, "core.temp.initial_temp");
         }
         _ => panic!("expected Config, got {:?}", resolve),
@@ -720,18 +719,14 @@ fn test_signal_local_const() {
     let world = lower(&unit).unwrap();
 
     // Local const should be added to global constants with signal path prefix
-    assert_eq!(
+    assert!(matches!(
         world.constants.get("physics.gravity.G"),
-        Some(&6.674e-11),
-        "constants: {:?}",
-        world.constants
-    );
-    assert_eq!(
+        Some(&(6.674e-11, _))
+    ));
+    assert!(matches!(
         world.constants.get("physics.gravity.mass"),
-        Some(&5.972e24),
-        "constants: {:?}",
-        world.constants
-    );
+        Some(&(5.972e24, _))
+    ));
 }
 
 #[test]
@@ -759,8 +754,11 @@ fn test_signal_local_config_with_global_config() {
     let world = lower(&unit).unwrap();
 
     // Both global and local config should be present
-    assert_eq!(world.config.get("global.factor"), Some(&2.0));
-    assert_eq!(world.config.get("test.value.local_scale"), Some(&10.0));
+    assert!(matches!(world.config.get("global.factor"), Some(&(2.0, _))));
+    assert!(matches!(
+        world.config.get("test.value.local_scale"),
+        Some(&(10.0, _))
+    ));
 }
 
 #[test]
@@ -1007,33 +1005,56 @@ fn test_undefined_stratum_in_field() {
 #[test]
 fn test_lower_error_display() {
     // Test Display impl for all error variants
-    let err = LowerError::UndefinedStratum("terra".to_string());
+    let err = LowerError::UndefinedStratum {
+        name: "terra".to_string(),
+        file: None,
+        span: 0..0,
+    };
     assert!(err.to_string().contains("undefined stratum"));
     assert!(err.to_string().contains("terra"));
 
-    let err = LowerError::UndefinedSignal("test.value".to_string());
+    let err = LowerError::UndefinedSignal {
+        name: "test.value".to_string(),
+        file: None,
+        span: 0..0,
+    };
     assert!(err.to_string().contains("undefined signal"));
     assert!(err.to_string().contains("test.value"));
 
-    let err = LowerError::DuplicateDefinition("signal.test".to_string());
+    let err = LowerError::DuplicateDefinition {
+        name: "signal.test".to_string(),
+        file: None,
+        span: 0..0,
+    };
     assert!(err.to_string().contains("duplicate definition"));
 
     let err = LowerError::MissingRequiredField("stratum".to_string());
     assert!(err.to_string().contains("missing required field"));
 
-    let err = LowerError::InvalidExpression("bad expr".to_string());
+    let err = LowerError::InvalidExpression {
+        message: "bad expr".to_string(),
+        file: None,
+        span: 0..0,
+    };
     assert!(err.to_string().contains("invalid expression"));
 
-    let err = LowerError::UndeclaredDtRawUsage("test.value".to_string());
+    let err = LowerError::UndeclaredDtRawUsage {
+        name: "test.value".to_string(),
+        file: None,
+        span: 0..0,
+    };
     assert!(err.to_string().contains("dt_raw"));
     assert!(err.to_string().contains("test.value"));
 
     let err = LowerError::MismatchedConstraint {
-        signal: "test.stress".to_string(),
+        signal: "test.value".to_string(),
         constraint_kind: "tensor".to_string(),
-        actual_type: "Scalar<Pa>".to_string(),
+        actual_type: "Scalar".to_string(),
         expected_type: "Tensor".to_string(),
+        file: None,
+        span: 0..0,
     };
+
     assert!(err.to_string().contains("test.stress"));
     assert!(err.to_string().contains("tensor"));
     assert!(err.to_string().contains("Scalar<Pa>"));

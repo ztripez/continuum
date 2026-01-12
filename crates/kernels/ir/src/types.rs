@@ -252,6 +252,41 @@ impl CompiledWorld {
         }
         chronicles
     }
+
+    /// Get all function nodes from the unified node map.
+    pub fn functions(&self) -> IndexMap<FnId, CompiledFn> {
+        let mut functions = IndexMap::new();
+        for (path, node) in &self.nodes {
+            if let crate::unified_nodes::NodeKind::Function(props) = &node.kind {
+                let func = CompiledFn {
+                    file: node.file.clone(),
+                    span: node.span.clone(),
+                    id: FnId::from(path.clone()),
+                    params: props.params.clone(),
+                    body: props.body.clone(),
+                };
+                functions.insert(FnId::from(path.clone()), func);
+            }
+        }
+        functions
+    }
+
+    /// Get all type nodes from the unified node map.
+    pub fn types(&self) -> IndexMap<TypeId, CompiledType> {
+        let mut types = IndexMap::new();
+        for (path, node) in &self.nodes {
+            if let crate::unified_nodes::NodeKind::Type(props) = &node.kind {
+                let ty = CompiledType {
+                    file: node.file.clone(),
+                    span: node.span.clone(),
+                    id: TypeId::from(path.clone()),
+                    fields: props.fields.clone(),
+                };
+                types.insert(TypeId::from(path.clone()), ty);
+            }
+        }
+        types
+    }
 }
 
 /// A compiled stratum definition representing a simulation layer.
