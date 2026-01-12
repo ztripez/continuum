@@ -30,7 +30,7 @@
 //! }
 //! ```
 
-use crate::ast::{CompilationUnit, Expr, Item, Spanned, uses_dt_raw};
+use crate::ast::{AstVisitor, CompilationUnit, Expr, Item, Spanned, uses_dt_raw};
 
 /// A semantic validation error with source location.
 ///
@@ -278,144 +278,52 @@ fn is_known_method(name: &str, user_function_names: &std::collections::HashSet<S
 }
 
 /// Check an expression for unknown function calls.
-///
-/// Note: This uses manual recursion rather than the ExprVisitor pattern
-/// because it needs parent-child context (Call -> Path) for proper error
-/// spans. The visitor pattern works well for simpler checks like `uses_dt_raw`.
 fn check_expr_for_unknown_functions(
     expr: &Spanned<Expr>,
     user_functions: &std::collections::HashSet<String>,
     user_function_names: &std::collections::HashSet<String>,
     errors: &mut Vec<ValidationError>,
 ) {
-    // For Call expressions, we need special handling to get the function span
-    check_expr_recursive(expr, user_functions, user_function_names, errors);
+    let mut visitor = UnknownFunctionVisitor {
+        user_functions,
+        user_function_names,
+        errors,
+    };
+    visitor.visit_expr(expr);
 }
 
-fn check_expr_recursive(
-    expr: &Spanned<Expr>,
-    user_functions: &std::collections::HashSet<String>,
-    user_function_names: &std::collections::HashSet<String>,
-    errors: &mut Vec<ValidationError>,
-) {
-    match &expr.node {
-        Expr::Call { function, args } => {
-            // Check if function is a path (direct function call)
-            if let Expr::Path(path) = &function.node {
-                let name = path.to_string();
-                if !is_known_function(&name, user_functions) {
-                    errors.push(ValidationError {
-                        message: format!("unknown function '{}'", name),
-                        span: function.span.clone(),
+struct UnknownFunctionVisitor<'a> {
+    user_functions: &'a std::collections::HashSet<String>,
+    user_function_names: &'a std::collections::HashSet<String>,
+    errors: &'a mut Vec<ValidationError>,
+}
+
+impl AstVisitor for UnknownFunctionVisitor<'_> {
+    fn visit_expr(&mut self, expr: &Spanned<Expr>) {
+        match &expr.node {
+            Expr::Call { function, .. } => {
+                if let Expr::Path(path) = &function.node {
+                    let name = path.to_string();
+                    if !is_known_function(&name, self.user_functions) {
+                        self.errors.push(ValidationError {
+                            message: format!("unknown function '{}'", name),
+                            span: function.span.clone(),
+                        });
+                    }
+                }
+            }
+            Expr::MethodCall { method, .. } => {
+                if !is_known_method(method, self.user_function_names) {
+                    self.errors.push(ValidationError {
+                        message: format!("unknown method '{}'", method),
+                        span: expr.span.clone(),
                     });
                 }
             }
-            // Recurse
-            check_expr_recursive(function, user_functions, user_function_names, errors);
-            for arg in args {
-                check_expr_recursive(&arg.value, user_functions, user_function_names, errors);
-            }
-        }
-        Expr::MethodCall {
-            object,
-            method,
-            args,
-        } => {
-            if !is_known_method(method, user_function_names) {
-                errors.push(ValidationError {
-                    message: format!("unknown method '{}'", method),
-                    span: expr.span.clone(),
-                });
-            }
-            check_expr_recursive(object, user_functions, user_function_names, errors);
-            for arg in args {
-                check_expr_recursive(&arg.value, user_functions, user_function_names, errors);
-            }
-        }
-        // For other expressions, just recurse into children
-        _ => match &expr.node {
-            Expr::Binary { left, right, .. } => {
-                check_expr_recursive(left, user_functions, user_function_names, errors);
-                check_expr_recursive(right, user_functions, user_function_names, errors);
-            }
-            Expr::Unary { operand, .. } => {
-                check_expr_recursive(operand, user_functions, user_function_names, errors);
-            }
-            Expr::FieldAccess { object, .. } => {
-                check_expr_recursive(object, user_functions, user_function_names, errors);
-            }
-            Expr::Let { value, body, .. } => {
-                check_expr_recursive(value, user_functions, user_function_names, errors);
-                check_expr_recursive(body, user_functions, user_function_names, errors);
-            }
-            Expr::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                check_expr_recursive(condition, user_functions, user_function_names, errors);
-                check_expr_recursive(then_branch, user_functions, user_function_names, errors);
-                if let Some(e) = else_branch {
-                    check_expr_recursive(e, user_functions, user_function_names, errors);
-                }
-            }
-            Expr::For { iter, body, .. } => {
-                check_expr_recursive(iter, user_functions, user_function_names, errors);
-                check_expr_recursive(body, user_functions, user_function_names, errors);
-            }
-            Expr::Block(exprs) => {
-                for e in exprs {
-                    check_expr_recursive(e, user_functions, user_function_names, errors);
-                }
-            }
-            Expr::EmitSignal { value, .. } => {
-                check_expr_recursive(value, user_functions, user_function_names, errors);
-            }
-            Expr::EmitField {
-                position, value, ..
-            } => {
-                check_expr_recursive(position, user_functions, user_function_names, errors);
-                check_expr_recursive(value, user_functions, user_function_names, errors);
-            }
-            Expr::Struct(fields) => {
-                for (_, e) in fields {
-                    check_expr_recursive(e, user_functions, user_function_names, errors);
-                }
-            }
-            Expr::Map { sequence, function } => {
-                check_expr_recursive(sequence, user_functions, user_function_names, errors);
-                check_expr_recursive(function, user_functions, user_function_names, errors);
-            }
-            Expr::Fold {
-                sequence,
-                init,
-                function,
-            } => {
-                check_expr_recursive(sequence, user_functions, user_function_names, errors);
-                check_expr_recursive(init, user_functions, user_function_names, errors);
-                check_expr_recursive(function, user_functions, user_function_names, errors);
-            }
-            Expr::EntityAccess { instance, .. } => {
-                check_expr_recursive(instance, user_functions, user_function_names, errors);
-            }
-            Expr::Aggregate { body, .. } => {
-                check_expr_recursive(body, user_functions, user_function_names, errors);
-            }
-            Expr::Filter { predicate, .. } | Expr::First { predicate, .. } => {
-                check_expr_recursive(predicate, user_functions, user_function_names, errors);
-            }
-            Expr::Nearest { position, .. } => {
-                check_expr_recursive(position, user_functions, user_function_names, errors);
-            }
-            Expr::Within {
-                position, radius, ..
-            } => {
-                check_expr_recursive(position, user_functions, user_function_names, errors);
-                check_expr_recursive(radius, user_functions, user_function_names, errors);
-            }
-            // Leaf nodes - no children
             _ => {}
-        },
+        }
+
+        self.walk_expr(expr);
     }
 }
 
