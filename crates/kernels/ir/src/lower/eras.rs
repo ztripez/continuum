@@ -18,7 +18,11 @@ impl Lowerer {
 
         // Check for duplicate era definition
         if self.eras.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("era.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("era.{}", id),
+                file: self.file.clone(),
+                span: def.name.span.clone(),
+            });
         }
 
         // Convert dt to seconds

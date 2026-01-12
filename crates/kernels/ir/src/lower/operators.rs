@@ -22,7 +22,11 @@ impl Lowerer {
 
         // Check for duplicate operator definition
         if self.operators.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("operator.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("operator.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Determine stratum
@@ -33,7 +37,13 @@ impl Lowerer {
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
-        self.validate_stratum(&stratum)?;
+        self.validate_stratum(
+            &stratum,
+            def.strata
+                .as_ref()
+                .map(|s| &s.span)
+                .unwrap_or(&def.path.span),
+        )?;
 
         let phase = def
             .phase
@@ -86,7 +96,11 @@ impl Lowerer {
 
         // Check for duplicate function definition
         if self.functions.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("fn.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("fn.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Collect parameter names

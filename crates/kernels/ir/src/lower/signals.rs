@@ -21,7 +21,11 @@ impl Lowerer {
 
         // Check for duplicate signal definition
         if self.signals.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("signal.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("signal.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Determine stratum
@@ -32,14 +36,20 @@ impl Lowerer {
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
-        self.validate_stratum(&stratum)?;
+        self.validate_stratum(
+            &stratum,
+            def.strata
+                .as_ref()
+                .map(|s| &s.span)
+                .unwrap_or(&def.path.span),
+        )?;
 
         // Process local const blocks - add to global constants with signal-prefixed keys
         for entry in &def.local_consts {
             let local_key = entry.path.node.to_string();
             // Add with full signal path prefix: signal.path.local_key
             let full_key = format!("{}.{}", signal_path, local_key);
-            let value = self.literal_to_f64(&entry.value.node)?;
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
             self.constants.insert(full_key, value);
         }
 
@@ -48,7 +58,7 @@ impl Lowerer {
             let local_key = entry.path.node.to_string();
             // Add with full signal path prefix: signal.path.local_key
             let full_key = format!("{}.{}", signal_path, local_key);
-            let value = self.literal_to_f64(&entry.value.node)?;
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
             self.config.insert(full_key, value);
         }
 
@@ -61,7 +71,11 @@ impl Lowerer {
         // Validate dt_raw usage: if resolve uses dt_raw, signal must declare it
         if let Some(resolve) = &def.resolve {
             if !def.dt_raw && self.expr_uses_dt_raw(&resolve.body.node) {
-                return Err(LowerError::UndeclaredDtRawUsage(signal_path));
+                return Err(LowerError::UndeclaredDtRawUsage {
+                    name: signal_path,
+                    file: self.file.clone(),
+                    span: resolve.body.span.clone(),
+                });
             }
         }
 
@@ -124,7 +138,11 @@ impl Lowerer {
 
         // Check for duplicate field definition
         if self.fields.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("field.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("field.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         let stratum = def
@@ -134,7 +152,13 @@ impl Lowerer {
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
-        self.validate_stratum(&stratum)?;
+        self.validate_stratum(
+            &stratum,
+            def.strata
+                .as_ref()
+                .map(|s| &s.span)
+                .unwrap_or(&def.path.span),
+        )?;
 
         let mut reads = Vec::new();
         if let Some(measure) = &def.measure {
@@ -195,6 +219,8 @@ impl Lowerer {
                     constraint_kind: "tensor".to_string(),
                     actual_type,
                     expected_type: "Tensor".to_string(),
+                    file: self.file.clone(),
+                    span: def.path.span.clone(),
                 });
             }
         }
@@ -216,6 +242,8 @@ impl Lowerer {
                     constraint_kind: "sequence".to_string(),
                     actual_type,
                     expected_type: "Seq".to_string(),
+                    file: self.file.clone(),
+                    span: def.path.span.clone(),
                 });
             }
         }

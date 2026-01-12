@@ -25,17 +25,25 @@ impl Lowerer {
 
         // Check for duplicate member definition
         if self.members.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("member.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("member.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Extract entity path and signal name from the full path
         // e.g., "human.person.age" -> entity "human.person", signal "age"
         let segments = &def.path.node.segments;
         if segments.len() < 2 {
-            return Err(LowerError::InvalidExpression(format!(
-                "member path '{}' must have at least entity.signal format",
-                full_path
-            )));
+            return Err(LowerError::InvalidExpression {
+                message: format!(
+                    "member path '{}' must have at least entity.signal format",
+                    full_path
+                ),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         let mut entity_path_node = def.path.node.clone();
@@ -51,13 +59,19 @@ impl Lowerer {
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
-        self.validate_stratum(&stratum)?;
+        self.validate_stratum(
+            &stratum,
+            def.strata
+                .as_ref()
+                .map(|s| &s.span)
+                .unwrap_or(&def.path.span),
+        )?;
 
         // Process local config blocks - add to global config with member-prefixed keys
         for entry in &def.local_config {
             let local_key = entry.path.node.to_string();
             let full_key = format!("{}.{}", full_path, local_key);
-            let value = self.literal_to_f64(&entry.value.node)?;
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
             self.config.insert(full_key, value);
         }
 

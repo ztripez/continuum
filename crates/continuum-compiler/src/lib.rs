@@ -109,8 +109,9 @@ impl CompileResult {
 fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
     let mut line = 0;
     let mut col = 0;
-    for (i, c) in text.chars().enumerate() {
-        if i == offset {
+    let mut current_byte = 0;
+    for c in text.chars() {
+        if current_byte >= offset {
             break;
         }
         if c == '\n' {
@@ -119,6 +120,7 @@ fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
         } else {
             col += 1;
         }
+        current_byte += c.len_utf8();
     }
     (line, col)
 }
@@ -195,8 +197,8 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
         Err(err) => {
             diagnostics.push(Diagnostic {
                 message: format!("{}", err),
-                span: None,
-                file: None,
+                span: Some(err.span()),
+                file: err.file(),
                 severity: Severity::Error,
             });
             return CompileResult {

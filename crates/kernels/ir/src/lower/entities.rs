@@ -17,7 +17,11 @@ impl Lowerer {
 
         // Check for duplicate entity definition
         if self.entities.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("entity.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("entity.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Count source from config path

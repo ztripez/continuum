@@ -46,8 +46,9 @@ struct TickSnapshot {
 fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
     let mut line = 0;
     let mut col = 0;
-    for (i, c) in text.chars().enumerate() {
-        if i == offset {
+    let mut current_byte = 0;
+    for c in text.chars() {
+        if current_byte >= offset {
             break;
         }
         if c == '\n' {
@@ -56,6 +57,7 @@ fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
         } else {
             col += 1;
         }
+        current_byte += c.len_utf8();
     }
     (line, col)
 }
@@ -128,7 +130,7 @@ fn main() {
                         let (line, col) = offset_to_line_col(source, span.start);
                         format!("{}:{}:{} ", file.display(), line + 1, col + 1)
                     } else {
-                        format!("{}:at {:?} ", file.display(), span)
+                        format!("{}: ", file.display())
                     }
                 } else {
                     String::new()

@@ -24,7 +24,11 @@ impl Lowerer {
 
         // Check for duplicate chronicle definition
         if self.chronicles.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("chronicle.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("chronicle.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Collect signal reads from all handlers

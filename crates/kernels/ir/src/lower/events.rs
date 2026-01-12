@@ -28,7 +28,11 @@ impl Lowerer {
 
         // Check for duplicate impulse definition
         if self.impulses.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("impulse.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("impulse.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         let impulse = CompiledImpulse {
@@ -61,7 +65,11 @@ impl Lowerer {
 
         // Check for duplicate fracture definition
         if self.fractures.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("fracture.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("fracture.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Process local config blocks - add to global config with fracture-prefixed keys
@@ -69,7 +77,7 @@ impl Lowerer {
             let local_key = entry.path.node.to_string();
             // Add with full fracture path prefix: config.fracture.path.local_key
             let full_key = format!("fracture.{}.{}", fracture_path, local_key);
-            let value = self.literal_to_f64(&entry.value.node)?;
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
             self.config.insert(full_key, value);
         }
 
@@ -77,7 +85,11 @@ impl Lowerer {
         let stratum = if let Some(s) = &def.strata {
             let id = StratumId::from(s.node.clone());
             if !self.strata.contains_key(&id) {
-                return Err(LowerError::UndefinedStratum(id.to_string()));
+                return Err(LowerError::UndefinedStratum {
+                    name: id.to_string(),
+                    file: self.file.clone(),
+                    span: s.span.clone(),
+                });
             }
             id
         } else {
@@ -86,9 +98,11 @@ impl Lowerer {
             if let Some((first_id, _)) = self.strata.first() {
                 first_id.clone()
             } else {
-                return Err(LowerError::Generic(
-                    "Fracture defined but no strata are available to bind to".to_string(),
-                ));
+                return Err(LowerError::Generic {
+                    message: "Fracture defined but no strata are available to bind to".to_string(),
+                    file: self.file.clone(),
+                    span: def.path.span.clone(),
+                });
             }
         };
 

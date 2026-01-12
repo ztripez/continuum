@@ -35,18 +35,42 @@ use crate::{
 /// Errors that can occur during the lowering phase.
 #[derive(Debug, Error)]
 pub enum LowerError {
-    #[error("undefined stratum: {0}")]
-    UndefinedStratum(String),
-    #[error("undefined signal: {0}")]
-    UndefinedSignal(String),
-    #[error("duplicate definition: {0}")]
-    DuplicateDefinition(String),
-    #[error("invalid literal: {0}")]
-    InvalidLiteral(String),
-    #[error("undeclared dt_raw usage in signal '{0}'")]
-    UndeclaredDtRawUsage(String),
-    #[error("invalid expression: {0}")]
-    InvalidExpression(String),
+    #[error("undefined stratum: {name}")]
+    UndefinedStratum {
+        name: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("undefined signal: {name}")]
+    UndefinedSignal {
+        name: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("duplicate definition: {name}")]
+    DuplicateDefinition {
+        name: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("invalid literal: {message}")]
+    InvalidLiteral {
+        message: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("undeclared dt_raw usage in signal '{name}'")]
+    UndeclaredDtRawUsage {
+        name: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("invalid expression: {message}")]
+    InvalidExpression {
+        message: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
     #[error(
         "signal '{signal}' has {constraint_kind} constraint but type is {actual_type}, not {expected_type}"
     )]
@@ -55,9 +79,43 @@ pub enum LowerError {
         constraint_kind: String,
         actual_type: String,
         expected_type: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
     },
-    #[error("{0}")]
-    Generic(String),
+    #[error("{message}")]
+    Generic {
+        message: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+}
+
+impl LowerError {
+    pub fn span(&self) -> Span {
+        match self {
+            LowerError::UndefinedStratum { span, .. } => span.clone(),
+            LowerError::UndefinedSignal { span, .. } => span.clone(),
+            LowerError::DuplicateDefinition { span, .. } => span.clone(),
+            LowerError::InvalidLiteral { span, .. } => span.clone(),
+            LowerError::UndeclaredDtRawUsage { span, .. } => span.clone(),
+            LowerError::InvalidExpression { span, .. } => span.clone(),
+            LowerError::MismatchedConstraint { span, .. } => span.clone(),
+            LowerError::Generic { span, .. } => span.clone(),
+        }
+    }
+
+    pub fn file(&self) -> Option<std::path::PathBuf> {
+        match self {
+            LowerError::UndefinedStratum { file, .. } => file.clone(),
+            LowerError::UndefinedSignal { file, .. } => file.clone(),
+            LowerError::DuplicateDefinition { file, .. } => file.clone(),
+            LowerError::InvalidLiteral { file, .. } => file.clone(),
+            LowerError::UndeclaredDtRawUsage { file, .. } => file.clone(),
+            LowerError::InvalidExpression { file, .. } => file.clone(),
+            LowerError::MismatchedConstraint { file, .. } => file.clone(),
+            LowerError::Generic { file, .. } => file.clone(),
+        }
+    }
 }
 
 pub fn lower(unit: &CompilationUnit) -> Result<CompiledWorld, LowerError> {
@@ -68,10 +126,82 @@ pub fn lower_multi(
     units: Vec<(std::path::PathBuf, &CompilationUnit)>,
 ) -> Result<CompiledWorld, LowerError> {
     let mut lowerer = Lowerer::new(None);
-    for (path, unit) in units {
-        lowerer.file = Some(path);
-        lowerer.lower_unit(unit)?;
+
+    // Pass 1: Types, Strata, Functions, Constants, Config
+    for (path, unit) in &units {
+        lowerer.file = Some(path.clone());
+        for item in &unit.items {
+            match &item.node {
+                Item::ConstBlock(block) => {
+                    for entry in &block.entries {
+                        let key = entry.path.node.to_string();
+                        if lowerer.constants.contains_key(&key) {
+                            return Err(LowerError::DuplicateDefinition {
+                                name: format!("const.{}", key),
+                                file: lowerer.file.clone(),
+                                span: entry.path.span.clone(),
+                            });
+                        }
+                        let value = lowerer.literal_to_f64(&entry.value.node, &entry.value.span)?;
+                        lowerer.constants.insert(key, value);
+                    }
+                }
+                Item::ConfigBlock(block) => {
+                    for entry in &block.entries {
+                        let key = entry.path.node.to_string();
+                        if lowerer.config.contains_key(&key) {
+                            return Err(LowerError::DuplicateDefinition {
+                                name: format!("config.{}", key),
+                                file: lowerer.file.clone(),
+                                span: entry.path.span.clone(),
+                            });
+                        }
+                        let value = lowerer.literal_to_f64(&entry.value.node, &entry.value.span)?;
+                        lowerer.config.insert(key, value);
+                    }
+                }
+                Item::FnDef(def) => {
+                    lowerer.lower_fn(def, item.span.clone())?;
+                }
+                Item::StrataDef(def) => {
+                    lowerer.lower_stratum(def, item.span.clone())?;
+                }
+                Item::TypeDef(def) => {
+                    lowerer.lower_type_def(def, item.span.clone())?;
+                }
+                _ => {}
+            }
+        }
     }
+
+    // Pass 2: Eras (depends on strata)
+    for (path, unit) in &units {
+        lowerer.file = Some(path.clone());
+        for item in &unit.items {
+            if let Item::EraDef(def) = &item.node {
+                lowerer.lower_era(def, item.span.clone())?;
+            }
+        }
+    }
+
+    // Pass 3: Signals, Fields, Operators, Impulses, Fractures, Entities, Members, Chronicles
+    for (path, unit) in &units {
+        lowerer.file = Some(path.clone());
+        for item in &unit.items {
+            match &item.node {
+                Item::SignalDef(def) => lowerer.lower_signal(def, item.span.clone())?,
+                Item::FieldDef(def) => lowerer.lower_field(def, item.span.clone())?,
+                Item::OperatorDef(def) => lowerer.lower_operator(def, item.span.clone())?,
+                Item::ImpulseDef(def) => lowerer.lower_impulse(def, item.span.clone())?,
+                Item::FractureDef(def) => lowerer.lower_fracture(def, item.span.clone())?,
+                Item::EntityDef(def) => lowerer.lower_entity(def, item.span.clone())?,
+                Item::MemberDef(def) => lowerer.lower_member(def, item.span.clone())?,
+                Item::ChronicleDef(def) => lowerer.lower_chronicle(def, item.span.clone())?,
+                _ => {}
+            }
+        }
+    }
+
     Ok(lowerer.finish())
 }
 
@@ -123,12 +253,20 @@ impl Lowerer {
         }
     }
 
-    pub(crate) fn validate_stratum(&self, stratum: &StratumId) -> Result<(), LowerError> {
+    pub(crate) fn validate_stratum(
+        &self,
+        stratum: &StratumId,
+        span: &Span,
+    ) -> Result<(), LowerError> {
         if stratum.to_string() == "default" {
             return Ok(());
         }
         if !self.strata.contains_key(stratum) {
-            return Err(LowerError::UndefinedStratum(stratum.to_string()));
+            return Err(LowerError::UndefinedStratum {
+                name: stratum.to_string(),
+                file: self.file.clone(),
+                span: span.clone(),
+            });
         }
         Ok(())
     }
@@ -140,9 +278,13 @@ impl Lowerer {
                     for entry in &block.entries {
                         let key = entry.path.node.to_string();
                         if self.constants.contains_key(&key) {
-                            return Err(LowerError::DuplicateDefinition(format!("const.{}", key)));
+                            return Err(LowerError::DuplicateDefinition {
+                                name: format!("const.{}", key),
+                                file: self.file.clone(),
+                                span: entry.path.span.clone(),
+                            });
                         }
-                        let value = self.literal_to_f64(&entry.value.node)?;
+                        let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
                         self.constants.insert(key, value);
                     }
                 }
@@ -150,9 +292,13 @@ impl Lowerer {
                     for entry in &block.entries {
                         let key = entry.path.node.to_string();
                         if self.config.contains_key(&key) {
-                            return Err(LowerError::DuplicateDefinition(format!("config.{}", key)));
+                            return Err(LowerError::DuplicateDefinition {
+                                name: format!("config.{}", key),
+                                file: self.file.clone(),
+                                span: entry.path.span.clone(),
+                            });
                         }
-                        let value = self.literal_to_f64(&entry.value.node)?;
+                        let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
                         self.config.insert(key, value);
                     }
                 }
@@ -195,7 +341,11 @@ impl Lowerer {
     fn lower_type_def(&mut self, def: &ast::TypeDef, span: Span) -> Result<(), LowerError> {
         let id = TypeId::from(Path::from_str(&def.name.node));
         if self.types.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("type.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("type.{}", id),
+                file: self.file.clone(),
+                span: def.name.span.clone(),
+            });
         }
 
         let fields = def
@@ -224,7 +374,11 @@ impl Lowerer {
     ) -> Result<(), LowerError> {
         let id = StratumId::from(def.path.node.clone());
         if self.strata.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("strata.{}", id)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("strata.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         let stratum = CompiledStratum {
