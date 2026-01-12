@@ -131,7 +131,6 @@ fn main() {
     let fractures = world.fractures();
     let entities = world.entities();
     let members = world.members();
-    let chronicles = world.chronicles();
 
     info!("  Strata: {}", strata.len());
     info!("  Eras: {}", eras.len());

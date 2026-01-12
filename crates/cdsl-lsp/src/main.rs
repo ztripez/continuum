@@ -18,6 +18,7 @@
 mod formatter;
 mod symbols;
 
+use continuum_kernel_registry as kernel_registry;
 use std::path::Path;
 
 use dashmap::DashMap;
@@ -677,9 +678,9 @@ fn detect_kind_prefix(prefix: &str) -> Option<(CdslSymbolKind, usize)> {
 /// Searches backwards from cursor to find if we're inside a `fn.path.name(...)` call.
 /// Returns the function path (without "fn." prefix) and the active parameter index.
 fn find_function_call_context(text_before: &str) -> Option<(String, usize)> {
-    // Find the most recent unclosed '(' that follows "fn."
+    // Find the most recent unclosed '('
     let mut paren_depth = 0;
-    let mut last_fn_call_start = None;
+    let mut last_call_start = None;
 
     // Scan backwards through the text
     let chars: Vec<char> = text_before.chars().collect();
@@ -694,22 +695,36 @@ fn find_function_call_context(text_before: &str) -> Option<(String, usize)> {
                     paren_depth -= 1;
                 } else {
                     // Found an unclosed '(' - check if it's a fn call
-                    // Look backwards for "fn." pattern
                     let before_paren = &text_before[..i];
+
+                    // 1. Check for "fn.path" pattern
                     if let Some(fn_start) = before_paren.rfind("fn.") {
-                        // Extract the function path between "fn." and "("
                         let path_start = fn_start + 3; // Skip "fn."
                         let path = &text_before[path_start..i];
 
-                        // Validate it's a valid path (alphanumeric, underscore, dots)
                         if path
                             .chars()
                             .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
                             && !path.is_empty()
                         {
-                            last_fn_call_start = Some((path.to_string(), i + 1));
+                            last_call_start = Some((path.to_string(), i + 1));
                             break;
                         }
+                    }
+
+                    // 2. Check for plain identifier (could be built-in kernel)
+                    let id_start = before_paren
+                        .rfind(|c: char| !c.is_alphanumeric() && c != '_' && c != '.')
+                        .map(|idx| idx + 1)
+                        .unwrap_or(0);
+                    let id = &before_paren[id_start..];
+                    if !id.is_empty()
+                        && id
+                            .chars()
+                            .all(|c| c.is_alphanumeric() || c == '_' || c == '.')
+                    {
+                        last_call_start = Some((id.to_string(), i + 1));
+                        break;
                     }
                 }
             }
@@ -718,7 +733,7 @@ fn find_function_call_context(text_before: &str) -> Option<(String, usize)> {
     }
 
     // If we found a function call, count commas to find active parameter
-    if let Some((fn_path, args_start)) = last_fn_call_start {
+    if let Some((fn_path, args_start)) = last_call_start {
         let args_text = &text_before[args_start..];
         let mut comma_count = 0usize;
         let mut depth = 0usize;
@@ -1325,25 +1340,23 @@ impl LanguageServer for Backend {
                 completion_item("Scalar", CompletionItemKind::TYPE_PARAMETER, "Scalar type"),
                 completion_item("Vector", CompletionItemKind::TYPE_PARAMETER, "Vector type"),
                 completion_item("Tensor", CompletionItemKind::TYPE_PARAMETER, "Tensor type"),
-                // Built-in functions
-                completion_item(
-                    "clamp",
-                    CompletionItemKind::FUNCTION,
-                    "Clamp value to range",
-                ),
-                completion_item("min", CompletionItemKind::FUNCTION, "Minimum of values"),
-                completion_item("max", CompletionItemKind::FUNCTION, "Maximum of values"),
-                completion_item("abs", CompletionItemKind::FUNCTION, "Absolute value"),
-                completion_item("exp", CompletionItemKind::FUNCTION, "Exponential"),
-                completion_item("ln", CompletionItemKind::FUNCTION, "Natural logarithm"),
-                completion_item("log", CompletionItemKind::FUNCTION, "Logarithm"),
-                completion_item("sqrt", CompletionItemKind::FUNCTION, "Square root"),
-                completion_item("sin", CompletionItemKind::FUNCTION, "Sine"),
-                completion_item("cos", CompletionItemKind::FUNCTION, "Cosine"),
-                completion_item("tan", CompletionItemKind::FUNCTION, "Tangent"),
             ]);
-            // Note: Full symbol paths are NOT shown here.
-            // Type "signal.", "field.", etc. to get hierarchical path completion.
+
+            // Built-in functions from registry
+            for name in kernel_registry::all_names() {
+                if let Some(k) = kernel_registry::get(name) {
+                    items.push(CompletionItem {
+                        label: name.to_string(),
+                        kind: Some(CompletionItemKind::FUNCTION),
+                        detail: Some(k.signature.to_string()),
+                        documentation: Some(Documentation::MarkupContent(MarkupContent {
+                            kind: MarkupKind::Markdown,
+                            value: k.doc.to_string(),
+                        })),
+                        ..Default::default()
+                    });
+                }
+            }
         }
 
         Ok(Some(CompletionResponse::Array(items)))
@@ -1576,17 +1589,15 @@ impl LanguageServer for Backend {
         let offset = position_to_offset(&doc, position);
         let text_before = &doc[..offset];
 
-        // Find the function call context by looking for "fn.path.name(" pattern
-        // and counting parentheses/commas
+        // Find the function call context and active parameter index
         let (fn_path, active_param) = match find_function_call_context(text_before) {
             Some(ctx) => ctx,
             None => return Ok(None),
         };
 
-        // Search all indexed files for the function
+        // 1. Try to find a user-defined function signature
         for entry in self.symbol_indices.iter() {
             if let Some(sig) = entry.value().get_function_signature(&fn_path) {
-                // Build the signature label
                 let params_str: Vec<String> = sig
                     .params
                     .iter()
@@ -1619,7 +1630,6 @@ impl LanguageServer for Backend {
                     return_str
                 );
 
-                // Build parameter information with offsets
                 let mut param_infos = Vec::new();
                 let params_start = label.find('(').unwrap_or(0) + 1;
                 let mut current_offset = params_start;
@@ -1639,27 +1649,78 @@ impl LanguageServer for Backend {
                     }
                 }
 
-                let signature = SignatureInformation {
-                    label,
-                    documentation: sig.doc.as_ref().map(|d| {
-                        Documentation::MarkupContent(MarkupContent {
-                            kind: MarkupKind::Markdown,
-                            value: d.clone(),
-                        })
-                    }),
-                    parameters: Some(param_infos),
-                    active_parameter: Some(
-                        active_param.min(sig.params.len().saturating_sub(1)) as u32
-                    ),
-                };
-
                 return Ok(Some(SignatureHelp {
-                    signatures: vec![signature],
+                    signatures: vec![SignatureInformation {
+                        label,
+                        documentation: sig.doc.as_ref().map(|d| {
+                            Documentation::MarkupContent(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: d.clone(),
+                            })
+                        }),
+                        parameters: Some(param_infos),
+                        active_parameter: Some(
+                            active_param.min(sig.params.len().saturating_sub(1)) as u32,
+                        ),
+                    }],
                     active_signature: Some(0),
                     active_parameter: Some(
                         active_param.min(sig.params.len().saturating_sub(1)) as u32
                     ),
                 }));
+            }
+        }
+
+        // 2. Try to find a built-in kernel signature
+        if let Some(k) = kernel_registry::get(&fn_path) {
+            let label = k.signature;
+            let mut param_infos = Vec::new();
+
+            // Parse parameter names from signature "name(a, b, ...) -> Scalar"
+            if let Some(start) = label.find('(') {
+                if let Some(end) = label.find(')') {
+                    let params_part = &label[start + 1..end];
+                    let params: Vec<_> = params_part.split(',').map(|s| s.trim()).collect();
+
+                    let mut current_offset = start + 1;
+                    for param in &params {
+                        if param.is_empty() {
+                            continue;
+                        }
+                        if let Some(pos) = label[current_offset..].find(param) {
+                            let param_start = pos + current_offset;
+                            let param_end = param_start + param.len();
+
+                            param_infos.push(ParameterInformation {
+                                label: ParameterLabel::LabelOffsets([
+                                    param_start as u32,
+                                    param_end as u32,
+                                ]),
+                                documentation: None,
+                            });
+
+                            current_offset = param_end;
+                        }
+                    }
+
+                    return Ok(Some(SignatureHelp {
+                        signatures: vec![SignatureInformation {
+                            label: label.to_string(),
+                            documentation: Some(Documentation::MarkupContent(MarkupContent {
+                                kind: MarkupKind::Markdown,
+                                value: k.doc.to_string(),
+                            })),
+                            parameters: Some(param_infos),
+                            active_parameter: Some(
+                                active_param.min(params.len().saturating_sub(1)) as u32,
+                            ),
+                        }],
+                        active_signature: Some(0),
+                        active_parameter: Some(
+                            active_param.min(params.len().saturating_sub(1)) as u32
+                        ),
+                    }));
+                }
             }
         }
 

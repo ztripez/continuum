@@ -254,6 +254,7 @@ name = "cdsl-lsp"
 version = "0.1.0"
 dependencies = [
  "continuum-compiler",
+ "continuum-kernel-registry",
  "dashmap 6.1.0",
  "tokio",
  "tower-lsp",

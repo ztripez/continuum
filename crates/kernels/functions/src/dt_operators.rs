@@ -7,19 +7,19 @@ use continuum_foundation::Dt;
 use continuum_kernel_macros::kernel_fn;
 
 /// Integration: `integrate(prev, rate)` → `prev + rate * dt`
-#[kernel_fn(name = "integrate")]
+#[kernel_fn(name = "integrate", category = "simulation")]
 pub fn integrate(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
 }
 
 /// Exponential decay: `decay(value, halflife)` → `value * 0.5^(dt/halflife)`
-#[kernel_fn(name = "decay")]
+#[kernel_fn(name = "decay", category = "simulation")]
 pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
     value * 0.5_f64.powf(dt / halflife)
 }
 
 /// Exponential relaxation: `relax(current, target, tau)` → approaches target
-#[kernel_fn(name = "relax")]
+#[kernel_fn(name = "relax", category = "simulation")]
 pub fn relax(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     let alpha = std::f64::consts::E.powf(-dt / tau);
     target + (current - target) * alpha
@@ -27,7 +27,7 @@ pub fn relax(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
 
 /// Exponential relaxation: `relax_to(current, target, tau)` → approaches target
 /// Alias for `relax`
-#[kernel_fn(name = "relax_to")]
+#[kernel_fn(name = "relax_to", category = "simulation")]
 pub fn relax_to(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     relax(current, target, tau, dt)
 }

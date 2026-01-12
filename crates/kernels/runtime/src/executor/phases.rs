@@ -5,7 +5,7 @@
 use indexmap::IndexMap;
 
 use rayon::prelude::*;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, instrument, trace};
 
 use crate::dag::{DagSet, NodeKind};
 use crate::error::{Error, Result};
