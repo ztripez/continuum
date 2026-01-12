@@ -105,7 +105,14 @@ impl Backend {
 
         // Build symbol index from AST and collect hints
         if let Some(ref ast) = ast {
-            let index = SymbolIndex::from_ast(ast);
+            // Lower to IR for indexing (individual file context)
+            let world = continuum_ir::lower(ast).unwrap_or_else(|_| continuum_ir::CompiledWorld {
+                constants: indexmap::IndexMap::new(),
+                config: indexmap::IndexMap::new(),
+                nodes: indexmap::IndexMap::new(),
+            });
+
+            let index = SymbolIndex::new(ast, &world);
 
             // Get references for validation before inserting
             let refs_to_validate = index.get_references_for_validation();
@@ -226,7 +233,14 @@ impl Backend {
         let (ast, _errors) = parse(&text);
 
         if let Some(ref ast) = ast {
-            let index = SymbolIndex::from_ast(ast);
+            // Lower to IR for indexing (individual file context)
+            let world = continuum_ir::lower(ast).unwrap_or_else(|_| continuum_ir::CompiledWorld {
+                constants: indexmap::IndexMap::new(),
+                config: indexmap::IndexMap::new(),
+                nodes: indexmap::IndexMap::new(),
+            });
+
+            let index = SymbolIndex::new(ast, &world);
             self.symbol_indices.insert(uri, index);
         }
     }

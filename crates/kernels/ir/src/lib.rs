@@ -4,6 +4,7 @@
 //!
 //! Pipeline: DSL AST -> IR -> SSA -> Bytecode -> Runtime DAGs
 
+pub mod analysis;
 mod codegen;
 mod compile;
 pub mod expressions;
@@ -19,6 +20,11 @@ mod unified_nodes_test;
 pub mod units;
 mod validate;
 pub mod vectorized;
+
+pub use continuum_foundation::{
+    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
+    OperatorId, Path, SignalId, StratumId, TypeId,
+};
 
 pub use codegen::compile as compile_to_bytecode;
 pub use compile::{CompilationResult, CompileError, compile};

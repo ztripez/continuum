@@ -54,23 +54,32 @@ impl Diagnostic {
     }
 }
 
+/// Result of a compilation, including the lowered world and any diagnostics.
+pub struct CompileResult {
+    /// The successfully lowered world (if no errors occurred).
+    pub world: Option<CompiledWorld>,
+    /// All diagnostics (errors, warnings, hints) produced during compilation.
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+impl CompileResult {
+    pub fn has_errors(&self) -> bool {
+        self.diagnostics
+            .iter()
+            .any(|d| d.severity == Severity::Error)
+    }
+
+    pub fn success(self) -> Result<CompiledWorld, Vec<Diagnostic>> {
+        if self.has_errors() || self.world.is_none() {
+            Err(self.diagnostics)
+        } else {
+            Ok(self.world.unwrap())
+        }
+    }
+}
+
 /// Primary entry point for compiling a Continuum world from source.
-///
-/// This function executes the full compilation pipeline:
-/// 1. **Parse**: Each file in the source map is parsed into an AST.
-/// 2. **Merge**: All ASTs are merged into a single compilation unit.
-/// 3. **Validate**: Semantic validation is run on the merged AST.
-/// 4. **Lower**: The AST is lowered to typed IR (CompiledWorld).
-///
-/// # Arguments
-///
-/// * `source_map` - A map of file paths to their CDSL source content.
-///
-/// # Returns
-///
-/// * `Ok(CompiledWorld)` - The successfully lowered IR.
-/// * `Err(Vec<Diagnostic>)` - A list of all diagnostics encountered during any phase.
-pub fn compile(source_map: &HashMap<PathBuf, &str>) -> Result<CompiledWorld, Vec<Diagnostic>> {
+pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
     let mut diagnostics = Vec::new();
     let mut merged_unit = CompilationUnit::default();
     let mut has_world_def = false;
@@ -111,7 +120,10 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> Result<CompiledWorld, Vec
 
     // Stop if we have parse errors
     if diagnostics.iter().any(|d| d.severity == Severity::Error) {
-        return Err(diagnostics);
+        return CompileResult {
+            world: None,
+            diagnostics,
+        };
     }
 
     // Verify world definition exists
@@ -119,7 +131,10 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> Result<CompiledWorld, Vec
         diagnostics.push(Diagnostic::error(
             "no world definition found (missing world { } block)",
         ));
-        return Err(diagnostics);
+        return CompileResult {
+            world: None,
+            diagnostics,
+        };
     }
 
     // 2. Validate merged unit
@@ -128,27 +143,100 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> Result<CompiledWorld, Vec
         diagnostics.push(Diagnostic {
             message: err.message,
             span: Some(err.span),
-            file: None, // We lost file info during merge, but spans are still valid
+            file: None,
             severity: Severity::Error,
         });
     }
 
     if diagnostics.iter().any(|d| d.severity == Severity::Error) {
-        return Err(diagnostics);
+        return CompileResult {
+            world: None,
+            diagnostics,
+        };
     }
 
     // 3. Lower to IR
-    match continuum_ir::lower(&merged_unit) {
-        Ok(world) => Ok(world),
+    let world = match continuum_ir::lower(&merged_unit) {
+        Ok(world) => world,
         Err(err) => {
             diagnostics.push(Diagnostic {
                 message: format!("{}", err),
-                span: None, // LowerError currently doesn't provide spans
+                span: None,
                 file: None,
                 severity: Severity::Error,
             });
-            Err(diagnostics)
+            return CompileResult {
+                world: None,
+                diagnostics,
+            };
         }
+    };
+
+    // 4. Advanced Analysis
+    // Cycle Detection (Error)
+    let cycles = continuum_ir::analysis::cycles::find_cycles(&world);
+    for cycle in cycles {
+        let path_str = cycle
+            .path
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(" -> ");
+        diagnostics.push(Diagnostic {
+            message: format!("circular dependency detected: {}", path_str),
+            span: Some(cycle.spans[0].clone()),
+            file: None,
+            severity: Severity::Error,
+        });
+    }
+
+    // Dead Code Analysis (Warning)
+    let dead_code = continuum_ir::analysis::dead_code::find_dead_code(&world);
+    for signal_id in dead_code.unused_signals {
+        let span = world
+            .signals()
+            .get(&ir::SignalId::from(signal_id.to_string()))
+            .map(|s| s.span.clone())
+            .or_else(|| {
+                world
+                    .members()
+                    .get(&ir::MemberId::from(signal_id.to_string()))
+                    .map(|m| m.span.clone())
+            });
+
+        diagnostics.push(Diagnostic {
+            message: format!("unused signal: {}", signal_id),
+            span,
+            file: None,
+            severity: Severity::Warning,
+        });
+    }
+
+    // Dimensional Analysis (Warning)
+    let dim_diagnostics = continuum_ir::analysis::dimensions::analyze_dimensions(&world);
+    for diag in dim_diagnostics {
+        let span = world
+            .signals()
+            .get(&ir::SignalId::from(diag.path.to_string()))
+            .map(|s| s.span.clone())
+            .or_else(|| {
+                world
+                    .members()
+                    .get(&ir::MemberId::from(diag.path.to_string()))
+                    .map(|m| m.span.clone())
+            });
+
+        diagnostics.push(Diagnostic {
+            message: diag.message,
+            span,
+            file: None,
+            severity: Severity::Warning,
+        });
+    }
+
+    CompileResult {
+        world: Some(world),
+        diagnostics,
     }
 }
 
@@ -175,7 +263,7 @@ pub fn compile_from_dir(world_dir: &Path) -> Result<CompiledWorld, Vec<Diagnosti
         source_map.insert(path.clone(), content.as_str());
     }
 
-    compile(&source_map)
+    compile(&source_map).success()
 }
 
 fn collect_cdsl_files(dir: &Path) -> Vec<PathBuf> {
@@ -195,5 +283,122 @@ fn collect_cdsl_files_recursive(dir: &Path, files: &mut Vec<PathBuf>) {
                 files.push(path);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compile_cycle_detection() {
+        let mut source_map = HashMap::new();
+        source_map.insert(
+            PathBuf::from("main.cdsl"),
+            r#"
+            world.test { 
+                policy { 
+                    determinism: "strict"
+                    faults: "fatal"
+                }
+            }
+            era.main { : initial }
+            strata.test {}
+
+            signal.a { : Scalar : strata(test) resolve { signal.b } }
+            signal.b { : Scalar : strata(test) resolve { signal.a } }
+            "#,
+        );
+
+        let result = compile(&source_map);
+        for d in &result.diagnostics {
+            println!("Diagnostic: {}", d.message);
+        }
+        assert!(result.has_errors());
+        assert!(
+            result
+                .diagnostics
+                .iter()
+                .any(|d| d.message.contains("circular dependency detected"))
+        );
+    }
+
+    #[test]
+    fn test_compile_dead_code_warning() {
+        let mut source_map = HashMap::new();
+        source_map.insert(
+            PathBuf::from("main.cdsl"),
+            r#"
+            world.test { }
+            era.main { : initial }
+            strata.test {}
+
+            signal.used { : Scalar : strata(test) resolve { prev } }
+            signal.unused { : Scalar : strata(test) resolve { prev } }
+
+            field.out { : Scalar : strata(test) measure { signal.used } }
+            "#,
+        );
+
+        let result = compile(&source_map);
+        for d in &result.diagnostics {
+            println!("Diagnostic: {:?}", d);
+        }
+        assert!(!result.has_errors());
+        assert!(result.world.is_some());
+
+        let warnings: Vec<_> = result
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Warning)
+            .collect();
+        assert!(
+            warnings
+                .iter()
+                .any(|d| d.message.contains("unused signal: unused"))
+        );
+        assert!(
+            !warnings
+                .iter()
+                .any(|d| d.message.contains("unused signal: used"))
+        );
+    }
+
+    #[test]
+    fn test_compile_dimensional_warning() {
+        let mut source_map = HashMap::new();
+        source_map.insert(
+            PathBuf::from("main.cdsl"),
+            r#"
+            world.test { }
+            era.main { : initial }
+            strata.test {}
+
+            signal.length { : Scalar<m> : strata(test) resolve { 10.0 } }
+            signal.time { : Scalar<s> : strata(test) resolve { 2.0 } }
+            
+            // This should warn: adding m and s
+            signal.bad { : Scalar<m> : strata(test) resolve { signal.length + signal.time } }
+            
+            // This should be fine: m/s
+            signal.velocity { : Scalar<m/s> : strata(test) resolve { signal.length / signal.time } }
+            
+            field.out { : Scalar measure { signal.velocity } }
+            "#,
+        );
+
+        let result = compile(&source_map);
+        assert!(!result.has_errors());
+
+        let warnings: Vec<_> = result
+            .diagnostics
+            .iter()
+            .filter(|d| d.severity == Severity::Warning)
+            .collect();
+        assert!(
+            warnings
+                .iter()
+                .any(|d| d.message.contains("incompatible units"))
+        );
     }
 }

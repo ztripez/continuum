@@ -667,6 +667,74 @@ pub enum CompiledExpr {
     },
 }
 
+impl CompiledExpr {
+    /// Extract all signal dependencies from this expression.
+    pub fn signal_dependencies(&self) -> Vec<SignalId> {
+        let mut deps = Vec::new();
+        self.collect_signal_dependencies(&mut deps);
+        deps
+    }
+
+    fn collect_signal_dependencies(&self, deps: &mut Vec<SignalId>) {
+        match self {
+            CompiledExpr::Signal(id) => deps.push(id.clone()),
+            CompiledExpr::Binary { left, right, .. } => {
+                left.collect_signal_dependencies(deps);
+                right.collect_signal_dependencies(deps);
+            }
+            CompiledExpr::Unary { operand, .. } => operand.collect_signal_dependencies(deps),
+            CompiledExpr::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                condition.collect_signal_dependencies(deps);
+                then_branch.collect_signal_dependencies(deps);
+                else_branch.collect_signal_dependencies(deps);
+            }
+            CompiledExpr::Call { args, .. }
+            | CompiledExpr::KernelCall { args, .. }
+            | CompiledExpr::DtRobustCall { args, .. } => {
+                for arg in args {
+                    arg.collect_signal_dependencies(deps);
+                }
+            }
+            CompiledExpr::FieldAccess { object, .. } => object.collect_signal_dependencies(deps),
+            CompiledExpr::Let { value, body, .. } => {
+                value.collect_signal_dependencies(deps);
+                body.collect_signal_dependencies(deps);
+            }
+            CompiledExpr::EmitSignal { target, value } => {
+                deps.push(target.clone());
+                value.collect_signal_dependencies(deps);
+            }
+            CompiledExpr::Aggregate { body, .. } => body.collect_signal_dependencies(deps),
+            CompiledExpr::Other { body, .. } | CompiledExpr::Pairs { body, .. } => {
+                body.collect_signal_dependencies(deps)
+            }
+            CompiledExpr::Filter {
+                predicate, body, ..
+            } => {
+                predicate.collect_signal_dependencies(deps);
+                body.collect_signal_dependencies(deps);
+            }
+            CompiledExpr::First { predicate, .. } => predicate.collect_signal_dependencies(deps),
+            CompiledExpr::Nearest { position, .. } => position.collect_signal_dependencies(deps),
+            CompiledExpr::Within {
+                position,
+                radius,
+                body,
+                ..
+            } => {
+                position.collect_signal_dependencies(deps);
+                radius.collect_signal_dependencies(deps);
+                body.collect_signal_dependencies(deps);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Aggregate operations over collections of entity instances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum AggregateOpIr {
