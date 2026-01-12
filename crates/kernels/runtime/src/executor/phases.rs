@@ -372,7 +372,8 @@ impl PhaseExecutor {
                                 config,
                             );
                             for (i, v) in values.into_iter().enumerate() {
-                                member_signals.set_current(&full_signal, i, Value::Scalar(v));
+                                let _ =
+                                    member_signals.set_current(&full_signal, i, Value::Scalar(v));
                             }
                         }
                         MemberResolver::Vec3(f) => {
@@ -395,7 +396,7 @@ impl PhaseExecutor {
                                 config,
                             );
                             for (i, v) in values.into_iter().enumerate() {
-                                member_signals.set_current(&full_signal, i, Value::Vec3(v));
+                                let _ = member_signals.set_current(&full_signal, i, Value::Vec3(v));
                             }
                         }
                     }

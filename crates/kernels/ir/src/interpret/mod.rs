@@ -17,12 +17,16 @@ pub use member_interp::{
 };
 
 use indexmap::IndexMap;
+use std::collections::HashMap;
 
 use continuum_foundation::{EraId, FieldId, SignalId};
+use continuum_runtime::MemberSignalBuffer;
 use continuum_runtime::executor::{
-    AggregateResolverFn, AssertionFn, EraConfig, FractureFn, MeasureFn, ResolverFn, TransitionFn,
+    AggregateResolverFn, AssertionFn, AssertionSeverity, EraConfig, FractureFn, MeasureFn,
+    ResolverFn, TransitionFn,
 };
 // Import functions crate to ensure kernels are registered
+
 use continuum_functions as _;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::{Dt, Value};
@@ -356,15 +360,25 @@ pub fn eval_initial_expr(
     // This is used for member initials which are resolved before simulation starts
     // and can only read constants and config.
     let signals = SignalStorage::default();
-    let shared = SharedContextData {
+    let members = MemberSignalBuffer::new();
+
+    let mut ctx = MemberInterpContext {
+        prev: InterpValue::Scalar(0.0),
+        index: 0,
+        dt: 0.0,
+        sim_time: 0.0,
+        signals: &signals,
+        members: &members,
         constants,
         config,
-        signals: &signals,
+        locals: HashMap::new(),
+        entity_prefix: String::new(),
+        read_current: false,
     };
-    let ctx = TransitionContext {
-        sim_time: 0.0,
-        shared,
-    };
-    let bytecode = codegen::compile(expr);
-    Value::Scalar(execute(&bytecode, &ctx))
+
+    match interpret_expr(expr, &mut ctx) {
+        InterpValue::Scalar(v) => Value::Scalar(v),
+        InterpValue::Vec3(v) => Value::Vec3(v),
+        InterpValue::Bool(b) => Value::Scalar(if b { 1.0 } else { 0.0 }),
+    }
 }

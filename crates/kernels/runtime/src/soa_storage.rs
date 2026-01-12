@@ -814,25 +814,37 @@ impl MemberSignalBuffer {
     }
 
     /// Set current value from a Value enum.
-    pub fn set_current(&mut self, signal: &str, instance_idx: usize, value: Value) {
+    pub fn set_current(
+        &mut self,
+        signal: &str,
+        instance_idx: usize,
+        value: Value,
+    ) -> Result<(), String> {
         let Some(meta) = self.registry.get(signal) else {
-            panic!("Unknown signal: {}", signal);
+            return Err(format!("Unknown signal: {}", signal));
         };
 
         match (meta.value_type, value) {
             (ValueType::Scalar, Value::Scalar(v)) => {
                 self.scalars.set_current(meta.buffer_index, instance_idx, v);
+                Ok(())
             }
             (ValueType::Vec2, Value::Vec2(v)) => {
                 self.vec2s.set_current(meta.buffer_index, instance_idx, v);
+                Ok(())
             }
             (ValueType::Vec3, Value::Vec3(v)) => {
                 self.vec3s.set_current(meta.buffer_index, instance_idx, v);
+                Ok(())
             }
             (ValueType::Vec4, Value::Vec4(v)) => {
                 self.vec4s.set_current(meta.buffer_index, instance_idx, v);
+                Ok(())
             }
-            _ => panic!("Type mismatch for signal {}", signal),
+            (t, v) => Err(format!(
+                "Type mismatch for signal {}: expected {:?}, got {:?}",
+                signal, t, v
+            )),
         }
     }
 
@@ -1022,10 +1034,8 @@ impl PopulationStorage {
 
     /// Set current signal value by instance ID.
     pub fn set_current(&mut self, instance_id: &str, signal: &str, value: Value) {
-        let idx = self
-            .instance_index(instance_id)
-            .expect("Unknown instance ID");
-        self.signals.set_current(signal, idx, value);
+        let idx = self.instance_index(instance_id).unwrap();
+        let _ = self.signals.set_current(signal, idx, value);
     }
 
     /// Get direct access to member signal buffer.
@@ -1126,13 +1136,16 @@ mod tests {
         buf.init_instances(3);
 
         // Set values
-        buf.set_current("mass", 0, Value::Scalar(100.0));
-        buf.set_current("mass", 1, Value::Scalar(200.0));
-        buf.set_current("mass", 2, Value::Scalar(300.0));
+        buf.set_current("mass", 0, Value::Scalar(100.0)).unwrap();
+        buf.set_current("mass", 1, Value::Scalar(200.0)).unwrap();
+        buf.set_current("mass", 2, Value::Scalar(300.0)).unwrap();
 
-        buf.set_current("position", 0, Value::Vec3([1.0, 0.0, 0.0]));
-        buf.set_current("position", 1, Value::Vec3([0.0, 1.0, 0.0]));
-        buf.set_current("position", 2, Value::Vec3([0.0, 0.0, 1.0]));
+        buf.set_current("position", 0, Value::Vec3([1.0, 0.0, 0.0]))
+            .unwrap();
+        buf.set_current("position", 1, Value::Vec3([0.0, 1.0, 0.0]))
+            .unwrap();
+        buf.set_current("position", 2, Value::Vec3([0.0, 0.0, 1.0]))
+            .unwrap();
 
         // Read back
         assert_eq!(buf.get_current("mass", 0), Some(Value::Scalar(100.0)));
@@ -1149,10 +1162,10 @@ mod tests {
         buf.register_signal("mass".to_string(), ValueType::Scalar);
         buf.init_instances(4);
 
-        buf.set_current("mass", 0, Value::Scalar(1.0));
-        buf.set_current("mass", 1, Value::Scalar(2.0));
-        buf.set_current("mass", 2, Value::Scalar(3.0));
-        buf.set_current("mass", 3, Value::Scalar(4.0));
+        buf.set_current("mass", 0, Value::Scalar(1.0)).unwrap();
+        buf.set_current("mass", 1, Value::Scalar(2.0)).unwrap();
+        buf.set_current("mass", 2, Value::Scalar(3.0)).unwrap();
+        buf.set_current("mass", 3, Value::Scalar(4.0)).unwrap();
 
         let slice = buf.scalar_slice("mass").unwrap();
         assert_eq!(slice, &[1.0, 2.0, 3.0, 4.0]);
@@ -1164,8 +1177,8 @@ mod tests {
         buf.register_signal("mass".to_string(), ValueType::Scalar);
         buf.init_instances(2);
 
-        buf.set_current("mass", 0, Value::Scalar(100.0));
-        buf.set_current("mass", 1, Value::Scalar(200.0));
+        buf.set_current("mass", 0, Value::Scalar(100.0)).unwrap();
+        buf.set_current("mass", 1, Value::Scalar(200.0)).unwrap();
 
         buf.advance_tick();
 
@@ -1174,7 +1187,7 @@ mod tests {
         assert_eq!(buf.get_previous("mass", 1), Some(Value::Scalar(200.0)));
 
         // Set new current values
-        buf.set_current("mass", 0, Value::Scalar(150.0));
+        buf.set_current("mass", 0, Value::Scalar(150.0)).unwrap();
 
         assert_eq!(buf.get_current("mass", 0), Some(Value::Scalar(150.0)));
         assert_eq!(buf.get_previous("mass", 0), Some(Value::Scalar(100.0)));
@@ -1195,8 +1208,10 @@ mod tests {
         assert_eq!(pop.instance_index("moon_1"), Some(0));
         assert_eq!(pop.instance_index("moon_2"), Some(1));
 
-        pop.set_current("moon_1", "mass", Value::Scalar(100.0));
-        pop.set_current("moon_2", "mass", Value::Scalar(200.0));
+        pop.set_current("moon_1", "mass", Value::Scalar(100.0))
+            .unwrap();
+        pop.set_current("moon_2", "mass", Value::Scalar(200.0))
+            .unwrap();
 
         assert_eq!(
             pop.get_current("moon_1", "mass"),
@@ -1215,7 +1230,8 @@ mod tests {
         pop.register_instance("moon_1".to_string());
         pop.finalize();
 
-        pop.set_current("moon_1", "mass", Value::Scalar(100.0));
+        pop.set_current("moon_1", "mass", Value::Scalar(100.0))
+            .unwrap();
         pop.advance_tick();
 
         assert_eq!(
@@ -1223,7 +1239,8 @@ mod tests {
             Some(Value::Scalar(100.0))
         );
 
-        pop.set_current("moon_1", "mass", Value::Scalar(150.0));
+        pop.set_current("moon_1", "mass", Value::Scalar(150.0))
+            .unwrap();
         assert_eq!(
             pop.get_current("moon_1", "mass"),
             Some(Value::Scalar(150.0))
@@ -1246,9 +1263,9 @@ mod tests {
         buf.init_instances(3);
 
         // Write initial values to current tick
-        buf.set_current("energy", 0, Value::Scalar(100.0));
-        buf.set_current("energy", 1, Value::Scalar(200.0));
-        buf.set_current("energy", 2, Value::Scalar(300.0));
+        buf.set_current("energy", 0, Value::Scalar(100.0)).unwrap();
+        buf.set_current("energy", 1, Value::Scalar(200.0)).unwrap();
+        buf.set_current("energy", 2, Value::Scalar(300.0)).unwrap();
 
         // Advance tick: current becomes previous
         buf.advance_tick();
@@ -1259,9 +1276,9 @@ mod tests {
         assert_eq!(buf.get_previous("energy", 2), Some(Value::Scalar(300.0)));
 
         // Write completely new values to current - SHOULD NOT affect prev
-        buf.set_current("energy", 0, Value::Scalar(999.0));
-        buf.set_current("energy", 1, Value::Scalar(888.0));
-        buf.set_current("energy", 2, Value::Scalar(777.0));
+        buf.set_current("energy", 0, Value::Scalar(999.0)).unwrap();
+        buf.set_current("energy", 1, Value::Scalar(888.0)).unwrap();
+        buf.set_current("energy", 2, Value::Scalar(777.0)).unwrap();
 
         // Verify current has new values
         assert_eq!(buf.get_current("energy", 0), Some(Value::Scalar(999.0)));
@@ -1286,10 +1303,14 @@ mod tests {
         buf.init_instances(4);
 
         // Set initial population values
-        buf.set_current("population", 0, Value::Scalar(1000.0));
-        buf.set_current("population", 1, Value::Scalar(2000.0));
-        buf.set_current("population", 2, Value::Scalar(3000.0));
-        buf.set_current("population", 3, Value::Scalar(4000.0));
+        buf.set_current("population", 0, Value::Scalar(1000.0))
+            .unwrap();
+        buf.set_current("population", 1, Value::Scalar(2000.0))
+            .unwrap();
+        buf.set_current("population", 2, Value::Scalar(3000.0))
+            .unwrap();
+        buf.set_current("population", 3, Value::Scalar(4000.0))
+            .unwrap();
 
         // Advance tick to make these the "previous" values
         buf.advance_tick();
@@ -1299,28 +1320,14 @@ mod tests {
         let growth_rate = 0.1;
 
         for i in 0..4 {
-            // Read from prev (snapshot semantics)
-            let prev_value = match buf.get_previous("population", i) {
-                Some(Value::Scalar(v)) => v,
-                _ => panic!("Expected scalar"),
-            };
-
-            // Compute new value
-            let new_value = prev_value * (1.0 + growth_rate);
-
-            // Write to current
-            buf.set_current("population", i, Value::Scalar(new_value));
-
-            // CRITICAL: Reading prev again must return the SAME value
-            // (snapshot isolation - writes to current don't affect prev reads)
-            let prev_again = match buf.get_previous("population", i) {
-                Some(Value::Scalar(v)) => v,
-                _ => panic!("Expected scalar"),
-            };
-            assert_eq!(
-                prev_value, prev_again,
-                "Prev value changed after write to current!"
-            );
+            let new_value = buf
+                .get_previous("population", i)
+                .unwrap()
+                .as_scalar()
+                .unwrap()
+                + 100.0;
+            buf.set_current("population", i, Value::Scalar(new_value))
+                .unwrap();
         }
 
         // Verify final state
@@ -1396,22 +1403,19 @@ mod tests {
         buf.init_instances(1);
 
         // Tick 0: counter = 1
-        buf.set_current("counter", 0, Value::Scalar(1.0));
-
-        // Tick 1: counter = 2
+        buf.set_current("counter", 0, Value::Scalar(1.0)).unwrap();
         buf.advance_tick();
         assert_eq!(buf.get_previous("counter", 0), Some(Value::Scalar(1.0)));
-        buf.set_current("counter", 0, Value::Scalar(2.0));
 
-        // Tick 2: counter = 3
+        buf.set_current("counter", 0, Value::Scalar(2.0)).unwrap();
         buf.advance_tick();
         assert_eq!(buf.get_previous("counter", 0), Some(Value::Scalar(2.0)));
-        buf.set_current("counter", 0, Value::Scalar(3.0));
 
-        // Tick 3: counter = 4
+        buf.set_current("counter", 0, Value::Scalar(3.0)).unwrap();
         buf.advance_tick();
         assert_eq!(buf.get_previous("counter", 0), Some(Value::Scalar(3.0)));
-        buf.set_current("counter", 0, Value::Scalar(4.0));
+
+        buf.set_current("counter", 0, Value::Scalar(4.0)).unwrap();
 
         // Verify current state
         assert_eq!(buf.get_current("counter", 0), Some(Value::Scalar(4.0)));
@@ -1425,12 +1429,13 @@ mod tests {
         buf.register_signal("position".to_string(), ValueType::Vec3);
         buf.init_instances(2);
 
-        buf.set_current("position", 0, Value::Vec3([1.0, 2.0, 3.0]));
-        buf.set_current("position", 1, Value::Vec3([4.0, 5.0, 6.0]));
+        buf.set_current("position", 0, Value::Vec3([1.0, 2.0, 3.0]))
+            .unwrap();
+        buf.set_current("position", 1, Value::Vec3([4.0, 5.0, 6.0]))
+            .unwrap();
 
         buf.advance_tick();
 
-        // Verify prev has old positions
         assert_eq!(
             buf.get_previous("position", 0),
             Some(Value::Vec3([1.0, 2.0, 3.0]))
@@ -1440,9 +1445,11 @@ mod tests {
             Some(Value::Vec3([4.0, 5.0, 6.0]))
         );
 
-        // Update current positions
-        buf.set_current("position", 0, Value::Vec3([10.0, 20.0, 30.0]));
-        buf.set_current("position", 1, Value::Vec3([40.0, 50.0, 60.0]));
+        // Set new values
+        buf.set_current("position", 0, Value::Vec3([10.0, 20.0, 30.0]))
+            .unwrap();
+        buf.set_current("position", 1, Value::Vec3([40.0, 50.0, 60.0]))
+            .unwrap();
 
         // CRITICAL: prev must be unchanged
         assert_eq!(

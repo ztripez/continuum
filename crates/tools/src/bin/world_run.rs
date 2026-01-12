@@ -472,11 +472,14 @@ fn main() {
 
                 // Set initial value for all instances of this member
                 for instance_idx in 0..instance_count {
-                    runtime.set_member_signal(
+                    if let Err(e) = runtime.set_member_signal(
                         &member_id.to_string(),
                         instance_idx,
                         initial_value.clone(),
-                    );
+                    ) {
+                        error!("  Failed to set initial value for {}: {}", member_id, e);
+                        process::exit(1);
+                    }
                 }
 
                 info!(

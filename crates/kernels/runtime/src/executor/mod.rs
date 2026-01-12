@@ -282,9 +282,14 @@ impl Runtime {
     /// Set a member signal value for a specific instance.
     ///
     /// Used for initializing member signals with non-zero values before execution starts.
-    pub fn set_member_signal(&mut self, signal_name: &str, instance_idx: usize, value: Value) {
+    pub fn set_member_signal(
+        &mut self,
+        signal_name: &str,
+        instance_idx: usize,
+        value: Value,
+    ) -> std::result::Result<(), String> {
         self.member_signals
-            .set_current(signal_name, instance_idx, value);
+            .set_current(signal_name, instance_idx, value)
     }
 
     /// Commit member initial values by advancing the buffer.
