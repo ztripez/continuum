@@ -30,6 +30,7 @@ impl Lowerer {
         let count_bounds = def.count_bounds.as_ref().map(|b| (b.min, b.max));
 
         let entity = CompiledEntity {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             count_source,

@@ -105,10 +105,18 @@ fn infer_unit(
 
         CompiledExpr::Binary { op, left, right } => {
             let u_left = infer_unit(left, world, symbol_units, current_signal.clone())?;
-            let u_right = infer_unit(right, world, symbol_units, current_signal)?;
+            let u_right = infer_unit(right, world, symbol_units, current_signal.clone())?;
 
             match op {
                 BinaryOpIr::Add | BinaryOpIr::Sub => {
+                    // Polymorphic Literals: If one side is a unitless literal, it adopts the other side's unit.
+                    if u_left.is_dimensionless() && !u_right.is_dimensionless() {
+                        return Ok(u_right);
+                    }
+                    if u_right.is_dimensionless() && !u_left.is_dimensionless() {
+                        return Ok(u_left);
+                    }
+
                     if u_left == u_right {
                         Ok(u_left)
                     } else {

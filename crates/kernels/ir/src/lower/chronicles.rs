@@ -63,6 +63,7 @@ impl Lowerer {
         };
 
         let chronicle = CompiledChronicle {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             reads,

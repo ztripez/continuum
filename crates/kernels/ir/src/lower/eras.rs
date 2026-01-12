@@ -69,6 +69,7 @@ impl Lowerer {
             .collect();
 
         let era = CompiledEra {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             is_initial: def.is_initial,

@@ -105,6 +105,7 @@ impl Lowerer {
             .is_some_and(|r| self.expr_uses_dt_raw(&r.body.node));
 
         let member = CompiledMember {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             entity_id,

@@ -67,6 +67,7 @@ impl Lowerer {
             .unwrap_or_default();
 
         let operator = CompiledOperator {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             stratum,
@@ -99,6 +100,7 @@ impl Lowerer {
         let body = self.lower_expr_with_locals(&def.body.node, &locals);
 
         let compiled_fn = CompiledFn {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             params,

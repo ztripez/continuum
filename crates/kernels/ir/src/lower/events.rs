@@ -32,6 +32,7 @@ impl Lowerer {
         }
 
         let impulse = CompiledImpulse {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             payload_type: def
@@ -105,6 +106,7 @@ impl Lowerer {
         let emits = self.collect_emit_expressions(def.emit.as_ref().map(|e| &e.node));
 
         let fracture = CompiledFracture {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             stratum,

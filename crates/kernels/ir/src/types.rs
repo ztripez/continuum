@@ -1,32 +1,4 @@
-//! Intermediate Representation (IR) Types
-//!
-//! This module defines the typed intermediate representation produced by lowering
-//! DSL AST nodes. The IR is a simplified, executable form of the DSL that serves
-//! as input to DAG construction and runtime execution.
-//!
-//! # Overview
-//!
-//! The IR sits between the AST (parsing output) and the execution graph (runtime input).
-//! It performs several transformations:
-//!
-//! - **Type resolution**: All types are fully resolved with constraints
-//! - **Dependency analysis**: Signal dependencies are explicitly tracked via `reads` fields
-//! - **Function inlining**: User-defined functions are inlined at call sites
-//! - **Expression simplification**: Complex AST nodes are reduced to simpler IR forms
-//!
-//! # Key Types
-//!
-//! - [`CompiledWorld`]: The top-level container holding all compiled definitions
-//! - [`CompiledSignal`]: A signal with resolved expression and dependencies
-//! - [`CompiledExpr`]: Expression tree suitable for bytecode compilation
-//! - [`ValueType`]: Scalar or vector type with optional range constraints
-//!
-//! # Usage
-//!
-//! The IR is typically produced by the [`crate::lower()`] function and consumed by:
-//! - `crate::codegen` for bytecode compilation
-//! - `crate::interpret` for building runtime closures
-//! - `crate::validate` for warning generation
+use std::path::PathBuf;
 
 use indexmap::IndexMap;
 
@@ -39,33 +11,26 @@ use continuum_foundation::{
 // Re-export StratumState from foundation for backwards compatibility
 pub use continuum_foundation::StratumState;
 
-/// The complete compiled simulation world, ready for DAG construction.
-///
-/// `CompiledWorld` is the top-level IR container produced by [`crate::lower()`].
-/// It holds all definitions from all parsed `.cdsl` files in a single, unified
-/// representation with resolved dependencies and types.
-///
-/// # Structure
-///
-/// The world is organized into several categories:
-///
-/// - **Configuration**: Constants (compile-time) and config values (scenario-time)
-/// - **Unified nodes**: All DSL constructs in a single, indexed collection
-///
-/// # Ordering
-///
-/// All maps use [`IndexMap`] to preserve insertion order, which ensures
-/// deterministic iteration for graph construction and execution scheduling.
-///
-/// # Example
-///
-/// ```ignore
-/// let world = lower(&compilation_unit)?;
-/// println!("Signals defined: {}", world.signals().len());
-/// for (id, signal) in world.signals() {
-///     println!("  {} reads {:?}", id.0, signal.reads);
-/// }
-/// ```
+/// Trait for items that have a source location (file and span).
+pub trait Locatable {
+    fn file(&self) -> Option<&std::path::Path>;
+    fn span(&self) -> &Span;
+}
+
+macro_rules! impl_locatable {
+    ($t:ty) => {
+        impl Locatable for $t {
+            fn file(&self) -> Option<&std::path::Path> {
+                self.file.as_deref()
+            }
+            fn span(&self) -> &Span {
+                &self.span
+            }
+        }
+    };
+}
+
+/// A compiled simulation world, ready for DAG construction.
 #[derive(Debug)]
 pub struct CompiledWorld {
     /// Global constants (evaluated at compile time)
@@ -75,16 +40,17 @@ pub struct CompiledWorld {
 
     /// **Unified node architecture**
     /// All DSL nodes in unified form for tooling and analysis
-    pub nodes: IndexMap<Path, super::unified_nodes::CompiledNode>,
+    pub nodes: IndexMap<Path, crate::unified_nodes::CompiledNode>,
 }
 
 impl CompiledWorld {
-    /// Get all signals as an IndexMap (backward compatibility)
+    /// Get all signal nodes from the unified node map.
     pub fn signals(&self) -> IndexMap<SignalId, CompiledSignal> {
         let mut signals = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let super::unified_nodes::NodeKind::Signal(props) = &node.kind {
+            if let crate::unified_nodes::NodeKind::Signal(props) = &node.kind {
                 let signal = CompiledSignal {
+                    file: node.file.clone(),
                     span: node.span.clone(),
                     id: SignalId::from(path.clone()),
                     stratum: node
@@ -107,12 +73,13 @@ impl CompiledWorld {
         signals
     }
 
-    /// Get all fields as an IndexMap (backward compatibility)
+    /// Get all field nodes from the unified node map.
     pub fn fields(&self) -> IndexMap<FieldId, CompiledField> {
         let mut fields = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let super::unified_nodes::NodeKind::Field(props) = &node.kind {
+            if let crate::unified_nodes::NodeKind::Field(props) = &node.kind {
                 let field = CompiledField {
+                    file: node.file.clone(),
                     span: node.span.clone(),
                     id: FieldId::from(path.clone()),
                     stratum: node
@@ -131,12 +98,13 @@ impl CompiledWorld {
         fields
     }
 
-    /// Get all operators as an IndexMap (backward compatibility)
+    /// Get all operator nodes from the unified node map.
     pub fn operators(&self) -> IndexMap<OperatorId, CompiledOperator> {
         let mut operators = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let super::unified_nodes::NodeKind::Operator(props) = &node.kind {
+            if let crate::unified_nodes::NodeKind::Operator(props) = &node.kind {
                 let operator = CompiledOperator {
+                    file: node.file.clone(),
                     span: node.span.clone(),
                     id: OperatorId::from(path.clone()),
                     stratum: node
@@ -154,12 +122,13 @@ impl CompiledWorld {
         operators
     }
 
-    /// Get all eras as an IndexMap (backward compatibility)
+    /// Get all era nodes from the unified node map.
     pub fn eras(&self) -> IndexMap<EraId, CompiledEra> {
         let mut eras = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let super::unified_nodes::NodeKind::Era(props) = &node.kind {
+            if let crate::unified_nodes::NodeKind::Era(props) = &node.kind {
                 let era = CompiledEra {
+                    file: node.file.clone(),
                     span: node.span.clone(),
                     id: EraId::from(path.clone()),
                     is_initial: props.is_initial,
@@ -179,8 +148,9 @@ impl CompiledWorld {
     pub fn strata(&self) -> IndexMap<StratumId, CompiledStratum> {
         let mut strata = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let super::unified_nodes::NodeKind::Stratum(props) = &node.kind {
+            if let crate::unified_nodes::NodeKind::Stratum(props) = &node.kind {
                 let stratum = CompiledStratum {
+                    file: node.file.clone(),
                     span: node.span.clone(),
                     id: StratumId::from(path.clone()),
                     title: props.title.clone(),
@@ -197,8 +167,9 @@ impl CompiledWorld {
     pub fn members(&self) -> IndexMap<MemberId, CompiledMember> {
         let mut members = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let super::unified_nodes::NodeKind::Member(props) = &node.kind {
+            if let crate::unified_nodes::NodeKind::Member(props) = &node.kind {
                 let member = CompiledMember {
+                    file: node.file.clone(),
                     span: node.span.clone(),
                     id: MemberId::from(path.clone()),
                     entity_id: props.entity_id.clone(),
@@ -227,8 +198,9 @@ impl CompiledWorld {
     pub fn fractures(&self) -> IndexMap<FractureId, CompiledFracture> {
         let mut fractures = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let super::unified_nodes::NodeKind::Fracture(props) = &node.kind {
+            if let crate::unified_nodes::NodeKind::Fracture(props) = &node.kind {
                 let fracture = CompiledFracture {
+                    file: node.file.clone(),
                     span: node.span.clone(),
                     id: FractureId::from(path.clone()),
                     stratum: node
@@ -249,8 +221,9 @@ impl CompiledWorld {
     pub fn entities(&self) -> IndexMap<EntityId, CompiledEntity> {
         let mut entities = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let super::unified_nodes::NodeKind::Entity(props) = &node.kind {
+            if let crate::unified_nodes::NodeKind::Entity(props) = &node.kind {
                 let entity = CompiledEntity {
+                    file: node.file.clone(),
                     span: node.span.clone(),
                     id: EntityId::from(path.clone()),
                     count_source: props.count_source.clone(),
@@ -262,12 +235,13 @@ impl CompiledWorld {
         entities
     }
 
-    /// Get all chronicles as an IndexMap (backward compatibility)  
+    /// Get all chronicles as an IndexMap (backward compatibility)
     pub fn chronicles(&self) -> IndexMap<ChronicleId, CompiledChronicle> {
         let mut chronicles = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let super::unified_nodes::NodeKind::Chronicle(props) = &node.kind {
+            if let crate::unified_nodes::NodeKind::Chronicle(props) = &node.kind {
                 let chronicle = CompiledChronicle {
+                    file: node.file.clone(),
                     span: node.span.clone(),
                     id: ChronicleId::from(path.clone()),
                     reads: node.reads.clone(),
@@ -278,41 +252,12 @@ impl CompiledWorld {
         }
         chronicles
     }
-
-    /// Get a specific signal by id
-    pub fn get_signal(&self, id: &SignalId) -> Option<CompiledSignal> {
-        self.nodes.get(id.path()).and_then(|node| {
-            if let super::unified_nodes::NodeKind::Signal(props) = &node.kind {
-                Some(CompiledSignal {
-                    span: node.span.clone(),
-                    id: id.clone(),
-                    stratum: node
-                        .stratum
-                        .clone()
-                        .unwrap_or_else(|| StratumId::from("default")),
-                    title: props.title.clone(),
-                    symbol: props.symbol.clone(),
-                    value_type: props.value_type.clone(),
-                    uses_dt_raw: props.uses_dt_raw,
-                    reads: node.reads.clone(),
-                    resolve: props.resolve.clone(),
-                    resolve_components: props.resolve_components.clone(),
-                    warmup: props.warmup.clone(),
-                    assertions: props.assertions.clone(),
-                })
-            } else {
-                None
-            }
-        })
-    }
 }
-
-// Rest of file with all the other type definitions...
-// I'll continue with a minimal subset to get compilation working
 
 /// A compiled stratum definition representing a simulation layer.
 #[derive(Debug, Clone)]
 pub struct CompiledStratum {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: StratumId,
     pub title: Option<String>,
@@ -323,6 +268,7 @@ pub struct CompiledStratum {
 /// A compiled user-defined function declaration.
 #[derive(Debug, Clone)]
 pub struct CompiledFn {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: FnId,
     pub params: Vec<String>,
@@ -332,6 +278,7 @@ pub struct CompiledFn {
 /// A compiled era definition representing a distinct time phase.
 #[derive(Debug, Clone)]
 pub struct CompiledEra {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: EraId,
     pub is_initial: bool,
@@ -352,6 +299,7 @@ pub struct CompiledTransition {
 /// A compiled signal definition representing authoritative simulation state.
 #[derive(Debug, Clone)]
 pub struct CompiledSignal {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: SignalId,
     pub stratum: StratumId,
@@ -369,6 +317,7 @@ pub struct CompiledSignal {
 /// A compiled field definition for observable (non-causal) data.
 #[derive(Debug, Clone)]
 pub struct CompiledField {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: FieldId,
     pub stratum: StratumId,
@@ -382,6 +331,7 @@ pub struct CompiledField {
 /// A compiled operator definition for phase-specific computation.
 #[derive(Debug, Clone)]
 pub struct CompiledOperator {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: OperatorId,
     pub stratum: StratumId,
@@ -394,6 +344,7 @@ pub struct CompiledOperator {
 /// A compiled impulse definition for external causal input.
 #[derive(Debug, Clone)]
 pub struct CompiledImpulse {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: ImpulseId,
     pub payload_type: ValueType,
@@ -403,6 +354,7 @@ pub struct CompiledImpulse {
 /// A compiled fracture definition for emergent tension detection.
 #[derive(Debug, Clone)]
 pub struct CompiledFracture {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: FractureId,
     pub stratum: StratumId,
@@ -421,6 +373,7 @@ pub struct CompiledEmit {
 /// A compiled entity definition representing a pure index space.
 #[derive(Debug, Clone)]
 pub struct CompiledEntity {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: EntityId,
     pub count_source: Option<String>,
@@ -430,6 +383,7 @@ pub struct CompiledEntity {
 /// A compiled member signal definition representing per-entity authoritative state.
 #[derive(Debug, Clone)]
 pub struct CompiledMember {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: MemberId,
     pub entity_id: EntityId,
@@ -449,10 +403,27 @@ pub struct CompiledMember {
 /// A compiled chronicle definition for observer-only event recording.
 #[derive(Debug, Clone)]
 pub struct CompiledChronicle {
+    pub file: Option<PathBuf>,
     pub span: Span,
     pub id: ChronicleId,
     pub reads: Vec<SignalId>,
     pub handlers: Vec<CompiledObserveHandler>,
+}
+
+/// A compiled custom type definition.
+#[derive(Debug, Clone)]
+pub struct CompiledType {
+    pub file: Option<PathBuf>,
+    pub span: Span,
+    pub id: TypeId,
+    pub fields: Vec<CompiledTypeField>,
+}
+
+/// A field within a compiled custom type.
+#[derive(Debug, Clone)]
+pub struct CompiledTypeField {
+    pub name: String,
+    pub value_type: ValueType,
 }
 
 /// An observation handler within a chronicle.
@@ -795,17 +766,24 @@ pub enum IntegrationMethod {
     Verlet,
 }
 
-/// A compiled custom type definition.
-#[derive(Debug, Clone)]
-pub struct CompiledType {
-    pub span: Span,
-    pub id: TypeId,
-    pub fields: Vec<CompiledTypeField>,
-}
+impl_locatable!(CompiledSignal);
+impl_locatable!(CompiledField);
+impl_locatable!(CompiledOperator);
+impl_locatable!(CompiledImpulse);
+impl_locatable!(CompiledFracture);
+impl_locatable!(CompiledEntity);
+impl_locatable!(CompiledMember);
+impl_locatable!(CompiledChronicle);
+impl_locatable!(CompiledStratum);
+impl_locatable!(CompiledEra);
+impl_locatable!(CompiledFn);
+impl_locatable!(CompiledType);
 
-/// A field within a compiled custom type.
-#[derive(Debug, Clone)]
-pub struct CompiledTypeField {
-    pub name: String,
-    pub value_type: ValueType,
+impl Locatable for crate::unified_nodes::CompiledNode {
+    fn file(&self) -> Option<&std::path::Path> {
+        self.file.as_deref()
+    }
+    fn span(&self) -> &Span {
+        &self.span
+    }
 }

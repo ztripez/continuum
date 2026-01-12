@@ -6,6 +6,8 @@
 use indexmap::IndexMap;
 use std::ops::Range;
 
+use std::path::PathBuf;
+
 use continuum_foundation::{EntityId, MemberId, Path, SignalId, StratumId};
 
 use super::{
@@ -28,6 +30,8 @@ use super::{
 pub struct CompiledNode {
     /// The unique path identifier for this node
     pub id: Path,
+    /// Source file path where this node was defined
+    pub file: Option<PathBuf>,
     /// Source span for error reporting and IDE navigation  
     pub span: Range<usize>,
     /// Stratum binding for scheduling (if applicable)

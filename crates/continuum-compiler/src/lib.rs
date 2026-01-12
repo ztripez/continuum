@@ -81,7 +81,7 @@ impl CompileResult {
 /// Primary entry point for compiling a Continuum world from source.
 pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
     let mut diagnostics = Vec::new();
-    let mut merged_unit = CompilationUnit::default();
+    let mut units = Vec::new();
     let mut has_world_def = false;
 
     // 1. Parse all files
@@ -114,11 +114,10 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
                     has_world_def = true;
                 }
             }
-            merged_unit.items.extend(unit.items);
+            units.push((path.clone(), unit));
         }
     }
 
-    // Stop if we have parse errors
     if diagnostics.iter().any(|d| d.severity == Severity::Error) {
         return CompileResult {
             world: None,
@@ -137,26 +136,9 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
         };
     }
 
-    // 2. Validate merged unit
-    let validation_errors = continuum_dsl::validate(&merged_unit);
-    for err in validation_errors {
-        diagnostics.push(Diagnostic {
-            message: err.message,
-            span: Some(err.span),
-            file: None,
-            severity: Severity::Error,
-        });
-    }
-
-    if diagnostics.iter().any(|d| d.severity == Severity::Error) {
-        return CompileResult {
-            world: None,
-            diagnostics,
-        };
-    }
-
-    // 3. Lower to IR
-    let world = match continuum_ir::lower(&merged_unit) {
+    // 2. Lower to IR (this also performs validation)
+    let world = match continuum_ir::lower_multi(units.iter().map(|(p, u)| (p.clone(), u)).collect())
+    {
         Ok(world) => world,
         Err(err) => {
             diagnostics.push(Diagnostic {
@@ -172,7 +154,7 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
         }
     };
 
-    // 4. Advanced Analysis
+    // 3. Advanced Analysis
     // Cycle Detection (Error)
     let cycles = continuum_ir::analysis::cycles::find_cycles(&world);
     for cycle in cycles {
@@ -182,10 +164,15 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
             .map(|p| p.to_string())
             .collect::<Vec<_>>()
             .join(" -> ");
+
+        // Use file info from the first node in the cycle
+        let first_node = world.nodes.get(&cycle.path[0]);
+        let file = first_node.and_then(|n| n.file.clone());
+
         diagnostics.push(Diagnostic {
             message: format!("circular dependency detected: {}", path_str),
             span: Some(cycle.spans[0].clone()),
-            file: None,
+            file,
             severity: Severity::Error,
         });
     }
@@ -193,21 +180,15 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
     // Dead Code Analysis (Warning)
     let dead_code = continuum_ir::analysis::dead_code::find_dead_code(&world);
     for signal_id in dead_code.unused_signals {
-        let span = world
-            .signals()
-            .get(&ir::SignalId::from(signal_id.to_string()))
-            .map(|s| s.span.clone())
-            .or_else(|| {
-                world
-                    .members()
-                    .get(&ir::MemberId::from(signal_id.to_string()))
-                    .map(|m| m.span.clone())
-            });
+        // Find node for this signal
+        let node = world.nodes.get(&signal_id);
+        let span = node.map(|n| n.span.clone());
+        let file = node.and_then(|n| n.file.clone());
 
         diagnostics.push(Diagnostic {
             message: format!("unused signal: {}", signal_id),
             span,
-            file: None,
+            file,
             severity: Severity::Warning,
         });
     }
@@ -215,21 +196,14 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
     // Dimensional Analysis (Warning)
     let dim_diagnostics = continuum_ir::analysis::dimensions::analyze_dimensions(&world);
     for diag in dim_diagnostics {
-        let span = world
-            .signals()
-            .get(&ir::SignalId::from(diag.path.to_string()))
-            .map(|s| s.span.clone())
-            .or_else(|| {
-                world
-                    .members()
-                    .get(&ir::MemberId::from(diag.path.to_string()))
-                    .map(|m| m.span.clone())
-            });
+        let node = world.nodes.get(&diag.path);
+        let span = node.map(|n| n.span.clone());
+        let file = node.and_then(|n| n.file.clone());
 
         diagnostics.push(Diagnostic {
             message: diag.message,
             span,
-            file: None,
+            file,
             severity: Severity::Warning,
         });
     }
@@ -296,12 +270,7 @@ mod tests {
         source_map.insert(
             PathBuf::from("main.cdsl"),
             r#"
-            world.test { 
-                policy { 
-                    determinism: "strict"
-                    faults: "fatal"
-                }
-            }
+            world.test { }
             era.main { : initial }
             strata.test {}
 

@@ -96,6 +96,7 @@ impl Lowerer {
         let (resolve, resolve_components) = self.expand_resolve_for_type(resolve, &value_type);
 
         let signal = CompiledSignal {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             stratum,
@@ -141,6 +142,7 @@ impl Lowerer {
         }
 
         let field = CompiledField {
+            file: self.file.clone(),
             span,
             id: id.clone(),
             stratum,
