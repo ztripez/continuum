@@ -83,7 +83,7 @@ signal.test.total_mass {
     : symbol("M_total")
 
     resolve {
-        sum(entity.test.particle, self.mass)
+        agg.sum(entity.test.particle, self.mass)
     }
 }
 
@@ -95,7 +95,7 @@ signal.test.mean_energy {
     : symbol("E_mean")
 
     resolve {
-        mean(entity.test.particle, self.energy)
+        agg.mean(entity.test.particle, self.energy)
     }
 }
 
@@ -107,7 +107,7 @@ signal.test.particle_count {
     : symbol("N")
 
     resolve {
-        count(entity.test.particle)
+        agg.count(entity.test.particle)
     }
 }
 

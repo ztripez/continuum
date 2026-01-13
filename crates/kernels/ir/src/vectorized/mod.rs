@@ -318,6 +318,7 @@ impl L2VectorizedExecutor {
 
             SsaInstruction::KernelCall {
                 dst,
+                namespace,
                 function,
                 args,
             } => {
@@ -330,7 +331,7 @@ impl L2VectorizedExecutor {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
-                let result = self.execute_kernel(function, &arg_bufs, dt, population)?;
+                let result = self.execute_kernel(namespace, function, &arg_bufs, dt, population)?;
                 vregs[dst.0 as usize] = Some(result);
             }
 
@@ -463,56 +464,49 @@ impl L2VectorizedExecutor {
     /// Execute a kernel function call.
     fn execute_kernel(
         &self,
+        namespace: &str,
         function: &str,
         args: &[&VRegBuffer],
         dt: f64,
         population: usize,
     ) -> Result<VRegBuffer, L2ExecutionError> {
-        match function {
-            "sqrt" => self.apply_unary_kernel(args, population, |x| x.sqrt()),
-            "sin" => self.apply_unary_kernel(args, population, |x| x.sin()),
-            "cos" => self.apply_unary_kernel(args, population, |x| x.cos()),
-            "tan" => self.apply_unary_kernel(args, population, |x| x.tan()),
-            "exp" => self.apply_unary_kernel(args, population, |x| x.exp()),
-            "ln" => self.apply_unary_kernel(args, population, |x| x.ln()),
-            "log10" => self.apply_unary_kernel(args, population, |x| x.log10()),
-            "abs" => self.apply_unary_kernel(args, population, |x| x.abs()),
-            "floor" => self.apply_unary_kernel(args, population, |x| x.floor()),
-            "ceil" => self.apply_unary_kernel(args, population, |x| x.ceil()),
-            "round" => self.apply_unary_kernel(args, population, |x| x.round()),
-            "sign" => self.apply_unary_kernel(args, population, |x| x.signum()),
-            "min" => self.apply_binary_kernel(args, population, |a, b| a.min(b)),
-            "max" => self.apply_binary_kernel(args, population, |a, b| a.max(b)),
-            "pow" => self.apply_binary_kernel(args, population, |a, b| a.powf(b)),
-            "atan2" => self.apply_binary_kernel(args, population, |a, b| a.atan2(b)),
-            "clamp" => self.apply_ternary_kernel_clamp(args, population),
-            "lerp" => self.apply_ternary_kernel_lerp(args, population),
-            _ => self.execute_kernel_via_registry(function, args, dt, population),
-        }
+        self.execute_kernel_via_registry(namespace, function, args, dt, population)
     }
 
     /// Execute a kernel function using the registry (scalar fallback).
     fn execute_kernel_via_registry(
         &self,
+        namespace: &str,
         function: &str,
         args: &[&VRegBuffer],
         dt: f64,
         population: usize,
     ) -> Result<VRegBuffer, L2ExecutionError> {
+        if !continuum_kernel_registry::namespace_exists(namespace) {
+            return Err(L2ExecutionError::UnsupportedOperation(format!(
+                "kernel namespace: {}",
+                namespace
+            )));
+        }
+
         if let Some(result) =
-            continuum_kernel_registry::eval_vectorized(function, args, dt, population)
+            continuum_kernel_registry::eval_vectorized(namespace, function, args, dt, population)
         {
             return result.map_err(|err| {
                 L2ExecutionError::UnsupportedOperation(format!(
-                    "vectorized kernel {} failed: {}",
-                    function, err
+                    "vectorized kernel {}.{} failed: {}",
+                    namespace, function, err
                 ))
             });
         }
 
-        let descriptor = continuum_kernel_registry::get(function).ok_or_else(|| {
-            L2ExecutionError::UnsupportedOperation(format!("kernel function: {}", function))
-        })?;
+        let descriptor = continuum_kernel_registry::get_in_namespace(namespace, function)
+            .ok_or_else(|| {
+                L2ExecutionError::UnsupportedOperation(format!(
+                    "kernel function: {}.{}",
+                    namespace, function
+                ))
+            })?;
 
         if args.iter().all(|arg| arg.as_uniform().is_some()) {
             let scalar_args: Vec<f64> = args
@@ -539,135 +533,6 @@ impl L2VectorizedExecutor {
         }
 
         Ok(VRegBuffer::Scalar(result))
-    }
-
-    /// Apply a unary kernel function.
-    fn apply_unary_kernel<F>(
-        &self,
-        args: &[&VRegBuffer],
-        population: usize,
-        f: F,
-    ) -> Result<VRegBuffer, L2ExecutionError>
-    where
-        F: Fn(f64) -> f64,
-    {
-        if args.len() != 1 {
-            return Err(L2ExecutionError::UnsupportedOperation(
-                "unary kernel requires 1 argument".to_string(),
-            ));
-        }
-
-        if let Some(v) = args[0].as_uniform() {
-            Ok(VRegBuffer::uniform(f(v)))
-        } else {
-            let arr = args[0].to_scalar_array(population);
-            let result: Vec<f64> = arr.iter().map(|&x| f(x)).collect();
-            Ok(VRegBuffer::Scalar(result))
-        }
-    }
-
-    /// Apply a binary kernel function.
-    fn apply_binary_kernel<F>(
-        &self,
-        args: &[&VRegBuffer],
-        population: usize,
-        f: F,
-    ) -> Result<VRegBuffer, L2ExecutionError>
-    where
-        F: Fn(f64, f64) -> f64,
-    {
-        if args.len() != 2 {
-            return Err(L2ExecutionError::UnsupportedOperation(
-                "binary kernel requires 2 arguments".to_string(),
-            ));
-        }
-
-        match (args[0].as_uniform(), args[1].as_uniform()) {
-            (Some(a), Some(b)) => Ok(VRegBuffer::uniform(f(a, b))),
-            (Some(a), None) => {
-                let b_arr = args[1].to_scalar_array(population);
-                let result: Vec<f64> = b_arr.iter().map(|&b| f(a, b)).collect();
-                Ok(VRegBuffer::Scalar(result))
-            }
-            (None, Some(b)) => {
-                let a_arr = args[0].to_scalar_array(population);
-                let result: Vec<f64> = a_arr.iter().map(|&a| f(a, b)).collect();
-                Ok(VRegBuffer::Scalar(result))
-            }
-            (None, None) => {
-                let a_arr = args[0].to_scalar_array(population);
-                let b_arr = args[1].to_scalar_array(population);
-                let result: Vec<f64> = a_arr
-                    .iter()
-                    .zip(b_arr.iter())
-                    .map(|(&a, &b)| f(a, b))
-                    .collect();
-                Ok(VRegBuffer::Scalar(result))
-            }
-        }
-    }
-
-    /// Apply clamp kernel (ternary: value, min, max).
-    fn apply_ternary_kernel_clamp(
-        &self,
-        args: &[&VRegBuffer],
-        population: usize,
-    ) -> Result<VRegBuffer, L2ExecutionError> {
-        if args.len() != 3 {
-            return Err(L2ExecutionError::UnsupportedOperation(
-                "clamp requires 3 arguments".to_string(),
-            ));
-        }
-
-        // Get min and max (usually uniform)
-        let min_v = args[1]
-            .as_uniform()
-            .unwrap_or_else(|| args[1].to_scalar_array(population)[0]);
-        let max_v = args[2]
-            .as_uniform()
-            .unwrap_or_else(|| args[2].to_scalar_array(population)[0]);
-
-        if let Some(val) = args[0].as_uniform() {
-            Ok(VRegBuffer::uniform(val.clamp(min_v, max_v)))
-        } else {
-            let val_arr = args[0].to_scalar_array(population);
-            let result: Vec<f64> = val_arr.iter().map(|&v| v.clamp(min_v, max_v)).collect();
-            Ok(VRegBuffer::Scalar(result))
-        }
-    }
-
-    /// Apply lerp kernel (ternary: a, b, t).
-    fn apply_ternary_kernel_lerp(
-        &self,
-        args: &[&VRegBuffer],
-        population: usize,
-    ) -> Result<VRegBuffer, L2ExecutionError> {
-        if args.len() != 3 {
-            return Err(L2ExecutionError::UnsupportedOperation(
-                "lerp requires 3 arguments".to_string(),
-            ));
-        }
-
-        // lerp(a, b, t) = a + (b - a) * t
-        let a = args[0];
-        let b = args[1];
-        let t = args[2];
-
-        match (a.as_uniform(), b.as_uniform(), t.as_uniform()) {
-            (Some(a), Some(b), Some(t)) => Ok(VRegBuffer::uniform(a + (b - a) * t)),
-            _ => {
-                let a_arr = a.to_scalar_array(population);
-                let b_arr = b.to_scalar_array(population);
-                let t_arr = t.to_scalar_array(population);
-                let result: Vec<f64> = a_arr
-                    .iter()
-                    .zip(b_arr.iter())
-                    .zip(t_arr.iter())
-                    .map(|((&a, &b), &t)| a + (b - a) * t)
-                    .collect();
-                Ok(VRegBuffer::Scalar(result))
-            }
-        }
     }
 }
 

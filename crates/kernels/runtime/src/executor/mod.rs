@@ -62,7 +62,7 @@ pub type TransitionFn = Box<dyn Fn(&SignalStorage, f64) -> Option<EraId> + Send 
 ///
 /// These resolvers run after member signal resolution (Phase 3c) and can access
 /// both global signals and member signal data for aggregate computations like
-/// `sum(entity.particle, self.mass)`.
+/// `agg.sum(entity.particle, self.mass)`.
 pub type AggregateResolverFn =
     Box<dyn Fn(&SignalStorage, &MemberSignalBuffer, Dt, f64) -> Value + Send + Sync>;
 
@@ -296,7 +296,7 @@ impl Runtime {
     /// Register an aggregate resolver for a signal that depends on member signal data.
     ///
     /// These resolvers run after member signal resolution (Phase 3c) and can compute
-    /// aggregates like `sum(entity.particle, self.mass)`.
+    /// aggregates like `agg.sum(entity.particle, self.mass)`.
     pub fn register_aggregate_resolver(
         &mut self,
         signal_id: SignalId,

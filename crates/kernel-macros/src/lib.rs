@@ -7,19 +7,19 @@
 //! use continuum_foundation::Dt;
 //!
 //! /// Exponential decay toward zero
-//! #[kernel_fn(name = "decay")]
+//! #[kernel_fn(namespace = "dt")]
 //! pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
 //!     value * 0.5_f64.powf(dt / halflife)
 //! }
 //!
 //! /// Absolute value (pure, no dt)
-//! #[kernel_fn(name = "abs")]
+//! #[kernel_fn(namespace = "maths")]
 //! pub fn abs(x: f64) -> f64 {
 //!     x.abs()
 //! }
 //!
 //! /// Variadic sum
-//! #[kernel_fn(name = "sum", variadic)]
+//! #[kernel_fn(namespace = "maths", variadic)]
 //! pub fn sum(args: &[f64]) -> f64 {
 //!     args.iter().sum()
 //! }
@@ -36,7 +36,8 @@ use syn::{
 
 /// Arguments to the kernel_fn attribute
 struct KernelFnArgs {
-    name: String,
+    name: Option<String>,
+    namespace: String,
     category: String,
     variadic: bool,
     vectorized: bool,
@@ -44,12 +45,14 @@ struct KernelFnArgs {
 
 /// Arguments to the vectorized_kernel_fn attribute
 struct VectorizedKernelArgs {
-    name: String,
+    name: Option<String>,
+    namespace: String,
 }
 
 impl Parse for KernelFnArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut name = None;
+        let mut namespace = None;
         let mut category = String::from("math");
         let mut variadic = false;
         let mut vectorized = false;
@@ -58,15 +61,18 @@ impl Parse for KernelFnArgs {
         for arg in args {
             match arg {
                 KernelArg::Name(n) => name = Some(n),
+                KernelArg::Namespace(n) => namespace = Some(n),
                 KernelArg::Category(c) => category = c,
                 KernelArg::Variadic => variadic = true,
                 KernelArg::Vectorized => vectorized = true,
             }
         }
 
-        let name = name.ok_or_else(|| input.error("missing `name = \"...\"` argument"))?;
+        let namespace =
+            namespace.ok_or_else(|| input.error("missing `namespace = \"...\"` argument"))?;
         Ok(KernelFnArgs {
             name,
+            namespace,
             category,
             variadic,
             vectorized,
@@ -77,22 +83,26 @@ impl Parse for KernelFnArgs {
 impl Parse for VectorizedKernelArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut name = None;
+        let mut namespace = None;
 
         let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
         for arg in args {
             match arg {
                 KernelArg::Name(n) => name = Some(n),
+                KernelArg::Namespace(n) => namespace = Some(n),
                 KernelArg::Category(_) | KernelArg::Variadic | KernelArg::Vectorized => {}
             }
         }
 
-        let name = name.ok_or_else(|| input.error("missing `name = \"...\"` argument"))?;
-        Ok(VectorizedKernelArgs { name })
+        let namespace =
+            namespace.ok_or_else(|| input.error("missing `namespace = \"...\"` argument"))?;
+        Ok(VectorizedKernelArgs { name, namespace })
     }
 }
 
 enum KernelArg {
     Name(String),
+    Namespace(String),
     Category(String),
     Variadic,
     Vectorized,
@@ -103,12 +113,17 @@ impl Parse for KernelArg {
         let ident: Ident = input.parse()?;
         match ident.to_string().as_str() {
             "name" => {
-                let _: Token![=] = input.parse()?;
+                input.parse::<Token![=]>()?;
                 let lit: LitStr = input.parse()?;
                 Ok(KernelArg::Name(lit.value()))
             }
+            "namespace" => {
+                input.parse::<Token![=]>()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::Namespace(lit.value()))
+            }
             "category" => {
-                let _: Token![=] = input.parse()?;
+                input.parse::<Token![=]>()?;
                 let lit: LitStr = input.parse()?;
                 Ok(KernelArg::Category(lit.value()))
             }
@@ -126,7 +141,8 @@ impl Parse for KernelArg {
 ///
 /// # Arguments
 ///
-/// - `name = "..."` (required): The name used in DSL expressions
+/// - `name = "..."` (optional): The name used in DSL expressions (defaults to function name)
+/// - `namespace = "..."` (required): Namespace tag (e.g. "maths", "vector", "dt")
 /// - `category = "..."` (optional): Category tag (defaults to "math")
 /// - `variadic` (optional): Mark as variadic (takes `&[f64]` instead of individual args)
 /// - `vectorized` (optional): Mark as having vectorized implementation available
@@ -154,7 +170,8 @@ fn generate_kernel_registration(
     func: &ItemFn,
 ) -> syn::Result<proc_macro2::TokenStream> {
     let fn_name = &func.sig.ident;
-    let dsl_name = &args.name;
+    let dsl_name = args.name.clone().unwrap_or_else(|| fn_name.to_string());
+    let namespace = &args.namespace;
     let category = &args.category;
     let variadic = args.variadic;
     let vectorized = args.vectorized;
@@ -296,6 +313,7 @@ fn generate_kernel_registration(
         static #descriptor_name: ::continuum_kernel_registry::KernelDescriptor = {
             #wrapper
             ::continuum_kernel_registry::KernelDescriptor {
+                namespace: #namespace,
                 name: #dsl_name,
                 signature: #signature,
                 doc: #doc,
@@ -315,7 +333,8 @@ fn generate_kernel_registration(
 ///
 /// # Arguments
 ///
-/// - `name = "..."` (required): The name of the existing kernel function
+/// - `name = "..."` (optional): The name of the existing kernel function (defaults to function name)
+/// - `namespace = "..."` (required): Namespace tag (e.g. "maths", "vector", "dt")
 ///
 /// # Expected Signature
 ///
@@ -326,7 +345,7 @@ fn generate_kernel_registration(
 /// # Example
 ///
 /// ```ignore
-/// #[vectorized_kernel_fn(name = "integrate")]
+/// #[vectorized_kernel_fn(name = "integrate", namespace = "dt")]
 /// pub fn integrate_vectorized(
 ///     args: &[&VRegBuffer],
 ///     dt: Dt,
@@ -353,7 +372,8 @@ fn generate_vectorized_registration(
     func: &ItemFn,
 ) -> syn::Result<proc_macro2::TokenStream> {
     let fn_name = &func.sig.ident;
-    let dsl_name = &args.name;
+    let dsl_name = args.name.clone().unwrap_or_else(|| fn_name.to_string());
+    let namespace = &args.namespace;
 
     let params: Vec<_> = func.sig.inputs.iter().collect();
     let has_dt = params.iter().any(|p| {
@@ -406,6 +426,7 @@ fn generate_vectorized_registration(
         static #descriptor_name: ::continuum_kernel_registry::VectorizedKernelDescriptor = {
             #wrapper
             ::continuum_kernel_registry::VectorizedKernelDescriptor {
+                namespace: #namespace,
                 name: #dsl_name,
                 implementation: #impl_variant,
             }

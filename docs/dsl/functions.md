@@ -90,7 +90,7 @@ template.thermal_layer(name: String, depth: Scalar<m>, conductivity: Scalar<W/m/
     resolve {
       let flux_in = signal.terra.geophysics.{name}.flux_in in
       let flux_out = signal.terra.geophysics.{name}.flux_out in
-      kernel.relax(prev, prev + (flux_in - flux_out) / {conductivity}, config.terra.thermal.tau)
+      dt.relax(prev, prev + (flux_in - flux_out) / {conductivity}, config.terra.thermal.tau)
     }
   }
 
@@ -163,7 +163,7 @@ signal.terra.atmosphere.co2 {
   : strata(terra.atmosphere)
 
   resolve {
-    kernel.accumulate(prev, collected, 0, 1000000)
+    dt.accumulate(prev, collected, 0, 1000000)
   }
 }
 ```
@@ -187,7 +187,7 @@ signal.terra.orbit.position {
   : strata(terra.orbital)
 
   resolve {
-    kernel.integrate(prev, signal.terra.orbit.velocity)
+    dt.integrate(prev, signal.terra.orbit.velocity)
   }
 }
 ```
@@ -274,7 +274,7 @@ template.orbital_body(name: String, has_atmosphere: Bool) {
     : strata(stellar.orbital)
 
     resolve {
-      kernel.integrate(prev, signal.{name}.orbit.velocity)
+      dt.integrate(prev, signal.{name}.orbit.velocity)
     }
   }
 

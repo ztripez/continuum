@@ -137,8 +137,15 @@ impl MemberInterpContext<'_> {
             _ => InterpValue::Scalar(0.0),
         }
     }
-    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or(0.0)
+    fn call_kernel(&self, namespace: &str, name: &str, args: &[f64]) -> f64 {
+        continuum_kernel_registry::eval_in_namespace(namespace, name, args, self.dt).unwrap_or_else(
+            || {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, name
+                )
+            },
+        )
     }
 }
 
@@ -165,13 +172,40 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
             let arg_vals: Vec<_> = args.iter().map(|a| interpret_expr(a, ctx)).collect();
             eval_function(function, &arg_vals, ctx)
         }
-        CompiledExpr::KernelCall { function, args } => {
-            let arg_vals: Vec<f64> = args
-                .iter()
-                .map(|a| interpret_expr(a, ctx).as_f64())
-                .collect();
-            let name = format!("kernel.{}", function);
-            InterpValue::Scalar(ctx.call_kernel(&name, &arg_vals))
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } => {
+            // Special handling for vector constructors until registry supports non-scalar returns
+            if namespace == "vector" {
+                match function.as_str() {
+                    "vec2" => {
+                        let x = interpret_expr(&args[0], ctx).as_f64();
+                        let y = interpret_expr(&args[1], ctx).as_f64();
+                        InterpValue::Vec3([x, y, 0.0])
+                    }
+                    "vec3" => {
+                        let x = interpret_expr(&args[0], ctx).as_f64();
+                        let y = interpret_expr(&args[1], ctx).as_f64();
+                        let z = interpret_expr(&args[2], ctx).as_f64();
+                        InterpValue::Vec3([x, y, z])
+                    }
+                    _ => {
+                        let arg_vals: Vec<f64> = args
+                            .iter()
+                            .map(|a| interpret_expr(a, ctx).as_f64())
+                            .collect();
+                        InterpValue::Scalar(ctx.call_kernel(namespace, function, &arg_vals))
+                    }
+                }
+            } else {
+                let arg_vals: Vec<f64> = args
+                    .iter()
+                    .map(|a| interpret_expr(a, ctx).as_f64())
+                    .collect();
+                InterpValue::Scalar(ctx.call_kernel(namespace, function, &arg_vals))
+            }
         }
         CompiledExpr::If {
             condition,

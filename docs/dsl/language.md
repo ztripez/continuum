@@ -242,7 +242,7 @@ Expressions must not:
 
 ## 14. Kernel Functions
 
-The DSL may call `kernel.*` functions.
+The DSL may call namespaced kernel functions (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`).
 
 Kernel functions:
 - are engine-provided primitives

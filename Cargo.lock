@@ -269,6 +269,7 @@ name = "cdsl-lsp"
 version = "0.1.0"
 dependencies = [
  "continuum-compiler",
+ "continuum-functions",
  "continuum-ir",
  "continuum-kernel-registry",
  "dashmap 6.1.0",

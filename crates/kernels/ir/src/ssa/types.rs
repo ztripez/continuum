@@ -201,6 +201,7 @@ pub enum SsaInstruction {
     /// Kernel function call (engine-provided).
     KernelCall {
         dst: VReg,
+        namespace: String,
         function: String,
         args: Vec<VReg>,
     },
@@ -326,13 +327,15 @@ impl SsaInstruction {
             }
             SsaInstruction::KernelCall {
                 dst,
+                namespace,
                 function,
                 args,
             } => {
                 let args_str: Vec<_> = args.iter().map(|a| a.to_string()).collect();
                 format!(
-                    "{} = KernelCall({}, [{}])",
+                    "{} = KernelCall({}.{}, [{}])",
                     dst,
+                    namespace,
                     function,
                     args_str.join(", ")
                 )

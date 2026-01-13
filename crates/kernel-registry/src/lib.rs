@@ -28,7 +28,7 @@
 //! use continuum_kernel_macros::kernel_fn;
 //! use continuum_foundation::Dt;
 //!
-//! #[kernel_fn(name = "decay")]
+//! #[kernel_fn(namespace = "dt")]
 //! pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
 //!     value * 0.5_f64.powf(dt / halflife)
 //! }
@@ -37,10 +37,10 @@
 //! # Example Lookup
 //!
 //! ```ignore
-//! use continuum_kernel_registry::{get, eval, is_known};
+//! use continuum_kernel_registry::{eval_in_namespace, is_known_in};
 //!
-//! if is_known("sin") {
-//!     let result = eval("sin", &[3.14159], 0.0);
+//! if is_known_in("maths", "sin") {
+//!     let result = eval_in_namespace("maths", "sin", &[3.14159], 0.0);
 //! }
 //! ```
 
@@ -141,10 +141,18 @@ pub enum VectorizedImpl {
 
 /// Descriptor for a registered vectorized kernel function
 pub struct VectorizedKernelDescriptor {
+    /// Namespace name (e.g., "maths", "vector", "dt")
+    pub namespace: &'static str,
     /// DSL name (e.g., "integrate", "decay", "sin")
     pub name: &'static str,
     /// Vectorized implementation
     pub implementation: VectorizedImpl,
+}
+
+/// Descriptor for a registered namespace.
+pub struct NamespaceDescriptor {
+    /// Namespace name (e.g., "maths", "physics")
+    pub name: &'static str,
 }
 
 impl KernelImpl {
@@ -203,6 +211,8 @@ impl Arity {
 
 /// Descriptor for a registered kernel function
 pub struct KernelDescriptor {
+    /// Namespace name (e.g., "maths", "vector", "dt")
+    pub namespace: &'static str,
     /// DSL name (e.g., "decay", "sin", "min")
     pub name: &'static str,
     /// Full signature string (e.g., "clamp(value, min, max) -> Scalar")
@@ -260,57 +270,86 @@ pub static KERNELS: [KernelDescriptor];
 #[distributed_slice]
 pub static VECTOR_KERNELS: [VectorizedKernelDescriptor];
 
-/// Get all registered kernel function names
-pub fn all_names() -> impl Iterator<Item = &'static str> {
-    KERNELS.iter().map(|k| k.name)
+/// Distributed slice collecting all namespace registrations.
+///
+/// Populated at link time by namespace descriptor definitions.
+#[distributed_slice]
+pub static NAMESPACES: [NamespaceDescriptor];
+
+/// Get all registered kernel function names (namespace, name)
+pub fn all_names() -> impl Iterator<Item = (&'static str, &'static str)> {
+    KERNELS.iter().map(|k| (k.namespace, k.name))
 }
 
-/// Look up a kernel by name
-pub fn get(name: &str) -> Option<&'static KernelDescriptor> {
-    KERNELS.iter().find(|k| k.name == name)
+/// Get all registered namespace names
+pub fn namespace_names() -> impl Iterator<Item = &'static str> {
+    NAMESPACES.iter().map(|n| n.name)
 }
 
-/// Check if a function name is a known kernel
-pub fn is_known(name: &str) -> bool {
-    get(name).is_some()
+/// Look up a kernel by namespace/name
+pub fn get_in_namespace(namespace: &str, name: &str) -> Option<&'static KernelDescriptor> {
+    KERNELS
+        .iter()
+        .find(|k| k.namespace == namespace && k.name == name)
 }
 
-/// Evaluate a kernel by name
-pub fn eval(name: &str, args: &[f64], dt: Dt) -> Option<f64> {
-    get(name).map(|k| k.eval(args, dt))
+/// Look up a namespace by name
+pub fn get_namespace(name: &str) -> Option<&'static NamespaceDescriptor> {
+    NAMESPACES.iter().find(|n| n.name == name)
+}
+
+/// Check if a namespace is registered
+pub fn namespace_exists(name: &str) -> bool {
+    get_namespace(name).is_some()
+}
+
+/// Check if a function name is a known kernel in a namespace
+pub fn is_known_in(namespace: &str, name: &str) -> bool {
+    get_in_namespace(namespace, name).is_some()
+}
+
+/// Evaluate a kernel by namespace/name
+pub fn eval_in_namespace(namespace: &str, name: &str, args: &[f64], dt: Dt) -> Option<f64> {
+    get_in_namespace(namespace, name).map(|k| k.eval(args, dt))
 }
 
 /// Get vectorized implementation for a kernel by name
-pub fn get_vectorized(name: &str) -> Option<&'static VectorizedImpl> {
+pub fn get_vectorized(namespace: &str, name: &str) -> Option<&'static VectorizedImpl> {
     VECTOR_KERNELS
         .iter()
-        .find(|k| k.name == name)
+        .find(|k| k.namespace == namespace && k.name == name)
         .map(|k| &k.implementation)
-        .or_else(|| get(name).and_then(|k| k.vectorized_impl.as_ref()))
+        .or_else(|| get_in_namespace(namespace, name).and_then(|k| k.vectorized_impl.as_ref()))
 }
 
 /// Check if a kernel has vectorized implementation
-pub fn has_vectorized_impl(name: &str) -> bool {
-    get_vectorized(name).is_some()
+pub fn has_vectorized_impl(namespace: &str, name: &str) -> bool {
+    get_vectorized(namespace, name).is_some()
 }
 
 /// Evaluate a vectorized kernel by name
 pub fn eval_vectorized(
+    namespace: &str,
     name: &str,
     args: &[&VRegBuffer],
     dt: Dt,
     population: usize,
 ) -> Option<VectorizedResult<VRegBuffer>> {
-    get_vectorized(name).map(|impl_| impl_.eval(args, dt, population))
+    get_vectorized(namespace, name).map(|impl_| impl_.eval(args, dt, population))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // Test namespace registered via the slice directly
+    #[distributed_slice(NAMESPACES)]
+    static TEST_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "test" };
+
     // Test kernel registered via the slice directly
     #[distributed_slice(KERNELS)]
     static TEST_ABS: KernelDescriptor = KernelDescriptor {
+        namespace: "test",
         name: "test_abs",
         signature: "test_abs(x) -> Scalar",
         doc: "Test absolute value",
@@ -322,19 +361,27 @@ mod tests {
 
     #[test]
     fn test_lookup() {
-        assert!(is_known("test_abs"));
-        assert!(!is_known("nonexistent"));
+        assert!(is_known_in("test", "test_abs"));
+        assert!(get_in_namespace("test", "test_abs").is_some());
+        assert!(!is_known_in("test", "missing"));
+    }
+
+    #[test]
+    fn test_namespace_registry() {
+        assert!(namespace_exists("test"));
+        assert!(get_namespace("test").is_some());
+        assert!(!namespace_exists("missing"));
     }
 
     #[test]
     fn test_eval() {
-        let result = eval("test_abs", &[-5.0], 1.0);
+        let result = eval_in_namespace("test", "test_abs", &[-5.0], 1.0);
         assert_eq!(result, Some(5.0));
     }
 
     #[test]
     fn test_arity() {
-        let desc = get("test_abs").unwrap();
+        let desc = get_in_namespace("test", "test_abs").unwrap();
         assert_eq!(desc.arity, Arity::Fixed(1));
         assert!(!desc.requires_dt());
     }
@@ -342,10 +389,10 @@ mod tests {
     #[test]
     fn test_vectorized_api() {
         // test_abs should not have vectorized implementation
-        assert!(!has_vectorized_impl("test_abs"));
-        assert!(get_vectorized("test_abs").is_none());
+        assert!(!has_vectorized_impl("test", "test_abs"));
+        assert!(get_vectorized("test", "test_abs").is_none());
 
-        let desc = get("test_abs").unwrap();
+        let desc = get_in_namespace("test", "test_abs").unwrap();
         assert!(!desc.has_vectorized());
         assert!(desc.eval_vectorized(&[], 0.0, 10).is_none());
     }

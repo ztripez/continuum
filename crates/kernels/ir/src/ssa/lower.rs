@@ -135,7 +135,11 @@ impl LoweringContext {
                 dst
             }
 
-            CompiledExpr::KernelCall { function, args } => {
+            CompiledExpr::KernelCall {
+                namespace,
+                function,
+                args,
+            } => {
                 let arg_regs: Vec<_> = args
                     .iter()
                     .map(|a| self.lower_expr(a, self.current_block))
@@ -143,6 +147,7 @@ impl LoweringContext {
                 let dst = self.func.alloc_vreg();
                 self.emit(SsaInstruction::KernelCall {
                     dst,
+                    namespace: namespace.clone(),
                     function: function.clone(),
                     args: arg_regs,
                 });

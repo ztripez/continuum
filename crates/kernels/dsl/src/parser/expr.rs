@@ -473,7 +473,19 @@ fn entity_expr_atoms_spanned<'src>(
                     Spanned::new(e, extra.span().into())
                 },
             ),
-        tok(Token::Count)
+        ident()
+            .then_ignore(tok(Token::Dot))
+            .then(tok(Token::Count))
+            .try_map(|(namespace, _), span| {
+                if namespace == "agg" {
+                    Ok(())
+                } else {
+                    Err(Rich::custom(
+                        span.into(),
+                        "count aggregate must use agg.count",
+                    ))
+                }
+            })
             .ignore_then(
                 tok(Token::LParen)
                     .ignore_then(tok(Token::Entity))
@@ -665,14 +677,26 @@ pub fn spanned_effect_expr<'src>()
 
 fn aggregate_op_with_body<'src>()
 -> impl Parser<'src, ParserInput<'src>, AggregateOp, extra::Err<ParseError<'src>>> + Clone {
-    choice((
-        tok(Token::Sum).to(AggregateOp::Sum),
-        tok(Token::Product).to(AggregateOp::Product),
-        tok(Token::Min).to(AggregateOp::Min),
-        tok(Token::Max).to(AggregateOp::Max),
-        tok(Token::Mean).to(AggregateOp::Mean),
-        tok(Token::Any).to(AggregateOp::Any),
-        tok(Token::All).to(AggregateOp::All),
-        tok(Token::None).to(AggregateOp::None),
-    ))
+    ident()
+        .then_ignore(tok(Token::Dot))
+        .then(choice((
+            tok(Token::Sum).to(AggregateOp::Sum),
+            tok(Token::Product).to(AggregateOp::Product),
+            tok(Token::Min).to(AggregateOp::Min),
+            tok(Token::Max).to(AggregateOp::Max),
+            tok(Token::Mean).to(AggregateOp::Mean),
+            tok(Token::Any).to(AggregateOp::Any),
+            tok(Token::All).to(AggregateOp::All),
+            tok(Token::None).to(AggregateOp::None),
+        )))
+        .try_map(|(namespace, op), span| {
+            if namespace == "agg" {
+                Ok(op)
+            } else {
+                Err(Rich::custom(
+                    span.into(),
+                    "aggregate operations must use agg.<op>",
+                ))
+            }
+        })
 }

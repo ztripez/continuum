@@ -94,6 +94,7 @@ pub enum ScalarExpr {
     },
     /// Engine kernel function call
     KernelCall {
+        namespace: String,
         function: String,
         args: Vec<ScalarExpr>,
     },

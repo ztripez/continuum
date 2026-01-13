@@ -235,8 +235,9 @@ fn test_lower_let_binding() {
 
 #[test]
 fn test_lower_kernel_call() {
-    // kernel.sqrt(prev)
+    // maths.sqrt(prev)
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "sqrt".to_string(),
         args: vec![CompiledExpr::Prev],
     };
@@ -255,8 +256,9 @@ fn test_lower_kernel_call() {
 
 #[test]
 fn test_lower_kernel_call_integrate() {
-    // kernel.integrate(prev, rate)
+    // dt.integrate(prev, rate)
     let expr = CompiledExpr::KernelCall {
+        namespace: "dt".to_string(),
         function: "integrate".to_string(),
         args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1.0, None)],
     };
@@ -314,8 +316,9 @@ fn test_pretty_print() {
 #[test]
 fn test_complex_expression() {
     // clamp(prev + collected - signal.stress * dt, 0.0, 1.0)
-    // Represented as: kernel.clamp(prev + collected - signal.stress * dt, 0.0, 1.0)
+    // Represented as: maths.clamp(prev + collected - signal.stress * dt, 0.0, 1.0)
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "clamp".to_string(),
         args: vec![
             CompiledExpr::Binary {

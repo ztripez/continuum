@@ -305,8 +305,11 @@ fn try_match_simple_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern
 /// Try to match `clamp(prev + collected, min, max)` pattern.
 fn try_match_clamped_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::KernelCall { function, args } if function == "clamp" && args.len() == 3 => {
-            // Check if first arg is prev + collected
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } if namespace == "maths" && function == "clamp" && args.len() == 3 => {
             if try_match_simple_accumulator(&args[0]).is_some() {
                 let has_min =
                     !matches!(&args[1], CompiledExpr::Literal(v, _) if *v == f64::NEG_INFINITY);
@@ -340,13 +343,15 @@ fn try_match_decay_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern>
         } => {
             let decay_on_left = matches!(
                 left.as_ref(),
-                CompiledExpr::KernelCall { function, .. } if function == "decay"
+                CompiledExpr::KernelCall { namespace, function, .. }
+                    if namespace == "dt" && function == "decay"
             );
             let collected_on_right = matches!(right.as_ref(), CompiledExpr::Collected);
 
             let decay_on_right = matches!(
                 right.as_ref(),
-                CompiledExpr::KernelCall { function, .. } if function == "decay"
+                CompiledExpr::KernelCall { namespace, function, .. }
+                    if namespace == "dt" && function == "decay"
             );
             let collected_on_left = matches!(left.as_ref(), CompiledExpr::Collected);
 
@@ -364,7 +369,11 @@ fn try_match_decay_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern>
 /// Try to match `decay(prev, halflife)` pattern (without addition).
 fn try_match_simple_decay(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::KernelCall { function, args } if function == "decay" && args.len() >= 2 => {
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } if namespace == "dt" && function == "decay" && args.len() >= 2 => {
             if matches!(args[0], CompiledExpr::Prev) {
                 return Some(ExpressionPattern::SimpleDecay);
             }
@@ -377,8 +386,13 @@ fn try_match_simple_decay(expr: &CompiledExpr) -> Option<ExpressionPattern> {
 /// Try to match `relax(current, target, tau)` pattern.
 fn try_match_relaxation(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::KernelCall { function, args }
-            if (function == "relax" || function == "smooth") && args.len() >= 2 =>
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } if namespace == "dt"
+            && (function == "relax" || function == "smooth")
+            && args.len() >= 2 =>
         {
             if matches!(args[0], CompiledExpr::Prev) {
                 return Some(ExpressionPattern::Relaxation);
@@ -392,9 +406,11 @@ fn try_match_relaxation(expr: &CompiledExpr) -> Option<ExpressionPattern> {
 /// Try to match `integrate(prev, rate)` pattern.
 fn try_match_integration(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::KernelCall { function, args }
-            if function == "integrate" && args.len() >= 2 =>
-        {
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } if namespace == "dt" && function == "integrate" && args.len() >= 2 => {
             if matches!(args[0], CompiledExpr::Prev) {
                 return Some(ExpressionPattern::Integration);
             }
@@ -603,8 +619,12 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
                 hash_expr_structure(arg, hasher);
             }
         }
-        CompiledExpr::KernelCall { function, args } => {
-            "kernel".hash(hasher);
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } => {
+            namespace.hash(hasher);
             function.hash(hasher);
             args.len().hash(hasher);
             for arg in args {
@@ -1410,6 +1430,7 @@ mod tests {
     fn test_extract_clamped_accumulator() {
         // clamp(prev + collected, 0.0, 100.0)
         let expr = CompiledExpr::KernelCall {
+            namespace: "maths".to_string(),
             function: "clamp".to_string(),
             args: vec![
                 CompiledExpr::Binary {
@@ -1437,6 +1458,7 @@ mod tests {
         let expr = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::KernelCall {
+                namespace: "dt".to_string(),
                 function: "decay".to_string(),
                 args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
             }),
@@ -1455,6 +1477,7 @@ mod tests {
     fn test_extract_simple_decay() {
         // decay(prev, 1000.0)
         let expr = CompiledExpr::KernelCall {
+            namespace: "dt".to_string(),
             function: "decay".to_string(),
             args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
         };
@@ -1466,6 +1489,7 @@ mod tests {
     fn test_extract_integration() {
         // integrate(prev, rate)
         let expr = CompiledExpr::KernelCall {
+            namespace: "dt".to_string(),
             function: "integrate".to_string(),
             args: vec![
                 CompiledExpr::Prev,
@@ -1671,6 +1695,7 @@ mod tests {
         let expr = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::KernelCall {
+                namespace: "dt".to_string(),
                 function: "decay".to_string(),
                 args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
             }),

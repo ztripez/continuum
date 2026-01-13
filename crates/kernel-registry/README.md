@@ -12,6 +12,6 @@ This crate provides the mechanism to collect, look up, and dispatch kernel funct
 
 ## Features
 
-- **Discovery**: `is_known("name")` checks if a kernel exists.
-- **Dispatch**: `eval("name", args, dt)` invokes the kernel dynamically (used by the VM).
+- **Discovery**: `is_known_in("namespace", "name")` checks if a kernel exists.
+- **Dispatch**: `eval_in_namespace("namespace", "name", args, dt)` invokes the kernel dynamically.
 - **Metadata**: Provides introspection for the DSL compiler to validate function calls.

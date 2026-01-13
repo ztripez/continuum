@@ -11,7 +11,7 @@ signal.core.temp {
     : strata(thermal)
 
     resolve {
-        kernel.decay(prev, config.thermal.decay_halflife)
+        dt.decay(prev, config.thermal.decay_halflife)
     }
 
     assert {

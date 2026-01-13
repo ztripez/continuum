@@ -31,7 +31,7 @@
 //! ```
 
 use crate::ast::{AstVisitor, CompilationUnit, Expr, Item, Spanned, uses_dt_raw};
-use continuum_kernel_registry::{Arity, get};
+use continuum_kernel_registry::{Arity, get_in_namespace};
 use std::collections::HashMap;
 
 /// A semantic validation error with source location.
@@ -262,10 +262,12 @@ fn collect_unknown_functions(
 
 /// Check if a function name is valid and return its expected arity.
 fn get_expected_arity(name: &str, user_functions: &HashMap<String, usize>) -> Option<Arity> {
-    // Check kernel registry
-    if let Some(k) = get(name) {
-        return Some(k.arity);
+    if let Some((namespace, function)) = name.split_once('.') {
+        if let Some(k) = get_in_namespace(namespace, function) {
+            return Some(k.arity);
+        }
     }
+
     // Check user-defined functions
     if let Some(&arity) = user_functions.get(name) {
         return Some(Arity::Fixed(arity));

@@ -360,10 +360,10 @@ the simulation must fail visibly.
 
 ## 17. Kernel Primitives
 
-The DSL may call `kernel.*` functions.
+The DSL may call namespaced kernel functions (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`).
 
 Kernel functions are:
-- engine-provided mathematical primitives
+- engine-provided primitives
 - strongly typed and unit-checked
 - deterministic in causal phases
 - backend-agnostic (CPU/GPU selection is automatic)

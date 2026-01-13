@@ -26,15 +26,15 @@ If changing `dt` changes qualitative behavior, the model is wrong.
 
 ## 2. The Solution: dt-Robust Operators
 
-Instead of raw `dt`, authors use **semantic operators** exposed as standard library calls under `kernel.*` that express intent:
+Instead of raw `dt`, authors use **semantic operators** exposed as standard library calls under `dt.*` that express intent:
 
 | Intent | Raw (fragile) | dt-Robust |
 |--------|---------------|-----------|
-| Accumulate rate | `prev + rate * dt` | `kernel.integrate(prev, rate)` |
-| Decay toward zero | `prev * (1 - k * dt)` | `kernel.decay(prev, halflife)` |
-| Relax toward target | `prev + (target - prev) * k * dt` | `kernel.relax(prev, target, tau)` |
-| Bounded accumulation | `clamp(prev + delta * dt, 0, max)` | `kernel.accumulate(prev, delta, 0, max)` |
-| Phase advancement | `wrap(prev + omega * dt, 0, TAU)` | `kernel.advance_phase(prev, omega)` |
+| Accumulate rate | `prev + rate * dt` | `dt.integrate(prev, rate)` |
+| Decay toward zero | `prev * (1 - k * dt)` | `dt.decay(prev, halflife)` |
+| Relax toward target | `prev + (target - prev) * k * dt` | `dt.relax(prev, target, tau)` |
+| Bounded accumulation | `clamp(prev + delta * dt, 0, max)` | `dt.accumulate(prev, delta, 0, max)` |
+| Phase advancement | `wrap(prev + omega * dt, 0, TAU)` | `dt.advance_phase(prev, omega)` |
 
 The engine implements these with proper numerical methods.
 
@@ -75,10 +75,10 @@ If uncertain, prefer dt-robust operators.
 ### Integration
 
 ```
-kernel.integrate(prev, rate)
-kernel.integrate_euler(prev, rate)
-kernel.integrate_rk4(prev, rate)
-kernel.integrate_verlet(prev, rate)
+dt.integrate(prev, rate)
+dt.integrate_euler(prev, rate)
+dt.integrate_rk4(prev, rate)
+dt.integrate_verlet(prev, rate)
 ```
 
 Accumulates a rate over time. Default method chosen for stability.
@@ -86,7 +86,7 @@ Accumulates a rate over time. Default method chosen for stability.
 ### Decay
 
 ```
-kernel.decay(value, halflife)        // value * 0.5^(dt/halflife)
+dt.decay(value, halflife)        // value * 0.5^(dt/halflife)
 ```
 
 Exponential decay toward zero. Exact solution, stable at any dt.
@@ -94,7 +94,7 @@ Exponential decay toward zero. Exact solution, stable at any dt.
 ### Relaxation
 
 ```
-kernel.relax(current, target, tau)
+dt.relax(current, target, tau)
 ```
 
 Exponential relaxation toward a target value:
@@ -106,8 +106,8 @@ Exact exponential solution, stable at any dt.
 ### Bounded Accumulation
 
 ```
-kernel.accumulate(prev, delta, min, max)
-kernel.accumulate(prev, delta, 0, max)
+dt.accumulate(prev, delta, min, max)
+dt.accumulate(prev, delta, 0, max)
 ```
 
 Integrates with clamping. Prevents overflow/underflow.
@@ -115,7 +115,7 @@ Integrates with clamping. Prevents overflow/underflow.
 ### Phase Advancement
 
 ```
-kernel.advance_phase(phase, omega)
+dt.advance_phase(phase, omega)
 ```
 
 Advances a cyclic quantity, wrapping at bounds. Default period is TAU (2π).
@@ -123,7 +123,7 @@ Advances a cyclic quantity, wrapping at bounds. Default period is TAU (2π).
 ### Smoothing
 
 ```
-kernel.smooth(prev, input, tau)
+dt.smooth(prev, input, tau)
 ```
 
 Exponential moving average. `samples: N` gives equivalent N-sample EMA behavior.
@@ -131,7 +131,7 @@ Exponential moving average. `samples: N` gives equivalent N-sample EMA behavior.
 ### Damping (Spring-Damper)
 
 ```
-kernel.damp(value, damping_factor)
+dt.damp(value, damping_factor)
 ```
 
 Exponential damping for scalar values. Stable at large dt.
@@ -165,7 +165,7 @@ signal.terra.temperature {
 
   resolve {
     // relax() is stable, but if target is extreme, assertion fires
-    kernel.relax(prev, signal.terra.heat_input * 1e10, 1000 <s>)
+    dt.relax(prev, signal.terra.heat_input * 1e10, 1000 <s>)
   }
 }
 ```
@@ -212,7 +212,7 @@ signal.terra.surface.temperature {
       signal.stellar.flux,
       signal.terra.albedo
     ) in
-    kernel.relax(prev, equilibrium, config.terra.thermal_tau)
+    dt.relax(prev, equilibrium, config.terra.thermal_tau)
 
   }
 }
@@ -226,7 +226,7 @@ signal.terra.core.radiogenic_heat {
   : strata(terra.thermal)
 
   resolve {
-    kernel.decay(prev, config.terra.radiogenic_halflife)
+    dt.decay(prev, config.terra.radiogenic_halflife)
 
   }
 }
@@ -242,7 +242,7 @@ signal.terra.orbit.true_anomaly {
 
   resolve {
     let n = fn.mean_motion(signal.stellar.mass, signal.terra.orbit.semi_major) in
-    kernel.advance_phase(prev, n)
+    dt.advance_phase(prev, n)
   }
 }
 ```
@@ -255,7 +255,7 @@ signal.terra.chandler_wobble {
   : strata(terra.rotation)
 
   resolve {
-    kernel.damp(prev, config.chandler_damping)
+    dt.damp(prev, config.chandler_damping)
   }
 }
 ```

@@ -604,6 +604,7 @@ pub enum CompiledExpr {
         args: Vec<CompiledExpr>,
     },
     KernelCall {
+        namespace: String,
         function: String,
         args: Vec<CompiledExpr>,
     },

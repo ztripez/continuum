@@ -513,7 +513,12 @@ impl Lowerer {
             }
 
             // Kernel calls: expand all arguments
-            KernelCall { function, args } => KernelCall {
+            KernelCall {
+                namespace,
+                function,
+                args,
+            } => KernelCall {
+                namespace: namespace.clone(),
                 function: function.clone(),
                 args: args
                     .iter()

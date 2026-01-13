@@ -239,7 +239,7 @@ pub enum Expr {
         instance: Box<Spanned<Expr>>,
     },
 
-    /// Aggregate operation over entity instances: `sum(entity.moon, self.mass)`.
+    /// Aggregate operation over entity instances: `agg.sum(entity.moon, self.mass)`.
     Aggregate {
         /// Aggregation operator.
         op: AggregateOp,
@@ -363,22 +363,22 @@ pub enum UnaryOp {
 /// Aggregate operations over entity instances
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AggregateOp {
-    /// Sum of values: `sum(entity.moon, self.mass)`
+    /// Sum of values: `agg.sum(entity.moon, self.mass)`
     Sum,
-    /// Product of values: `product(entity.layer, self.transmittance)`
+    /// Product of values: `agg.product(entity.layer, self.transmittance)`
     Product,
-    /// Minimum value: `min(entity.moon, self.orbit_radius)`
+    /// Minimum value: `agg.min(entity.moon, self.orbit_radius)`
     Min,
-    /// Maximum value: `max(entity.star, self.luminosity)`
+    /// Maximum value: `agg.max(entity.star, self.luminosity)`
     Max,
-    /// Average value: `mean(entity.plate, self.age)`
+    /// Average value: `agg.mean(entity.plate, self.age)`
     Mean,
-    /// Count of instances: `count(entity.moon)`
+    /// Count of instances: `agg.count(entity.moon)`
     Count,
-    /// Any instance matches predicate: `any(entity.moon, self.mass > 1e22)`
+    /// Any instance matches predicate: `agg.any(entity.moon, self.mass > 1e22)`
     Any,
-    /// All instances match predicate: `all(entity.star, self.luminosity > 0)`
+    /// All instances match predicate: `agg.all(entity.star, self.luminosity > 0)`
     All,
-    /// No instance matches predicate: `none(entity.plate, self.age < 0)`
+    /// No instance matches predicate: `agg.none(entity.plate, self.age < 0)`
     None,
 }

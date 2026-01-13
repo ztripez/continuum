@@ -69,8 +69,8 @@ signal.terra.thermal.equilibrium {
     : convergence(1e-6)
 
     iterate {
-      let flux_in = kernel.radiogenic_heat(config.terra.core.heat_budget)
-      let flux_out = kernel.surface_radiation(prev)
+      let flux_in = physics.radiogenic_heat(config.terra.core.heat_budget)
+      let flux_out = physics.surface_radiation(prev)
       prev + (flux_in - flux_out) * 0.1
     }
   }
@@ -111,7 +111,7 @@ operator.terra.thermal.warmup_budget {
   : phase(warmup)
 
   warmup {
-    let base_heat = kernel.compute_initial_heat(config.terra.core.mass)
+    let base_heat = physics.compute_initial_heat(config.terra.core.mass)
     signal.terra.thermal.budget <- base_heat
   }
 }
@@ -227,7 +227,7 @@ signal.terra.thermal.equilibrium_temp {
     : convergence(0.01 <K>)
 
     iterate {
-      let flux_in = kernel.internal_heat(config.terra.thermal.initial_mass)
+      let flux_in = physics.internal_heat(config.terra.thermal.initial_mass)
       let flux_out = const.physics.stefan_boltzmann * (prev ^ 4)
       let delta = (flux_in - flux_out) * config.terra.thermal.convergence_rate
       prev + delta

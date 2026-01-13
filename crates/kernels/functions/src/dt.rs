@@ -5,25 +5,24 @@
 
 use continuum_foundation::Dt;
 use continuum_kernel_macros::{kernel_fn, vectorized_kernel_fn};
-use continuum_kernel_registry::{VRegBuffer, VectorizedResult};
-
+use continuum_kernel_registry::{VRegBuffer, VectorizedResult, eval_in_namespace};
 /// Integration: `integrate(prev, rate)` → `prev + rate * dt`
 /// Default uses Euler method
-#[kernel_fn(name = "integrate", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn integrate(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
 }
 
 /// Euler integration: `integrate_euler(prev, rate)` → `prev + rate * dt`
 /// Explicit Euler method (same as default integrate)
-#[kernel_fn(name = "integrate_euler", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn integrate_euler(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
 }
 
 /// RK4 integration: `integrate_rk4(prev, rate)` → higher-order integration
 /// Note: This is a simplified RK4 that assumes constant rate over dt
-#[kernel_fn(name = "integrate_rk4", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified RK4 for constant rate case
     // For true RK4, we'd need function evaluation capability
@@ -39,7 +38,7 @@ pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
 
 /// Verlet integration: `integrate_verlet(prev, rate)` → Velocity Verlet approximation
 /// Note: This is simplified for single-variable case
-#[kernel_fn(name = "integrate_verlet", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn integrate_verlet(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified Verlet integration
     // For position-like quantities, assume rate is velocity
@@ -50,13 +49,13 @@ pub fn integrate_verlet(prev: f64, rate: f64, dt: Dt) -> f64 {
 }
 
 /// Exponential decay: `decay(value, halflife)` → `value * 0.5^(dt/halflife)`
-#[kernel_fn(name = "decay", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
     value * 0.5_f64.powf(dt / halflife)
 }
 
 /// Exponential relaxation: `relax(current, target, tau)` → approaches target
-#[kernel_fn(name = "relax", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn relax(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     let alpha = std::f64::consts::E.powf(-dt / tau);
     target + (current - target) * alpha
@@ -64,40 +63,39 @@ pub fn relax(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
 
 /// Exponential relaxation: `relax_to(current, target, tau)` → approaches target
 /// Alias for `relax`
-#[kernel_fn(name = "relax_to", category = "simulation")]
+#[kernel_fn(namespace = "dt", category = "simulation")]
 pub fn relax_to(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     relax(current, target, tau, dt)
 }
 
 /// Smooth transition: `smooth(current, target, tau)` → approaches target
 /// Same as relax - exponential approach to target value
-#[kernel_fn(name = "smooth", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn smooth(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     relax(current, target, tau, dt)
 }
 
 /// Bounded accumulation: `accumulate(prev, delta, min, max)` → clamps accumulated value
-#[kernel_fn(name = "accumulate", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn accumulate(prev: f64, delta: f64, min: f64, max: f64, dt: Dt) -> f64 {
     (prev + delta * dt).clamp(min, max)
 }
 
 /// Phase advancement: `advance_phase(phase, omega)` → wraps phase in [0, 2π)
-#[kernel_fn(name = "advance_phase", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn advance_phase(phase: f64, omega: f64, dt: Dt) -> f64 {
-    use continuum_kernel_registry::eval;
-
     // Use the wrap function from math stdlib: wrap(value, min, max)
     let new_phase = phase + omega * dt;
     let tau = std::f64::consts::TAU;
 
     // Call the wrap function from the kernel registry
-    eval("wrap", &[new_phase, 0.0, tau], dt).unwrap_or(new_phase.rem_euclid(tau))
+    eval_in_namespace("maths", "wrap", &[new_phase, 0.0, tau], dt)
+        .unwrap_or(new_phase.rem_euclid(tau))
 }
 
 /// Damping: `damp(value, damping_factor)` → applies damping
 /// Note: This is a simplified damping model. Full spring-damper systems need more context.
-#[kernel_fn(name = "damp", category = "simulation", vectorized)]
+#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn damp(value: f64, damping_factor: f64, dt: Dt) -> f64 {
     // Simple exponential damping: value * (1 - damping_factor * dt)
     // Clamp to prevent negative damping
@@ -110,7 +108,7 @@ pub fn damp(value: f64, damping_factor: f64, dt: Dt) -> f64 {
 // ============================================================================
 
 /// Vectorized integration implementation (Euler method)
-#[vectorized_kernel_fn(name = "integrate")]
+#[vectorized_kernel_fn(name = "integrate", namespace = "dt")]
 pub fn integrate_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -120,7 +118,7 @@ pub fn integrate_vectorized(
 }
 
 /// Vectorized Euler integration implementation
-#[vectorized_kernel_fn(name = "integrate_euler")]
+#[vectorized_kernel_fn(name = "integrate_euler", namespace = "dt")]
 pub fn integrate_euler_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -130,7 +128,7 @@ pub fn integrate_euler_vectorized(
 }
 
 /// Vectorized RK4 integration implementation
-#[vectorized_kernel_fn(name = "integrate_rk4")]
+#[vectorized_kernel_fn(name = "integrate_rk4", namespace = "dt")]
 pub fn integrate_rk4_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -141,7 +139,7 @@ pub fn integrate_rk4_vectorized(
 }
 
 /// Vectorized Verlet integration implementation
-#[vectorized_kernel_fn(name = "integrate_verlet")]
+#[vectorized_kernel_fn(name = "integrate_verlet", namespace = "dt")]
 pub fn integrate_verlet_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -180,7 +178,7 @@ fn euler_integration_impl(
 }
 
 /// Vectorized decay implementation
-#[vectorized_kernel_fn(name = "decay")]
+#[vectorized_kernel_fn(name = "decay", namespace = "dt")]
 pub fn decay_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -219,7 +217,7 @@ pub fn decay_vectorized(
 }
 
 /// Vectorized relax implementation
-#[vectorized_kernel_fn(name = "relax")]
+#[vectorized_kernel_fn(name = "relax", namespace = "dt")]
 pub fn relax_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -269,7 +267,7 @@ pub fn relax_vectorized(
 }
 
 /// Vectorized smooth implementation (alias for relax)
-#[vectorized_kernel_fn(name = "smooth")]
+#[vectorized_kernel_fn(name = "smooth", namespace = "dt")]
 pub fn smooth_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -279,7 +277,7 @@ pub fn smooth_vectorized(
 }
 
 /// Vectorized accumulate implementation
-#[vectorized_kernel_fn(name = "accumulate")]
+#[vectorized_kernel_fn(name = "accumulate", namespace = "dt")]
 pub fn accumulate_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -317,7 +315,7 @@ pub fn accumulate_vectorized(
 }
 
 /// Vectorized advance_phase implementation
-#[vectorized_kernel_fn(name = "advance_phase")]
+#[vectorized_kernel_fn(name = "advance_phase", namespace = "dt")]
 pub fn advance_phase_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -350,7 +348,7 @@ pub fn advance_phase_vectorized(
 }
 
 /// Vectorized damp implementation
-#[vectorized_kernel_fn(name = "damp")]
+#[vectorized_kernel_fn(name = "damp", namespace = "dt")]
 pub fn damp_vectorized(
     args: &[&VRegBuffer],
     dt: Dt,
@@ -386,12 +384,12 @@ pub fn damp_vectorized(
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{Arity, eval, get, is_known};
+    use continuum_kernel_registry::{Arity, eval_in_namespace, get_in_namespace, is_known_in};
 
     #[test]
     fn test_integrate_registered() {
-        assert!(is_known("integrate"));
-        let desc = get("integrate").unwrap();
+        assert!(is_known_in("dt", "integrate"));
+        let desc = get_in_namespace("dt", "integrate").unwrap();
         assert_eq!(desc.arity, Arity::Fixed(2));
         assert!(desc.requires_dt());
     }
@@ -399,14 +397,14 @@ mod tests {
     #[test]
     fn test_integrate_eval() {
         // integrate(10, 5, dt=0.1) = 10 + 5*0.1 = 10.5
-        let result = eval("integrate", &[10.0, 5.0], 0.1).unwrap();
+        let result = eval_in_namespace("dt", "integrate", &[10.0, 5.0], 0.1).unwrap();
         assert!((result - 10.5).abs() < 1e-10);
     }
 
     #[test]
     fn test_decay_registered() {
-        assert!(is_known("decay"));
-        let desc = get("decay").unwrap();
+        assert!(is_known_in("dt", "decay"));
+        let desc = get_in_namespace("dt", "decay").unwrap();
         assert_eq!(desc.arity, Arity::Fixed(2));
         assert!(desc.requires_dt());
     }
@@ -414,14 +412,14 @@ mod tests {
     #[test]
     fn test_decay_eval() {
         // decay(100, 10, dt=10) = 100 * 0.5^1 = 50
-        let result = eval("decay", &[100.0, 10.0], 10.0).unwrap();
+        let result = eval_in_namespace("dt", "decay", &[100.0, 10.0], 10.0).unwrap();
         assert!((result - 50.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_relax_registered() {
-        assert!(is_known("relax"));
-        let desc = get("relax").unwrap();
+        assert!(is_known_in("dt", "relax"));
+        let desc = get_in_namespace("dt", "relax").unwrap();
         assert_eq!(desc.arity, Arity::Fixed(3));
         assert!(desc.requires_dt());
     }
@@ -429,7 +427,7 @@ mod tests {
     #[test]
     fn test_relax_eval() {
         // relax(0, 100, tau=1, dt=1) ≈ 63.2
-        let result = eval("relax", &[0.0, 100.0, 1.0], 1.0).unwrap();
+        let result = eval_in_namespace("dt", "relax", &[0.0, 100.0, 1.0], 1.0).unwrap();
         let expected = 100.0 * (1.0 - std::f64::consts::E.powf(-1.0));
         assert!((result - expected).abs() < 0.01);
     }
@@ -439,45 +437,45 @@ mod tests {
         use continuum_kernel_registry::has_vectorized_impl;
 
         // Vectorized implementations should be registered
-        assert!(has_vectorized_impl("integrate"));
-        assert!(has_vectorized_impl("integrate_euler"));
-        assert!(has_vectorized_impl("integrate_rk4"));
-        assert!(has_vectorized_impl("integrate_verlet"));
-        assert!(has_vectorized_impl("decay"));
-        assert!(has_vectorized_impl("relax"));
-        assert!(has_vectorized_impl("smooth"));
-        assert!(has_vectorized_impl("accumulate"));
-        assert!(has_vectorized_impl("advance_phase"));
-        assert!(has_vectorized_impl("damp"));
+        assert!(has_vectorized_impl("dt", "integrate"));
+        assert!(has_vectorized_impl("dt", "integrate_euler"));
+        assert!(has_vectorized_impl("dt", "integrate_rk4"));
+        assert!(has_vectorized_impl("dt", "integrate_verlet"));
+        assert!(has_vectorized_impl("dt", "decay"));
+        assert!(has_vectorized_impl("dt", "relax"));
+        assert!(has_vectorized_impl("dt", "smooth"));
+        assert!(has_vectorized_impl("dt", "accumulate"));
+        assert!(has_vectorized_impl("dt", "advance_phase"));
+        assert!(has_vectorized_impl("dt", "damp"));
 
         // All should still be registered as regular functions
-        assert!(is_known("integrate"));
-        assert!(is_known("decay"));
-        assert!(is_known("relax"));
+        assert!(is_known_in("dt", "integrate"));
+        assert!(is_known_in("dt", "decay"));
+        assert!(is_known_in("dt", "relax"));
     }
 
     #[test]
     fn test_new_operators_registered() {
         // Test all new operators are registered
-        assert!(is_known("smooth"));
-        assert!(is_known("accumulate"));
-        assert!(is_known("advance_phase"));
-        assert!(is_known("damp"));
+        assert!(is_known_in("dt", "smooth"));
+        assert!(is_known_in("dt", "accumulate"));
+        assert!(is_known_in("dt", "advance_phase"));
+        assert!(is_known_in("dt", "damp"));
 
         // Check their descriptors
-        let smooth = get("smooth").unwrap();
+        let smooth = get_in_namespace("dt", "smooth").unwrap();
         assert!(smooth.requires_dt());
         assert_eq!(smooth.arity, Arity::Fixed(3));
 
-        let accumulate = get("accumulate").unwrap();
+        let accumulate = get_in_namespace("dt", "accumulate").unwrap();
         assert!(accumulate.requires_dt());
         assert_eq!(accumulate.arity, Arity::Fixed(4));
 
-        let advance_phase = get("advance_phase").unwrap();
+        let advance_phase = get_in_namespace("dt", "advance_phase").unwrap();
         assert!(advance_phase.requires_dt());
         assert_eq!(advance_phase.arity, Arity::Fixed(2));
 
-        let damp = get("damp").unwrap();
+        let damp = get_in_namespace("dt", "damp").unwrap();
         assert!(damp.requires_dt());
         assert_eq!(damp.arity, Arity::Fixed(2));
     }
@@ -485,19 +483,19 @@ mod tests {
     #[test]
     fn test_smooth_eval() {
         // smooth should behave exactly like relax
-        let smooth_result = eval("smooth", &[0.0, 100.0, 1.0], 1.0).unwrap();
-        let relax_result = eval("relax", &[0.0, 100.0, 1.0], 1.0).unwrap();
+        let smooth_result = eval_in_namespace("dt", "smooth", &[0.0, 100.0, 1.0], 1.0).unwrap();
+        let relax_result = eval_in_namespace("dt", "relax", &[0.0, 100.0, 1.0], 1.0).unwrap();
         assert!((smooth_result - relax_result).abs() < 1e-10);
     }
 
     #[test]
     fn test_accumulate_eval() {
         // accumulate(prev=10, delta=5, min=0, max=20, dt=2) = clamp(10 + 5*2, 0, 20) = clamp(20, 0, 20) = 20
-        let result = eval("accumulate", &[10.0, 5.0, 0.0, 20.0], 2.0).unwrap();
+        let result = eval_in_namespace("dt", "accumulate", &[10.0, 5.0, 0.0, 20.0], 2.0).unwrap();
         assert!((result - 20.0).abs() < 1e-10);
 
         // Test clamping: accumulate(prev=10, delta=10, min=0, max=15, dt=1) = clamp(20, 0, 15) = 15
-        let result = eval("accumulate", &[10.0, 10.0, 0.0, 15.0], 1.0).unwrap();
+        let result = eval_in_namespace("dt", "accumulate", &[10.0, 10.0, 0.0, 15.0], 1.0).unwrap();
         assert!((result - 15.0).abs() < 1e-10);
     }
 
@@ -506,32 +504,32 @@ mod tests {
         use std::f64::consts::PI;
 
         // advance_phase(phase=0, omega=PI, dt=1) = wrap(0 + PI*1, 0, TAU) = PI
-        let result = eval("advance_phase", &[0.0, PI, 0.0], 1.0).unwrap();
+        let result = eval_in_namespace("dt", "advance_phase", &[0.0, PI, 0.0], 1.0).unwrap();
         assert!((result - PI).abs() < 1e-10);
 
         // Test wrapping: advance_phase(phase=PI, omega=PI, dt=1) = wrap(2*PI, 0, TAU) = 0
-        let result = eval("advance_phase", &[PI, PI, 0.0], 1.0).unwrap();
+        let result = eval_in_namespace("dt", "advance_phase", &[PI, PI, 0.0], 1.0).unwrap();
         assert!(result.abs() < 1e-10);
     }
 
     #[test]
     fn test_damp_eval() {
         // damp(value=100, damping_factor=0.1, dt=1) = 100 * (1 - 0.1*1) = 100 * 0.9 = 90
-        let result = eval("damp", &[100.0, 0.1], 1.0).unwrap();
+        let result = eval_in_namespace("dt", "damp", &[100.0, 0.1], 1.0).unwrap();
         assert!((result - 90.0).abs() < 1e-10);
 
         // Test clamping to prevent negative factors
-        let result = eval("damp", &[100.0, 2.0], 1.0).unwrap(); // factor would be negative, gets clamped to 0
+        let result = eval_in_namespace("dt", "damp", &[100.0, 2.0], 1.0).unwrap(); // factor would be negative, gets clamped to 0
         assert!((result - 0.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_integration_methods_registered() {
         // Test all integration method variants are registered
-        assert!(is_known("integrate"));
-        assert!(is_known("integrate_euler"));
-        assert!(is_known("integrate_rk4"));
-        assert!(is_known("integrate_verlet"));
+        assert!(is_known_in("dt", "integrate"));
+        assert!(is_known_in("dt", "integrate_euler"));
+        assert!(is_known_in("dt", "integrate_rk4"));
+        assert!(is_known_in("dt", "integrate_verlet"));
 
         // All should have same arity and requirements
         for method in &[
@@ -540,7 +538,7 @@ mod tests {
             "integrate_rk4",
             "integrate_verlet",
         ] {
-            let desc = get(method).unwrap();
+            let desc = get_in_namespace("dt", method).unwrap();
             assert!(desc.requires_dt());
             assert_eq!(desc.arity, Arity::Fixed(2));
         }
@@ -552,10 +550,10 @@ mod tests {
         let args = &[10.0, 5.0];
         let dt = 0.1;
 
-        let euler = eval("integrate_euler", args, dt).unwrap();
-        let rk4 = eval("integrate_rk4", args, dt).unwrap();
-        let verlet = eval("integrate_verlet", args, dt).unwrap();
-        let default = eval("integrate", args, dt).unwrap();
+        let euler = eval_in_namespace("dt", "integrate_euler", args, dt).unwrap();
+        let rk4 = eval_in_namespace("dt", "integrate_rk4", args, dt).unwrap();
+        let verlet = eval_in_namespace("dt", "integrate_verlet", args, dt).unwrap();
+        let default = eval_in_namespace("dt", "integrate", args, dt).unwrap();
 
         assert!((euler - 10.5).abs() < 1e-10);
         assert!((rk4 - euler).abs() < 1e-10); // Should be same for constant rate
@@ -585,9 +583,13 @@ mod tests {
         ];
 
         for op in &expected_operators {
-            assert!(is_known(op), "Operator '{}' should be registered", op);
+            assert!(
+                is_known_in("dt", op),
+                "Operator '{}' should be registered",
+                op
+            );
 
-            let desc = get(op).unwrap();
+            let desc = get_in_namespace("dt", op).unwrap();
             assert!(desc.requires_dt(), "Operator '{}' should require dt", op);
 
             // All should be in simulation category except relax_to
@@ -599,10 +601,5 @@ mod tests {
                 );
             }
         }
-
-        println!(
-            "✅ Phase 2 Complete: All {} dt-robust operators registered and tested",
-            expected_operators.len()
-        );
     }
 }

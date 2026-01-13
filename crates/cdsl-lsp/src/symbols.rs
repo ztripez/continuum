@@ -733,10 +733,11 @@ pub fn format_hover_markdown(info: &SymbolInfo) -> String {
 }
 
 pub fn get_builtin_hover(name: &str) -> Option<String> {
-    kernel_registry::get(name).map(|k| {
+    let (namespace, function) = name.split_once('.')?;
+    kernel_registry::get_in_namespace(namespace, function).map(|k| {
         format!(
-            "**{}** (built-in)\n\n`{}`\n\n---\n\n{}",
-            k.name, k.signature, k.doc
+            "**{}.{}** (built-in)\n\n`{}`\n\n---\n\n{}",
+            k.namespace, k.name, k.signature, k.doc
         )
     })
 }

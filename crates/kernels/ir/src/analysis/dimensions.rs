@@ -156,9 +156,13 @@ fn infer_unit(
             }
         }
 
-        CompiledExpr::KernelCall { function, args } => {
-            match function.as_str() {
-                "sin" | "cos" | "tan" => {
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } => {
+            match (namespace.as_str(), function.as_str()) {
+                ("maths", "sin") | ("maths", "cos") | ("maths", "tan") => {
                     let u = infer_unit(&args[0], world, symbol_units, current_signal)?;
                     if u.is_angle() || u.is_dimensionless() {
                         Ok(Unit::dimensionless())
@@ -169,7 +173,7 @@ fn infer_unit(
                         })
                     }
                 }
-                "abs" | "min" | "max" | "clamp" => {
+                ("maths", "abs") | ("maths", "min") | ("maths", "max") | ("maths", "clamp") => {
                     // All args should match
                     let u0 = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
                     for arg in args.iter().skip(1) {
@@ -178,17 +182,20 @@ fn infer_unit(
                             return Err(DimensionError::IncompatibleUnits {
                                 expected: u0,
                                 found: ui,
-                                operation: format!("kernel call '{}'", function),
+                                operation: format!("maths call '{}'", function),
                             });
                         }
                     }
                     Ok(u0)
                 }
-                "sqrt" => {
+                ("maths", "sqrt") => {
                     let u = infer_unit(&args[0], world, symbol_units, current_signal)?;
                     u.sqrt().ok_or(DimensionError::InvalidSqrt { unit: u })
                 }
-                "integrate" | "integrate_euler" | "integrate_rk4" | "integrate_verlet" => {
+                ("dt", "integrate")
+                | ("dt", "integrate_euler")
+                | ("dt", "integrate_rk4")
+                | ("dt", "integrate_verlet") => {
                     // integrate(prev, rate) -> prev + rate * dt
                     let u_prev = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
                     let u_rate = infer_unit(&args[1], world, symbol_units, current_signal)?;
@@ -205,7 +212,7 @@ fn infer_unit(
                         })
                     }
                 }
-                "decay" => {
+                ("dt", "decay") => {
                     // decay(value, halflife) -> value * 0.5^(dt/halflife)
                     let u_val = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
                     let u_half = infer_unit(&args[1], world, symbol_units, current_signal)?;

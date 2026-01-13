@@ -286,7 +286,7 @@ signal.terra.geophysics.core.temp_k {
 - `config.path` — read configuration
 - `dt_raw` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
 - `collected` — accumulated inputs from Collect phase
-- `kernel.fn(...)` — engine-provided functions
+- `namespace.fn(...)` — engine-provided functions (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`)
 - `let name = expr in body` — local bindings (ML-style)
 
 ### Warmup Block
@@ -303,8 +303,8 @@ signal.terra.thermal.equilibrium {
     : convergence(1e-6)
 
     iterate {
-      let flux_in = kernel.radiogenic_heat(config.terra.core.budget) in
-      let flux_out = kernel.surface_radiation(prev) in
+      let flux_in = physics.radiogenic_heat(config.terra.core.budget) in
+      let flux_out = physics.surface_radiation(prev) in
       prev + (flux_in - flux_out) * 0.1
     }
   }
@@ -377,7 +377,7 @@ member.stellar.moon.orbit_phase {
     : strata(stellar.orbital)
 
     resolve {
-        kernel.advance_phase(prev, self.orbit_velocity)
+        dt.advance_phase(prev, self.orbit_velocity)
     }
 }
 
@@ -424,7 +424,7 @@ field.terra.surface.temperature_map {
   : symbol("T_s")
 
   measure {
-    kernel.surface_projection(
+    physics.surface_projection(
       signal.terra.atmosphere.temp_profile,
       signal.terra.geophysics.surface.temp
     )
@@ -452,8 +452,8 @@ operator.terra.thermal.budget {
   : phase(collect)
 
   collect {
-    let radiogenic = kernel.radiogenic_power(config.terra.thermal.base, signal.time.age) in
-    let loss = kernel.surface_heat_loss(signal.terra.geophysics.mantle.heat_j) in
+    let radiogenic = physics.radiogenic_power(config.terra.thermal.base, signal.time.age) in
+    let loss = physics.surface_heat_loss(signal.terra.geophysics.mantle.heat_j) in
 
     signal.terra.geophysics.mantle.heat_j <- radiogenic - loss
   }
@@ -500,7 +500,7 @@ impulse.terra.impact.asteroid {
   }
 
   apply {
-    let crater = kernel.impact_physics(payload.mass, payload.velocity) in
+    let crater = physics.impact_physics(payload.mass, payload.velocity) in
     signal.terra.geophysics.surface.energy <- crater.thermal_energy
     signal.terra.atmosphere.dust <- crater.ejecta_mass
   }
@@ -732,7 +732,8 @@ field.target <- position, value
 | `prev` | Previous signal value (in resolve blocks) |
 | `payload` | Impulse data (in apply blocks) |
 | `dt_raw` | Raw timestep (requires `: dt_raw` declaration, prefer dt-robust operators) |
-| `kernel.` | Engine-provided function |
+| `namespace.` | Engine-provided function (e.g. `maths.`, `vector.`, `dt.`, `physics.`) |
+| `dt.` | dt-robust integration operators |
 
 ---
 
@@ -752,7 +753,7 @@ Example usage:
 
 ```
 resolve {
-  kernel.advance_phase(prev, signal.omega)
+  dt.advance_phase(prev, signal.omega)
 }
 
 # Unicode form for extra flair
@@ -815,7 +816,7 @@ signal.terra.core.temp {
 
   resolve {
     # Use dt-robust decay operator instead of raw dt
-    kernel.decay(prev, config.terra.thermal.decay_halflife)
+    dt.decay(prev, config.terra.thermal.decay_halflife)
   }
 }
 

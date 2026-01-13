@@ -1154,7 +1154,7 @@ mod tests {
 
             signal.stellar.total_mass {
                 : strata(stellar)
-                resolve { sum(entity.stellar.moon, self.mass) }
+                resolve { agg.sum(entity.stellar.moon, self.mass) }
             }
         "#;
 
@@ -1179,7 +1179,7 @@ mod tests {
 
     #[test]
     fn test_compile_aggregate_count() {
-        // Note: count(entity.X) is a special syntax that just counts instances
+        // Note: agg.count(entity.X) is a special syntax that just counts instances
         // It doesn't take a body/predicate - the body is implicitly "1"
         // For count aggregates, we need at least one member signal to iterate over
         let src = r#"
@@ -1201,7 +1201,7 @@ mod tests {
 
             signal.human.person_count {
                 : strata(human)
-                resolve { count(entity.human.person) }
+                resolve { agg.count(entity.human.person) }
             }
         "#;
 
@@ -1244,12 +1244,12 @@ mod tests {
 
             signal.stellar.total_mass {
                 : strata(stellar)
-                resolve { sum(entity.stellar.planet, self.mass) }
+                resolve { agg.sum(entity.stellar.planet, self.mass) }
             }
 
             signal.stellar.max_radius {
                 : strata(stellar)
-                resolve { max(entity.stellar.planet, self.radius) }
+                resolve { agg.max(entity.stellar.planet, self.radius) }
             }
         "#;
 

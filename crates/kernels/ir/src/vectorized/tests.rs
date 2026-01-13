@@ -110,6 +110,7 @@ fn test_l2_unary_neg() {
 #[test]
 fn test_l2_kernel_sqrt() {
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "sqrt".to_string(),
         args: vec![CompiledExpr::Prev],
     };
@@ -122,6 +123,7 @@ fn test_l2_kernel_sqrt() {
 #[test]
 fn test_l2_kernel_sin() {
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "sin".to_string(),
         args: vec![CompiledExpr::Literal(0.0, None)],
     };
@@ -136,6 +138,7 @@ fn test_l2_kernel_sin() {
 #[test]
 fn test_l2_kernel_clamp() {
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "clamp".to_string(),
         args: vec![
             CompiledExpr::Prev,
@@ -152,6 +155,7 @@ fn test_l2_kernel_clamp() {
 #[test]
 fn test_l2_kernel_lerp() {
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "lerp".to_string(),
         args: vec![
             CompiledExpr::Literal(0.0, None),
@@ -172,6 +176,7 @@ fn test_l2_kernel_lerp() {
 fn test_l2_integrate_euler() {
     // prev + rate * dt where rate = 1.0
     let expr = CompiledExpr::KernelCall {
+        namespace: "dt".to_string(),
         function: "integrate".to_string(),
         args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1.0, None)],
     };
@@ -299,6 +304,7 @@ fn test_l2_kernel_struct_properties() {
 fn test_l2_decay_operator() {
     // decay(prev, half_life=1.0)
     let expr = CompiledExpr::KernelCall {
+        namespace: "dt".to_string(),
         function: "decay".to_string(),
         args: vec![
             CompiledExpr::Prev,
@@ -321,6 +327,7 @@ fn test_l2_decay_operator() {
 fn test_l2_smooth_operator() {
     // smooth(prev, target=100.0, tau=1.0)
     let expr = CompiledExpr::KernelCall {
+        namespace: "dt".to_string(),
         function: "smooth".to_string(),
         args: vec![
             CompiledExpr::Prev,

@@ -121,7 +121,7 @@ member.stellar.moon.orbit_phase {
     : strata(stellar.orbital)
 
     resolve {
-        kernel.advance_phase(prev, self.orbit_velocity)
+        dt.advance_phase(prev, self.orbit_velocity)
     }
 }
 ```
@@ -172,7 +172,7 @@ member.stellar.moon.velocity {
     : strata(stellar.orbital)
 
     resolve {
-        kernel.integrate(prev, acceleration)  // prev = previous tick velocity
+        dt.integrate(prev, acceleration)  // prev = previous tick velocity
     }
 }
 
@@ -182,7 +182,7 @@ member.stellar.moon.position {
 
     resolve {
         // self.velocity reads PREVIOUS tick velocity, not just-computed!
-        kernel.integrate(prev, self.velocity)
+        dt.integrate(prev, self.velocity)
     }
 }
 ```
@@ -237,7 +237,7 @@ signal.terra.tidal.total_force {
     : strata(terra.orbital)
 
     resolve {
-        sum(entity.stellar.moon,
+        agg.sum(entity.stellar.moon,
             fn.tidal_force(self.mass, self.orbit_radius, self.orbit_phase)
         )
     }
@@ -248,7 +248,7 @@ signal.stellar.moon_count {
     : strata(stellar.orbital)
 
     resolve {
-        count(entity.stellar.moon)
+        agg.count(entity.stellar.moon)
     }
 }
 ```
@@ -287,26 +287,26 @@ signal.terra.luna.phase {
 
 | Operation | Description | Example |
 |-----------|-------------|---------|
-| `sum(entity, expr)` | Sum over all instances | `sum(entity.moon, self.mass)` |
-| `product(entity, expr)` | Product over all | `product(entity.layer, self.transmittance)` |
-| `max(entity, expr)` | Maximum value | `max(entity.star, self.luminosity)` |
-| `min(entity, expr)` | Minimum value | `min(entity.moon, self.orbit_radius)` |
-| `mean(entity, expr)` | Average | `mean(entity.plate, self.age)` |
-| `count(entity)` | Number of instances | `count(entity.moon)` |
+| `agg.sum(entity, expr)` | Sum over all instances | `agg.sum(entity.moon, self.mass)` |
+| `agg.product(entity, expr)` | Product over all | `agg.product(entity.layer, self.transmittance)` |
+| `agg.max(entity, expr)` | Maximum value | `agg.max(entity.star, self.luminosity)` |
+| `agg.min(entity, expr)` | Minimum value | `agg.min(entity.moon, self.orbit_radius)` |
+| `agg.mean(entity, expr)` | Average | `agg.mean(entity.plate, self.age)` |
+| `agg.count(entity)` | Number of instances | `agg.count(entity.moon)` |
 
 ### Predicates
 
 | Operation | Description | Example |
 |-----------|-------------|---------|
-| `any(entity, pred)` | Any matches | `any(entity.moon, self.mass > 1e22)` |
-| `all(entity, pred)` | All match | `all(entity.star, self.luminosity > 0)` |
-| `none(entity, pred)` | None match | `none(entity.plate, self.age < 0)` |
+| `agg.any(entity, pred)` | Any matches | `agg.any(entity.moon, self.mass > 1e22)` |
+| `agg.all(entity, pred)` | All match | `agg.all(entity.star, self.luminosity > 0)` |
+| `agg.none(entity, pred)` | None match | `agg.none(entity.plate, self.age < 0)` |
 
 ### Filtering
 
 | Operation | Description | Example |
 |-----------|-------------|---------|
-| `filter(entity, pred)` | Subset for nested ops | `sum(filter(entity.moon, self.mass > 1e20), self.mass)` |
+| `filter(entity, pred)` | Subset for nested ops | `agg.sum(filter(entity.moon, self.mass > 1e20), self.mass)` |
 | `first(entity, pred)` | First matching | `first(entity.plate, self.type == Continental)` |
 
 ### Spatial
@@ -314,7 +314,7 @@ signal.terra.luna.phase {
 | Operation | Description | Example |
 |-----------|-------------|---------|
 | `nearest(entity, pos)` | Closest to position | `nearest(entity.plate, position).velocity` |
-| `within(entity, pos, radius)` | All within radius | `sum(within(entity.moon, pos, 1e9), self.mass)` |
+| `within(entity, pos, radius)` | All within radius | `agg.sum(within(entity.moon, pos, 1e9), self.mass)` |
 
 ---
 
@@ -383,7 +383,7 @@ member.stellar.moon.position {
     : strata(stellar.orbital)
 
     resolve {
-        kernel.integrate(prev, self.velocity)
+        dt.integrate(prev, self.velocity)
     }
 }
 
@@ -404,7 +404,7 @@ member.stellar.moon.velocity {
             * normalize(other.position - self.position)
         ) in
 
-        kernel.integrate(prev, planet_gravity + perturbations)
+        dt.integrate(prev, planet_gravity + perturbations)
     }
 }
 
@@ -426,7 +426,7 @@ signal.terra.tidal.amplitude {
     : strata(terra.orbital)
 
     resolve {
-        sum(entity.stellar.moon,
+        agg.sum(entity.stellar.moon,
             fn.tidal_amplitude(self.mass, magnitude(self.position), signal.terra.radius)
         )
     }

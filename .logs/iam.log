@@ -1,0 +1,129 @@
+[2026-01-13T20:58:10.977Z] [INFO] [HOOK] Plugin initialized
+[2026-01-13T20:58:45.740Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T20:58:45.751Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T20:58:46.084Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T20:58:50.888Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T20:58:51.988Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:03:46.991Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:03:46.998Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:03:47.358Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:03:52.916Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"grep","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:03:53.109Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:03:53.114Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:03:56.809Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:03:57.003Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:03:57.007Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:01.105Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:01.305Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:01.310Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:06.719Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"grep","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:06.900Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:06.904Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:10.881Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:11.066Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:11.069Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:15.641Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:15.841Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:15.845Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:21.221Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"grep","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:21.391Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:21.395Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:24.951Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:25.157Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:25.161Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:32.132Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"grep","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:32.318Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:32.322Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:35.910Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:36.108Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:36.113Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:39.473Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:39.654Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:39.659Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:42.118Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:46.999Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:47.003Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:50.263Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:50.267Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:53.721Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:53.911Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:53.916Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:04:57.177Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:04:57.367Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:04:57.371Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:05:00.614Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:05:00.805Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:05:00.810Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:05:06.321Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:05:06.550Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:05:06.554Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:05:10.959Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:05:11.152Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:05:11.156Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:05:21.607Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:05:21.788Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:05:21.792Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:05:26.598Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:05:26.781Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:05:26.787Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:05:29.880Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:05:30.088Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:05:30.092Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:05:32.442Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:06:08.574Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:06:08.580Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:06:08.885Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:02.680Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:07:02.687Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:03.138Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:05.101Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:09.528Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:16.489Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"todowrite","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:07:16.695Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:07:16.699Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:21.392Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"read","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:07:21.595Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:07:21.600Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:28.041Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:07:28.048Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:28.373Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:38.853Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"edit","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:07:39.039Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:07:39.043Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:07:45.637Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:07:45.820Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:07:45.823Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:08:06.531Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:08:06.538Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:08:06.786Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:08:30.221Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:08:30.227Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:08:30.678Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:08:36.552Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:08:36.749Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:08:36.752Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:08:44.807Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:08:44.995Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:08:44.998Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:08:47.466Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:08:52.985Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:08:53.195Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:08:53.199Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:09:00.538Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:09:00.726Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:09:00.731Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:09:07.988Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:09:08.182Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:09:08.187Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:09:19.751Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:09:19.942Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:09:19.947Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:09:30.573Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:09:30.767Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:09:30.772Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:09:37.481Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"bash","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:09:37.663Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:09:37.667Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
+[2026-01-13T21:09:43.726Z] [DEBUG] [HOOK] tool.execute.after fired | {"tool":"todowrite","sessionID":"ses_4487925d0ffegU1kr2j3JPfvbb","hasMetadata":true}
+[2026-01-13T21:09:43.931Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb","unhandledCount":0}
+[2026-01-13T21:09:43.934Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4487925d0ffegU1kr2j3JPfvbb"}
