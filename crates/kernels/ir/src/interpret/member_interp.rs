@@ -26,6 +26,24 @@ pub enum InterpValue {
 }
 
 impl InterpValue {
+    pub fn into_value(self) -> Value {
+        match self {
+            InterpValue::Scalar(v) => Value::Scalar(v),
+            InterpValue::Vec3(v) => Value::Vec3(v),
+            InterpValue::Bool(b) => Value::Boolean(b),
+        }
+    }
+
+    pub fn from_value(v: &Value) -> Self {
+        match v {
+            Value::Scalar(s) => InterpValue::Scalar(*s),
+            Value::Vec3(v) => InterpValue::Vec3(*v),
+            Value::Boolean(b) => InterpValue::Bool(*b),
+            Value::Integer(i) => InterpValue::Scalar(*i as f64),
+            _ => InterpValue::Scalar(0.0),
+        }
+    }
+
     pub fn as_f64(&self) -> f64 {
         match self {
             InterpValue::Scalar(v) => *v,
@@ -137,7 +155,7 @@ impl MemberInterpContext<'_> {
             _ => InterpValue::Scalar(0.0),
         }
     }
-    fn call_kernel(&self, namespace: &str, name: &str, args: &[f64]) -> f64 {
+    fn call_kernel(&self, namespace: &str, name: &str, args: &[Value]) -> Value {
         continuum_kernel_registry::eval_in_namespace(namespace, name, args, self.dt).unwrap_or_else(
             || {
                 panic!(
@@ -192,19 +210,19 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
                         InterpValue::Vec3([x, y, z])
                     }
                     _ => {
-                        let arg_vals: Vec<f64> = args
+                        let arg_vals: Vec<Value> = args
                             .iter()
-                            .map(|a| interpret_expr(a, ctx).as_f64())
+                            .map(|a| interpret_expr(a, ctx).into_value())
                             .collect();
-                        InterpValue::Scalar(ctx.call_kernel(namespace, function, &arg_vals))
+                        InterpValue::from_value(&ctx.call_kernel(namespace, function, &arg_vals))
                     }
                 }
             } else {
-                let arg_vals: Vec<f64> = args
+                let arg_vals: Vec<Value> = args
                     .iter()
-                    .map(|a| interpret_expr(a, ctx).as_f64())
+                    .map(|a| interpret_expr(a, ctx).into_value())
                     .collect();
-                InterpValue::Scalar(ctx.call_kernel(namespace, function, &arg_vals))
+                InterpValue::from_value(&ctx.call_kernel(namespace, function, &arg_vals))
             }
         }
         CompiledExpr::If {

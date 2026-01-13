@@ -115,6 +115,17 @@ fn spanned_expr_inner<'src>(
             ),
             expr_boxed
                 .clone()
+                .separated_by(tok(Token::Comma))
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(tok(Token::LBracket), tok(Token::RBracket))
+                .map_with(
+                    |elems, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
+                        Spanned::new(Expr::Vector(elems), extra.span().into())
+                    },
+                ),
+            expr_boxed
+                .clone()
                 .delimited_by(tok(Token::LParen), tok(Token::RParen)),
             path().map_with(|p, extra: &mut MapExtra<'src, '_, ParserInput<'src>, _>| {
                 Spanned::new(Expr::Path(p), extra.span().into())

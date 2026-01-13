@@ -200,6 +200,9 @@ pub enum Expr {
     /// Struct literal: `{ x: 1.0, y: 2.0 }`.
     Struct(Vec<(String, Spanned<Expr>)>),
 
+    /// Vector/Array literal: `[1.0, 2.0, 3.0]`.
+    Vector(Vec<Spanned<Expr>>),
+
     /// Accumulated inputs from Collect phase: `collected`.
     Collected,
 

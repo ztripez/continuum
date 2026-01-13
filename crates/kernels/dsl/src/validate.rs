@@ -486,7 +486,7 @@ mod tests {
                 : strata(thermal)
 
                 resolve {
-                    sin(1.0, 2.0)
+                    maths.sin(1.0, 2.0)
                 }
             }
         "#;
@@ -526,14 +526,16 @@ mod tests {
 
     #[test]
     fn test_arity_mismatch_method() {
-        // clamp expects 3 arguments (object + 2 args)
+        // my_clamp expects 3 arguments (object + 2 args)
         let source = r#"
+            fn.maths.my_clamp(val, min, max) { val }
+
             signal.core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
                 resolve {
-                    prev.clamp(0.0)
+                    prev.my_clamp(0.0)
                 }
             }
         "#;
@@ -545,7 +547,7 @@ mod tests {
         assert!(
             errors[0]
                 .message
-                .contains("method 'clamp' expects 3 arguments, got 2")
+                .contains("method 'my_clamp' expects 3 arguments, got 2")
         );
     }
 }

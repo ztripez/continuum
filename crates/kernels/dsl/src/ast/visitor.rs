@@ -188,6 +188,11 @@ pub trait ExprVisitor {
         true
     }
 
+    /// Visit vector literal. Children: elements.
+    fn visit_vector(&mut self) -> bool {
+        true
+    }
+
     /// Visit map. Children: sequence, function.
     fn visit_map(&mut self) -> bool {
         true
@@ -404,6 +409,11 @@ pub trait SpannedExprVisitor {
 
     /// Visit struct literal.
     fn visit_struct(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit vector literal.
+    fn visit_vector(&mut self, _span: std::ops::Range<usize>) -> bool {
         true
     }
 
@@ -629,6 +639,13 @@ pub fn walk_expr<V: ExprVisitor + ?Sized>(visitor: &mut V, expr: &Expr) {
                 }
             }
         }
+        Expr::Vector(elems) => {
+            if visitor.visit_vector() {
+                for elem in elems {
+                    visitor.walk_spanned(elem);
+                }
+            }
+        }
         Expr::Map { sequence, function } => {
             if visitor.visit_map() {
                 visitor.walk_spanned(sequence);
@@ -835,6 +852,13 @@ pub fn walk_spanned_expr<V: SpannedExprVisitor + ?Sized>(visitor: &mut V, expr: 
             if visitor.visit_struct(span) {
                 for (_, val) in fields {
                     visitor.walk(val);
+                }
+            }
+        }
+        Expr::Vector(elems) => {
+            if visitor.visit_vector(span) {
+                for elem in elems {
+                    visitor.walk(elem);
                 }
             }
         }
@@ -1624,6 +1648,11 @@ pub fn walk_ast_expr<V: AstVisitor + ?Sized>(visitor: &mut V, expr: &Spanned<Exp
         Expr::Struct(fields) => {
             for (_, value) in fields {
                 visitor.visit_expr(value);
+            }
+        }
+        Expr::Vector(elems) => {
+            for elem in elems {
+                visitor.visit_expr(elem);
             }
         }
         Expr::Map { sequence, function } => {
@@ -2704,6 +2733,12 @@ pub fn walk_ast_expr_transform<T: AstTransformer + ?Sized>(
                         transformer.transform_expr(expr),
                     )
                 })
+                .collect(),
+        ),
+        Expr::Vector(elems) => Expr::Vector(
+            elems
+                .into_iter()
+                .map(|elem| transformer.transform_expr(elem))
                 .collect(),
         ),
         Expr::Collected => Expr::Collected,

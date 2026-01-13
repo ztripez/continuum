@@ -51,6 +51,16 @@ Identifiers are:
 
 ## 4. Units and Literals
 
+Literals:
+
+```
+42              // Integer
+3.14            // Float
+true            // Boolean
+"hello"         // String
+[1.0, 2.0, 3.0] // Vector/Array
+```
+
 Units are specified in angle brackets:
 
 ```

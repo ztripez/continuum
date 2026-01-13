@@ -3,9 +3,10 @@
 //! These operators provide numerically stable alternatives to raw dt usage.
 //! They are designed to produce consistent results regardless of timestep size.
 
-use continuum_foundation::Dt;
+use continuum_foundation::{Dt, Value};
 use continuum_kernel_macros::{kernel_fn, vectorized_kernel_fn};
 use continuum_kernel_registry::{VRegBuffer, VectorizedResult, eval_in_namespace};
+
 /// Integration: `integrate(prev, rate)` → `prev + rate * dt`
 /// Default uses Euler method
 #[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
@@ -25,14 +26,7 @@ pub fn integrate_euler(prev: f64, rate: f64, dt: Dt) -> f64 {
 #[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified RK4 for constant rate case
-    // For true RK4, we'd need function evaluation capability
-    // k1 = rate * dt
-    // k2 = rate * dt (constant rate)
-    // k3 = rate * dt (constant rate)
-    // k4 = rate * dt (constant rate)
-    // result = prev + (k1 + 2*k2 + 2*k3 + k4) / 6
     // For constant rate: result = prev + 6 * rate * dt / 6 = prev + rate * dt
-    // So for constant rate, RK4 reduces to Euler
     prev + rate * dt
 }
 
@@ -41,10 +35,6 @@ pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
 #[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
 pub fn integrate_verlet(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified Verlet integration
-    // For position-like quantities, assume rate is velocity
-    // For true Verlet, we'd need acceleration and previous position
-    // This approximation uses: x_new = x + v*dt + 0.5*a*dt^2
-    // Assuming acceleration ≈ 0 for this simplified case
     prev + rate * dt
 }
 
@@ -89,8 +79,18 @@ pub fn advance_phase(phase: f64, omega: f64, dt: Dt) -> f64 {
     let tau = std::f64::consts::TAU;
 
     // Call the wrap function from the kernel registry
-    eval_in_namespace("maths", "wrap", &[new_phase, 0.0, tau], dt)
-        .unwrap_or(new_phase.rem_euclid(tau))
+    eval_in_namespace(
+        "maths",
+        "wrap",
+        &[
+            Value::Scalar(new_phase),
+            Value::Scalar(0.0),
+            Value::Scalar(tau),
+        ],
+        dt,
+    )
+    .and_then(|v| v.as_scalar())
+    .unwrap_or(new_phase.rem_euclid(tau))
 }
 
 /// Damping: `damp(value, damping_factor)` → applies damping
@@ -134,7 +134,6 @@ pub fn integrate_rk4_vectorized(
     dt: Dt,
     population: usize,
 ) -> VectorizedResult<VRegBuffer> {
-    // For constant rate case, RK4 reduces to Euler
     euler_integration_impl(args, dt, population)
 }
 
@@ -145,7 +144,6 @@ pub fn integrate_verlet_vectorized(
     dt: Dt,
     population: usize,
 ) -> VectorizedResult<VRegBuffer> {
-    // Simplified Verlet reduces to Euler for this case
     euler_integration_impl(args, dt, population)
 }
 
@@ -162,11 +160,18 @@ fn euler_integration_impl(
     let prev = args[0];
     let rate = args[1];
 
-    match (prev.as_uniform(), rate.as_uniform()) {
-        (Some(p), Some(r)) => Ok(VRegBuffer::uniform(p + r * dt)),
+    match (prev.get_scalar(0), rate.get_scalar(0)) {
+        // Optimization for uniform values
+        (Some(p), Some(r)) if prev.as_uniform().is_some() && rate.as_uniform().is_some() => {
+            Ok(VRegBuffer::uniform_scalar(p + r * dt))
+        }
         _ => {
-            let p_arr = prev.to_scalar_array(population);
-            let r_arr = rate.to_scalar_array(population);
+            let p_arr = prev
+                .to_scalar_array(population)
+                .ok_or("Type mismatch: expected scalar array")?;
+            let r_arr = rate
+                .to_scalar_array(population)
+                .ok_or("Type mismatch: expected scalar array")?;
             let result: Vec<f64> = p_arr
                 .iter()
                 .zip(r_arr.iter())
@@ -191,22 +196,25 @@ pub fn decay_vectorized(
     let value = args[0];
     let half_life = args[1];
 
-    // Pre-compute factor for uniform half-life case
-    if let Some(hl) = half_life.as_uniform() {
+    if let Some(hl) = half_life.as_uniform().and_then(|v| v.as_scalar()) {
         let factor = 0.5_f64.powf(dt / hl);
 
-        match value.as_uniform() {
-            Some(v) => Ok(VRegBuffer::uniform(v * factor)),
-            None => {
-                let v_arr = value.to_scalar_array(population);
-                let result: Vec<f64> = v_arr.iter().map(|&v| v * factor).collect();
-                Ok(VRegBuffer::Scalar(result))
-            }
+        if let Some(v) = value.as_uniform().and_then(|v| v.as_scalar()) {
+            Ok(VRegBuffer::uniform_scalar(v * factor))
+        } else {
+            let v_arr = value
+                .to_scalar_array(population)
+                .ok_or("Expected scalar array")?;
+            let result: Vec<f64> = v_arr.iter().map(|&v| v * factor).collect();
+            Ok(VRegBuffer::Scalar(result))
         }
     } else {
-        // Non-uniform half-life
-        let v_arr = value.to_scalar_array(population);
-        let hl_arr = half_life.to_scalar_array(population);
+        let v_arr = value
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+        let hl_arr = half_life
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
         let result: Vec<f64> = v_arr
             .iter()
             .zip(hl_arr.iter())
@@ -231,28 +239,37 @@ pub fn relax_vectorized(
     let target = args[1];
     let tau = args[2];
 
-    // Pre-compute factor for uniform tau case
-    if let Some(t) = tau.as_uniform() {
+    if let Some(t) = tau.as_uniform().and_then(|v| v.as_scalar()) {
         let factor = 1.0 - (-dt / t).exp();
 
-        match (current.as_uniform(), target.as_uniform()) {
-            (Some(c), Some(tgt)) => Ok(VRegBuffer::uniform(c + (tgt - c) * factor)),
-            _ => {
-                let c_arr = current.to_scalar_array(population);
-                let t_arr = target.to_scalar_array(population);
-                let result: Vec<f64> = c_arr
-                    .iter()
-                    .zip(t_arr.iter())
-                    .map(|(&c, &tgt)| c + (tgt - c) * factor)
-                    .collect();
-                Ok(VRegBuffer::Scalar(result))
-            }
+        if current.as_uniform().is_some() && target.as_uniform().is_some() {
+            let c = current.get_scalar(0).unwrap();
+            let tgt = target.get_scalar(0).unwrap();
+            Ok(VRegBuffer::uniform_scalar(c + (tgt - c) * factor))
+        } else {
+            let c_arr = current
+                .to_scalar_array(population)
+                .ok_or("Expected scalar array")?;
+            let t_arr = target
+                .to_scalar_array(population)
+                .ok_or("Expected scalar array")?;
+            let result: Vec<f64> = c_arr
+                .iter()
+                .zip(t_arr.iter())
+                .map(|(&c, &tgt)| c + (tgt - c) * factor)
+                .collect();
+            Ok(VRegBuffer::Scalar(result))
         }
     } else {
-        // Non-uniform tau
-        let c_arr = current.to_scalar_array(population);
-        let t_arr = target.to_scalar_array(population);
-        let tau_arr = tau.to_scalar_array(population);
+        let c_arr = current
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+        let t_arr = target
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+        let tau_arr = tau
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
         let result: Vec<f64> = c_arr
             .iter()
             .zip(t_arr.iter())
@@ -289,28 +306,47 @@ pub fn accumulate_vectorized(
 
     let prev = args[0];
     let delta = args[1];
-    let min_val = args[2]
-        .as_uniform()
-        .unwrap_or_else(|| args[2].to_scalar_array(population)[0]);
-    let max_val = args[3]
-        .as_uniform()
-        .unwrap_or_else(|| args[3].to_scalar_array(population)[0]);
 
-    match (prev.as_uniform(), delta.as_uniform()) {
-        (Some(p), Some(d)) => {
-            let result = (p + d * dt).clamp(min_val, max_val);
-            Ok(VRegBuffer::uniform(result))
-        }
-        _ => {
-            let p_arr = prev.to_scalar_array(population);
-            let d_arr = delta.to_scalar_array(population);
-            let result: Vec<f64> = p_arr
-                .iter()
-                .zip(d_arr.iter())
-                .map(|(&p, &d)| (p + d * dt).clamp(min_val, max_val))
-                .collect();
-            Ok(VRegBuffer::Scalar(result))
-        }
+    // Helper to get value or first element of array (clunky but matches previous logic)
+    let get_val = |buf: &VRegBuffer, idx: usize| -> f64 { buf.get_scalar(idx).unwrap_or(0.0) };
+
+    // If everything is uniform
+    if prev.as_uniform().is_some()
+        && delta.as_uniform().is_some()
+        && args[2].as_uniform().is_some()
+        && args[3].as_uniform().is_some()
+    {
+        let p = get_val(prev, 0);
+        let d = get_val(delta, 0);
+        let min_val = get_val(args[2], 0);
+        let max_val = get_val(args[3], 0);
+
+        let result = (p + d * dt).clamp(min_val, max_val);
+        Ok(VRegBuffer::uniform_scalar(result))
+    } else {
+        let p_arr = prev
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+        let d_arr = delta
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+
+        // For min/max, they might be uniform or arrays
+        let min_arr = args[2]
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+        let max_arr = args[3]
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+
+        let result: Vec<f64> = p_arr
+            .iter()
+            .zip(d_arr.iter())
+            .zip(min_arr.iter())
+            .zip(max_arr.iter())
+            .map(|(((&p, &d), &min_v), &max_v)| (p + d * dt).clamp(min_v, max_v))
+            .collect();
+        Ok(VRegBuffer::Scalar(result))
     }
 }
 
@@ -329,21 +365,24 @@ pub fn advance_phase_vectorized(
     let omega = args[1];
     let tau = std::f64::consts::TAU;
 
-    match (phase.as_uniform(), omega.as_uniform()) {
-        (Some(p), Some(o)) => {
-            let result = (p + o * dt).rem_euclid(tau);
-            Ok(VRegBuffer::uniform(result))
-        }
-        _ => {
-            let p_arr = phase.to_scalar_array(population);
-            let o_arr = omega.to_scalar_array(population);
-            let result: Vec<f64> = p_arr
-                .iter()
-                .zip(o_arr.iter())
-                .map(|(&p, &o)| (p + o * dt).rem_euclid(tau))
-                .collect();
-            Ok(VRegBuffer::Scalar(result))
-        }
+    if phase.as_uniform().is_some() && omega.as_uniform().is_some() {
+        let p = phase.get_scalar(0).unwrap();
+        let o = omega.get_scalar(0).unwrap();
+        let result = (p + o * dt).rem_euclid(tau);
+        Ok(VRegBuffer::uniform_scalar(result))
+    } else {
+        let p_arr = phase
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+        let o_arr = omega
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+        let result: Vec<f64> = p_arr
+            .iter()
+            .zip(o_arr.iter())
+            .map(|(&p, &o)| (p + o * dt).rem_euclid(tau))
+            .collect();
+        Ok(VRegBuffer::Scalar(result))
     }
 }
 
@@ -361,30 +400,35 @@ pub fn damp_vectorized(
     let value = args[0];
     let damping_factor = args[1];
 
-    match (value.as_uniform(), damping_factor.as_uniform()) {
-        (Some(v), Some(d)) => {
-            let factor = (1.0 - d * dt).max(0.0);
-            Ok(VRegBuffer::uniform(v * factor))
-        }
-        _ => {
-            let v_arr = value.to_scalar_array(population);
-            let d_arr = damping_factor.to_scalar_array(population);
-            let result: Vec<f64> = v_arr
-                .iter()
-                .zip(d_arr.iter())
-                .map(|(&v, &d)| {
-                    let factor = (1.0 - d * dt).max(0.0);
-                    v * factor
-                })
-                .collect();
-            Ok(VRegBuffer::Scalar(result))
-        }
+    if value.as_uniform().is_some() && damping_factor.as_uniform().is_some() {
+        let v = value.get_scalar(0).unwrap();
+        let d = damping_factor.get_scalar(0).unwrap();
+        let factor = (1.0 - d * dt).max(0.0);
+        Ok(VRegBuffer::uniform_scalar(v * factor))
+    } else {
+        let v_arr = value
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+        let d_arr = damping_factor
+            .to_scalar_array(population)
+            .ok_or("Expected scalar array")?;
+        let result: Vec<f64> = v_arr
+            .iter()
+            .zip(d_arr.iter())
+            .map(|(&v, &d)| {
+                let factor = (1.0 - d * dt).max(0.0);
+                v * factor
+            })
+            .collect();
+        Ok(VRegBuffer::Scalar(result))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{Arity, eval_in_namespace, get_in_namespace, is_known_in};
+    use continuum_kernel_registry::{
+        Arity, Value, eval_in_namespace, get_in_namespace, is_known_in,
+    };
 
     #[test]
     fn test_integrate_registered() {
@@ -397,8 +441,9 @@ mod tests {
     #[test]
     fn test_integrate_eval() {
         // integrate(10, 5, dt=0.1) = 10 + 5*0.1 = 10.5
-        let result = eval_in_namespace("dt", "integrate", &[10.0, 5.0], 0.1).unwrap();
-        assert!((result - 10.5).abs() < 1e-10);
+        let args = [Value::Scalar(10.0), Value::Scalar(5.0)];
+        let result = eval_in_namespace("dt", "integrate", &args, 0.1).unwrap();
+        assert!((result.as_scalar().unwrap() - 10.5).abs() < 1e-10);
     }
 
     #[test]
@@ -412,8 +457,9 @@ mod tests {
     #[test]
     fn test_decay_eval() {
         // decay(100, 10, dt=10) = 100 * 0.5^1 = 50
-        let result = eval_in_namespace("dt", "decay", &[100.0, 10.0], 10.0).unwrap();
-        assert!((result - 50.0).abs() < 1e-10);
+        let args = [Value::Scalar(100.0), Value::Scalar(10.0)];
+        let result = eval_in_namespace("dt", "decay", &args, 10.0).unwrap();
+        assert!((result.as_scalar().unwrap() - 50.0).abs() < 1e-10);
     }
 
     #[test]
@@ -427,9 +473,10 @@ mod tests {
     #[test]
     fn test_relax_eval() {
         // relax(0, 100, tau=1, dt=1) ≈ 63.2
-        let result = eval_in_namespace("dt", "relax", &[0.0, 100.0, 1.0], 1.0).unwrap();
+        let args = [Value::Scalar(0.0), Value::Scalar(100.0), Value::Scalar(1.0)];
+        let result = eval_in_namespace("dt", "relax", &args, 1.0).unwrap();
         let expected = 100.0 * (1.0 - std::f64::consts::E.powf(-1.0));
-        assert!((result - expected).abs() < 0.01);
+        assert!((result.as_scalar().unwrap() - expected).abs() < 0.01);
     }
 
     #[test]
@@ -483,20 +530,45 @@ mod tests {
     #[test]
     fn test_smooth_eval() {
         // smooth should behave exactly like relax
-        let smooth_result = eval_in_namespace("dt", "smooth", &[0.0, 100.0, 1.0], 1.0).unwrap();
-        let relax_result = eval_in_namespace("dt", "relax", &[0.0, 100.0, 1.0], 1.0).unwrap();
+        let args = [Value::Scalar(0.0), Value::Scalar(100.0), Value::Scalar(1.0)];
+        let smooth_result = eval_in_namespace("dt", "smooth", &args, 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        let relax_result = eval_in_namespace("dt", "relax", &args, 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
         assert!((smooth_result - relax_result).abs() < 1e-10);
     }
 
     #[test]
     fn test_accumulate_eval() {
         // accumulate(prev=10, delta=5, min=0, max=20, dt=2) = clamp(10 + 5*2, 0, 20) = clamp(20, 0, 20) = 20
-        let result = eval_in_namespace("dt", "accumulate", &[10.0, 5.0, 0.0, 20.0], 2.0).unwrap();
+        let args = [
+            Value::Scalar(10.0),
+            Value::Scalar(5.0),
+            Value::Scalar(0.0),
+            Value::Scalar(20.0),
+        ];
+        let result = eval_in_namespace("dt", "accumulate", &args, 2.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
         assert!((result - 20.0).abs() < 1e-10);
 
         // Test clamping: accumulate(prev=10, delta=10, min=0, max=15, dt=1) = clamp(20, 0, 15) = 15
-        let result = eval_in_namespace("dt", "accumulate", &[10.0, 10.0, 0.0, 15.0], 1.0).unwrap();
-        assert!((result - 15.0).abs() < 1e-10);
+        let args2 = [
+            Value::Scalar(10.0),
+            Value::Scalar(10.0),
+            Value::Scalar(0.0),
+            Value::Scalar(15.0),
+        ];
+        let result2 = eval_in_namespace("dt", "accumulate", &args2, 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result2 - 15.0).abs() < 1e-10);
     }
 
     #[test]
@@ -504,23 +576,39 @@ mod tests {
         use std::f64::consts::PI;
 
         // advance_phase(phase=0, omega=PI, dt=1) = wrap(0 + PI*1, 0, TAU) = PI
-        let result = eval_in_namespace("dt", "advance_phase", &[0.0, PI, 0.0], 1.0).unwrap();
+        let args = [Value::Scalar(0.0), Value::Scalar(PI)];
+        let result = eval_in_namespace("dt", "advance_phase", &args, 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
         assert!((result - PI).abs() < 1e-10);
 
         // Test wrapping: advance_phase(phase=PI, omega=PI, dt=1) = wrap(2*PI, 0, TAU) = 0
-        let result = eval_in_namespace("dt", "advance_phase", &[PI, PI, 0.0], 1.0).unwrap();
-        assert!(result.abs() < 1e-10);
+        let args2 = [Value::Scalar(PI), Value::Scalar(PI)];
+        let result2 = eval_in_namespace("dt", "advance_phase", &args2, 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!(result2.abs() < 1e-10);
     }
 
     #[test]
     fn test_damp_eval() {
         // damp(value=100, damping_factor=0.1, dt=1) = 100 * (1 - 0.1*1) = 100 * 0.9 = 90
-        let result = eval_in_namespace("dt", "damp", &[100.0, 0.1], 1.0).unwrap();
+        let args = [Value::Scalar(100.0), Value::Scalar(0.1)];
+        let result = eval_in_namespace("dt", "damp", &args, 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
         assert!((result - 90.0).abs() < 1e-10);
 
         // Test clamping to prevent negative factors
-        let result = eval_in_namespace("dt", "damp", &[100.0, 2.0], 1.0).unwrap(); // factor would be negative, gets clamped to 0
-        assert!((result - 0.0).abs() < 1e-10);
+        let args2 = [Value::Scalar(100.0), Value::Scalar(2.0)];
+        let result2 = eval_in_namespace("dt", "damp", &args2, 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap(); // factor would be negative, gets clamped to 0
+        assert!((result2 - 0.0).abs() < 1e-10);
     }
 
     #[test]
@@ -547,13 +635,25 @@ mod tests {
     #[test]
     fn test_integration_methods_eval() {
         // For constant rate case, all methods should give same result
-        let args = &[10.0, 5.0];
+        let args = [Value::Scalar(10.0), Value::Scalar(5.0)];
         let dt = 0.1;
 
-        let euler = eval_in_namespace("dt", "integrate_euler", args, dt).unwrap();
-        let rk4 = eval_in_namespace("dt", "integrate_rk4", args, dt).unwrap();
-        let verlet = eval_in_namespace("dt", "integrate_verlet", args, dt).unwrap();
-        let default = eval_in_namespace("dt", "integrate", args, dt).unwrap();
+        let euler = eval_in_namespace("dt", "integrate_euler", &args, dt)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        let rk4 = eval_in_namespace("dt", "integrate_rk4", &args, dt)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        let verlet = eval_in_namespace("dt", "integrate_verlet", &args, dt)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        let default = eval_in_namespace("dt", "integrate", &args, dt)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
 
         assert!((euler - 10.5).abs() < 1e-10);
         assert!((rk4 - euler).abs() < 1e-10); // Should be same for constant rate

@@ -344,7 +344,7 @@ signal.hydrology.water_temperature {
         # Water temperature relaxes toward surface temperature with latitude adjustment
         let surface_temp = signal.surface.temp in
         let target_temp = maths.clamp(surface_temp, config.hydrology.water_temperature.min_temp_k, config.hydrology.water_temperature.max_temp_k) in
-        relax_to(prev, target_temp, config.hydrology.water_temperature.relaxation_tau_s) + collected
+        dt.relax_to(prev, target_temp, config.hydrology.water_temperature.relaxation_tau_s) + collected
     }
 
     assert {
@@ -460,7 +460,7 @@ signal.hydrology.dissolved_gas {
         let temp = signal.hydrology.water_temperature in
         let temp_factor = maths.exp(config.hydrology.dissolved_gas.temperature_sensitivity * (temp - 288.0)) in
         let equilibrium = config.hydrology.dissolved_gas.initial * temp_factor in
-        relax_to(prev, equilibrium, 3.1536e7) + collected
+        dt.relax_to(prev, equilibrium, 3.1536e7) + collected
     }
 
     assert {

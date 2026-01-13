@@ -15,8 +15,7 @@
 //! ├─────────────┤             │ registry:                       │
 //! │ Instance 1  │             │   "mass" → (Scalar, idx=0)      │
 //! │  - mass: f64│             │   "pos"  → (Vec3, idx=0)        │
-//! │  - pos: Vec3│             └─────────────────────────────────┘
-//! └─────────────┘
+//! └─────────────┘             └─────────────────────────────────┘
 //! ```
 //!
 //! # Benefits
@@ -63,6 +62,10 @@ pub enum ValueType {
     Vec3,
     /// 4D vector [f64; 4]
     Vec4,
+    /// Boolean value
+    Boolean,
+    /// Integer value
+    Integer,
 }
 
 impl ValueType {
@@ -73,12 +76,18 @@ impl ValueType {
             ValueType::Vec2 => std::mem::size_of::<[f64; 2]>(),
             ValueType::Vec3 => std::mem::size_of::<[f64; 3]>(),
             ValueType::Vec4 => std::mem::size_of::<[f64; 4]>(),
+            ValueType::Boolean => std::mem::size_of::<bool>(),
+            ValueType::Integer => std::mem::size_of::<i64>(),
         }
     }
 
     /// Alignment requirement for this type
     pub const fn alignment(&self) -> usize {
-        std::mem::align_of::<f64>() // All f64-based types have same alignment
+        match self {
+            ValueType::Boolean => std::mem::align_of::<bool>(),
+            ValueType::Integer => std::mem::align_of::<i64>(),
+            _ => std::mem::align_of::<f64>(),
+        }
     }
 
     /// Infer type from a Value
@@ -88,6 +97,8 @@ impl ValueType {
             Value::Vec2(_) => ValueType::Vec2,
             Value::Vec3(_) => ValueType::Vec3,
             Value::Vec4(_) => ValueType::Vec4,
+            Value::Boolean(_) => ValueType::Boolean,
+            Value::Integer(_) => ValueType::Integer,
         }
     }
 }
@@ -672,6 +683,10 @@ pub struct MemberSignalBuffer {
     vec3s: DoubleBuffer<[f64; 3]>,
     /// Double-buffered Vec4 storage
     vec4s: DoubleBuffer<[f64; 4]>,
+    /// Double-buffered Boolean storage
+    booleans: DoubleBuffer<bool>,
+    /// Double-buffered Integer storage
+    integers: DoubleBuffer<i64>,
 }
 
 impl MemberSignalBuffer {
@@ -685,6 +700,8 @@ impl MemberSignalBuffer {
             vec2s: DoubleBuffer::new(),
             vec3s: DoubleBuffer::new(),
             vec4s: DoubleBuffer::new(),
+            booleans: DoubleBuffer::new(),
+            integers: DoubleBuffer::new(),
         }
     }
 
@@ -710,6 +727,10 @@ impl MemberSignalBuffer {
             .init(self.registry.type_count(ValueType::Vec3), instance_count);
         self.vec4s
             .init(self.registry.type_count(ValueType::Vec4), instance_count);
+        self.booleans
+            .init(self.registry.type_count(ValueType::Boolean), instance_count);
+        self.integers
+            .init(self.registry.type_count(ValueType::Integer), instance_count);
     }
 
     /// Get the maximum number of instances (used for storage).
@@ -787,6 +808,14 @@ impl MemberSignalBuffer {
                 .vec4s
                 .get_current(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Vec4(v)),
+            ValueType::Boolean => self
+                .booleans
+                .get_current(meta.buffer_index, instance_idx)
+                .map(|&v| Value::Boolean(v)),
+            ValueType::Integer => self
+                .integers
+                .get_current(meta.buffer_index, instance_idx)
+                .map(|&v| Value::Integer(v)),
         }
     }
 
@@ -810,6 +839,14 @@ impl MemberSignalBuffer {
                 .vec4s
                 .get_previous(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Vec4(v)),
+            ValueType::Boolean => self
+                .booleans
+                .get_previous(meta.buffer_index, instance_idx)
+                .map(|&v| Value::Boolean(v)),
+            ValueType::Integer => self
+                .integers
+                .get_previous(meta.buffer_index, instance_idx)
+                .map(|&v| Value::Integer(v)),
         }
     }
 
@@ -839,6 +876,16 @@ impl MemberSignalBuffer {
             }
             (ValueType::Vec4, Value::Vec4(v)) => {
                 self.vec4s.set_current(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (ValueType::Boolean, Value::Boolean(v)) => {
+                self.booleans
+                    .set_current(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (ValueType::Integer, Value::Integer(v)) => {
+                self.integers
+                    .set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
             (t, v) => Err(format!(
@@ -939,6 +986,8 @@ impl MemberSignalBuffer {
         self.vec2s.advance_tick();
         self.vec3s.advance_tick();
         self.vec4s.advance_tick();
+        self.booleans.advance_tick();
+        self.integers.advance_tick();
     }
 }
 

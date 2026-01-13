@@ -4,7 +4,7 @@
 //!
 //! ```ignore
 //! use continuum_kernel_macros::kernel_fn;
-//! use continuum_foundation::Dt;
+//! use continuum_foundation::{Dt, Value};
 //!
 //! /// Exponential decay toward zero
 //! #[kernel_fn(namespace = "dt")]
@@ -18,10 +18,10 @@
 //!     x.abs()
 //! }
 //!
-//! /// Variadic sum
-//! #[kernel_fn(namespace = "maths", variadic)]
-//! pub fn sum(args: &[f64]) -> f64 {
-//!     args.iter().sum()
+//! /// Generic Vector support
+//! #[kernel_fn(namespace = "maths")]
+//! pub fn vec_add(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+//!     [a[0]+b[0], a[1]+b[1], a[2]+b[2]]
 //! }
 //! ```
 
@@ -144,14 +144,14 @@ impl Parse for KernelArg {
 /// - `name = "..."` (optional): The name used in DSL expressions (defaults to function name)
 /// - `namespace = "..."` (required): Namespace tag (e.g. "maths", "vector", "dt")
 /// - `category = "..."` (optional): Category tag (defaults to "math")
-/// - `variadic` (optional): Mark as variadic (takes `&[f64]` instead of individual args)
+/// - `variadic` (optional): Mark as variadic (takes `&[Value]` or `&[f64]`)
 /// - `vectorized` (optional): Mark as having vectorized implementation available
 ///
 /// # Detection
 ///
 /// - If the last parameter is `Dt`, the function is dt-dependent
-/// - If the first parameter is `&[f64]` and `variadic` is set, it's variadic
-/// - Otherwise, arity is the number of f64 parameters
+/// - If the first parameter is `&[f64]` or `&[Value]` and `variadic` is set, it's variadic
+/// - Otherwise, arity is the number of parameters
 #[proc_macro_attribute]
 pub fn kernel_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as KernelFnArgs);
@@ -217,25 +217,28 @@ fn generate_kernel_registration(
         false
     });
 
-    // Extract parameter names for signature (excluding dt)
-    let param_names: Vec<String> = params
+    // Extract parameters and their types (excluding dt)
+    let user_params: Vec<(&Ident, &syn::Type)> = params
         .iter()
         .take(params.len() - if has_dt { 1 } else { 0 })
         .filter_map(|p| {
             if let syn::FnArg::Typed(pat) = p {
                 if let syn::Pat::Ident(pi) = pat.pat.as_ref() {
-                    return Some(pi.ident.to_string());
+                    return Some((&pi.ident, pat.ty.as_ref()));
                 }
             }
             None
         })
         .collect();
 
+    // Names for signature string
+    let param_names: Vec<String> = user_params.iter().map(|(id, _)| id.to_string()).collect();
+
     // Build signature string
     let signature = if variadic {
-        format!("{}(...) -> Scalar", dsl_name)
+        format!("{}(...) -> Value", dsl_name)
     } else {
-        format!("{}({}) -> Scalar", dsl_name, param_names.join(", "))
+        format!("{}({}) -> Value", dsl_name, param_names.join(", "))
     };
 
     // Calculate arity (excluding dt)
@@ -250,12 +253,46 @@ fn generate_kernel_registration(
     let descriptor_name = format_ident!("__KERNEL_{}", fn_name.to_string().to_uppercase());
 
     let (wrapper, impl_variant) = if variadic {
-        // Variadic: fn(&[f64]) -> f64 or fn(&[f64], Dt) -> f64
+        // Variadic: fn(&[Value]) -> Value or fn(&[Value], Dt) -> Value
+
+        let first_param_type = user_params.first().map(|(_, ty)| ty);
+        let is_value_slice = if let Some(syn::Type::Reference(tr)) = first_param_type {
+            if let syn::Type::Slice(ts) = tr.elem.as_ref() {
+                if let syn::Type::Path(tp) = ts.elem.as_ref() {
+                    tp.path
+                        .segments
+                        .last()
+                        .map_or(false, |s| s.ident == "Value")
+                } else {
+                    false
+                }
+            } else {
+                false
+            }
+        } else {
+            false
+        };
+
+        let (call_prelude, call_expr) = if is_value_slice {
+            (quote! {}, quote! { args })
+        } else {
+            (
+                quote! {
+                    let converted_args: Vec<f64> = args.iter()
+                         .map(|v| <f64 as ::continuum_kernel_registry::FromValue>::from_value(v).expect("Variadic kernel expects scalar f64 arguments"))
+                         .collect();
+                },
+                quote! { &converted_args },
+            )
+        };
+
         if has_dt {
             (
                 quote! {
-                    fn wrapper(args: &[f64], dt: ::continuum_kernel_registry::Dt) -> f64 {
-                        #fn_name(args, dt)
+                    fn wrapper(args: &[::continuum_kernel_registry::Value], dt: ::continuum_kernel_registry::Dt) -> ::continuum_kernel_registry::Value {
+                        #call_prelude
+                        let result = #fn_name(#call_expr, dt);
+                        ::continuum_kernel_registry::IntoValue::into_value(result)
                     }
                 },
                 quote! { ::continuum_kernel_registry::KernelImpl::WithDt(wrapper) },
@@ -263,23 +300,45 @@ fn generate_kernel_registration(
         } else {
             (
                 quote! {
-                    fn wrapper(args: &[f64]) -> f64 {
-                        #fn_name(args)
+                    fn wrapper(args: &[::continuum_kernel_registry::Value]) -> ::continuum_kernel_registry::Value {
+                        #call_prelude
+                        let result = #fn_name(#call_expr);
+                        ::continuum_kernel_registry::IntoValue::into_value(result)
                     }
                 },
                 quote! { ::continuum_kernel_registry::KernelImpl::Pure(wrapper) },
             )
         }
     } else {
-        // Fixed arity: generate wrapper that unpacks args
-        let param_count = param_names.len();
-        let arg_indices: Vec<_> = (0..param_count).map(syn::Index::from).collect();
+        // Fixed arity: generate wrapper that unpacks args using FromValue
+        let param_indices: Vec<_> = (0..user_params.len()).map(syn::Index::from).collect();
+        let param_types: Vec<_> = user_params.iter().map(|(_, ty)| ty).collect();
+
+        // Create identifiers for the temporary variables
+        let arg_val_idents: Vec<_> = (0..user_params.len())
+            .map(|i| format_ident!("arg_val_{}", i))
+            .collect();
+        let arg_idents: Vec<_> = (0..user_params.len())
+            .map(|i| format_ident!("arg_{}", i))
+            .collect();
+
+        let unpack_stmts = quote! {
+            #(
+                let #arg_val_idents = &args[#param_indices];
+                let #arg_idents = <#param_types as ::continuum_kernel_registry::FromValue>::from_value(#arg_val_idents)
+                    .expect(&format!("Kernel argument type mismatch for argument {} ({})", #param_indices, stringify!(#param_types)));
+            )*
+        };
+
+        let arg_names = quote! { #(#arg_idents),* };
 
         if has_dt {
             (
                 quote! {
-                    fn wrapper(args: &[f64], dt: ::continuum_kernel_registry::Dt) -> f64 {
-                        #fn_name(#(args[#arg_indices]),*, dt)
+                    fn wrapper(args: &[::continuum_kernel_registry::Value], dt: ::continuum_kernel_registry::Dt) -> ::continuum_kernel_registry::Value {
+                        #unpack_stmts
+                        let result = #fn_name(#arg_names, dt);
+                        ::continuum_kernel_registry::IntoValue::into_value(result)
                     }
                 },
                 quote! { ::continuum_kernel_registry::KernelImpl::WithDt(wrapper) },
@@ -287,8 +346,10 @@ fn generate_kernel_registration(
         } else {
             (
                 quote! {
-                    fn wrapper(args: &[f64]) -> f64 {
-                        #fn_name(#(args[#arg_indices]),*)
+                    fn wrapper(args: &[::continuum_kernel_registry::Value]) -> ::continuum_kernel_registry::Value {
+                        #unpack_stmts
+                        let result = #fn_name(#arg_names);
+                        ::continuum_kernel_registry::IntoValue::into_value(result)
                     }
                 },
                 quote! { ::continuum_kernel_registry::KernelImpl::Pure(wrapper) },
@@ -298,8 +359,6 @@ fn generate_kernel_registration(
 
     // Determine vectorized implementation (placeholder for now - will be set by separate macro)
     let vectorized_impl = if vectorized {
-        // For now, mark as expecting vectorized but don't provide implementation
-        // The actual implementation will be registered via a separate macro
         quote! { None } // TODO: Update when we add vectorized_kernel_fn macro
     } else {
         quote! { None }

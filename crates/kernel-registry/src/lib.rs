@@ -19,7 +19,7 @@
 //!
 //! Kernels come in two flavors:
 //!
-//! - **Pure** ([`KernelImpl::Pure`]) - Takes only numeric arguments, e.g., `sin(x)`
+//! - **Pure** ([`KernelImpl::Pure`]) - Takes only `Value` arguments, e.g., `sin(x)`
 //! - **Dt-dependent** ([`KernelImpl::WithDt`]) - Also receives the time step, e.g., `integrate(prev, rate)`
 //!
 //! # Example Registration
@@ -38,13 +38,15 @@
 //!
 //! ```ignore
 //! use continuum_kernel_registry::{eval_in_namespace, is_known_in};
+//! use continuum_foundation::Value;
 //!
 //! if is_known_in("maths", "sin") {
-//!     let result = eval_in_namespace("maths", "sin", &[3.14159], 0.0);
+//!     let args = vec![Value::Scalar(3.14159)];
+//!     let result = eval_in_namespace("maths", "sin", &args, 0.0);
 //! }
 //! ```
 
-pub use continuum_foundation::Dt;
+pub use continuum_foundation::{Dt, FromValue, IntoValue, Value};
 pub use linkme;
 
 use linkme::distributed_slice;
@@ -57,31 +59,53 @@ use linkme::distributed_slice;
 pub enum VRegBuffer {
     /// Array of scalar values (one per entity)
     Scalar(Vec<f64>),
+    /// Array of integer values
+    Integer(Vec<i64>),
+    /// Array of boolean values
+    Boolean(Vec<bool>),
+    /// Array of Vec2 values
+    Vec2(Vec<[f64; 2]>),
     /// Array of Vec3 values (one per entity)  
     Vec3(Vec<[f64; 3]>),
-    /// Uniform scalar value (same for all entities, broadcast on demand)
-    UniformScalar(f64),
+    /// Array of Vec4 values
+    Vec4(Vec<[f64; 4]>),
+    /// Uniform value (same for all entities, broadcast on demand)
+    Uniform(Value),
 }
 
 impl VRegBuffer {
     /// Create a uniform scalar buffer
-    pub fn uniform(value: f64) -> Self {
-        VRegBuffer::UniformScalar(value)
+    pub fn uniform_scalar(value: f64) -> Self {
+        VRegBuffer::Uniform(Value::Scalar(value))
     }
 
-    /// Get scalar value at index
-    pub fn get_scalar(&self, idx: usize) -> Option<f64> {
+    /// Create a uniform buffer from any Value
+    pub fn uniform(value: Value) -> Self {
+        VRegBuffer::Uniform(value)
+    }
+
+    /// Get value at index as a generic Value
+    pub fn get(&self, idx: usize) -> Option<Value> {
         match self {
-            VRegBuffer::Scalar(arr) => arr.get(idx).copied(),
-            VRegBuffer::UniformScalar(v) => Some(*v),
-            VRegBuffer::Vec3(_) => None,
+            VRegBuffer::Scalar(v) => v.get(idx).map(|&x| Value::Scalar(x)),
+            VRegBuffer::Integer(v) => v.get(idx).map(|&x| Value::Integer(x)),
+            VRegBuffer::Boolean(v) => v.get(idx).map(|&x| Value::Boolean(x)),
+            VRegBuffer::Vec2(v) => v.get(idx).map(|&x| Value::Vec2(x)),
+            VRegBuffer::Vec3(v) => v.get(idx).map(|&x| Value::Vec3(x)),
+            VRegBuffer::Vec4(v) => v.get(idx).map(|&x| Value::Vec4(x)),
+            VRegBuffer::Uniform(v) => Some(v.clone()),
         }
     }
 
-    /// Get as uniform scalar if possible
-    pub fn as_uniform(&self) -> Option<f64> {
+    /// Get scalar value at index (convenience)
+    pub fn get_scalar(&self, idx: usize) -> Option<f64> {
+        self.get(idx).and_then(|v| v.as_scalar())
+    }
+
+    /// Get as uniform value if possible
+    pub fn as_uniform(&self) -> Option<&Value> {
         match self {
-            VRegBuffer::UniformScalar(v) => Some(*v),
+            VRegBuffer::Uniform(v) => Some(v),
             _ => None,
         }
     }
@@ -94,12 +118,14 @@ impl VRegBuffer {
         }
     }
 
-    /// Convert to full scalar array with given size
-    pub fn to_scalar_array(&self, size: usize) -> Vec<f64> {
+    /// Convert to full scalar array with given size (if scalar or uniform scalar)
+    pub fn to_scalar_array(&self, size: usize) -> Option<Vec<f64>> {
         match self {
-            VRegBuffer::Scalar(arr) => arr.clone(),
-            VRegBuffer::UniformScalar(v) => vec![*v; size],
-            VRegBuffer::Vec3(_) => panic!("Cannot convert Vec3 to scalar array"),
+            VRegBuffer::Scalar(arr) => Some(arr.clone()),
+            VRegBuffer::Uniform(Value::Scalar(v)) => Some(vec![*v; size]),
+            VRegBuffer::Uniform(Value::Integer(v)) => Some(vec![*v as f64; size]),
+            VRegBuffer::Integer(arr) => Some(arr.iter().map(|&x| x as f64).collect()),
+            _ => None,
         }
     }
 }
@@ -108,10 +134,10 @@ impl VRegBuffer {
 pub type VectorizedResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Signature for kernel functions that don't need dt
-pub type PureFn = fn(&[f64]) -> f64;
+pub type PureFn = fn(&[Value]) -> Value;
 
 /// Signature for kernel functions that need dt
-pub type DtFn = fn(&[f64], Dt) -> f64;
+pub type DtFn = fn(&[Value], Dt) -> Value;
 
 /// Signature for vectorized kernel functions that don't need dt
 /// Args: &[buffer1, buffer2, ...], population_size -> Result<VRegBuffer, Error>
@@ -124,9 +150,9 @@ pub type VectorizedDtFn = fn(&[&VRegBuffer], Dt, usize) -> VectorizedResult<VReg
 /// The actual function pointer, tagged by whether it needs dt
 #[derive(Clone, Copy)]
 pub enum KernelImpl {
-    /// Pure function: `fn(&[f64]) -> f64`
+    /// Pure function: `fn(&[Value]) -> Value`
     Pure(PureFn),
-    /// Dt-dependent function: `fn(&[f64], Dt) -> f64`
+    /// Dt-dependent function: `fn(&[Value], Dt) -> Value`
     WithDt(DtFn),
 }
 
@@ -157,7 +183,7 @@ pub struct NamespaceDescriptor {
 
 impl KernelImpl {
     /// Evaluate the kernel function
-    pub fn eval(&self, args: &[f64], dt: Dt) -> f64 {
+    pub fn eval(&self, args: &[Value], dt: Dt) -> Value {
         match self {
             KernelImpl::Pure(f) => f(args),
             KernelImpl::WithDt(f) => f(args, dt),
@@ -236,7 +262,7 @@ impl KernelDescriptor {
     }
 
     /// Evaluate the scalar kernel
-    pub fn eval(&self, args: &[f64], dt: Dt) -> f64 {
+    pub fn eval(&self, args: &[Value], dt: Dt) -> Value {
         self.implementation.eval(args, dt)
     }
 
@@ -309,7 +335,7 @@ pub fn is_known_in(namespace: &str, name: &str) -> bool {
 }
 
 /// Evaluate a kernel by namespace/name
-pub fn eval_in_namespace(namespace: &str, name: &str, args: &[f64], dt: Dt) -> Option<f64> {
+pub fn eval_in_namespace(namespace: &str, name: &str, args: &[Value], dt: Dt) -> Option<Value> {
     get_in_namespace(namespace, name).map(|k| k.eval(args, dt))
 }
 
@@ -341,6 +367,7 @@ pub fn eval_vectorized(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use continuum_foundation::FromValue;
 
     // Test namespace registered via the slice directly
     #[distributed_slice(NAMESPACES)]
@@ -355,7 +382,10 @@ mod tests {
         doc: "Test absolute value",
         category: "test",
         arity: Arity::Fixed(1),
-        implementation: KernelImpl::Pure(|args| args[0].abs()),
+        implementation: KernelImpl::Pure(|args| {
+            let val = f64::from_value(&args[0]).unwrap();
+            Value::Scalar(val.abs())
+        }),
         vectorized_impl: None,
     };
 
@@ -375,8 +405,9 @@ mod tests {
 
     #[test]
     fn test_eval() {
-        let result = eval_in_namespace("test", "test_abs", &[-5.0], 1.0);
-        assert_eq!(result, Some(5.0));
+        let args = vec![Value::Scalar(-5.0)];
+        let result = eval_in_namespace("test", "test_abs", &args, 1.0);
+        assert_eq!(result, Some(Value::Scalar(5.0)));
     }
 
     #[test]
@@ -399,13 +430,14 @@ mod tests {
 
     #[test]
     fn test_vreg_buffer() {
-        let uniform = VRegBuffer::uniform(42.0);
-        assert_eq!(uniform.as_uniform(), Some(42.0));
+        let uniform = VRegBuffer::uniform_scalar(42.0);
+        assert_eq!(uniform.as_uniform(), Some(&Value::Scalar(42.0)));
         assert_eq!(uniform.get_scalar(0), Some(42.0));
         assert_eq!(uniform.get_scalar(999), Some(42.0));
 
         let scalar = VRegBuffer::Scalar(vec![1.0, 2.0, 3.0]);
-        assert_eq!(scalar.as_uniform(), None);
+        // assert_eq!(scalar.as_uniform(), None); // None != None comparison issues
+        assert!(scalar.as_uniform().is_none());
         assert_eq!(scalar.get_scalar(1), Some(2.0));
         assert_eq!(scalar.as_scalar_slice(), Some(&[1.0, 2.0, 3.0][..]));
     }

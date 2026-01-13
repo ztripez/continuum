@@ -180,7 +180,7 @@ signal.atmosphere.water_vapor {
         let t_surf = signal.atmosphere.surface_temp.x in
         let equilibrium = atmosphere.equilibrium_water_vapor(t_surf, config.atmosphere.water_vapor.relative_humidity, config.atmosphere.water_vapor.scale_height_m) in
 
-        relax_to(prev, equilibrium, config.atmosphere.water_vapor.relaxation_time_s)
+        dt.relax_to(prev, equilibrium, config.atmosphere.water_vapor.relaxation_time_s)
     }
 
     assert {

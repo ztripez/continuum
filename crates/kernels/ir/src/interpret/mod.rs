@@ -109,7 +109,7 @@ pub fn build_resolver(
             },
         };
         let result = execute(&bytecode, &exec_ctx);
-        Value::Scalar(result)
+        result
     })
 }
 
@@ -151,7 +151,7 @@ pub fn build_warmup_fn(
             },
         };
         let result = execute(&bytecode, &exec_ctx);
-        Value::Scalar(result)
+        result
     })
 }
 
@@ -240,7 +240,7 @@ fn build_transition_fn(
             };
 
             let result = execute(bytecode, &ctx);
-            if result != 0.0 {
+            if result != continuum_foundation::Value::Scalar(0.0) {
                 return Some(target_era.clone());
             }
         }
@@ -274,7 +274,9 @@ pub fn build_field_measure(
             },
         };
         let result = execute(&bytecode, &exec_ctx);
-        ctx.fields.emit_scalar(field_id.clone(), result);
+        if let Some(scalar) = result.as_scalar() {
+            ctx.fields.emit_scalar(field_id.clone(), scalar);
+        }
     }))
 }
 
@@ -307,7 +309,11 @@ pub fn build_fracture(fracture: &crate::CompiledFracture, world: &CompiledWorld)
         // Check conditions (all must be true)
         let mut triggered = true;
         for bytecode in &conditions {
-            if execute(bytecode, &exec_ctx) == 0.0 {
+            let res = execute(bytecode, &exec_ctx);
+            if !res
+                .as_bool()
+                .unwrap_or(res.as_scalar().unwrap_or(0.0) != 0.0)
+            {
                 triggered = false;
                 break;
             }
@@ -318,7 +324,9 @@ pub fn build_fracture(fracture: &crate::CompiledFracture, world: &CompiledWorld)
             let mut results = Vec::new();
             for (target, bytecode) in &emits {
                 let value = execute(bytecode, &exec_ctx);
-                results.push((target.clone(), value));
+                if let Some(scalar) = value.as_scalar() {
+                    results.push((target.clone(), scalar));
+                }
             }
             Some(results)
         } else {
@@ -345,7 +353,9 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
                 signals: ctx.signals,
             },
         };
-        execute(&bytecode, &exec_ctx) != 0.0
+        let res = execute(&bytecode, &exec_ctx);
+        res.as_bool()
+            .unwrap_or(res.as_scalar().unwrap_or(0.0) != 0.0)
     })
 }
 

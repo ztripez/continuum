@@ -287,6 +287,8 @@ impl Lowerer {
             Expr::Within {
                 position, radius, ..
             } => self.expr_uses_dt_raw(&position.node) || self.expr_uses_dt_raw(&radius.node),
+            // Vector literal check
+            Expr::Vector(elems) => elems.iter().any(|e| self.expr_uses_dt_raw(&e.node)),
             // These don't contain dt_raw
             Expr::Literal(_)
             | Expr::LiteralWithUnit { .. }

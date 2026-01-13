@@ -5,6 +5,7 @@
 use std::collections::HashMap;
 
 use crate::bytecode::{BytecodeChunk, Op, SlotId};
+use continuum_kernel_registry::Value;
 
 /// Binary operator from IR
 #[derive(Debug, Clone, Copy)]
@@ -138,7 +139,8 @@ impl Compiler {
     fn compile_expr(&mut self, expr: &Expr) {
         match expr {
             Expr::Literal(v) => {
-                self.chunk.emit(Op::Const(*v));
+                let idx = self.chunk.add_literal(Value::Scalar(*v));
+                self.chunk.emit(Op::Literal(idx));
             }
 
             Expr::Prev => {
@@ -324,7 +326,12 @@ mod tests {
         let chunk = compile_expr(&expr);
 
         assert_eq!(chunk.ops.len(), 1);
-        assert_eq!(chunk.ops[0], Op::Const(42.0));
+        match chunk.ops[0] {
+            Op::Literal(idx) => {
+                assert_eq!(chunk.literals[idx as usize], Value::Scalar(42.0));
+            }
+            _ => panic!("Expected Op::Literal"),
+        }
     }
 
     #[test]
@@ -337,8 +344,14 @@ mod tests {
         let chunk = compile_expr(&expr);
 
         assert_eq!(chunk.ops.len(), 3);
-        assert_eq!(chunk.ops[0], Op::Const(1.0));
-        assert_eq!(chunk.ops[1], Op::Const(2.0));
+        match chunk.ops[0] {
+            Op::Literal(idx) => assert_eq!(chunk.literals[idx as usize], Value::Scalar(1.0)),
+            _ => panic!("Expected Op::Literal"),
+        }
+        match chunk.ops[1] {
+            Op::Literal(idx) => assert_eq!(chunk.literals[idx as usize], Value::Scalar(2.0)),
+            _ => panic!("Expected Op::Literal"),
+        }
         assert_eq!(chunk.ops[2], Op::Add);
     }
 
@@ -351,7 +364,10 @@ mod tests {
         let chunk = compile_expr(&expr);
 
         assert_eq!(chunk.ops.len(), 2);
-        assert_eq!(chunk.ops[0], Op::Const(-5.0));
+        match chunk.ops[0] {
+            Op::Literal(idx) => assert_eq!(chunk.literals[idx as usize], Value::Scalar(-5.0)),
+            _ => panic!("Expected Op::Literal"),
+        }
         assert!(matches!(
             chunk.ops[1],
             Op::Call {
@@ -371,13 +387,22 @@ mod tests {
         };
         let chunk = compile_expr(&expr);
 
-        // Const(1.0), JumpIfZero, Const(10.0), Jump, Const(20.0)
+        // Literal(1.0), JumpIfZero, Literal(10.0), Jump, Literal(20.0)
         assert_eq!(chunk.ops.len(), 5);
-        assert_eq!(chunk.ops[0], Op::Const(1.0));
+        match chunk.ops[0] {
+            Op::Literal(idx) => assert_eq!(chunk.literals[idx as usize], Value::Scalar(1.0)),
+            _ => panic!("Expected Op::Literal"),
+        }
         assert!(matches!(chunk.ops[1], Op::JumpIfZero(_)));
-        assert_eq!(chunk.ops[2], Op::Const(10.0));
+        match chunk.ops[2] {
+            Op::Literal(idx) => assert_eq!(chunk.literals[idx as usize], Value::Scalar(10.0)),
+            _ => panic!("Expected Op::Literal"),
+        }
         assert!(matches!(chunk.ops[3], Op::Jump(_)));
-        assert_eq!(chunk.ops[4], Op::Const(20.0));
+        match chunk.ops[4] {
+            Op::Literal(idx) => assert_eq!(chunk.literals[idx as usize], Value::Scalar(20.0)),
+            _ => panic!("Expected Op::Literal"),
+        }
     }
 
     #[test]
@@ -402,7 +427,7 @@ mod tests {
 
         // Should have local slots allocated
         assert_eq!(chunk.local_count, 2);
-        // Ops: Const(10), StoreLocal(0), Pop, Const(20), StoreLocal(1), Pop, LoadLocal(0), LoadLocal(1), Add
+        // Ops: Literal(10), StoreLocal(0), Pop, Literal(20), StoreLocal(1), Pop, LoadLocal(0), LoadLocal(1), Add
         assert_eq!(chunk.ops.len(), 9);
     }
 }

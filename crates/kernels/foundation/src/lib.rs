@@ -16,7 +16,7 @@ pub use ids::{
 };
 
 pub use field::FieldSample;
-pub use value::Value;
+pub use value::{FromValue, IntoValue, Value};
 
 // Re-export stable hash items at crate root
 pub use stable_hash::{

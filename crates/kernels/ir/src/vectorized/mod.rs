@@ -202,7 +202,11 @@ impl L2VectorizedExecutor {
                     let result = vregs[vreg.0 as usize]
                         .as_ref()
                         .ok_or(L2ExecutionError::UndefinedVReg(*vreg))?;
-                    return Ok(result.to_scalar_array(population));
+                    return result.to_scalar_array(population).ok_or(
+                        L2ExecutionError::UnsupportedOperation(
+                            "Return value must be scalar array".into(),
+                        ),
+                    );
                 }
                 Some(Terminator::Jump(target)) => {
                     current_block = *target;
@@ -239,7 +243,9 @@ impl L2VectorizedExecutor {
     ) -> Result<(), L2ExecutionError> {
         match inst {
             SsaInstruction::LoadConst { dst, value } => {
-                vregs[dst.0 as usize] = Some(VRegBuffer::uniform(*value));
+                vregs[dst.0 as usize] = Some(VRegBuffer::uniform(
+                    continuum_foundation::Value::Scalar(*value),
+                ));
             }
 
             SsaInstruction::LoadPrev { dst } => {
@@ -247,13 +253,16 @@ impl L2VectorizedExecutor {
             }
 
             SsaInstruction::LoadDt { dst } => {
-                vregs[dst.0 as usize] = Some(VRegBuffer::uniform(dt));
+                vregs[dst.0 as usize] =
+                    Some(VRegBuffer::uniform(continuum_foundation::Value::Scalar(dt)));
             }
 
             SsaInstruction::LoadSimTime { dst } => {
                 // SimTime is uniform across all entities (accumulated simulation time)
                 // For now, use 0.0 as L2 doesn't track sim_time yet
-                vregs[dst.0 as usize] = Some(VRegBuffer::uniform(0.0));
+                vregs[dst.0 as usize] = Some(VRegBuffer::uniform(
+                    continuum_foundation::Value::Scalar(0.0),
+                ));
             }
 
             SsaInstruction::LoadSignal { dst, signal } => {
@@ -262,7 +271,9 @@ impl L2VectorizedExecutor {
                     signals.get_resolved(&continuum_foundation::SignalId::from(signal.to_string()))
                 {
                     let scalar = value.as_scalar().unwrap_or(0.0);
-                    vregs[dst.0 as usize] = Some(VRegBuffer::uniform(scalar));
+                    vregs[dst.0 as usize] = Some(VRegBuffer::uniform(
+                        continuum_foundation::Value::Scalar(scalar),
+                    ));
                 } else {
                     return Err(L2ExecutionError::SignalNotFound(signal.to_string()));
                 }
@@ -271,7 +282,9 @@ impl L2VectorizedExecutor {
             SsaInstruction::LoadCollected { dst } => {
                 // Collected values - for L2, assume uniform 0.0 for now
                 // Full collected support requires member-signal infrastructure
-                vregs[dst.0 as usize] = Some(VRegBuffer::uniform(0.0));
+                vregs[dst.0 as usize] = Some(VRegBuffer::uniform(
+                    continuum_foundation::Value::Scalar(0.0),
+                ));
             }
 
             SsaInstruction::SelfField { dst, field } => {
@@ -413,27 +426,49 @@ impl L2VectorizedExecutor {
         match (lhs.as_uniform(), rhs.as_uniform()) {
             // Both uniform - compute single value
             (Some(l), Some(r)) => {
-                let result = apply_binop(l, r, op);
-                Ok(VRegBuffer::uniform(result))
+                let l_f64 = l.as_scalar().ok_or_else(|| {
+                    L2ExecutionError::UnsupportedOperation("LHS must be scalar".into())
+                })?;
+                let r_f64 = r.as_scalar().ok_or_else(|| {
+                    L2ExecutionError::UnsupportedOperation("RHS must be scalar".into())
+                })?;
+                let result = apply_binop(l_f64, r_f64, op);
+                Ok(VRegBuffer::uniform(continuum_foundation::Value::Scalar(
+                    result,
+                )))
             }
             // LHS is array, RHS is uniform - broadcast RHS
             (None, Some(r)) => {
-                let lhs_arr = lhs.to_scalar_array(population);
+                let r_f64 = r.as_scalar().ok_or_else(|| {
+                    L2ExecutionError::UnsupportedOperation("RHS must be scalar".into())
+                })?;
+                let lhs_arr = lhs.to_scalar_array(population).ok_or_else(|| {
+                    L2ExecutionError::UnsupportedOperation("LHS must be scalar array".into())
+                })?;
                 let mut result = Vec::with_capacity(population);
-                vectorized_binop_broadcast_rhs(&lhs_arr, r, &mut result, op);
+                vectorized_binop_broadcast_rhs(&lhs_arr, r_f64, &mut result, op);
                 Ok(VRegBuffer::Scalar(result))
             }
             // LHS is uniform, RHS is array - broadcast LHS
             (Some(l), None) => {
-                let rhs_arr = rhs.to_scalar_array(population);
+                let l_f64 = l.as_scalar().ok_or_else(|| {
+                    L2ExecutionError::UnsupportedOperation("LHS must be scalar".into())
+                })?;
+                let rhs_arr = rhs.to_scalar_array(population).ok_or_else(|| {
+                    L2ExecutionError::UnsupportedOperation("RHS must be scalar array".into())
+                })?;
                 let mut result = Vec::with_capacity(population);
-                vectorized_binop_broadcast_lhs(l, &rhs_arr, &mut result, op);
+                vectorized_binop_broadcast_lhs(l_f64, &rhs_arr, &mut result, op);
                 Ok(VRegBuffer::Scalar(result))
             }
             // Both arrays
             (None, None) => {
-                let lhs_arr = lhs.to_scalar_array(population);
-                let rhs_arr = rhs.to_scalar_array(population);
+                let lhs_arr = lhs.to_scalar_array(population).ok_or_else(|| {
+                    L2ExecutionError::UnsupportedOperation("LHS must be scalar array".into())
+                })?;
+                let rhs_arr = rhs.to_scalar_array(population).ok_or_else(|| {
+                    L2ExecutionError::UnsupportedOperation("RHS must be scalar array".into())
+                })?;
                 let mut result = Vec::with_capacity(population);
                 vectorized_binop(&lhs_arr, &rhs_arr, &mut result, op);
                 Ok(VRegBuffer::Scalar(result))
@@ -449,10 +484,17 @@ impl L2VectorizedExecutor {
         population: usize,
     ) -> Result<VRegBuffer, L2ExecutionError> {
         if let Some(v) = operand.as_uniform() {
-            let result = apply_unaryop(v, op);
-            Ok(VRegBuffer::uniform(result))
+            let v_f64 = v.as_scalar().ok_or_else(|| {
+                L2ExecutionError::UnsupportedOperation("Operand must be scalar".into())
+            })?;
+            let result = apply_unaryop(v_f64, op);
+            Ok(VRegBuffer::uniform(continuum_foundation::Value::Scalar(
+                result,
+            )))
         } else {
-            let arr = operand.to_scalar_array(population);
+            let arr = operand.to_scalar_array(population).ok_or_else(|| {
+                L2ExecutionError::UnsupportedOperation("Operand must be scalar array".into())
+            })?;
             let mut result = Vec::with_capacity(population);
             for &x in &arr {
                 result.push(apply_unaryop(x, op));
@@ -489,9 +531,11 @@ impl L2VectorizedExecutor {
             )));
         }
 
-        if let Some(result) =
-            continuum_kernel_registry::eval_vectorized(namespace, function, args, dt, population)
-        {
+        let dt_value = dt;
+
+        if let Some(result) = continuum_kernel_registry::eval_vectorized(
+            namespace, function, args, dt_value, population,
+        ) {
             return result.map_err(|err| {
                 L2ExecutionError::UnsupportedOperation(format!(
                     "vectorized kernel {}.{} failed: {}",
@@ -509,11 +553,11 @@ impl L2VectorizedExecutor {
             })?;
 
         if args.iter().all(|arg| arg.as_uniform().is_some()) {
-            let scalar_args: Vec<f64> = args
+            let scalar_args: Vec<continuum_foundation::Value> = args
                 .iter()
-                .map(|arg| arg.as_uniform().unwrap_or_default())
+                .map(|arg| arg.as_uniform().unwrap().clone())
                 .collect();
-            let result = descriptor.eval(&scalar_args, dt);
+            let result = descriptor.eval(&scalar_args, dt_value);
             return Ok(VRegBuffer::uniform(result));
         }
 
@@ -521,15 +565,22 @@ impl L2VectorizedExecutor {
         for idx in 0..population {
             let mut scalar_args = Vec::with_capacity(args.len());
             for arg in args {
-                let value = arg.get_scalar(idx).ok_or_else(|| {
+                // Support scalar or full Value access
+                let value = arg.get(idx).ok_or_else(|| {
                     L2ExecutionError::UnsupportedOperation(
-                        "kernel arguments must be scalar for registry fallback".to_string(),
+                        "kernel arguments missing for registry fallback".to_string(),
                     )
                 })?;
                 scalar_args.push(value);
             }
-            let value = descriptor.eval(&scalar_args, dt);
-            result.push(value);
+            let value = descriptor.eval(&scalar_args, dt_value);
+            // Unwrap scalar f64
+            let s = value.as_scalar().ok_or_else(|| {
+                L2ExecutionError::UnsupportedOperation(
+                    "L2 Scalar fallback requires scalar result".into(),
+                )
+            })?;
+            result.push(s);
         }
 
         Ok(VRegBuffer::Scalar(result))

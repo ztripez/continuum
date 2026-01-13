@@ -134,7 +134,7 @@ signal.ecology.biomass {
         # Biomass relaxes toward NPP-driven equilibrium
         let npp = signal.ecology.npp in
         let equilibrium = npp * config.ecology.biomass.turnover_years in
-        relax_to(prev, equilibrium, config.ecology.biomass.turnover_years * 3.1536e7) + collected
+        dt.relax_to(prev, equilibrium, config.ecology.biomass.turnover_years * 3.1536e7) + collected
     }
 
     assert {
@@ -255,7 +255,7 @@ signal.ecology.soil_carbon {
         let tau_years = if decomp_rate > 1e-10 { 1.0 / decomp_rate } else { 1000.0 } in
         let tau_s = tau_years * 3.1536e7 in
 
-        relax_to(prev, soc_eq, tau_s) + collected
+        dt.relax_to(prev, soc_eq, tau_s) + collected
     }
 
     assert {

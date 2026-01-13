@@ -133,7 +133,9 @@ pub fn sum(args: &[f64]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{Arity, eval_in_namespace, get_in_namespace, is_known_in};
+    use continuum_kernel_registry::{
+        Arity, Value, eval_in_namespace, get_in_namespace, is_known_in,
+    };
 
     #[test]
     fn test_pure_functions_registered() {
@@ -180,47 +182,65 @@ mod tests {
 
     #[test]
     fn test_eval_abs() {
-        assert_eq!(eval_in_namespace("maths", "abs", &[-5.0], 1.0), Some(5.0));
+        let args = [Value::Scalar(-5.0)];
+        assert_eq!(
+            eval_in_namespace("maths", "abs", &args, 1.0),
+            Some(Value::Scalar(5.0))
+        );
     }
 
     #[test]
     fn test_eval_sqrt() {
-        assert_eq!(eval_in_namespace("maths", "sqrt", &[16.0], 1.0), Some(4.0));
+        let args = [Value::Scalar(16.0)];
+        assert_eq!(
+            eval_in_namespace("maths", "sqrt", &args, 1.0),
+            Some(Value::Scalar(4.0))
+        );
     }
 
     #[test]
     fn test_eval_sum() {
+        let args = [
+            Value::Scalar(1.0),
+            Value::Scalar(2.0),
+            Value::Scalar(3.0),
+            Value::Scalar(4.0),
+        ];
         assert_eq!(
-            eval_in_namespace("maths", "sum", &[1.0, 2.0, 3.0, 4.0], 1.0),
-            Some(10.0)
+            eval_in_namespace("maths", "sum", &args, 1.0),
+            Some(Value::Scalar(10.0))
         );
     }
 
     #[test]
     fn test_eval_min_max() {
+        let args = [Value::Scalar(3.0), Value::Scalar(1.0), Value::Scalar(2.0)];
         assert_eq!(
-            eval_in_namespace("maths", "min", &[3.0, 1.0, 2.0], 1.0),
-            Some(1.0)
+            eval_in_namespace("maths", "min", &args, 1.0),
+            Some(Value::Scalar(1.0))
         );
         assert_eq!(
-            eval_in_namespace("maths", "max", &[3.0, 1.0, 2.0], 1.0),
-            Some(3.0)
+            eval_in_namespace("maths", "max", &args, 1.0),
+            Some(Value::Scalar(3.0))
         );
     }
 
     #[test]
     fn test_eval_clamp() {
+        let args1 = [Value::Scalar(5.0), Value::Scalar(0.0), Value::Scalar(10.0)];
         assert_eq!(
-            eval_in_namespace("maths", "clamp", &[5.0, 0.0, 10.0], 1.0),
-            Some(5.0)
+            eval_in_namespace("maths", "clamp", &args1, 1.0),
+            Some(Value::Scalar(5.0))
         );
+        let args2 = [Value::Scalar(-5.0), Value::Scalar(0.0), Value::Scalar(10.0)];
         assert_eq!(
-            eval_in_namespace("maths", "clamp", &[-5.0, 0.0, 10.0], 1.0),
-            Some(0.0)
+            eval_in_namespace("maths", "clamp", &args2, 1.0),
+            Some(Value::Scalar(0.0))
         );
+        let args3 = [Value::Scalar(15.0), Value::Scalar(0.0), Value::Scalar(10.0)];
         assert_eq!(
-            eval_in_namespace("maths", "clamp", &[15.0, 0.0, 10.0], 1.0),
-            Some(10.0)
+            eval_in_namespace("maths", "clamp", &args3, 1.0),
+            Some(Value::Scalar(10.0))
         );
     }
 
@@ -229,42 +249,59 @@ mod tests {
         use std::f64::consts::PI;
 
         // Value within range stays the same
+        let args1 = [Value::Scalar(1.0), Value::Scalar(0.0), Value::Scalar(10.0)];
         assert_eq!(
-            eval_in_namespace("maths", "wrap", &[1.0, 0.0, 10.0], 1.0),
-            Some(1.0)
+            eval_in_namespace("maths", "wrap", &args1, 1.0),
+            Some(Value::Scalar(1.0))
         );
 
         // Value above max wraps around
+        let args2 = [Value::Scalar(12.0), Value::Scalar(0.0), Value::Scalar(10.0)];
         assert_eq!(
-            eval_in_namespace("maths", "wrap", &[12.0, 0.0, 10.0], 1.0),
-            Some(2.0)
+            eval_in_namespace("maths", "wrap", &args2, 1.0),
+            Some(Value::Scalar(2.0))
         );
 
         // Value below min wraps around
+        let args3 = [Value::Scalar(-2.0), Value::Scalar(0.0), Value::Scalar(10.0)];
         assert_eq!(
-            eval_in_namespace("maths", "wrap", &[-2.0, 0.0, 10.0], 1.0),
-            Some(8.0)
+            eval_in_namespace("maths", "wrap", &args3, 1.0),
+            Some(Value::Scalar(8.0))
         );
 
         // Angle wrapping (0 to 2π)
         let tau = 2.0 * PI;
-        let result = eval_in_namespace("maths", "wrap", &[tau + 1.0, 0.0, tau], 1.0).unwrap();
+        let args4 = [
+            Value::Scalar(tau + 1.0),
+            Value::Scalar(0.0),
+            Value::Scalar(tau),
+        ];
+        let result = eval_in_namespace("maths", "wrap", &args4, 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
         assert!((result - 1.0).abs() < 1e-10);
 
         // Negative angle
-        let result = eval_in_namespace("maths", "wrap", &[-PI, 0.0, tau], 1.0).unwrap();
+        let args5 = [Value::Scalar(-PI), Value::Scalar(0.0), Value::Scalar(tau)];
+        let result = eval_in_namespace("maths", "wrap", &args5, 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
         assert!((result - PI).abs() < 1e-10);
     }
 
     #[test]
     #[should_panic(expected = "wrap: max must be greater than min")]
     fn test_eval_wrap_invalid_range() {
-        eval_in_namespace("maths", "wrap", &[1.0, 10.0, 0.0], 1.0);
+        let args = [Value::Scalar(1.0), Value::Scalar(10.0), Value::Scalar(0.0)];
+        eval_in_namespace("maths", "wrap", &args, 1.0);
     }
 
     #[test]
     #[should_panic(expected = "wrap: max must be greater than min")]
     fn test_eval_wrap_zero_range() {
-        eval_in_namespace("maths", "wrap", &[1.0, 10.0, 10.0], 1.0);
+        let args = [Value::Scalar(1.0), Value::Scalar(10.0), Value::Scalar(10.0)];
+        eval_in_namespace("maths", "wrap", &args, 1.0);
     }
 }

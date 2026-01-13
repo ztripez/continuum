@@ -2,7 +2,7 @@ target/
 reports/
 .worktrees/
 .worktree/
-
+.logs
 .claude/.cache
 .claude/settings.local.json
 snapshots/
