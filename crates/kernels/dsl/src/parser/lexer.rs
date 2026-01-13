@@ -131,26 +131,6 @@ pub enum Token {
     Iterate,
 
     // --- Built-in Types ---
-    #[token("Scalar", priority = 2)]
-    Scalar,
-    #[token("Vec2", priority = 2)]
-    Vec2,
-    #[token("Vec3", priority = 2)]
-    Vec3,
-    #[token("Vec4", priority = 2)]
-    Vec4,
-    #[token("Quat", priority = 2)]
-    Quat,
-    #[token("Vector", priority = 2)]
-    Vector,
-    #[token("Tensor", priority = 2)]
-    Tensor,
-    #[token("Grid", priority = 2)]
-    Grid,
-    #[token("Seq", priority = 2)]
-    Seq,
-    #[token("magnitude", priority = 2)]
-    Magnitude,
     #[token("symmetric", priority = 2)]
     Symmetric,
     #[token("positive_definite", priority = 2)]

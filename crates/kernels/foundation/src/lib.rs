@@ -6,6 +6,7 @@
 
 pub mod field;
 pub mod ids;
+pub mod primitives;
 pub mod stable_hash;
 pub mod value;
 
@@ -16,6 +17,10 @@ pub use ids::{
 };
 
 pub use field::FieldSample;
+pub use primitives::{
+    PRIMITIVE_TYPES, PrimitiveParamKind, PrimitiveParamSpec, PrimitiveShape, PrimitiveStorageClass,
+    PrimitiveTypeDef, PrimitiveTypeId, primitive_type_by_name,
+};
 pub use value::{FromValue, IntoValue, Quat, Value};
 
 // Re-export stable hash items at crate root

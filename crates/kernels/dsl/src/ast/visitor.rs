@@ -17,7 +17,8 @@ use super::items::{
     Topology, Transition, TypeDef, TypeField, ValueWithUnit, WarmupBlock, WorldDef,
 };
 use super::{
-    CompilationUnit, Expr, Item, Path, Range, SeqConstraint, Spanned, TensorConstraint, TypeExpr,
+    CompilationUnit, Expr, Item, Path, PrimitiveParamValue, PrimitiveTypeExpr, Range,
+    SeqConstraint, Spanned, TensorConstraint, TypeExpr,
 };
 
 /// Visitor trait for expression traversal.
@@ -1532,35 +1533,24 @@ pub fn walk_call_arg<V: AstVisitor + ?Sized>(visitor: &mut V, arg: &CallArg) {
 
 pub fn walk_type_expr<V: AstVisitor + ?Sized>(visitor: &mut V, expr: &TypeExpr) {
     match expr {
-        TypeExpr::Scalar { range, .. } => {
-            if let Some(range) = range {
-                visitor.visit_range(range);
+        TypeExpr::Primitive(primitive) => {
+            for param in &primitive.params {
+                match param {
+                    PrimitiveParamValue::Range(range) | PrimitiveParamValue::Magnitude(range) => {
+                        visitor.visit_range(range)
+                    }
+                    PrimitiveParamValue::ElementType(inner) => visitor.visit_type_expr(inner),
+                    PrimitiveParamValue::Unit(_)
+                    | PrimitiveParamValue::Rows(_)
+                    | PrimitiveParamValue::Cols(_)
+                    | PrimitiveParamValue::Width(_)
+                    | PrimitiveParamValue::Height(_) => {}
+                }
             }
-        }
-        TypeExpr::Vector { magnitude, .. } => {
-            if let Some(range) = magnitude {
-                visitor.visit_range(range);
-            }
-        }
-        TypeExpr::Quat { magnitude } => {
-            if let Some(range) = magnitude {
-                visitor.visit_range(range);
-            }
-        }
-        TypeExpr::Tensor { constraints, .. } => {
-            for constraint in constraints {
+            for constraint in &primitive.constraints {
                 visitor.visit_tensor_constraint(constraint);
             }
-        }
-        TypeExpr::Grid { element_type, .. } => {
-            visitor.visit_type_expr(element_type);
-        }
-        TypeExpr::Seq {
-            element_type,
-            constraints,
-        } => {
-            visitor.visit_type_expr(element_type);
-            for constraint in constraints {
+            for constraint in &primitive.seq_constraints {
                 visitor.visit_seq_constraint(constraint);
             }
         }
@@ -2587,55 +2577,46 @@ pub fn walk_type_expr_transform<T: AstTransformer + ?Sized>(
     expr: TypeExpr,
 ) -> TypeExpr {
     match expr {
-        TypeExpr::Scalar { unit, range } => TypeExpr::Scalar {
-            unit: transformer.transform_string(unit),
-            range: range.map(|range| transformer.transform_range(range)),
-        },
-        TypeExpr::Vector {
-            dim,
-            unit,
-            magnitude,
-        } => TypeExpr::Vector {
-            dim,
-            unit: transformer.transform_string(unit),
-            magnitude: magnitude.map(|range| transformer.transform_range(range)),
-        },
-        TypeExpr::Quat { magnitude } => TypeExpr::Quat {
-            magnitude: magnitude.map(|range| transformer.transform_range(range)),
-        },
-        TypeExpr::Tensor {
-            rows,
-            cols,
-            unit,
-            constraints,
-        } => TypeExpr::Tensor {
-            rows,
-            cols,
-            unit: transformer.transform_string(unit),
-            constraints: constraints
+        TypeExpr::Primitive(primitive) => {
+            let params = primitive
+                .params
+                .into_iter()
+                .map(|param| match param {
+                    PrimitiveParamValue::Unit(unit) => {
+                        PrimitiveParamValue::Unit(transformer.transform_string(unit))
+                    }
+                    PrimitiveParamValue::Range(range) => {
+                        PrimitiveParamValue::Range(transformer.transform_range(range))
+                    }
+                    PrimitiveParamValue::Magnitude(range) => {
+                        PrimitiveParamValue::Magnitude(transformer.transform_range(range))
+                    }
+                    PrimitiveParamValue::Rows(value) => PrimitiveParamValue::Rows(value),
+                    PrimitiveParamValue::Cols(value) => PrimitiveParamValue::Cols(value),
+                    PrimitiveParamValue::Width(value) => PrimitiveParamValue::Width(value),
+                    PrimitiveParamValue::Height(value) => PrimitiveParamValue::Height(value),
+                    PrimitiveParamValue::ElementType(inner) => PrimitiveParamValue::ElementType(
+                        Box::new(transformer.transform_type_expr(*inner)),
+                    ),
+                })
+                .collect();
+            let constraints = primitive
+                .constraints
                 .into_iter()
                 .map(|constraint| transformer.transform_tensor_constraint(constraint))
-                .collect(),
-        },
-        TypeExpr::Grid {
-            width,
-            height,
-            element_type,
-        } => TypeExpr::Grid {
-            width,
-            height,
-            element_type: Box::new(transformer.transform_type_expr(*element_type)),
-        },
-        TypeExpr::Seq {
-            element_type,
-            constraints,
-        } => TypeExpr::Seq {
-            element_type: Box::new(transformer.transform_type_expr(*element_type)),
-            constraints: constraints
+                .collect();
+            let seq_constraints = primitive
+                .seq_constraints
                 .into_iter()
                 .map(|constraint| transformer.transform_seq_constraint(constraint))
-                .collect(),
-        },
+                .collect();
+            TypeExpr::Primitive(PrimitiveTypeExpr {
+                id: primitive.id,
+                params,
+                constraints,
+                seq_constraints,
+            })
+        }
         TypeExpr::Named(name) => TypeExpr::Named(transformer.transform_string(name)),
     }
 }

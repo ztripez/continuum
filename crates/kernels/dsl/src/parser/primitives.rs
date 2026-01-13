@@ -62,7 +62,6 @@ pub fn ident<'src>()
     let kw_group2 = choice((
         tok(Token::Iterate).to("iterate".to_string()),
         tok(Token::Phase).to("phase".to_string()),
-        tok(Token::Magnitude).to("magnitude".to_string()),
         tok(Token::Symmetric).to("symmetric".to_string()),
         tok(Token::PositiveDefinite).to("positive_definite".to_string()),
         tok(Token::Topology).to("topology".to_string()),
@@ -99,15 +98,6 @@ pub fn ident<'src>()
         tok(Token::Warn).to("warn".to_string()),
         tok(Token::Error).to("error".to_string()),
         tok(Token::Fatal).to("fatal".to_string()),
-        tok(Token::Scalar).to("Scalar".to_string()),
-        tok(Token::Vec2).to("Vec2".to_string()),
-        tok(Token::Vec3).to("Vec3".to_string()),
-        tok(Token::Vec4).to("Vec4".to_string()),
-        tok(Token::Quat).to("Quat".to_string()),
-        tok(Token::Vector).to("Vector".to_string()),
-        tok(Token::Tensor).to("Tensor".to_string()),
-        tok(Token::Grid).to("Grid".to_string()),
-        tok(Token::Seq).to("Seq".to_string()),
         tok(Token::Uses).to("uses".to_string()),
     ));
 

@@ -162,63 +162,54 @@ pub use continuum_foundation::Path;
 /// Type expression representing a value's shape and constraints.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
-    /// Scalar value with unit and optional bounds: `Scalar<K, 0..1000>`.
-    Scalar {
-        /// Unit string (e.g., "K", "m/s", "W/m²").
-        unit: String,
-        /// Optional value bounds.
-        range: Option<Range>,
-    },
-    /// Vector value: `Vec3<m>` (dimension, unit, optional magnitude bounds).
-    ///
-    /// Supports 2D, 3D, and 4D vectors. The magnitude constraint is useful for:
-    /// - Position bounds: `Vec3<m, magnitude: 1e6..1e9>`
-    Vector {
-        /// Dimension (2, 3, or 4).
-        dim: u8,
-        /// Component unit.
-        unit: String,
-        /// Optional magnitude bounds.
-        magnitude: Option<Range>,
-    },
-    /// Quaternion value: `Quat` (unitless, optional magnitude bounds).
-    Quat {
-        /// Optional magnitude bounds.
-        magnitude: Option<Range>,
-    },
-    /// NxM tensor value: `Tensor<3,3,Pa>` (rows, cols, unit, constraints).
-    ///
-    /// Tensors can have mathematical constraints like symmetric or positive_definite.
-    Tensor {
-        /// Number of rows.
-        rows: u8,
-        /// Number of columns.
-        cols: u8,
-        /// Element unit.
-        unit: String,
-        /// Mathematical constraints on the tensor.
-        constraints: Vec<TensorConstraint>,
-    },
-    /// 2D grid of values: `Grid<2048, 1024, Scalar<K>>`.
-    Grid {
-        /// Grid width.
-        width: u32,
-        /// Grid height.
-        height: u32,
-        /// Element type.
-        element_type: Box<TypeExpr>,
-    },
-    /// Ordered sequence of values: `Seq<Scalar<kg>>`.
-    ///
-    /// Sequences can have aggregate constraints like each() and sum().
-    Seq {
-        /// Element type.
-        element_type: Box<TypeExpr>,
-        /// Aggregate constraints on sequence elements.
-        constraints: Vec<SeqConstraint>,
-    },
+    /// Primitive type declaration resolved via the registry.
+    Primitive(PrimitiveTypeExpr),
     /// Reference to a named type: `OrbitalElements`.
     Named(String),
+}
+
+/// Primitive type expression with registry-driven parameters.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PrimitiveTypeExpr {
+    /// Primitive type identifier.
+    pub id: continuum_foundation::PrimitiveTypeId,
+    /// Supplied parameter values.
+    pub params: Vec<PrimitiveParamValue>,
+    /// Mathematical constraints on the tensor.
+    pub constraints: Vec<TensorConstraint>,
+    /// Aggregate constraints on sequence elements.
+    pub seq_constraints: Vec<SeqConstraint>,
+}
+
+/// Parameter value for a primitive type declaration.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PrimitiveParamValue {
+    Unit(String),
+    Range(Range),
+    Magnitude(Range),
+    Rows(u8),
+    Cols(u8),
+    Width(u32),
+    Height(u32),
+    ElementType(Box<TypeExpr>),
+}
+
+impl PrimitiveParamValue {
+    /// Returns the param kind for this value.
+    pub fn kind(&self) -> continuum_foundation::PrimitiveParamKind {
+        use continuum_foundation::PrimitiveParamKind;
+
+        match self {
+            PrimitiveParamValue::Unit(_) => PrimitiveParamKind::Unit,
+            PrimitiveParamValue::Range(_) => PrimitiveParamKind::Range,
+            PrimitiveParamValue::Magnitude(_) => PrimitiveParamKind::Magnitude,
+            PrimitiveParamValue::Rows(_) => PrimitiveParamKind::Rows,
+            PrimitiveParamValue::Cols(_) => PrimitiveParamKind::Cols,
+            PrimitiveParamValue::Width(_) => PrimitiveParamKind::Width,
+            PrimitiveParamValue::Height(_) => PrimitiveParamKind::Height,
+            PrimitiveParamValue::ElementType(_) => PrimitiveParamKind::ElementType,
+        }
+    }
 }
 
 /// Numeric range for value bounds validation.
