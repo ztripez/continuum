@@ -7,7 +7,7 @@
 
 use indexmap::IndexMap;
 
-use continuum_runtime::SignalId;
+use continuum_foundation::SignalId;
 use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
 use continuum_vm::ExecutionContext;
@@ -18,15 +18,15 @@ use continuum_vm::ExecutionContext;
 /// signals, constants, and config values. Phase-specific contexts
 /// wrap this with additional phase-specific data.
 pub(crate) struct SharedContextData<'a> {
-    pub(crate) constants: &'a IndexMap<String, f64>,
-    pub(crate) config: &'a IndexMap<String, f64>,
+    pub(crate) constants: &'a IndexMap<String, (f64, Option<crate::units::Unit>)>,
+    pub(crate) config: &'a IndexMap<String, (f64, Option<crate::units::Unit>)>,
     pub(crate) signals: &'a SignalStorage,
 }
 
 impl SharedContextData<'_> {
     /// Get signal value by name
     fn signal(&self, name: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
+        let runtime_id = SignalId::from(name);
         match self.signals.get(&runtime_id) {
             Some(v) => v.as_scalar().unwrap_or_else(|| {
                 panic!(
@@ -40,7 +40,7 @@ impl SharedContextData<'_> {
 
     /// Get signal component by name and component (x, y, z, w)
     fn signal_component(&self, name: &str, component: &str) -> f64 {
-        let runtime_id = SignalId(name.to_string());
+        let runtime_id = SignalId::from(name);
         match self.signals.get(&runtime_id) {
             Some(v) => v.component(component).unwrap_or_else(|| {
                 panic!(
@@ -56,7 +56,7 @@ impl SharedContextData<'_> {
     fn constant(&self, name: &str) -> f64 {
         self.constants
             .get(name)
-            .copied()
+            .map(|(v, _)| *v)
             .unwrap_or_else(|| panic!("Constant '{}' not defined", name))
     }
 
@@ -64,7 +64,7 @@ impl SharedContextData<'_> {
     fn config(&self, name: &str) -> f64 {
         self.config
             .get(name)
-            .copied()
+            .map(|(v, _)| *v)
             .unwrap_or_else(|| panic!("Config value '{}' not defined", name))
     }
 }
@@ -360,6 +360,73 @@ impl ExecutionContext for FractureExecContext<'_> {
 
     fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
         continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
+            panic!(
+                "Unknown kernel function '{}' - function not found in registry",
+                name
+            )
+        })
+    }
+}
+
+/// Execution context for warmup iterations.
+///
+/// Provides access to current warmup value as 'prev' and other signals.
+pub(crate) struct WarmupContext<'a> {
+    pub(crate) current: &'a Value,
+    pub(crate) sim_time: f64,
+    pub(crate) shared: SharedContextData<'a>,
+}
+
+impl ExecutionContext for WarmupContext<'_> {
+    fn prev(&self) -> f64 {
+        self.current.as_scalar().unwrap_or_else(|| {
+            panic!(
+                "warmup value {:?} is not a scalar - cannot use prev on vector signals without component access",
+                self.current
+            )
+        })
+    }
+
+    fn prev_component(&self, component: &str) -> f64 {
+        self.current.component(component).unwrap_or_else(|| {
+            panic!(
+                "warmup value {:?} has no component '{}' - expected vector with x/y/z/w components",
+                self.current, component
+            )
+        })
+    }
+
+    fn dt(&self) -> f64 {
+        0.0 // dt is not available during warmup
+    }
+
+    fn sim_time(&self) -> f64 {
+        self.sim_time
+    }
+
+    fn inputs(&self) -> f64 {
+        0.0 // inputs are not available during warmup
+    }
+
+    fn signal(&self, name: &str) -> f64 {
+        self.shared.signal(name)
+    }
+
+    fn signal_component(&self, name: &str, component: &str) -> f64 {
+        self.shared.signal_component(name, component)
+    }
+
+    fn constant(&self, name: &str) -> f64 {
+        self.shared.constant(name)
+    }
+
+    fn config(&self, name: &str) -> f64 {
+        self.shared.config(name)
+    }
+
+    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
+        // Kernels that depend on dt might behave unexpectedly here
+        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
             panic!(
                 "Unknown kernel function '{}' - function not found in registry",
                 name

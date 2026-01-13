@@ -318,7 +318,7 @@ impl MemberSignal {
 
     /// Set the current value for an entity index.
     pub fn set_current(&self, storage: &mut MemberSignalBuffer, index: EntityIndex, value: Value) {
-        storage.set_current(&self.id.signal_name, index.0, value);
+        let _ = storage.set_current(&self.id.signal_name, index.0, value);
     }
 
     /// Get all current values as a slice (for scalar signals).

@@ -2,22 +2,21 @@ use chumsky::prelude::*;
 
 use crate::ast::{PolicyBlock, Spanned, WorldDef};
 
-use super::super::ParseError;
-use super::super::primitives::{attr_string, spanned_path, ws};
+use super::super::lexer::Token;
+use super::super::primitives::{attr_string, spanned_path};
+use super::super::{ParseError, ParserInput};
 use super::config::config_entry;
 
-pub fn world_def<'src>() -> impl Parser<'src, &'src str, WorldDef, extra::Err<ParseError<'src>>> {
-    text::keyword("world")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn world_def<'src>()
+-> impl Parser<'src, ParserInput<'src>, WorldDef, extra::Err<ParseError<'src>>> {
+    just(Token::World)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             world_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = WorldDef {
@@ -44,19 +43,17 @@ enum WorldContent {
     Policy(PolicyBlock),
 }
 
-fn world_content<'src>() -> impl Parser<'src, &'src str, WorldContent, extra::Err<ParseError<'src>>>
-{
+fn world_content<'src>()
+-> impl Parser<'src, ParserInput<'src>, WorldContent, extra::Err<ParseError<'src>>> {
     choice((
-        attr_string("title").map(WorldContent::Title),
-        attr_string("version").map(WorldContent::Version),
-        text::keyword("policy")
-            .padded_by(ws())
+        attr_string(Token::Title).map(WorldContent::Title),
+        attr_string(Token::Version).map(WorldContent::Version),
+        just(Token::Policy)
             .ignore_then(
                 config_entry()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(|entries| WorldContent::Policy(PolicyBlock { entries })),
     ))

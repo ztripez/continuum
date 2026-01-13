@@ -90,10 +90,11 @@ impl Lowerer {
         ctx: &LoweringContext<'_>,
     ) -> CompiledExpr {
         match expr {
-            Expr::Literal(lit) => CompiledExpr::Literal(self.literal_to_f64_unchecked(lit)),
-            Expr::LiteralWithUnit { value, .. } => {
-                CompiledExpr::Literal(self.literal_to_f64_unchecked(value))
-            }
+            Expr::Literal(lit) => CompiledExpr::Literal(self.literal_to_f64_unchecked(lit), None),
+            Expr::LiteralWithUnit { value, unit } => CompiledExpr::Literal(
+                self.literal_to_f64_unchecked(value),
+                crate::units::Unit::parse(unit),
+            ),
             Expr::Prev | Expr::PrevField(_) => CompiledExpr::Prev,
             Expr::DtRaw => CompiledExpr::DtRaw,
             Expr::SimTime => CompiledExpr::SimTime,
@@ -104,13 +105,13 @@ impl Lowerer {
                     return CompiledExpr::Local(path.segments[0].clone());
                 }
                 // Could be signal, const, or config reference
-                let joined = path.join(".");
-                if self.constants.contains_key(&joined) {
-                    CompiledExpr::Const(joined)
-                } else if self.config.contains_key(&joined) {
-                    CompiledExpr::Config(joined)
+                let joined = path.to_string();
+                if let Some((_, unit)) = self.constants.get(&joined) {
+                    CompiledExpr::Const(joined, unit.clone())
+                } else if let Some((_, unit)) = self.config.get(&joined) {
+                    CompiledExpr::Config(joined, unit.clone())
                 } else {
-                    CompiledExpr::Signal(SignalId::from(joined.as_str()))
+                    CompiledExpr::Signal(SignalId::from(path.clone()))
                 }
             }
             Expr::SignalRef(path) => {
@@ -120,19 +121,26 @@ impl Lowerer {
                     let last = parts.last().unwrap();
                     if matches!(last.as_str(), "x" | "y" | "z" | "w") {
                         // This is a component access like signal.foo.bar.x
-                        let signal_path = parts[..parts.len() - 1].join(".");
+                        let mut signal_path = path.clone();
+                        signal_path.segments.pop();
                         return CompiledExpr::FieldAccess {
-                            object: Box::new(CompiledExpr::Signal(SignalId::from(
-                                signal_path.as_str(),
-                            ))),
+                            object: Box::new(CompiledExpr::Signal(SignalId::from(signal_path))),
                             field: last.clone(),
                         };
                     }
                 }
-                CompiledExpr::Signal(SignalId::from(path.join(".").as_str()))
+                CompiledExpr::Signal(SignalId::from(path.clone()))
             }
-            Expr::ConstRef(path) => CompiledExpr::Const(path.join(".")),
-            Expr::ConfigRef(path) => CompiledExpr::Config(path.join(".")),
+            Expr::ConstRef(path) => {
+                let joined = path.to_string();
+                let unit = self.constants.get(&joined).and_then(|(_, u)| u.clone());
+                CompiledExpr::Const(joined, unit)
+            }
+            Expr::ConfigRef(path) => {
+                let joined = path.to_string();
+                let unit = self.config.get(&joined).and_then(|(_, u)| u.clone());
+                CompiledExpr::Config(joined, unit)
+            }
             Expr::Binary { op, left, right } => CompiledExpr::Binary {
                 op: self.lower_binary_op(*op),
                 left: Box::new(self.lower_expr_with_context(&left.node, ctx)),
@@ -236,7 +244,7 @@ impl Lowerer {
                     else_branch
                         .as_ref()
                         .map(|e| self.lower_expr_with_context(&e.node, ctx))
-                        .unwrap_or(CompiledExpr::Literal(0.0)),
+                        .unwrap_or(CompiledExpr::Literal(0.0, None)),
                 ),
             },
             Expr::Let { name, value, body } => {
@@ -263,7 +271,7 @@ impl Lowerer {
                         )
                     }
                 };
-                CompiledExpr::Literal(val)
+                CompiledExpr::Literal(val, None)
             }
             // Block, For, Map, Fold, Struct, EmitSignal, EmitField, FieldRef, Payload, PayloadField
             // These require more complex lowering or are handled specially
@@ -284,8 +292,7 @@ impl Lowerer {
             Expr::EntityRef(path) => {
                 panic!(
                     "EntityRef '{}' cannot be evaluated to a value - entity references must be used in aggregation context (e.g., sum(entity.{}, ...))",
-                    path.join("."),
-                    path.join(".")
+                    path, path
                 )
             }
 
@@ -306,7 +313,7 @@ impl Lowerer {
                     ),
                 };
                 CompiledExpr::EntityAccess {
-                    entity: EntityId::from(entity.join(".").as_str()),
+                    entity: EntityId::from(entity.clone()),
                     instance: inst_id,
                     field: String::new(), // Field access happens via FieldAccess wrapping this
                 }
@@ -314,36 +321,36 @@ impl Lowerer {
 
             Expr::Aggregate { op, entity, body } => CompiledExpr::Aggregate {
                 op: self.lower_aggregate_op(*op),
-                entity: EntityId::from(entity.join(".").as_str()),
+                entity: EntityId::from(entity.clone()),
                 body: Box::new(self.lower_expr_with_context(&body.node, ctx)),
             },
 
             Expr::Other(path) => {
                 // other() should only be used within aggregation context
                 CompiledExpr::Other {
-                    entity: EntityId::from(path.join(".").as_str()),
-                    body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+                    entity: EntityId::from(path.clone()),
+                    body: Box::new(CompiledExpr::Literal(1.0, None)), // placeholder
                 }
             }
 
             Expr::Pairs(path) => CompiledExpr::Pairs {
-                entity: EntityId::from(path.join(".").as_str()),
-                body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+                entity: EntityId::from(path.clone()),
+                body: Box::new(CompiledExpr::Literal(1.0, None)), // placeholder
             },
 
             Expr::Filter { entity, predicate } => CompiledExpr::Filter {
-                entity: EntityId::from(entity.join(".").as_str()),
+                entity: EntityId::from(entity.clone()),
                 predicate: Box::new(self.lower_expr_with_context(&predicate.node, ctx)),
-                body: Box::new(CompiledExpr::Literal(1.0)), // placeholder for nested body
+                body: Box::new(CompiledExpr::Literal(1.0, None)), // placeholder for nested body
             },
 
             Expr::First { entity, predicate } => CompiledExpr::First {
-                entity: EntityId::from(entity.join(".").as_str()),
+                entity: EntityId::from(entity.clone()),
                 predicate: Box::new(self.lower_expr_with_context(&predicate.node, ctx)),
             },
 
             Expr::Nearest { entity, position } => CompiledExpr::Nearest {
-                entity: EntityId::from(entity.join(".").as_str()),
+                entity: EntityId::from(entity.clone()),
                 position: Box::new(self.lower_expr_with_context(&position.node, ctx)),
             },
 
@@ -352,17 +359,17 @@ impl Lowerer {
                 position,
                 radius,
             } => CompiledExpr::Within {
-                entity: EntityId::from(entity.join(".").as_str()),
+                entity: EntityId::from(entity.clone()),
                 position: Box::new(self.lower_expr_with_context(&position.node, ctx)),
                 radius: Box::new(self.lower_expr_with_context(&radius.node, ctx)),
-                body: Box::new(CompiledExpr::Literal(1.0)), // placeholder
+                body: Box::new(CompiledExpr::Literal(1.0, None)), // placeholder
             },
 
             // === Impulse expressions ===
             Expr::Payload => CompiledExpr::Payload,
             Expr::PayloadField(field) => CompiledExpr::PayloadField(field.clone()),
             Expr::EmitSignal { target, value } => CompiledExpr::EmitSignal {
-                target: SignalId::from(target.join(".").as_str()),
+                target: SignalId::from(target.clone()),
                 value: Box::new(self.lower_expr_with_context(&value.node, ctx)),
             },
 
@@ -376,7 +383,7 @@ impl Lowerer {
 
     pub(crate) fn expr_to_function_name(&self, expr: &Expr) -> String {
         match expr {
-            Expr::Path(path) => path.join("."),
+            Expr::Path(path) => path.to_string(),
             Expr::FieldAccess { object, field } => {
                 format!("{}.{}", self.expr_to_function_name(&object.node), field)
             }

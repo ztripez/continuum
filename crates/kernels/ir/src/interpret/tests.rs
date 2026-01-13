@@ -24,6 +24,8 @@ fn test_build_transition_fn() {
 
     // Create an era with a transition when temp < 50
     let era = CompiledEra {
+        file: None,
+        span: 0..0,
         id: continuum_foundation::EraId::from("test"),
         is_initial: true,
         is_terminal: false,
@@ -37,7 +39,7 @@ fn test_build_transition_fn() {
                 left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from(
                     "temp",
                 ))),
-                right: Box::new(CompiledExpr::Literal(50.0)),
+                right: Box::new(CompiledExpr::Literal(50.0, None)),
             },
         }],
     };
@@ -53,7 +55,7 @@ fn test_build_transition_fn() {
     // Signal at 30, should transition (30 < 50 is true)
     let result = transition_fn(&signals, 0.0);
     assert!(result.is_some());
-    assert_eq!(result.unwrap().0, "next_era");
+    assert_eq!(result.unwrap().to_string(), "next_era");
 }
 
 #[test]
@@ -66,22 +68,13 @@ fn test_build_fracture() {
     let world = CompiledWorld {
         constants: IndexMap::new(),
         config: IndexMap::new(),
-        functions: IndexMap::new(),
-        strata: IndexMap::new(),
-        eras: IndexMap::new(),
-        signals: IndexMap::new(),
-        fields: IndexMap::new(),
-        operators: IndexMap::new(),
-        impulses: IndexMap::new(),
-        fractures: IndexMap::new(),
-        entities: IndexMap::new(),
-        members: IndexMap::new(),
-        chronicles: IndexMap::new(),
-        types: IndexMap::new(),
+        nodes: IndexMap::new(),
     };
 
     // Create a fracture that triggers when temp > 100 and emits to energy
     let fracture = CompiledFracture {
+        file: None,
+        span: 0..0,
         id: continuum_foundation::FractureId::from("test_fracture"),
         stratum: continuum_foundation::StratumId::from("default"),
         reads: vec![continuum_foundation::SignalId::from("temp")],
@@ -90,11 +83,11 @@ fn test_build_fracture() {
             left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from(
                 "temp",
             ))),
-            right: Box::new(CompiledExpr::Literal(100.0)),
+            right: Box::new(CompiledExpr::Literal(100.0, None)),
         }],
         emits: vec![CompiledEmit {
             target: continuum_foundation::SignalId::from("energy"),
-            value: CompiledExpr::Literal(50.0),
+            value: CompiledExpr::Literal(50.0, None),
         }],
     };
 

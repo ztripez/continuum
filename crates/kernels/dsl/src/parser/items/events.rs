@@ -1,9 +1,4 @@
 //! Event-related parsers (impulses, fractures, chronicles).
-//!
-//! This module handles:
-//! - `impulse.name { ... }` external causal inputs
-//! - `fracture.name { ... }` tension detectors
-//! - `chronicle.name { ... }` observer event handlers
 
 use chumsky::prelude::*;
 
@@ -12,29 +7,25 @@ use crate::ast::{
     ObserveHandler, Path, Spanned, TypeExpr,
 };
 
-use super::super::primitives::attr_string;
-
-use super::super::ParseError;
 use super::super::expr::{spanned_effect_expr, spanned_expr};
-use super::super::primitives::{attr_path, ident, spanned, spanned_path, ws};
+use super::super::lexer::Token;
+use super::super::primitives::{attr_path, attr_string, ident, spanned, spanned_path};
+use super::super::{ParseError, ParserInput};
 use super::config::config_entry;
 use super::types::type_expr;
 
 // === Impulse ===
 
-pub fn impulse_def<'src>() -> impl Parser<'src, &'src str, ImpulseDef, extra::Err<ParseError<'src>>>
-{
-    text::keyword("impulse")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn impulse_def<'src>()
+-> impl Parser<'src, ParserInput<'src>, ImpulseDef, extra::Err<ParseError<'src>>> {
+    just(Token::Impulse)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             impulse_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = ImpulseDef {
@@ -69,45 +60,39 @@ enum ImpulseContent {
 }
 
 fn impulse_content<'src>()
--> impl Parser<'src, &'src str, ImpulseContent, extra::Err<ParseError<'src>>> {
+-> impl Parser<'src, ParserInput<'src>, ImpulseContent, extra::Err<ParseError<'src>>> {
     choice((
-        // Attributes with arguments - must come before generic type parser
-        attr_string("title").map(ImpulseContent::Title),
-        attr_string("symbol").map(ImpulseContent::Symbol),
+        attr_string(Token::Title).map(ImpulseContent::Title),
+        attr_string(Token::Symbol).map(ImpulseContent::Symbol),
         // Type expression: `: TypeExpr`
-        just(':')
-            .padded_by(ws())
+        just(Token::Colon)
             .ignore_then(spanned(type_expr()))
             .map(ImpulseContent::Type),
         // Config block: `config { ... }`
-        text::keyword("config")
-            .padded_by(ws())
+        just(Token::Config)
             .ignore_then(
                 config_entry()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(ImpulseContent::Config),
         // Apply block: `apply { expr; expr; ... }` - supports semicolon-separated expressions
-        text::keyword("apply")
-            .padded_by(ws())
+        just(Token::Apply)
             .ignore_then(
                 spanned_effect_expr()
-                    .padded_by(ws())
-                    .separated_by(just(';').padded_by(ws()))
+                    .separated_by(just(Token::Semicolon).or_not())
                     .allow_trailing()
                     .at_least(1)
                     .collect::<Vec<_>>()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map_with(|exprs, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
+                let span = extra.span();
                 let body = if exprs.len() == 1 {
                     exprs.into_iter().next().unwrap()
                 } else {
-                    Spanned::new(Expr::Block(exprs), span.start..span.end)
+                    Spanned::new(Expr::Block(exprs), span.into())
                 };
                 ImpulseContent::Apply(ApplyBlock { body })
             }),
@@ -117,16 +102,15 @@ fn impulse_content<'src>()
 // === Fracture ===
 
 pub fn fracture_def<'src>()
--> impl Parser<'src, &'src str, FractureDef, extra::Err<ParseError<'src>>> {
-    just('.')
+-> impl Parser<'src, ParserInput<'src>, FractureDef, extra::Err<ParseError<'src>>> {
+    just(Token::Fracture)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             fracture_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut strata = None;
@@ -161,52 +145,45 @@ enum FractureContent {
 }
 
 fn fracture_content<'src>()
--> impl Parser<'src, &'src str, FractureContent, extra::Err<ParseError<'src>>> {
+-> impl Parser<'src, ParserInput<'src>, FractureContent, extra::Err<ParseError<'src>>> {
     choice((
-        // : strata(path) - must come before other choices to avoid matching "strata" elsewhere
-        attr_path("strata").map(FractureContent::Strata),
+        attr_path(Token::Strata).map(FractureContent::Strata),
         // config { ... } - local config block
-        text::keyword("config")
-            .padded_by(ws())
+        just(Token::Config)
             .ignore_then(
                 config_entry()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(FractureContent::Config),
         // when { ... } - trigger conditions
-        text::keyword("when")
-            .padded_by(ws())
+        just(Token::When)
             .ignore_then(
                 spanned_expr()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(FractureContent::When),
         // emit { expr... } - emit expression(s), supports let bindings
         // Multiple expressions are wrapped in a Block
-        text::keyword("emit")
-            .padded_by(ws())
+        just(Token::Emit)
             .ignore_then(
                 spanned_effect_expr()
-                    .padded_by(ws())
-                    .separated_by(just(';').padded_by(ws()))
+                    .separated_by(just(Token::Semicolon).or_not())
                     .allow_trailing()
                     .at_least(1)
                     .collect::<Vec<_>>()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map_with(|exprs, extra| {
-                let span: chumsky::span::SimpleSpan = extra.span();
+                let span = extra.span();
                 if exprs.len() == 1 {
                     FractureContent::Emit(exprs.into_iter().next().unwrap())
                 } else {
                     // Multiple expressions -> wrap in a Block
-                    FractureContent::Emit(Spanned::new(Expr::Block(exprs), span.start..span.end))
+                    FractureContent::Emit(Spanned::new(Expr::Block(exprs), span.into()))
                 }
             }),
     ))
@@ -215,17 +192,14 @@ fn fracture_content<'src>()
 // === Chronicle ===
 
 pub fn chronicle_def<'src>()
--> impl Parser<'src, &'src str, ChronicleDef, extra::Err<ParseError<'src>>> {
-    text::keyword("chronicle")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+-> impl Parser<'src, ParserInput<'src>, ChronicleDef, extra::Err<ParseError<'src>>> {
+    just(Token::Chronicle)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             observe_block()
-                .padded_by(ws())
                 .or_not()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(path, observe)| ChronicleDef {
             doc: None,
@@ -234,40 +208,34 @@ pub fn chronicle_def<'src>()
         })
 }
 
-fn observe_block<'src>() -> impl Parser<'src, &'src str, ObserveBlock, extra::Err<ParseError<'src>>>
-{
-    text::keyword("observe")
-        .padded_by(ws())
+fn observe_block<'src>()
+-> impl Parser<'src, ParserInput<'src>, ObserveBlock, extra::Err<ParseError<'src>>> {
+    just(Token::Observe)
         .ignore_then(
             observe_handler()
-                .padded_by(ws())
                 .repeated()
                 .collect()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|handlers| ObserveBlock { handlers })
 }
 
 fn observe_handler<'src>()
--> impl Parser<'src, &'src str, ObserveHandler, extra::Err<ParseError<'src>>> {
-    text::keyword("when")
-        .padded_by(ws())
+-> impl Parser<'src, ParserInput<'src>, ObserveHandler, extra::Err<ParseError<'src>>> {
+    just(Token::When)
         .ignore_then(spanned_expr())
         .then(
-            text::keyword("emit")
-                .padded_by(ws())
-                .ignore_then(text::keyword("event"))
-                .padded_by(ws())
-                .ignore_then(just('.'))
+            just(Token::Emit)
+                .ignore_then(just(Token::Event))
+                .ignore_then(just(Token::Dot))
                 .ignore_then(spanned_path())
                 .then(
                     event_field()
-                        .padded_by(ws())
                         .repeated()
                         .collect()
-                        .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                        .delimited_by(just(Token::LBrace), just(Token::RBrace)),
                 )
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(condition, (event_name, event_fields))| ObserveHandler {
             condition,
@@ -277,8 +245,9 @@ fn observe_handler<'src>()
 }
 
 fn event_field<'src>()
--> impl Parser<'src, &'src str, (Spanned<String>, Spanned<Expr>), extra::Err<ParseError<'src>>> {
+-> impl Parser<'src, ParserInput<'src>, (Spanned<String>, Spanned<Expr>), extra::Err<ParseError<'src>>>
+{
     spanned(ident())
-        .then_ignore(just(':').padded_by(ws()))
+        .then_ignore(just(Token::Colon))
         .then(spanned_expr())
 }

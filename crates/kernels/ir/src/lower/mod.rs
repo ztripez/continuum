@@ -1,51 +1,7 @@
-//! AST to IR Lowering
+//! Continuum IR - Lowering Logic
 //!
 //! This module transforms DSL abstract syntax trees into the typed intermediate
 //! representation (IR) used for DAG construction and runtime execution.
-//!
-//! # Overview
-//!
-//! Lowering performs several key transformations:
-//!
-//! 1. **Multi-pass processing**: Items are processed in dependency order
-//!    (constants/strata first, then eras, then signals/fields/entities)
-//! 2. **Dependency extraction**: Signal reads are collected from expressions
-//! 3. **Function inlining**: User-defined functions are expanded at call sites
-//! 4. **Type resolution**: AST types become concrete IR value types
-//! 5. **Expression simplification**: Complex AST nodes become simpler IR forms
-//!
-//! # Usage
-//!
-//! ```ignore
-//! use continuum_dsl::parse;
-//! use continuum_ir::lower;
-//!
-//! let source = r#"
-//!     strata.terra {}
-//!     era.main { : initial }
-//!     signal.terra.temp {
-//!         : strata(terra)
-//!         resolve { prev + 1.0 }
-//!     }
-//! "#;
-//!
-//! let (unit, errors) = parse(source);
-//! let world = lower(&unit.unwrap())?;
-//! println!("Signals: {}", world.signals.len());
-//! ```
-//!
-//! # Errors
-//!
-//! Lowering can fail with [`LowerError`] for issues like:
-//! - Undefined strata or signal references
-//! - Duplicate definitions
-//! - Using `dt_raw` without declaring it
-//!
-//! # dt-robustness Checking
-//!
-//! Signals that use the raw time step (`dt_raw`) must explicitly declare this
-//! with `: uses(dt_raw)`. This enables dt-robustness auditing to track signals
-//! whose behavior depends on the time step size.
 
 mod chronicles;
 mod convert;
@@ -64,9 +20,9 @@ mod tests;
 use indexmap::IndexMap;
 use thiserror::Error;
 
-use continuum_dsl::ast::{CompilationUnit, Item, TypeDef};
+use continuum_dsl::ast::{self, CompilationUnit, Item, Span};
 use continuum_foundation::{
-    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, MemberId, OperatorId,
+    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, MemberId, OperatorId, Path,
     SignalId, StratumId, TypeId,
 };
 
@@ -77,116 +33,199 @@ use crate::{
 };
 
 /// Errors that can occur during the lowering phase.
-///
-/// These represent semantic errors in the DSL that prevent successful
-/// compilation to IR. Parse errors are handled separately by the parser.
 #[derive(Debug, Error)]
 pub enum LowerError {
-    /// A stratum was referenced that has not been defined.
-    ///
-    /// Strata must be defined before they can be used in signal, field,
-    /// or operator declarations.
-    #[error("undefined stratum: {0}")]
-    UndefinedStratum(String),
-
-    /// A signal was referenced that has not been defined.
-    ///
-    /// This typically indicates a typo in a signal path or a missing
-    /// signal definition.
-    #[error("undefined signal: {0}")]
-    UndefinedSignal(String),
-
-    /// An identifier was defined more than once.
-    ///
-    /// Each signal, field, operator, etc. must have a unique path.
-    #[error("duplicate definition: {0}")]
-    DuplicateDefinition(String),
-
-    /// A required field in a definition is missing.
-    ///
-    /// Some definitions require certain fields to be present (e.g.,
-    /// signals need either a resolve block or an initial value).
-    #[error("missing required field: {0}")]
-    MissingRequiredField(String),
-
-    /// An expression could not be lowered to a valid form.
-    ///
-    /// This may occur when an expression uses unsupported syntax or
-    /// contains type mismatches.
-    #[error("invalid expression: {0}")]
-    InvalidExpression(String),
-
-    /// A signal uses `dt_raw` without explicitly declaring it.
-    ///
-    /// For dt-robustness auditing, signals that depend on the raw time
-    /// step must declare this with `: uses(dt_raw)`. This makes explicit
-    /// which signals may behave differently with different time steps.
-    #[error(
-        "signal '{0}' uses dt_raw without explicit `: uses(dt_raw)` declaration - this is required for dt-robustness auditing"
-    )]
-    UndeclaredDtRawUsage(String),
-
-    /// Type constraints were applied to an incompatible type.
-    ///
-    /// Tensor constraints (`:symmetric`, `:positive_definite`) can only be applied
-    /// to Tensor types. Sequence constraints (`:each()`, `:sum()`) can only be
-    /// applied to Seq types.
+    #[error("undefined stratum: {name}")]
+    UndefinedStratum {
+        name: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("undefined signal: {name}")]
+    UndefinedSignal {
+        name: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("duplicate definition: {name}")]
+    DuplicateDefinition {
+        name: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("invalid literal: {message}")]
+    InvalidLiteral {
+        message: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("undeclared dt_raw usage in signal '{name}'")]
+    UndeclaredDtRawUsage {
+        name: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
+    #[error("invalid expression: {message}")]
+    InvalidExpression {
+        message: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
     #[error(
         "signal '{signal}' has {constraint_kind} constraint but type is {actual_type}, not {expected_type}"
     )]
     MismatchedConstraint {
-        /// The signal path where the mismatch occurred.
         signal: String,
-        /// The kind of constraint (e.g., "tensor" or "sequence").
         constraint_kind: String,
-        /// The actual type found.
         actual_type: String,
-        /// The expected type for this constraint.
         expected_type: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
     },
-
-    /// Generic error message.
-    #[error("{0}")]
-    Generic(String),
+    #[error("{message}")]
+    Generic {
+        message: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
 }
 
-/// Lower a parsed compilation unit to the typed intermediate representation.
-///
-/// This is the main entry point for the lowering phase. It transforms the AST
-/// produced by the parser into [`CompiledWorld`], resolving types, collecting
-/// dependencies, and inlining user-defined functions.
-///
-/// # Processing Order
-///
-/// Items are processed in multiple passes to handle dependencies:
-///
-/// 1. **First pass**: Constants, config values, user-defined functions, and strata
-/// 2. **Second pass**: Era definitions (which reference strata)
-/// 3. **Third pass**: Signals, fields, operators, impulses, fractures, entities
-///
-/// # Errors
-///
-/// Returns [`LowerError`] if the AST contains semantic errors such as:
-/// - References to undefined symbols
-/// - Duplicate definitions
-/// - Using `dt_raw` without explicit declaration
-///
-/// # Example
-///
-/// ```ignore
-/// let (unit, _) = continuum_dsl::parse(source);
-/// let world = lower(&unit.unwrap())?;
-/// assert!(!world.signals.is_empty());
-/// ```
+impl LowerError {
+    pub fn span(&self) -> Span {
+        match self {
+            LowerError::UndefinedStratum { span, .. } => span.clone(),
+            LowerError::UndefinedSignal { span, .. } => span.clone(),
+            LowerError::DuplicateDefinition { span, .. } => span.clone(),
+            LowerError::InvalidLiteral { span, .. } => span.clone(),
+            LowerError::UndeclaredDtRawUsage { span, .. } => span.clone(),
+            LowerError::InvalidExpression { span, .. } => span.clone(),
+            LowerError::MismatchedConstraint { span, .. } => span.clone(),
+            LowerError::Generic { span, .. } => span.clone(),
+        }
+    }
+
+    pub fn file(&self) -> Option<std::path::PathBuf> {
+        match self {
+            LowerError::UndefinedStratum { file, .. } => file.clone(),
+            LowerError::UndefinedSignal { file, .. } => file.clone(),
+            LowerError::DuplicateDefinition { file, .. } => file.clone(),
+            LowerError::InvalidLiteral { file, .. } => file.clone(),
+            LowerError::UndeclaredDtRawUsage { file, .. } => file.clone(),
+            LowerError::InvalidExpression { file, .. } => file.clone(),
+            LowerError::MismatchedConstraint { file, .. } => file.clone(),
+            LowerError::Generic { file, .. } => file.clone(),
+        }
+    }
+}
+
 pub fn lower(unit: &CompilationUnit) -> Result<CompiledWorld, LowerError> {
-    let mut lowerer = Lowerer::new();
+    lower_with_file(unit, None)
+}
+
+pub fn lower_multi(
+    units: Vec<(std::path::PathBuf, &CompilationUnit)>,
+) -> Result<CompiledWorld, LowerError> {
+    let mut lowerer = Lowerer::new(None);
+
+    // Pass 1: Types, Strata, Functions, Constants, Config
+    for (path, unit) in &units {
+        lowerer.file = Some(path.clone());
+        for item in &unit.items {
+            match &item.node {
+                Item::ConstBlock(block) => {
+                    for entry in &block.entries {
+                        let key = entry.path.node.to_string();
+                        if lowerer.constants.contains_key(&key) {
+                            return Err(LowerError::DuplicateDefinition {
+                                name: format!("const.{}", key),
+                                file: lowerer.file.clone(),
+                                span: entry.path.span.clone(),
+                            });
+                        }
+                        let value = lowerer.literal_to_f64(&entry.value.node, &entry.value.span)?;
+                        let unit = entry
+                            .unit
+                            .as_ref()
+                            .and_then(|u| crate::units::Unit::parse(&u.node));
+                        lowerer.constants.insert(key, (value, unit));
+                    }
+                }
+                Item::ConfigBlock(block) => {
+                    for entry in &block.entries {
+                        let key = entry.path.node.to_string();
+                        if lowerer.config.contains_key(&key) {
+                            return Err(LowerError::DuplicateDefinition {
+                                name: format!("config.{}", key),
+                                file: lowerer.file.clone(),
+                                span: entry.path.span.clone(),
+                            });
+                        }
+                        let value = lowerer.literal_to_f64(&entry.value.node, &entry.value.span)?;
+                        let unit = entry
+                            .unit
+                            .as_ref()
+                            .and_then(|u| crate::units::Unit::parse(&u.node));
+                        lowerer.config.insert(key, (value, unit));
+                    }
+                }
+                Item::FnDef(def) => {
+                    lowerer.lower_fn(def, item.span.clone())?;
+                }
+                Item::StrataDef(def) => {
+                    lowerer.lower_stratum(def, item.span.clone())?;
+                }
+                Item::TypeDef(def) => {
+                    lowerer.lower_type_def(def, item.span.clone())?;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Pass 2: Eras (depends on strata)
+    for (path, unit) in &units {
+        lowerer.file = Some(path.clone());
+        for item in &unit.items {
+            if let Item::EraDef(def) = &item.node {
+                lowerer.lower_era(def, item.span.clone())?;
+            }
+        }
+    }
+
+    // Pass 3: Signals, Fields, Operators, Impulses, Fractures, Entities, Members, Chronicles
+    for (path, unit) in &units {
+        lowerer.file = Some(path.clone());
+        for item in &unit.items {
+            match &item.node {
+                Item::SignalDef(def) => lowerer.lower_signal(def, item.span.clone())?,
+                Item::FieldDef(def) => lowerer.lower_field(def, item.span.clone())?,
+                Item::OperatorDef(def) => lowerer.lower_operator(def, item.span.clone())?,
+                Item::ImpulseDef(def) => lowerer.lower_impulse(def, item.span.clone())?,
+                Item::FractureDef(def) => lowerer.lower_fracture(def, item.span.clone())?,
+                Item::EntityDef(def) => lowerer.lower_entity(def, item.span.clone())?,
+                Item::MemberDef(def) => lowerer.lower_member(def, item.span.clone())?,
+                Item::ChronicleDef(def) => lowerer.lower_chronicle(def, item.span.clone())?,
+                _ => {}
+            }
+        }
+    }
+
+    Ok(lowerer.finish())
+}
+
+pub fn lower_with_file(
+    unit: &CompilationUnit,
+    file: Option<std::path::PathBuf>,
+) -> Result<CompiledWorld, LowerError> {
+    let mut lowerer = Lowerer::new(file);
     lowerer.lower_unit(unit)?;
     Ok(lowerer.finish())
 }
 
 pub(crate) struct Lowerer {
-    pub(crate) constants: IndexMap<String, f64>,
-    pub(crate) config: IndexMap<String, f64>,
+    pub(crate) file: Option<std::path::PathBuf>,
+    pub(crate) constants: IndexMap<String, (f64, Option<crate::units::Unit>)>,
+    pub(crate) config: IndexMap<String, (f64, Option<crate::units::Unit>)>,
     pub(crate) functions: IndexMap<FnId, CompiledFn>,
     pub(crate) strata: IndexMap<StratumId, CompiledStratum>,
     pub(crate) eras: IndexMap<EraId, CompiledEra>,
@@ -202,8 +241,9 @@ pub(crate) struct Lowerer {
 }
 
 impl Lowerer {
-    fn new() -> Self {
+    fn new(file: Option<std::path::PathBuf>) -> Self {
         Self {
+            file,
             constants: IndexMap::new(),
             config: IndexMap::new(),
             functions: IndexMap::new(),
@@ -221,35 +261,121 @@ impl Lowerer {
         }
     }
 
-    /// Validate that a stratum exists, returning UndefinedStratum error if not.
-    pub(crate) fn validate_stratum(&self, stratum: &StratumId) -> Result<(), LowerError> {
-        // "default" stratum is always valid (implicit)
-        if stratum.0 == "default" {
+    pub(crate) fn validate_stratum(
+        &self,
+        stratum: &StratumId,
+        span: &Span,
+    ) -> Result<(), LowerError> {
+        if stratum.to_string() == "default" || stratum.to_string() == "genesis" {
             return Ok(());
         }
         if !self.strata.contains_key(stratum) {
-            return Err(LowerError::UndefinedStratum(stratum.0.clone()));
+            return Err(LowerError::UndefinedStratum {
+                name: stratum.to_string(),
+                file: self.file.clone(),
+                span: span.clone(),
+            });
         }
         Ok(())
     }
 
-    /// Lower a custom type definition to CompiledType.
-    fn lower_type_def(&mut self, def: &TypeDef) -> Result<(), LowerError> {
-        let id = TypeId::from(def.name.node.as_str());
-        if self.types.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("type.{}", id.0)));
+    fn lower_unit(&mut self, unit: &CompilationUnit) -> Result<(), LowerError> {
+        for item in &unit.items {
+            match &item.node {
+                Item::ConstBlock(block) => {
+                    for entry in &block.entries {
+                        let key = entry.path.node.to_string();
+                        if self.constants.contains_key(&key) {
+                            return Err(LowerError::DuplicateDefinition {
+                                name: format!("const.{}", key),
+                                file: self.file.clone(),
+                                span: entry.path.span.clone(),
+                            });
+                        }
+                        let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+                        let unit = entry
+                            .unit
+                            .as_ref()
+                            .and_then(|u| crate::units::Unit::parse(&u.node));
+                        self.constants.insert(key, (value, unit));
+                    }
+                }
+                Item::ConfigBlock(block) => {
+                    for entry in &block.entries {
+                        let key = entry.path.node.to_string();
+                        if self.config.contains_key(&key) {
+                            return Err(LowerError::DuplicateDefinition {
+                                name: format!("config.{}", key),
+                                file: self.file.clone(),
+                                span: entry.path.span.clone(),
+                            });
+                        }
+                        let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+                        let unit = entry
+                            .unit
+                            .as_ref()
+                            .and_then(|u| crate::units::Unit::parse(&u.node));
+                        self.config.insert(key, (value, unit));
+                    }
+                }
+                Item::FnDef(def) => {
+                    self.lower_fn(def, item.span.clone())?;
+                }
+                Item::StrataDef(def) => {
+                    self.lower_stratum(def, item.span.clone())?;
+                }
+                Item::TypeDef(def) => {
+                    self.lower_type_def(def, item.span.clone())?;
+                }
+                _ => {}
+            }
         }
 
-        let fields: Vec<CompiledTypeField> = def
+        for item in &unit.items {
+            if let Item::EraDef(def) = &item.node {
+                self.lower_era(def, item.span.clone())?;
+            }
+        }
+
+        for item in &unit.items {
+            match &item.node {
+                Item::SignalDef(def) => self.lower_signal(def, item.span.clone())?,
+                Item::FieldDef(def) => self.lower_field(def, item.span.clone())?,
+                Item::OperatorDef(def) => self.lower_operator(def, item.span.clone())?,
+                Item::ImpulseDef(def) => self.lower_impulse(def, item.span.clone())?,
+                Item::FractureDef(def) => self.lower_fracture(def, item.span.clone())?,
+                Item::EntityDef(def) => self.lower_entity(def, item.span.clone())?,
+                Item::MemberDef(def) => self.lower_member(def, item.span.clone())?,
+                Item::ChronicleDef(def) => self.lower_chronicle(def, item.span.clone())?,
+                _ => {}
+            }
+        }
+
+        Ok(())
+    }
+
+    fn lower_type_def(&mut self, def: &ast::TypeDef, span: Span) -> Result<(), LowerError> {
+        let id = TypeId::from(Path::from_str(&def.name.node));
+        if self.types.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("type.{}", id),
+                file: self.file.clone(),
+                span: def.name.span.clone(),
+            });
+        }
+
+        let fields = def
             .fields
             .iter()
-            .map(|field| CompiledTypeField {
-                name: field.name.node.clone(),
-                value_type: self.lower_type_expr(&field.ty.node),
+            .map(|f| CompiledTypeField {
+                name: f.name.node.clone(),
+                value_type: self.lower_type_expr(&f.ty.node),
             })
             .collect();
 
         let compiled_type = CompiledType {
+            file: self.file.clone(),
+            span,
             id: id.clone(),
             fields,
         };
@@ -257,94 +383,270 @@ impl Lowerer {
         Ok(())
     }
 
+    fn lower_stratum(
+        &mut self,
+        def: &continuum_dsl::ast::StrataDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let id = StratumId::from(def.path.node.clone());
+        if self.strata.contains_key(&id) {
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("strata.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
+        }
+
+        let stratum = CompiledStratum {
+            file: self.file.clone(),
+            span,
+            id: id.clone(),
+            title: def.title.as_ref().map(|s| s.node.clone()),
+            symbol: def.symbol.as_ref().map(|s| s.node.clone()),
+            default_stride: def.stride.as_ref().map(|s| s.node).unwrap_or(1),
+        };
+        self.strata.insert(id, stratum);
+        Ok(())
+    }
+
     fn finish(self) -> CompiledWorld {
+        let mut nodes = IndexMap::new();
+
+        for (id, signal) in &self.signals {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: signal.file.clone(),
+                span: signal.span.clone(),
+                stratum: Some(signal.stratum.clone()),
+                reads: signal.reads.clone(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Signal(
+                    crate::unified_nodes::SignalProperties {
+                        title: signal.title.clone(),
+                        symbol: signal.symbol.clone(),
+                        value_type: signal.value_type.clone(),
+                        uses_dt_raw: signal.uses_dt_raw,
+                        resolve: signal.resolve.clone(),
+                        resolve_components: signal.resolve_components.clone(),
+                        warmup: signal.warmup.clone(),
+                        assertions: signal.assertions.clone(),
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, field) in &self.fields {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: field.file.clone(),
+                span: field.span.clone(),
+                stratum: Some(field.stratum.clone()),
+                reads: field.reads.clone(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Field(
+                    crate::unified_nodes::FieldProperties {
+                        title: field.title.clone(),
+                        topology: field.topology,
+                        value_type: field.value_type.clone(),
+                        measure: field.measure.clone(),
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, operator) in &self.operators {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: operator.file.clone(),
+                span: operator.span.clone(),
+                stratum: Some(operator.stratum.clone()),
+                reads: operator.reads.clone(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Operator(
+                    crate::unified_nodes::OperatorProperties {
+                        phase: operator.phase,
+                        body: operator.body.clone(),
+                        assertions: operator.assertions.clone(),
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, impulse) in &self.impulses {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: impulse.file.clone(),
+                span: impulse.span.clone(),
+                stratum: None,
+                reads: Vec::new(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Impulse(
+                    crate::unified_nodes::ImpulseProperties {
+                        payload_type: impulse.payload_type.clone(),
+                        apply: impulse.apply.clone(),
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, fracture) in &self.fractures {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: fracture.file.clone(),
+                span: fracture.span.clone(),
+                stratum: Some(fracture.stratum.clone()),
+                reads: fracture.reads.clone(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Fracture(
+                    crate::unified_nodes::FractureProperties {
+                        conditions: fracture.conditions.clone(),
+                        emits: fracture.emits.clone(),
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, entity) in &self.entities {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: entity.file.clone(),
+                span: entity.span.clone(),
+                stratum: None,
+                reads: Vec::new(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Entity(
+                    crate::unified_nodes::EntityProperties {
+                        count_source: entity.count_source.clone(),
+                        count_bounds: entity.count_bounds,
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, member) in &self.members {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: member.file.clone(),
+                span: member.span.clone(),
+                stratum: Some(member.stratum.clone()),
+                reads: member.reads.clone(),
+                member_reads: member.member_reads.clone(),
+                kind: crate::unified_nodes::NodeKind::Member(
+                    crate::unified_nodes::MemberProperties {
+                        entity_id: member.entity_id.clone(),
+                        signal_name: member.signal_name.clone(),
+                        title: member.title.clone(),
+                        symbol: member.symbol.clone(),
+                        value_type: member.value_type.clone(),
+                        uses_dt_raw: member.uses_dt_raw,
+                        initial: member.initial.clone(),
+                        resolve: member.resolve.clone(),
+                        assertions: member.assertions.clone(),
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, chronicle) in &self.chronicles {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: chronicle.file.clone(),
+                span: chronicle.span.clone(),
+                stratum: None,
+                reads: chronicle.reads.clone(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Chronicle(
+                    crate::unified_nodes::ChronicleProperties {
+                        handlers: chronicle.handlers.clone(),
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, function) in &self.functions {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: function.file.clone(),
+                span: function.span.clone(),
+                stratum: None,
+                reads: Vec::new(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Function(
+                    crate::unified_nodes::FunctionProperties {
+                        params: function.params.clone(),
+                        body: function.body.clone(),
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, ty) in &self.types {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: ty.file.clone(),
+                span: ty.span.clone(),
+                stratum: None,
+                reads: Vec::new(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Type(crate::unified_nodes::TypeProperties {
+                    fields: ty.fields.clone(),
+                }),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, stratum) in &self.strata {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: stratum.file.clone(),
+                span: stratum.span.clone(),
+                stratum: None,
+                reads: Vec::new(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Stratum(
+                    crate::unified_nodes::StratumProperties {
+                        title: stratum.title.clone(),
+                        symbol: stratum.symbol.clone(),
+                        default_stride: stratum.default_stride,
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, era) in &self.eras {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: era.file.clone(),
+                span: era.span.clone(),
+                stratum: None,
+                reads: Vec::new(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Era(crate::unified_nodes::EraProperties {
+                    is_initial: era.is_initial,
+                    is_terminal: era.is_terminal,
+                    title: era.title.clone(),
+                    dt_seconds: era.dt_seconds,
+                    strata_states: era.strata_states.clone(),
+                    transitions: era.transitions.clone(),
+                }),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
         CompiledWorld {
             constants: self.constants,
             config: self.config,
-            functions: self.functions,
-            strata: self.strata,
-            eras: self.eras,
-            signals: self.signals,
-            fields: self.fields,
-            operators: self.operators,
-            impulses: self.impulses,
-            fractures: self.fractures,
-            entities: self.entities,
-            members: self.members,
-            chronicles: self.chronicles,
-            types: self.types,
+            nodes,
         }
-    }
-
-    pub(crate) fn lower_unit(&mut self, unit: &CompilationUnit) -> Result<(), LowerError> {
-        // First pass: collect constants, config, functions, and strata
-        for item in &unit.items {
-            match &item.node {
-                Item::ConstBlock(block) => {
-                    for entry in &block.entries {
-                        let key = entry.path.node.join(".");
-                        if self.constants.contains_key(&key) {
-                            return Err(LowerError::DuplicateDefinition(format!("const.{}", key)));
-                        }
-                        let value = self.literal_to_f64(&entry.value.node)?;
-                        self.constants.insert(key, value);
-                    }
-                }
-                Item::ConfigBlock(block) => {
-                    for entry in &block.entries {
-                        let key = entry.path.node.join(".");
-                        if self.config.contains_key(&key) {
-                            return Err(LowerError::DuplicateDefinition(format!("config.{}", key)));
-                        }
-                        let value = self.literal_to_f64(&entry.value.node)?;
-                        self.config.insert(key, value);
-                    }
-                }
-                Item::FnDef(def) => {
-                    self.lower_fn(def)?;
-                }
-                Item::StrataDef(def) => {
-                    let id = StratumId::from(def.path.node.join(".").as_str());
-                    if self.strata.contains_key(&id) {
-                        return Err(LowerError::DuplicateDefinition(format!("strata.{}", id.0)));
-                    }
-                    let stratum = CompiledStratum {
-                        id: id.clone(),
-                        title: def.title.as_ref().map(|s| s.node.clone()),
-                        symbol: def.symbol.as_ref().map(|s| s.node.clone()),
-                        default_stride: def.stride.as_ref().map(|s| s.node).unwrap_or(1),
-                    };
-                    self.strata.insert(id, stratum);
-                }
-                Item::TypeDef(def) => {
-                    self.lower_type_def(def)?;
-                }
-                _ => {}
-            }
-        }
-
-        // Second pass: eras (need strata)
-        for item in &unit.items {
-            if let Item::EraDef(def) = &item.node {
-                self.lower_era(def)?;
-            }
-        }
-
-        // Third pass: signals, fields, operators, impulses, fractures, entities, members, chronicles
-        for item in &unit.items {
-            match &item.node {
-                Item::SignalDef(def) => self.lower_signal(def)?,
-                Item::FieldDef(def) => self.lower_field(def)?,
-                Item::OperatorDef(def) => self.lower_operator(def)?,
-                Item::ImpulseDef(def) => self.lower_impulse(def)?,
-                Item::FractureDef(def) => self.lower_fracture(def)?,
-                Item::EntityDef(def) => self.lower_entity(def)?,
-                Item::MemberDef(def) => self.lower_member(def)?,
-                Item::ChronicleDef(def) => self.lower_chronicle(def)?,
-                _ => {}
-            }
-        }
-
-        Ok(())
     }
 }

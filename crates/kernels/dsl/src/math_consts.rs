@@ -163,6 +163,24 @@ pub fn all_names() -> impl Iterator<Item = &'static str> {
     MATH_CONSTS.keys().copied()
 }
 
+/// Build the standard library prelude as a DSL source string.
+///
+/// This defines math constants as `const` entries so they can be referenced
+/// as normal symbols (and overridden by user definitions if needed).
+pub fn prelude_source() -> String {
+    let mut names: Vec<_> = all_names().filter(|name| name.is_ascii()).collect();
+    names.sort();
+
+    let mut source = String::from("const {\n");
+    for name in names {
+        if let Some(value) = lookup(name) {
+            source.push_str(&format!("    {}: {}\n", name, value));
+        }
+    }
+    source.push_str("}\n");
+    source
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

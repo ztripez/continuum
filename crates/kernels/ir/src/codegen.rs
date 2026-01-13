@@ -106,14 +106,14 @@ fn dt_robust_operator_name(op: DtRobustOperator) -> String {
 /// `SignalComponent` for vector component extraction.
 fn convert_expr(expr: &CompiledExpr) -> Expr {
     match expr {
-        CompiledExpr::Literal(v) => Expr::Literal(*v),
+        CompiledExpr::Literal(v, _) => Expr::Literal(*v),
         CompiledExpr::Prev => Expr::Prev,
         CompiledExpr::DtRaw => Expr::DtRaw,
         CompiledExpr::SimTime => Expr::SimTime,
         CompiledExpr::Collected => Expr::Collected,
-        CompiledExpr::Signal(id) => Expr::Signal(id.0.clone()),
-        CompiledExpr::Const(name) => Expr::Const(name.clone()),
-        CompiledExpr::Config(name) => Expr::Config(name.clone()),
+        CompiledExpr::Signal(id) => Expr::Signal(id.to_string()),
+        CompiledExpr::Const(name, _) => Expr::Const(name.clone()),
+        CompiledExpr::Config(name, _) => Expr::Config(name.clone()),
         CompiledExpr::Binary { op, left, right } => Expr::Binary {
             op: convert_binary_op(*op),
             left: Box::new(convert_expr(left)),
@@ -170,7 +170,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
             match object.as_ref() {
                 CompiledExpr::Signal(id) => {
                     // Convert to SignalComponent for vector component access
-                    Expr::SignalComponent(id.0.clone(), field.clone())
+                    Expr::SignalComponent(id.to_string(), field.clone())
                 }
                 CompiledExpr::Prev => {
                     // Convert to PrevComponent for vector prev component access
@@ -205,49 +205,49 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         } => {
             panic!(
                 "EntityAccess({}.{}.{}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0, instance.0, field
+                entity, instance, field
             );
         }
         CompiledExpr::Aggregate { op, entity, .. } => {
             panic!(
                 "Aggregate({:?} over {}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                op, entity.0
+                op, entity
             );
         }
         CompiledExpr::Other { entity, .. } => {
             panic!(
                 "Other({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::Pairs { entity, .. } => {
             panic!(
                 "Pairs({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::Filter { entity, .. } => {
             panic!(
                 "Filter({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::First { entity, .. } => {
             panic!(
                 "First({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::Nearest { entity, .. } => {
             panic!(
                 "Nearest({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
         CompiledExpr::Within { entity, .. } => {
             panic!(
                 "Within({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity.0
+                entity
             );
         }
 
@@ -266,7 +266,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         CompiledExpr::EmitSignal { target, .. } => {
             panic!(
                 "EmitSignal({}) reached bytecode compiler - impulse expressions must use ImpulseExecutor",
-                target.0
+                target
             );
         }
     }
@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_compile_literal() {
-        let expr = CompiledExpr::Literal(42.0);
+        let expr = CompiledExpr::Literal(42.0, None);
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
         assert_eq!(result, 42.0);
@@ -360,8 +360,8 @@ mod tests {
     fn test_compile_binary() {
         let expr = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
-            left: Box::new(CompiledExpr::Literal(10.0)),
-            right: Box::new(CompiledExpr::Literal(32.0)),
+            left: Box::new(CompiledExpr::Literal(10.0, None)),
+            right: Box::new(CompiledExpr::Literal(32.0, None)),
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
@@ -380,7 +380,7 @@ mod tests {
     fn test_compile_call() {
         let expr = CompiledExpr::Call {
             function: "abs".to_string(),
-            args: vec![CompiledExpr::Literal(-5.0)],
+            args: vec![CompiledExpr::Literal(-5.0, None)],
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
@@ -393,10 +393,10 @@ mod tests {
             condition: Box::new(CompiledExpr::Binary {
                 op: BinaryOpIr::Gt,
                 left: Box::new(CompiledExpr::Signal(SignalId::from("temp"))),
-                right: Box::new(CompiledExpr::Literal(20.0)),
+                right: Box::new(CompiledExpr::Literal(20.0, None)),
             }),
-            then_branch: Box::new(CompiledExpr::Literal(100.0)),
-            else_branch: Box::new(CompiledExpr::Literal(0.0)),
+            then_branch: Box::new(CompiledExpr::Literal(100.0, None)),
+            else_branch: Box::new(CompiledExpr::Literal(0.0, None)),
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
@@ -416,10 +416,10 @@ mod tests {
                     args: vec![CompiledExpr::Binary {
                         op: BinaryOpIr::Sub,
                         left: Box::new(CompiledExpr::Signal(SignalId::from("temp"))),
-                        right: Box::new(CompiledExpr::Literal(30.0)),
+                        right: Box::new(CompiledExpr::Literal(30.0, None)),
                     }],
                 }),
-                right: Box::new(CompiledExpr::Config("scale".to_string())),
+                right: Box::new(CompiledExpr::Config("scale".to_string(), None)),
             }),
         };
         let chunk = compile(&expr);
@@ -434,10 +434,10 @@ mod tests {
         // a + b = 30.0
         let expr = CompiledExpr::Let {
             name: "a".to_string(),
-            value: Box::new(CompiledExpr::Literal(10.0)),
+            value: Box::new(CompiledExpr::Literal(10.0, None)),
             body: Box::new(CompiledExpr::Let {
                 name: "b".to_string(),
-                value: Box::new(CompiledExpr::Literal(20.0)),
+                value: Box::new(CompiledExpr::Literal(20.0, None)),
                 body: Box::new(CompiledExpr::Binary {
                     op: BinaryOpIr::Add,
                     left: Box::new(CompiledExpr::Local("a".to_string())),

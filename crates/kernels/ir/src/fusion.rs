@@ -3,53 +3,6 @@
 //! Compile-time analysis to identify operators that can be fused together,
 //! reducing DAG node count, function call overhead, and enabling better
 //! cache utilization.
-//!
-//! # Fusion Opportunities
-//!
-//! ## 1. Same-Signal Accumulation
-//!
-//! Multiple operators writing to the same signal input channel can be fused:
-//!
-//! ```cdsl
-//! operator.heat_source {
-//!     phase: collect
-//!     signal.temperature <- 100.0
-//! }
-//!
-//! operator.solar_input {
-//!     phase: collect
-//!     signal.temperature <- signal.solar_flux * 0.8
-//! }
-//! ```
-//!
-//! ## 2. Shared Input Dependencies
-//!
-//! Operators reading the same signals can share those reads:
-//!
-//! ```cdsl
-//! operator.pressure_calc {
-//!     phase: collect
-//!     let density = signal.density
-//!     signal.pressure <- density * GRAVITY * signal.depth
-//! }
-//!
-//! operator.buoyancy_calc {
-//!     phase: collect
-//!     let density = signal.density
-//!     signal.buoyancy <- (REF_DENSITY - density) * GRAVITY
-//! }
-//! ```
-//!
-//! ## 3. Kernel Call Batching
-//!
-//! Multiple operators calling the same kernel can be batched.
-//!
-//! # Safety
-//!
-//! Fusion is safe when:
-//! - No write-write conflicts (both writing to same signal with ordering)
-//! - No read-write conflicts (one reads what another writes within same level)
-//! - Same phase and stratum
 
 use std::collections::{HashMap, HashSet};
 
@@ -126,10 +79,10 @@ impl OperatorDeps {
             CompiledExpr::Signal(id) => {
                 self.reads.insert(id.clone());
             }
-            CompiledExpr::Const(name) => {
+            CompiledExpr::Const(name, _) => {
                 self.constants.insert(name.clone());
             }
-            CompiledExpr::Config(name) => {
+            CompiledExpr::Config(name, _) => {
                 self.configs.insert(name.clone());
             }
             CompiledExpr::KernelCall { function, args } => {
@@ -209,7 +162,7 @@ impl OperatorDeps {
                 self.extract_from_expr(value);
             }
             // These don't add dependencies to our tracking
-            CompiledExpr::Literal(_)
+            CompiledExpr::Literal(..)
             | CompiledExpr::Prev
             | CompiledExpr::DtRaw
             | CompiledExpr::SimTime
@@ -325,7 +278,7 @@ impl FusionCandidateDetector {
                 FusionGroup {
                     operators: operator_ids,
                     fusion_type: FusionType::SharedWrite,
-                    shared_resources: vec![signal.0.clone()],
+                    shared_resources: vec![signal.to_string()],
                     benefit_score: benefit,
                 }
             })
@@ -345,7 +298,7 @@ impl FusionCandidateDetector {
                     let shared: Vec<_> = deps[i]
                         .reads
                         .intersection(&deps[j].reads)
-                        .map(|s| s.0.clone())
+                        .map(|s| s.to_string())
                         .collect();
 
                     groups.push(FusionGroup {
@@ -407,7 +360,7 @@ impl FusionCandidateDetector {
     }
 
     /// Merge groups that share operators.
-    fn merge_overlapping_groups(
+    pub fn merge_overlapping_groups(
         &self,
         groups: Vec<FusionGroup>,
         _fusion_type: FusionType,
@@ -638,11 +591,11 @@ impl FusedOperator {
         }
 
         // Generate fused ID
-        let fused_id = OperatorId(format!(
+        let fused_id = OperatorId::from(format!(
             "fused.{}",
             original_ids
                 .iter()
-                .map(|id| id.0.replace('.', "_"))
+                .map(|id| id.to_string().replace('.', "_"))
                 .collect::<Vec<_>>()
                 .join("_")
         ));
@@ -766,8 +719,8 @@ pub fn analyze_fusion(world: &CompiledWorld) -> FusionAnalysis {
     let mut stats = FusionStats::default();
 
     // Step 1: Extract dependencies from all operators
-    let deps: Vec<_> = world
-        .operators
+    let operators = world.operators();
+    let deps: Vec<_> = operators
         .values()
         .map(OperatorDeps::from_operator)
         .collect();
@@ -804,7 +757,7 @@ pub fn analyze_fusion(world: &CompiledWorld) -> FusionAnalysis {
             continue;
         }
 
-        if let Some(fused) = FusedOperator::from_group(group, &world.operators) {
+        if let Some(fused) = FusedOperator::from_group(group, &operators) {
             for id in &fused.original_ids {
                 fused_op_ids.insert(id.clone());
             }
@@ -883,11 +836,11 @@ mod tests {
         writes: &[&str],
     ) -> OperatorDeps {
         OperatorDeps {
-            id: OperatorId(id.to_string()),
-            stratum: StratumId(stratum.to_string()),
+            id: OperatorId::from(id),
+            stratum: StratumId::from(stratum),
             phase,
-            reads: reads.iter().map(|s| SignalId(s.to_string())).collect(),
-            writes: writes.iter().map(|s| SignalId(s.to_string())).collect(),
+            reads: reads.iter().map(|s| SignalId::from(*s)).collect(),
+            writes: writes.iter().map(|s| SignalId::from(*s)).collect(),
             kernel_calls: Vec::new(),
             constants: HashSet::new(),
             configs: HashSet::new(),
@@ -971,6 +924,54 @@ mod tests {
     }
 
     #[test]
+    fn test_merge_overlapping_groups() {
+        let detector = FusionCandidateDetector::default();
+        let groups = vec![
+            FusionGroup {
+                operators: vec![OperatorId::from("op_a"), OperatorId::from("op_b")],
+                fusion_type: FusionType::SharedReads,
+                shared_resources: vec!["r1".to_string()],
+                benefit_score: 1.0,
+            },
+            FusionGroup {
+                operators: vec![OperatorId::from("op_b"), OperatorId::from("op_c")],
+                fusion_type: FusionType::SharedReads,
+                shared_resources: vec!["r2".to_string()],
+                benefit_score: 1.0,
+            },
+        ];
+
+        let merged = detector.merge_overlapping_groups(groups, FusionType::SharedReads);
+        assert_eq!(merged.len(), 1);
+        assert_eq!(merged[0].operators.len(), 3);
+        assert!(merged[0].operators.contains(&OperatorId::from("op_a")));
+        assert!(merged[0].operators.contains(&OperatorId::from("op_b")));
+        assert!(merged[0].operators.contains(&OperatorId::from("op_c")));
+    }
+
+    #[test]
+    fn test_dont_merge_different_fusion_types() {
+        let detector = FusionCandidateDetector::default();
+        let groups = vec![
+            FusionGroup {
+                operators: vec![OperatorId::from("op_a"), OperatorId::from("op_b")],
+                fusion_type: FusionType::SharedReads,
+                shared_resources: vec!["r1".to_string()],
+                benefit_score: 1.0,
+            },
+            FusionGroup {
+                operators: vec![OperatorId::from("op_a"), OperatorId::from("op_b")],
+                fusion_type: FusionType::SharedWrite,
+                shared_resources: vec!["w1".to_string()],
+                benefit_score: 1.0,
+            },
+        ];
+
+        let merged = detector.merge_overlapping_groups(groups, FusionType::SharedReads);
+        assert_eq!(merged.len(), 1);
+    }
+
+    #[test]
     fn test_fusion_validator_safe() {
         let deps = vec![
             make_op_deps("op_a", "terra", OperatorPhaseIr::Collect, &["x"], &["y"]),
@@ -978,10 +979,7 @@ mod tests {
         ];
 
         let group = FusionGroup {
-            operators: vec![
-                OperatorId("op_a".to_string()),
-                OperatorId("op_b".to_string()),
-            ],
+            operators: vec![OperatorId::from("op_a"), OperatorId::from("op_b")],
             fusion_type: FusionType::SharedReads,
             shared_resources: vec!["x".to_string()],
             benefit_score: 1.0,
@@ -999,10 +997,7 @@ mod tests {
         ];
 
         let group = FusionGroup {
-            operators: vec![
-                OperatorId("op_a".to_string()),
-                OperatorId("op_b".to_string()),
-            ],
+            operators: vec![OperatorId::from("op_a"), OperatorId::from("op_b")],
             fusion_type: FusionType::SharedReads,
             shared_resources: vec![],
             benefit_score: 1.0,
@@ -1028,10 +1023,7 @@ mod tests {
         ];
 
         let group = FusionGroup {
-            operators: vec![
-                OperatorId("op_a".to_string()),
-                OperatorId("op_b".to_string()),
-            ],
+            operators: vec![OperatorId::from("op_a"), OperatorId::from("op_b")],
             fusion_type: FusionType::SharedReads,
             shared_resources: vec!["x".to_string()],
             benefit_score: 1.0,
@@ -1070,9 +1062,9 @@ mod tests {
 
         let group = FusionGroup {
             operators: vec![
-                OperatorId("op_a".to_string()),
-                OperatorId("op_b".to_string()),
-                OperatorId("op_c".to_string()),
+                OperatorId::from("op_a"),
+                OperatorId::from("op_b"),
+                OperatorId::from("op_c"),
             ],
             fusion_type: FusionType::SharedReads,
             shared_resources: vec!["x".to_string(), "y".to_string(), "z".to_string()],
@@ -1091,10 +1083,7 @@ mod tests {
         ];
 
         let group = FusionGroup {
-            operators: vec![
-                OperatorId("op_a".to_string()),
-                OperatorId("op_b".to_string()),
-            ],
+            operators: vec![OperatorId::from("op_a"), OperatorId::from("op_b")],
             fusion_type: FusionType::SharedReads,
             shared_resources: vec![], // No shared resources
             benefit_score: 0.5,

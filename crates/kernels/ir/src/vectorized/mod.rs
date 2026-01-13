@@ -315,12 +315,12 @@ impl L2VectorizedExecutor {
             SsaInstruction::LoadSignal { dst, signal } => {
                 // Load signal value - for now assume scalar signals are uniform
                 if let Some(value) =
-                    signals.get_resolved(&continuum_runtime::SignalId(signal.0.clone()))
+                    signals.get_resolved(&continuum_foundation::SignalId::from(signal.to_string()))
                 {
                     let scalar = value.as_scalar().unwrap_or(0.0);
                     vregs[dst.0 as usize] = Some(VRegBuffer::uniform(scalar));
                 } else {
-                    return Err(L2ExecutionError::SignalNotFound(signal.0.clone()));
+                    return Err(L2ExecutionError::SignalNotFound(signal.to_string()));
                 }
             }
 

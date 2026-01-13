@@ -8,7 +8,7 @@ use super::{BlockId, SsaInstruction, Terminator, lower_to_ssa, validate_ssa};
 
 #[test]
 fn test_lower_literal() {
-    let expr = CompiledExpr::Literal(42.0);
+    let expr = CompiledExpr::Literal(42.0, None);
     let ssa = lower_to_ssa(&expr);
 
     assert_eq!(ssa.blocks.len(), 1);
@@ -64,7 +64,7 @@ fn test_lower_signal() {
     let block = &ssa.blocks[0];
     assert!(matches!(
         &block.instructions[0],
-        SsaInstruction::LoadSignal { signal, .. } if signal.0 == "temperature"
+        SsaInstruction::LoadSignal { signal, .. } if signal.to_string() == "temperature"
     ));
 
     assert!(validate_ssa(&ssa).is_ok());
@@ -76,7 +76,7 @@ fn test_lower_binary_add() {
     let expr = CompiledExpr::Binary {
         op: BinaryOpIr::Add,
         left: Box::new(CompiledExpr::Prev),
-        right: Box::new(CompiledExpr::Literal(1.0)),
+        right: Box::new(CompiledExpr::Literal(1.0, None)),
     };
     let ssa = lower_to_ssa(&expr);
 
@@ -110,7 +110,7 @@ fn test_lower_binary_add() {
 fn test_lower_unary_neg() {
     let expr = CompiledExpr::Unary {
         op: UnaryOpIr::Neg,
-        operand: Box::new(CompiledExpr::Literal(5.0)),
+        operand: Box::new(CompiledExpr::Literal(5.0, None)),
     };
     let ssa = lower_to_ssa(&expr);
 
@@ -137,9 +137,9 @@ fn test_lower_nested_binary() {
         left: Box::new(CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(1.0)),
+            right: Box::new(CompiledExpr::Literal(1.0, None)),
         }),
-        right: Box::new(CompiledExpr::Literal(2.0)),
+        right: Box::new(CompiledExpr::Literal(2.0, None)),
     };
     let ssa = lower_to_ssa(&expr);
 
@@ -175,10 +175,10 @@ fn test_lower_if_expression() {
         condition: Box::new(CompiledExpr::Binary {
             op: BinaryOpIr::Gt,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(0.0)),
+            right: Box::new(CompiledExpr::Literal(0.0, None)),
         }),
-        then_branch: Box::new(CompiledExpr::Literal(1.0)),
-        else_branch: Box::new(CompiledExpr::Literal(0.0)),
+        then_branch: Box::new(CompiledExpr::Literal(1.0, None)),
+        else_branch: Box::new(CompiledExpr::Literal(0.0, None)),
     };
     let ssa = lower_to_ssa(&expr);
 
@@ -216,7 +216,7 @@ fn test_lower_let_binding() {
     // let x = 1.0 in x + x
     let expr = CompiledExpr::Let {
         name: "x".to_string(),
-        value: Box::new(CompiledExpr::Literal(1.0)),
+        value: Box::new(CompiledExpr::Literal(1.0, None)),
         body: Box::new(CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Local("x".to_string())),
@@ -258,7 +258,7 @@ fn test_lower_dt_robust_call() {
     // integrate(prev, rate)
     let expr = CompiledExpr::DtRobustCall {
         operator: DtRobustOperator::Integrate,
-        args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1.0)],
+        args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1.0, None)],
         method: IntegrationMethod::Euler,
     };
     let ssa = lower_to_ssa(&expr);
@@ -301,7 +301,7 @@ fn test_pretty_print() {
         right: Box::new(CompiledExpr::Binary {
             op: BinaryOpIr::Mul,
             left: Box::new(CompiledExpr::Signal(SignalId::from("heat"))),
-            right: Box::new(CompiledExpr::Literal(0.5)),
+            right: Box::new(CompiledExpr::Literal(0.5, None)),
         }),
     };
     let ssa = lower_to_ssa(&expr);
@@ -336,8 +336,8 @@ fn test_complex_expression() {
                     right: Box::new(CompiledExpr::DtRaw),
                 }),
             },
-            CompiledExpr::Literal(0.0),
-            CompiledExpr::Literal(1.0),
+            CompiledExpr::Literal(0.0, None),
+            CompiledExpr::Literal(1.0, None),
         ],
     };
     let ssa = lower_to_ssa(&expr);

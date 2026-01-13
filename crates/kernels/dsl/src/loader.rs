@@ -31,11 +31,12 @@
 //! );
 //! ```
 
+use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::ast::{CompilationUnit, Item};
-use crate::{ValidationError, parse, validate};
+use crate::ast::{CompilationUnit, ConstBlock, Item, Spanned};
+use crate::{ValidationError, math_consts, parse, validate};
 
 /// Errors that can occur during world loading.
 ///
@@ -187,6 +188,67 @@ pub fn load_file(path: &Path) -> Result<CompilationUnit, LoadError> {
     Ok(unit)
 }
 
+fn load_prelude() -> Result<CompilationUnit, LoadError> {
+    let source = math_consts::prelude_source();
+    let (result, parse_errors) = parse(&source);
+    let path = PathBuf::from("std.cdsl");
+
+    if !parse_errors.is_empty() {
+        return Err(LoadError::ParseErrors {
+            path,
+            errors: parse_errors.iter().map(|e| e.to_string()).collect(),
+        });
+    }
+
+    let unit = result.ok_or_else(|| LoadError::ParseErrors {
+        path: path.clone(),
+        errors: vec!["failed to parse".to_string()],
+    })?;
+
+    let validation_errors = validate(&unit);
+    if !validation_errors.is_empty() {
+        return Err(LoadError::ValidationErrors {
+            path,
+            errors: validation_errors,
+        });
+    }
+
+    Ok(unit)
+}
+
+fn filter_prelude_consts(
+    prelude: CompilationUnit,
+    user_const_paths: &HashSet<String>,
+) -> CompilationUnit {
+    let items = prelude
+        .items
+        .into_iter()
+        .filter_map(|item| match item.node {
+            Item::ConstBlock(block) => {
+                let entries = block
+                    .entries
+                    .into_iter()
+                    .filter(|entry| !user_const_paths.contains(&entry.path.node.to_string()))
+                    .collect::<Vec<_>>();
+                if entries.is_empty() {
+                    None
+                } else {
+                    Some(Spanned {
+                        node: Item::ConstBlock(ConstBlock { entries }),
+                        span: item.span,
+                    })
+                }
+            }
+            _ => Some(item),
+        })
+        .collect();
+
+    CompilationUnit {
+        module_doc: prelude.module_doc,
+        items,
+    }
+}
+
 /// Load all .cdsl files from a world directory
 ///
 /// Verifies the directory exists, then collects and parses all .cdsl files,
@@ -201,9 +263,11 @@ pub fn load_world(world_dir: &Path) -> Result<LoadResult, LoadError> {
     // Collect .cdsl files
     let files = collect_cdsl_files(world_dir);
 
-    // Parse and merge all files
-    let mut merged_unit = CompilationUnit::default();
+    // Parse and merge all files (with std prelude)
+    let prelude_unit = load_prelude()?;
+    let mut units = Vec::new();
     let mut has_world_def = false;
+    let mut user_const_paths = HashSet::new();
 
     for file in &files {
         let unit = load_file(file)?;
@@ -222,7 +286,17 @@ pub fn load_world(world_dir: &Path) -> Result<LoadResult, LoadError> {
                 }
                 has_world_def = true;
             }
+            if let Item::ConstBlock(block) = &item.node {
+                for entry in &block.entries {
+                    user_const_paths.insert(entry.path.node.to_string());
+                }
+            }
         }
+        units.push(unit);
+    }
+
+    let mut merged_unit = filter_prelude_consts(prelude_unit, &user_const_paths);
+    for unit in units {
         merged_unit.items.extend(unit.items);
     }
 
@@ -290,8 +364,14 @@ mod tests {
 
         let result = load_world(root).unwrap();
         assert_eq!(result.files.len(), 1);
-        assert_eq!(result.unit.items.len(), 3);
-        match &result.unit.items[0].node {
+        assert_eq!(result.unit.items.len(), 4);
+        let world_item = result
+            .unit
+            .items
+            .iter()
+            .find(|item| matches!(item.node, Item::WorldDef(_)))
+            .expect("world def missing");
+        match &world_item.node {
             Item::WorldDef(def) => assert_eq!(def.title.as_ref().unwrap().node, "Test World"),
             _ => panic!("expected WorldDef"),
         }

@@ -63,37 +63,37 @@ fn.thermal.geothermal_temp(surface_temp, gradient, depth_km) {
 
 const {
     # Fundamental physics
-    physics.gravitational: 6.67430e-11
-    physics.stefan_boltzmann: 5.67e-8
+    physics.gravitational: 6.67430e-11 <m^3/(kg*s^2)>
+    physics.stefan_boltzmann: 5.67e-8 <W/(m^2*K^4)>
 
     # Earth reference values
-    earth.mass: 5.972e24
-    earth.radius: 6.371e6
-    earth.gravity: 9.80665
-    earth.gravitational_parameter: 3.986e14
+    earth.mass: 5.972e24 <kg>
+    earth.radius: 6.371e6 <m>
+    earth.gravity: 9.80665 <m/s²>
+    earth.gravitational_parameter: 3.986e14 <m³/s²>
 
     # Crust properties
-    crust.density_continental: 2700.0
-    crust.density_oceanic: 2900.0
-    mantle.density: 3300.0
+    crust.density_continental: 2700.0 <kg/m³>
+    crust.density_oceanic: 2900.0 <kg/m³>
+    mantle.density: 3300.0 <kg/m³>
 
     # Isostasy
-    isostasy.reference_thickness: 35000.0
+    isostasy.reference_thickness: 35000.0 <m>
 
     # Dynamic topography
-    topography.max_plume_uplift: 2000.0
-    topography.max_slab_depression: 1000.0
+    topography.max_plume_uplift: 2000.0 <m>
+    topography.max_slab_depression: 1000.0 <m>
 
     # Thermal
-    thermal.surface_temp: 288.0
-    thermal.gradient: 25.0
-    thermal.mantle_temp: 1600.0
+    thermal.surface_temp: 288.0 <K>
+    thermal.gradient: 25.0 <K/km>
+    thermal.mantle_temp: 1600.0 <K>
 
     # Radiogenic decay
-    thermal.radiogenic_halflife_gyr: 2.5
+    thermal.radiogenic_halflife_gyr: 2.5 <Gyr>
 
     # Rotation
-    rotation.earth_omega: 7.292e-5
+    rotation.earth_omega: 7.292e-5 <rad/s>
 }
 
 # =============================================================================
@@ -797,12 +797,12 @@ signal.mantle.viscosity {
     : symbol("eta")
 
     config {
-        initial: 1e21  # Earth's effective mantle viscosity (Pa*s)
+        initial: 1e21 <Pa*s>  # Earth's effective mantle viscosity (Pa*s)
     }
 
     resolve {
-        if prev == 0.0 {
-            config.mantle.viscosity.initial + collected
+        if prev == 0.0 <Pa*s> {
+            config.mantle.viscosity.initial
         } else {
             prev + collected
         }

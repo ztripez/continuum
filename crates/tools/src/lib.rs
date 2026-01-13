@@ -15,5 +15,10 @@ pub fn init_logging() {
         EnvFilter::new("info,continuum_tools=debug,continuum_runtime=debug,continuum_compiler=debug,continuum_ir=info,continuum_dsl=info")
     });
 
-    fmt().with_env_filter(filter).with_target(false).init();
+    fmt()
+        .with_env_filter(filter)
+        .with_target(false)
+        .without_time() // Remove timestamps as requested
+        .with_level(true)
+        .init();
 }

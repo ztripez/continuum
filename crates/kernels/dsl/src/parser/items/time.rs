@@ -1,35 +1,30 @@
 //! Time structure parsers (strata and eras).
-//!
-//! This module handles:
-//! - `strata.name { ... }` time strata definitions
-//! - `era.name { ... }` simulation era definitions
 
 use chumsky::prelude::*;
 
 use crate::ast::{
-    EraDef, Spanned, StrataDef, StrataState, StrataStateKind, Transition, ValueWithUnit,
+    EraDef, Expr, Spanned, StrataDef, StrataState, StrataStateKind, Transition, ValueWithUnit,
 };
 
-use super::super::ParseError;
 use super::super::expr::spanned_expr;
+use super::super::lexer::Token;
 use super::super::primitives::{
-    attr_flag, attr_int, attr_string, ident, literal, spanned, spanned_path, unit, ws,
+    attr_flag, attr_int, attr_string, ident, literal, spanned, spanned_path, unit,
 };
+use super::super::{ParseError, ParserInput};
 
 // === Strata ===
 
-pub fn strata_def<'src>() -> impl Parser<'src, &'src str, StrataDef, extra::Err<ParseError<'src>>> {
-    text::keyword("strata")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn strata_def<'src>()
+-> impl Parser<'src, ParserInput<'src>, StrataDef, extra::Err<ParseError<'src>>> {
+    just(Token::Strata)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             strata_attr()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(path, attrs)| {
             let mut def = StrataDef {
@@ -58,28 +53,26 @@ enum StrataAttr {
 }
 
 fn strata_attr<'src>()
--> impl Parser<'src, &'src str, StrataAttr, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, StrataAttr, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        attr_string("title").map(StrataAttr::Title),
-        attr_string("symbol").map(StrataAttr::Symbol),
-        attr_int("stride").map(StrataAttr::Stride),
+        attr_string(Token::Title).map(StrataAttr::Title),
+        attr_string(Token::Symbol).map(StrataAttr::Symbol),
+        attr_int(Token::Stride).map(StrataAttr::Stride),
     ))
 }
 
 // === Era ===
 
-pub fn era_def<'src>() -> impl Parser<'src, &'src str, EraDef, extra::Err<ParseError<'src>>> {
-    text::keyword("era")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn era_def<'src>() -> impl Parser<'src, ParserInput<'src>, EraDef, extra::Err<ParseError<'src>>>
+{
+    just(Token::Era)
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned(ident()))
-        .padded_by(ws())
         .then(
             era_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|(name, contents)| {
             let mut def = EraDef {
@@ -118,96 +111,83 @@ enum EraContent {
 }
 
 fn era_content<'src>()
--> impl Parser<'src, &'src str, EraContent, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, EraContent, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        attr_flag("initial").to(EraContent::Initial),
-        attr_flag("terminal").to(EraContent::Terminal),
-        attr_string("title").map(EraContent::Title),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("dt"))
+        attr_flag(Token::Initial).to(EraContent::Initial),
+        attr_flag(Token::Terminal).to(EraContent::Terminal),
+        attr_string(Token::Title).map(EraContent::Title),
+        just(Token::Colon)
+            .ignore_then(just(Token::Dt))
             .ignore_then(
-                spanned(value_with_unit())
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
+                spanned(value_with_unit()).delimited_by(just(Token::LParen), just(Token::RParen)),
             )
             .map(EraContent::Dt),
-        text::keyword("strata")
-            .padded_by(ws())
+        just(Token::Strata)
             .ignore_then(
                 strata_state()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
             )
             .map(EraContent::Strata),
-        text::keyword("transition")
-            .padded_by(ws())
-            .ignore_then(
-                transition().delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
+        just(Token::Transition)
+            .ignore_then(transition().delimited_by(just(Token::LBrace), just(Token::RBrace)))
             .map(EraContent::Transition),
     ))
 }
 
 fn value_with_unit<'src>()
--> impl Parser<'src, &'src str, ValueWithUnit, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, ValueWithUnit, extra::Err<ParseError<'src>>> + Clone {
     literal()
-        .padded_by(ws())
         .then(unit())
         .map(|(value, unit)| ValueWithUnit { value, unit })
 }
 
 fn strata_state<'src>()
--> impl Parser<'src, &'src str, StrataState, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, StrataState, extra::Err<ParseError<'src>>> + Clone {
     spanned_path()
-        .then_ignore(just(':').padded_by(ws()))
+        .then_ignore(just(Token::Colon))
         .then(strata_state_kind())
         .map(|(strata, state)| StrataState { strata, state })
 }
 
 fn strata_state_kind<'src>()
--> impl Parser<'src, &'src str, StrataStateKind, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, StrataStateKind, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        text::keyword("active")
+        just(Token::Active)
             .ignore_then(
-                just('(')
-                    .padded_by(ws())
-                    .ignore_then(text::keyword("stride"))
-                    .ignore_then(just(':').padded_by(ws()))
-                    .ignore_then(text::int(10).map(|s: &str| s.parse::<u32>().unwrap_or(1)))
-                    .then_ignore(just(')').padded_by(ws()))
+                just(Token::LParen)
+                    .ignore_then(just(Token::Stride))
+                    .ignore_then(just(Token::Colon))
+                    .ignore_then(select! { Token::Integer(i) => i as u32 })
+                    .then_ignore(just(Token::RParen))
                     .or_not(),
             )
             .map(|stride| match stride {
                 Some(s) => StrataStateKind::ActiveWithStride(s),
                 None => StrataStateKind::Active,
             }),
-        text::keyword("gated").to(StrataStateKind::Gated),
+        just(Token::Gated).to(StrataStateKind::Gated),
     ))
 }
 
 fn transition<'src>()
--> impl Parser<'src, &'src str, Transition, extra::Err<ParseError<'src>>> + Clone {
-    text::keyword("to")
-        .padded_by(ws())
-        .ignore_then(just(':').padded_by(ws()))
-        .ignore_then(text::keyword("era").padded_by(ws()))
-        .ignore_then(just('.'))
+-> impl Parser<'src, ParserInput<'src>, Transition, extra::Err<ParseError<'src>>> + Clone {
+    just(Token::To)
+        .ignore_then(just(Token::Colon))
+        .ignore_then(just(Token::Era))
+        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
-            text::keyword("when")
-                .padded_by(ws())
+            just(Token::When)
                 .ignore_then(
                     spanned_expr()
-                        .padded_by(ws())
                         .repeated()
                         .collect()
-                        .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                        .delimited_by(just(Token::LBrace), just(Token::RBrace)),
                 )
                 .or_not()
-                .map(|c| c.unwrap_or_default()),
+                .map(|c: Option<Vec<Spanned<Expr>>>| c.unwrap_or_default()),
         )
         .map(|(target, conditions)| Transition { target, conditions })
 }

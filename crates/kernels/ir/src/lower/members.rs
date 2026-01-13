@@ -3,7 +3,7 @@
 //! This module handles lowering member signal definitions from AST to IR.
 //! Member signals are per-entity authoritative state with their own resolve blocks.
 
-use continuum_dsl::ast;
+use continuum_dsl::ast::{self, Span};
 use continuum_foundation::{EntityId, MemberId, StratumId};
 
 use crate::{CompiledMember, ValueType};
@@ -15,45 +15,68 @@ impl Lowerer {
     ///
     /// Member signals follow the path structure: `entity_path.signal_name`
     /// For example, `human.person.age` belongs to entity `human.person` with signal `age`.
-    pub(crate) fn lower_member(&mut self, def: &ast::MemberDef) -> Result<(), LowerError> {
-        let full_path = def.path.node.join(".");
-        let id = MemberId::from(full_path.as_str());
+    pub(crate) fn lower_member(
+        &mut self,
+        def: &ast::MemberDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let full_path = def.path.node.to_string();
+        let id = MemberId::from(def.path.node.clone());
 
         // Check for duplicate member definition
         if self.members.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("member.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("member.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Extract entity path and signal name from the full path
         // e.g., "human.person.age" -> entity "human.person", signal "age"
         let segments = &def.path.node.segments;
         if segments.len() < 2 {
-            return Err(LowerError::InvalidExpression(format!(
-                "member path '{}' must have at least entity.signal format",
-                full_path
-            )));
+            return Err(LowerError::InvalidExpression {
+                message: format!(
+                    "member path '{}' must have at least entity.signal format",
+                    full_path
+                ),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
-        let entity_path = segments[..segments.len() - 1].join(".");
+        let mut entity_path_node = def.path.node.clone();
+        entity_path_node.segments.pop();
         let signal_name = segments.last().unwrap().clone();
-        let entity_id = EntityId::from(entity_path.as_str());
+        let entity_id = EntityId::from(entity_path_node);
 
         // Determine stratum
         let stratum = def
             .strata
             .as_ref()
-            .map(|s| StratumId::from(s.node.join(".").as_str()))
+            .map(|s| StratumId::from(s.node.clone()))
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
-        self.validate_stratum(&stratum)?;
+        self.validate_stratum(
+            &stratum,
+            def.strata
+                .as_ref()
+                .map(|s| &s.span)
+                .unwrap_or(&def.path.span),
+        )?;
 
         // Process local config blocks - add to global config with member-prefixed keys
         for entry in &def.local_config {
-            let local_key = entry.path.node.join(".");
+            let local_key = entry.path.node.to_string();
             let full_key = format!("{}.{}", full_path, local_key);
-            let value = self.literal_to_f64(&entry.value.node)?;
-            self.config.insert(full_key, value);
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
         }
 
         // Collect signal dependencies from resolve and initial expressions
@@ -69,12 +92,6 @@ impl Lowerer {
         // For now, we leave member_reads empty as the exact MemberIds depend on
         // which entity instance is being resolved
         let member_reads = Vec::new();
-
-        // Detect dt_raw usage
-        let uses_dt_raw = def
-            .resolve
-            .as_ref()
-            .is_some_and(|r| self.expr_uses_dt_raw(&r.body.node));
 
         // Lower initial expression
         let initial = def.initial.as_ref().map(|i| self.lower_expr(&i.body.node));
@@ -100,7 +117,14 @@ impl Lowerer {
                 range: None,
             });
 
+        let uses_dt_raw = def
+            .resolve
+            .as_ref()
+            .is_some_and(|r| self.expr_uses_dt_raw(&r.body.node));
+
         let member = CompiledMember {
+            file: self.file.clone(),
+            span,
             id: id.clone(),
             entity_id,
             signal_name,

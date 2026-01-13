@@ -2206,17 +2206,17 @@ fn test_parse_math_constant_with_digit() {
                     assert_eq!(*op, BinaryOp::Mul);
                     // SQRT2
                     match &left.node {
-                        Expr::Literal(Literal::Float(val)) => {
-                            assert!((val - std::f64::consts::SQRT_2).abs() < 1e-10);
+                        Expr::Path(path) => {
+                            assert_eq!(path.to_string(), "SQRT2");
                         }
-                        _ => panic!("expected Literal for SQRT2, got {:?}", left.node),
+                        _ => panic!("expected Path for SQRT2, got {:?}", left.node),
                     }
                     // FRAC_1_PI
                     match &right.node {
-                        Expr::Literal(Literal::Float(val)) => {
-                            assert!((val - std::f64::consts::FRAC_1_PI).abs() < 1e-10);
+                        Expr::Path(path) => {
+                            assert_eq!(path.to_string(), "FRAC_1_PI");
                         }
-                        _ => panic!("expected Literal for FRAC_1_PI, got {:?}", right.node),
+                        _ => panic!("expected Path for FRAC_1_PI, got {:?}", right.node),
                     }
                 }
                 _ => panic!("expected Binary"),

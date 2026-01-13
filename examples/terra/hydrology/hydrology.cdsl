@@ -387,7 +387,7 @@ signal.hydrology.groundwater_saturation {
 # Infiltration rate from surface to groundwater
 signal.hydrology.infiltration_rate {
     : Scalar<kg/m²/s, 0..1e-2>
-    : strata(hydrology)
+    : strata(atmosphere)
     : title("Infiltration Rate")
     : symbol("I")
 
@@ -415,7 +415,7 @@ signal.hydrology.infiltration_rate {
 # Baseflow rate from groundwater to surface streams
 signal.hydrology.baseflow_rate {
     : Scalar<kg/m²/s, 0..1e-3>
-    : strata(hydrology)
+    : strata(atmosphere)
     : title("Baseflow Rate")
     : symbol("Q_base")
 

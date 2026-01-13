@@ -98,6 +98,8 @@ pub struct Runtime {
     sim_time: f64,
     /// Current era
     current_era: EraId,
+    /// Current phase within the tick
+    current_phase: crate::types::Phase,
     /// Era configurations (IndexMap for deterministic iteration order)
     eras: IndexMap<EraId, EraConfig>,
     /// Execution DAGs
@@ -108,6 +110,10 @@ pub struct Runtime {
     warmup_executor: WarmupExecutor,
     /// Assertion checker
     assertion_checker: AssertionChecker,
+    /// Registered breakpoints (SignalId)
+    breakpoints: std::collections::HashSet<SignalId>,
+    /// Active tick context (frozen at start of tick)
+    active_tick_ctx: Option<TickContext>,
     /// Pending impulses to apply in next Collect phase (handler_idx, payload)
     pending_impulses: Vec<(usize, Value)>,
 }
@@ -127,13 +133,39 @@ impl Runtime {
             tick: 0,
             sim_time: 0.0,
             current_era: initial_era,
+            current_phase: crate::types::Phase::Configure,
             eras,
             dags,
             phase_executor: PhaseExecutor::new(),
             warmup_executor: WarmupExecutor::new(),
             assertion_checker: AssertionChecker::new(),
+            breakpoints: std::collections::HashSet::new(),
+            active_tick_ctx: None,
             pending_impulses: Vec::new(),
         }
+    }
+
+    /// Add a breakpoint for a signal
+    pub fn add_breakpoint(&mut self, signal: SignalId) {
+        info!(%signal, "breakpoint added");
+        self.breakpoints.insert(signal);
+    }
+
+    /// Remove a breakpoint for a signal
+    pub fn remove_breakpoint(&mut self, signal: &SignalId) {
+        info!(%signal, "breakpoint removed");
+        self.breakpoints.remove(signal);
+    }
+
+    /// Clear all breakpoints
+    pub fn clear_breakpoints(&mut self) {
+        info!("all breakpoints cleared");
+        self.breakpoints.clear();
+    }
+
+    /// Check if a signal has a breakpoint
+    pub fn has_breakpoint(&self, signal: &SignalId) -> bool {
+        self.breakpoints.contains(signal)
     }
 
     /// Register a resolver function, returns its index
@@ -282,9 +314,14 @@ impl Runtime {
     /// Set a member signal value for a specific instance.
     ///
     /// Used for initializing member signals with non-zero values before execution starts.
-    pub fn set_member_signal(&mut self, signal_name: &str, instance_idx: usize, value: Value) {
+    pub fn set_member_signal(
+        &mut self,
+        signal_name: &str,
+        instance_idx: usize,
+        value: Value,
+    ) -> std::result::Result<(), String> {
         self.member_signals
-            .set_current(signal_name, instance_idx, value);
+            .set_current(signal_name, instance_idx, value)
     }
 
     /// Commit member initial values by advancing the buffer.
@@ -389,12 +426,15 @@ impl Runtime {
             .execute(&mut self.signals, self.sim_time)
     }
 
-    /// Execute a single tick
-    #[instrument(skip(self), fields(tick = self.tick, era = %self.current_era))]
-    pub fn execute_tick(&mut self) -> Result<TickContext> {
-        trace!("tick start");
+    /// Get current phase
+    pub fn phase(&self) -> crate::types::Phase {
+        self.current_phase
+    }
 
-        // Extract needed config values to avoid borrow issues
+    /// Execute a single phase of the simulation.
+    ///
+    /// Returns the StepResult indicating whether execution continues, hit a breakpoint, or completed a tick.
+    pub fn execute_step(&mut self) -> Result<crate::types::StepResult> {
         let (dt, strata_states) = {
             let era_config = self
                 .eras
@@ -403,91 +443,164 @@ impl Runtime {
             (era_config.dt, era_config.strata.clone())
         };
 
-        let ctx = TickContext {
-            tick: self.tick,
-            dt,
-            era: self.current_era.clone(),
-        };
+        match self.current_phase {
+            crate::types::Phase::Configure => {
+                trace!("phase: configure");
+                // Freeze tick context
+                self.active_tick_ctx = Some(TickContext {
+                    tick: self.tick,
+                    dt,
+                    era: self.current_era.clone(),
+                });
+            }
+            crate::types::Phase::Collect => {
+                trace!("phase: collect");
+                self.phase_executor.execute_collect(
+                    &self.current_era,
+                    self.tick,
+                    dt,
+                    self.sim_time,
+                    &strata_states,
+                    &self.dags,
+                    &self.signals,
+                    &mut self.input_channels,
+                    &mut self.pending_impulses,
+                )?;
+            }
+            crate::types::Phase::Resolve => {
+                trace!("phase: resolve");
+                if let Some(signal) = self.phase_executor.execute_resolve(
+                    &self.current_era,
+                    self.tick,
+                    dt,
+                    self.sim_time,
+                    &strata_states,
+                    &self.dags,
+                    &mut self.signals,
+                    &mut self.member_signals,
+                    &mut self.input_channels,
+                    &self.assertion_checker,
+                    &self.breakpoints,
+                )? {
+                    // Breakpoint hit! Do NOT advance phase.
+                    return Ok(crate::types::StepResult::Breakpoint { signal });
+                }
+            }
+            crate::types::Phase::Fracture => {
+                trace!("phase: fracture");
+                self.phase_executor.execute_fracture(
+                    &self.current_era,
+                    dt,
+                    self.sim_time,
+                    &self.dags,
+                    &self.signals,
+                    &mut self.fracture_queue,
+                )?;
+            }
+            crate::types::Phase::Measure => {
+                trace!("phase: measure");
+                self.phase_executor.execute_measure(
+                    &self.current_era,
+                    self.tick,
+                    dt,
+                    self.sim_time,
+                    &strata_states,
+                    &self.dags,
+                    &self.signals,
+                    &mut self.field_buffer,
+                )?;
 
-        // Verify era DAGs exist
-        if !self.dags.eras.contains_key(&self.current_era) {
-            error!(era = %self.current_era, "era DAGs not found");
-            return Err(Error::EraNotFound(self.current_era.clone()));
+                self.phase_executor.execute_chronicles(
+                    &self.current_era,
+                    self.tick,
+                    dt,
+                    &strata_states,
+                    &self.dags,
+                    &self.signals,
+                    &mut self.event_buffer,
+                )?;
+            }
+            crate::types::Phase::EraTransition => {
+                trace!("phase: era transition");
+                self.check_era_transition()?;
+            }
+            crate::types::Phase::PostTick => {
+                trace!("phase: post tick");
+                self.signals.advance_tick();
+                self.entities.advance_tick();
+                self.member_signals.advance_tick();
+                self.fracture_queue.drain_into(&mut self.input_channels);
+                self.sim_time += dt.seconds();
+                self.tick += 1;
+            }
         }
 
-        // Phase 2: Collect
-        self.phase_executor.execute_collect(
-            &self.current_era,
-            self.tick,
-            dt,
-            self.sim_time,
-            &strata_states,
-            &self.dags,
-            &self.signals,
-            &mut self.input_channels,
-            &mut self.pending_impulses,
-        )?;
+        let completed_tick_ctx = if self.current_phase == crate::types::Phase::PostTick {
+            self.active_tick_ctx.take()
+        } else {
+            None
+        };
 
-        // Phase 3: Resolve global signals (including member signals and aggregates in DAG order)
-        self.phase_executor.execute_resolve(
-            &self.current_era,
-            self.tick,
-            dt,
-            self.sim_time,
-            &strata_states,
-            &self.dags,
-            &mut self.signals,
-            &mut self.member_signals,
-            &mut self.input_channels,
-            &self.assertion_checker,
-        )?;
+        self.current_phase = self.current_phase.next();
 
-        // Phase 4: Fracture
-        self.phase_executor.execute_fracture(
-            &self.current_era,
-            dt,
-            self.sim_time,
-            &self.dags,
-            &self.signals,
-            &mut self.fracture_queue,
-        )?;
+        if let Some(ctx) = completed_tick_ctx {
+            Ok(crate::types::StepResult::TickCompleted(ctx))
+        } else {
+            Ok(crate::types::StepResult::Continue)
+        }
+    }
 
-        // Phase 5: Measure
-        self.phase_executor.execute_measure(
-            &self.current_era,
-            self.tick,
-            dt,
-            self.sim_time,
-            &strata_states,
-            &self.dags,
-            &self.signals,
-            &mut self.field_buffer,
-        )?;
+    /// Execute a single tick
+    #[instrument(skip(self), fields(tick = self.tick, era = %self.current_era))]
+    pub fn execute_tick(&mut self) -> Result<TickContext> {
+        trace!("tick start");
 
-        // Phase 5 continued: Chronicle observation (Measure phase)
-        self.phase_executor.execute_chronicles(
-            &self.current_era,
-            self.tick,
-            dt,
-            &strata_states,
-            &self.dags,
-            &self.signals,
-            &mut self.event_buffer,
-        )?;
+        // Ensure we start from Configure if we are at some other phase
+        // (though normally execute_tick should be used exclusively or carefully mixed)
+        while self.current_phase != crate::types::Phase::Configure {
+            match self.execute_step()? {
+                crate::types::StepResult::Breakpoint { signal } => {
+                    return Err(Error::Generic(format!(
+                        "Hit breakpoint on signal '{}' during tick execution. Use execute_until_breakpoint() for interactive debugging.",
+                        signal
+                    )));
+                }
+                _ => continue,
+            }
+        }
 
-        // Post-tick: check era transitions
-        self.check_era_transition()?;
-
-        // Advance state
-        self.signals.advance_tick();
-        self.entities.advance_tick();
-        self.member_signals.advance_tick();
-        self.fracture_queue.drain_into(&mut self.input_channels);
-        self.sim_time += dt.seconds();
-        self.tick += 1;
+        let mut last_ctx = None;
+        for _ in 0..crate::types::Phase::ALL.len() {
+            match self.execute_step()? {
+                crate::types::StepResult::TickCompleted(ctx) => {
+                    last_ctx = Some(ctx);
+                }
+                crate::types::StepResult::Breakpoint { signal } => {
+                    return Err(Error::Generic(format!(
+                        "Hit breakpoint on signal '{}' during tick execution. Use execute_until_breakpoint() for interactive debugging.",
+                        signal
+                    )));
+                }
+                crate::types::StepResult::Continue => {}
+            }
+        }
 
         trace!("tick complete");
-        Ok(ctx)
+        last_ctx.ok_or_else(|| {
+            Error::Generic("Failed to complete tick - execution loop did not return context".into())
+        })
+    }
+
+    /// Execute until a breakpoint is hit or a tick is completed.
+    pub fn execute_until_breakpoint(&mut self) -> Result<crate::types::StepResult> {
+        loop {
+            let result = self.execute_step()?;
+            match result {
+                crate::types::StepResult::Breakpoint { .. } => return Ok(result),
+                crate::types::StepResult::TickCompleted(..) => return Ok(result),
+                crate::types::StepResult::Continue => continue,
+            }
+        }
     }
 
     fn check_era_transition(&mut self) -> Result<()> {

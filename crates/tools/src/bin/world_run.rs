@@ -16,13 +16,14 @@ use tracing::{error, info};
 use continuum_compiler::ir::{
     ValueType, build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
     build_fracture, build_member_resolver, build_signal_resolver, build_vec3_member_resolver,
-    compile, convert_assertion_severity, eval_initial_expr, get_initial_signal_value,
+    build_warmup_fn, compile, convert_assertion_severity, eval_initial_expr,
+    get_initial_signal_value,
 };
-use continuum_foundation::{EntityId, FieldId, InstanceId, SignalId};
+use continuum_foundation::InstanceId;
 use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
 use continuum_runtime::storage::{EntityInstances, FieldSample, InstanceData};
-use continuum_runtime::types::{Dt, Value};
+use continuum_runtime::types::{Dt, Value, WarmupConfig};
 
 #[derive(Serialize, Deserialize)]
 struct RunManifest {
@@ -41,6 +42,25 @@ struct TickSnapshot {
     time_seconds: f64,
     signals: std::collections::HashMap<String, Value>,
     fields: std::collections::HashMap<String, Vec<FieldSample>>,
+}
+
+fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
+    let mut line = 0;
+    let mut col = 0;
+    let mut current_byte = 0;
+    for c in text.chars() {
+        if current_byte >= offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+        current_byte += c.len_utf8();
+    }
+    (line, col)
 }
 
 fn main() {
@@ -101,33 +121,59 @@ fn main() {
     // Load and compile world using unified compiler
     info!("Loading world from: {}", world_dir.display());
 
-    let world = match continuum_compiler::compile_from_dir(world_dir) {
-        Ok(w) => {
-            info!("Successfully compiled world");
-            w
-        }
-        Err(diagnostics) => {
-            for diag in diagnostics {
-                let file_str = diag
-                    .file
-                    .as_ref()
-                    .map(|f| format!("{}: ", f.display()))
-                    .unwrap_or_default();
-                let span_str = diag
-                    .span
-                    .as_ref()
-                    .map(|s| format!("at {:?}: ", s))
-                    .unwrap_or_default();
-                error!("{}{}{}", file_str, span_str, diag.message);
-            }
-            process::exit(1);
-        }
-    };
+    let compile_result = continuum_compiler::compile_from_dir_result(world_dir);
 
-    info!("  Strata: {}", world.strata.len());
-    info!("  Eras: {}", world.eras.len());
-    info!("  Signals: {}", world.signals.len());
-    info!("  Fields: {}", world.fields.len());
+    if compile_result.has_errors() {
+        for diag in compile_result.diagnostics {
+            if diag.severity == continuum_compiler::Severity::Error {
+                let loc = if let (Some(file), Some(span)) = (&diag.file, &diag.span) {
+                    if let Some(source) = compile_result.sources.get(file) {
+                        let (line, col) = offset_to_line_col(source, span.start);
+                        format!("{}:{}:{} ", file.display(), line + 1, col + 1)
+                    } else {
+                        format!("{}: ", file.display())
+                    }
+                } else {
+                    String::new()
+                };
+                error!("{}{}", loc, diag.message);
+            }
+        }
+        process::exit(1);
+    }
+
+    // Print warnings
+    for diag in &compile_result.diagnostics {
+        if diag.severity == continuum_compiler::Severity::Warning {
+            let loc = if let (Some(file), Some(span)) = (&diag.file, &diag.span) {
+                if let Some(source) = compile_result.sources.get(file) {
+                    let (line, col) = offset_to_line_col(source, span.start);
+                    format!("{}:{}:{} ", file.display(), line + 1, col + 1)
+                } else {
+                    format!("{}:at {:?} ", file.display(), span)
+                }
+            } else {
+                String::new()
+            };
+            tracing::warn!("{}{}", loc, diag.message);
+        }
+    }
+
+    let world = compile_result.world.expect("no world despite no errors");
+    info!("Successfully compiled world");
+
+    let strata = world.strata();
+    let eras = world.eras();
+    let signals = world.signals();
+    let fields = world.fields();
+    let fractures = world.fractures();
+    let entities = world.entities();
+    let members = world.members();
+
+    info!("  Strata: {}", strata.len());
+    info!("  Eras: {}", eras.len());
+    info!("  Signals: {}", signals.len());
+    info!("  Fields: {}", fields.len());
     info!("  Constants: {}", world.constants.len());
     info!("  Config: {}", world.config.len());
 
@@ -150,15 +196,12 @@ fn main() {
     info!("Building runtime...");
 
     // Find initial era
-    let initial_era = world
-        .eras
+    let initial_era = eras
         .iter()
         .find(|(_, era)| era.is_initial)
         .map(|(id, _)| id.clone())
         .unwrap_or_else(|| {
-            world
-                .eras
-                .keys()
+            eras.keys()
                 .next()
                 .cloned()
                 .unwrap_or_else(|| continuum_foundation::EraId::from("default"))
@@ -176,7 +219,7 @@ fn main() {
         }
     }
 
-    for (era_id, era) in &world.eras {
+    for (era_id, era) in &eras {
         let effective_dt = era_configs
             .get(era_id)
             .map(|c| c.dt.0)
@@ -194,7 +237,7 @@ fn main() {
     //   2. An aggregate resolver (runs in Phase 3c after member resolution)
     let mut resolver_count = 0;
     let mut aggregate_count = 0;
-    for (signal_id, signal) in &world.signals {
+    for (signal_id, signal) in &signals {
         if let Some(resolver) = build_signal_resolver(signal, &world) {
             let idx = runtime.register_resolver(resolver);
             info!("  Registered resolver for {} (idx={})", signal_id, idx);
@@ -202,7 +245,7 @@ fn main() {
         } else if let Some(ref resolve_expr) = signal.resolve {
             // Signal has entity expressions - register placeholder for DAG ordering
             // and a separate aggregate resolver for Phase 3c
-            let signal_name = signal_id.0.clone();
+            let signal_name = signal_id.to_string();
             let placeholder: ResolverFn = Box::new(move |_ctx| {
                 // This placeholder should never be called - aggregates run in Phase 3c
                 panic!(
@@ -214,7 +257,7 @@ fn main() {
 
             // Build and register the actual aggregate resolver
             let aggregate_resolver = build_aggregate_resolver(resolve_expr, &world);
-            runtime.register_aggregate_resolver(SignalId(signal_id.0.clone()), aggregate_resolver);
+            runtime.register_aggregate_resolver(signal_id.clone(), aggregate_resolver);
             info!(
                 "  Registered aggregate resolver for {} (placeholder idx={})",
                 signal_id, idx
@@ -222,7 +265,7 @@ fn main() {
             aggregate_count += 1;
         } else {
             // Signal has no resolve expression - just register a no-op placeholder
-            let signal_name = signal_id.0.clone();
+            let signal_name = signal_id.to_string();
             let placeholder: ResolverFn = Box::new(move |_ctx| {
                 panic!("Signal '{}' has no resolve expression", signal_name);
             });
@@ -232,6 +275,17 @@ fn main() {
                 signal_id, idx
             );
         }
+
+        // Register warmup if present
+        if let Some(ref warmup) = signal.warmup {
+            let warmup_fn = build_warmup_fn(&warmup.iterate, &world.constants, &world.config);
+            let config = WarmupConfig {
+                max_iterations: warmup.iterations,
+                convergence_epsilon: warmup.convergence,
+            };
+            runtime.register_warmup(signal_id.clone(), warmup_fn, config);
+            info!("  Registered warmup for {}", signal_id);
+        }
     }
     info!(
         "  Total: {} resolvers, {} aggregate resolvers",
@@ -240,12 +294,12 @@ fn main() {
 
     // Register assertions
     let mut assertion_count = 0;
-    for (signal_id, signal) in &world.signals {
+    for (signal_id, signal) in &signals {
         for assertion in &signal.assertions {
             let assertion_fn = build_assertion(&assertion.condition, &world);
             let severity = convert_assertion_severity(assertion.severity);
             runtime.register_assertion(
-                SignalId(signal_id.0.clone()),
+                signal_id.clone(),
                 assertion_fn,
                 severity,
                 assertion.message.clone(),
@@ -261,9 +315,9 @@ fn main() {
     // Fields with entity expressions (aggregates, etc.) are skipped - they require EntityExecutor
     let mut field_count = 0;
     let mut skipped_fields = 0;
-    for (field_id, field) in &world.fields {
+    for (field_id, field) in &fields {
         if let Some(ref expr) = field.measure {
-            let runtime_id = FieldId(field_id.0.clone());
+            let runtime_id = field_id.clone();
             if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
                 let idx = runtime.register_measure_op(measure_fn);
                 info!("  Registered field measure for {} (idx={})", field_id, idx);
@@ -286,7 +340,7 @@ fn main() {
 
     // Register fracture detectors
     let mut fracture_count = 0;
-    for (fracture_id, fracture) in &world.fractures {
+    for (fracture_id, fracture) in &fractures {
         let fracture_fn = build_fracture(fracture, &world);
         let idx = runtime.register_fracture(fracture_fn);
         info!("  Registered fracture {} (idx={})", fracture_id, idx);
@@ -297,9 +351,9 @@ fn main() {
     }
 
     // Initialize signals
-    for (signal_id, _signal) in &world.signals {
+    for (signal_id, _signal) in &signals {
         let value = get_initial_signal_value(&world, signal_id);
-        runtime.init_signal(SignalId(signal_id.0.clone()), value.clone());
+        runtime.init_signal(signal_id.clone(), value.clone());
         match value {
             Value::Scalar(v) => info!("  Initialized signal {} = {}", signal_id, v),
             _ => info!("  Initialized signal {} = {:?}", signal_id, value),
@@ -307,13 +361,13 @@ fn main() {
     }
 
     // Initialize entities
-    for (entity_id, entity) in &world.entities {
+    for (entity_id, entity) in &entities {
         // Determine instance count from config, bounds, or default
         let count = if let Some(ref count_source) = entity.count_source {
             world
                 .config
                 .get(count_source)
-                .map(|v| *v as usize)
+                .map(|(v, _)| *v as usize)
                 .unwrap_or(1)
         } else if let Some((min, max)) = entity.count_bounds {
             // If bounds are fixed (min == max), use that; otherwise use min
@@ -329,11 +383,11 @@ fn main() {
         // Create instances with unique IDs
         let mut instances = EntityInstances::new();
         for i in 0..count {
-            let instance_id = InstanceId(format!("{}_{}", entity_id.0, i));
+            let instance_id = InstanceId::from(format!("{}_{}", entity_id, i));
 
             // Initialize member fields for this instance
             let mut fields = indexmap::IndexMap::new();
-            for (_member_id, member) in &world.members {
+            for (_member_id, member) in &members {
                 if &member.entity_id == entity_id {
                     // Use default value based on member's value type
                     let initial_value = match member.value_type {
@@ -350,7 +404,7 @@ fn main() {
             instances.insert(instance_id, InstanceData::new(fields));
         }
 
-        runtime.init_entity(EntityId(entity_id.0.clone()), instances);
+        runtime.init_entity(entity_id.clone(), instances);
         info!(
             "  Initialized entity {} with {} instances",
             entity_id, count
@@ -358,18 +412,18 @@ fn main() {
     }
 
     // Initialize member signals for SoA execution
-    if !world.members.is_empty() {
+    if !members.is_empty() {
         info!("Initializing member signals...");
 
         // Build per-entity instance counts and find max for storage allocation
         let mut entity_counts: std::collections::HashMap<String, usize> =
             std::collections::HashMap::new();
-        for (entity_id, entity) in &world.entities {
+        for (entity_id, entity) in &entities {
             let count = if let Some(ref count_source) = entity.count_source {
                 world
                     .config
                     .get(count_source)
-                    .map(|v| *v as usize)
+                    .map(|(v, _)| *v as usize)
                     .unwrap_or(1)
             } else if let Some((min, max)) = entity.count_bounds {
                 if min == max {
@@ -380,14 +434,14 @@ fn main() {
             } else {
                 1
             };
-            entity_counts.insert(entity_id.0.clone(), count);
+            entity_counts.insert(entity_id.to_string(), count);
         }
 
         // Use max instance count for storage allocation (signals need enough slots for largest entity)
         let max_instance_count = entity_counts.values().copied().max().unwrap_or(1);
 
         // Register member signals (use full member ID to avoid name collisions)
-        for (member_id, member) in &world.members {
+        for (member_id, member) in &members {
             let value_type = match member.value_type {
                 ValueType::Scalar { .. } => MemberValueType::Scalar,
                 ValueType::Vec2 { .. } => MemberValueType::Vec2,
@@ -397,7 +451,7 @@ fn main() {
             };
             // Use full member ID (e.g., "stellar.star.mass") instead of just signal_name ("mass")
             // to avoid collisions between entities with same-named members
-            runtime.register_member_signal(&member_id.0, value_type);
+            runtime.register_member_signal(&member_id.to_string(), value_type);
         }
 
         // Initialize member instances with max count for storage
@@ -411,23 +465,33 @@ fn main() {
 
         info!(
             "  Initialized {} member signals (max {} instances)",
-            world.members.len(),
+            members.len(),
             max_instance_count
         );
 
         // Set initial values for members with initial expressions
         let mut initialized_count = 0;
-        for (member_id, member) in &world.members {
+        for (member_id, member) in &members {
             if let Some(ref initial_expr) = member.initial {
                 let initial_value =
                     eval_initial_expr(initial_expr, &world.constants, &world.config);
 
                 // Get the correct instance count for this member's entity
-                let instance_count = entity_counts.get(&member.entity_id.0).copied().unwrap_or(1);
+                let instance_count = entity_counts
+                    .get(&member.entity_id.to_string())
+                    .copied()
+                    .unwrap_or(1);
 
                 // Set initial value for all instances of this member
                 for instance_idx in 0..instance_count {
-                    runtime.set_member_signal(&member_id.0, instance_idx, initial_value.clone());
+                    if let Err(e) = runtime.set_member_signal(
+                        &member_id.to_string(),
+                        instance_idx,
+                        initial_value.clone(),
+                    ) {
+                        error!("  Failed to set initial value for {}: {}", member_id, e);
+                        process::exit(1);
+                    }
                 }
 
                 info!(
@@ -449,10 +513,10 @@ fn main() {
         // Build and register member resolvers
         let mut scalar_resolver_count = 0;
         let mut vec3_resolver_count = 0;
-        for (member_id, member) in &world.members {
+        for (member_id, member) in &members {
             if let Some(ref resolve_expr) = member.resolve {
                 // Entity prefix is the entity ID (e.g., "terra.plate" for "terra.plate.age")
-                let entity_prefix = &member.entity_id.0;
+                let entity_prefix = &member.entity_id.to_string();
 
                 // Use the appropriate builder based on value type
                 match member.value_type {
@@ -463,7 +527,7 @@ fn main() {
                             &world.config,
                             entity_prefix,
                         );
-                        runtime.register_vec3_member_resolver(member_id.0.clone(), resolver);
+                        runtime.register_vec3_member_resolver(member_id.to_string(), resolver);
                         info!(
                             "  Registered Vec3 member resolver for {} (entity={})",
                             member_id, entity_prefix
@@ -478,7 +542,7 @@ fn main() {
                             &world.config,
                             entity_prefix,
                         );
-                        runtime.register_member_resolver(member_id.0.clone(), resolver);
+                        runtime.register_member_resolver(member_id.to_string(), resolver);
                         info!(
                             "  Registered scalar member resolver for {} (entity={})",
                             member_id, entity_prefix
@@ -511,8 +575,8 @@ fn main() {
             seed: 0, // TODO: threaded seed support
             steps: num_steps,
             stride: save_stride,
-            signals: world.signals.keys().map(|id| id.0.clone()).collect(),
-            fields: world.fields.keys().map(|id| id.0.clone()).collect(),
+            signals: signals.keys().map(|id| id.to_string()).collect(),
+            fields: fields.keys().map(|id| id.to_string()).collect(),
         };
         let manifest_json = serde_json::to_string_pretty(&manifest).expect("serialization failed");
         fs::write(dir.join("run.json"), manifest_json).expect("failed to write run.json");
@@ -522,6 +586,23 @@ fn main() {
     } else {
         None
     };
+
+    // Run warmup if any functions registered
+    if !runtime.is_warmup_complete() {
+        info!("Executing warmup phase...");
+        match runtime.execute_warmup() {
+            Ok(result) => {
+                info!(
+                    "Warmup complete: {} iterations, converged: {}",
+                    result.iterations, result.converged
+                );
+            }
+            Err(e) => {
+                error!("Warmup failed: {}", e);
+                process::exit(1);
+            }
+        }
+    }
 
     // Run simulation
     info!("Running {} steps...", num_steps);
@@ -533,8 +614,8 @@ fn main() {
 
                 // Print signal values
                 let mut first = true;
-                for (signal_id, _) in &world.signals {
-                    let runtime_id = SignalId(signal_id.0.clone());
+                for (signal_id, _) in &signals {
+                    let runtime_id = signal_id.clone();
                     if let Some(value) = runtime.get_signal(&runtime_id) {
                         if !first {
                             print!(", ");
@@ -555,9 +636,9 @@ fn main() {
                 if let Some(ref dir) = run_dir {
                     if step % save_stride == 0 {
                         let mut signal_values = std::collections::HashMap::new();
-                        for id in world.signals.keys() {
-                            if let Some(val) = runtime.get_signal(&SignalId(id.0.clone())) {
-                                signal_values.insert(id.0.clone(), val.clone());
+                        for id in signals.keys() {
+                            if let Some(val) = runtime.get_signal(id) {
+                                signal_values.insert(id.to_string(), val.clone());
                             }
                         }
 
@@ -565,7 +646,7 @@ fn main() {
                         // Drain fields so they are captured (and cleared for next tick)
                         let all_fields = runtime.drain_fields();
                         for (id, samples) in &all_fields {
-                            field_values.insert(id.0.clone(), samples.clone());
+                            field_values.insert(id.to_string(), samples.clone());
                         }
 
                         let snapshot = TickSnapshot {

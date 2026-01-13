@@ -1,9 +1,4 @@
 //! Signal, field, and operator parsers.
-//!
-//! This module handles:
-//! - `signal.name { ... }` authoritative state signals
-//! - `field.name { ... }` observer data fields
-//! - `operator.name { ... }` phase logic operators
 
 use chumsky::prelude::*;
 
@@ -13,29 +8,28 @@ use crate::ast::{
     TypeExpr,
 };
 
-use super::super::ParseError;
 use super::super::expr::spanned_expr;
+use super::super::lexer::Token;
 use super::super::primitives::{
-    attr_flag, attr_path, attr_string, float, spanned, spanned_path, ws,
+    attr_flag, attr_path, attr_string, float, spanned, spanned_path, tok,
 };
+use super::super::{ParseError, ParserInput};
 use super::common::{assert_block, topology};
 use super::config::{config_entry, const_entry};
 use super::types::type_expr;
 
 // === Signal ===
 
-pub fn signal_def<'src>() -> impl Parser<'src, &'src str, SignalDef, extra::Err<ParseError<'src>>> {
-    text::keyword("signal")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn signal_def<'src>()
+-> impl Parser<'src, ParserInput<'src>, SignalDef, extra::Err<ParseError<'src>>> {
+    tok(Token::Signal)
+        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             signal_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = SignalDef {
@@ -91,113 +85,94 @@ enum SignalContent {
 }
 
 fn signal_content<'src>()
--> impl Parser<'src, &'src str, SignalContent, extra::Err<ParseError<'src>>> {
+-> impl Parser<'src, ParserInput<'src>, SignalContent, extra::Err<ParseError<'src>>> {
     choice((
-        attr_path("strata").map(SignalContent::Strata),
-        attr_string("title").map(SignalContent::Title),
-        attr_string("symbol").map(SignalContent::Symbol),
-        attr_flag("dt_raw").to(SignalContent::DtRaw),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("uses"))
+        attr_path(Token::Strata).map(SignalContent::Strata),
+        attr_string(Token::Title).map(SignalContent::Title),
+        attr_string(Token::Symbol).map(SignalContent::Symbol),
+        attr_flag(Token::DtRaw).to(SignalContent::DtRaw),
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
             .ignore_then(
-                just('(')
-                    .padded_by(ws())
-                    .ignore_then(just("dt_raw"))
-                    .then_ignore(just(')').padded_by(ws())),
+                tok(Token::LParen)
+                    .ignore_then(tok(Token::DtRaw))
+                    .then_ignore(tok(Token::RParen)),
             )
             .to(SignalContent::DtRaw),
         // Tensor constraints: `: symmetric`, `: positive_definite`
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("symmetric"))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Symmetric))
             .to(SignalContent::TensorConstraint(TensorConstraint::Symmetric)),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("positive_definite"))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::PositiveDefinite))
             .to(SignalContent::TensorConstraint(
                 TensorConstraint::PositiveDefinite,
             )),
         // Sequence constraints: `: each(min..max)`, `: sum(min..max)`
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("each"))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Each))
             .ignore_then(
-                just('(')
-                    .padded_by(ws())
+                tok(Token::LParen)
                     .ignore_then(constraint_range())
-                    .then_ignore(just(')').padded_by(ws())),
+                    .then_ignore(tok(Token::RParen)),
             )
             .map(|r| SignalContent::SeqConstraint(SeqConstraint::Each(r))),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("sum"))
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Sum))
             .ignore_then(
-                just('(')
-                    .padded_by(ws())
+                tok(Token::LParen)
                     .ignore_then(constraint_range())
-                    .then_ignore(just(')').padded_by(ws())),
+                    .then_ignore(tok(Token::RParen)),
             )
             .map(|r| SignalContent::SeqConstraint(SeqConstraint::Sum(r))),
         // Type expression: `: TypeExpr`
-        just(':')
-            .padded_by(ws())
+        tok(Token::Colon)
             .ignore_then(spanned(type_expr()))
             .map(SignalContent::Type),
-        text::keyword("const")
-            .padded_by(ws())
+        tok(Token::Const)
             .ignore_then(
                 const_entry()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
             )
             .map(SignalContent::LocalConst),
-        text::keyword("config")
-            .padded_by(ws())
+        tok(Token::Config)
             .ignore_then(
                 config_entry()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
             )
             .map(SignalContent::LocalConfig),
-        text::keyword("resolve")
-            .padded_by(ws())
-            .ignore_then(
-                spanned_expr()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
+        tok(Token::Resolve)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|body| SignalContent::Resolve(ResolveBlock { body })),
         assert_block().map(SignalContent::Assert),
     ))
 }
 
 /// Parses a range for constraint values: `min..max`
-fn constraint_range<'src>() -> impl Parser<'src, &'src str, Range, extra::Err<ParseError<'src>>> {
+fn constraint_range<'src>()
+-> impl Parser<'src, ParserInput<'src>, Range, extra::Err<ParseError<'src>>> {
     float()
-        .then_ignore(just("..").padded_by(ws()))
+        .then_ignore(tok(Token::DotDot))
         .then(float())
         .map(|(min, max)| Range { min, max })
 }
 
 // === Field ===
 
-pub fn field_def<'src>() -> impl Parser<'src, &'src str, FieldDef, extra::Err<ParseError<'src>>> {
-    text::keyword("field")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn field_def<'src>()
+-> impl Parser<'src, ParserInput<'src>, FieldDef, extra::Err<ParseError<'src>>> {
+    tok(Token::Field)
+        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             field_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = FieldDef {
@@ -234,32 +209,21 @@ enum FieldContent {
     Measure(MeasureBlock),
 }
 
-fn field_content<'src>() -> impl Parser<'src, &'src str, FieldContent, extra::Err<ParseError<'src>>>
-{
+fn field_content<'src>()
+-> impl Parser<'src, ParserInput<'src>, FieldContent, extra::Err<ParseError<'src>>> {
     choice((
-        attr_path("strata").map(FieldContent::Strata),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("topology"))
-            .ignore_then(
-                spanned(topology())
-                    .padded_by(ws())
-                    .delimited_by(just('('), just(')')),
-            )
+        attr_path(Token::Strata).map(FieldContent::Strata),
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Topology))
+            .ignore_then(spanned(topology()).delimited_by(tok(Token::LParen), tok(Token::RParen)))
             .map(FieldContent::Topology),
-        attr_string("title").map(FieldContent::Title),
-        attr_string("symbol").map(FieldContent::Symbol),
-        just(':')
-            .padded_by(ws())
+        attr_string(Token::Title).map(FieldContent::Title),
+        attr_string(Token::Symbol).map(FieldContent::Symbol),
+        tok(Token::Colon)
             .ignore_then(spanned(type_expr()))
             .map(FieldContent::Type),
-        text::keyword("measure")
-            .padded_by(ws())
-            .ignore_then(
-                spanned_expr()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
+        tok(Token::Measure)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|body| FieldContent::Measure(MeasureBlock { body })),
     ))
 }
@@ -267,18 +231,15 @@ fn field_content<'src>() -> impl Parser<'src, &'src str, FieldContent, extra::Er
 // === Operator ===
 
 pub fn operator_def<'src>()
--> impl Parser<'src, &'src str, OperatorDef, extra::Err<ParseError<'src>>> {
-    text::keyword("operator")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+-> impl Parser<'src, ParserInput<'src>, OperatorDef, extra::Err<ParseError<'src>>> {
+    tok(Token::Operator)
+        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             operator_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = OperatorDef {
@@ -310,37 +271,25 @@ enum OperatorContent {
 }
 
 fn operator_content<'src>()
--> impl Parser<'src, &'src str, OperatorContent, extra::Err<ParseError<'src>>> {
+-> impl Parser<'src, ParserInput<'src>, OperatorContent, extra::Err<ParseError<'src>>> {
     choice((
-        attr_path("strata").map(OperatorContent::Strata),
-        just(':')
-            .padded_by(ws())
-            .ignore_then(text::keyword("phase"))
+        attr_path(Token::Strata).map(OperatorContent::Strata),
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Phase))
             .ignore_then(
                 spanned(choice((
-                    text::keyword("warmup").to(OperatorPhase::Warmup),
-                    text::keyword("collect").to(OperatorPhase::Collect),
-                    text::keyword("measure").to(OperatorPhase::Measure),
+                    tok(Token::Warmup).to(OperatorPhase::Warmup),
+                    tok(Token::Collect).to(OperatorPhase::Collect),
+                    tok(Token::Measure).to(OperatorPhase::Measure),
                 )))
-                .padded_by(ws())
-                .delimited_by(just('('), just(')')),
+                .delimited_by(tok(Token::LParen), tok(Token::RParen)),
             )
             .map(OperatorContent::Phase),
-        text::keyword("collect")
-            .padded_by(ws())
-            .ignore_then(
-                spanned_expr()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
+        tok(Token::Collect)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|e| OperatorContent::Body(OperatorBody::Collect(e))),
-        text::keyword("measure")
-            .padded_by(ws())
-            .ignore_then(
-                spanned_expr()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
+        tok(Token::Measure)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|e| OperatorContent::Body(OperatorBody::Measure(e))),
         assert_block().map(OperatorContent::Assert),
     ))

@@ -3,7 +3,7 @@
 //! This module handles lowering chronicle definitions from AST to IR.
 //! Chronicles are observer-only event recorders that do not affect causality.
 
-use continuum_dsl::ast;
+use continuum_dsl::ast::{self, Span};
 use continuum_foundation::ChronicleId;
 
 use crate::{CompiledChronicle, CompiledEventField, CompiledObserveHandler};
@@ -15,15 +15,20 @@ impl Lowerer {
     ///
     /// Chronicles observe simulation state and emit events for logging and analytics.
     /// They cannot affect causality - removing all chronicles must not change simulation results.
-    pub(crate) fn lower_chronicle(&mut self, def: &ast::ChronicleDef) -> Result<(), LowerError> {
-        let id = ChronicleId::from(def.path.node.join(".").as_str());
+    pub(crate) fn lower_chronicle(
+        &mut self,
+        def: &ast::ChronicleDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let id = ChronicleId::from(def.path.node.clone());
 
         // Check for duplicate chronicle definition
         if self.chronicles.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!(
-                "chronicle.{}",
-                id.0
-            )));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("chronicle.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Collect signal reads from all handlers
@@ -46,7 +51,7 @@ impl Lowerer {
                 .iter()
                 .map(|h| CompiledObserveHandler {
                     condition: self.lower_expr(&h.condition.node),
-                    event_name: h.event_name.node.join("."),
+                    event_name: h.event_name.node.to_string(),
                     event_fields: h
                         .event_fields
                         .iter()
@@ -62,6 +67,8 @@ impl Lowerer {
         };
 
         let chronicle = CompiledChronicle {
+            file: self.file.clone(),
+            span,
             id: id.clone(),
             reads,
             handlers,

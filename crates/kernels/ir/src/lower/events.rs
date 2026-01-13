@@ -4,7 +4,7 @@
 
 use std::collections::HashSet;
 
-use continuum_dsl::ast::{self, Expr, Spanned};
+use continuum_dsl::ast::{self, Expr, Span, Spanned};
 use continuum_foundation::{FractureId, ImpulseId, SignalId, StratumId};
 
 use crate::{CompiledEmit, CompiledExpr, CompiledFracture, CompiledImpulse, ValueType};
@@ -19,15 +19,25 @@ struct LetBinding<'a> {
 }
 
 impl Lowerer {
-    pub(crate) fn lower_impulse(&mut self, def: &ast::ImpulseDef) -> Result<(), LowerError> {
-        let id = ImpulseId::from(def.path.node.join(".").as_str());
+    pub(crate) fn lower_impulse(
+        &mut self,
+        def: &ast::ImpulseDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let id = ImpulseId::from(def.path.node.clone());
 
         // Check for duplicate impulse definition
         if self.impulses.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("impulse.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("impulse.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         let impulse = CompiledImpulse {
+            file: self.file.clone(),
+            span,
             id: id.clone(),
             payload_type: def
                 .payload_type
@@ -45,32 +55,44 @@ impl Lowerer {
         Ok(())
     }
 
-    pub(crate) fn lower_fracture(&mut self, def: &ast::FractureDef) -> Result<(), LowerError> {
-        let id = FractureId::from(def.path.node.join(".").as_str());
-        let fracture_path = def.path.node.join(".");
+    pub(crate) fn lower_fracture(
+        &mut self,
+        def: &ast::FractureDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let id = FractureId::from(def.path.node.clone());
+        let fracture_path = def.path.node.to_string();
 
         // Check for duplicate fracture definition
         if self.fractures.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!(
-                "fracture.{}",
-                id.0
-            )));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("fracture.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Process local config blocks - add to global config with fracture-prefixed keys
         for entry in &def.local_config {
-            let local_key = entry.path.node.join(".");
-            // Add with full fracture path prefix: config.fracture.path.local_key
+            let local_key = entry.path.node.to_string();
             let full_key = format!("fracture.{}.{}", fracture_path, local_key);
-            let value = self.literal_to_f64(&entry.value.node)?;
-            self.config.insert(full_key, value);
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
         }
 
         // Determine stratum binding
         let stratum = if let Some(s) = &def.strata {
-            let id = StratumId::from(s.node.join(".").as_str());
+            let id = StratumId::from(s.node.clone());
             if !self.strata.contains_key(&id) {
-                return Err(LowerError::UndefinedStratum(id.0));
+                return Err(LowerError::UndefinedStratum {
+                    name: id.to_string(),
+                    file: self.file.clone(),
+                    span: s.span.clone(),
+                });
             }
             id
         } else {
@@ -79,9 +101,11 @@ impl Lowerer {
             if let Some((first_id, _)) = self.strata.first() {
                 first_id.clone()
             } else {
-                return Err(LowerError::Generic(
-                    "Fracture defined but no strata are available to bind to".to_string(),
-                ));
+                return Err(LowerError::Generic {
+                    message: "Fracture defined but no strata are available to bind to".to_string(),
+                    file: self.file.clone(),
+                    span: def.path.span.clone(),
+                });
             }
         };
 
@@ -99,6 +123,8 @@ impl Lowerer {
         let emits = self.collect_emit_expressions(def.emit.as_ref().map(|e| &e.node));
 
         let fracture = CompiledFracture {
+            file: self.file.clone(),
+            span,
             id: id.clone(),
             stratum,
             reads,
@@ -110,7 +136,7 @@ impl Lowerer {
             emits: emits
                 .into_iter()
                 .map(|(target, value_expr)| CompiledEmit {
-                    target: SignalId::from(target.join(".").as_str()),
+                    target: SignalId::from(target),
                     value: value_expr,
                 })
                 .collect(),

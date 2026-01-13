@@ -49,8 +49,8 @@ use chumsky::prelude::*;
 
 use crate::ast::Item;
 
-use super::ParseError;
 use super::primitives::doc_comment;
+use super::{ParseError, ParserInput};
 
 // Re-export public parsers
 pub use config::{config_block, const_block};
@@ -63,10 +63,7 @@ pub use types::{fn_def, type_def};
 pub use world::world_def;
 
 /// Main entry point for parsing top-level items.
-///
-/// Doc comments (`///`) are captured before items that support them
-/// and stored in the item's `doc` field.
-pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<'src>>> {
+pub fn item<'src>() -> impl Parser<'src, ParserInput<'src>, Item, extra::Err<ParseError<'src>>> {
     choice((
         // World definition (no doc comments - it's a manifest)
         world_def().map(Item::WorldDef),
@@ -122,12 +119,5 @@ pub fn item<'src>() -> impl Parser<'src, &'src str, Item, extra::Err<ParseError<
             def.doc = doc;
             Item::MemberDef(def)
         }),
-        // Special case: check for fracture keyword specifically to avoid member conflict
-        doc_comment()
-            .then(text::keyword("fracture").ignore_then(fracture_def()))
-            .map(|(doc, mut def)| {
-                def.doc = doc;
-                Item::FractureDef(def)
-            }),
     ))
 }

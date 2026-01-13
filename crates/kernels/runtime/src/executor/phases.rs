@@ -5,7 +5,7 @@
 use indexmap::IndexMap;
 
 use rayon::prelude::*;
-use tracing::{debug, error, instrument, trace};
+use tracing::{debug, instrument, trace};
 
 use crate::dag::{DagSet, NodeKind};
 use crate::error::{Error, Result};
@@ -293,7 +293,8 @@ impl PhaseExecutor {
         member_signals: &mut MemberSignalBuffer,
         input_channels: &mut InputChannels,
         assertion_checker: &AssertionChecker,
-    ) -> Result<()> {
+        breakpoints: &std::collections::HashSet<SignalId>,
+    ) -> Result<Option<SignalId>> {
         let era_dags = dags.get_era(era).unwrap();
 
         for dag in era_dags.for_phase(Phase::Resolve) {
@@ -310,6 +311,16 @@ impl PhaseExecutor {
             trace!(stratum = %dag.stratum, levels = dag.levels.len(), "resolving stratum");
 
             for level in &dag.levels {
+                // Check for breakpoints in this level BEFORE executing it
+                for node in &level.nodes {
+                    if let NodeKind::SignalResolve { signal, .. } = &node.kind {
+                        if breakpoints.contains(signal) {
+                            debug!(%signal, "breakpoint hit");
+                            return Ok(Some(signal.clone()));
+                        }
+                    }
+                }
+
                 // Collect tasks for parallel execution
                 let mut signal_tasks = Vec::new();
                 let mut member_tasks = Vec::new();
@@ -346,8 +357,9 @@ impl PhaseExecutor {
 
                 // 1. Member Signal Resolution (Sequential over member types, parallel over instances)
                 for (member_signal, kernel_idx) in member_tasks {
-                    let signal_name = &member_signal.signal_name;
-                    let count = member_signals.instance_count_for_signal(signal_name);
+                    let full_signal =
+                        format!("{}.{}", member_signal.entity_id, member_signal.signal_name);
+                    let count = member_signals.instance_count_for_signal(&full_signal);
                     let resolver = &self.member_resolvers[kernel_idx];
 
                     match resolver {
@@ -355,7 +367,7 @@ impl PhaseExecutor {
                             let prev: Vec<f64> = (0..count)
                                 .map(|i| {
                                     member_signals
-                                        .get_previous(signal_name, i)
+                                        .get_previous(&full_signal, i)
                                         .and_then(|v| v.as_scalar())
                                         .unwrap_or(0.0)
                                 })
@@ -371,14 +383,15 @@ impl PhaseExecutor {
                                 config,
                             );
                             for (i, v) in values.into_iter().enumerate() {
-                                member_signals.set_current(signal_name, i, Value::Scalar(v));
+                                let _ =
+                                    member_signals.set_current(&full_signal, i, Value::Scalar(v));
                             }
                         }
                         MemberResolver::Vec3(f) => {
                             let prev: Vec<[f64; 3]> = (0..count)
                                 .map(|i| {
                                     member_signals
-                                        .get_previous(signal_name, i)
+                                        .get_previous(&full_signal, i)
                                         .and_then(|v| v.as_vec3())
                                         .unwrap_or([0.0, 0.0, 0.0])
                                 })
@@ -394,7 +407,7 @@ impl PhaseExecutor {
                                 config,
                             );
                             for (i, v) in values.into_iter().enumerate() {
-                                member_signals.set_current(signal_name, i, Value::Vec3(v));
+                                let _ = member_signals.set_current(&full_signal, i, Value::Vec3(v));
                             }
                         }
                     }
@@ -456,7 +469,7 @@ impl PhaseExecutor {
                 }
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Execute the Fracture phase

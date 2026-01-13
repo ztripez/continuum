@@ -42,10 +42,10 @@ fn main() {
     match continuum_compiler::compile_from_dir(world_dir) {
         Ok(world) => {
             info!("Successfully compiled world");
-            info!("  - Signals: {}", world.signals.len());
-            info!("  - Fields: {}", world.fields.len());
-            info!("  - Operators: {}", world.operators.len());
-            info!("  - Entities: {}", world.entities.len());
+            info!("  - Signals: {}", world.signals().len());
+            info!("  - Fields: {}", world.fields().len());
+            info!("  - Operators: {}", world.operators().len());
+            info!("  - Entities: {}", world.entities().len());
         }
         Err(diagnostics) => {
             for diag in diagnostics {

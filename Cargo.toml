@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/cdsl-lsp",
+    "crates/cdsl-dap",
     "crates/continuum-compiler",
     "crates/kernel-macros",
     "crates/kernel-registry",

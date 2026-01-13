@@ -309,8 +309,9 @@ fn try_match_clamped_accumulator(expr: &CompiledExpr) -> Option<ExpressionPatter
             // Check if first arg is prev + collected
             if try_match_simple_accumulator(&args[0]).is_some() {
                 let has_min =
-                    !matches!(&args[1], CompiledExpr::Literal(v) if *v == f64::NEG_INFINITY);
-                let has_max = !matches!(&args[2], CompiledExpr::Literal(v) if *v == f64::INFINITY);
+                    !matches!(&args[1], CompiledExpr::Literal(v, _) if *v == f64::NEG_INFINITY);
+                let has_max =
+                    !matches!(&args[2], CompiledExpr::Literal(v, _) if *v == f64::INFINITY);
                 return Some(ExpressionPattern::ClampedAccumulator { has_min, has_max });
             }
             None
@@ -318,8 +319,9 @@ fn try_match_clamped_accumulator(expr: &CompiledExpr) -> Option<ExpressionPatter
         CompiledExpr::Call { function, args } if function == "clamp" && args.len() == 3 => {
             if try_match_simple_accumulator(&args[0]).is_some() {
                 let has_min =
-                    !matches!(&args[1], CompiledExpr::Literal(v) if *v == f64::NEG_INFINITY);
-                let has_max = !matches!(&args[2], CompiledExpr::Literal(v) if *v == f64::INFINITY);
+                    !matches!(&args[1], CompiledExpr::Literal(v, _) if *v == f64::NEG_INFINITY);
+                let has_max =
+                    !matches!(&args[2], CompiledExpr::Literal(v, _) if *v == f64::INFINITY);
                 return Some(ExpressionPattern::ClampedAccumulator { has_min, has_max });
             }
             None
@@ -426,26 +428,30 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
 
     fn is_scaled_prev(e: &CompiledExpr) -> bool {
         matches!(
-            e,
-            CompiledExpr::Binary {
-                op: BinaryOpIr::Mul,
-                left,
-                right
-            } if matches!(left.as_ref(), CompiledExpr::Prev | CompiledExpr::Literal(_))
-                && matches!(right.as_ref(), CompiledExpr::Prev | CompiledExpr::Literal(_))
+                    e,
+                    CompiledExpr::Binary {
+                        op: BinaryOpIr::Mul,
+                        left,
+                        right
+                    } if matches!(left.as_ref(), CompiledExpr::Prev |         CompiledExpr::Literal(..)
         )
+                        && matches!(right.as_ref(), CompiledExpr::Prev |         CompiledExpr::Literal(..)
+        )
+                )
     }
 
     fn is_scaled_collected(e: &CompiledExpr) -> bool {
         matches!(
-            e,
-            CompiledExpr::Binary {
-                op: BinaryOpIr::Mul,
-                left,
-                right
-            } if matches!(left.as_ref(), CompiledExpr::Collected | CompiledExpr::Literal(_))
-                && matches!(right.as_ref(), CompiledExpr::Collected | CompiledExpr::Literal(_))
+                    e,
+                    CompiledExpr::Binary {
+                        op: BinaryOpIr::Mul,
+                        left,
+                        right
+                    } if matches!(left.as_ref(), CompiledExpr::Collected |         CompiledExpr::Literal(..)
         )
+                        && matches!(right.as_ref(), CompiledExpr::Collected |         CompiledExpr::Literal(..)
+        )
+                )
     }
 
     match expr {
@@ -457,7 +463,7 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
             let left_is_linear = is_scaled_prev(left) || is_scaled_collected(left);
             let right_is_linear = is_scaled_prev(right)
                 || is_scaled_collected(right)
-                || matches!(right.as_ref(), CompiledExpr::Literal(_));
+                || matches!(right.as_ref(), CompiledExpr::Literal(..));
 
             if left_is_linear && right_is_linear {
                 return Some(ExpressionPattern::LinearTransform);
@@ -470,7 +476,7 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
             } = left.as_ref()
             {
                 if try_match_linear_transform(left).is_some()
-                    && matches!(right.as_ref(), CompiledExpr::Literal(_))
+                    && matches!(right.as_ref(), CompiledExpr::Literal(..))
                 {
                     return Some(ExpressionPattern::LinearTransform);
                 }
@@ -576,9 +582,10 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
     std::mem::discriminant(expr).hash(hasher);
 
     match expr {
-        CompiledExpr::Literal(_) => {
-            // Don't hash the value, just the fact that it's a literal
+        CompiledExpr::Literal(_, unit) => {
+            // Don't hash the value, just the fact that it's a literal and its unit
             "literal".hash(hasher);
+            unit.hash(hasher);
         }
         CompiledExpr::Prev => "prev".hash(hasher),
         CompiledExpr::DtRaw => "dt_raw".hash(hasher),
@@ -588,11 +595,11 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
             "signal".hash(hasher);
             id.0.hash(hasher);
         }
-        CompiledExpr::Const(name) => {
+        CompiledExpr::Const(name, _) => {
             "const".hash(hasher);
             name.hash(hasher);
         }
-        CompiledExpr::Config(name) => {
+        CompiledExpr::Config(name, _) => {
             "config".hash(hasher);
             name.hash(hasher);
         }
@@ -745,7 +752,8 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
 pub fn group_signals_by_pattern(world: &CompiledWorld) -> Vec<SignalBatch> {
     let mut groups: IndexMap<BatchKey, Vec<SignalId>> = IndexMap::new();
 
-    for (signal_id, signal) in &world.signals {
+    let signals = world.signals();
+    for (signal_id, signal) in &signals {
         // Skip signals without resolve expressions
         let Some(resolve) = &signal.resolve else {
             continue;
@@ -1438,8 +1446,8 @@ mod tests {
                     left: Box::new(CompiledExpr::Prev),
                     right: Box::new(CompiledExpr::Collected),
                 },
-                CompiledExpr::Literal(0.0),
-                CompiledExpr::Literal(100.0),
+                CompiledExpr::Literal(0.0, None),
+                CompiledExpr::Literal(100.0, None),
             ],
         };
 
@@ -1459,7 +1467,7 @@ mod tests {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::DtRobustCall {
                 operator: DtRobustOperator::Decay,
-                args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0)],
+                args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
                 method: crate::IntegrationMethod::Euler,
             }),
             right: Box::new(CompiledExpr::Collected),
@@ -1478,7 +1486,7 @@ mod tests {
         // decay(prev, 1000.0)
         let expr = CompiledExpr::DtRobustCall {
             operator: DtRobustOperator::Decay,
-            args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0)],
+            args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
             method: crate::IntegrationMethod::Euler,
         };
 
@@ -1508,14 +1516,14 @@ mod tests {
 
     #[test]
     fn test_extract_constant() {
-        let expr = CompiledExpr::Literal(42.0);
+        let expr = CompiledExpr::Literal(42.0, None);
         assert_eq!(extract_pattern(&expr), ExpressionPattern::Constant);
 
         // Binary op on constants
         let expr2 = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
-            left: Box::new(CompiledExpr::Literal(1.0)),
-            right: Box::new(CompiledExpr::Literal(2.0)),
+            left: Box::new(CompiledExpr::Literal(1.0, None)),
+            right: Box::new(CompiledExpr::Literal(2.0, None)),
         };
         assert_eq!(extract_pattern(&expr2), ExpressionPattern::Constant);
     }
@@ -1553,13 +1561,13 @@ mod tests {
         let expr1 = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(1.0)),
+            right: Box::new(CompiledExpr::Literal(1.0, None)),
         };
 
         let expr2 = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(999.0)),
+            right: Box::new(CompiledExpr::Literal(999.0, None)),
         };
 
         assert_eq!(compute_expr_hash(&expr1), compute_expr_hash(&expr2));
@@ -1570,13 +1578,13 @@ mod tests {
         let expr1 = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(1.0)),
+            right: Box::new(CompiledExpr::Literal(1.0, None)),
         };
 
         let expr2 = CompiledExpr::Binary {
-            op: BinaryOpIr::Mul, // Different op
+            op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(1.0)),
+            right: Box::new(CompiledExpr::Literal(1.0, crate::units::Unit::parse("m"))),
         };
 
         assert_ne!(compute_expr_hash(&expr1), compute_expr_hash(&expr2));
@@ -1696,7 +1704,7 @@ mod tests {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::DtRobustCall {
                 operator: DtRobustOperator::Decay,
-                args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0)],
+                args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
                 method: crate::IntegrationMethod::Euler,
             }),
             right: Box::new(CompiledExpr::Collected),
@@ -1725,7 +1733,7 @@ mod tests {
             right: Box::new(CompiledExpr::Collected),
         };
 
-        let entity_id = EntityId("test_entity".to_string());
+        let entity_id = EntityId::from("test_entity");
         let kernel = generate_l2_kernel(&entity_id, "temperature", &expr, 10_000);
 
         // Verify kernel properties via LaneKernel trait
@@ -1819,7 +1827,7 @@ mod tests {
 
         // Add two strata
         coverage.stratum_coverage.insert(
-            StratumId("stratum_a".to_string()),
+            StratumId::from("stratum_a"),
             StratumCoverage {
                 total_signals: 60,
                 vectorizable_signals: 50,
@@ -1827,7 +1835,7 @@ mod tests {
             },
         );
         coverage.stratum_coverage.insert(
-            StratumId("stratum_b".to_string()),
+            StratumId::from("stratum_b"),
             StratumCoverage {
                 total_signals: 40,
                 vectorizable_signals: 30,
@@ -1877,7 +1885,7 @@ mod tests {
         // Create a batch that qualifies for L2
         let batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -1898,7 +1906,7 @@ mod tests {
         // Create a batch that's too small for SIMD
         let batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![SignalId::from("a"), SignalId::from("b")], // Only 2 signals
         };
@@ -1923,7 +1931,7 @@ mod tests {
         // Create a batch with custom pattern
         let batch = SignalBatch {
             pattern: ExpressionPattern::Custom(12345),
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -1953,7 +1961,7 @@ mod tests {
         // Create a batch with population below minimum
         let batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -1983,7 +1991,7 @@ mod tests {
         // Create multiple batches with different outcomes
         let l2_batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -1995,7 +2003,7 @@ mod tests {
 
         let l1_batch = SignalBatch {
             pattern: ExpressionPattern::Custom(999),
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("e"),
@@ -2017,7 +2025,7 @@ mod tests {
     fn test_summarize_partition() {
         let l2_batch = SignalBatch {
             pattern: ExpressionPattern::SimpleAccumulator,
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("a"),
@@ -2031,7 +2039,7 @@ mod tests {
         // Custom pattern batch with enough signals to avoid "batch too small"
         let l1_batch = SignalBatch {
             pattern: ExpressionPattern::Custom(999),
-            stratum: StratumId("test".to_string()),
+            stratum: StratumId::from("test"),
             value_type: ValueTypeCategory::Scalar,
             signal_ids: vec![
                 SignalId::from("f"),

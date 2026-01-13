@@ -1,0 +1,16 @@
+[package]
+name = "cdsl-dap"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+continuum-compiler = { path = "../continuum-compiler" }
+continuum-runtime = { path = "../kernels/runtime" }
+continuum-foundation = { path = "../kernels/foundation" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.49.0", features = ["rt-multi-thread", "io-std", "macros", "io-util", "sync"] }
+thiserror = "2"
+tracing = "0.1.44"
+dap = "0.4.1-alpha1"
+ # Using the 'dap' crate for protocol types

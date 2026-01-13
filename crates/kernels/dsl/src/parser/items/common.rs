@@ -1,72 +1,64 @@
 //! Common shared parsers used across multiple item types.
-//!
-//! This module provides utility parsers that are shared between signals,
-//! operators, fields, and entities.
 
 use chumsky::prelude::*;
 
 use crate::ast::{AssertBlock, AssertSeverity, Assertion, Topology};
 
-use super::super::ParseError;
 use super::super::expr::spanned_expr;
-use super::super::primitives::{spanned, string_lit, ws};
+use super::super::lexer::Token;
+use super::super::primitives::{spanned, string_lit};
+use super::super::{ParseError, ParserInput};
 
 // === Assertions ===
 
 pub fn assert_block<'src>()
--> impl Parser<'src, &'src str, AssertBlock, extra::Err<ParseError<'src>>> + Clone {
-    text::keyword("assert")
-        .padded_by(ws())
+-> impl Parser<'src, ParserInput<'src>, AssertBlock, extra::Err<ParseError<'src>>> + Clone {
+    just(Token::Assert)
         .ignore_then(
             assertion()
-                .padded_by(ws())
                 .repeated()
                 .at_least(1)
                 .collect()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map(|assertions| AssertBlock { assertions })
 }
 
-fn assertion<'src>() -> impl Parser<'src, &'src str, Assertion, extra::Err<ParseError<'src>>> + Clone
-{
+fn assertion<'src>()
+-> impl Parser<'src, ParserInput<'src>, Assertion, extra::Err<ParseError<'src>>> + Clone {
     // Parse: condition [: severity] [, "message"]
     spanned_expr()
+        .then(just(Token::Colon).ignore_then(assert_severity()).or_not())
         .then(
-            just(':')
-                .padded_by(ws())
-                .ignore_then(assert_severity())
-                .or_not(),
-        )
-        .then(
-            just(',')
-                .padded_by(ws())
+            just(Token::Comma)
                 .ignore_then(spanned(string_lit()))
                 .or_not(),
         )
-        .map(|((condition, severity), message)| Assertion {
-            condition,
-            severity: severity.unwrap_or_default(),
-            message,
-        })
+        .map(
+            |((condition, severity), message): ((_, Option<AssertSeverity>), _)| Assertion {
+                condition,
+                severity: severity.unwrap_or_default(),
+                message,
+            },
+        )
 }
 
 fn assert_severity<'src>()
--> impl Parser<'src, &'src str, AssertSeverity, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, AssertSeverity, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        text::keyword("warn").to(AssertSeverity::Warn),
-        text::keyword("error").to(AssertSeverity::Error),
-        text::keyword("fatal").to(AssertSeverity::Fatal),
+        just(Token::Warn).to(AssertSeverity::Warn),
+        just(Token::Error).to(AssertSeverity::Error),
+        just(Token::Fatal).to(AssertSeverity::Fatal),
     ))
 }
 
 // === Topology ===
 
 pub fn topology<'src>()
--> impl Parser<'src, &'src str, Topology, extra::Err<ParseError<'src>>> + Clone {
+-> impl Parser<'src, ParserInput<'src>, Topology, extra::Err<ParseError<'src>>> + Clone {
     choice((
-        text::keyword("sphere_surface").to(Topology::SphereSurface),
-        text::keyword("point_cloud").to(Topology::PointCloud),
-        text::keyword("volume").to(Topology::Volume),
+        just(Token::SphereSurface).to(Topology::SphereSurface),
+        just(Token::PointCloud).to(Topology::PointCloud),
+        just(Token::Volume).to(Topology::Volume),
     ))
 }

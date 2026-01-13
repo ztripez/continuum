@@ -3,7 +3,7 @@
 //! This module handles lowering signal and field definitions from AST to IR,
 //! including dependency extraction and dt-robustness validation.
 
-use continuum_dsl::ast;
+use continuum_dsl::ast::{self, Span};
 use continuum_foundation::{FieldId, SignalId, StratumId};
 
 use crate::{CompiledExpr, CompiledField, CompiledSignal, CompiledWarmup, TopologyIr, ValueType};
@@ -11,41 +11,89 @@ use crate::{CompiledExpr, CompiledField, CompiledSignal, CompiledWarmup, Topolog
 use super::{LowerError, Lowerer};
 
 impl Lowerer {
-    pub(crate) fn lower_signal(&mut self, def: &ast::SignalDef) -> Result<(), LowerError> {
-        let id = SignalId::from(def.path.node.join(".").as_str());
-        let signal_path = def.path.node.join(".");
+    pub(crate) fn lower_signal(
+        &mut self,
+        def: &ast::SignalDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let id = SignalId::from(def.path.node.clone());
+        let signal_path = def.path.node.to_string();
 
         // Check for duplicate signal definition
         if self.signals.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("signal.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("signal.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         // Determine stratum
         let stratum = def
             .strata
             .as_ref()
-            .map(|s| StratumId::from(s.node.join(".").as_str()))
+            .map(|s| StratumId::from(s.node.clone()))
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
-        self.validate_stratum(&stratum)?;
+        self.validate_stratum(
+            &stratum,
+            def.strata
+                .as_ref()
+                .map(|s| &s.span)
+                .unwrap_or(&def.path.span),
+        )?;
 
         // Process local const blocks - add to global constants with signal-prefixed keys
         for entry in &def.local_consts {
-            let local_key = entry.path.node.join(".");
+            let local_key = entry.path.node.to_string();
             // Add with full signal path prefix: signal.path.local_key
             let full_key = format!("{}.{}", signal_path, local_key);
-            let value = self.literal_to_f64(&entry.value.node)?;
-            self.constants.insert(full_key, value);
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.constants.insert(full_key, (value, unit));
         }
 
         // Process local config blocks - add to global config with signal-prefixed keys
         for entry in &def.local_config {
-            let local_key = entry.path.node.join(".");
+            let local_key = entry.path.node.to_string();
             // Add with full signal path prefix: signal.path.local_key
             let full_key = format!("{}.{}", signal_path, local_key);
-            let value = self.literal_to_f64(&entry.value.node)?;
-            self.config.insert(full_key, value);
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
+        }
+
+        // Process local config blocks - add to global config with signal-prefixed keys
+        for entry in &def.local_config {
+            let local_key = entry.path.node.to_string();
+            // Add with full signal path prefix: signal.path.local_key
+            let full_key = format!("{}.{}", signal_path, local_key);
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
+        }
+
+        // Process local config blocks - add to global config with signal-prefixed keys
+        for entry in &def.local_config {
+            let local_key = entry.path.node.to_string();
+            // Add with full signal path prefix: signal.path.local_key
+            let full_key = format!("{}.{}", signal_path, local_key);
+            let value = self.literal_to_f64(&entry.value.node, &entry.value.span)?;
+            let unit = entry
+                .unit
+                .as_ref()
+                .and_then(|u| crate::units::Unit::parse(&u.node));
+            self.config.insert(full_key, (value, unit));
         }
 
         // Collect signal dependencies from resolve expression
@@ -57,7 +105,11 @@ impl Lowerer {
         // Validate dt_raw usage: if resolve uses dt_raw, signal must declare it
         if let Some(resolve) = &def.resolve {
             if !def.dt_raw && self.expr_uses_dt_raw(&resolve.body.node) {
-                return Err(LowerError::UndeclaredDtRawUsage(signal_path));
+                return Err(LowerError::UndeclaredDtRawUsage {
+                    name: signal_path,
+                    file: self.file.clone(),
+                    span: resolve.body.span.clone(),
+                });
             }
         }
 
@@ -92,6 +144,8 @@ impl Lowerer {
         let (resolve, resolve_components) = self.expand_resolve_for_type(resolve, &value_type);
 
         let signal = CompiledSignal {
+            file: self.file.clone(),
+            span,
             id: id.clone(),
             stratum,
             title: def.title.as_ref().map(|s| s.node.clone()),
@@ -109,22 +163,36 @@ impl Lowerer {
         Ok(())
     }
 
-    pub(crate) fn lower_field(&mut self, def: &ast::FieldDef) -> Result<(), LowerError> {
-        let id = FieldId::from(def.path.node.join(".").as_str());
+    pub(crate) fn lower_field(
+        &mut self,
+        def: &ast::FieldDef,
+        span: Span,
+    ) -> Result<(), LowerError> {
+        let id = FieldId::from(def.path.node.clone());
 
         // Check for duplicate field definition
         if self.fields.contains_key(&id) {
-            return Err(LowerError::DuplicateDefinition(format!("field.{}", id.0)));
+            return Err(LowerError::DuplicateDefinition {
+                name: format!("field.{}", id),
+                file: self.file.clone(),
+                span: def.path.span.clone(),
+            });
         }
 
         let stratum = def
             .strata
             .as_ref()
-            .map(|s| StratumId::from(s.node.join(".").as_str()))
+            .map(|s| StratumId::from(s.node.clone()))
             .unwrap_or_else(|| StratumId::from("default"));
 
         // Validate stratum exists
-        self.validate_stratum(&stratum)?;
+        self.validate_stratum(
+            &stratum,
+            def.strata
+                .as_ref()
+                .map(|s| &s.span)
+                .unwrap_or(&def.path.span),
+        )?;
 
         let mut reads = Vec::new();
         if let Some(measure) = &def.measure {
@@ -132,6 +200,8 @@ impl Lowerer {
         }
 
         let field = CompiledField {
+            file: self.file.clone(),
+            span,
             id: id.clone(),
             stratum,
             title: def.title.as_ref().map(|s| s.node.clone()),
@@ -183,6 +253,8 @@ impl Lowerer {
                     constraint_kind: "tensor".to_string(),
                     actual_type,
                     expected_type: "Tensor".to_string(),
+                    file: self.file.clone(),
+                    span: def.path.span.clone(),
                 });
             }
         }
@@ -204,6 +276,8 @@ impl Lowerer {
                     constraint_kind: "sequence".to_string(),
                     actual_type,
                     expected_type: "Seq".to_string(),
+                    file: self.file.clone(),
+                    span: def.path.span.clone(),
                 });
             }
         }
@@ -336,11 +410,11 @@ impl Lowerer {
             },
 
             // Literals stay as-is (scalar broadcast)
-            Literal(v) => Literal(*v),
+            Literal(v, unit) => Literal(*v, unit.clone()),
             DtRaw => DtRaw,
             SimTime => SimTime,
-            Const(name) => Const(name.clone()),
-            Config(name) => Config(name.clone()),
+            Const(name, unit) => Const(name.clone(), unit.clone()),
+            Config(name, unit) => Config(name.clone(), unit.clone()),
             Local(name) => Local(name.clone()),
 
             // Payload expressions: expand to component access

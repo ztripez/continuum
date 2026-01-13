@@ -40,19 +40,19 @@ impl<'a> SignalRefCollector<'a> {
 
 impl ExprVisitor for SignalRefCollector<'_> {
     fn visit_signal_ref(&mut self, path: &Path) -> bool {
-        let id = SignalId::from(path.join(".").as_str());
+        let id = SignalId::from(path.clone());
         self.add_if_new(id);
         true
     }
 
     fn visit_path(&mut self, path: &Path) -> bool {
-        let joined = path.join(".");
+        let joined = path.to_string();
         // Only treat as signal ref if not a constant, config, or local variable
         if !self.constants.contains(&joined)
             && !self.config.contains(&joined)
             && !self.locals.contains(&joined)
         {
-            let id = SignalId::from(joined.as_str());
+            let id = SignalId::from(path.clone());
             self.add_if_new(id);
         }
         true

@@ -102,8 +102,12 @@ impl Arity {
 pub struct KernelDescriptor {
     /// DSL name (e.g., "decay", "sin", "min")
     pub name: &'static str,
+    /// Full signature string (e.g., "clamp(value, min, max) -> Scalar")
+    pub signature: &'static str,
     /// Documentation string
     pub doc: &'static str,
+    /// Category tag (e.g., "math", "vector", "simulation")
+    pub category: &'static str,
     /// Number of arguments (excluding dt if present)
     pub arity: Arity,
     /// The implementation
@@ -156,7 +160,9 @@ mod tests {
     #[distributed_slice(KERNELS)]
     static TEST_ABS: KernelDescriptor = KernelDescriptor {
         name: "test_abs",
+        signature: "test_abs(x) -> Scalar",
         doc: "Test absolute value",
+        category: "test",
         arity: Arity::Fixed(1),
         implementation: KernelImpl::Pure(|args| args[0].abs()),
     };

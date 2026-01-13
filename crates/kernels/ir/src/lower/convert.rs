@@ -4,7 +4,7 @@
 //! including operators, type expressions, and literal values.
 
 use continuum_dsl::ast::{
-    self, AggregateOp, AssertBlock, AssertSeverity, BinaryOp, Expr, Literal, OperatorPhase,
+    self, AggregateOp, AssertBlock, AssertSeverity, BinaryOp, Expr, Literal, OperatorPhase, Span,
     Topology, TypeExpr, UnaryOp,
 };
 
@@ -305,14 +305,16 @@ impl Lowerer {
         }
     }
 
-    pub(crate) fn literal_to_f64(&self, lit: &Literal) -> Result<f64, LowerError> {
+    pub(crate) fn literal_to_f64(&self, lit: &Literal, span: &Span) -> Result<f64, LowerError> {
         match lit {
             Literal::Integer(i) => Ok(*i as f64),
             Literal::Float(f) => Ok(*f),
             Literal::Bool(b) => Ok(if *b { 1.0 } else { 0.0 }),
-            Literal::String(_) => Err(LowerError::InvalidExpression(
-                "string cannot be converted to f64".to_string(),
-            )),
+            Literal::String(_) => Err(LowerError::InvalidExpression {
+                message: "string cannot be converted to f64".to_string(),
+                file: self.file.clone(),
+                span: span.clone(),
+            }),
         }
     }
 

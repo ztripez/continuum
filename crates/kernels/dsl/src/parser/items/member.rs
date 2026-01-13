@@ -1,51 +1,29 @@
 //! Member signal definition parsers.
-//!
-//! This module handles `member.entity.field { ... }` per-entity state declarations.
-//! Member signals are top-level primitives with their own resolve blocks.
 
 use chumsky::prelude::*;
 
 use crate::ast::{ConfigEntry, MemberDef, ResolveBlock, Spanned};
 
-use super::super::ParseError;
 use super::super::expr::spanned_expr;
-use super::super::primitives::{attr_path, attr_string, spanned, spanned_path, ws};
+use super::super::lexer::Token;
+use super::super::primitives::{attr_path, attr_string, spanned, spanned_path, tok};
+use super::super::{ParseError, ParserInput};
 use super::common::assert_block;
 use super::config::config_entry;
 use super::types::type_expr;
 
 // === Member Signal ===
 
-/// Parses a member signal definition.
-///
-/// # DSL Syntax
-///
-/// ```cdsl
-/// member.human.person.age {
-///     : Scalar
-///     : strata(human.physiology)
-///     : title("Age")
-///     : symbol("🎂")
-///
-///     config {
-///         initial: 0.0
-///     }
-///
-///     resolve { integrate(prev, 1) }
-/// }
-/// ```
-pub fn member_def<'src>() -> impl Parser<'src, &'src str, MemberDef, extra::Err<ParseError<'src>>> {
-    text::keyword("member")
-        .padded_by(ws())
-        .ignore_then(just('.'))
+pub fn member_def<'src>()
+-> impl Parser<'src, ParserInput<'src>, MemberDef, extra::Err<ParseError<'src>>> {
+    tok(Token::Member)
+        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
-        .padded_by(ws())
         .then(
             member_content()
-                .padded_by(ws())
                 .repeated()
                 .collect::<Vec<_>>()
-                .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
         )
         .map(|(path, contents)| {
             let mut def = MemberDef {
@@ -89,47 +67,34 @@ enum MemberContent {
 }
 
 fn member_content<'src>()
--> impl Parser<'src, &'src str, MemberContent, extra::Err<ParseError<'src>>> {
+-> impl Parser<'src, ParserInput<'src>, MemberContent, extra::Err<ParseError<'src>>> {
     choice((
         // : strata(path) - must come before Type to avoid matching "strata" as Named type
-        attr_path("strata").map(MemberContent::Strata),
+        attr_path(Token::Strata).map(MemberContent::Strata),
         // : title("...")
-        attr_string("title").map(MemberContent::Title),
+        attr_string(Token::Title).map(MemberContent::Title),
         // : symbol("...")
-        attr_string("symbol").map(MemberContent::Symbol),
+        attr_string(Token::Symbol).map(MemberContent::Symbol),
         // : Type - comes after specific attributes
-        just(':')
-            .padded_by(ws())
+        tok(Token::Colon)
             .ignore_then(spanned(type_expr()))
             .map(MemberContent::Type),
         // config { entries }
-        text::keyword("config")
-            .padded_by(ws())
+        tok(Token::Config)
             .ignore_then(
                 config_entry()
-                    .padded_by(ws())
                     .repeated()
                     .collect()
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
+                    .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
             )
             .map(MemberContent::Config),
         // initial { expr }
-        text::keyword("initial")
-            .padded_by(ws())
-            .ignore_then(
-                spanned_expr()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
+        tok(Token::Initial)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|body| MemberContent::Initial(ResolveBlock { body })),
         // resolve { expr }
-        text::keyword("resolve")
-            .padded_by(ws())
-            .ignore_then(
-                spanned_expr()
-                    .padded_by(ws())
-                    .delimited_by(just('{').padded_by(ws()), just('}').padded_by(ws())),
-            )
+        tok(Token::Resolve)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|body| MemberContent::Resolve(ResolveBlock { body })),
         // assert { assertions }
         assert_block().map(MemberContent::Assert),
@@ -139,6 +104,23 @@ fn member_content<'src>()
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chumsky::input::{Input, Stream};
+    use logos::Logos;
+
+    fn lex_map(
+        tok_span: (
+            Result<Token, <Token as logos::Logos>::Error>,
+            std::ops::Range<usize>,
+        ),
+    ) -> (Token, std::ops::Range<usize>) {
+        let (token, range) = tok_span;
+        (token.unwrap_or(Token::Error), range)
+    }
+
+    fn attach_span(token_span: (Token, std::ops::Range<usize>)) -> (Token, SimpleSpan) {
+        let (token, range) = token_span;
+        (token, SimpleSpan::from(range))
+    }
 
     #[test]
     fn test_parse_simple_member() {
@@ -148,7 +130,13 @@ mod tests {
             resolve { prev + 1 }
         }"#;
 
-        let result = member_def().parse(src);
+        let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
+        let stream = Stream::from_iter(lexer).map(
+            SimpleSpan::from(src.len()..src.len()),
+            attach_span as fn(_) -> _,
+        );
+
+        let result = member_def().parse(stream);
         assert!(result.has_output());
         let member = result.into_output().unwrap();
         assert_eq!(member.path.node.to_string(), "human.person.age");
@@ -171,7 +159,13 @@ mod tests {
             resolve { prev }
         }"#;
 
-        let result = member_def().parse(src);
+        let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
+        let stream = Stream::from_iter(lexer).map(
+            SimpleSpan::from(src.len()..src.len()),
+            attach_span as fn(_) -> _,
+        );
+
+        let result = member_def().parse(stream);
         assert!(result.has_output());
         let member = result.into_output().unwrap();
         assert_eq!(member.path.node.to_string(), "stellar.moon.mass");
@@ -188,7 +182,13 @@ mod tests {
             resolve { prev }
         }"#;
 
-        let result = member_def().parse(src);
+        let lexer = Token::lexer(src).spanned().map(lex_map as fn(_) -> _);
+        let stream = Stream::from_iter(lexer).map(
+            SimpleSpan::from(src.len()..src.len()),
+            attach_span as fn(_) -> _,
+        );
+
+        let result = member_def().parse(stream);
         assert!(result.has_output());
         let member = result.into_output().unwrap();
         assert_eq!(member.path.node.to_string(), "stellar.star.rotation_period");

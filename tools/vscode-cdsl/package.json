@@ -14,9 +14,6 @@
   "categories": [
     "Programming Languages"
   ],
-  "activationEvents": [
-    "onLanguage:cdsl"
-  ],
   "main": "./out/extension.js",
   "contributes": {
     "languages": [
@@ -47,9 +44,56 @@
           "type": "string",
           "default": "",
           "description": "Path to the cdsl-lsp executable. If empty, uses bundled server or PATH."
+        },
+        "cdsl.dap.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the cdsl-dap executable. If empty, uses bundled server or PATH."
         }
       }
-    }
+    },
+    "debuggers": [
+      {
+        "type": "cdsl",
+        "label": "Continuum Debug",
+        "languages": [
+          "cdsl"
+        ],
+        "configurationAttributes": {
+          "launch": {
+            "required": [
+              "world_dir"
+            ],
+            "properties": {
+              "world_dir": {
+                "type": "string",
+                "description": "Path to the world directory containing .cdsl files.",
+                "default": "${workspaceFolder}"
+              },
+              "steps": {
+                "type": "number",
+                "description": "Number of steps to run.",
+                "default": 1000
+              },
+              "seed": {
+                "type": "number",
+                "description": "Random seed.",
+                "default": 42
+              }
+            }
+          }
+        },
+        "initialConfigurations": [
+          {
+            "type": "cdsl",
+            "name": "Launch Simulation",
+            "request": "launch",
+            "world_dir": "${workspaceFolder}",
+            "steps": 1000
+          }
+        ]
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",

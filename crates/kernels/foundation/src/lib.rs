@@ -12,7 +12,7 @@ pub mod value;
 // Re-export ID types at crate root
 pub use ids::{
     ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
-    OperatorId, SignalId, StratumId, TypeId,
+    OperatorId, Path, SignalId, StratumId, TypeId,
 };
 
 pub use field::FieldSample;

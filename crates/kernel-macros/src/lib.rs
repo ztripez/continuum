@@ -37,29 +37,37 @@ use syn::{
 /// Arguments to the kernel_fn attribute
 struct KernelFnArgs {
     name: String,
+    category: String,
     variadic: bool,
 }
 
 impl Parse for KernelFnArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut name = None;
+        let mut category = String::from("math");
         let mut variadic = false;
 
         let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
         for arg in args {
             match arg {
                 KernelArg::Name(n) => name = Some(n),
+                KernelArg::Category(c) => category = c,
                 KernelArg::Variadic => variadic = true,
             }
         }
 
         let name = name.ok_or_else(|| input.error("missing `name = \"...\"` argument"))?;
-        Ok(KernelFnArgs { name, variadic })
+        Ok(KernelFnArgs {
+            name,
+            category,
+            variadic,
+        })
     }
 }
 
 enum KernelArg {
     Name(String),
+    Category(String),
     Variadic,
 }
 
@@ -71,6 +79,11 @@ impl Parse for KernelArg {
                 let _: Token![=] = input.parse()?;
                 let lit: LitStr = input.parse()?;
                 Ok(KernelArg::Name(lit.value()))
+            }
+            "category" => {
+                let _: Token![=] = input.parse()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::Category(lit.value()))
             }
             "variadic" => Ok(KernelArg::Variadic),
             other => Err(syn::Error::new(
@@ -112,6 +125,7 @@ fn generate_kernel_registration(
 ) -> syn::Result<proc_macro2::TokenStream> {
     let fn_name = &func.sig.ident;
     let dsl_name = &args.name;
+    let category = &args.category;
     let variadic = args.variadic;
 
     // Extract doc comments
@@ -155,12 +169,33 @@ fn generate_kernel_registration(
         false
     });
 
+    // Extract parameter names for signature (excluding dt)
+    let param_names: Vec<String> = params
+        .iter()
+        .take(params.len() - if has_dt { 1 } else { 0 })
+        .filter_map(|p| {
+            if let syn::FnArg::Typed(pat) = p {
+                if let syn::Pat::Ident(pi) = pat.pat.as_ref() {
+                    return Some(pi.ident.to_string());
+                }
+            }
+            None
+        })
+        .collect();
+
+    // Build signature string
+    let signature = if variadic {
+        format!("{}(...) -> Scalar", dsl_name)
+    } else {
+        format!("{}({}) -> Scalar", dsl_name, param_names.join(", "))
+    };
+
     // Calculate arity (excluding dt)
     let arity = if variadic {
-        quote! { continuum_kernel_registry::Arity::Variadic }
+        quote! { ::continuum_kernel_registry::Arity::Variadic }
     } else {
-        let count = params.len() - if has_dt { 1 } else { 0 };
-        quote! { continuum_kernel_registry::Arity::Fixed(#count) }
+        let count = param_names.len();
+        quote! { ::continuum_kernel_registry::Arity::Fixed(#count) }
     };
 
     // Generate the wrapper function and registration
@@ -171,11 +206,11 @@ fn generate_kernel_registration(
         if has_dt {
             (
                 quote! {
-                    fn wrapper(args: &[f64], dt: continuum_kernel_registry::Dt) -> f64 {
+                    fn wrapper(args: &[f64], dt: ::continuum_kernel_registry::Dt) -> f64 {
                         #fn_name(args, dt)
                     }
                 },
-                quote! { continuum_kernel_registry::KernelImpl::WithDt(wrapper) },
+                quote! { ::continuum_kernel_registry::KernelImpl::WithDt(wrapper) },
             )
         } else {
             (
@@ -184,22 +219,22 @@ fn generate_kernel_registration(
                         #fn_name(args)
                     }
                 },
-                quote! { continuum_kernel_registry::KernelImpl::Pure(wrapper) },
+                quote! { ::continuum_kernel_registry::KernelImpl::Pure(wrapper) },
             )
         }
     } else {
         // Fixed arity: generate wrapper that unpacks args
-        let param_count = params.len() - if has_dt { 1 } else { 0 };
+        let param_count = param_names.len();
         let arg_indices: Vec<_> = (0..param_count).map(syn::Index::from).collect();
 
         if has_dt {
             (
                 quote! {
-                    fn wrapper(args: &[f64], dt: continuum_kernel_registry::Dt) -> f64 {
+                    fn wrapper(args: &[f64], dt: ::continuum_kernel_registry::Dt) -> f64 {
                         #fn_name(#(args[#arg_indices]),*, dt)
                     }
                 },
-                quote! { continuum_kernel_registry::KernelImpl::WithDt(wrapper) },
+                quote! { ::continuum_kernel_registry::KernelImpl::WithDt(wrapper) },
             )
         } else {
             (
@@ -208,7 +243,7 @@ fn generate_kernel_registration(
                         #fn_name(#(args[#arg_indices]),*)
                     }
                 },
-                quote! { continuum_kernel_registry::KernelImpl::Pure(wrapper) },
+                quote! { ::continuum_kernel_registry::KernelImpl::Pure(wrapper) },
             )
         }
     };
@@ -222,7 +257,9 @@ fn generate_kernel_registration(
             #wrapper
             ::continuum_kernel_registry::KernelDescriptor {
                 name: #dsl_name,
+                signature: #signature,
                 doc: #doc,
+                category: #category,
                 arity: #arity,
                 implementation: #impl_variant,
             }
