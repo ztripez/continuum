@@ -28,7 +28,7 @@ pub use interpret::{
     InterpValue, MemberInterpContext, MemberResolverFn, Vec3MemberResolverFn,
     build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
     build_fracture, build_member_resolver, build_resolver, build_signal_resolver,
-    build_vec3_member_resolver, convert_assertion_severity, eval_initial_expr,
+    build_vec3_member_resolver, build_warmup_fn, convert_assertion_severity, eval_initial_expr,
     get_initial_signal_value, get_initial_value,
 };
 

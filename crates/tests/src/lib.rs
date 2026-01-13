@@ -8,11 +8,12 @@ use std::path::PathBuf;
 
 use continuum_compiler::ir::{
     CompiledWorld, build_assertion, build_era_configs, build_field_measure, build_fracture,
-    build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value,
+    build_signal_resolver, build_warmup_fn, compile, convert_assertion_severity,
+    get_initial_signal_value,
 };
 use continuum_foundation::{EraId, FieldId, SignalId};
 use continuum_runtime::executor::Runtime;
-use continuum_runtime::types::Value;
+use continuum_runtime::types::{Value, WarmupConfig};
 
 // Ensure functions are registered
 use continuum_functions as _;
@@ -34,7 +35,8 @@ impl TestHarness {
         let mut source_map = HashMap::new();
         source_map.insert(PathBuf::from("test.cdsl"), source);
 
-        let world = match continuum_compiler::compile(&source_map) {
+        let compile_result = continuum_compiler::compile(&source_map);
+        let world = match compile_result.success() {
             Ok(w) => w,
             Err(diagnostics) => {
                 panic!("Compilation failed: {:?}", diagnostics);
@@ -44,16 +46,18 @@ impl TestHarness {
         // Compile to DAGs
         let compilation = compile(&world).expect("DAG compilation failed");
 
+        let signals = world.signals();
+        let eras = world.eras();
+        let fields = world.fields();
+        let fractures = world.fractures();
+
         // Find initial era
-        let initial_era = world
-            .eras
+        let initial_era = eras
             .iter()
             .find(|(_, era)| era.is_initial)
             .map(|(id, _)| id.clone())
             .unwrap_or_else(|| {
-                world
-                    .eras
-                    .keys()
+                eras.keys()
                     .next()
                     .cloned()
                     .unwrap_or_else(|| EraId::from("default"))
@@ -66,14 +70,24 @@ impl TestHarness {
         let mut runtime = Runtime::new(initial_era, era_configs, compilation.dags);
 
         // Register resolvers
-        for (_signal_id, signal) in &world.signals {
+        for (signal_id, signal) in &signals {
             if let Some(resolver) = build_signal_resolver(signal, &world) {
                 runtime.register_resolver(resolver);
+            }
+
+            // Register warmup if present
+            if let Some(ref warmup) = signal.warmup {
+                let warmup_fn = build_warmup_fn(&warmup.iterate, &world.constants, &world.config);
+                let config = WarmupConfig {
+                    max_iterations: warmup.iterations,
+                    convergence_epsilon: warmup.convergence,
+                };
+                runtime.register_warmup(signal_id.clone(), warmup_fn, config);
             }
         }
 
         // Register assertions
-        for (signal_id, signal) in &world.signals {
+        for (signal_id, signal) in &signals {
             for assertion in &signal.assertions {
                 let assertion_fn = build_assertion(&assertion.condition, &world);
                 let severity = convert_assertion_severity(assertion.severity);
@@ -88,7 +102,7 @@ impl TestHarness {
 
         // Register field measure functions
         // Skip fields with entity expressions (aggregates, etc.)
-        for (field_id, field) in &world.fields {
+        for (field_id, field) in &fields {
             if let Some(ref expr) = field.measure {
                 let runtime_id = field_id.clone();
                 if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
@@ -98,13 +112,13 @@ impl TestHarness {
         }
 
         // Register fracture detectors
-        for (_fracture_id, fracture) in &world.fractures {
+        for (_fracture_id, fracture) in &fractures {
             let fracture_fn = build_fracture(fracture, &world);
             runtime.register_fracture(fracture_fn);
         }
 
         // Initialize signals
-        for (signal_id, _signal) in &world.signals {
+        for (signal_id, _signal) in &signals {
             let value = get_initial_signal_value(&world, signal_id);
             runtime.init_signal(signal_id.clone(), value);
         }
@@ -118,6 +132,9 @@ impl TestHarness {
     ///
     /// Panics if tick execution fails.
     pub fn tick(&mut self) {
+        if !self.runtime.is_warmup_complete() {
+            self.runtime.execute_warmup().expect("Warmup failed");
+        }
         self.runtime.execute_tick().expect("Tick failed");
     }
 

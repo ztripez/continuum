@@ -26,7 +26,7 @@ use continuum_foundation::{EraId, FieldId, SignalId};
 use continuum_runtime::MemberSignalBuffer;
 use continuum_runtime::executor::{
     AggregateResolverFn, AssertionFn, AssertionSeverity, EraConfig, FractureFn, MeasureFn,
-    ResolverFn, TransitionFn,
+    ResolverFn, TransitionFn, WarmupFn,
 };
 // Import functions crate to ensure kernels are registered
 
@@ -42,7 +42,7 @@ use crate::{
 
 use contexts::{
     AssertionContext, FractureExecContext, MeasureContext, ResolverContext, SharedContextData,
-    TransitionContext,
+    TransitionContext, WarmupContext,
 };
 
 /// Checks if an expression contains any entity-related constructs.
@@ -128,6 +128,31 @@ pub fn build_signal_resolver(
         &world.constants,
         &world.config,
     ))
+}
+
+/// Builds a warmup function for a signal.
+pub fn build_warmup_fn(
+    expr: &CompiledExpr,
+    constants: &IndexMap<String, (f64, Option<Unit>)>,
+    config: &IndexMap<String, (f64, Option<Unit>)>,
+) -> WarmupFn {
+    let bytecode = codegen::compile(expr);
+    let constants = constants.clone();
+    let config = config.clone();
+
+    Box::new(move |ctx| {
+        let exec_ctx = WarmupContext {
+            current: ctx.prev,
+            sim_time: ctx.sim_time,
+            shared: SharedContextData {
+                constants: &constants,
+                config: &config,
+                signals: ctx.signals,
+            },
+        };
+        let result = execute(&bytecode, &exec_ctx);
+        Value::Scalar(result)
+    })
 }
 
 /// Builds an aggregate resolver function.

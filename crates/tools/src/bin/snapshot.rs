@@ -22,12 +22,12 @@ use tracing::{error, info};
 
 use continuum_compiler::ir::{
     build_assertion, build_era_configs, build_field_measure, build_fracture, build_signal_resolver,
-    compile, convert_assertion_severity, get_initial_signal_value,
+    build_warmup_fn, compile, convert_assertion_severity, get_initial_signal_value,
 };
 // use continuum_foundation::EraId;
 use continuum_runtime::executor::Runtime;
 use continuum_runtime::storage::FieldSample;
-use continuum_runtime::types::{Dt, Value};
+use continuum_runtime::types::{Dt, Value, WarmupConfig};
 
 /// Simulation snapshot capture tool
 #[derive(Parser, Debug)]
@@ -122,13 +122,13 @@ fn main() {
 
     // Prepare runtime
     let initial_era = world
-        .eras
+        .eras()
         .iter()
         .find(|(_, era)| era.is_initial)
         .map(|(id, _)| id.clone())
         .unwrap_or_else(|| {
             world
-                .eras
+                .eras()
                 .keys()
                 .next()
                 .cloned()
@@ -144,11 +144,26 @@ fn main() {
 
     let mut runtime = Runtime::new(initial_era, era_configs, compilation.dags);
 
+    let signals = world.signals();
+    let fields = world.fields();
+    let fractures = world.fractures();
+
     // Register all functions (resolvers, assertions, fields, fractures)
-    for (signal_id, signal) in &world.signals {
+    for (signal_id, signal) in &signals {
         if let Some(resolver) = build_signal_resolver(signal, &world) {
             runtime.register_resolver(resolver);
         }
+
+        // Register warmup if present
+        if let Some(ref warmup) = signal.warmup {
+            let warmup_fn = build_warmup_fn(&warmup.iterate, &world.constants, &world.config);
+            let config = WarmupConfig {
+                max_iterations: warmup.iterations,
+                convergence_epsilon: warmup.convergence,
+            };
+            runtime.register_warmup(signal_id.clone(), warmup_fn, config);
+        }
+
         for assertion in &signal.assertions {
             let assertion_fn = build_assertion(&assertion.condition, &world);
             let severity = convert_assertion_severity(assertion.severity);
@@ -161,7 +176,7 @@ fn main() {
         }
     }
 
-    for (field_id, field) in &world.fields {
+    for (field_id, field) in &fields {
         if let Some(ref expr) = field.measure {
             let runtime_id = field_id.clone();
             // Skip fields with entity expressions (aggregates, etc.)
@@ -171,12 +186,12 @@ fn main() {
         }
     }
 
-    for (_, fracture) in &world.fractures {
+    for (_, fracture) in &fractures {
         runtime.register_fracture(build_fracture(fracture, &world));
     }
 
     // Initialize signals
-    for (signal_id, _) in &world.signals {
+    for (signal_id, _) in &signals {
         runtime.init_signal(
             signal_id.clone(),
             get_initial_signal_value(&world, signal_id),
@@ -195,17 +210,26 @@ fn main() {
         seed: args.seed,
         steps: args.steps,
         stride: args.stride,
-        signals: world.signals.keys().map(|id| id.to_string()).collect(),
-        fields: world.fields.keys().map(|id| id.to_string()).collect(),
+        signals: signals.keys().map(|id| id.to_string()).collect(),
+        fields: fields.keys().map(|id| id.to_string()).collect(),
     };
     let manifest_json = serde_json::to_string_pretty(&manifest).expect("serialization failed");
     fs::write(run_dir.join("run.json"), manifest_json).expect("failed to write run.json");
 
     info!("Starting snapshot run: {}, steps={}", run_id, args.steps);
 
+    // Run warmup if any functions registered
+    if !runtime.is_warmup_complete() {
+        info!("Executing warmup phase...");
+        if let Err(e) = runtime.execute_warmup() {
+            error!("Warmup failed: {}", e);
+            process::exit(1);
+        }
+    }
+
     // Filter requested fields
     let requested_fields: Vec<String> = if args.fields.is_empty() {
-        world.fields.keys().map(|id| id.to_string()).collect()
+        fields.keys().map(|id| id.to_string()).collect()
     } else {
         args.fields
             .split(',')
@@ -226,7 +250,7 @@ fn main() {
         // Capture snapshot at stride
         if step % args.stride == 0 {
             let mut signal_values = std::collections::HashMap::new();
-            for id in world.signals.keys() {
+            for id in signals.keys() {
                 if let Some(val) = runtime.get_signal(id) {
                     signal_values.insert(id.to_string(), val.clone());
                 }

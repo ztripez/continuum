@@ -1,8 +1,10 @@
 use continuum_compiler::ir::{
     CompiledWorld, build_assertion, build_era_configs, build_field_measure, build_fracture,
-    build_signal_resolver, compile, convert_assertion_severity, get_initial_signal_value,
+    build_signal_resolver, build_warmup_fn, compile, convert_assertion_severity,
+    get_initial_signal_value,
 };
 use continuum_runtime::Runtime;
+use continuum_runtime::types::WarmupConfig;
 use continuum_runtime::{EraId, SignalId};
 use dap::events::{Event, StoppedEventBody};
 use dap::prelude::*;
@@ -115,9 +117,20 @@ impl ContinuumDebugAdapter {
                 let era_configs = build_era_configs(&world);
                 let mut runtime = Runtime::new(initial_era, era_configs, compilation.dags);
 
-                for (_id, signal) in &world.signals() {
+                for (id, signal) in &world.signals() {
                     if let Some(resolver) = build_signal_resolver(signal, &world) {
                         runtime.register_resolver(resolver);
+                    }
+
+                    // Register warmup if present
+                    if let Some(ref warmup) = signal.warmup {
+                        let warmup_fn =
+                            build_warmup_fn(&warmup.iterate, &world.constants, &world.config);
+                        let config = WarmupConfig {
+                            max_iterations: warmup.iterations,
+                            convergence_epsilon: warmup.convergence,
+                        };
+                        runtime.register_warmup(id.clone(), warmup_fn, config);
                     }
                 }
 
@@ -265,6 +278,9 @@ impl ContinuumDebugAdapter {
                 let mut session_opt = self.session.lock().await;
                 if let Some(ref mut session) = *session_opt {
                     session.status = SessionStatus::Running;
+                    if !session.runtime.is_warmup_complete() {
+                        let _ = session.runtime.execute_warmup();
+                    }
                     let _ = session.runtime.execute_tick();
                     session.status = SessionStatus::Paused;
                     self.send_event(Event::Stopped(StoppedEventBody {
@@ -285,6 +301,9 @@ impl ContinuumDebugAdapter {
             Command::Next(_) => {
                 let mut session_opt = self.session.lock().await;
                 if let Some(ref mut session) = *session_opt {
+                    if !session.runtime.is_warmup_complete() {
+                        let _ = session.runtime.execute_warmup();
+                    }
                     match session.runtime.execute_step() {
                         Ok(_) => {}
                         Err(e) => {

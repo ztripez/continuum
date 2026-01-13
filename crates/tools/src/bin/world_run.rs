@@ -16,13 +16,14 @@ use tracing::{error, info};
 use continuum_compiler::ir::{
     ValueType, build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
     build_fracture, build_member_resolver, build_signal_resolver, build_vec3_member_resolver,
-    compile, convert_assertion_severity, eval_initial_expr, get_initial_signal_value,
+    build_warmup_fn, compile, convert_assertion_severity, eval_initial_expr,
+    get_initial_signal_value,
 };
 use continuum_foundation::InstanceId;
 use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
 use continuum_runtime::storage::{EntityInstances, FieldSample, InstanceData};
-use continuum_runtime::types::{Dt, Value};
+use continuum_runtime::types::{Dt, Value, WarmupConfig};
 
 #[derive(Serialize, Deserialize)]
 struct RunManifest {
@@ -273,6 +274,17 @@ fn main() {
                 "  Registered placeholder for {} (idx={}) - no resolve expr",
                 signal_id, idx
             );
+        }
+
+        // Register warmup if present
+        if let Some(ref warmup) = signal.warmup {
+            let warmup_fn = build_warmup_fn(&warmup.iterate, &world.constants, &world.config);
+            let config = WarmupConfig {
+                max_iterations: warmup.iterations,
+                convergence_epsilon: warmup.convergence,
+            };
+            runtime.register_warmup(signal_id.clone(), warmup_fn, config);
+            info!("  Registered warmup for {}", signal_id);
         }
     }
     info!(
@@ -574,6 +586,23 @@ fn main() {
     } else {
         None
     };
+
+    // Run warmup if any functions registered
+    if !runtime.is_warmup_complete() {
+        info!("Executing warmup phase...");
+        match runtime.execute_warmup() {
+            Ok(result) => {
+                info!(
+                    "Warmup complete: {} iterations, converged: {}",
+                    result.iterations, result.converged
+                );
+            }
+            Err(e) => {
+                error!("Warmup failed: {}", e);
+                process::exit(1);
+            }
+        }
+    }
 
     // Run simulation
     info!("Running {} steps...", num_steps);
