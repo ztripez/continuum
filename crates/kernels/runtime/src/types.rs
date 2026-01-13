@@ -56,17 +56,35 @@ pub enum Phase {
     Fracture,
     /// Emit field values for external observation.
     Measure,
+    /// Transition to another era if conditions met.
+    EraTransition,
+    /// Post-tick state advancement (tick++, advance buffers).
+    PostTick,
 }
 
 impl Phase {
     /// All phases in execution order
-    pub const ALL: [Phase; 5] = [
+    pub const ALL: [Phase; 7] = [
         Phase::Configure,
         Phase::Collect,
         Phase::Resolve,
         Phase::Fracture,
         Phase::Measure,
+        Phase::EraTransition,
+        Phase::PostTick,
     ];
+
+    pub fn next(&self) -> Self {
+        match self {
+            Phase::Configure => Phase::Collect,
+            Phase::Collect => Phase::Resolve,
+            Phase::Resolve => Phase::Fracture,
+            Phase::Fracture => Phase::Measure,
+            Phase::Measure => Phase::EraTransition,
+            Phase::EraTransition => Phase::PostTick,
+            Phase::PostTick => Phase::Configure,
+        }
+    }
 }
 
 /// Time step for the current tick

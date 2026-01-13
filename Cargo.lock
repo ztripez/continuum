@@ -254,6 +254,7 @@ name = "cdsl-dap"
 version = "0.1.0"
 dependencies = [
  "continuum-compiler",
+ "continuum-foundation",
  "continuum-runtime",
  "dap",
  "serde",

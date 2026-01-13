@@ -1,14 +1,10 @@
-use cdsl_dap::adapter::ContinuumDebugAdapter;
-use tokio::io::{stdin, stdout, BufReader};
+use cdsl_dap::server::DapServer;
+use tokio::io::{stdin, stdout};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let _reader = BufReader::new(stdin());
-    let _writer = stdout();
-
-    let _adapter = ContinuumDebugAdapter::new();
-
-    // TODO: Wire up DAP server implementation
+    let server = DapServer::new();
+    server.run(stdin(), stdout()).await?;
 
     Ok(())
 }
