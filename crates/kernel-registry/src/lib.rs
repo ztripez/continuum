@@ -93,6 +93,15 @@ impl VRegBuffer {
             _ => None,
         }
     }
+
+    /// Convert to full scalar array with given size
+    pub fn to_scalar_array(&self, size: usize) -> Vec<f64> {
+        match self {
+            VRegBuffer::Scalar(arr) => arr.clone(),
+            VRegBuffer::UniformScalar(v) => vec![*v; size],
+            VRegBuffer::Vec3(_) => panic!("Cannot convert Vec3 to scalar array"),
+        }
+    }
 }
 
 /// Result type for vectorized operations (re-exported from IR crate for convenience)
