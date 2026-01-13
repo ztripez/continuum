@@ -1,18 +1,18 @@
 use continuum_compiler::ir::{
-    CompiledWorld, build_assertion, build_era_configs, build_field_measure, build_fracture,
-    build_signal_resolver, build_warmup_fn, compile, convert_assertion_severity,
-    get_initial_signal_value,
+    build_assertion, build_era_configs, build_field_measure, build_fracture, build_signal_resolver,
+    build_warmup_fn, compile, convert_assertion_severity, get_initial_signal_value, CompiledWorld,
 };
-use continuum_runtime::Runtime;
 use continuum_runtime::types::WarmupConfig;
-use continuum_runtime::{EraId, SignalId};
+use continuum_runtime::EraId;
+use continuum_runtime::Runtime;
 use dap::events::{Event, StoppedEventBody};
 use dap::prelude::*;
 use dap::types::{Capabilities, Message, Scope, StackFrame, StoppedEventReason, Thread, Variable};
+
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info};
 
 pub struct ContinuumDebugAdapter {
@@ -23,6 +23,7 @@ pub struct ContinuumDebugAdapter {
 pub struct DebugSession {
     pub world: CompiledWorld,
     pub runtime: Runtime,
+    pub sources: HashMap<PathBuf, String>,
     pub breakpoints: HashMap<PathBuf, HashSet<usize>>, // File -> Line numbers
     pub signal_breakpoints: HashSet<String>,           // Signal names
     pub status: SessionStatus,
@@ -33,6 +34,25 @@ pub enum SessionStatus {
     Starting,
     Running,
     Paused,
+}
+
+fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
+    let mut line = 0;
+    let mut col = 0;
+    let mut current_byte = 0;
+    for c in text.chars() {
+        if current_byte >= offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 0;
+        } else {
+            col += 1;
+        }
+        current_byte += c.len_utf8();
+    }
+    (line, col)
 }
 
 impl ContinuumDebugAdapter {
@@ -79,6 +99,7 @@ impl ContinuumDebugAdapter {
 
                 let compile_result = continuum_compiler::compile_from_dir_result(&world_path);
                 let diagnostics = compile_result.format_diagnostics();
+                let sources = compile_result.sources.clone();
                 let world = match compile_result.success() {
                     Ok(w) => w,
                     Err(_) => {
@@ -165,6 +186,7 @@ impl ContinuumDebugAdapter {
                 *session = Some(DebugSession {
                     world,
                     runtime,
+                    sources,
                     breakpoints: HashMap::new(),
                     signal_breakpoints: HashSet::new(),
                     status: SessionStatus::Paused,
@@ -193,7 +215,29 @@ impl ContinuumDebugAdapter {
                             .as_ref()
                             .map(|bs| bs.iter().map(|b| b.line as usize).collect())
                             .unwrap_or_default();
-                        session.breakpoints.insert(path, lines);
+                        session.breakpoints.insert(path.clone(), lines.clone());
+
+                        // Update runtime breakpoints
+                        session.runtime.clear_breakpoints();
+                        for (path, lines) in &session.breakpoints {
+                            for (id, node) in session.world.nodes.iter() {
+                                if let Some(ref node_file) = node.file {
+                                    if node_file == path {
+                                        if let Some(source) = session.sources.get(node_file) {
+                                            let (line, _) =
+                                                offset_to_line_col(source, node.span.start);
+                                            if lines.contains(&(line as usize + 1)) {
+                                                let signal_id =
+                                                    continuum_foundation::SignalId::from(
+                                                        id.to_string(),
+                                                    );
+                                                session.runtime.add_breakpoint(signal_id);
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
                 ResponseBody::SetBreakpoints(dap::responses::SetBreakpointsResponse {
@@ -246,6 +290,7 @@ impl ContinuumDebugAdapter {
                     },
                 ],
             }),
+
             Command::Variables(ref args) => {
                 let session_opt = self.session.lock().await;
                 let mut variables = vec![];
@@ -281,18 +326,38 @@ impl ContinuumDebugAdapter {
                     if !session.runtime.is_warmup_complete() {
                         let _ = session.runtime.execute_warmup();
                     }
-                    let _ = session.runtime.execute_tick();
-                    session.status = SessionStatus::Paused;
-                    self.send_event(Event::Stopped(StoppedEventBody {
-                        reason: StoppedEventReason::String("step".to_string()),
-                        thread_id: Some(1),
-                        all_threads_stopped: Some(true),
-                        text: None,
-                        description: None,
-                        preserve_focus_hint: None,
-                        hit_breakpoint_ids: None,
-                    }))
-                    .await;
+
+                    match session.runtime.execute_until_breakpoint() {
+                        Ok(result) => {
+                            session.status = SessionStatus::Paused;
+                            let body = match result {
+                                continuum_runtime::types::StepResult::Breakpoint { signal } => {
+                                    StoppedEventBody {
+                                        reason: StoppedEventReason::Breakpoint,
+                                        thread_id: Some(1),
+                                        all_threads_stopped: Some(true),
+                                        text: Some(format!("Paused on signal: {}", signal)),
+                                        description: None,
+                                        preserve_focus_hint: None,
+                                        hit_breakpoint_ids: None,
+                                    }
+                                }
+                                _ => StoppedEventBody {
+                                    reason: StoppedEventReason::Step,
+                                    thread_id: Some(1),
+                                    all_threads_stopped: Some(true),
+                                    text: None,
+                                    description: None,
+                                    preserve_focus_hint: None,
+                                    hit_breakpoint_ids: None,
+                                },
+                            };
+                            self.send_event(Event::Stopped(body)).await;
+                        }
+                        Err(e) => {
+                            error!("Execution failed: {}", e);
+                        }
+                    }
                 }
                 ResponseBody::Continue(dap::responses::ContinueResponse {
                     all_threads_continued: Some(true),
@@ -305,22 +370,36 @@ impl ContinuumDebugAdapter {
                         let _ = session.runtime.execute_warmup();
                     }
                     match session.runtime.execute_step() {
-                        Ok(_) => {}
+                        Ok(result) => {
+                            let body = match result {
+                                continuum_runtime::types::StepResult::Breakpoint { signal } => {
+                                    StoppedEventBody {
+                                        reason: StoppedEventReason::Breakpoint,
+                                        thread_id: Some(1),
+                                        all_threads_stopped: Some(true),
+                                        text: Some(format!("Paused on signal: {}", signal)),
+                                        description: None,
+                                        preserve_focus_hint: None,
+                                        hit_breakpoint_ids: None,
+                                    }
+                                }
+                                _ => StoppedEventBody {
+                                    reason: StoppedEventReason::Step,
+                                    thread_id: Some(1),
+                                    all_threads_stopped: Some(true),
+                                    text: None,
+                                    description: None,
+                                    preserve_focus_hint: None,
+                                    hit_breakpoint_ids: None,
+                                },
+                            };
+                            self.send_event(Event::Stopped(body)).await;
+                        }
                         Err(e) => {
                             return self
                                 .make_error_response(&request, format!("Step failed: {}", e));
                         }
                     }
-                    self.send_event(Event::Stopped(StoppedEventBody {
-                        reason: StoppedEventReason::String("step".to_string()),
-                        thread_id: Some(1),
-                        all_threads_stopped: Some(true),
-                        text: None,
-                        description: None,
-                        preserve_focus_hint: None,
-                        hit_breakpoint_ids: None,
-                    }))
-                    .await;
                 }
                 ResponseBody::Next
             }

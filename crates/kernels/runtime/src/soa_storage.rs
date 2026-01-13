@@ -1208,10 +1208,8 @@ mod tests {
         assert_eq!(pop.instance_index("moon_1"), Some(0));
         assert_eq!(pop.instance_index("moon_2"), Some(1));
 
-        pop.set_current("moon_1", "mass", Value::Scalar(100.0))
-            .unwrap();
-        pop.set_current("moon_2", "mass", Value::Scalar(200.0))
-            .unwrap();
+        pop.set_current("moon_1", "mass", Value::Scalar(100.0));
+        pop.set_current("moon_2", "mass", Value::Scalar(200.0));
 
         assert_eq!(
             pop.get_current("moon_1", "mass"),
@@ -1230,8 +1228,7 @@ mod tests {
         pop.register_instance("moon_1".to_string());
         pop.finalize();
 
-        pop.set_current("moon_1", "mass", Value::Scalar(100.0))
-            .unwrap();
+        pop.set_current("moon_1", "mass", Value::Scalar(100.0));
         pop.advance_tick();
 
         assert_eq!(
@@ -1239,8 +1236,7 @@ mod tests {
             Some(Value::Scalar(100.0))
         );
 
-        pop.set_current("moon_1", "mass", Value::Scalar(150.0))
-            .unwrap();
+        pop.set_current("moon_1", "mass", Value::Scalar(150.0));
         assert_eq!(
             pop.get_current("moon_1", "mass"),
             Some(Value::Scalar(150.0))
@@ -1320,12 +1316,12 @@ mod tests {
         let growth_rate = 0.1;
 
         for i in 0..4 {
-            let new_value = buf
+            let prev = buf
                 .get_previous("population", i)
                 .unwrap()
                 .as_scalar()
-                .unwrap()
-                + 100.0;
+                .unwrap();
+            let new_value = prev * (1.0 + growth_rate);
             buf.set_current("population", i, Value::Scalar(new_value))
                 .unwrap();
         }

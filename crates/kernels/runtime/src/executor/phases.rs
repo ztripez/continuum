@@ -293,7 +293,8 @@ impl PhaseExecutor {
         member_signals: &mut MemberSignalBuffer,
         input_channels: &mut InputChannels,
         assertion_checker: &AssertionChecker,
-    ) -> Result<()> {
+        breakpoints: &std::collections::HashSet<SignalId>,
+    ) -> Result<Option<SignalId>> {
         let era_dags = dags.get_era(era).unwrap();
 
         for dag in era_dags.for_phase(Phase::Resolve) {
@@ -310,6 +311,16 @@ impl PhaseExecutor {
             trace!(stratum = %dag.stratum, levels = dag.levels.len(), "resolving stratum");
 
             for level in &dag.levels {
+                // Check for breakpoints in this level BEFORE executing it
+                for node in &level.nodes {
+                    if let NodeKind::SignalResolve { signal, .. } = &node.kind {
+                        if breakpoints.contains(signal) {
+                            debug!(%signal, "breakpoint hit");
+                            return Ok(Some(signal.clone()));
+                        }
+                    }
+                }
+
                 // Collect tasks for parallel execution
                 let mut signal_tasks = Vec::new();
                 let mut member_tasks = Vec::new();
@@ -458,7 +469,7 @@ impl PhaseExecutor {
                 }
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     /// Execute the Fracture phase

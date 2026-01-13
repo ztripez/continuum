@@ -110,6 +110,10 @@ pub struct Runtime {
     warmup_executor: WarmupExecutor,
     /// Assertion checker
     assertion_checker: AssertionChecker,
+    /// Registered breakpoints (SignalId)
+    breakpoints: std::collections::HashSet<SignalId>,
+    /// Active tick context (frozen at start of tick)
+    active_tick_ctx: Option<TickContext>,
     /// Pending impulses to apply in next Collect phase (handler_idx, payload)
     pending_impulses: Vec<(usize, Value)>,
 }
@@ -135,8 +139,33 @@ impl Runtime {
             phase_executor: PhaseExecutor::new(),
             warmup_executor: WarmupExecutor::new(),
             assertion_checker: AssertionChecker::new(),
+            breakpoints: std::collections::HashSet::new(),
+            active_tick_ctx: None,
             pending_impulses: Vec::new(),
         }
+    }
+
+    /// Add a breakpoint for a signal
+    pub fn add_breakpoint(&mut self, signal: SignalId) {
+        info!(%signal, "breakpoint added");
+        self.breakpoints.insert(signal);
+    }
+
+    /// Remove a breakpoint for a signal
+    pub fn remove_breakpoint(&mut self, signal: &SignalId) {
+        info!(%signal, "breakpoint removed");
+        self.breakpoints.remove(signal);
+    }
+
+    /// Clear all breakpoints
+    pub fn clear_breakpoints(&mut self) {
+        info!("all breakpoints cleared");
+        self.breakpoints.clear();
+    }
+
+    /// Check if a signal has a breakpoint
+    pub fn has_breakpoint(&self, signal: &SignalId) -> bool {
+        self.breakpoints.contains(signal)
     }
 
     /// Register a resolver function, returns its index
@@ -404,8 +433,8 @@ impl Runtime {
 
     /// Execute a single phase of the simulation.
     ///
-    /// Returns the current context if a full tick was completed, otherwise None.
-    pub fn execute_step(&mut self) -> Result<Option<TickContext>> {
+    /// Returns the StepResult indicating whether execution continues, hit a breakpoint, or completed a tick.
+    pub fn execute_step(&mut self) -> Result<crate::types::StepResult> {
         let (dt, strata_states) = {
             let era_config = self
                 .eras
@@ -414,16 +443,15 @@ impl Runtime {
             (era_config.dt, era_config.strata.clone())
         };
 
-        let ctx = TickContext {
-            tick: self.tick,
-            dt,
-            era: self.current_era.clone(),
-        };
-
         match self.current_phase {
             crate::types::Phase::Configure => {
                 trace!("phase: configure");
-                // Already did it basically by getting dt/strata_states
+                // Freeze tick context
+                self.active_tick_ctx = Some(TickContext {
+                    tick: self.tick,
+                    dt,
+                    era: self.current_era.clone(),
+                });
             }
             crate::types::Phase::Collect => {
                 trace!("phase: collect");
@@ -441,7 +469,7 @@ impl Runtime {
             }
             crate::types::Phase::Resolve => {
                 trace!("phase: resolve");
-                self.phase_executor.execute_resolve(
+                if let Some(signal) = self.phase_executor.execute_resolve(
                     &self.current_era,
                     self.tick,
                     dt,
@@ -452,7 +480,11 @@ impl Runtime {
                     &mut self.member_signals,
                     &mut self.input_channels,
                     &self.assertion_checker,
-                )?;
+                    &self.breakpoints,
+                )? {
+                    // Breakpoint hit! Do NOT advance phase.
+                    return Ok(crate::types::StepResult::Breakpoint { signal });
+                }
             }
             crate::types::Phase::Fracture => {
                 trace!("phase: fracture");
@@ -503,15 +535,19 @@ impl Runtime {
             }
         }
 
-        let completed_tick = if self.current_phase == crate::types::Phase::PostTick {
-            Some(ctx)
+        let completed_tick_ctx = if self.current_phase == crate::types::Phase::PostTick {
+            self.active_tick_ctx.take()
         } else {
             None
         };
 
         self.current_phase = self.current_phase.next();
 
-        Ok(completed_tick)
+        if let Some(ctx) = completed_tick_ctx {
+            Ok(crate::types::StepResult::TickCompleted(ctx))
+        } else {
+            Ok(crate::types::StepResult::Continue)
+        }
     }
 
     /// Execute a single tick
@@ -522,13 +558,30 @@ impl Runtime {
         // Ensure we start from Configure if we are at some other phase
         // (though normally execute_tick should be used exclusively or carefully mixed)
         while self.current_phase != crate::types::Phase::Configure {
-            self.execute_step()?;
+            match self.execute_step()? {
+                crate::types::StepResult::Breakpoint { signal } => {
+                    return Err(Error::Generic(format!(
+                        "Hit breakpoint on signal '{}' during tick execution. Use execute_until_breakpoint() for interactive debugging.",
+                        signal
+                    )));
+                }
+                _ => continue,
+            }
         }
 
         let mut last_ctx = None;
         for _ in 0..crate::types::Phase::ALL.len() {
-            if let Some(ctx) = self.execute_step()? {
-                last_ctx = Some(ctx);
+            match self.execute_step()? {
+                crate::types::StepResult::TickCompleted(ctx) => {
+                    last_ctx = Some(ctx);
+                }
+                crate::types::StepResult::Breakpoint { signal } => {
+                    return Err(Error::Generic(format!(
+                        "Hit breakpoint on signal '{}' during tick execution. Use execute_until_breakpoint() for interactive debugging.",
+                        signal
+                    )));
+                }
+                crate::types::StepResult::Continue => {}
             }
         }
 
@@ -536,6 +589,18 @@ impl Runtime {
         last_ctx.ok_or_else(|| {
             Error::Generic("Failed to complete tick - execution loop did not return context".into())
         })
+    }
+
+    /// Execute until a breakpoint is hit or a tick is completed.
+    pub fn execute_until_breakpoint(&mut self) -> Result<crate::types::StepResult> {
+        loop {
+            let result = self.execute_step()?;
+            match result {
+                crate::types::StepResult::Breakpoint { .. } => return Ok(result),
+                crate::types::StepResult::TickCompleted(..) => return Ok(result),
+                crate::types::StepResult::Continue => continue,
+            }
+        }
     }
 
     fn check_era_transition(&mut self) -> Result<()> {

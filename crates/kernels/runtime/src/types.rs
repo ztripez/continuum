@@ -109,6 +109,20 @@ pub struct TickContext {
     pub era: EraId,
 }
 
+/// Result of an execution step (phase or partial phase)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum StepResult {
+    /// Execution continues normally
+    Continue,
+    /// A breakpoint was hit
+    Breakpoint {
+        /// The signal that triggered the breakpoint
+        signal: SignalId,
+    },
+    /// A tick was completed
+    TickCompleted(TickContext),
+}
+
 /// Configuration for warmup execution
 #[derive(Debug, Clone)]
 pub struct WarmupConfig {
