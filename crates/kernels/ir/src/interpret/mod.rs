@@ -11,9 +11,12 @@ mod member_interp;
 mod tests;
 
 // Re-export member interpreter types
+pub use continuum_runtime::executor::{
+    ScalarResolverFn as MemberResolverFn, Vec3ResolverFn as Vec3MemberResolverFn,
+};
 pub use member_interp::{
-    InterpValue, MemberInterpContext, MemberResolverFn, Vec3MemberResolverFn,
-    build_member_resolver, build_vec3_member_resolver, interpret_expr,
+    InterpValue, MemberInterpContext, build_member_resolver, build_vec3_member_resolver,
+    interpret_expr,
 };
 
 use indexmap::IndexMap;
@@ -321,7 +324,6 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
     })
 }
 
-/// Get initial value for a signal using its warmup expression or resolution.
 pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> Value {
     // Check if defined in config
     if let Some((value, _)) = world.config.get(&signal_id.to_string()) {

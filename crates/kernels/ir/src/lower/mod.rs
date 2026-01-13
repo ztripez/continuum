@@ -266,7 +266,7 @@ impl Lowerer {
         stratum: &StratumId,
         span: &Span,
     ) -> Result<(), LowerError> {
-        if stratum.to_string() == "default" {
+        if stratum.to_string() == "default" || stratum.to_string() == "genesis" {
             return Ok(());
         }
         if !self.strata.contains_key(stratum) {

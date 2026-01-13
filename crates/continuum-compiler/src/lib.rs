@@ -137,7 +137,11 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
     }
 
     // 1. Parse all files
+    let mut prelude_found = false;
     for (path, source) in source_map {
+        if path.to_string_lossy().contains("std.cdsl") {
+            prelude_found = true;
+        }
         let (result, parse_errors) = continuum_dsl::parse(source);
 
         for err in parse_errors {
@@ -168,6 +172,27 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
             }
             units.push((path.clone(), unit));
         }
+    }
+
+    if !prelude_found {
+        let prelude_src = continuum_dsl::math_consts::prelude_source();
+        let (result, parse_errors) = continuum_dsl::parse(&prelude_src);
+        let path = PathBuf::from("std.cdsl");
+
+        for err in parse_errors {
+            let span = err.span();
+            diagnostics.push(Diagnostic {
+                message: format!("prelude error: {}", err.reason()),
+                span: Some(span.start..span.end),
+                file: Some(path.clone()),
+                severity: Severity::Error,
+            });
+        }
+
+        if let Some(unit) = result {
+            units.push((path.clone(), unit));
+        }
+        sources.insert(path, prelude_src);
     }
 
     if diagnostics.iter().any(|d| d.severity == Severity::Error) {
