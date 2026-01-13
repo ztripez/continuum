@@ -1,0 +1,9 @@
+[2026-01-13T10:38:46.386Z] [INFO] [HOOK] Plugin initialized
+[2026-01-13T10:39:27.835Z] [INFO] [HOOK] Plugin initialized
+[2026-01-13T10:40:08.531Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4490ef6d0ffeGF2WqhCzkgESUp"}
+[2026-01-13T10:40:08.555Z] [DEBUG] [INJECT] Checking for messages in transform | {"sessionId":"ses_4490ef6d0ffeGF2WqhCzkgESUp","unhandledCount":0}
+[2026-01-13T10:40:08.558Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4490ef6d0ffeGF2WqhCzkgESUp"}
+[2026-01-13T10:40:08.562Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4490ef6d0ffeGF2WqhCzkgESUp"}
+[2026-01-13T10:40:11.583Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4490ef6d0ffeGF2WqhCzkgESUp"}
+[2026-01-13T10:40:16.352Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4490ef6d0ffeGF2WqhCzkgESUp"}
+[2026-01-13T10:40:18.213Z] [DEBUG] [INJECT] Session has no parentID (main session), skipping IAM | {"sessionId":"ses_4490ef6d0ffeGF2WqhCzkgESUp"}

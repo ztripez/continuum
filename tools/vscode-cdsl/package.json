@@ -1,7 +1,7 @@
 {
   "name": "vscode-cdsl",
-  "displayName": "Continuum DSL",
-  "description": "Language support for Continuum DSL (.cdsl) files",
+  "displayName": "Continuum",
+  "description": "Continuum vscode extension for CDSL language support and debugging.",
   "version": "0.1.0",
   "publisher": "continuum",
   "repository": {
@@ -20,7 +20,7 @@
       {
         "id": "cdsl",
         "aliases": [
-          "Continuum DSL",
+          "Continuum",
           "cdsl"
         ],
         "extensions": [
@@ -43,12 +43,7 @@
         "cdsl.server.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the cdsl-lsp executable. If empty, uses bundled server or PATH."
-        },
-        "cdsl.dap.path": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the cdsl-dap executable. If empty, uses bundled server or PATH."
+          "description": "Path to the server directory containing cdsl-lsp and cdsl-dap executables. If empty, uses bundled server or PATH."
         }
       }
     },
