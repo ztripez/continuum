@@ -607,11 +607,6 @@ pub enum CompiledExpr {
         function: String,
         args: Vec<CompiledExpr>,
     },
-    DtRobustCall {
-        operator: DtRobustOperator,
-        args: Vec<CompiledExpr>,
-        method: IntegrationMethod,
-    },
     FieldAccess {
         object: Box<CompiledExpr>,
         field: String,
@@ -698,9 +693,7 @@ impl CompiledExpr {
                 then_branch.collect_signal_dependencies(deps);
                 else_branch.collect_signal_dependencies(deps);
             }
-            CompiledExpr::Call { args, .. }
-            | CompiledExpr::KernelCall { args, .. }
-            | CompiledExpr::DtRobustCall { args, .. } => {
+            CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
                 for arg in args {
                     arg.collect_signal_dependencies(deps);
                 }
@@ -778,27 +771,6 @@ pub enum BinaryOpIr {
 pub enum UnaryOpIr {
     Neg,
     Not,
-}
-
-/// dt-robust operators that provide numerically stable time integration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DtRobustOperator {
-    Integrate,
-    Decay,
-    Relax,
-    Accumulate,
-    AdvancePhase,
-    Smooth,
-    Damp,
-}
-
-/// Integration method for dt-robust operators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum IntegrationMethod {
-    #[default]
-    Euler,
-    Rk4,
-    Verlet,
 }
 
 impl_locatable!(CompiledSignal);

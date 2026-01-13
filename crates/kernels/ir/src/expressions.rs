@@ -9,7 +9,7 @@
 //! - Better analysis (spatial ops only in Measure phase)
 //! - Cleaner interpretation and optimization
 
-use super::{AggregateOpIr, BinaryOpIr, DtRobustOperator, IntegrationMethod, UnaryOpIr};
+use super::{AggregateOpIr, BinaryOpIr, UnaryOpIr};
 use continuum_foundation::{EntityId, InstanceId, SignalId};
 
 /// A layered expression that combines scalar math with stream operations
@@ -96,12 +96,6 @@ pub enum ScalarExpr {
     KernelCall {
         function: String,
         args: Vec<ScalarExpr>,
-    },
-    /// dt-robust time integration operation
-    DtRobustCall {
-        operator: DtRobustOperator,
-        args: Vec<ScalarExpr>,
-        method: IntegrationMethod,
     },
 
     // ===== FIELD ACCESS =====
@@ -249,7 +243,7 @@ impl ScalarExpr {
             Call { args, .. } | KernelCall { args, .. } => {
                 args.iter().all(|arg| arg.is_pure_scalar())
             }
-            DtRobustCall { args, .. } => args.iter().all(|arg| arg.is_pure_scalar()),
+
             FieldAccess { object, .. } => object.is_pure_scalar(),
 
             // Contains stream operation
@@ -283,7 +277,7 @@ impl ScalarExpr {
             Call { args, .. } | KernelCall { args, .. } => {
                 args.iter().any(|arg| arg.has_spatial_ops())
             }
-            DtRobustCall { args, .. } => args.iter().any(|arg| arg.has_spatial_ops()),
+
             FieldAccess { object, .. } => object.has_spatial_ops(),
 
             // Check stream operations
@@ -322,11 +316,7 @@ impl ScalarExpr {
                     deps.extend(arg.signal_dependencies());
                 }
             }
-            DtRobustCall { args, .. } => {
-                for arg in args {
-                    deps.extend(arg.signal_dependencies());
-                }
-            }
+
             FieldAccess { object, .. } => deps.extend(object.signal_dependencies()),
             Stream(stream_op) => deps.extend(stream_op.signal_dependencies()),
 

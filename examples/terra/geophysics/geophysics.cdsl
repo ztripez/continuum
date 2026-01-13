@@ -264,7 +264,7 @@ signal.rotation.state {
 
     resolve {
         # Phase advances with angular velocity using integrate
-        let phase = integrate(prev.x, prev.y) in
+        let phase = kernel.integrate(prev.x, prev.y) in
         let omega = prev.y + collected in
         vec2(mod(phase, TAU), omega)
     }
@@ -314,7 +314,7 @@ signal.rotation.precession {
 
     resolve {
         # Precession advances at a rate determined by torques
-        mod(integrate(prev, config.rotation.precession.rate) + collected, TAU)
+        mod(kernel.integrate(prev, config.rotation.precession.rate) + collected, TAU)
     }
 
     assert {
@@ -366,7 +366,7 @@ signal.core.temp {
     }
 
     resolve {
-        decay(prev, config.core.temp.decay_halflife) + collected
+        kernel.decay(prev, config.core.temp.decay_halflife) + collected
     }
 
     assert {
@@ -392,7 +392,7 @@ signal.core.heat_power {
         # Radiogenic decay reduces heat production over time
         # Earth's core heat flow is ~2-6 TW
         # Clamp to prevent negative accumulation from heat budget fracture
-        max(decay(prev, config.core.heat_power.radiogenic_halflife_gyr * 3.1536e16) + collected, 0.0)
+        max(kernel.decay(prev, config.core.heat_power.radiogenic_halflife_gyr * 3.1536e16) + collected, 0.0)
     }
 
     assert {
@@ -415,7 +415,7 @@ signal.mantle.heat_content {
     resolve {
         # Heat content changes with net power input: dQ/dt = P_in
         # Earth's mantle: mass ~4e24 kg, Cp ~1200 J/kg/K, T ~1600K = 8e30 J
-        integrate(prev, signal.core.heat_power) + collected
+        kernel.integrate(prev, signal.core.heat_power) + collected
     }
 
     assert {
@@ -1051,7 +1051,7 @@ member.terra.plate.age {
     resolve {
         # Plates age with simulation time (rate = 1 Myr per 3.1536e13 seconds)
         # Oceanic plates are capped at max age (subduction recycling)
-        let new_age = integrate(prev, 3.1688e-14) in  # 1/3.1536e13 Myr/s
+        let new_age = kernel.integrate(prev, 3.1688e-14) in  # 1/3.1536e13 Myr/s
         if self.kind < 0.5 {
             # Oceanic: cap at max age
             min(new_age, config.terra.plate.age.max_oceanic_age_myr)

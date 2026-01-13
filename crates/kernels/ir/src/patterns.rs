@@ -51,7 +51,7 @@ use continuum_runtime::types::EntityId;
 
 use crate::ssa::lower_to_ssa;
 use crate::vectorized::ScalarL2Kernel;
-use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, DtRobustOperator, ValueType};
+use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, ValueType};
 
 /// Minimum batch size for SIMD vectorization (matches typical SIMD width).
 ///
@@ -340,19 +340,13 @@ fn try_match_decay_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern>
         } => {
             let decay_on_left = matches!(
                 left.as_ref(),
-                CompiledExpr::DtRobustCall {
-                    operator: DtRobustOperator::Decay,
-                    ..
-                }
+                CompiledExpr::KernelCall { function, .. } if function == "decay"
             );
             let collected_on_right = matches!(right.as_ref(), CompiledExpr::Collected);
 
             let decay_on_right = matches!(
                 right.as_ref(),
-                CompiledExpr::DtRobustCall {
-                    operator: DtRobustOperator::Decay,
-                    ..
-                }
+                CompiledExpr::KernelCall { function, .. } if function == "decay"
             );
             let collected_on_left = matches!(left.as_ref(), CompiledExpr::Collected);
 
@@ -370,11 +364,7 @@ fn try_match_decay_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern>
 /// Try to match `decay(prev, halflife)` pattern (without addition).
 fn try_match_simple_decay(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Decay,
-            args,
-            ..
-        } if args.len() >= 2 => {
+        CompiledExpr::KernelCall { function, args } if function == "decay" && args.len() >= 2 => {
             if matches!(args[0], CompiledExpr::Prev) {
                 return Some(ExpressionPattern::SimpleDecay);
             }
@@ -387,11 +377,9 @@ fn try_match_simple_decay(expr: &CompiledExpr) -> Option<ExpressionPattern> {
 /// Try to match `relax(current, target, tau)` pattern.
 fn try_match_relaxation(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Relax | DtRobustOperator::Smooth,
-            args,
-            ..
-        } if args.len() >= 2 => {
+        CompiledExpr::KernelCall { function, args }
+            if (function == "relax" || function == "smooth") && args.len() >= 2 =>
+        {
             if matches!(args[0], CompiledExpr::Prev) {
                 return Some(ExpressionPattern::Relaxation);
             }
@@ -404,11 +392,9 @@ fn try_match_relaxation(expr: &CompiledExpr) -> Option<ExpressionPattern> {
 /// Try to match `integrate(prev, rate)` pattern.
 fn try_match_integration(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Integrate,
-            args,
-            ..
-        } if args.len() >= 2 => {
+        CompiledExpr::KernelCall { function, args }
+            if function == "integrate" && args.len() >= 2 =>
+        {
             if matches!(args[0], CompiledExpr::Prev) {
                 return Some(ExpressionPattern::Integration);
             }
@@ -515,7 +501,6 @@ fn expr_uses_prev(expr: &CompiledExpr) -> bool {
         CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
             args.iter().any(expr_uses_prev)
         }
-        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(expr_uses_prev),
         CompiledExpr::FieldAccess { object, .. } => expr_uses_prev(object),
         CompiledExpr::Aggregate { body, .. } => expr_uses_prev(body),
         CompiledExpr::Filter {
@@ -557,7 +542,6 @@ fn expr_uses_collected(expr: &CompiledExpr) -> bool {
         CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
             args.iter().any(expr_uses_collected)
         }
-        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(expr_uses_collected),
         CompiledExpr::FieldAccess { object, .. } => expr_uses_collected(object),
         _ => false,
     }
@@ -622,19 +606,6 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
         CompiledExpr::KernelCall { function, args } => {
             "kernel".hash(hasher);
             function.hash(hasher);
-            args.len().hash(hasher);
-            for arg in args {
-                hash_expr_structure(arg, hasher);
-            }
-        }
-        CompiledExpr::DtRobustCall {
-            operator,
-            args,
-            method,
-        } => {
-            "dt_robust".hash(hasher);
-            operator.hash(hasher);
-            method.hash(hasher);
             args.len().hash(hasher);
             for arg in args {
                 hash_expr_structure(arg, hasher);
@@ -1465,10 +1436,9 @@ mod tests {
         // decay(prev, 1000.0) + collected
         let expr = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
-            left: Box::new(CompiledExpr::DtRobustCall {
-                operator: DtRobustOperator::Decay,
+            left: Box::new(CompiledExpr::KernelCall {
+                function: "decay".to_string(),
                 args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
-                method: crate::IntegrationMethod::Euler,
             }),
             right: Box::new(CompiledExpr::Collected),
         };
@@ -1484,10 +1454,9 @@ mod tests {
     #[test]
     fn test_extract_simple_decay() {
         // decay(prev, 1000.0)
-        let expr = CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Decay,
+        let expr = CompiledExpr::KernelCall {
+            function: "decay".to_string(),
             args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
-            method: crate::IntegrationMethod::Euler,
         };
 
         assert_eq!(extract_pattern(&expr), ExpressionPattern::SimpleDecay);
@@ -1496,13 +1465,12 @@ mod tests {
     #[test]
     fn test_extract_integration() {
         // integrate(prev, rate)
-        let expr = CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Integrate,
+        let expr = CompiledExpr::KernelCall {
+            function: "integrate".to_string(),
             args: vec![
                 CompiledExpr::Prev,
                 CompiledExpr::Signal(SignalId::from("rate")),
             ],
-            method: crate::IntegrationMethod::Euler,
         };
 
         assert_eq!(extract_pattern(&expr), ExpressionPattern::Integration);
@@ -1702,10 +1670,9 @@ mod tests {
         // Decay pattern with collected has Medium benefit (involves transcendentals)
         let expr = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
-            left: Box::new(CompiledExpr::DtRobustCall {
-                operator: DtRobustOperator::Decay,
+            left: Box::new(CompiledExpr::KernelCall {
+                function: "decay".to_string(),
                 args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
-                method: crate::IntegrationMethod::Euler,
             }),
             right: Box::new(CompiledExpr::Collected),
         };

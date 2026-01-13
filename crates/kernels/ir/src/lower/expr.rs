@@ -8,7 +8,7 @@ use std::collections::HashSet;
 use continuum_dsl::ast::{self, Expr, Literal};
 use continuum_foundation::{EntityId, FnId, InstanceId, SignalId};
 
-use crate::{CompiledExpr, DtRobustOperator, IntegrationMethod, ValueType};
+use crate::{CompiledExpr, ValueType};
 
 use super::Lowerer;
 
@@ -153,18 +153,7 @@ impl Lowerer {
             Expr::Call { function, args } => {
                 let func_name = self.expr_to_function_name(&function.node);
 
-                // Check if this is a dt-robust operator
-                if let Some(operator) = self.parse_dt_robust_operator(&func_name) {
-                    let lowered_args: Vec<_> = args
-                        .iter()
-                        .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
-                        .collect();
-                    CompiledExpr::DtRobustCall {
-                        operator,
-                        args: lowered_args,
-                        method: IntegrationMethod::default(),
-                    }
-                } else if func_name.starts_with("kernel.") {
+                if func_name.starts_with("kernel.") {
                     // Kernel function - engine-provided primitive
                     let kernel_name = func_name.strip_prefix("kernel.").unwrap().to_string();
                     CompiledExpr::KernelCall {
@@ -391,24 +380,6 @@ impl Lowerer {
                 "Cannot extract function name from expression: {:?} - expected Path or FieldAccess",
                 other
             ),
-        }
-    }
-
-    /// Parse a function name into a dt-robust operator if it matches.
-    ///
-    /// dt-robust operators are special functions that provide numerically stable
-    /// time integration. They are recognized by name and converted to a dedicated
-    /// IR variant for special code generation.
-    pub(crate) fn parse_dt_robust_operator(&self, name: &str) -> Option<DtRobustOperator> {
-        match name {
-            "integrate" => Some(DtRobustOperator::Integrate),
-            "decay" => Some(DtRobustOperator::Decay),
-            "relax" => Some(DtRobustOperator::Relax),
-            "accumulate" => Some(DtRobustOperator::Accumulate),
-            "advance_phase" => Some(DtRobustOperator::AdvancePhase),
-            "smooth" => Some(DtRobustOperator::Smooth),
-            "damp" => Some(DtRobustOperator::Damp),
-            _ => None,
         }
     }
 }

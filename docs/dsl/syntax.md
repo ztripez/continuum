@@ -377,7 +377,7 @@ member.stellar.moon.orbit_phase {
     : strata(stellar.orbital)
 
     resolve {
-        advance_phase(prev, self.orbit_velocity)
+        kernel.advance_phase(prev, self.orbit_velocity)
     }
 }
 
@@ -752,7 +752,7 @@ Example usage:
 
 ```
 resolve {
-  advance_phase(prev, signal.omega, 0..TAU)
+  kernel.advance_phase(prev, signal.omega)
 }
 
 # Unicode form for extra flair
@@ -815,7 +815,7 @@ signal.terra.core.temp {
 
   resolve {
     # Use dt-robust decay operator instead of raw dt
-    decay(prev, config.terra.thermal.decay_halflife)
+    kernel.decay(prev, config.terra.thermal.decay_halflife)
   }
 }
 

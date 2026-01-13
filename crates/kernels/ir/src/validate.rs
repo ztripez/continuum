@@ -391,19 +391,7 @@ fn check_expr_symbols(
                 );
             }
         }
-        CompiledExpr::DtRobustCall { args, .. } => {
-            // dt-robust operators are known by definition, just check args
-            for arg in args {
-                check_expr_symbols(
-                    arg,
-                    context,
-                    defined_signals,
-                    defined_constants,
-                    defined_config,
-                    warnings,
-                );
-            }
-        }
+
         CompiledExpr::KernelCall { args, .. } => {
             // Kernel functions are engine-provided, just check args
             // TODO: Could validate that specific kernel function names are known

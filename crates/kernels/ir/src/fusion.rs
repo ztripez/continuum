@@ -119,11 +119,6 @@ impl OperatorDeps {
                 self.extract_from_expr(value);
                 self.extract_from_expr(body);
             }
-            CompiledExpr::DtRobustCall { args, .. } => {
-                for arg in args {
-                    self.extract_from_expr(arg);
-                }
-            }
             CompiledExpr::FieldAccess { object, .. } => {
                 self.extract_from_expr(object);
             }

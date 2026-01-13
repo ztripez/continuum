@@ -171,10 +171,9 @@ fn test_l2_kernel_lerp() {
 #[test]
 fn test_l2_integrate_euler() {
     // prev + rate * dt where rate = 1.0
-    let expr = CompiledExpr::DtRobustCall {
-        operator: DtRobustOperator::Integrate,
+    let expr = CompiledExpr::KernelCall {
+        function: "integrate".to_string(),
         args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1.0, None)],
-        method: IntegrationMethod::Euler,
     };
     let prev = vec![0.0, 10.0, 20.0, 30.0];
     let dt = 0.1;
@@ -299,13 +298,12 @@ fn test_l2_kernel_struct_properties() {
 #[test]
 fn test_l2_decay_operator() {
     // decay(prev, half_life=1.0)
-    let expr = CompiledExpr::DtRobustCall {
-        operator: DtRobustOperator::Decay,
+    let expr = CompiledExpr::KernelCall {
+        function: "decay".to_string(),
         args: vec![
             CompiledExpr::Prev,
             CompiledExpr::Literal(1.0, None), // half_life
         ],
-        method: IntegrationMethod::Euler, // method not used for decay
     };
 
     let prev = vec![100.0, 100.0, 100.0, 100.0];
@@ -322,14 +320,13 @@ fn test_l2_decay_operator() {
 #[test]
 fn test_l2_smooth_operator() {
     // smooth(prev, target=100.0, tau=1.0)
-    let expr = CompiledExpr::DtRobustCall {
-        operator: DtRobustOperator::Smooth,
+    let expr = CompiledExpr::KernelCall {
+        function: "smooth".to_string(),
         args: vec![
             CompiledExpr::Prev,
             CompiledExpr::Literal(100.0, None), // target
             CompiledExpr::Literal(1.0, None),   // tau
         ],
-        method: IntegrationMethod::Euler,
     };
 
     let prev = vec![0.0, 50.0, 90.0, 100.0];

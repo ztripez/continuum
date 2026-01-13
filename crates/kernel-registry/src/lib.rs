@@ -139,6 +139,14 @@ pub enum VectorizedImpl {
     WithDt(VectorizedDtFn),
 }
 
+/// Descriptor for a registered vectorized kernel function
+pub struct VectorizedKernelDescriptor {
+    /// DSL name (e.g., "integrate", "decay", "sin")
+    pub name: &'static str,
+    /// Vectorized implementation
+    pub implementation: VectorizedImpl,
+}
+
 impl KernelImpl {
     /// Evaluate the kernel function
     pub fn eval(&self, args: &[f64], dt: Dt) -> f64 {
@@ -246,6 +254,12 @@ impl KernelDescriptor {
 #[distributed_slice]
 pub static KERNELS: [KernelDescriptor];
 
+/// Distributed slice collecting all vectorized kernel function registrations.
+///
+/// Populated at link time by the `#[vectorized_kernel_fn]` macro.
+#[distributed_slice]
+pub static VECTOR_KERNELS: [VectorizedKernelDescriptor];
+
 /// Get all registered kernel function names
 pub fn all_names() -> impl Iterator<Item = &'static str> {
     KERNELS.iter().map(|k| k.name)
@@ -268,12 +282,16 @@ pub fn eval(name: &str, args: &[f64], dt: Dt) -> Option<f64> {
 
 /// Get vectorized implementation for a kernel by name
 pub fn get_vectorized(name: &str) -> Option<&'static VectorizedImpl> {
-    get(name).and_then(|k| k.vectorized_impl.as_ref())
+    VECTOR_KERNELS
+        .iter()
+        .find(|k| k.name == name)
+        .map(|k| &k.implementation)
+        .or_else(|| get(name).and_then(|k| k.vectorized_impl.as_ref()))
 }
 
 /// Check if a kernel has vectorized implementation
 pub fn has_vectorized_impl(name: &str) -> bool {
-    get(name).map_or(false, |k| k.has_vectorized())
+    get_vectorized(name).is_some()
 }
 
 /// Evaluate a vectorized kernel by name
@@ -283,7 +301,7 @@ pub fn eval_vectorized(
     dt: Dt,
     population: usize,
 ) -> Option<VectorizedResult<VRegBuffer>> {
-    get(name).and_then(|k| k.eval_vectorized(args, dt, population))
+    get_vectorized(name).map(|impl_| impl_.eval(args, dt, population))
 }
 
 #[cfg(test)]

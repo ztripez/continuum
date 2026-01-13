@@ -116,7 +116,7 @@ signal.hydrology.water_mass {
         # Water budget: precipitation - evaporation + external inputs
         # Net rate = (precip - evap) * surface_area
         let net_rate = (signal.hydrology.precipitation_rate - signal.hydrology.evaporation_rate) * 5.1e14 in
-        clamp(integrate(prev, net_rate) + collected, config.hydrology.water_mass.min, config.hydrology.water_mass.max)
+        clamp(kernel.integrate(prev, net_rate) + collected, config.hydrology.water_mass.min, config.hydrology.water_mass.max)
     }
 
     assert {
@@ -147,7 +147,7 @@ signal.hydrology.ice_mass {
         } else {
             # Melting/sublimation conditions - sublimation rate * area
             let sublimation_rate = config.hydrology.ice_mass.sublimation_rate * 1e13 in
-            max(integrate(prev, -sublimation_rate) + collected, 0.0)
+            max(kernel.integrate(prev, -sublimation_rate) + collected, 0.0)
         }
     }
 
@@ -279,7 +279,7 @@ signal.hydrology.sediment_load {
         let deposition_rate = prev * config.hydrology.sediment_load.deposition_rate in
         let net_rate = erosion_rate - deposition_rate in
 
-        clamp(integrate(prev, net_rate) + collected, 0.0, config.hydrology.sediment_load.max_load)
+        clamp(kernel.integrate(prev, net_rate) + collected, 0.0, config.hydrology.sediment_load.max_load)
     }
 
     assert {
@@ -375,7 +375,7 @@ signal.hydrology.groundwater_saturation {
         let infiltration = signal.hydrology.infiltration_rate in
         let baseflow = signal.hydrology.baseflow_rate in
         let net_rate = (infiltration - baseflow) / config.hydrology.groundwater_saturation.max_capacity_kg_m2 in
-        clamp(integrate(prev, net_rate) + collected, 0.0, 1.0)
+        clamp(kernel.integrate(prev, net_rate) + collected, 0.0, 1.0)
     }
 
     assert {

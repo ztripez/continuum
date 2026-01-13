@@ -71,7 +71,6 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
         CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
             args.iter().any(contains_entity_expression)
         }
-        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_entity_expression),
         CompiledExpr::If {
             condition,
             then_branch,
@@ -131,7 +130,6 @@ fn contains_unsupported_member_op(expr: &CompiledExpr) -> bool {
         CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
             args.iter().any(contains_unsupported_member_op)
         }
-        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_unsupported_member_op),
         CompiledExpr::If {
             condition,
             then_branch,
@@ -400,9 +398,7 @@ impl<'a> Compiler<'a> {
                 Self::extract_aggregates_recursive(then_branch, aggregates);
                 Self::extract_aggregates_recursive(else_branch, aggregates);
             }
-            CompiledExpr::Call { args, .. }
-            | CompiledExpr::KernelCall { args, .. }
-            | CompiledExpr::DtRobustCall { args, .. } => {
+            CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
                 for arg in args {
                     Self::extract_aggregates_recursive(arg, aggregates);
                 }

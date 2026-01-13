@@ -1,5 +1,5 @@
 use crate::units::{DimensionError, Unit};
-use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, DtRobustOperator, UnaryOpIr, ValueType};
+use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, UnaryOpIr, ValueType};
 use continuum_foundation::Path;
 use std::collections::HashMap;
 
@@ -188,13 +188,7 @@ fn infer_unit(
                     let u = infer_unit(&args[0], world, symbol_units, current_signal)?;
                     u.sqrt().ok_or(DimensionError::InvalidSqrt { unit: u })
                 }
-                _ => Ok(Unit::dimensionless()),
-            }
-        }
-
-        CompiledExpr::DtRobustCall { operator, args, .. } => {
-            match operator {
-                DtRobustOperator::Integrate => {
+                "integrate" | "integrate_euler" | "integrate_rk4" | "integrate_verlet" => {
                     // integrate(prev, rate) -> prev + rate * dt
                     let u_prev = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
                     let u_rate = infer_unit(&args[1], world, symbol_units, current_signal)?;
@@ -207,11 +201,11 @@ fn infer_unit(
                         Err(DimensionError::IncompatibleUnits {
                             expected: u_prev,
                             found: u_integrated,
-                            operation: "integrate".to_string(),
+                            operation: function.clone(),
                         })
                     }
                 }
-                DtRobustOperator::Decay => {
+                "decay" => {
                     // decay(value, halflife) -> value * 0.5^(dt/halflife)
                     let u_val = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
                     let u_half = infer_unit(&args[1], world, symbol_units, current_signal)?;

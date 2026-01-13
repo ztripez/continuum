@@ -25,8 +25,8 @@ use std::collections::HashMap;
 use continuum_foundation::{EraId, FieldId, SignalId};
 use continuum_runtime::MemberSignalBuffer;
 use continuum_runtime::executor::{
-    AggregateResolverFn, AssertionFn, AssertionSeverity, EraConfig, FractureFn, MeasureFn,
-    ResolverFn, TransitionFn, WarmupFn,
+    AggregateResolverFn, AssertionFn, EraConfig, FractureFn, MeasureFn, ResolverFn, TransitionFn,
+    WarmupFn,
 };
 // Import functions crate to ensure kernels are registered
 
@@ -66,9 +66,9 @@ fn contains_entity_expression(expr: &CompiledExpr) -> bool {
             contains_entity_expression(left) || contains_entity_expression(right)
         }
         CompiledExpr::Unary { operand, .. } => contains_entity_expression(operand),
-        CompiledExpr::Call { args, .. }
-        | CompiledExpr::KernelCall { args, .. }
-        | CompiledExpr::DtRobustCall { args, .. } => args.iter().any(contains_entity_expression),
+        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
+            args.iter().any(contains_entity_expression)
+        }
         CompiledExpr::If {
             condition,
             then_branch,

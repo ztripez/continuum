@@ -42,6 +42,11 @@ struct KernelFnArgs {
     vectorized: bool,
 }
 
+/// Arguments to the vectorized_kernel_fn attribute
+struct VectorizedKernelArgs {
+    name: String,
+}
+
 impl Parse for KernelFnArgs {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut name = None;
@@ -66,6 +71,23 @@ impl Parse for KernelFnArgs {
             variadic,
             vectorized,
         })
+    }
+}
+
+impl Parse for VectorizedKernelArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut name = None;
+
+        let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
+        for arg in args {
+            match arg {
+                KernelArg::Name(n) => name = Some(n),
+                KernelArg::Category(_) | KernelArg::Variadic | KernelArg::Vectorized => {}
+            }
+        }
+
+        let name = name.ok_or_else(|| input.error("missing `name = \"...\"` argument"))?;
+        Ok(VectorizedKernelArgs { name })
     }
 }
 
@@ -314,18 +336,79 @@ fn generate_kernel_registration(
 /// }
 /// ```
 #[proc_macro_attribute]
-pub fn vectorized_kernel_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
-    // For now, we'll implement this as a simple pass-through
-    // In a future iteration, we could make this register the vectorized implementation
-    // in a separate registry that gets merged with the main registry
-
-    // For Phase 1, we'll just mark the function and let it be manually registered
+pub fn vectorized_kernel_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let args = parse_macro_input!(attr as VectorizedKernelArgs);
     let func = parse_macro_input!(item as ItemFn);
 
-    // Just return the function as-is for now
-    // TODO: Implement proper vectorized registration in Phase 2
-    quote! {
-        #func
+    let expanded = generate_vectorized_registration(&args, &func);
+
+    match expanded {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.to_compile_error().into(),
     }
-    .into()
+}
+
+fn generate_vectorized_registration(
+    args: &VectorizedKernelArgs,
+    func: &ItemFn,
+) -> syn::Result<proc_macro2::TokenStream> {
+    let fn_name = &func.sig.ident;
+    let dsl_name = &args.name;
+
+    let params: Vec<_> = func.sig.inputs.iter().collect();
+    let has_dt = params.iter().any(|p| {
+        if let syn::FnArg::Typed(pat) = p {
+            if let syn::Type::Path(tp) = pat.ty.as_ref() {
+                return tp
+                    .path
+                    .segments
+                    .last()
+                    .map_or(false, |seg| seg.ident == "Dt");
+            }
+        }
+        false
+    });
+
+    let descriptor_name = format_ident!("__VECTOR_KERNEL_{}", fn_name.to_string().to_uppercase());
+
+    let (wrapper, impl_variant) = if has_dt {
+        (
+            quote! {
+                fn wrapper(
+                    args: &[&::continuum_kernel_registry::VRegBuffer],
+                    dt: ::continuum_kernel_registry::Dt,
+                    population: usize,
+                ) -> ::continuum_kernel_registry::VectorizedResult<::continuum_kernel_registry::VRegBuffer> {
+                    #fn_name(args, dt, population)
+                }
+            },
+            quote! { ::continuum_kernel_registry::VectorizedImpl::WithDt(wrapper) },
+        )
+    } else {
+        (
+            quote! {
+                fn wrapper(
+                    args: &[&::continuum_kernel_registry::VRegBuffer],
+                    population: usize,
+                ) -> ::continuum_kernel_registry::VectorizedResult<::continuum_kernel_registry::VRegBuffer> {
+                    #fn_name(args, population)
+                }
+            },
+            quote! { ::continuum_kernel_registry::VectorizedImpl::Pure(wrapper) },
+        )
+    };
+
+    Ok(quote! {
+        #func
+
+        #[allow(non_upper_case_globals)]
+        #[::continuum_kernel_registry::linkme::distributed_slice(::continuum_kernel_registry::VECTOR_KERNELS)]
+        static #descriptor_name: ::continuum_kernel_registry::VectorizedKernelDescriptor = {
+            #wrapper
+            ::continuum_kernel_registry::VectorizedKernelDescriptor {
+                name: #dsl_name,
+                implementation: #impl_variant,
+            }
+        };
+    })
 }

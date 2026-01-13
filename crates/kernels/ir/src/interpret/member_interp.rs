@@ -15,7 +15,7 @@ use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
 use indexmap::IndexMap;
 
-use crate::{CompiledExpr, DtRobustOperator};
+use crate::CompiledExpr;
 
 /// Intermediate value during interpretation.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -172,19 +172,6 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
                 .collect();
             let name = format!("kernel.{}", function);
             InterpValue::Scalar(ctx.call_kernel(&name, &arg_vals))
-        }
-        CompiledExpr::DtRobustCall { operator, args, .. } => {
-            let arg_vals: Vec<f64> = args
-                .iter()
-                .map(|a| interpret_expr(a, ctx).as_f64())
-                .collect();
-            let name = match operator {
-                DtRobustOperator::Integrate => "integrate",
-                DtRobustOperator::Decay => "decay",
-                DtRobustOperator::Relax => "relax",
-                _ => "unknown",
-            };
-            InterpValue::Scalar(ctx.call_kernel(name, &arg_vals))
         }
         CompiledExpr::If {
             condition,

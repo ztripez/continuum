@@ -121,7 +121,7 @@ member.stellar.moon.orbit_phase {
     : strata(stellar.orbital)
 
     resolve {
-        advance_phase(prev, self.orbit_velocity)
+        kernel.advance_phase(prev, self.orbit_velocity)
     }
 }
 ```
@@ -172,7 +172,7 @@ member.stellar.moon.velocity {
     : strata(stellar.orbital)
 
     resolve {
-        integrate(prev, acceleration)  // prev = previous tick velocity
+        kernel.integrate(prev, acceleration)  // prev = previous tick velocity
     }
 }
 
@@ -182,7 +182,7 @@ member.stellar.moon.position {
 
     resolve {
         // self.velocity reads PREVIOUS tick velocity, not just-computed!
-        integrate(prev, self.velocity)
+        kernel.integrate(prev, self.velocity)
     }
 }
 ```
@@ -383,7 +383,7 @@ member.stellar.moon.position {
     : strata(stellar.orbital)
 
     resolve {
-        integrate(prev, self.velocity)
+        kernel.integrate(prev, self.velocity)
     }
 }
 
@@ -404,7 +404,7 @@ member.stellar.moon.velocity {
             * normalize(other.position - self.position)
         ) in
 
-        integrate(prev, planet_gravity + perturbations)
+        kernel.integrate(prev, planet_gravity + perturbations)
     }
 }
 

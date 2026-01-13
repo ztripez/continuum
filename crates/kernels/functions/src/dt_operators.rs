@@ -438,13 +438,19 @@ mod tests {
     fn test_vectorized_attribute_working() {
         use continuum_kernel_registry::has_vectorized_impl;
 
-        // These functions should NOT have vectorized implementations yet
-        // (we marked them with vectorized attribute but haven't implemented the actual vectorized functions)
-        assert!(!has_vectorized_impl("integrate"));
-        assert!(!has_vectorized_impl("decay"));
-        assert!(!has_vectorized_impl("relax"));
+        // Vectorized implementations should be registered
+        assert!(has_vectorized_impl("integrate"));
+        assert!(has_vectorized_impl("integrate_euler"));
+        assert!(has_vectorized_impl("integrate_rk4"));
+        assert!(has_vectorized_impl("integrate_verlet"));
+        assert!(has_vectorized_impl("decay"));
+        assert!(has_vectorized_impl("relax"));
+        assert!(has_vectorized_impl("smooth"));
+        assert!(has_vectorized_impl("accumulate"));
+        assert!(has_vectorized_impl("advance_phase"));
+        assert!(has_vectorized_impl("damp"));
 
-        // But they should still be registered as regular functions
+        // All should still be registered as regular functions
         assert!(is_known("integrate"));
         assert!(is_known("decay"));
         assert!(is_known("relax"));

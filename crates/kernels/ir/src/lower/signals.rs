@@ -521,20 +521,6 @@ impl Lowerer {
                     .collect(),
             },
 
-            // DtRobust calls: expand all arguments
-            DtRobustCall {
-                operator,
-                args,
-                method,
-            } => DtRobustCall {
-                operator: *operator,
-                args: args
-                    .iter()
-                    .map(|a| self.expand_expr_for_component(a, component))
-                    .collect(),
-                method: *method,
-            },
-
             // FieldAccess: if it's already a component access (like prev.x), keep it
             // otherwise expand the object
             FieldAccess { object, field } => {

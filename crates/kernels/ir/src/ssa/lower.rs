@@ -5,7 +5,6 @@
 use std::collections::HashMap;
 
 use crate::CompiledExpr;
-use continuum_vm::Op;
 
 use super::{BlockId, SsaFunction, SsaInstruction, Terminator, VReg};
 
@@ -146,25 +145,6 @@ impl LoweringContext {
                     dst,
                     function: function.clone(),
                     args: arg_regs,
-                });
-                dst
-            }
-
-            CompiledExpr::DtRobustCall {
-                operator,
-                args,
-                method,
-            } => {
-                let arg_regs: Vec<_> = args
-                    .iter()
-                    .map(|a| self.lower_expr(a, self.current_block))
-                    .collect();
-                let dst = self.func.alloc_vreg();
-                self.emit(SsaInstruction::DtRobustCall {
-                    dst,
-                    operator: *operator,
-                    args: arg_regs,
-                    method: *method,
                 });
                 dst
             }
