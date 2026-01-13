@@ -47,6 +47,11 @@
         }
       }
     },
+    "breakpoints": [
+      {
+        "language": "cdsl"
+      }
+    ],
     "debuggers": [
       {
         "type": "cdsl",

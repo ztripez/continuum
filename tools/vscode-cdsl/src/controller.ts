@@ -53,12 +53,14 @@ export class CdslController implements vscode.Disposable {
     }
 
     // DAP
+    this.log.info(`[DAP] Checking for binary at: ${dapFsPath}`);
     if (await uriExists(dapUri)) {
+      this.log.info(`[DAP] Binary exists, registering...`);
       const d = this.registerDap(dapFsPath);
       this.context.subscriptions.push(d);
-      this.log.info("DAP registered");
+      this.log.info("[DAP] Registration complete");
     } else {
-      this.log.error(`Missing DAP binary: ${dapFsPath}`);
+      this.log.error(`[DAP] Missing binary: ${dapFsPath}`);
     }
   }
 
@@ -87,8 +89,10 @@ export class CdslController implements vscode.Disposable {
 
   private registerDap(dapPath: string): vscode.Disposable {
     return vscode.debug.registerDebugAdapterDescriptorFactory("cdsl", {
-      createDebugAdapterDescriptor: () => {
-        this.log.info(`Using Debug Adapter at ${dapPath}`);
+      createDebugAdapterDescriptor: (session) => {
+        this.log.info(`[DAP] createDebugAdapterDescriptor called for session: ${session.id}`);
+        this.log.info(`[DAP] Configuration: ${JSON.stringify(session.configuration)}`);
+        this.log.info(`[DAP] Using Debug Adapter at ${dapPath}`);
         return new vscode.DebugAdapterExecutable(dapPath, []);
       },
     });
