@@ -46,7 +46,7 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{MemberSignalId, SignalId, StratumId};
+use continuum_foundation::{MemberSignalId, PrimitiveStorageClass, SignalId, StratumId};
 use continuum_runtime::types::EntityId;
 
 use crate::ssa::lower_to_ssa;
@@ -216,15 +216,17 @@ pub enum ValueTypeCategory {
 
 impl From<&ValueType> for ValueTypeCategory {
     fn from(vt: &ValueType) -> Self {
-        match vt {
-            ValueType::Scalar { .. } => ValueTypeCategory::Scalar,
-            ValueType::Vec2 { .. } => ValueTypeCategory::Vec2,
-            ValueType::Vec3 { .. } => ValueTypeCategory::Vec3,
-            ValueType::Vec4 { .. } => ValueTypeCategory::Vec4,
-            ValueType::Quat { .. } => ValueTypeCategory::Quat,
-            ValueType::Tensor { .. } => ValueTypeCategory::Tensor,
-            ValueType::Grid { .. } => ValueTypeCategory::Grid,
-            ValueType::Seq { .. } => ValueTypeCategory::Seq,
+        if vt.primitive_id().name() == "Quat" {
+            return ValueTypeCategory::Quat;
+        }
+        match vt.storage_class() {
+            PrimitiveStorageClass::Scalar => ValueTypeCategory::Scalar,
+            PrimitiveStorageClass::Vec2 => ValueTypeCategory::Vec2,
+            PrimitiveStorageClass::Vec3 => ValueTypeCategory::Vec3,
+            PrimitiveStorageClass::Vec4 => ValueTypeCategory::Vec4,
+            PrimitiveStorageClass::Tensor => ValueTypeCategory::Tensor,
+            PrimitiveStorageClass::Grid => ValueTypeCategory::Grid,
+            PrimitiveStorageClass::Seq => ValueTypeCategory::Seq,
         }
     }
 }

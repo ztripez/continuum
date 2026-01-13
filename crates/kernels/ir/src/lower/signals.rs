@@ -343,14 +343,7 @@ impl Lowerer {
             return (None, None);
         };
 
-        // Determine component count based on type
-        let components: Option<&[&str]> = match value_type {
-            ValueType::Vec2 { .. } => Some(&["x", "y"]),
-            ValueType::Vec3 { .. } => Some(&["x", "y", "z"]),
-            ValueType::Vec4 { .. } => Some(&["x", "y", "z", "w"]),
-            ValueType::Quat { .. } => Some(&["w", "x", "y", "z"]),
-            _ => None,
-        };
+        let components = value_type.component_names();
 
         match components {
             None => {

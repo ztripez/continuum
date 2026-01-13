@@ -46,7 +46,8 @@ use tracing::warn;
 use continuum_functions as _;
 use continuum_kernel_registry::{get_in_namespace, namespace_exists};
 
-use crate::{CompiledExpr, CompiledWorld, ValueType};
+use crate::{CompiledExpr, CompiledWorld};
+use continuum_foundation::PrimitiveParamKind;
 
 /// A compilation warning indicating a potential issue in the IR.
 ///
@@ -150,7 +151,10 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
     let signals = world.signals();
     for (signal_id, signal) in &signals {
         // Check if the signal has a range constraint
-        let has_range = matches!(&signal.value_type, ValueType::Scalar { range: Some(_), .. });
+        let has_range = signal
+            .value_type
+            .param_value(PrimitiveParamKind::Range)
+            .is_some();
 
         if has_range && signal.assertions.is_empty() {
             warnings.push(CompileWarning {

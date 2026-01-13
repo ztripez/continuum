@@ -70,15 +70,7 @@ pub fn analyze_dimensions(world: &CompiledWorld) -> Vec<DimensionalDiagnostic> {
 }
 
 fn get_unit_from_type(ty: &ValueType) -> Option<Unit> {
-    match ty {
-        ValueType::Scalar { dimension, .. } => *dimension,
-        ValueType::Vec2 { dimension, .. } => *dimension,
-        ValueType::Vec3 { dimension, .. } => *dimension,
-        ValueType::Vec4 { dimension, .. } => *dimension,
-        ValueType::Quat { .. } => Some(Unit::dimensionless()),
-        ValueType::Tensor { dimension, .. } => *dimension,
-        _ => None,
-    }
+    ty.dimension()
 }
 
 fn infer_unit(

@@ -5,7 +5,8 @@ use indexmap::IndexMap;
 use continuum_dsl::ast::Span;
 use continuum_foundation::{
     ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
-    OperatorId, Path, SignalId, StratumId, TypeId,
+    OperatorId, Path, PrimitiveParamKind, PrimitiveStorageClass, PrimitiveTypeDef, PrimitiveTypeId,
+    SignalId, StratumId, TypeId, primitive_type_by_name,
 };
 
 // Re-export StratumState from foundation for backwards compatibility
@@ -543,6 +544,108 @@ pub enum ValueType {
         element_type: Box<ValueType>,
         constraints: Vec<SeqConstraintIr>,
     },
+}
+
+/// Parameter values available on an IR value type.
+pub enum ValueTypeParam<'a> {
+    Unit(&'a str),
+    Range(&'a ValueRange),
+    Magnitude(&'a ValueRange),
+    Rows(u8),
+    Cols(u8),
+    Width(u32),
+    Height(u32),
+    ElementType(&'a ValueType),
+}
+
+impl ValueType {
+    /// Returns the primitive identifier for this value type.
+    pub fn primitive_id(&self) -> PrimitiveTypeId {
+        match self {
+            ValueType::Scalar { .. } => PrimitiveTypeId::new("Scalar"),
+            ValueType::Vec2 { .. } => PrimitiveTypeId::new("Vec2"),
+            ValueType::Vec3 { .. } => PrimitiveTypeId::new("Vec3"),
+            ValueType::Vec4 { .. } => PrimitiveTypeId::new("Vec4"),
+            ValueType::Quat { .. } => PrimitiveTypeId::new("Quat"),
+            ValueType::Tensor { .. } => PrimitiveTypeId::new("Tensor"),
+            ValueType::Grid { .. } => PrimitiveTypeId::new("Grid"),
+            ValueType::Seq { .. } => PrimitiveTypeId::new("Seq"),
+        }
+    }
+
+    /// Returns registry metadata for this value type.
+    pub fn primitive_def(&self) -> &'static PrimitiveTypeDef {
+        primitive_type_by_name(self.primitive_id().name())
+            .expect("primitive type missing from registry")
+    }
+
+    /// Returns the storage class for this value type.
+    pub fn storage_class(&self) -> PrimitiveStorageClass {
+        self.primitive_def().storage
+    }
+
+    /// Returns component names for vector-like types.
+    pub fn component_names(&self) -> Option<&'static [&'static str]> {
+        self.primitive_def().components
+    }
+
+    /// Returns the dimension associated with this type, if any.
+    pub fn dimension(&self) -> Option<crate::units::Unit> {
+        match self {
+            ValueType::Scalar { dimension, .. } => *dimension,
+            ValueType::Vec2 { dimension, .. } => *dimension,
+            ValueType::Vec3 { dimension, .. } => *dimension,
+            ValueType::Vec4 { dimension, .. } => *dimension,
+            ValueType::Quat { .. } => Some(crate::units::Unit::dimensionless()),
+            ValueType::Tensor { dimension, .. } => *dimension,
+            _ => None,
+        }
+    }
+
+    /// Returns a parameter value by kind, if present.
+    pub fn param_value(&self, kind: PrimitiveParamKind) -> Option<ValueTypeParam<'_>> {
+        match (self, kind) {
+            (ValueType::Scalar { unit, .. }, PrimitiveParamKind::Unit) => {
+                unit.as_deref().map(ValueTypeParam::Unit)
+            }
+            (ValueType::Scalar { range, .. }, PrimitiveParamKind::Range) => {
+                range.as_ref().map(ValueTypeParam::Range)
+            }
+            (ValueType::Vec2 { unit, .. }, PrimitiveParamKind::Unit)
+            | (ValueType::Vec3 { unit, .. }, PrimitiveParamKind::Unit)
+            | (ValueType::Vec4 { unit, .. }, PrimitiveParamKind::Unit) => {
+                unit.as_deref().map(ValueTypeParam::Unit)
+            }
+            (ValueType::Vec2 { magnitude, .. }, PrimitiveParamKind::Magnitude)
+            | (ValueType::Vec3 { magnitude, .. }, PrimitiveParamKind::Magnitude)
+            | (ValueType::Vec4 { magnitude, .. }, PrimitiveParamKind::Magnitude)
+            | (ValueType::Quat { magnitude }, PrimitiveParamKind::Magnitude) => {
+                magnitude.as_ref().map(ValueTypeParam::Magnitude)
+            }
+            (ValueType::Tensor { rows, .. }, PrimitiveParamKind::Rows) => {
+                Some(ValueTypeParam::Rows(*rows))
+            }
+            (ValueType::Tensor { cols, .. }, PrimitiveParamKind::Cols) => {
+                Some(ValueTypeParam::Cols(*cols))
+            }
+            (ValueType::Tensor { unit, .. }, PrimitiveParamKind::Unit) => {
+                unit.as_deref().map(ValueTypeParam::Unit)
+            }
+            (ValueType::Grid { width, .. }, PrimitiveParamKind::Width) => {
+                Some(ValueTypeParam::Width(*width))
+            }
+            (ValueType::Grid { height, .. }, PrimitiveParamKind::Height) => {
+                Some(ValueTypeParam::Height(*height))
+            }
+            (ValueType::Grid { element_type, .. }, PrimitiveParamKind::ElementType) => {
+                Some(ValueTypeParam::ElementType(element_type.as_ref()))
+            }
+            (ValueType::Seq { element_type, .. }, PrimitiveParamKind::ElementType) => {
+                Some(ValueTypeParam::ElementType(element_type.as_ref()))
+            }
+            _ => None,
+        }
+    }
 }
 
 /// A numeric range constraint for scalar values.
