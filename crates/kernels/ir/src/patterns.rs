@@ -582,9 +582,10 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
     std::mem::discriminant(expr).hash(hasher);
 
     match expr {
-        CompiledExpr::Literal(..) => {
-            // Don't hash the value, just the fact that it's a literal
+        CompiledExpr::Literal(_, unit) => {
+            // Don't hash the value, just the fact that it's a literal and its unit
             "literal".hash(hasher);
+            unit.hash(hasher);
         }
         CompiledExpr::Prev => "prev".hash(hasher),
         CompiledExpr::DtRaw => "dt_raw".hash(hasher),
@@ -1445,8 +1446,8 @@ mod tests {
                     left: Box::new(CompiledExpr::Prev),
                     right: Box::new(CompiledExpr::Collected),
                 },
-                CompiledExpr::Literal(0.0),
-                CompiledExpr::Literal(100.0),
+                CompiledExpr::Literal(0.0, None),
+                CompiledExpr::Literal(100.0, None),
             ],
         };
 
@@ -1466,7 +1467,7 @@ mod tests {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::DtRobustCall {
                 operator: DtRobustOperator::Decay,
-                args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0)],
+                args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
                 method: crate::IntegrationMethod::Euler,
             }),
             right: Box::new(CompiledExpr::Collected),
@@ -1485,7 +1486,7 @@ mod tests {
         // decay(prev, 1000.0)
         let expr = CompiledExpr::DtRobustCall {
             operator: DtRobustOperator::Decay,
-            args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0)],
+            args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
             method: crate::IntegrationMethod::Euler,
         };
 
@@ -1515,14 +1516,14 @@ mod tests {
 
     #[test]
     fn test_extract_constant() {
-        let expr = CompiledExpr::Literal(42.0);
+        let expr = CompiledExpr::Literal(42.0, None);
         assert_eq!(extract_pattern(&expr), ExpressionPattern::Constant);
 
         // Binary op on constants
         let expr2 = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
-            left: Box::new(CompiledExpr::Literal(1.0)),
-            right: Box::new(CompiledExpr::Literal(2.0)),
+            left: Box::new(CompiledExpr::Literal(1.0, None)),
+            right: Box::new(CompiledExpr::Literal(2.0, None)),
         };
         assert_eq!(extract_pattern(&expr2), ExpressionPattern::Constant);
     }
@@ -1560,13 +1561,13 @@ mod tests {
         let expr1 = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(1.0)),
+            right: Box::new(CompiledExpr::Literal(1.0, None)),
         };
 
         let expr2 = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(999.0)),
+            right: Box::new(CompiledExpr::Literal(999.0, None)),
         };
 
         assert_eq!(compute_expr_hash(&expr1), compute_expr_hash(&expr2));
@@ -1577,13 +1578,13 @@ mod tests {
         let expr1 = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(1.0)),
+            right: Box::new(CompiledExpr::Literal(1.0, None)),
         };
 
         let expr2 = CompiledExpr::Binary {
-            op: BinaryOpIr::Mul, // Different op
+            op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(1.0)),
+            right: Box::new(CompiledExpr::Literal(1.0, crate::units::Unit::parse("m"))),
         };
 
         assert_ne!(compute_expr_hash(&expr1), compute_expr_hash(&expr2));
@@ -1703,7 +1704,7 @@ mod tests {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::DtRobustCall {
                 operator: DtRobustOperator::Decay,
-                args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0)],
+                args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
                 method: crate::IntegrationMethod::Euler,
             }),
             right: Box::new(CompiledExpr::Collected),

@@ -1061,7 +1061,8 @@ mod tests {
         let _result = compile(&world).unwrap();
 
         // Check that signal c depends on both a and b
-        let sig_c = world.signals().get(&SignalId::from("terra.c")).unwrap();
+        let signals = world.signals();
+        let sig_c = signals.get(&SignalId::from("terra.c")).unwrap();
         assert_eq!(sig_c.reads.len(), 2);
     }
 

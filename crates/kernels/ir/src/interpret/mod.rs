@@ -350,8 +350,28 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
 }
 
 pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> Value {
-    // Check if defined in config
-    if let Some((value, _)) = world.config.get(&signal_id.to_string()) {
+    let name = signal_id.to_string();
+
+    // 1. Check exact name in config (e.g. terra.energy)
+    if let Some((value, _)) = world.config.get(&name) {
+        return Value::Scalar(*value);
+    }
+
+    // 2. Check name.initial (e.g. terra.energy.initial)
+    if let Some((value, _)) = world.config.get(&format!("{}.initial", name)) {
+        return Value::Scalar(*value);
+    }
+
+    // 3. Check initial_name (legacy/test pattern, e.g. terra.initial_energy)
+    // We need to handle the case where initial is in the middle: terra.initial_energy
+    // If the signal is terra.energy, it might be terra.initial_energy.
+    if let Some(pos) = name.rfind('.') {
+        let prefix = &name[..pos];
+        let last = &name[pos + 1..];
+        if let Some((value, _)) = world.config.get(&format!("{}.initial_{}", prefix, last)) {
+            return Value::Scalar(*value);
+        }
+    } else if let Some((value, _)) = world.config.get(&format!("initial_{}", name)) {
         return Value::Scalar(*value);
     }
 

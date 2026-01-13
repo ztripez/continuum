@@ -499,6 +499,11 @@ impl EntityStorage {
             .unwrap_or(0)
     }
 
+    /// Iterate over all registered entity types
+    pub fn iter(&self) -> impl Iterator<Item = (&EntityId, &EntityInstances)> {
+        self.current.iter()
+    }
+
     /// Get all instance IDs for an entity type (deterministic order)
     pub fn instance_ids(&self, entity: &EntityId) -> impl Iterator<Item = &InstanceId> {
         self.previous

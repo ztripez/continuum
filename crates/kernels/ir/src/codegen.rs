@@ -350,7 +350,7 @@ mod tests {
 
     #[test]
     fn test_compile_literal() {
-        let expr = CompiledExpr::Literal(42.0);
+        let expr = CompiledExpr::Literal(42.0, None);
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
         assert_eq!(result, 42.0);
@@ -360,8 +360,8 @@ mod tests {
     fn test_compile_binary() {
         let expr = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
-            left: Box::new(CompiledExpr::Literal(10.0)),
-            right: Box::new(CompiledExpr::Literal(32.0)),
+            left: Box::new(CompiledExpr::Literal(10.0, None)),
+            right: Box::new(CompiledExpr::Literal(32.0, None)),
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
@@ -380,7 +380,7 @@ mod tests {
     fn test_compile_call() {
         let expr = CompiledExpr::Call {
             function: "abs".to_string(),
-            args: vec![CompiledExpr::Literal(-5.0)],
+            args: vec![CompiledExpr::Literal(-5.0, None)],
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
@@ -393,10 +393,10 @@ mod tests {
             condition: Box::new(CompiledExpr::Binary {
                 op: BinaryOpIr::Gt,
                 left: Box::new(CompiledExpr::Signal(SignalId::from("temp"))),
-                right: Box::new(CompiledExpr::Literal(20.0)),
+                right: Box::new(CompiledExpr::Literal(20.0, None)),
             }),
-            then_branch: Box::new(CompiledExpr::Literal(100.0)),
-            else_branch: Box::new(CompiledExpr::Literal(0.0)),
+            then_branch: Box::new(CompiledExpr::Literal(100.0, None)),
+            else_branch: Box::new(CompiledExpr::Literal(0.0, None)),
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
@@ -416,10 +416,10 @@ mod tests {
                     args: vec![CompiledExpr::Binary {
                         op: BinaryOpIr::Sub,
                         left: Box::new(CompiledExpr::Signal(SignalId::from("temp"))),
-                        right: Box::new(CompiledExpr::Literal(30.0)),
+                        right: Box::new(CompiledExpr::Literal(30.0, None)),
                     }],
                 }),
-                right: Box::new(CompiledExpr::Config("scale".to_string())),
+                right: Box::new(CompiledExpr::Config("scale".to_string(), None)),
             }),
         };
         let chunk = compile(&expr);
@@ -434,10 +434,10 @@ mod tests {
         // a + b = 30.0
         let expr = CompiledExpr::Let {
             name: "a".to_string(),
-            value: Box::new(CompiledExpr::Literal(10.0)),
+            value: Box::new(CompiledExpr::Literal(10.0, None)),
             body: Box::new(CompiledExpr::Let {
                 name: "b".to_string(),
-                value: Box::new(CompiledExpr::Literal(20.0)),
+                value: Box::new(CompiledExpr::Literal(20.0, None)),
                 body: Box::new(CompiledExpr::Binary {
                     op: BinaryOpIr::Add,
                     left: Box::new(CompiledExpr::Local("a".to_string())),

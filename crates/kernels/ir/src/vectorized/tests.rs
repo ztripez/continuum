@@ -18,7 +18,7 @@ fn execute_l2(expr: &CompiledExpr, prev_values: &[f64], dt: f64) -> Vec<f64> {
 
 #[test]
 fn test_l2_literal() {
-    let expr = CompiledExpr::Literal(42.0);
+    let expr = CompiledExpr::Literal(42.0, None);
     let prev = vec![0.0, 1.0, 2.0, 3.0];
     let result = execute_l2(&expr, &prev, 1.0);
 
@@ -54,7 +54,7 @@ fn test_l2_binary_add() {
     let expr = CompiledExpr::Binary {
         op: BinaryOpIr::Add,
         left: Box::new(CompiledExpr::Prev),
-        right: Box::new(CompiledExpr::Literal(1.0)),
+        right: Box::new(CompiledExpr::Literal(1.0, None)),
     };
     let prev = vec![0.0, 10.0, 20.0, 30.0];
     let result = execute_l2(&expr, &prev, 1.0);
@@ -68,7 +68,7 @@ fn test_l2_binary_mul() {
     let expr = CompiledExpr::Binary {
         op: BinaryOpIr::Mul,
         left: Box::new(CompiledExpr::Prev),
-        right: Box::new(CompiledExpr::Literal(2.0)),
+        right: Box::new(CompiledExpr::Literal(2.0, None)),
     };
     let prev = vec![1.0, 2.0, 3.0, 4.0];
     let result = execute_l2(&expr, &prev, 1.0);
@@ -84,9 +84,9 @@ fn test_l2_nested_expression() {
         left: Box::new(CompiledExpr::Binary {
             op: BinaryOpIr::Add,
             left: Box::new(CompiledExpr::Prev),
-            right: Box::new(CompiledExpr::Literal(1.0)),
+            right: Box::new(CompiledExpr::Literal(1.0, None)),
         }),
-        right: Box::new(CompiledExpr::Literal(2.0)),
+        right: Box::new(CompiledExpr::Literal(2.0, None)),
     };
     let prev = vec![0.0, 1.0, 2.0, 3.0];
     let result = execute_l2(&expr, &prev, 1.0);
@@ -123,7 +123,7 @@ fn test_l2_kernel_sqrt() {
 fn test_l2_kernel_sin() {
     let expr = CompiledExpr::KernelCall {
         function: "sin".to_string(),
-        args: vec![CompiledExpr::Literal(0.0)],
+        args: vec![CompiledExpr::Literal(0.0, None)],
     };
     let prev = vec![0.0; 4];
     let result = execute_l2(&expr, &prev, 1.0);
@@ -139,8 +139,8 @@ fn test_l2_kernel_clamp() {
         function: "clamp".to_string(),
         args: vec![
             CompiledExpr::Prev,
-            CompiledExpr::Literal(0.0),
-            CompiledExpr::Literal(5.0),
+            CompiledExpr::Literal(0.0, None),
+            CompiledExpr::Literal(5.0, None),
         ],
     };
     let prev = vec![-2.0, 1.0, 3.0, 10.0];
@@ -154,8 +154,8 @@ fn test_l2_kernel_lerp() {
     let expr = CompiledExpr::KernelCall {
         function: "lerp".to_string(),
         args: vec![
-            CompiledExpr::Literal(0.0),
-            CompiledExpr::Literal(10.0),
+            CompiledExpr::Literal(0.0, None),
+            CompiledExpr::Literal(10.0, None),
             CompiledExpr::Prev, // t
         ],
     };
@@ -173,7 +173,7 @@ fn test_l2_integrate_euler() {
     // prev + rate * dt where rate = 1.0
     let expr = CompiledExpr::DtRobustCall {
         operator: DtRobustOperator::Integrate,
-        args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1.0)],
+        args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1.0, None)],
         method: IntegrationMethod::Euler,
     };
     let prev = vec![0.0, 10.0, 20.0, 30.0];
@@ -193,7 +193,7 @@ fn test_l2_comparison_ops() {
     let expr = CompiledExpr::Binary {
         op: BinaryOpIr::Gt,
         left: Box::new(CompiledExpr::Prev),
-        right: Box::new(CompiledExpr::Literal(5.0)),
+        right: Box::new(CompiledExpr::Literal(5.0, None)),
     };
     let prev = vec![3.0, 5.0, 7.0, 10.0];
     let result = execute_l2(&expr, &prev, 1.0);
@@ -206,7 +206,7 @@ fn test_l2_let_binding() {
     // let x = 2.0 in x * prev
     let expr = CompiledExpr::Let {
         name: "x".to_string(),
-        value: Box::new(CompiledExpr::Literal(2.0)),
+        value: Box::new(CompiledExpr::Literal(2.0, None)),
         body: Box::new(CompiledExpr::Binary {
             op: BinaryOpIr::Mul,
             left: Box::new(CompiledExpr::Local("x".to_string())),
@@ -225,7 +225,7 @@ fn test_l2_large_population() {
     let expr = CompiledExpr::Binary {
         op: BinaryOpIr::Add,
         left: Box::new(CompiledExpr::Prev),
-        right: Box::new(CompiledExpr::Literal(1.0)),
+        right: Box::new(CompiledExpr::Literal(1.0, None)),
     };
 
     let population = 10_000;
@@ -244,8 +244,8 @@ fn test_l2_uniform_optimization() {
     // 2.0 * 3.0 (no prev or per-entity data)
     let expr = CompiledExpr::Binary {
         op: BinaryOpIr::Mul,
-        left: Box::new(CompiledExpr::Literal(2.0)),
-        right: Box::new(CompiledExpr::Literal(3.0)),
+        left: Box::new(CompiledExpr::Literal(2.0, None)),
+        right: Box::new(CompiledExpr::Literal(3.0, None)),
     };
     let prev = vec![0.0; 100];
     let result = execute_l2(&expr, &prev, 1.0);
@@ -263,7 +263,7 @@ fn test_l2_scalar_kernel_implementation() {
     let expr = CompiledExpr::Binary {
         op: BinaryOpIr::Add,
         left: Box::new(CompiledExpr::Prev),
-        right: Box::new(CompiledExpr::Literal(1.0)),
+        right: Box::new(CompiledExpr::Literal(1.0, None)),
     };
     let ssa = Arc::new(lower_to_ssa(&expr));
     let executor = L2VectorizedExecutor::new(ssa);
@@ -303,7 +303,7 @@ fn test_l2_decay_operator() {
         operator: DtRobustOperator::Decay,
         args: vec![
             CompiledExpr::Prev,
-            CompiledExpr::Literal(1.0), // half_life
+            CompiledExpr::Literal(1.0, None), // half_life
         ],
         method: IntegrationMethod::Euler, // method not used for decay
     };
@@ -326,8 +326,8 @@ fn test_l2_smooth_operator() {
         operator: DtRobustOperator::Smooth,
         args: vec![
             CompiledExpr::Prev,
-            CompiledExpr::Literal(100.0), // target
-            CompiledExpr::Literal(1.0),   // tau
+            CompiledExpr::Literal(100.0, None), // target
+            CompiledExpr::Literal(1.0, None),   // tau
         ],
         method: IntegrationMethod::Euler,
     };
@@ -446,7 +446,7 @@ fn test_l2_self_field_expression_with_snapshot() {
         right: Box::new(CompiledExpr::Binary {
             op: BinaryOpIr::Mul,
             left: Box::new(CompiledExpr::SelfField("velocity".to_string())),
-            right: Box::new(CompiledExpr::Literal(0.5)),
+            right: Box::new(CompiledExpr::Literal(0.5, None)),
         }),
     };
     let ssa = Arc::new(lower_to_ssa(&expr));

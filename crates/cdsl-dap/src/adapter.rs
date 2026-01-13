@@ -25,8 +25,8 @@ pub struct DebugSession {
     pub runtime: Runtime,
     pub sources: HashMap<PathBuf, String>,
     pub breakpoints: HashMap<PathBuf, HashSet<usize>>, // File -> Line numbers
-    pub signal_breakpoints: HashSet<String>,           // Signal names
     pub status: SessionStatus,
+    pub current_halt_signal: Option<continuum_foundation::SignalId>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -188,8 +188,8 @@ impl ContinuumDebugAdapter {
                     runtime,
                     sources,
                     breakpoints: HashMap::new(),
-                    signal_breakpoints: HashSet::new(),
                     status: SessionStatus::Paused,
+                    current_halt_signal: None,
                 });
 
                 self.send_event(Event::Stopped(StoppedEventBody {
@@ -254,7 +254,43 @@ impl ContinuumDebugAdapter {
             Command::StackTrace(_) => {
                 let session_opt = self.session.lock().await;
                 let frames = if let Some(ref session) = *session_opt {
-                    vec![StackFrame {
+                    let mut frames = vec![];
+
+                    // If we are at a breakpoint, add a frame for the signal
+                    if let Some(ref signal_id) = session.current_halt_signal {
+                        let path = continuum_foundation::Path::from(signal_id.to_string());
+                        if let Some(node) = session.world.nodes.get(&path) {
+                            let mut frame = StackFrame {
+                                id: 2,
+                                name: format!("Signal: {}", signal_id),
+                                line: 0,
+                                column: 0,
+                                ..Default::default()
+                            };
+
+                            if let Some(ref file) = node.file {
+                                frame.source = Some(dap::types::Source {
+                                    name: Some(
+                                        file.file_name()
+                                            .unwrap_or_default()
+                                            .to_string_lossy()
+                                            .to_string(),
+                                    ),
+                                    path: Some(file.to_string_lossy().to_string()),
+                                    ..Default::default()
+                                });
+
+                                if let Some(source) = session.sources.get(file) {
+                                    let (line, col) = offset_to_line_col(source, node.span.start);
+                                    frame.line = line as i64 + 1;
+                                    frame.column = col as i64 + 1;
+                                }
+                            }
+                            frames.push(frame);
+                        }
+                    }
+
+                    frames.push(StackFrame {
                         id: 1,
                         name: format!(
                             "Tick {} - {:?}",
@@ -265,13 +301,15 @@ impl ContinuumDebugAdapter {
                         line: 0,
                         column: 0,
                         ..Default::default()
-                    }]
+                    });
+                    frames
                 } else {
                     vec![]
                 };
+                let num_frames = frames.len() as i64;
                 ResponseBody::StackTrace(dap::responses::StackTraceResponse {
                     stack_frames: frames,
-                    total_frames: Some(1),
+                    total_frames: Some(num_frames),
                 })
             }
             Command::Scopes(_) => ResponseBody::Scopes(dap::responses::ScopesResponse {
@@ -280,6 +318,12 @@ impl ContinuumDebugAdapter {
                         name: "Signals".to_string(),
                         variables_reference: 1,
                         expensive: false,
+                        ..Default::default()
+                    },
+                    Scope {
+                        name: "Entities".to_string(),
+                        variables_reference: 3,
+                        expensive: true,
                         ..Default::default()
                     },
                     Scope {
@@ -296,6 +340,7 @@ impl ContinuumDebugAdapter {
                 let mut variables = vec![];
                 if let Some(ref session) = *session_opt {
                     if args.variables_reference == 1 {
+                        // Scope: Signals
                         for (id, _signal) in &session.world.signals() {
                             if let Some(val) = session.runtime.get_signal(id) {
                                 variables.push(Variable {
@@ -307,6 +352,7 @@ impl ContinuumDebugAdapter {
                             }
                         }
                     } else if args.variables_reference == 2 {
+                        // Scope: Configuration
                         for (name, (val, unit)) in &session.world.config {
                             variables.push(Variable {
                                 name: name.clone(),
@@ -315,10 +361,67 @@ impl ContinuumDebugAdapter {
                                 ..Default::default()
                             });
                         }
+                    } else if args.variables_reference == 3 {
+                        // Scope: Entities
+                        for (i, (id, instances)) in session.runtime.entities().iter().enumerate() {
+                            variables.push(Variable {
+                                name: id.to_string(),
+                                value: format!("{} instances", instances.count()),
+                                variables_reference: 1000 + i as i64,
+                                ..Default::default()
+                            });
+                        }
+                    } else if args.variables_reference >= 1000 && args.variables_reference < 2000 {
+                        // Entity Type -> List Instances
+                        let entity_idx = (args.variables_reference - 1000) as usize;
+                        if let Some((_id, instances)) =
+                            session.runtime.entities().iter().nth(entity_idx)
+                        {
+                            // Show first 100 instances to avoid IDE lag
+                            for (j, (inst_id, _data)) in instances.iter().enumerate().take(100) {
+                                variables.push(Variable {
+                                    name: format!("[{}] {}", j, inst_id),
+                                    value: "Instance Data".to_string(),
+                                    variables_reference: 10000
+                                        + (entity_idx as i64 * 1000)
+                                        + j as i64,
+                                    ..Default::default()
+                                });
+                            }
+                            if instances.count() > 100 {
+                                variables.push(Variable {
+                                    name: "...".to_string(),
+                                    value: format!("{} more instances", instances.count() - 100),
+                                    variables_reference: 0,
+                                    ..Default::default()
+                                });
+                            }
+                        }
+                    } else if args.variables_reference >= 10000 {
+                        // Instance -> List Fields
+                        let ref_id = args.variables_reference - 10000;
+                        let entity_idx = (ref_id / 1000) as usize;
+                        let inst_idx = (ref_id % 1000) as usize;
+
+                        if let Some((_id, instances)) =
+                            session.runtime.entities().iter().nth(entity_idx)
+                        {
+                            if let Some((_inst_id, data)) = instances.iter().nth(inst_idx) {
+                                for (field_name, val) in &data.fields {
+                                    variables.push(Variable {
+                                        name: field_name.clone(),
+                                        value: format!("{:?}", val),
+                                        variables_reference: 0,
+                                        ..Default::default()
+                                    });
+                                }
+                            }
+                        }
                     }
                 }
                 ResponseBody::Variables(dap::responses::VariablesResponse { variables })
             }
+
             Command::Continue(_) => {
                 let mut session_opt = self.session.lock().await;
                 if let Some(ref mut session) = *session_opt {
@@ -332,6 +435,7 @@ impl ContinuumDebugAdapter {
                             session.status = SessionStatus::Paused;
                             let body = match result {
                                 continuum_runtime::types::StepResult::Breakpoint { signal } => {
+                                    session.current_halt_signal = Some(signal.clone());
                                     StoppedEventBody {
                                         reason: StoppedEventReason::Breakpoint,
                                         thread_id: Some(1),
@@ -373,6 +477,7 @@ impl ContinuumDebugAdapter {
                         Ok(result) => {
                             let body = match result {
                                 continuum_runtime::types::StepResult::Breakpoint { signal } => {
+                                    session.current_halt_signal = Some(signal.clone());
                                     StoppedEventBody {
                                         reason: StoppedEventReason::Breakpoint,
                                         thread_id: Some(1),
