@@ -22,6 +22,8 @@ use crate::CompiledExpr;
 pub enum InterpValue {
     Scalar(f64),
     Vec3([f64; 3]),
+    Vec4([f64; 4]),
+    Quat([f64; 4]),
     Bool(bool),
 }
 
@@ -30,6 +32,8 @@ impl InterpValue {
         match self {
             InterpValue::Scalar(v) => Value::Scalar(v),
             InterpValue::Vec3(v) => Value::Vec3(v),
+            InterpValue::Vec4(v) => Value::Vec4(v),
+            InterpValue::Quat(v) => Value::Quat(v),
             InterpValue::Bool(b) => Value::Boolean(b),
         }
     }
@@ -38,6 +42,8 @@ impl InterpValue {
         match v {
             Value::Scalar(s) => InterpValue::Scalar(*s),
             Value::Vec3(v) => InterpValue::Vec3(*v),
+            Value::Vec4(v) => InterpValue::Vec4(*v),
+            Value::Quat(v) => InterpValue::Quat(*v),
             Value::Boolean(b) => InterpValue::Bool(*b),
             Value::Integer(i) => InterpValue::Scalar(*i as f64),
             _ => InterpValue::Scalar(0.0),
@@ -48,6 +54,8 @@ impl InterpValue {
         match self {
             InterpValue::Scalar(v) => *v,
             InterpValue::Vec3(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt(),
+            InterpValue::Vec4(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt(),
+            InterpValue::Quat(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt(),
             InterpValue::Bool(b) => {
                 if *b {
                     1.0
@@ -62,6 +70,8 @@ impl InterpValue {
         match self {
             InterpValue::Scalar(v) => [*v, 0.0, 0.0],
             InterpValue::Vec3(v) => *v,
+            InterpValue::Vec4(v) => [v[0], v[1], v[2]],
+            InterpValue::Quat(v) => [v[1], v[2], v[3]],
             InterpValue::Bool(b) => [if *b { 1.0 } else { 0.0 }, 0.0, 0.0],
         }
     }
@@ -74,12 +84,24 @@ impl InterpValue {
                 (InterpValue::Vec3(a), InterpValue::Vec3(b)) => {
                     InterpValue::Vec3([a[0] + b[0], a[1] + b[1], a[2] + b[2]])
                 }
+                (InterpValue::Vec4(a), InterpValue::Vec4(b)) => {
+                    InterpValue::Vec4([a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]])
+                }
+                (InterpValue::Quat(a), InterpValue::Quat(b)) => {
+                    InterpValue::Quat([a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]])
+                }
                 _ => InterpValue::Scalar(self.as_f64() + other.as_f64()),
             },
             Sub => match (self, other) {
                 (InterpValue::Scalar(a), InterpValue::Scalar(b)) => InterpValue::Scalar(a - b),
                 (InterpValue::Vec3(a), InterpValue::Vec3(b)) => {
                     InterpValue::Vec3([a[0] - b[0], a[1] - b[1], a[2] - b[2]])
+                }
+                (InterpValue::Vec4(a), InterpValue::Vec4(b)) => {
+                    InterpValue::Vec4([a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]])
+                }
+                (InterpValue::Quat(a), InterpValue::Quat(b)) => {
+                    InterpValue::Quat([a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]])
                 }
                 _ => InterpValue::Scalar(self.as_f64() - other.as_f64()),
             },
@@ -91,12 +113,30 @@ impl InterpValue {
                 (InterpValue::Vec3(v), InterpValue::Scalar(s)) => {
                     InterpValue::Vec3([v[0] * s, v[1] * s, v[2] * s])
                 }
+                (InterpValue::Scalar(s), InterpValue::Vec4(v)) => {
+                    InterpValue::Vec4([v[0] * s, v[1] * s, v[2] * s, v[3] * s])
+                }
+                (InterpValue::Vec4(v), InterpValue::Scalar(s)) => {
+                    InterpValue::Vec4([v[0] * s, v[1] * s, v[2] * s, v[3] * s])
+                }
+                (InterpValue::Scalar(s), InterpValue::Quat(v)) => {
+                    InterpValue::Quat([v[0] * s, v[1] * s, v[2] * s, v[3] * s])
+                }
+                (InterpValue::Quat(v), InterpValue::Scalar(s)) => {
+                    InterpValue::Quat([v[0] * s, v[1] * s, v[2] * s, v[3] * s])
+                }
                 _ => InterpValue::Scalar(self.as_f64() * other.as_f64()),
             },
             Div => match (self, other) {
                 (InterpValue::Scalar(a), InterpValue::Scalar(b)) => InterpValue::Scalar(a / b),
                 (InterpValue::Vec3(v), InterpValue::Scalar(s)) => {
                     InterpValue::Vec3([v[0] / s, v[1] / s, v[2] / s])
+                }
+                (InterpValue::Vec4(v), InterpValue::Scalar(s)) => {
+                    InterpValue::Vec4([v[0] / s, v[1] / s, v[2] / s, v[3] / s])
+                }
+                (InterpValue::Quat(v), InterpValue::Scalar(s)) => {
+                    InterpValue::Quat([v[0] / s, v[1] / s, v[2] / s, v[3] / s])
                 }
                 _ => InterpValue::Scalar(self.as_f64() / other.as_f64()),
             },
@@ -118,6 +158,8 @@ impl InterpValue {
             Neg => match self {
                 InterpValue::Scalar(v) => InterpValue::Scalar(-v),
                 InterpValue::Vec3(v) => InterpValue::Vec3([-v[0], -v[1], -v[2]]),
+                InterpValue::Vec4(v) => InterpValue::Vec4([-v[0], -v[1], -v[2], -v[3]]),
+                InterpValue::Quat(v) => InterpValue::Quat([-v[0], -v[1], -v[2], -v[3]]),
                 InterpValue::Bool(b) => InterpValue::Scalar(if *b { -1.0 } else { 0.0 }),
             },
             Not => InterpValue::Bool(self.as_f64() == 0.0),
@@ -152,6 +194,8 @@ impl MemberInterpContext<'_> {
         match self.signals.get(&id) {
             Some(Value::Scalar(v)) => InterpValue::Scalar(*v),
             Some(Value::Vec3(v)) => InterpValue::Vec3(*v),
+            Some(Value::Vec4(v)) => InterpValue::Vec4(*v),
+            Some(Value::Quat(v)) => InterpValue::Quat(*v),
             _ => InterpValue::Scalar(0.0),
         }
     }

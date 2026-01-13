@@ -75,6 +75,7 @@ fn get_unit_from_type(ty: &ValueType) -> Option<Unit> {
         ValueType::Vec2 { dimension, .. } => *dimension,
         ValueType::Vec3 { dimension, .. } => *dimension,
         ValueType::Vec4 { dimension, .. } => *dimension,
+        ValueType::Quat { .. } => Some(Unit::dimensionless()),
         ValueType::Tensor { dimension, .. } => *dimension,
         _ => None,
     }

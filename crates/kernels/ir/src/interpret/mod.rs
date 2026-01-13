@@ -179,6 +179,8 @@ pub fn build_aggregate_resolver(expr: &CompiledExpr, world: &CompiledWorld) -> A
         match interpret_expr(&expr, &mut ctx) {
             InterpValue::Scalar(v) => Value::Scalar(v),
             InterpValue::Vec3(v) => Value::Vec3(v),
+            InterpValue::Vec4(v) => Value::Vec4(v),
+            InterpValue::Quat(v) => Value::Quat(v),
             InterpValue::Bool(b) => Value::Scalar(if b { 1.0 } else { 0.0 }),
         }
     })
@@ -436,6 +438,8 @@ pub fn eval_initial_expr(
     match interpret_expr(expr, &mut ctx) {
         InterpValue::Scalar(v) => Value::Scalar(v),
         InterpValue::Vec3(v) => Value::Vec3(v),
+        InterpValue::Vec4(v) => Value::Vec4(v),
+        InterpValue::Quat(v) => Value::Quat(v),
         InterpValue::Bool(b) => Value::Scalar(if b { 1.0 } else { 0.0 }),
     }
 }

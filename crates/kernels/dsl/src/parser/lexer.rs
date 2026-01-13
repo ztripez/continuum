@@ -139,6 +139,8 @@ pub enum Token {
     Vec3,
     #[token("Vec4", priority = 2)]
     Vec4,
+    #[token("Quat", priority = 2)]
+    Quat,
     #[token("Vector", priority = 2)]
     Vector,
     #[token("Tensor", priority = 2)]

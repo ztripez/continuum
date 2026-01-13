@@ -69,6 +69,8 @@ pub enum VRegBuffer {
     Vec3(Vec<[f64; 3]>),
     /// Array of Vec4 values
     Vec4(Vec<[f64; 4]>),
+    /// Array of Quaternion values
+    Quat(Vec<[f64; 4]>),
     /// Uniform value (same for all entities, broadcast on demand)
     Uniform(Value),
 }
@@ -93,6 +95,7 @@ impl VRegBuffer {
             VRegBuffer::Vec2(v) => v.get(idx).map(|&x| Value::Vec2(x)),
             VRegBuffer::Vec3(v) => v.get(idx).map(|&x| Value::Vec3(x)),
             VRegBuffer::Vec4(v) => v.get(idx).map(|&x| Value::Vec4(x)),
+            VRegBuffer::Quat(v) => v.get(idx).map(|&x| Value::Quat(x)),
             VRegBuffer::Uniform(v) => Some(v.clone()),
         }
     }
@@ -114,6 +117,14 @@ impl VRegBuffer {
     pub fn as_scalar_slice(&self) -> Option<&[f64]> {
         match self {
             VRegBuffer::Scalar(arr) => Some(arr),
+            _ => None,
+        }
+    }
+
+    /// Get as quaternion slice if possible
+    pub fn as_quat_slice(&self) -> Option<&[[f64; 4]]> {
+        match self {
+            VRegBuffer::Quat(arr) => Some(arr),
             _ => None,
         }
     }

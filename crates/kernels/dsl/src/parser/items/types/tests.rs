@@ -43,6 +43,7 @@ fn parse_core_type_primitives() {
         parse_type_expr("Vec3"),
         TypeExpr::Vector { dim: 3, .. }
     ));
+    assert!(matches!(parse_type_expr("Quat"), TypeExpr::Quat { .. }));
     assert!(matches!(
         parse_type_expr("Tensor<2, 3, kg>"),
         TypeExpr::Tensor {

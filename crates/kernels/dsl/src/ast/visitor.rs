@@ -1542,6 +1542,11 @@ pub fn walk_type_expr<V: AstVisitor + ?Sized>(visitor: &mut V, expr: &TypeExpr) 
                 visitor.visit_range(range);
             }
         }
+        TypeExpr::Quat { magnitude } => {
+            if let Some(range) = magnitude {
+                visitor.visit_range(range);
+            }
+        }
         TypeExpr::Tensor { constraints, .. } => {
             for constraint in constraints {
                 visitor.visit_tensor_constraint(constraint);
@@ -2593,6 +2598,9 @@ pub fn walk_type_expr_transform<T: AstTransformer + ?Sized>(
         } => TypeExpr::Vector {
             dim,
             unit: transformer.transform_string(unit),
+            magnitude: magnitude.map(|range| transformer.transform_range(range)),
+        },
+        TypeExpr::Quat { magnitude } => TypeExpr::Quat {
             magnitude: magnitude.map(|range| transformer.transform_range(range)),
         },
         TypeExpr::Tensor {

@@ -13,8 +13,10 @@ pub enum Value {
     Vec2([f64; 2]),
     /// 3D vector (e.g., position, velocity, force).
     Vec3([f64; 3]),
-    /// 4D vector (e.g., quaternion, RGBA color).
+    /// 4D vector (e.g., RGBA color).
     Vec4([f64; 4]),
+    /// Quaternion (w, x, y, z).
+    Quat([f64; 4]),
     // TODO: Mat3, Mat4, Tensor, Grid, Seq
 }
 
@@ -68,6 +70,14 @@ impl Value {
         }
     }
 
+    /// Attempt to get the value as a quaternion.
+    pub fn as_quat(&self) -> Option<[f64; 4]> {
+        match self {
+            Value::Quat(v) => Some(*v),
+            _ => None,
+        }
+    }
+
     /// Get a component by name (x, y, z, w).
     pub fn component(&self, name: &str) -> Option<f64> {
         match (self, name) {
@@ -82,6 +92,10 @@ impl Value {
             (Value::Vec4(v), "y") => Some(v[1]),
             (Value::Vec4(v), "z") => Some(v[2]),
             (Value::Vec4(v), "w") => Some(v[3]),
+            (Value::Quat(v), "w") => Some(v[0]),
+            (Value::Quat(v), "x") => Some(v[1]),
+            (Value::Quat(v), "y") => Some(v[2]),
+            (Value::Quat(v), "z") => Some(v[3]),
             _ => None,
         }
     }
@@ -177,6 +191,20 @@ impl IntoValue for [f64; 4] {
     }
 }
 
+pub struct Quat(pub [f64; 4]);
+
+impl FromValue for Quat {
+    fn from_value(value: &Value) -> Option<Self> {
+        value.as_quat().map(Quat)
+    }
+}
+
+impl IntoValue for Quat {
+    fn into_value(self) -> Value {
+        Value::Quat(self.0)
+    }
+}
+
 impl IntoValue for Value {
     fn into_value(self) -> Value {
         self
@@ -222,5 +250,19 @@ mod tests {
             _ => panic!("Expected Vec3"),
         }
         assert_eq!(<[f64; 3]>::from_value(&value), Some([1.0, 2.0, 3.0]));
+    }
+
+    #[test]
+    fn test_quat_conversions() {
+        let q = Quat([1.0, 0.0, 0.0, 0.0]);
+        let value = q.into_value();
+        match &value {
+            Value::Quat(arr) => assert_eq!(arr, &[1.0, 0.0, 0.0, 0.0]),
+            _ => panic!("Expected Quat"),
+        }
+        assert_eq!(
+            Quat::from_value(&value).map(|q| q.0),
+            Some([1.0, 0.0, 0.0, 0.0])
+        );
     }
 }

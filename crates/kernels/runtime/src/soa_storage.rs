@@ -62,6 +62,8 @@ pub enum ValueType {
     Vec3,
     /// 4D vector [f64; 4]
     Vec4,
+    /// Quaternion [f64; 4]
+    Quat,
     /// Boolean value
     Boolean,
     /// Integer value
@@ -76,6 +78,7 @@ impl ValueType {
             ValueType::Vec2 => std::mem::size_of::<[f64; 2]>(),
             ValueType::Vec3 => std::mem::size_of::<[f64; 3]>(),
             ValueType::Vec4 => std::mem::size_of::<[f64; 4]>(),
+            ValueType::Quat => std::mem::size_of::<[f64; 4]>(),
             ValueType::Boolean => std::mem::size_of::<bool>(),
             ValueType::Integer => std::mem::size_of::<i64>(),
         }
@@ -97,6 +100,7 @@ impl ValueType {
             Value::Vec2(_) => ValueType::Vec2,
             Value::Vec3(_) => ValueType::Vec3,
             Value::Vec4(_) => ValueType::Vec4,
+            Value::Quat(_) => ValueType::Quat,
             Value::Boolean(_) => ValueType::Boolean,
             Value::Integer(_) => ValueType::Integer,
         }
@@ -683,6 +687,8 @@ pub struct MemberSignalBuffer {
     vec3s: DoubleBuffer<[f64; 3]>,
     /// Double-buffered Vec4 storage
     vec4s: DoubleBuffer<[f64; 4]>,
+    /// Double-buffered Quat storage
+    quats: DoubleBuffer<[f64; 4]>,
     /// Double-buffered Boolean storage
     booleans: DoubleBuffer<bool>,
     /// Double-buffered Integer storage
@@ -700,6 +706,7 @@ impl MemberSignalBuffer {
             vec2s: DoubleBuffer::new(),
             vec3s: DoubleBuffer::new(),
             vec4s: DoubleBuffer::new(),
+            quats: DoubleBuffer::new(),
             booleans: DoubleBuffer::new(),
             integers: DoubleBuffer::new(),
         }
@@ -727,6 +734,8 @@ impl MemberSignalBuffer {
             .init(self.registry.type_count(ValueType::Vec3), instance_count);
         self.vec4s
             .init(self.registry.type_count(ValueType::Vec4), instance_count);
+        self.quats
+            .init(self.registry.type_count(ValueType::Quat), instance_count);
         self.booleans
             .init(self.registry.type_count(ValueType::Boolean), instance_count);
         self.integers
@@ -808,6 +817,10 @@ impl MemberSignalBuffer {
                 .vec4s
                 .get_current(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Vec4(v)),
+            ValueType::Quat => self
+                .quats
+                .get_current(meta.buffer_index, instance_idx)
+                .map(|&v| Value::Quat(v)),
             ValueType::Boolean => self
                 .booleans
                 .get_current(meta.buffer_index, instance_idx)
@@ -839,6 +852,10 @@ impl MemberSignalBuffer {
                 .vec4s
                 .get_previous(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Vec4(v)),
+            ValueType::Quat => self
+                .quats
+                .get_previous(meta.buffer_index, instance_idx)
+                .map(|&v| Value::Quat(v)),
             ValueType::Boolean => self
                 .booleans
                 .get_previous(meta.buffer_index, instance_idx)
@@ -876,6 +893,10 @@ impl MemberSignalBuffer {
             }
             (ValueType::Vec4, Value::Vec4(v)) => {
                 self.vec4s.set_current(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (ValueType::Quat, Value::Quat(v)) => {
+                self.quats.set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
             (ValueType::Boolean, Value::Boolean(v)) => {
@@ -937,6 +958,24 @@ impl MemberSignalBuffer {
         Some(self.vec3s.signal_slice_mut(meta.buffer_index))
     }
 
+    /// Get Quat slice for a signal.
+    pub fn quat_slice(&self, signal: &str) -> Option<&[[f64; 4]]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type != ValueType::Quat {
+            return None;
+        }
+        Some(self.quats.signal_slice(meta.buffer_index))
+    }
+
+    /// Get mutable Quat slice for a signal.
+    pub fn quat_slice_mut(&mut self, signal: &str) -> Option<&mut [[f64; 4]]> {
+        let meta = self.registry.get(signal)?.clone();
+        if meta.value_type != ValueType::Quat {
+            return None;
+        }
+        Some(self.quats.signal_slice_mut(meta.buffer_index))
+    }
+
     // ========================================================================
     // Previous tick access (for lane kernel execution)
     // ========================================================================
@@ -980,12 +1019,22 @@ impl MemberSignalBuffer {
         Some(self.vec4s.prev_signal_slice(meta.buffer_index))
     }
 
+    /// Get previous tick's Quat slice for a signal.
+    pub fn prev_quat_slice(&self, signal: &str) -> Option<&[[f64; 4]]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type != ValueType::Quat {
+            return None;
+        }
+        Some(self.quats.prev_signal_slice(meta.buffer_index))
+    }
+
     /// Advance tick: current becomes previous.
     pub fn advance_tick(&mut self) {
         self.scalars.advance_tick();
         self.vec2s.advance_tick();
         self.vec3s.advance_tick();
         self.vec4s.advance_tick();
+        self.quats.advance_tick();
         self.booleans.advance_tick();
         self.integers.advance_tick();
     }

@@ -172,13 +172,17 @@ pub enum TypeExpr {
     /// Vector value: `Vec3<m>` (dimension, unit, optional magnitude bounds).
     ///
     /// Supports 2D, 3D, and 4D vectors. The magnitude constraint is useful for:
-    /// - Unit quaternions: `Vec4<1, magnitude: 1>` (normalized to unit length)
     /// - Position bounds: `Vec3<m, magnitude: 1e6..1e9>`
     Vector {
         /// Dimension (2, 3, or 4).
         dim: u8,
         /// Component unit.
         unit: String,
+        /// Optional magnitude bounds.
+        magnitude: Option<Range>,
+    },
+    /// Quaternion value: `Quat` (unitless, optional magnitude bounds).
+    Quat {
         /// Optional magnitude bounds.
         magnitude: Option<Range>,
     },

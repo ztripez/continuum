@@ -395,6 +395,7 @@ fn main() {
                         ValueType::Vec2 { .. } => Value::Vec2([0.0; 2]),
                         ValueType::Vec3 { .. } => Value::Vec3([0.0; 3]),
                         ValueType::Vec4 { .. } => Value::Vec4([0.0; 4]),
+                        ValueType::Quat { .. } => Value::Quat([1.0, 0.0, 0.0, 0.0]),
                         _ => Value::Scalar(0.0),
                     };
                     fields.insert(member.signal_name.clone(), initial_value);
@@ -447,6 +448,7 @@ fn main() {
                 ValueType::Vec2 { .. } => MemberValueType::Vec2,
                 ValueType::Vec3 { .. } => MemberValueType::Vec3,
                 ValueType::Vec4 { .. } => MemberValueType::Vec4,
+                ValueType::Quat { .. } => MemberValueType::Quat,
                 _ => MemberValueType::Scalar,
             };
             // Use full member ID (e.g., "stellar.star.mass") instead of just signal_name ("mass")

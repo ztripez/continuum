@@ -607,6 +607,13 @@ fn format_value_type(ty: &ValueType) -> String {
                 format!("Vec4<{}>", unit_str)
             }
         }
+        ValueType::Quat { magnitude } => {
+            if let Some(m) = magnitude {
+                format!("Quat<magnitude: {}..{}>", m.min, m.max)
+            } else {
+                "Quat".to_string()
+            }
+        }
         ValueType::Tensor {
             rows, cols, unit, ..
         } => {

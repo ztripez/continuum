@@ -106,6 +106,12 @@ impl Lowerer {
                     },
                 }
             }
+            TypeExpr::Quat { magnitude } => ValueType::Quat {
+                magnitude: magnitude.as_ref().map(|r| ValueRange {
+                    min: r.min,
+                    max: r.max,
+                }),
+            },
             TypeExpr::Tensor {
                 rows,
                 cols,
@@ -120,10 +126,18 @@ impl Lowerer {
                     dimension,
                     constraints: constraints
                         .iter()
-                        .map(|c| self.lower_tensor_constraint(*c))
+                        .map(|c| match c {
+                            ast::TensorConstraint::Symmetric => {
+                                crate::TensorConstraintIr::Symmetric
+                            }
+                            ast::TensorConstraint::PositiveDefinite => {
+                                crate::TensorConstraintIr::PositiveDefinite
+                            }
+                        })
                         .collect(),
                 }
             }
+
             TypeExpr::Grid {
                 width,
                 height,

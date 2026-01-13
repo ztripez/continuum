@@ -103,6 +103,7 @@ pub fn ident<'src>()
         tok(Token::Vec2).to("Vec2".to_string()),
         tok(Token::Vec3).to("Vec3".to_string()),
         tok(Token::Vec4).to("Vec4".to_string()),
+        tok(Token::Quat).to("Quat".to_string()),
         tok(Token::Vector).to("Vector".to_string()),
         tok(Token::Tensor).to("Tensor".to_string()),
         tok(Token::Grid).to("Grid".to_string()),

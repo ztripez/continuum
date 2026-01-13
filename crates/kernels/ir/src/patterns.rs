@@ -204,6 +204,8 @@ pub enum ValueTypeCategory {
     Vec3,
     /// 4D vector.
     Vec4,
+    /// Quaternion.
+    Quat,
     /// Tensor (matrices).
     Tensor,
     /// Grid (2D array).
@@ -219,6 +221,7 @@ impl From<&ValueType> for ValueTypeCategory {
             ValueType::Vec2 { .. } => ValueTypeCategory::Vec2,
             ValueType::Vec3 { .. } => ValueTypeCategory::Vec3,
             ValueType::Vec4 { .. } => ValueTypeCategory::Vec4,
+            ValueType::Quat { .. } => ValueTypeCategory::Quat,
             ValueType::Tensor { .. } => ValueTypeCategory::Tensor,
             ValueType::Grid { .. } => ValueTypeCategory::Grid,
             ValueType::Seq { .. } => ValueTypeCategory::Seq,

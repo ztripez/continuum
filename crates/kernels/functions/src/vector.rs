@@ -17,6 +17,41 @@ pub fn vec3(x: f64, y: f64, z: f64) -> [f64; 3] {
     [x, y, z]
 }
 
+/// Construct a 4D vector: `vec4(x, y, z, w)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn vec4(x: f64, y: f64, z: f64, w: f64) -> [f64; 4] {
+    [x, y, z, w]
+}
+
+/// Construct a vector from 2-4 scalar components or pass through a vector.
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn vec(args: &[Value]) -> Value {
+    if args.len() == 1 {
+        return match &args[0] {
+            Value::Vec2(v) => Value::Vec2(*v),
+            Value::Vec3(v) => Value::Vec3(*v),
+            Value::Vec4(v) => Value::Vec4(*v),
+            _ => panic!("vector.vec expects a vector or 2-4 scalar components"),
+        };
+    }
+
+    let mut components = Vec::new();
+    for arg in args {
+        if let Some(v) = arg.as_scalar() {
+            components.push(v);
+        } else {
+            panic!("vector.vec expects scalar components");
+        }
+    }
+
+    match components.len() {
+        2 => Value::Vec2([components[0], components[1]]),
+        3 => Value::Vec3([components[0], components[1], components[2]]),
+        4 => Value::Vec4([components[0], components[1], components[2], components[3]]),
+        _ => panic!("vector.vec expects 2-4 scalar components"),
+    }
+}
+
 /// Vector length/magnitude: `length(x, y, z)` or `length(vec)`
 #[kernel_fn(namespace = "vector", category = "vector", variadic)]
 pub fn length(args: &[Value]) -> f64 {
@@ -121,6 +156,20 @@ mod tests {
     }
 
     #[test]
+    fn test_vec4_registered() {
+        assert!(is_known_in("vector", "vec4"));
+        let desc = get_in_namespace("vector", "vec4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(4));
+    }
+
+    #[test]
+    fn test_vec_variadic_registered() {
+        assert!(is_known_in("vector", "vec"));
+        let desc = get_in_namespace("vector", "vec").unwrap();
+        assert_eq!(desc.arity, Arity::Variadic);
+    }
+
+    #[test]
     fn test_length_variadic() {
         let args = [Value::Scalar(3.0), Value::Scalar(4.0)];
         let res = length(&args);
@@ -132,5 +181,12 @@ mod tests {
         let args = [Value::Vec3([1.0, 2.0, 2.0])];
         let res = length(&args);
         assert_eq!(res, 3.0);
+    }
+
+    #[test]
+    fn test_vec_variadic_value() {
+        let args = [Value::Scalar(1.0), Value::Scalar(2.0), Value::Scalar(3.0)];
+        let res = vec(&args);
+        assert_eq!(res, Value::Vec3([1.0, 2.0, 3.0]));
     }
 }

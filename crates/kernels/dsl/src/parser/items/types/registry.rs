@@ -14,6 +14,7 @@ pub fn primitive_type_parser<'src>(
     choice((
         scalar_parser(),
         vector_parser(),
+        quat_parser(),
         tensor_parser(),
         grid_parser(type_expr_recurse.clone()),
         seq_parser(type_expr_recurse),
@@ -71,6 +72,20 @@ fn vector_parser<'src>()
             magnitude: None,
         },
     })
+}
+
+fn quat_parser<'src>()
+-> impl Parser<'src, ParserInput<'src>, TypeExpr, extra::Err<ParseError<'src>>> + Clone {
+    just(Token::Quat)
+        .then(
+            just(Token::LAngle)
+                .ignore_then(just(Token::Magnitude))
+                .ignore_then(just(Token::Colon))
+                .ignore_then(magnitude_value())
+                .then_ignore(just(Token::RAngle))
+                .or_not(),
+        )
+        .map(|(_, magnitude)| TypeExpr::Quat { magnitude })
 }
 
 fn tensor_parser<'src>()

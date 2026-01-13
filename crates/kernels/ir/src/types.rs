@@ -524,6 +524,9 @@ pub enum ValueType {
         dimension: Option<crate::units::Unit>,
         magnitude: Option<ValueRange>,
     },
+    Quat {
+        magnitude: Option<ValueRange>,
+    },
     Tensor {
         rows: u8,
         cols: u8,

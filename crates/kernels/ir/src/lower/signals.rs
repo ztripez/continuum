@@ -303,6 +303,7 @@ impl Lowerer {
             }
             ast::TypeExpr::Grid { width, height, .. } => format!("Grid<{},{}>", width, height),
             ast::TypeExpr::Seq { .. } => "Seq<...>".to_string(),
+            ast::TypeExpr::Quat { .. } => "Quat".to_string(),
             ast::TypeExpr::Named(name) => name.clone(),
         }
     }
@@ -367,6 +368,7 @@ impl Lowerer {
             ValueType::Vec2 { .. } => Some(&["x", "y"]),
             ValueType::Vec3 { .. } => Some(&["x", "y", "z"]),
             ValueType::Vec4 { .. } => Some(&["x", "y", "z", "w"]),
+            ValueType::Quat { .. } => Some(&["w", "x", "y", "z"]),
             _ => None,
         };
 
