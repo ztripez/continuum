@@ -195,35 +195,11 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
             function,
             args,
         } => {
-            // Special handling for vector constructors until registry supports non-scalar returns
-            if namespace == "vector" {
-                match function.as_str() {
-                    "vec2" => {
-                        let x = interpret_expr(&args[0], ctx).as_f64();
-                        let y = interpret_expr(&args[1], ctx).as_f64();
-                        InterpValue::Vec3([x, y, 0.0])
-                    }
-                    "vec3" => {
-                        let x = interpret_expr(&args[0], ctx).as_f64();
-                        let y = interpret_expr(&args[1], ctx).as_f64();
-                        let z = interpret_expr(&args[2], ctx).as_f64();
-                        InterpValue::Vec3([x, y, z])
-                    }
-                    _ => {
-                        let arg_vals: Vec<Value> = args
-                            .iter()
-                            .map(|a| interpret_expr(a, ctx).into_value())
-                            .collect();
-                        InterpValue::from_value(&ctx.call_kernel(namespace, function, &arg_vals))
-                    }
-                }
-            } else {
-                let arg_vals: Vec<Value> = args
-                    .iter()
-                    .map(|a| interpret_expr(a, ctx).into_value())
-                    .collect();
-                InterpValue::from_value(&ctx.call_kernel(namespace, function, &arg_vals))
-            }
+            let arg_vals: Vec<Value> = args
+                .iter()
+                .map(|a| interpret_expr(a, ctx).into_value())
+                .collect();
+            InterpValue::from_value(&ctx.call_kernel(namespace, function, &arg_vals))
         }
         CompiledExpr::If {
             condition,
