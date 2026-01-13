@@ -7,19 +7,19 @@ use continuum_foundation::Dt;
 use continuum_kernel_macros::kernel_fn;
 
 /// Integration: `integrate(prev, rate)` → `prev + rate * dt`
-#[kernel_fn(name = "integrate", category = "simulation")]
+#[kernel_fn(name = "integrate", category = "simulation", vectorized)]
 pub fn integrate(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
 }
 
 /// Exponential decay: `decay(value, halflife)` → `value * 0.5^(dt/halflife)`
-#[kernel_fn(name = "decay", category = "simulation")]
+#[kernel_fn(name = "decay", category = "simulation", vectorized)]
 pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
     value * 0.5_f64.powf(dt / halflife)
 }
 
 /// Exponential relaxation: `relax(current, target, tau)` → approaches target
-#[kernel_fn(name = "relax", category = "simulation")]
+#[kernel_fn(name = "relax", category = "simulation", vectorized)]
 pub fn relax(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     let alpha = std::f64::consts::E.powf(-dt / tau);
     target + (current - target) * alpha
@@ -80,5 +80,21 @@ mod tests {
         let result = eval("relax", &[0.0, 100.0, 1.0], 1.0).unwrap();
         let expected = 100.0 * (1.0 - std::f64::consts::E.powf(-1.0));
         assert!((result - expected).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_vectorized_attribute_working() {
+        use continuum_kernel_registry::has_vectorized_impl;
+
+        // These functions should NOT have vectorized implementations yet
+        // (we marked them with vectorized attribute but haven't implemented the actual vectorized functions)
+        assert!(!has_vectorized_impl("integrate"));
+        assert!(!has_vectorized_impl("decay"));
+        assert!(!has_vectorized_impl("relax"));
+
+        // But they should still be registered as regular functions
+        assert!(is_known("integrate"));
+        assert!(is_known("decay"));
+        assert!(is_known("relax"));
     }
 }

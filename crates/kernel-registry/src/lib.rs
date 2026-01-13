@@ -49,11 +49,68 @@ pub use linkme;
 
 use linkme::distributed_slice;
 
+/// Virtual register buffer for vectorized operations
+///
+/// This represents the data storage for vectorized kernel execution.
+/// It matches the VRegBuffer type used in the IR execution engine.
+#[derive(Debug, Clone)]
+pub enum VRegBuffer {
+    /// Array of scalar values (one per entity)
+    Scalar(Vec<f64>),
+    /// Array of Vec3 values (one per entity)  
+    Vec3(Vec<[f64; 3]>),
+    /// Uniform scalar value (same for all entities, broadcast on demand)
+    UniformScalar(f64),
+}
+
+impl VRegBuffer {
+    /// Create a uniform scalar buffer
+    pub fn uniform(value: f64) -> Self {
+        VRegBuffer::UniformScalar(value)
+    }
+
+    /// Get scalar value at index
+    pub fn get_scalar(&self, idx: usize) -> Option<f64> {
+        match self {
+            VRegBuffer::Scalar(arr) => arr.get(idx).copied(),
+            VRegBuffer::UniformScalar(v) => Some(*v),
+            VRegBuffer::Vec3(_) => None,
+        }
+    }
+
+    /// Get as uniform scalar if possible
+    pub fn as_uniform(&self) -> Option<f64> {
+        match self {
+            VRegBuffer::UniformScalar(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Get as scalar slice if possible
+    pub fn as_scalar_slice(&self) -> Option<&[f64]> {
+        match self {
+            VRegBuffer::Scalar(arr) => Some(arr),
+            _ => None,
+        }
+    }
+}
+
+/// Result type for vectorized operations (re-exported from IR crate for convenience)
+pub type VectorizedResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+
 /// Signature for kernel functions that don't need dt
 pub type PureFn = fn(&[f64]) -> f64;
 
 /// Signature for kernel functions that need dt
 pub type DtFn = fn(&[f64], Dt) -> f64;
+
+/// Signature for vectorized kernel functions that don't need dt
+/// Args: &[buffer1, buffer2, ...], population_size -> Result<VRegBuffer, Error>
+pub type VectorizedPureFn = fn(&[&VRegBuffer], usize) -> VectorizedResult<VRegBuffer>;
+
+/// Signature for vectorized kernel functions that need dt  
+/// Args: &[buffer1, buffer2, ...], dt, population_size -> Result<VRegBuffer, Error>
+pub type VectorizedDtFn = fn(&[&VRegBuffer], Dt, usize) -> VectorizedResult<VRegBuffer>;
 
 /// The actual function pointer, tagged by whether it needs dt
 #[derive(Clone, Copy)]
@@ -62,6 +119,15 @@ pub enum KernelImpl {
     Pure(PureFn),
     /// Dt-dependent function: `fn(&[f64], Dt) -> f64`
     WithDt(DtFn),
+}
+
+/// Vectorized implementation for high-performance entity processing
+#[derive(Clone, Copy)]
+pub enum VectorizedImpl {
+    /// Pure vectorized function: `fn(&[&VRegBuffer], usize) -> Result<VRegBuffer, Error>`
+    Pure(VectorizedPureFn),
+    /// Dt-dependent vectorized function: `fn(&[&VRegBuffer], Dt, usize) -> Result<VRegBuffer, Error>`
+    WithDt(VectorizedDtFn),
 }
 
 impl KernelImpl {
@@ -76,6 +142,26 @@ impl KernelImpl {
     /// Check if this implementation requires dt
     pub fn requires_dt(&self) -> bool {
         matches!(self, KernelImpl::WithDt(_))
+    }
+}
+
+impl VectorizedImpl {
+    /// Evaluate the vectorized kernel function
+    pub fn eval(
+        &self,
+        args: &[&VRegBuffer],
+        dt: Dt,
+        population: usize,
+    ) -> VectorizedResult<VRegBuffer> {
+        match self {
+            VectorizedImpl::Pure(f) => f(args, population),
+            VectorizedImpl::WithDt(f) => f(args, dt, population),
+        }
+    }
+
+    /// Check if this implementation requires dt
+    pub fn requires_dt(&self) -> bool {
+        matches!(self, VectorizedImpl::WithDt(_))
     }
 }
 
@@ -110,8 +196,10 @@ pub struct KernelDescriptor {
     pub category: &'static str,
     /// Number of arguments (excluding dt if present)
     pub arity: Arity,
-    /// The implementation
+    /// The scalar implementation
     pub implementation: KernelImpl,
+    /// Optional vectorized implementation for high-performance entity processing
+    pub vectorized_impl: Option<VectorizedImpl>,
 }
 
 impl KernelDescriptor {
@@ -120,9 +208,26 @@ impl KernelDescriptor {
         self.implementation.requires_dt()
     }
 
-    /// Evaluate the kernel
+    /// Evaluate the scalar kernel
     pub fn eval(&self, args: &[f64], dt: Dt) -> f64 {
         self.implementation.eval(args, dt)
+    }
+
+    /// Check if this kernel has a vectorized implementation
+    pub fn has_vectorized(&self) -> bool {
+        self.vectorized_impl.is_some()
+    }
+
+    /// Evaluate the vectorized kernel (if available)
+    pub fn eval_vectorized(
+        &self,
+        args: &[&VRegBuffer],
+        dt: Dt,
+        population: usize,
+    ) -> Option<VectorizedResult<VRegBuffer>> {
+        self.vectorized_impl
+            .as_ref()
+            .map(|impl_| impl_.eval(args, dt, population))
     }
 }
 
@@ -152,6 +257,26 @@ pub fn eval(name: &str, args: &[f64], dt: Dt) -> Option<f64> {
     get(name).map(|k| k.eval(args, dt))
 }
 
+/// Get vectorized implementation for a kernel by name
+pub fn get_vectorized(name: &str) -> Option<&'static VectorizedImpl> {
+    get(name).and_then(|k| k.vectorized_impl.as_ref())
+}
+
+/// Check if a kernel has vectorized implementation
+pub fn has_vectorized_impl(name: &str) -> bool {
+    get(name).map_or(false, |k| k.has_vectorized())
+}
+
+/// Evaluate a vectorized kernel by name
+pub fn eval_vectorized(
+    name: &str,
+    args: &[&VRegBuffer],
+    dt: Dt,
+    population: usize,
+) -> Option<VectorizedResult<VRegBuffer>> {
+    get(name).and_then(|k| k.eval_vectorized(args, dt, population))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,6 +290,7 @@ mod tests {
         category: "test",
         arity: Arity::Fixed(1),
         implementation: KernelImpl::Pure(|args| args[0].abs()),
+        vectorized_impl: None,
     };
 
     #[test]
@@ -184,5 +310,29 @@ mod tests {
         let desc = get("test_abs").unwrap();
         assert_eq!(desc.arity, Arity::Fixed(1));
         assert!(!desc.requires_dt());
+    }
+
+    #[test]
+    fn test_vectorized_api() {
+        // test_abs should not have vectorized implementation
+        assert!(!has_vectorized_impl("test_abs"));
+        assert!(get_vectorized("test_abs").is_none());
+
+        let desc = get("test_abs").unwrap();
+        assert!(!desc.has_vectorized());
+        assert!(desc.eval_vectorized(&[], 0.0, 10).is_none());
+    }
+
+    #[test]
+    fn test_vreg_buffer() {
+        let uniform = VRegBuffer::uniform(42.0);
+        assert_eq!(uniform.as_uniform(), Some(42.0));
+        assert_eq!(uniform.get_scalar(0), Some(42.0));
+        assert_eq!(uniform.get_scalar(999), Some(42.0));
+
+        let scalar = VRegBuffer::Scalar(vec![1.0, 2.0, 3.0]);
+        assert_eq!(scalar.as_uniform(), None);
+        assert_eq!(scalar.get_scalar(1), Some(2.0));
+        assert_eq!(scalar.as_scalar_slice(), Some(&[1.0, 2.0, 3.0][..]));
     }
 }

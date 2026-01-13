@@ -39,6 +39,7 @@ struct KernelFnArgs {
     name: String,
     category: String,
     variadic: bool,
+    vectorized: bool,
 }
 
 impl Parse for KernelFnArgs {
@@ -46,6 +47,7 @@ impl Parse for KernelFnArgs {
         let mut name = None;
         let mut category = String::from("math");
         let mut variadic = false;
+        let mut vectorized = false;
 
         let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
         for arg in args {
@@ -53,6 +55,7 @@ impl Parse for KernelFnArgs {
                 KernelArg::Name(n) => name = Some(n),
                 KernelArg::Category(c) => category = c,
                 KernelArg::Variadic => variadic = true,
+                KernelArg::Vectorized => vectorized = true,
             }
         }
 
@@ -61,6 +64,7 @@ impl Parse for KernelFnArgs {
             name,
             category,
             variadic,
+            vectorized,
         })
     }
 }
@@ -69,6 +73,7 @@ enum KernelArg {
     Name(String),
     Category(String),
     Variadic,
+    Vectorized,
 }
 
 impl Parse for KernelArg {
@@ -86,6 +91,7 @@ impl Parse for KernelArg {
                 Ok(KernelArg::Category(lit.value()))
             }
             "variadic" => Ok(KernelArg::Variadic),
+            "vectorized" => Ok(KernelArg::Vectorized),
             other => Err(syn::Error::new(
                 ident.span(),
                 format!("unknown argument: {}", other),
@@ -99,7 +105,9 @@ impl Parse for KernelArg {
 /// # Arguments
 ///
 /// - `name = "..."` (required): The name used in DSL expressions
+/// - `category = "..."` (optional): Category tag (defaults to "math")
 /// - `variadic` (optional): Mark as variadic (takes `&[f64]` instead of individual args)
+/// - `vectorized` (optional): Mark as having vectorized implementation available
 ///
 /// # Detection
 ///
@@ -127,6 +135,7 @@ fn generate_kernel_registration(
     let dsl_name = &args.name;
     let category = &args.category;
     let variadic = args.variadic;
+    let vectorized = args.vectorized;
 
     // Extract doc comments
     let doc = func
@@ -248,6 +257,15 @@ fn generate_kernel_registration(
         }
     };
 
+    // Determine vectorized implementation (placeholder for now - will be set by separate macro)
+    let vectorized_impl = if vectorized {
+        // For now, mark as expecting vectorized but don't provide implementation
+        // The actual implementation will be registered via a separate macro
+        quote! { None } // TODO: Update when we add vectorized_kernel_fn macro
+    } else {
+        quote! { None }
+    };
+
     Ok(quote! {
         #func
 
@@ -262,7 +280,52 @@ fn generate_kernel_registration(
                 category: #category,
                 arity: #arity,
                 implementation: #impl_variant,
+                vectorized_impl: #vectorized_impl,
             }
         };
     })
+}
+
+/// Register a vectorized implementation for an existing kernel function.
+///
+/// This macro should be used to register high-performance vectorized implementations
+/// for functions that already have a scalar implementation registered with `kernel_fn`.
+///
+/// # Arguments
+///
+/// - `name = "..."` (required): The name of the existing kernel function
+///
+/// # Expected Signature
+///
+/// The function must have signature:
+/// - Pure: `fn(args: &[&VRegBuffer], population: usize) -> Result<VRegBuffer, Error>`
+/// - WithDt: `fn(args: &[&VRegBuffer], dt: Dt, population: usize) -> Result<VRegBuffer, Error>`
+///
+/// # Example
+///
+/// ```ignore
+/// #[vectorized_kernel_fn(name = "integrate")]
+/// pub fn integrate_vectorized(
+///     args: &[&VRegBuffer],
+///     dt: Dt,
+///     population: usize
+/// ) -> Result<VRegBuffer, Box<dyn std::error::Error + Send + Sync>> {
+///     // Implementation
+/// }
+/// ```
+#[proc_macro_attribute]
+pub fn vectorized_kernel_fn(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    // For now, we'll implement this as a simple pass-through
+    // In a future iteration, we could make this register the vectorized implementation
+    // in a separate registry that gets merged with the main registry
+
+    // For Phase 1, we'll just mark the function and let it be manually registered
+    let func = parse_macro_input!(item as ItemFn);
+
+    // Just return the function as-is for now
+    // TODO: Implement proper vectorized registration in Phase 2
+    quote! {
+        #func
+    }
+    .into()
 }
