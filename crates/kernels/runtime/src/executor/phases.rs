@@ -9,7 +9,9 @@ use tracing::{debug, instrument, trace};
 
 use crate::dag::{DagSet, NodeKind};
 use crate::error::{Error, Result};
-use crate::storage::{EventBuffer, FieldBuffer, FractureQueue, InputChannels, SignalStorage};
+use crate::storage::{
+    EntityStorage, EventBuffer, FieldBuffer, FractureQueue, InputChannels, SignalStorage,
+};
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 
 use super::AggregateResolverFn;
@@ -230,6 +232,7 @@ impl PhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
+        entities: &EntityStorage,
         input_channels: &mut InputChannels,
         pending_impulses: &mut Vec<(usize, Value)>,
     ) -> Result<()> {
@@ -239,6 +242,7 @@ impl PhaseExecutor {
             let handler = &self.impulse_handlers[handler_idx];
             let mut ctx = ImpulseContext {
                 signals,
+                entities,
                 channels: input_channels,
                 sim_time,
             };
@@ -267,6 +271,7 @@ impl PhaseExecutor {
                         let op = &self.collect_ops[*operator_idx];
                         let ctx = CollectContext {
                             signals,
+                            entities,
                             channels: input_channels,
                             dt,
                             sim_time,
@@ -290,6 +295,7 @@ impl PhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &mut SignalStorage,
+        entities: &EntityStorage,
         member_signals: &mut MemberSignalBuffer,
         input_channels: &mut InputChannels,
         assertion_checker: &AssertionChecker,
@@ -377,6 +383,7 @@ impl PhaseExecutor {
                                 &prev,
                                 |ctx| f(ctx),
                                 signals,
+                                entities,
                                 member_signals,
                                 dt,
                                 sim_time,
@@ -401,6 +408,7 @@ impl PhaseExecutor {
                                 &prev,
                                 |ctx| f(ctx),
                                 signals,
+                                entities,
                                 member_signals,
                                 dt,
                                 sim_time,
@@ -425,6 +433,7 @@ impl PhaseExecutor {
                             let ctx = ResolveContext {
                                 prev,
                                 signals,
+                                entities,
                                 inputs: *inputs,
                                 dt,
                                 sim_time,
@@ -437,8 +446,9 @@ impl PhaseExecutor {
                     for res in results {
                         if let Ok((signal, value)) = res {
                             let prev = signals.get_prev(&signal).unwrap_or(&value);
-                            assertion_checker
-                                .check_signal(&signal, &value, prev, signals, dt, sim_time)?;
+                            assertion_checker.check_signal(
+                                &signal, &value, prev, signals, entities, dt, sim_time,
+                            )?;
                             signals.set_current(signal, value);
                         }
                     }
@@ -450,7 +460,8 @@ impl PhaseExecutor {
                         .par_iter()
                         .map(|(signal, aggregate_idx)| {
                             if let Some(resolver) = self.aggregate_resolvers.get(*aggregate_idx) {
-                                let value = resolver(signals, member_signals, dt, sim_time);
+                                let value =
+                                    resolver(signals, entities, member_signals, dt, sim_time);
                                 Ok((signal.clone(), value))
                             } else {
                                 Err(Error::Generic(format!(
@@ -485,6 +496,7 @@ impl PhaseExecutor {
         sim_time: f64,
         dags: &DagSet,
         signals: &SignalStorage,
+        entities: &EntityStorage,
         fracture_queue: &mut FractureQueue,
     ) -> Result<()> {
         let era_dags = dags.get_era(era).unwrap();
@@ -520,6 +532,7 @@ impl PhaseExecutor {
                 let fracture = &self.fractures[fracture_idx];
                 let ctx = FractureContext {
                     signals,
+                    entities,
                     dt,
                     sim_time,
                 };
@@ -539,6 +552,7 @@ impl PhaseExecutor {
                     let fracture = &self.fractures[fracture_idx];
                     let ctx = FractureContext {
                         signals,
+                        entities,
                         dt,
                         sim_time,
                     };
@@ -581,6 +595,7 @@ impl PhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
+        entities: &EntityStorage,
         field_buffer: &mut FieldBuffer,
     ) -> Result<()> {
         let era_dags = dags.get_era(era).unwrap();
@@ -632,6 +647,7 @@ impl PhaseExecutor {
                 let op = &self.measure_ops[operator_idx];
                 let mut ctx = MeasureContext {
                     signals,
+                    entities,
                     fields: field_buffer,
                     dt,
                     sim_time,
@@ -647,6 +663,7 @@ impl PhaseExecutor {
                     let op = &self.measure_ops[operator_idx];
                     let mut ctx = MeasureContext {
                         signals,
+                        entities,
                         fields: &mut local_buffer,
                         dt,
                         sim_time,
@@ -682,6 +699,7 @@ impl PhaseExecutor {
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
+        entities: &EntityStorage,
         event_buffer: &mut EventBuffer,
     ) -> Result<()> {
         let era_dags = dags.get_era(era).unwrap();
@@ -719,7 +737,11 @@ impl PhaseExecutor {
             .par_iter()
             .filter_map(|&chronicle_idx| {
                 let handler = &self.chronicle_handlers[chronicle_idx];
-                let ctx = ChronicleContext { signals, dt };
+                let ctx = ChronicleContext {
+                    signals,
+                    entities,
+                    dt,
+                };
                 let events = handler(&ctx);
                 if events.is_empty() {
                     None

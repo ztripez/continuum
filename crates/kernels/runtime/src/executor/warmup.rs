@@ -5,7 +5,7 @@
 use tracing::{debug, error, info, instrument, trace};
 
 use crate::error::{Error, Result};
-use crate::storage::SignalStorage;
+use crate::storage::{EntityStorage, SignalStorage};
 use crate::types::{SignalId, Value, WarmupConfig, WarmupResult};
 
 use super::context::WarmupContext;
@@ -69,8 +69,13 @@ impl WarmupExecutor {
     /// Execute warmup phase
     ///
     /// Runs all registered warmup functions until convergence or max iterations.
-    #[instrument(skip(self, signals), name = "warmup")]
-    pub fn execute(&mut self, signals: &mut SignalStorage, sim_time: f64) -> Result<WarmupResult> {
+    #[instrument(skip(self, signals, entities), name = "warmup")]
+    pub fn execute(
+        &mut self,
+        signals: &mut SignalStorage,
+        entities: &EntityStorage,
+        sim_time: f64,
+    ) -> Result<WarmupResult> {
         if self.complete {
             return Ok(WarmupResult {
                 iterations: 0,
@@ -123,6 +128,7 @@ impl WarmupExecutor {
                 let ctx = WarmupContext {
                     prev,
                     signals,
+                    entities,
                     iteration,
                     sim_time,
                 };

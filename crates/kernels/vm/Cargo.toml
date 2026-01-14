@@ -5,3 +5,4 @@ edition.workspace = true
 
 [dependencies]
 continuum-kernel-registry = { path = "../../kernel-registry" }
+serde = { version = "1.0", features = ["derive"] }

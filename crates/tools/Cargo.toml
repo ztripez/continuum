@@ -19,11 +19,16 @@ path = "src/bin/analyze.rs"
 name = "dsl-lint"
 path = "src/bin/dsl_lint.rs"
 
+[[bin]]
+name = "compile"
+path = "src/bin/compile.rs"
+
 [dependencies]
 continuum-compiler = { version = "0.1.0", path = "../continuum-compiler" }
 continuum-foundation = { path = "../kernels/foundation" }
 continuum-functions = { version = "0.1.0", path = "../kernels/functions" }
 continuum-runtime = { path = "../kernels/runtime" }
+continuum-vm = { path = "../kernels/vm" }
 indexmap = "2.13.0"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
@@ -32,3 +37,4 @@ serde_json = "1.0"
 chrono = "0.4"
 clap = { version = "4.4", features = ["derive"] }
 sha2 = "0.10"
+bincode = "1.3"

@@ -103,6 +103,8 @@ impl Dt {
 pub struct TickContext {
     /// Current tick number
     pub tick: u64,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
     /// Time step for this tick
     pub dt: Dt,
     /// Current era

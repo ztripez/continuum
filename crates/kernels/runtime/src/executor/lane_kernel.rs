@@ -46,7 +46,7 @@
 //! ```
 
 use crate::soa_storage::PopulationStorage;
-use crate::storage::SignalStorage;
+use crate::storage::{EntityStorage, SignalStorage};
 use crate::types::Dt;
 use crate::vectorized::MemberSignalId;
 
@@ -109,6 +109,7 @@ pub trait LaneKernel: Send + Sync {
     fn execute(
         &self,
         signals: &SignalStorage,
+        entities: &EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
     ) -> Result<LaneKernelResult, LaneKernelError>;

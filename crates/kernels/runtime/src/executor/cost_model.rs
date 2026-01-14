@@ -145,6 +145,23 @@ impl ComplexityScore {
 
                 // Stack operations
                 Op::StoreLocal(_) | Op::Dup | Op::Pop => {}
+
+                // Entity and Impulse operations
+                Op::LoadSelfField(_)
+                | Op::LoadEntityField(_, _, _)
+                | Op::LoadOtherField(_)
+                | Op::Aggregate(_, _, _)
+                | Op::Filter(_, _, _)
+                | Op::FindFirstField(_, _, _)
+                | Op::LoadNearestField(_, _)
+                | Op::WithinAggregate(_, _, _)
+                | Op::Pairs(_, _)
+                | Op::LoadPayload
+                | Op::LoadPayloadField(_)
+                | Op::EmitSignal(_) => {
+                    // These are generally expensive
+                    score.call_cost += 10.0;
+                }
             }
         }
 

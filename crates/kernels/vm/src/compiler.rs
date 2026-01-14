@@ -4,7 +4,7 @@
 
 use std::collections::HashMap;
 
-use crate::bytecode::{BytecodeChunk, Op, SlotId};
+use crate::bytecode::{BytecodeChunk, Op, ReductionOp, SlotId};
 use continuum_kernel_registry::Value;
 
 /// Binary operator from IR
@@ -118,6 +118,95 @@ pub enum Expr {
     },
     /// A reference to a local variable
     Local(String),
+
+    // === Entity Expressions ===
+    /// Access a field of the current instance
+    SelfField(String),
+    /// Access a field of a specific entity instance
+    EntityAccess {
+        /// The entity type ID
+        entity: String,
+        /// The stable instance ID
+        instance: String,
+        /// The field (component) name
+        field: String,
+    },
+    /// Aggregate over an entity set
+    Aggregate {
+        /// The reduction operation
+        op: ReductionOp,
+        /// The entity type ID
+        entity: String,
+        /// The expression to evaluate for each instance
+        body: Box<Expr>,
+    },
+    /// Access another instance in the same set (n-body)
+    Other {
+        /// The entity type ID
+        entity: String,
+        /// The expression to evaluate
+        body: Box<Expr>,
+    },
+    /// Pairwise iteration
+    Pairs {
+        /// The entity type ID
+        entity: String,
+        /// The expression to evaluate for each pair
+        body: Box<Expr>,
+    },
+    /// Filtered iteration
+    Filter {
+        /// The entity type ID
+        entity: String,
+        /// The predicate expression
+        predicate: Box<Expr>,
+        /// The body expression
+        body: Box<Expr>,
+    },
+    /// Find first matching instance
+    First {
+        /// The entity type ID
+        entity: String,
+        /// The predicate expression
+        predicate: Box<Expr>,
+        /// The field to return from the first match
+        field: String,
+    },
+    /// Nearest instance lookup
+    Nearest {
+        /// The entity type ID
+        entity: String,
+        /// The position to search from
+        position: Box<Expr>,
+        /// The field to return from the nearest instance
+        field: String,
+    },
+    /// Spatial aggregate
+    Within {
+        /// The entity type ID
+        entity: String,
+        /// The position to search from
+        position: Box<Expr>,
+        /// The search radius
+        radius: Box<Expr>,
+        /// The reduction operation
+        op: ReductionOp,
+        /// The body expression
+        body: Box<Expr>,
+    },
+
+    // === Impulse Expressions ===
+    /// Access the impulse payload
+    Payload,
+    /// Access a field from the impulse payload
+    PayloadField(String),
+    /// Emit a signal from an impulse
+    EmitSignal {
+        /// The target signal ID
+        target: String,
+        /// The value to emit
+        value: Box<Expr>,
+    },
 }
 
 /// Compiler state
@@ -300,6 +389,115 @@ impl Compiler {
                     .get(name)
                     .unwrap_or_else(|| panic!("compiler bug: unknown local variable '{name}'"));
                 self.chunk.emit(Op::LoadLocal(slot));
+            }
+
+            Expr::SelfField(field) => {
+                let idx = self.chunk.add_component(field);
+                self.chunk.emit(Op::LoadSelfField(idx));
+            }
+
+            Expr::EntityAccess {
+                entity,
+                instance,
+                field,
+            } => {
+                let entity_idx = self.chunk.add_entity(entity);
+                let instance_idx = self.chunk.add_instance(instance);
+                let component_idx = self.chunk.add_component(field);
+                self.chunk
+                    .emit(Op::LoadEntityField(entity_idx, instance_idx, component_idx));
+            }
+
+            Expr::Other { entity, body } => {
+                // Other is usually nested in an aggregate.
+                // For bytecode, we handle it by having the VM set the 'other' instance.
+                // The body might access other fields.
+                let _entity_idx = self.chunk.add_entity(entity);
+                self.compile_expr(body);
+            }
+
+            Expr::Aggregate { op, entity, body } => {
+                let entity_idx = self.chunk.add_entity(entity);
+                let body_chunk = compile_expr(body);
+                let sub_chunk_idx = self.chunk.add_sub_chunk(body_chunk);
+                self.chunk
+                    .emit(Op::Aggregate(entity_idx, *op, sub_chunk_idx));
+            }
+
+            Expr::Filter {
+                entity,
+                predicate,
+                body,
+            } => {
+                let entity_idx = self.chunk.add_entity(entity);
+                let pred_chunk = compile_expr(predicate);
+                let body_chunk = compile_expr(body);
+                let pred_idx = self.chunk.add_sub_chunk(pred_chunk);
+                let body_idx = self.chunk.add_sub_chunk(body_chunk);
+                self.chunk.emit(Op::Filter(entity_idx, pred_idx, body_idx));
+            }
+
+            Expr::First {
+                entity,
+                predicate,
+                field,
+            } => {
+                let entity_idx = self.chunk.add_entity(entity);
+                let pred_chunk = compile_expr(predicate);
+                let pred_idx = self.chunk.add_sub_chunk(pred_chunk);
+                let component_idx = self.chunk.add_component(field);
+                self.chunk
+                    .emit(Op::FindFirstField(entity_idx, pred_idx, component_idx));
+            }
+
+            Expr::Nearest {
+                entity,
+                position,
+                field,
+            } => {
+                let entity_idx = self.chunk.add_entity(entity);
+                self.compile_expr(position);
+                let component_idx = self.chunk.add_component(field);
+                self.chunk
+                    .emit(Op::LoadNearestField(entity_idx, component_idx));
+            }
+
+            Expr::Within {
+                entity,
+                position,
+                radius,
+                op,
+                body,
+            } => {
+                let entity_idx = self.chunk.add_entity(entity);
+                self.compile_expr(position);
+                self.compile_expr(radius);
+                let body_chunk = compile_expr(body);
+                let body_idx = self.chunk.add_sub_chunk(body_chunk);
+                self.chunk
+                    .emit(Op::WithinAggregate(entity_idx, *op, body_idx));
+            }
+
+            Expr::Pairs { entity, body } => {
+                let entity_idx = self.chunk.add_entity(entity);
+                let body_chunk = compile_expr(body);
+                let body_idx = self.chunk.add_sub_chunk(body_chunk);
+                self.chunk.emit(Op::Pairs(entity_idx, body_idx));
+            }
+
+            Expr::Payload => {
+                self.chunk.emit(Op::LoadPayload);
+            }
+
+            Expr::PayloadField(field) => {
+                let idx = self.chunk.add_component(field);
+                self.chunk.emit(Op::LoadPayloadField(idx));
+            }
+
+            Expr::EmitSignal { target, value } => {
+                self.compile_expr(value);
+                let signal_idx = self.chunk.add_signal(target);
+                self.chunk.emit(Op::EmitSignal(signal_idx));
             }
         }
     }

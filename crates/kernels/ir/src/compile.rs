@@ -40,63 +40,7 @@ use continuum_runtime::types::Phase;
 
 use crate::{AggregateOpIr, CompiledExpr, CompiledWorld, OperatorPhaseIr};
 
-/// Checks if an expression contains any entity-related constructs.
-///
-/// Entity expressions (Aggregate, SelfField, EntityAccess, etc.) require the
-/// EntityExecutor for evaluation and cannot be compiled to bytecode. Signals
-/// with such expressions should not be added to the bytecode DAG.
-fn contains_entity_expression(expr: &CompiledExpr) -> bool {
-    match expr {
-        // Entity-related expressions
-        CompiledExpr::SelfField(_)
-        | CompiledExpr::EntityAccess { .. }
-        | CompiledExpr::Aggregate { .. }
-        | CompiledExpr::Other { .. }
-        | CompiledExpr::Pairs { .. }
-        | CompiledExpr::Filter { .. }
-        | CompiledExpr::First { .. }
-        | CompiledExpr::Nearest { .. }
-        | CompiledExpr::Within { .. } => true,
-
-        // Impulse-related expressions (also not bytecode-compatible)
-        CompiledExpr::Payload | CompiledExpr::PayloadField(_) | CompiledExpr::EmitSignal { .. } => {
-            true
-        }
-
-        // Recursive cases - check sub-expressions
-        CompiledExpr::Binary { left, right, .. } => {
-            contains_entity_expression(left) || contains_entity_expression(right)
-        }
-        CompiledExpr::Unary { operand, .. } => contains_entity_expression(operand),
-        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
-            args.iter().any(contains_entity_expression)
-        }
-        CompiledExpr::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            contains_entity_expression(condition)
-                || contains_entity_expression(then_branch)
-                || contains_entity_expression(else_branch)
-        }
-        CompiledExpr::Let { value, body, .. } => {
-            contains_entity_expression(value) || contains_entity_expression(body)
-        }
-        CompiledExpr::FieldAccess { object, .. } => contains_entity_expression(object),
-
-        // Leaf expressions - no entity constructs
-        CompiledExpr::Literal(..)
-        | CompiledExpr::Prev
-        | CompiledExpr::DtRaw
-        | CompiledExpr::SimTime
-        | CompiledExpr::Collected
-        | CompiledExpr::Signal(_)
-        | CompiledExpr::Const(..)
-        | CompiledExpr::Config(..)
-        | CompiledExpr::Local(_) => false,
-    }
-}
+/// The main entry point for compiling a World into an executable CompilationResult.
 
 /// Checks if an expression contains operations not supported by the member interpreter.
 ///
@@ -308,15 +252,13 @@ impl<'a> Compiler<'a> {
         }
 
         // Assign field indices (only for fields with measure expressions that are bytecode-compatible)
-        // Fields with entity expressions are skipped - they require EntityExecutor at runtime
+        // Assign field indices
         let mut field_idx = 0;
         let fields = self.world.fields();
         for (field_id, field) in &fields {
-            if let Some(ref measure) = field.measure {
-                if !contains_entity_expression(measure) {
-                    self.field_indices.insert(field_id.to_string(), field_idx);
-                    field_idx += 1;
-                }
+            if field.measure.is_some() {
+                self.field_indices.insert(field_id.to_string(), field_idx);
+                field_idx += 1;
             }
         }
 
@@ -566,21 +508,9 @@ impl<'a> Compiler<'a> {
             }
 
             // Skip signals without resolve expressions
-            let Some(ref resolve_expr) = signal.resolve else {
+            let Some(_) = signal.resolve.as_ref() else {
                 continue;
             };
-
-            // Skip signals with entity expressions (require EntityExecutor, not bytecode)
-            if contains_entity_expression(resolve_expr) {
-                continue;
-            }
-
-            // Also check component expressions for vector signals
-            if let Some(ref components) = signal.resolve_components {
-                if components.iter().any(contains_entity_expression) {
-                    continue;
-                }
-            }
 
             // Per docs/execution/phases.md: Resolve "reads resolved signals from the
             // previous tick" and "must be deterministic and order-independent".
@@ -754,9 +684,19 @@ impl<'a> Compiler<'a> {
             }
         }
 
-        // Add regular signal resolve nodes (those without aggregates or entity expressions)
+        // Add regular signal resolve nodes (those without aggregates)
         for (signal_id, signal) in &signals {
             if signal.stratum != *stratum_id {
+                continue;
+            }
+
+            // Skip signals without resolve expressions
+            if signal.resolve.is_none() {
+                continue;
+            };
+
+            // Skip signals that were already added as aggregate outputs
+            if signal_aggregates.iter().any(|(id, _)| id == signal_id) {
                 continue;
             }
 
@@ -768,18 +708,6 @@ impl<'a> Compiler<'a> {
             // Skip signals that ARE aggregates (they're handled by aggregate barriers)
             if !Self::extract_aggregates(resolve).is_empty() {
                 continue;
-            }
-
-            // Skip signals with entity expressions (require EntityExecutor, not bytecode)
-            if contains_entity_expression(resolve) {
-                continue;
-            }
-
-            // Also check component expressions for vector signals
-            if let Some(ref components) = signal.resolve_components {
-                if components.iter().any(contains_entity_expression) {
-                    continue;
-                }
             }
 
             // Signal references read from the PREVIOUS tick's values, so they
@@ -897,23 +825,21 @@ impl<'a> Compiler<'a> {
                 continue;
             }
 
-            // Only create nodes for fields that have bytecode-compatible measure expressions
-            if let Some(ref measure) = field.measure {
-                if !contains_entity_expression(measure) {
-                    let node = DagNode {
-                        id: NodeId(format!("field.{}", field_id)),
-                        reads: field
-                            .reads
-                            .iter()
-                            .map(|s| SignalId::from(s.to_string()))
-                            .collect(),
-                        writes: None,
-                        kind: NodeKind::OperatorMeasure {
-                            operator_idx: self.field_indices[&field_id.to_string()],
-                        },
-                    };
-                    builder.add_node(node);
-                }
+            // Only create nodes for fields that have measure expressions
+            if field.measure.is_some() {
+                let node = DagNode {
+                    id: NodeId(format!("field.{}", field_id)),
+                    reads: field
+                        .reads
+                        .iter()
+                        .map(|s| SignalId::from(s.to_string()))
+                        .collect(),
+                    writes: None,
+                    kind: NodeKind::OperatorMeasure {
+                        operator_idx: self.field_indices[&field_id.to_string()],
+                    },
+                };
+                builder.add_node(node);
             }
         }
 

@@ -54,3 +54,9 @@ To lint a DSL file:
 ```bash
 cargo run --bin dsl-lint -- examples/terra/terra.cdsl
 ```
+
+To compile a world into a bytecode bundle:
+
+```bash
+cargo run --bin compile -- examples/terra
+```

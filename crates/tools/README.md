@@ -18,6 +18,12 @@ Executes a simulation world and optionally captures state snapshots.
 cargo run --bin run -- <WORLD_DIR> [--steps N] [--save DIR]
 ```
 
+### `compile`
+Compiles a world into a bytecode bundle for later execution.
+
+```bash
+cargo run --bin compile -- <WORLD_DIR> [--out-dir build]
+```
 
 ### `analyze`
 Validates simulation outputs against baselines.
