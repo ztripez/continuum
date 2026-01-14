@@ -87,11 +87,11 @@ fn raw_param_value_parser<'src>(
 ) -> impl Parser<'src, ParserInput<'src>, RawParamValue, extra::Err<ParseError<'src>>> + Clone {
     choice((
         range().map(RawParamValue::Range),
-        integer_value().map(RawParamValue::Integer),
-        numeric_value().map(RawParamValue::Number),
         unit_string()
             .then_ignore(tok(Token::LAngle).not())
             .map(RawParamValue::Unit),
+        integer_value().map(RawParamValue::Integer),
+        numeric_value().map(RawParamValue::Number),
         type_expr_recurse.map(RawParamValue::TypeExpr),
     ))
 }
@@ -222,6 +222,18 @@ fn range_from_value(value: f64) -> Range {
     }
 }
 
+fn parse_f64<'src>(value: &str, span: SimpleSpan) -> Result<f64, Rich<'src, Token>> {
+    value
+        .parse::<f64>()
+        .map_err(|_| Rich::custom(span.into(), format!("invalid numeric value '{value}'")))
+}
+
+fn parse_i64<'src>(value: &str, span: SimpleSpan) -> Result<i64, Rich<'src, Token>> {
+    value
+        .parse::<i64>()
+        .map_err(|_| Rich::custom(span.into(), format!("invalid integer value '{value}'")))
+}
+
 fn convert_param_value<'src>(
     kind: PrimitiveParamKind,
     raw: RawParamValue,
@@ -237,6 +249,9 @@ fn convert_param_value<'src>(
         (PrimitiveParamKind::Unit, RawParamValue::Integer(value)) => {
             Ok(PrimitiveParamValue::Unit(value.to_string()))
         }
+        (PrimitiveParamKind::Unit, RawParamValue::Number(value)) => {
+            Ok(PrimitiveParamValue::Unit(value.to_string()))
+        }
         (PrimitiveParamKind::Range, RawParamValue::Range(range)) => {
             Ok(PrimitiveParamValue::Range(range))
         }
@@ -244,6 +259,10 @@ fn convert_param_value<'src>(
             Ok(PrimitiveParamValue::Range(range_from_value(value as f64)))
         }
         (PrimitiveParamKind::Range, RawParamValue::Number(value)) => {
+            Ok(PrimitiveParamValue::Range(range_from_value(value)))
+        }
+        (PrimitiveParamKind::Range, RawParamValue::Unit(unit)) => {
+            let value = parse_f64(&unit, span)?;
             Ok(PrimitiveParamValue::Range(range_from_value(value)))
         }
         (PrimitiveParamKind::Magnitude, RawParamValue::Range(range)) => {
@@ -255,18 +274,35 @@ fn convert_param_value<'src>(
         (PrimitiveParamKind::Magnitude, RawParamValue::Number(value)) => {
             Ok(PrimitiveParamValue::Magnitude(range_from_value(value)))
         }
+        (PrimitiveParamKind::Magnitude, RawParamValue::Unit(unit)) => {
+            let value = parse_f64(&unit, span)?;
+            Ok(PrimitiveParamValue::Magnitude(range_from_value(value)))
+        }
         (PrimitiveParamKind::Rows, RawParamValue::Integer(value)) => {
             Ok(PrimitiveParamValue::Rows(to_u8(value, span)?))
         }
+        (PrimitiveParamKind::Rows, RawParamValue::Unit(unit)) => Ok(PrimitiveParamValue::Rows(
+            to_u8(parse_i64(&unit, span)?, span)?,
+        )),
         (PrimitiveParamKind::Cols, RawParamValue::Integer(value)) => {
             Ok(PrimitiveParamValue::Cols(to_u8(value, span)?))
         }
+        (PrimitiveParamKind::Cols, RawParamValue::Unit(unit)) => Ok(PrimitiveParamValue::Cols(
+            to_u8(parse_i64(&unit, span)?, span)?,
+        )),
         (PrimitiveParamKind::Width, RawParamValue::Integer(value)) => {
             Ok(PrimitiveParamValue::Width(to_u32(value, span)?))
         }
+        (PrimitiveParamKind::Width, RawParamValue::Unit(unit)) => Ok(PrimitiveParamValue::Width(
+            to_u32(parse_i64(&unit, span)?, span)?,
+        )),
         (PrimitiveParamKind::Height, RawParamValue::Integer(value)) => {
             Ok(PrimitiveParamValue::Height(to_u32(value, span)?))
         }
+        (PrimitiveParamKind::Height, RawParamValue::Unit(unit)) => Ok(PrimitiveParamValue::Height(
+            to_u32(parse_i64(&unit, span)?, span)?,
+        )),
+
         (PrimitiveParamKind::ElementType, RawParamValue::TypeExpr(expr)) => {
             Ok(PrimitiveParamValue::ElementType(Box::new(expr)))
         }

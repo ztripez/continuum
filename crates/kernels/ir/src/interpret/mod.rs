@@ -121,6 +121,9 @@ pub fn build_signal_resolver(
     world: &CompiledWorld,
 ) -> Option<ResolverFn> {
     let resolve_expr = signal.resolve.as_ref()?;
+    if contains_entity_expression(resolve_expr) {
+        return None;
+    }
     Some(build_resolver(
         resolve_expr,
         &world.constants,
