@@ -18,8 +18,8 @@ pub enum Value {
     Vec4([f64; 4]),
     /// Quaternion (w, x, y, z).
     Quat([f64; 4]),
-    /// Structured payload using JSON-like data.
-    Data(serde_json::Value),
+    /// Structured payload with named fields.
+    Map(Vec<(String, Value)>),
     // TODO: Mat3, Mat4, Tensor, Grid, Seq
 }
 
@@ -81,10 +81,10 @@ impl Value {
         }
     }
 
-    /// Attempt to get the value as structured data.
-    pub fn as_data(&self) -> Option<&serde_json::Value> {
+    /// Attempt to get the value as a structured map.
+    pub fn as_map(&self) -> Option<&[(String, Value)]> {
         match self {
-            Value::Data(v) => Some(v),
+            Value::Map(v) => Some(v),
             _ => None,
         }
     }
@@ -129,7 +129,10 @@ impl fmt::Display for Value {
             Value::Vec3(v) => write!(f, "[{:.4}, {:.4}, {:.4}]", v[0], v[1], v[2]),
             Value::Vec4(v) => write!(f, "[{:.4}, {:.4}, {:.4}, {:.4}]", v[0], v[1], v[2], v[3]),
             Value::Quat(v) => write!(f, "[{:.4}, {:.4}, {:.4}, {:.4}]", v[0], v[1], v[2], v[3]),
-            Value::Data(v) => write!(f, "{}", v),
+            Value::Map(v) => {
+                let items: Vec<_> = v.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
+                write!(f, "{{{}}}", items.join(", "))
+            }
         }
     }
 }

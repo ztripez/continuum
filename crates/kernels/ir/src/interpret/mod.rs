@@ -797,31 +797,16 @@ impl ImpulseEvalContext<'_> {
 
     fn payload_field(&self, field: &str) -> InterpValue {
         let value = match self.payload {
-            Value::Data(v) => v
-                .get(field)
+            Value::Map(v) => v
+                .iter()
+                .find(|(k, _)| k == field)
+                .map(|(_, v)| v)
                 .ok_or_else(|| format!("payload field '{}' not found", field)),
-            _ => Err("payload is not structured; expected Data payload".to_string()),
+            _ => Err("payload is not structured; expected Map payload".to_string()),
         }
         .unwrap_or_else(|e| panic!("{}", e));
 
-        // Convert from serde_json::Value to InterpValue
-        // For now, only support scalars and vectors in payloads
-        if let Some(s) = value.as_f64() {
-            InterpValue::Scalar(s)
-        } else if let Some(arr) = value.as_array() {
-            if arr.len() == 3 {
-                let v = [
-                    arr[0].as_f64().unwrap_or(0.0),
-                    arr[1].as_f64().unwrap_or(0.0),
-                    arr[2].as_f64().unwrap_or(0.0),
-                ];
-                InterpValue::Vec3(v)
-            } else {
-                InterpValue::Scalar(0.0)
-            }
-        } else {
-            InterpValue::Scalar(0.0)
-        }
+        InterpValue::from_value(value)
     }
 
     fn call_kernel(&self, namespace: &str, name: &str, args: &[Value]) -> Value {

@@ -180,7 +180,7 @@ impl ValueType {
             Value::Quat(_) => ValueType::quat(),
             Value::Boolean(_) => ValueType::boolean(),
             Value::Integer(_) => ValueType::integer(),
-            Value::Data(_) => panic!("Structured data values are not supported in member signals"),
+            Value::Map(_) => panic!("Map values are not supported in member signals"),
         }
     }
 

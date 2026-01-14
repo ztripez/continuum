@@ -46,7 +46,7 @@ impl InterpValue {
             Value::Quat(v) => InterpValue::Quat(*v),
             Value::Boolean(b) => InterpValue::Bool(*b),
             Value::Integer(i) => InterpValue::Scalar(*i as f64),
-            Value::Data(_) => panic!("Structured data values cannot be interpreted as scalars"),
+            Value::Map(_) => panic!("Map values cannot be interpreted as scalars"),
             _ => InterpValue::Scalar(0.0),
         }
     }

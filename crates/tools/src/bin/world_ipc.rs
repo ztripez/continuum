@@ -250,6 +250,7 @@ async fn handle_client(stream: UnixStream, state: Arc<Mutex<ServerState>>) -> an
                     error: Some(err.to_string()),
                 },
             };
+        info!("Sending response for: {}", request_id);
         let frame = IpcFrame::Response(response);
         let mut writer_guard = writer.lock().await;
         if let Err(err) = write_frame(&mut *writer_guard, &frame).await {

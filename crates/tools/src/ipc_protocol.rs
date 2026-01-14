@@ -31,11 +31,11 @@ impl JsonValue {
             JsonValue::Vec4(value) => Value::Vec4(*value),
             JsonValue::Quat(value) => Value::Quat(*value),
             JsonValue::Struct(fields) => {
-                let mut map = serde_json::Map::new();
-                for (key, value) in fields {
-                    map.insert(key.clone(), serde_json::to_value(value.to_value()).unwrap());
-                }
-                Value::Data(serde_json::Value::Object(map))
+                let items = fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_value()))
+                    .collect();
+                Value::Map(items)
             }
         }
     }
@@ -49,18 +49,12 @@ impl JsonValue {
             Value::Vec3(v) => JsonValue::Vec3(*v),
             Value::Vec4(v) => JsonValue::Vec4(*v),
             Value::Quat(v) => JsonValue::Quat(*v),
-            Value::Data(v) => {
-                if let Some(obj) = v.as_object() {
-                    let mut fields = BTreeMap::new();
-                    for (key, val) in obj {
-                        // This is a bit recursive/inefficient but it works
-                        let continuum_val: Value = serde_json::from_value(val.clone()).unwrap();
-                        fields.insert(key.clone(), JsonValue::from_value(&continuum_val));
-                    }
-                    JsonValue::Struct(fields)
-                } else {
-                    JsonValue::Scalar(0.0) // Fallback
+            Value::Map(v) => {
+                let mut fields = BTreeMap::new();
+                for (k, val) in v {
+                    fields.insert(k.clone(), Self::from_value(val));
                 }
+                JsonValue::Struct(fields)
             }
         }
     }
@@ -345,10 +339,19 @@ pub enum IpcFrame {
 }
 
 pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
-    let payload = response
-        .payload
-        .as_ref()
-        .and_then(|p| serde_json::to_value(p).ok());
+    let payload = match &response.payload {
+        Some(IpcResponsePayload::Status(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::FieldList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::FieldHistory(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::FieldQuery(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::FieldQueryBatch(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::FieldLatest(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::ChroniclePoll(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::ImpulseList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::ImpulseEmit(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::Playback(p)) => serde_json::to_value(p).ok(),
+        None => None,
+    };
     JsonResponse {
         id: response.id,
         ok: response.ok,

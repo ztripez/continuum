@@ -245,7 +245,11 @@
             return;
           }
 
-          log(msg);
+          if (msg.error) {
+            log('Error: ' + msg.error, 'error');
+          } else {
+            log(msg);
+          }
 
           if (msg.ok && msg.payload) {
             if (msg.payload.tick !== undefined) updateStats(msg.payload);
