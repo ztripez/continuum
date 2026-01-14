@@ -11,7 +11,7 @@ use std::process;
 use chrono::Local;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
 use continuum_runtime::storage::FieldSample;
@@ -60,25 +60,6 @@ struct Args {
     stride: u64,
 }
 
-fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
-    let mut line = 0;
-    let mut col = 0;
-    let mut current_byte = 0;
-    for c in text.chars() {
-        if current_byte >= offset {
-            break;
-        }
-        if c == '\n' {
-            line += 1;
-            col = 0;
-        } else {
-            col += 1;
-        }
-        current_byte += c.len_utf8();
-    }
-    (line, col)
-}
-
 fn main() {
     continuum_tools::init_logging();
 
@@ -90,39 +71,12 @@ fn main() {
     let compile_result = continuum_compiler::compile_from_dir_result(&args.world_dir);
 
     if compile_result.has_errors() {
-        for diag in compile_result.diagnostics {
-            if diag.severity == continuum_compiler::Severity::Error {
-                let loc = if let (Some(file), Some(span)) = (&diag.file, &diag.span) {
-                    if let Some(source) = compile_result.sources.get(file) {
-                        let (line, col) = offset_to_line_col(source, span.start);
-                        format!("{}:{}:{} ", file.display(), line + 1, col + 1)
-                    } else {
-                        format!("{}: ", file.display())
-                    }
-                } else {
-                    String::new()
-                };
-                error!("{}{}", loc, diag.message);
-            }
-        }
+        error!("{}", compile_result.format_diagnostics().trim_end());
         process::exit(1);
     }
 
-    // Print warnings
-    for diag in &compile_result.diagnostics {
-        if diag.severity == continuum_compiler::Severity::Warning {
-            let loc = if let (Some(file), Some(span)) = (&diag.file, &diag.span) {
-                if let Some(source) = compile_result.sources.get(file) {
-                    let (line, col) = offset_to_line_col(source, span.start);
-                    format!("{}:{}:{} ", file.display(), line + 1, col + 1)
-                } else {
-                    format!("{}:at {:?} ", file.display(), span)
-                }
-            } else {
-                String::new()
-            };
-            tracing::warn!("{}{}", loc, diag.message);
-        }
+    if !compile_result.diagnostics.is_empty() {
+        warn!("{}", compile_result.format_diagnostics().trim_end());
     }
 
     let world = compile_result.world.expect("no world despite no errors");
