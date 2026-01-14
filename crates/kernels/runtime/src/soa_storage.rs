@@ -847,14 +847,7 @@ impl MemberSignalBuffer {
                 .vec3s
                 .get_current(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Vec3(v)),
-            ValueType::Vec4 => self
-                .vec4s
-                .get_current(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Vec4(v)),
-            ValueType::Quat => self
-                .vec4s
-                .get_current(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Quat(v)),
+            ValueType::Vec4 | ValueType::Quat => self.get_vec4_value(meta, instance_idx, false),
             ValueType::Boolean => self
                 .booleans
                 .get_current(meta.buffer_index, instance_idx)
@@ -882,14 +875,7 @@ impl MemberSignalBuffer {
                 .vec3s
                 .get_previous(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Vec3(v)),
-            ValueType::Vec4 => self
-                .vec4s
-                .get_previous(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Vec4(v)),
-            ValueType::Quat => self
-                .vec4s
-                .get_previous(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Quat(v)),
+            ValueType::Vec4 | ValueType::Quat => self.get_vec4_value(meta, instance_idx, true),
             ValueType::Boolean => self
                 .booleans
                 .get_previous(meta.buffer_index, instance_idx)
@@ -901,14 +887,57 @@ impl MemberSignalBuffer {
         }
     }
 
+    fn get_vec4_value(
+        &self,
+        meta: &MemberSignalMeta,
+        instance_idx: usize,
+        previous: bool,
+    ) -> Option<Value> {
+        let value = if previous {
+            self.vec4s
+                .get_previous(meta.buffer_index, instance_idx)
+                .copied()
+        } else {
+            self.vec4s
+                .get_current(meta.buffer_index, instance_idx)
+                .copied()
+        }?;
+
+        if meta.value_type == ValueType::Quat {
+            Some(Value::Quat(value))
+        } else {
+            Some(Value::Vec4(value))
+        }
+    }
+
+    fn set_vec4_value(
+        &mut self,
+        meta: &MemberSignalMeta,
+        instance_idx: usize,
+        value: Value,
+    ) -> Result<(), Value> {
+        match (meta.value_type, value) {
+            (ValueType::Vec4, Value::Vec4(v)) => {
+                self.vec4s.set_current(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (ValueType::Quat, Value::Quat(v)) => {
+                self.vec4s.set_current(meta.buffer_index, instance_idx, v);
+                Ok(())
+            }
+            (_, value) => Err(value),
+        }
+    }
+
     /// Set current value from a Value enum.
+
     pub fn set_current(
         &mut self,
         signal: &str,
         instance_idx: usize,
         value: Value,
     ) -> Result<(), String> {
-        let Some(meta) = self.registry.get(signal) else {
+        let Some(meta) = self.registry.get(signal).cloned() else {
             return Err(format!("Unknown signal: {}", signal));
         };
 
@@ -925,12 +954,14 @@ impl MemberSignalBuffer {
                 self.vec3s.set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
-            (ValueType::Vec4, Value::Vec4(v)) => {
-                self.vec4s.set_current(meta.buffer_index, instance_idx, v);
-                Ok(())
-            }
-            (ValueType::Quat, Value::Quat(v)) => {
-                self.vec4s.set_current(meta.buffer_index, instance_idx, v);
+            (ValueType::Vec4 | ValueType::Quat, value) => {
+                self.set_vec4_value(&meta, instance_idx, value)
+                    .map_err(|value| {
+                        format!(
+                            "Type mismatch for signal {}: expected {:?}, got {:?}",
+                            signal, meta.value_type, value
+                        )
+                    })?;
                 Ok(())
             }
             (ValueType::Boolean, Value::Boolean(v)) => {
