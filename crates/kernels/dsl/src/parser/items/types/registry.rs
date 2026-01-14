@@ -89,8 +89,10 @@ fn raw_param_value_parser<'src>(
         range().map(RawParamValue::Range),
         integer_value().map(RawParamValue::Integer),
         numeric_value().map(RawParamValue::Number),
+        unit_string()
+            .then_ignore(tok(Token::LAngle).not())
+            .map(RawParamValue::Unit),
         type_expr_recurse.map(RawParamValue::TypeExpr),
-        unit_string().map(RawParamValue::Unit),
     ))
 }
 
@@ -268,6 +270,9 @@ fn convert_param_value<'src>(
         (PrimitiveParamKind::ElementType, RawParamValue::TypeExpr(expr)) => {
             Ok(PrimitiveParamValue::ElementType(Box::new(expr)))
         }
+        (PrimitiveParamKind::ElementType, RawParamValue::Unit(name)) => Ok(
+            PrimitiveParamValue::ElementType(Box::new(TypeExpr::Named(name))),
+        ),
         (expected, _) => Err(Rich::custom(
             span.into(),
             format!("invalid value for parameter '{}'", kind_name(expected)),
