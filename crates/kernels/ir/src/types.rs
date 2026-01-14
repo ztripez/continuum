@@ -6,7 +6,7 @@ use continuum_dsl::ast::Span;
 use continuum_foundation::{
     ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
     OperatorId, Path, PrimitiveParamKind, PrimitiveStorageClass, PrimitiveTypeDef, PrimitiveTypeId,
-    SignalId, StratumId, TypeId, primitive_type_by_name,
+    SignalId, StratumId, TypeId, Value, primitive_type_by_name,
 };
 
 // Re-export StratumState from foundation for backwards compatibility
@@ -644,6 +644,23 @@ impl ValueType {
                 Some(ValueTypeParam::ElementType(element_type.as_ref()))
             }
             _ => None,
+        }
+    }
+
+    /// Returns a default value for this type.
+    pub fn default_value(&self) -> Value {
+        match self.storage_class() {
+            PrimitiveStorageClass::Scalar => Value::Scalar(0.0),
+            PrimitiveStorageClass::Vec2 => Value::Vec2([0.0; 2]),
+            PrimitiveStorageClass::Vec3 => Value::Vec3([0.0; 3]),
+            PrimitiveStorageClass::Vec4 => {
+                if self.primitive_id().name() == "Quat" {
+                    Value::Quat([1.0, 0.0, 0.0, 0.0])
+                } else {
+                    Value::Vec4([0.0; 4])
+                }
+            }
+            _ => Value::Scalar(0.0),
         }
     }
 }

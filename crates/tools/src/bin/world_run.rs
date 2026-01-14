@@ -19,8 +19,7 @@ use continuum_compiler::ir::{
     build_warmup_fn, compile, convert_assertion_severity, eval_initial_expr,
     get_initial_signal_value,
 };
-use continuum_foundation::InstanceId;
-use continuum_foundation::PrimitiveStorageClass;
+use continuum_foundation::{InstanceId, PrimitiveStorageClass};
 use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
 use continuum_runtime::storage::{EntityInstances, FieldSample, InstanceData};
@@ -391,19 +390,7 @@ fn main() {
             for (_member_id, member) in &members {
                 if &member.entity_id == entity_id {
                     // Use default value based on member's value type
-                    let initial_value = match member.value_type.storage_class() {
-                        PrimitiveStorageClass::Scalar => Value::Scalar(0.0),
-                        PrimitiveStorageClass::Vec2 => Value::Vec2([0.0; 2]),
-                        PrimitiveStorageClass::Vec3 => Value::Vec3([0.0; 3]),
-                        PrimitiveStorageClass::Vec4 => {
-                            if member.value_type.primitive_id().name() == "Quat" {
-                                Value::Quat([1.0, 0.0, 0.0, 0.0])
-                            } else {
-                                Value::Vec4([0.0; 4])
-                            }
-                        }
-                        _ => Value::Scalar(0.0),
-                    };
+                    let initial_value = member.value_type.default_value();
                     fields.insert(member.signal_name.clone(), initial_value);
                 }
             }
