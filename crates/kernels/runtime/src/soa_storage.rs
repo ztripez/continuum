@@ -71,6 +71,16 @@ pub enum ValueType {
     Integer,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum MemberBufferClass {
+    Scalar,
+    Vec2,
+    Vec3,
+    Vec4,
+    Boolean,
+    Integer,
+}
+
 impl ValueType {
     /// Size in bytes for one element of this type
     pub const fn element_size(&self) -> usize {
@@ -117,6 +127,17 @@ impl ValueType {
             PrimitiveStorageClass::Tensor => ValueType::Scalar,
             PrimitiveStorageClass::Grid => ValueType::Scalar,
             PrimitiveStorageClass::Seq => ValueType::Scalar,
+        }
+    }
+
+    fn buffer_class(&self) -> MemberBufferClass {
+        match self {
+            ValueType::Scalar => MemberBufferClass::Scalar,
+            ValueType::Vec2 => MemberBufferClass::Vec2,
+            ValueType::Vec3 => MemberBufferClass::Vec3,
+            ValueType::Vec4 | ValueType::Quat => MemberBufferClass::Vec4,
+            ValueType::Boolean => MemberBufferClass::Boolean,
+            ValueType::Integer => MemberBufferClass::Integer,
         }
     }
 }
@@ -518,8 +539,8 @@ pub struct MemberSignalMeta {
 pub struct MemberSignalRegistry {
     /// Signal name → metadata
     signals: IndexMap<String, MemberSignalMeta>,
-    /// Count of signals per type (for assigning buffer indices)
-    type_counts: HashMap<ValueType, usize>,
+    /// Count of signals per buffer class (for assigning buffer indices)
+    type_counts: HashMap<MemberBufferClass, usize>,
 }
 
 impl MemberSignalRegistry {
@@ -536,8 +557,9 @@ impl MemberSignalRegistry {
             panic!("Signal '{}' already registered", name);
         }
 
-        let buffer_index = *self.type_counts.get(&value_type).unwrap_or(&0);
-        self.type_counts.insert(value_type, buffer_index + 1);
+        let buffer_class = value_type.buffer_class();
+        let buffer_index = *self.type_counts.get(&buffer_class).unwrap_or(&0);
+        self.type_counts.insert(buffer_class, buffer_index + 1);
 
         let meta = MemberSignalMeta {
             value_type,
@@ -555,7 +577,10 @@ impl MemberSignalRegistry {
 
     /// Get count of signals for a type
     pub fn type_count(&self, value_type: ValueType) -> usize {
-        *self.type_counts.get(&value_type).unwrap_or(&0)
+        *self
+            .type_counts
+            .get(&value_type.buffer_class())
+            .unwrap_or(&0)
     }
 
     /// Iterate over all registered signals.
@@ -699,10 +724,8 @@ pub struct MemberSignalBuffer {
     vec2s: DoubleBuffer<[f64; 2]>,
     /// Double-buffered Vec3 storage
     vec3s: DoubleBuffer<[f64; 3]>,
-    /// Double-buffered Vec4 storage
+    /// Double-buffered Vec4 storage (Vec4 + Quat)
     vec4s: DoubleBuffer<[f64; 4]>,
-    /// Double-buffered Quat storage
-    quats: DoubleBuffer<[f64; 4]>,
     /// Double-buffered Boolean storage
     booleans: DoubleBuffer<bool>,
     /// Double-buffered Integer storage
@@ -720,7 +743,6 @@ impl MemberSignalBuffer {
             vec2s: DoubleBuffer::new(),
             vec3s: DoubleBuffer::new(),
             vec4s: DoubleBuffer::new(),
-            quats: DoubleBuffer::new(),
             booleans: DoubleBuffer::new(),
             integers: DoubleBuffer::new(),
         }
@@ -748,8 +770,6 @@ impl MemberSignalBuffer {
             .init(self.registry.type_count(ValueType::Vec3), instance_count);
         self.vec4s
             .init(self.registry.type_count(ValueType::Vec4), instance_count);
-        self.quats
-            .init(self.registry.type_count(ValueType::Quat), instance_count);
         self.booleans
             .init(self.registry.type_count(ValueType::Boolean), instance_count);
         self.integers
@@ -832,7 +852,7 @@ impl MemberSignalBuffer {
                 .get_current(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Vec4(v)),
             ValueType::Quat => self
-                .quats
+                .vec4s
                 .get_current(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Quat(v)),
             ValueType::Boolean => self
@@ -867,7 +887,7 @@ impl MemberSignalBuffer {
                 .get_previous(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Vec4(v)),
             ValueType::Quat => self
-                .quats
+                .vec4s
                 .get_previous(meta.buffer_index, instance_idx)
                 .map(|&v| Value::Quat(v)),
             ValueType::Boolean => self
@@ -910,7 +930,7 @@ impl MemberSignalBuffer {
                 Ok(())
             }
             (ValueType::Quat, Value::Quat(v)) => {
-                self.quats.set_current(meta.buffer_index, instance_idx, v);
+                self.vec4s.set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
             (ValueType::Boolean, Value::Boolean(v)) => {
@@ -978,16 +998,16 @@ impl MemberSignalBuffer {
         if meta.value_type != ValueType::Quat {
             return None;
         }
-        Some(self.quats.signal_slice(meta.buffer_index))
+        Some(self.vec4s.signal_slice(meta.buffer_index))
     }
 
-    /// Get mutable Quat slice for a signal.
+    /// Get mutable slice for a Quat signal.
     pub fn quat_slice_mut(&mut self, signal: &str) -> Option<&mut [[f64; 4]]> {
-        let meta = self.registry.get(signal)?.clone();
+        let meta = self.registry.get(signal)?;
         if meta.value_type != ValueType::Quat {
             return None;
         }
-        Some(self.quats.signal_slice_mut(meta.buffer_index))
+        Some(self.vec4s.signal_slice_mut(meta.buffer_index))
     }
 
     // ========================================================================
@@ -1039,7 +1059,7 @@ impl MemberSignalBuffer {
         if meta.value_type != ValueType::Quat {
             return None;
         }
-        Some(self.quats.prev_signal_slice(meta.buffer_index))
+        Some(self.vec4s.prev_signal_slice(meta.buffer_index))
     }
 
     /// Advance tick: current becomes previous.
@@ -1048,7 +1068,6 @@ impl MemberSignalBuffer {
         self.vec2s.advance_tick();
         self.vec3s.advance_tick();
         self.vec4s.advance_tick();
-        self.quats.advance_tick();
         self.booleans.advance_tick();
         self.integers.advance_tick();
     }
