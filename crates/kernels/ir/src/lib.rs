@@ -26,11 +26,12 @@ pub use compile::{CompilationResult, CompileError, compile};
 pub use continuum_foundation::{PrimitiveParamKind, PrimitiveParamSpec};
 pub use expressions::*;
 pub use interpret::{
-    InterpValue, MemberInterpContext, MemberResolverFn, MemberResolverStats, Vec3MemberResolverFn,
-    build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
-    build_fracture, build_member_resolver, build_resolver, build_signal_resolver,
-    build_vec3_member_resolver, build_warmup_fn, convert_assertion_severity, eval_initial_expr,
-    get_initial_signal_value, get_initial_value, register_member_resolvers,
+    InterpValue, MemberInterpContext, MemberResolverFn, MemberResolverStats, RuntimeBuildError,
+    RuntimeBuildOptions, RuntimeBuildReport, Vec3MemberResolverFn, build_aggregate_resolver,
+    build_assertion, build_era_configs, build_field_measure, build_fracture, build_member_resolver,
+    build_resolver, build_runtime, build_signal_resolver, build_vec3_member_resolver,
+    build_warmup_fn, convert_assertion_severity, eval_initial_expr, get_initial_signal_value,
+    get_initial_value, register_member_resolvers,
 };
 
 pub use lower::{LowerError, lower, lower_multi, lower_with_file};

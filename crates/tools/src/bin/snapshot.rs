@@ -20,14 +20,9 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use continuum_compiler::ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture, build_signal_resolver,
-    build_warmup_fn, compile, convert_assertion_severity, get_initial_signal_value,
-};
-// use continuum_foundation::EraId;
-use continuum_runtime::executor::Runtime;
+use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
 use continuum_runtime::storage::FieldSample;
-use continuum_runtime::types::{Dt, Value, WarmupConfig};
+use continuum_runtime::types::Value;
 
 /// Simulation snapshot capture tool
 #[derive(Parser, Debug)]
@@ -120,83 +115,22 @@ fn main() {
         }
     };
 
-    // Prepare runtime
-    let initial_era = world
-        .eras()
-        .iter()
-        .find(|(_, era)| era.is_initial)
-        .map(|(id, _)| id.clone())
-        .unwrap_or_else(|| {
-            world
-                .eras()
-                .keys()
-                .next()
-                .cloned()
-                .unwrap_or_else(|| continuum_foundation::EraId::from("default"))
-        });
-
-    let mut era_configs = build_era_configs(&world);
-    if let Some(dt) = args.dt {
-        for config in era_configs.values_mut() {
-            config.dt = Dt(dt);
+    let (mut runtime, _report) = match build_runtime(
+        &world,
+        compilation,
+        RuntimeBuildOptions {
+            dt_override: args.dt,
+        },
+    ) {
+        Ok(result) => result,
+        Err(e) => {
+            error!("Runtime build error: {}", e);
+            process::exit(1);
         }
-    }
-
-    let mut runtime = Runtime::new(initial_era, era_configs, compilation.dags);
+    };
 
     let signals = world.signals();
     let fields = world.fields();
-    let fractures = world.fractures();
-
-    // Register all functions (resolvers, assertions, fields, fractures)
-    for (signal_id, signal) in &signals {
-        if let Some(resolver) = build_signal_resolver(signal, &world) {
-            runtime.register_resolver(resolver);
-        }
-
-        // Register warmup if present
-        if let Some(ref warmup) = signal.warmup {
-            let warmup_fn = build_warmup_fn(&warmup.iterate, &world.constants, &world.config);
-            let config = WarmupConfig {
-                max_iterations: warmup.iterations,
-                convergence_epsilon: warmup.convergence,
-            };
-            runtime.register_warmup(signal_id.clone(), warmup_fn, config);
-        }
-
-        for assertion in &signal.assertions {
-            let assertion_fn = build_assertion(&assertion.condition, &world);
-            let severity = convert_assertion_severity(assertion.severity);
-            runtime.register_assertion(
-                signal_id.clone(),
-                assertion_fn,
-                severity,
-                assertion.message.clone(),
-            );
-        }
-    }
-
-    for (field_id, field) in &fields {
-        if let Some(ref expr) = field.measure {
-            let runtime_id = field_id.clone();
-            // Skip fields with entity expressions (aggregates, etc.)
-            if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
-                runtime.register_measure_op(measure_fn);
-            }
-        }
-    }
-
-    for (_, fracture) in &fractures {
-        runtime.register_fracture(build_fracture(fracture, &world));
-    }
-
-    // Initialize signals
-    for (signal_id, _) in &signals {
-        runtime.init_signal(
-            signal_id.clone(),
-            get_initial_signal_value(&world, signal_id),
-        );
-    }
 
     // Create run directory
     let run_id = Local::now().format("%Y%m%d_%H%M%S").to_string();
