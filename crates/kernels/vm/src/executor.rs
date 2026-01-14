@@ -273,6 +273,16 @@ fn val_add(l: Value, r: Value) -> Value {
         // For now, keep it simple/safe or panic if unsupported?
         // Let's support Vec3 + Vec3
         (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3([a[0] + b[0], a[1] + b[1], a[2] + b[2]]),
+        (Value::Data(a), Value::Data(b)) => {
+            // Very limited support: merge objects?
+            if let (Some(a_obj), Some(b_obj)) = (a.as_object(), b.as_object()) {
+                let mut res = a_obj.clone();
+                res.extend(b_obj.clone());
+                Value::Data(serde_json::Value::Object(res))
+            } else {
+                Value::Data(a.clone())
+            }
+        }
         // Fallback to Scalar(0.0) or panic for type mismatch?
         // Returning 0.0 is safer for now to avoid crashes during dev
         _ => Value::Scalar(0.0),
@@ -351,6 +361,7 @@ fn val_truthy(v: &Value) -> bool {
         Value::Boolean(b) => *b,
         Value::Scalar(s) => *s != 0.0,
         Value::Integer(i) => *i != 0,
+        Value::Data(v) => !v.is_null(),
         _ => false,
     }
 }

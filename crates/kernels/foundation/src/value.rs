@@ -18,6 +18,8 @@ pub enum Value {
     Vec4([f64; 4]),
     /// Quaternion (w, x, y, z).
     Quat([f64; 4]),
+    /// Structured payload using JSON-like data.
+    Data(serde_json::Value),
     // TODO: Mat3, Mat4, Tensor, Grid, Seq
 }
 
@@ -79,7 +81,16 @@ impl Value {
         }
     }
 
+    /// Attempt to get the value as structured data.
+    pub fn as_data(&self) -> Option<&serde_json::Value> {
+        match self {
+            Value::Data(v) => Some(v),
+            _ => None,
+        }
+    }
+
     /// Get a component by name (x, y, z, w).
+
     pub fn component(&self, name: &str) -> Option<f64> {
         match (self, name) {
             (Value::Scalar(v), _) => Some(*v),
@@ -118,6 +129,7 @@ impl fmt::Display for Value {
             Value::Vec3(v) => write!(f, "[{:.4}, {:.4}, {:.4}]", v[0], v[1], v[2]),
             Value::Vec4(v) => write!(f, "[{:.4}, {:.4}, {:.4}, {:.4}]", v[0], v[1], v[2], v[3]),
             Value::Quat(v) => write!(f, "[{:.4}, {:.4}, {:.4}, {:.4}]", v[0], v[1], v[2], v[3]),
+            Value::Data(v) => write!(f, "{}", v),
         }
     }
 }

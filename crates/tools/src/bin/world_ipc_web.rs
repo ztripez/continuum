@@ -1,6 +1,7 @@
 //! Web proxy for Continuum IPC sockets.
 //!
 //! Serves a small frontend and forwards WebSocket frames to a Unix socket.
+//! Translates JSON frames (WebSocket) to Bincode (Unix Socket).
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -11,8 +12,12 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use clap::Parser;
+use continuum_tools::ipc_protocol::{
+    IpcFrame, JsonRequest, ipc_event_to_json, ipc_response_to_json, json_request_to_ipc,
+    read_frame, write_frame,
+};
 use futures_util::{SinkExt, StreamExt};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::{TcpListener, UnixStream};
 use tower_http::services::ServeDir;
 use tracing::{error, info, warn};
@@ -79,7 +84,13 @@ async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
                 state.socket.display()
             );
             let _ = websocket
-                .send(Message::Text(format!("socket connect failed: {}", err)))
+                .send(Message::Text(
+                    serde_json::json!({
+                        "id": 0,
+                        "error": format!("socket connect failed: {}", err)
+                    })
+                    .to_string(),
+                ))
                 .await;
             let _ = websocket.close().await;
             return;
@@ -87,54 +98,101 @@ async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
     };
 
     let (mut ws_sender, mut ws_receiver) = websocket.split();
-    let (mut socket_reader, mut socket_writer) = stream.into_split();
+    let (reader, writer) = stream.into_split();
+    let mut socket_reader = BufReader::new(reader);
+    let mut socket_writer = BufWriter::new(writer);
+
+    let (ws_tx, mut ws_rx) = tokio::sync::mpsc::channel::<Message>(100);
+
+    let ws_send_loop = async {
+        while let Some(msg) = ws_rx.recv().await {
+            if ws_sender.send(msg).await.is_err() {
+                break;
+            }
+        }
+    };
 
     let ws_to_socket = async {
         while let Some(result) = ws_receiver.next().await {
             match result {
                 Ok(Message::Text(text)) => {
-                    if socket_writer.write_all(text.as_bytes()).await.is_err() {
-                        break;
-                    }
-                }
-                Ok(Message::Binary(data)) => {
-                    if socket_writer.write_all(&data).await.is_err() {
-                        break;
+                    // 1. Decode JSON from WebSocket
+                    let json_req: serde_json::Result<JsonRequest> = serde_json::from_str(&text);
+                    match json_req {
+                        Ok(req) => {
+                            // 2. Translate JsonRequest to IpcRequest
+                            match json_request_to_ipc(req) {
+                                Ok(ipc_req) => {
+                                    // 3. Write IpcRequest as Bincode to socket
+                                    if let Err(err) =
+                                        write_frame(&mut socket_writer, &ipc_req).await
+                                    {
+                                        warn!("Failed to write to socket: {err}");
+                                        break;
+                                    }
+                                    if let Err(err) = socket_writer.flush().await {
+                                        warn!("Failed to flush socket: {err}");
+                                        break;
+                                    }
+                                }
+                                Err(err) => {
+                                    warn!("Failed to translate request: {err}");
+                                }
+                            }
+                        }
+                        Err(err) => {
+                            warn!("Invalid JSON request: {err}");
+                            let _ = ws_tx
+                                .send(Message::Text(
+                                    serde_json::json!({
+                                        "id": 0,
+                                        "error": format!("invalid json: {}", err)
+                                    })
+                                    .to_string(),
+                                ))
+                                .await;
+                        }
                     }
                 }
                 Ok(Message::Close(_)) => {
                     break;
                 }
-                Ok(_) => {}
+                Ok(_) => {} // Ignore binary frames from client
                 Err(err) => {
                     warn!("WebSocket receive error: {err}");
                     break;
                 }
             }
         }
-
-        let _ = socket_writer.shutdown().await;
+        // Connection closed
     };
 
     let socket_to_ws = async {
-        let mut buffer = vec![0u8; 4096];
         loop {
-            match socket_reader.read(&mut buffer).await {
-                Ok(0) => break,
-                Ok(count) => {
-                    if ws_sender
-                        .send(Message::Binary(buffer[..count].to_vec()))
-                        .await
-                        .is_err()
-                    {
-                        break;
+            // 3. Read IpcFrame (Bincode) from socket
+            match read_frame::<_, IpcFrame>(&mut socket_reader).await {
+                Ok(frame) => {
+                    // 4. Convert to JSON and send to WebSocket
+                    let json_msg = match frame {
+                        IpcFrame::Response(resp) => {
+                            serde_json::to_string(&ipc_response_to_json(&resp))
+                        }
+                        IpcFrame::Event(event) => serde_json::to_string(&ipc_event_to_json(&event)),
+                    };
+
+                    match json_msg {
+                        Ok(text) => {
+                            if ws_tx.send(Message::Text(text)).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(err) => {
+                            warn!("Failed to serialize JSON response: {err}");
+                        }
                     }
                 }
                 Err(err) => {
                     warn!("Socket read error: {err}");
-                    let _ = ws_sender
-                        .send(Message::Text(format!("socket read failed: {err}")))
-                        .await;
                     break;
                 }
             }
@@ -142,6 +200,7 @@ async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
     };
 
     tokio::select! {
+        _ = ws_send_loop => {},
         _ = ws_to_socket => {},
         _ = socket_to_ws => {},
     }

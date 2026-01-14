@@ -3,6 +3,7 @@
 //! CLI tools for working with Continuum worlds.
 
 pub mod analyze;
+pub mod ipc_protocol;
 
 use tracing_subscriber::{EnvFilter, fmt};
 

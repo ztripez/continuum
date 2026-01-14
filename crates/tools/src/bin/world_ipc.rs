@@ -1,14 +1,14 @@
 //! IPC simulation server.
 //!
-//! Runs a world and listens for simple text commands over a Unix socket.
+//! Runs a world and listens for binary commands over a Unix socket.
 
+use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex as StdMutex};
 
 use clap::Parser;
 use tokio::fs;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::net::unix::OwnedWriteHalf;
+use tokio::io::BufReader;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task::yield_now;
@@ -16,7 +16,15 @@ use tokio::time::{Duration, sleep};
 use tracing::{error, info, warn};
 
 use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
+use continuum_lens::{FieldLens, FieldLensConfig, PlaybackClock};
 use continuum_runtime::executor::Runtime;
+use continuum_tools::ipc_protocol::{
+    ChronicleEvent, ChroniclePollPayload, FieldHistoryPayload, FieldLatestPayload,
+    FieldListPayload, FieldQueryBatchPayload, FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo,
+    ImpulseListPayload, IpcCommand, IpcEvent, IpcFrame, IpcRequest, IpcResponse,
+    IpcResponsePayload, JsonValue, PlaybackPayload, StatusPayload, TickEvent, read_frame,
+    write_frame,
+};
 
 #[derive(Parser, Debug)]
 #[command(name = "world-ipc")]
@@ -40,10 +48,20 @@ struct Cli {
 
 struct ServerState {
     runtime: Runtime,
+    lens: FieldLens,
+    playback: PlaybackClock,
     sim_time: f64,
     running: bool,
     tick_delay: Duration,
-    events: broadcast::Sender<String>,
+    events: broadcast::Sender<IpcEvent>,
+    fields: Vec<String>,
+    impulse_handlers: HashMap<String, usize>,
+    impulses: Vec<ImpulseInfo>,
+    impulse_seq: u64,
+}
+
+struct ClientState {
+    chronicle_events: Arc<StdMutex<VecDeque<ChronicleEvent>>>,
 }
 
 #[tokio::main]
@@ -91,33 +109,50 @@ async fn main() {
         }
     };
 
-    if report.resolver_count > 0 || report.aggregate_count > 0 {
-        info!(
-            "  Total: {} resolvers, {} aggregate resolvers",
-            report.resolver_count, report.aggregate_count
-        );
-    }
-    if report.assertion_count > 0 {
-        info!("  Registered {} assertions", report.assertion_count);
-    }
-    if report.field_count > 0 {
-        info!("  Registered {} field measures", report.field_count);
-    }
-    if report.skipped_fields > 0 {
-        info!(
-            "  Skipped {} fields with entity expressions (EntityExecutor not yet implemented)",
-            report.skipped_fields
-        );
-    }
+    let lens = match FieldLens::new(FieldLensConfig::default()) {
+        Ok(lens) => lens,
+        Err(err) => {
+            error!("Failed to initialize lens: {err}");
+            std::process::exit(1);
+        }
+    };
+    let playback = PlaybackClock::new(0.0);
+
+    let fields = world
+        .fields()
+        .keys()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>();
+
+    let impulses = world
+        .impulses()
+        .iter()
+        .map(|(id, impulse)| ImpulseInfo {
+            id: id.to_string(),
+            payload_type: impulse.payload_type.primitive_id().name().to_string(),
+        })
+        .collect::<Vec<_>>();
+
+    let impulse_handlers = report
+        .impulse_indices
+        .iter()
+        .map(|(id, idx)| (id.to_string(), *idx))
+        .collect();
 
     let (events, _rx) = broadcast::channel(1024);
 
     let state = Arc::new(Mutex::new(ServerState {
         runtime,
+        lens,
+        playback,
         sim_time: 0.0,
         running: false,
         tick_delay: Duration::from_millis(cli.tick_delay_ms),
         events,
+        fields,
+        impulse_handlers,
+        impulses,
+        impulse_seq: 0,
     }));
 
     if cli.socket.exists() {
@@ -157,133 +192,375 @@ async fn main() {
 
 async fn handle_client(stream: UnixStream, state: Arc<Mutex<ServerState>>) -> anyhow::Result<()> {
     let (reader, writer) = stream.into_split();
+    let mut reader = BufReader::new(reader);
     let writer = Arc::new(Mutex::new(writer));
-    let mut lines = BufReader::new(reader).lines();
 
+    let client_state = Arc::new(ClientState {
+        chronicle_events: Arc::new(StdMutex::new(VecDeque::new())),
+    });
+
+    // Spawn event listener for this client
     let mut event_rx = {
         let state = state.lock().await;
         state.events.subscribe()
     };
 
     let event_writer = Arc::clone(&writer);
+    let chronicle_events = Arc::clone(&client_state.chronicle_events);
+
     tokio::spawn(async move {
-        while let Ok(message) = event_rx.recv().await {
+        while let Ok(event) = event_rx.recv().await {
+            // Buffer chronicle events
+            if let IpcEvent::Chronicle(ref chronicle_event) = event {
+                let mut buffer = chronicle_events
+                    .lock()
+                    .expect("chronicle event lock poisoned");
+                buffer.push_back(chronicle_event.clone());
+            }
+
+            // Forward all events (Tick, Chronicle) to client
+            let frame = IpcFrame::Event(event);
             let mut writer = event_writer.lock().await;
-            if writer.write_all(message.as_bytes()).await.is_err() {
+            if write_frame(&mut *writer, &frame).await.is_err() {
                 break;
             }
         }
     });
 
-    write_line(&writer, "ok world-ipc ready\n").await?;
-
-    while let Some(line) = lines.next_line().await? {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-
-        let mut parts = line.split_whitespace();
-        let command = parts.next().unwrap_or("");
-
-        match command {
-            "help" => {
-                write_line(
-                    &writer,
-                    "ok commands: status | step [n] | run [n] | stop | quit\n",
-                )
-                .await?;
-            }
-            "status" => {
-                let state = state.lock().await;
-                let ctx = state.runtime.tick_context();
-                let response = format!(
-                    "ok tick={} era={} sim_time={:.6} running={}\n",
-                    ctx.tick, ctx.era, state.sim_time, state.running
-                );
-                write_line(&writer, &response).await?;
-            }
-            "step" => {
-                let count = parts
-                    .next()
-                    .map(|value| value.parse::<u64>())
-                    .transpose()
-                    .map_err(|_| anyhow::anyhow!("invalid step count"))?
-                    .unwrap_or(1);
-
-                let mut state = state.lock().await;
-                if state.running {
-                    write_line(&writer, "err running (stop first)\n").await?;
-
-                    continue;
-                }
-                for _ in 0..count {
-                    let ctx = state.runtime.execute_tick()?;
-                    state.sim_time += ctx.dt.seconds();
-                }
-                let ctx = state.runtime.tick_context();
-                let response = format!(
-                    "ok tick={} era={} sim_time={:.6}\n",
-                    ctx.tick, ctx.era, state.sim_time
-                );
-                write_line(&writer, &response).await?;
-            }
-            "run" => {
-                let count = parts
-                    .next()
-                    .map(|value| value.parse::<u64>())
-                    .transpose()
-                    .map_err(|_| anyhow::anyhow!("invalid step count"))?;
-
-                if let Some(count) = count {
-                    let mut state = state.lock().await;
-                    if state.running {
-                        write_line(&writer, "err running (stop first)\n").await?;
-
-                        continue;
-                    }
-                    for _ in 0..count {
-                        let ctx = state.runtime.execute_tick()?;
-                        state.sim_time += ctx.dt.seconds();
-                    }
-                    let ctx = state.runtime.tick_context();
-                    let response = format!(
-                        "ok tick={} era={} sim_time={:.6}\n",
-                        ctx.tick, ctx.era, state.sim_time
-                    );
-                    write_line(&writer, &response).await?;
-                } else {
-                    let mut state_guard = state.lock().await;
-                    if state_guard.running {
-                        write_line(&writer, "err already running\n").await?;
-                        continue;
-                    }
-                    state_guard.running = true;
-                    let tick_delay = state_guard.tick_delay;
-                    let state_clone = Arc::clone(&state);
-                    tokio::spawn(async move {
-                        run_loop(state_clone, tick_delay).await;
-                    });
-                    write_line(&writer, "ok running\n").await?;
-                }
-            }
-            "stop" => {
-                let mut state = state.lock().await;
-                if state.running {
-                    state.running = false;
-                    write_line(&writer, "ok stopped\n").await?;
-                } else {
-                    write_line(&writer, "ok not running\n").await?;
-                }
-            }
-            "quit" | "exit" => {
-                write_line(&writer, "ok bye\n").await?;
+    // Read loop
+    loop {
+        let request: IpcRequest = match read_frame(&mut reader).await {
+            Ok(req) => req,
+            Err(err) => {
+                warn!("read frame error: {err}");
                 break;
             }
-            _ => {
-                write_line(&writer, "err unknown command (try 'help')\n").await?;
+        };
+
+        info!("Handling request: {} ({:?})", request.id, request.command);
+
+        let request_id = request.id;
+        let response =
+            match handle_command(request, Arc::clone(&state), Arc::clone(&client_state)).await {
+                Ok(resp) => resp,
+                Err(err) => IpcResponse {
+                    id: request_id,
+                    ok: false,
+                    payload: None,
+                    error: Some(err.to_string()),
+                },
+            };
+        let frame = IpcFrame::Response(response);
+        let mut writer_guard = writer.lock().await;
+        if let Err(err) = write_frame(&mut *writer_guard, &frame).await {
+            warn!("write frame error: {err}");
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+async fn handle_command(
+    request: IpcRequest,
+    state: Arc<Mutex<ServerState>>,
+    client: Arc<ClientState>,
+) -> anyhow::Result<IpcResponse> {
+    let id = request.id;
+    match request.command {
+        IpcCommand::Status => {
+            let state = state.lock().await;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::Status(status_payload(&state))),
+                error: None,
+            })
+        }
+        IpcCommand::Step { count } => {
+            let mut state = state.lock().await;
+            if state.running {
+                anyhow::bail!("running (stop first)");
+            }
+            for _ in 0..count {
+                execute_tick(&mut state)?;
+            }
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::Status(status_payload(&state))),
+                error: None,
+            })
+        }
+        IpcCommand::Run { count } => {
+            let mut state_guard = state.lock().await;
+            if let Some(count) = count {
+                if state_guard.running {
+                    anyhow::bail!("running (stop first)");
+                }
+                for _ in 0..count {
+                    execute_tick(&mut state_guard)?;
+                }
+                Ok(IpcResponse {
+                    id,
+                    ok: true,
+                    payload: Some(IpcResponsePayload::Status(status_payload(&state_guard))),
+                    error: None,
+                })
+            } else {
+                if state_guard.running {
+                    anyhow::bail!("already running");
+                }
+                state_guard.running = true;
+                let tick_delay = state_guard.tick_delay;
+                let state_clone = Arc::clone(&state);
+                tokio::spawn(async move {
+                    run_loop(state_clone, tick_delay).await;
+                });
+                Ok(IpcResponse {
+                    id,
+                    ok: true,
+                    payload: Some(IpcResponsePayload::Status(status_payload(&state_guard))),
+                    error: None,
+                })
             }
         }
+        IpcCommand::Stop => {
+            let mut state = state.lock().await;
+            state.running = false;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::Status(status_payload(&state))),
+                error: None,
+            })
+        }
+        IpcCommand::FieldList => {
+            let state = state.lock().await;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::FieldList(FieldListPayload {
+                    fields: state.fields.clone(),
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::FieldHistory { field_id } => {
+            let state = state.lock().await;
+            let fid = continuum_foundation::FieldId::from(field_id.as_str());
+            let ticks = state
+                .lens
+                .history_ticks(&fid)
+                .ok_or_else(|| anyhow::anyhow!("field '{}' has no history", field_id))?;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::FieldHistory(FieldHistoryPayload {
+                    field_id,
+                    ticks,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::FieldQuery {
+            field_id,
+            position,
+            time,
+        } => {
+            let mut state = state.lock().await;
+            let t = time.unwrap_or_else(|| state.playback.current_time());
+            let value = query_field_value(&mut state, &field_id, position, t)?;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::FieldQuery(FieldQueryPayload {
+                    field_id,
+                    value,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::FieldQueryBatch {
+            field_id,
+            positions,
+            tick,
+        } => {
+            let mut state = state.lock().await;
+            let values = query_field_batch(&mut state, &field_id, positions, tick)?;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::FieldQueryBatch(
+                    FieldQueryBatchPayload { field_id, values },
+                )),
+                error: None,
+            })
+        }
+        IpcCommand::FieldLatest { field_id, position } => {
+            let mut state = state.lock().await;
+            let (tick, value) = query_field_latest(&mut state, &field_id, position)?;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::FieldLatest(FieldLatestPayload {
+                    field_id,
+                    tick,
+                    value,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::FieldTile {
+            field_id,
+            tile: _,
+            tick,
+            positions,
+        } => {
+            let mut state = state.lock().await;
+            let values = query_field_batch(&mut state, &field_id, positions, Some(tick))?;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::FieldQueryBatch(
+                    FieldQueryBatchPayload { field_id, values },
+                )),
+                error: None,
+            })
+        }
+        IpcCommand::PlaybackSet { lag_ticks, speed } => {
+            let mut state = state.lock().await;
+            state.playback = PlaybackClock::new(lag_ticks);
+            state.playback.set_speed(speed);
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::Playback(PlaybackPayload {
+                    time: state.playback.current_time(),
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::PlaybackSeek { time } => {
+            let mut state = state.lock().await;
+            state.playback.seek(time);
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::Playback(PlaybackPayload {
+                    time: state.playback.current_time(),
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::PlaybackQuery { field_id, position } => {
+            let mut state = state.lock().await;
+            let time = state.playback.current_time();
+            let value = query_field_value(&mut state, &field_id, position, time)?;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::FieldQuery(FieldQueryPayload {
+                    field_id,
+                    value,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::ChroniclePoll => {
+            let mut buffer = client
+                .chronicle_events
+                .lock()
+                .expect("chronicle event lock poisoned");
+            let events: Vec<_> = buffer.drain(..).collect();
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::ChroniclePoll(ChroniclePollPayload {
+                    events,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::ImpulseList => {
+            let state = state.lock().await;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::ImpulseList(ImpulseListPayload {
+                    impulses: state.impulses.clone(),
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::ImpulseEmit {
+            impulse_id,
+            payload,
+        } => {
+            let mut state = state.lock().await;
+            let handler_idx = state
+                .impulse_handlers
+                .get(&impulse_id)
+                .copied()
+                .ok_or_else(|| anyhow::anyhow!("unknown impulse '{}'", impulse_id))?;
+            let seq = state.impulse_seq;
+            state.impulse_seq += 1;
+            let applied_tick = state.runtime.tick() + 1;
+            state.runtime.inject_impulse(handler_idx, payload);
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::ImpulseEmit(ImpulseEmitPayload {
+                    seq,
+                    applied_tick,
+                })),
+                error: None,
+            })
+        }
+    }
+}
+
+fn execute_tick(state: &mut ServerState) -> anyhow::Result<()> {
+    let ctx = state.runtime.execute_tick()?;
+    state.sim_time += ctx.dt.seconds();
+    state.playback.advance(state.runtime.tick());
+
+    // Ingest fields into Lens
+    let fields = state.runtime.drain_fields();
+    state.lens.record_many(state.runtime.tick(), fields);
+
+    // Process chronicle events
+    let events = state.runtime.drain_events();
+    let mut chronicle_events = Vec::new();
+    for event in events {
+        let fields = event
+            .fields
+            .into_iter()
+            .map(|(k, v)| (k, JsonValue::from_value(&v)))
+            .collect();
+        chronicle_events.push(ChronicleEvent {
+            chronicle_id: event.chronicle_id,
+            name: event.name,
+            fields,
+            tick: ctx.tick,
+            era: ctx.era.to_string(),
+            sim_time: state.sim_time,
+        });
+    }
+
+    // Broadcast tick event
+    let tick_event = TickEvent {
+        tick: ctx.tick,
+        era: ctx.era.to_string(),
+        sim_time: state.sim_time,
+        field_count: state.fields.len(),
+        event_count: chronicle_events.len(),
+    };
+    let _ = state.events.send(IpcEvent::Tick(tick_event));
+
+    // Broadcast chronicle events
+    for event in chronicle_events {
+        let _ = state.events.send(IpcEvent::Chronicle(event));
     }
 
     Ok(())
@@ -296,21 +573,10 @@ async fn run_loop(state: Arc<Mutex<ServerState>>, tick_delay: Duration) {
             break;
         }
 
-        let tick_result = state_guard.runtime.execute_tick();
-        match tick_result {
-            Ok(ctx) => {
-                state_guard.sim_time += ctx.dt.seconds();
-                let message = format!(
-                    "tick {} era={} sim_time={:.6}\n",
-                    ctx.tick, ctx.era, state_guard.sim_time
-                );
-                let _ = state_guard.events.send(message);
-            }
-            Err(err) => {
-                warn!("run loop error: {err}");
-                state_guard.running = false;
-                break;
-            }
+        if let Err(err) = execute_tick(&mut state_guard) {
+            warn!("run loop error: {err}");
+            state_guard.running = false;
+            break;
         }
         drop(state_guard);
 
@@ -322,8 +588,53 @@ async fn run_loop(state: Arc<Mutex<ServerState>>, tick_delay: Duration) {
     }
 }
 
-async fn write_line(writer: &Arc<Mutex<OwnedWriteHalf>>, line: &str) -> anyhow::Result<()> {
-    let mut writer = writer.lock().await;
-    writer.write_all(line.as_bytes()).await?;
-    Ok(())
+fn status_payload(state: &ServerState) -> StatusPayload {
+    let ctx = state.runtime.tick_context();
+    StatusPayload {
+        tick: ctx.tick,
+        era: ctx.era.to_string(),
+        sim_time: state.sim_time,
+        dt: ctx.dt.seconds(),
+        phase: format!("{:?}", state.runtime.phase()),
+        running: state.running,
+    }
+}
+
+fn query_field_value(
+    state: &mut ServerState,
+    field_id: &str,
+    position: [f64; 3],
+    time: f64,
+) -> anyhow::Result<JsonValue> {
+    let field_id = continuum_foundation::FieldId::from(field_id);
+    let value = state.lens.query(&field_id, position, time)?;
+    Ok(JsonValue::Scalar(value))
+}
+
+fn query_field_batch(
+    state: &mut ServerState,
+    field_id: &str,
+    positions: Vec<[f64; 3]>,
+    tick: Option<u64>,
+) -> anyhow::Result<Vec<f64>> {
+    let field_id = continuum_foundation::FieldId::from(field_id);
+    let tick = tick.unwrap_or_else(|| state.runtime.tick());
+    let values = state.lens.query_batch(&field_id, &positions, tick)?;
+    Ok(values)
+}
+
+fn query_field_latest(
+    state: &mut ServerState,
+    field_id: &str,
+    position: Option<[f64; 3]>,
+) -> anyhow::Result<(u64, Option<JsonValue>)> {
+    let field_id = continuum_foundation::FieldId::from(field_id);
+    let tick = state.runtime.tick();
+    let value = if let Some(pos) = position {
+        let v = state.lens.query(&field_id, pos, state.sim_time)?;
+        Some(JsonValue::Scalar(v))
+    } else {
+        None
+    };
+    Ok((tick, value))
 }

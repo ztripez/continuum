@@ -30,7 +30,7 @@ pub(crate) struct SharedContextData<'a> {
 
 impl SharedContextData<'_> {
     /// Get signal value by name
-    fn signal(&self, name: &str) -> Value {
+    pub(crate) fn signal(&self, name: &str) -> Value {
         let runtime_id = SignalId::from(name);
         match self.signals.get(&runtime_id) {
             Some(v) => v.clone(),
@@ -39,7 +39,7 @@ impl SharedContextData<'_> {
     }
 
     /// Get signal component by name and component (x, y, z, w)
-    fn signal_component(&self, name: &str, component: &str) -> Value {
+    pub(crate) fn signal_component(&self, name: &str, component: &str) -> Value {
         let runtime_id = SignalId::from(name);
         match self.signals.get(&runtime_id) {
             Some(v) => {
@@ -54,7 +54,7 @@ impl SharedContextData<'_> {
     }
 
     /// Get constant value by name
-    fn constant(&self, name: &str) -> Value {
+    pub(crate) fn constant(&self, name: &str) -> Value {
         self.constants
             .get(name)
             .map(|(v, _)| Value::Scalar(*v))
@@ -62,7 +62,7 @@ impl SharedContextData<'_> {
     }
 
     /// Get config value by name
-    fn config(&self, name: &str) -> Value {
+    pub(crate) fn config(&self, name: &str) -> Value {
         self.config
             .get(name)
             .map(|(v, _)| Value::Scalar(*v))

@@ -43,25 +43,33 @@ cargo run --bin world-load -- <WORLD_DIR>
 ```
 
 ### `world-ipc`
-Runs a world as a long-lived IPC server over a Unix socket.
+Runs a world as a long-lived IPC server over a Unix socket. Uses a binary framing protocol (Bincode).
 
 ```bash
 cargo run --bin world-ipc -- examples/terra --socket /tmp/continuum.sock
 ```
 
-Commands:
-- `status`
-- `step [n]`
-- `run [n]` (omit `n` to run indefinitely)
-- `stop`
-- `quit`
-
-While running, the server broadcasts lines like:
-- `tick <n> era=<era> sim_time=<seconds>`
-
 ### `world-ipc-web`
-Serves a small WebSocket proxy that forwards frames to a Unix IPC socket, plus a basic frontend.
+Serves a small WebSocket proxy that translates between JSON (WebSocket) and the binary Sim Server protocol, plus a basic frontend.
 
 ```bash
 cargo run --bin world-ipc-web -- --socket /tmp/continuum.sock --bind 0.0.0.0:8080
 ```
+
+#### JSON Protocol (UI Clients)
+
+Requests: `{"id": 1, "type": "command", "payload": { ... }}`
+Responses: `{"id": 1, "ok": true, "payload": { ... }}`
+Events: `{"type": "tick|chronicle.event", "payload": { ... }}`
+
+Commands:
+- `status`: Returns current tick, era, time, and running state.
+- `step { "count": n }`: Executes `n` ticks.
+- `run { "count": n }`: Runs `n` ticks (or indefinitely if `count` is null) at maximum speed.
+- `stop`: Stops a running simulation.
+- `field.list`: Returns all available fields.
+- `field.query { "field_id": "...", "position": [x,y,z] }`: Returns interpolated value at simulation time.
+- `field.history { "field_id": "..." }`: Returns available historical ticks for a field.
+- `impulse.list`: Returns all registered impulses and their payload types.
+- `impulse.emit { "impulse_id": "...", "payload": { ... } }`: Injects an impulse for the next tick.
+- `playback.set { "lag_ticks": n, "speed": m }`: Configures the observer playback clock.

@@ -72,6 +72,8 @@ pub struct ImpulseContext<'a> {
     pub signals: &'a SignalStorage,
     /// Channel to write inputs
     pub channels: &'a mut InputChannels,
+    /// Time step
+    pub dt: Dt,
     /// Accumulated simulation time in seconds
     pub sim_time: f64,
 }
@@ -99,4 +101,6 @@ pub struct ChronicleContext<'a> {
     pub signals: &'a SignalStorage,
     /// Time step
     pub dt: Dt,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }

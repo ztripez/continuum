@@ -3,176 +3,322 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Continuum IPC Web Proxy</title>
+  <title>Continuum Sim Control</title>
   <style>
+    :root {
+      --bg: #f8fafc;
+      --text: #0f172a;
+      --panel: #ffffff;
+      --border: #e2e8f0;
+      --primary: #2563eb;
+      --danger: #ef4444;
+      --success: #22c55e;
+      --log-bg: #0f172a;
+      --log-text: #e2e8f0;
+    }
     body {
       font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
-      margin: 24px;
-      color: #111827;
-      background: #f9fafb;
+      margin: 0;
+      padding: 24px;
+      color: var(--text);
+      background: var(--bg);
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      grid-template-rows: auto 1fr;
+      gap: 24px;
+      height: 100vh;
+      box-sizing: border-box;
     }
     header {
-      margin-bottom: 16px;
-    }
-    .row {
+      grid-column: 1 / -1;
       display: flex;
-      gap: 12px;
+      justify-content: space-between;
       align-items: center;
-      flex-wrap: wrap;
-      margin-bottom: 12px;
     }
-    input[type="text"] {
-      flex: 1 1 360px;
-      padding: 8px 10px;
-      border: 1px solid #d1d5db;
-      border-radius: 6px;
-      background: #fff;
+    h1 { margin: 0; font-size: 20px; }
+    .status-badge {
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: #94a3b8;
+      color: white;
+    }
+    .status-badge.connected { background: var(--success); }
+    .status-badge.disconnected { background: var(--danger); }
+
+    .sidebar {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .panel h2 {
+      margin: 0 0 12px 0;
+      font-size: 14px;
+      text-transform: uppercase;
+      color: #64748b;
+      letter-spacing: 0.05em;
+    }
+    .stat-grid {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 8px 16px;
+      font-size: 14px;
+    }
+    .stat-label { color: #64748b; }
+    .stat-value { font-weight: 600; font-family: ui-monospace, monospace; text-align: right; }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
     }
     button {
       padding: 8px 12px;
-      border: 1px solid #111827;
-      background: #111827;
-      color: #fff;
+      border: 1px solid var(--border);
+      background: white;
       border-radius: 6px;
+      font-weight: 500;
       cursor: pointer;
+      transition: all 0.1s;
     }
-    button.secondary {
-      background: #fff;
-      color: #111827;
+    button:hover { background: #f1f5f9; }
+    button.primary { background: var(--primary); color: white; border-color: var(--primary); }
+    button.primary:hover { background: #1d4ed8; }
+    button.danger { background: white; color: var(--danger); border-color: var(--danger); }
+    button.danger:hover { background: #fef2f2; }
+
+    .main {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+      overflow: hidden;
     }
     #log {
-      background: #0f172a;
-      color: #e2e8f0;
+      background: var(--log-bg);
+      color: var(--log-text);
       padding: 12px;
       border-radius: 8px;
-      height: 360px;
+      flex: 1;
       overflow: auto;
-      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-family: ui-monospace, monospace;
       font-size: 12px;
       white-space: pre-wrap;
     }
-    .status {
-      font-weight: 600;
+    .log-entry { margin-bottom: 4px; border-bottom: 1px solid #1e293b; padding-bottom: 4px; }
+    .log-entry.event { color: #38bdf8; }
+    .log-entry.error { color: #f87171; }
+    .log-entry.out { color: #94a3b8; }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
     }
+    input {
+      flex: 1;
+      padding: 8px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: ui-monospace, monospace;
+    }
+
+    .list-item {
+      padding: 6px 8px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      justify-content: space-between;
+    }
+    .list-item:hover { background: #f1f5f9; }
+    .list-item code { color: var(--primary); }
   </style>
 </head>
 <body>
   <header>
-    <h1>Continuum IPC Web Proxy</h1>
-    <p>Connects to <code>/ws</code> and forwards frames to the Unix socket.</p>
+    <h1>Continuum Sim Control</h1>
+    <div id="conn-status" class="status-badge disconnected">Disconnected</div>
   </header>
 
-  <div class="row">
-    <span>Status: <span class="status" id="status">disconnected</span></span>
-    <button id="connect">Connect</button>
-    <button id="disconnect" class="secondary">Disconnect</button>
+  <div class="sidebar">
+    <div class="panel">
+      <h2>Simulation</h2>
+      <div class="stat-grid">
+        <span class="stat-label">Tick</span><span class="stat-value" id="val-tick">-</span>
+        <span class="stat-label">Era</span><span class="stat-value" id="val-era">-</span>
+        <span class="stat-label">Time</span><span class="stat-value" id="val-time">-</span>
+        <span class="stat-label">Phase</span><span class="stat-value" id="val-phase">-</span>
+      </div>
+      <div class="controls" style="margin-top: 16px;">
+        <button id="cmd-status">Status</button>
+        <button id="cmd-step">Step</button>
+        <button id="cmd-run" class="primary">Run</button>
+        <button id="cmd-stop" class="danger">Stop</button>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Fields</h2>
+      <div id="field-list" style="max-height: 200px; overflow: auto;">
+        <div style="color: #94a3b8; font-style: italic; font-size: 13px;">Fetch list...</div>
+      </div>
+      <button id="cmd-refresh-fields" style="width: 100%; margin-top: 8px; font-size: 12px;">Refresh List</button>
+    </div>
+
+    <div class="panel">
+      <h2>Impulses</h2>
+      <div id="impulse-list" style="max-height: 200px; overflow: auto;">
+        <div style="color: #94a3b8; font-style: italic; font-size: 13px;">Fetch list...</div>
+      </div>
+    </div>
   </div>
 
-  <div class="row">
-    <input id="payload" type="text" placeholder="Send text payload to IPC" />
-    <button id="send">Send</button>
+  <div class="main">
+    <div id="log"></div>
+    <div class="input-row">
+      <input id="manual-payload" type="text" placeholder='{"type": "status"}' />
+      <button id="btn-send-manual">Send Raw</button>
+      <button id="btn-clear-log" class="secondary">Clear</button>
+    </div>
   </div>
-
-  <div id="log"></div>
 
   <script>
-    const statusEl = document.getElementById('status');
+    const connStatus = document.getElementById('conn-status');
     const logEl = document.getElementById('log');
-    const payloadEl = document.getElementById('payload');
-    const connectBtn = document.getElementById('connect');
-    const disconnectBtn = document.getElementById('disconnect');
-    const sendBtn = document.getElementById('send');
-
+    const manualInput = document.getElementById('manual-payload');
+    
     let socket = null;
+    let requestId = 1;
 
-    function logLine(line) {
+    function log(msg, type = '') {
       const entry = document.createElement('div');
-      entry.textContent = line;
+      entry.className = 'log-entry ' + type;
+      const time = new Date().toLocaleTimeString();
+      const prefix = type === 'event' ? '⚡ ' : type === 'error' ? '❌ ' : type === 'out' ? '>> ' : '<< ';
+      
+      const content = typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2);
+      entry.textContent = `[${time}] ${prefix}${content}`;
       logEl.appendChild(entry);
       logEl.scrollTop = logEl.scrollHeight;
     }
 
-    function hexDump(buffer) {
-      return Array.from(buffer)
-        .map(byte => byte.toString(16).padStart(2, '0'))
-        .join(' ');
-    }
-
-    function setStatus(text) {
-      statusEl.textContent = text;
+    function updateStats(status) {
+      document.getElementById('val-tick').textContent = status.tick;
+      document.getElementById('val-era').textContent = status.era;
+      document.getElementById('val-time').textContent = status.sim_time.toFixed(2) + 's';
+      document.getElementById('val-phase').textContent = status.phase;
     }
 
     function connect() {
-      if (socket && socket.readyState === WebSocket.OPEN) {
-        return;
-      }
-
-      const url = `ws://${location.host}/ws`;
+      const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const url = `${protocol}//${location.host}/ws`;
       socket = new WebSocket(url);
-      socket.binaryType = 'arraybuffer';
-
-      setStatus('connecting');
 
       socket.onopen = () => {
-        setStatus('connected');
-        logLine(`[connected] ${url}`);
+        connStatus.textContent = 'Connected';
+        connStatus.className = 'status-badge connected';
+        log('Connected to ' + url);
+        sendRequest('status');
+        sendRequest('field.list');
+        sendRequest('impulse.list');
       };
 
       socket.onmessage = event => {
-        if (typeof event.data === 'string') {
-          logLine(`<< ${event.data}`);
-          return;
+        try {
+          const msg = JSON.parse(event.data);
+          
+          if (msg.type === 'tick') {
+            updateStats(msg.payload);
+            return; // Don't log every tick to keep UI responsive
+          }
+          
+          if (msg.type === 'chronicle.event') {
+            log(msg.payload.name + ': ' + JSON.stringify(msg.payload.fields), 'event');
+            return;
+          }
+
+          log(msg);
+
+          if (msg.ok && msg.payload) {
+            if (msg.payload.tick !== undefined) updateStats(msg.payload);
+            if (msg.payload.fields) updateFieldList(msg.payload.fields);
+            if (msg.payload.impulses) updateImpulseList(msg.payload.impulses);
+          }
+        } catch (err) {
+          log('raw: ' + event.data);
         }
-
-        const bytes = new Uint8Array(event.data);
-        const text = new TextDecoder().decode(bytes);
-        const printable = /^[\x09\x0A\x0D\x20-\x7E]*$/.test(text);
-
-        if (printable) {
-          logLine(`<< ${text.replace(/\n$/, '')}`);
-        } else {
-          logLine(`<< [${bytes.length} bytes] ${hexDump(bytes)}`);
-        }
-      };
-
-      socket.onerror = () => {
-        setStatus('error');
-        logLine('[error] WebSocket error');
       };
 
       socket.onclose = () => {
-        setStatus('disconnected');
-        logLine('[closed] WebSocket disconnected');
+        connStatus.textContent = 'Disconnected';
+        connStatus.className = 'status-badge disconnected';
+        log('Disconnected', 'error');
+        setTimeout(connect, 2000);
       };
     }
 
-    function disconnect() {
-      if (socket) {
-        socket.close();
-      }
+    function sendRequest(type, payload = {}) {
+      if (!socket || socket.readyState !== WebSocket.OPEN) return;
+      const req = { id: requestId++, type, payload };
+      socket.send(JSON.stringify(req));
+      // log(req, 'out');
     }
 
-    function sendPayload() {
-      if (!socket || socket.readyState !== WebSocket.OPEN) {
-        logLine('[warn] Not connected');
-        return;
-      }
-      const payload = payloadEl.value;
-      const line = `${payload}\n`;
-      socket.send(line);
-      logLine(`>> ${payload}`);
-      payloadEl.value = '';
+    function updateFieldList(fields) {
+      const list = document.getElementById('field-list');
+      list.innerHTML = '';
+      fields.forEach(id => {
+        const item = document.createElement('div');
+        item.className = 'list-item';
+        item.innerHTML = `<code>${id}</code> <span>Query</span>`;
+        item.onclick = () => sendRequest('field.query', { field_id: id, position: [0,0,0] });
+        list.appendChild(item);
+      });
     }
 
-    connectBtn.addEventListener('click', connect);
-    disconnectBtn.addEventListener('click', disconnect);
-    sendBtn.addEventListener('click', sendPayload);
+    function updateImpulseList(impulses) {
+      const list = document.getElementById('impulse-list');
+      list.innerHTML = '';
+      impulses.forEach(imp => {
+        const item = document.createElement('div');
+        item.className = 'list-item';
+        item.innerHTML = `<code>${imp.id}</code> <span>${imp.payload_type}</span>`;
+        item.onclick = () => {
+          const val = prompt(`Enter payload for ${imp.id} (${imp.payload_type}):`, '{"type": "Scalar", "value": 1.0}');
+          if (val) {
+            try {
+              sendRequest('impulse.emit', { impulse_id: imp.id, payload: JSON.parse(val) });
+            } catch(e) { alert('Invalid JSON'); }
+          }
+        };
+        list.appendChild(item);
+      });
+    }
 
-    payloadEl.addEventListener('keydown', event => {
-      if (event.key === 'Enter') {
-        sendPayload();
-      }
-    });
+    document.getElementById('cmd-status').onclick = () => sendRequest('status');
+    document.getElementById('cmd-step').onclick = () => sendRequest('step', { count: 1 });
+    document.getElementById('cmd-run').onclick = () => sendRequest('run');
+    document.getElementById('cmd-stop').onclick = () => sendRequest('stop');
+    document.getElementById('cmd-refresh-fields').onclick = () => sendRequest('field.list');
+    document.getElementById('btn-clear-log').onclick = () => logEl.innerHTML = '';
+    document.getElementById('btn-send-manual').onclick = () => {
+      try {
+        const req = JSON.parse(manualInput.value);
+        if (!req.id) req.id = requestId++;
+        socket.send(JSON.stringify(req));
+        log(req, 'out');
+      } catch(e) { log('Invalid JSON', 'error'); }
+    };
+
+    connect();
   </script>
 </body>
 </html>

@@ -43,6 +43,7 @@
 //! let bytecode = compile(&expr);
 //! // Execute with: continuum_vm::execute(&bytecode, &context)
 //! ```
+//!
 
 use continuum_vm::BytecodeChunk;
 use continuum_vm::compiler::{BinaryOp, Expr, UnaryOp};
@@ -278,47 +279,53 @@ pub fn compile(expr: &CompiledExpr) -> BytecodeChunk {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CompiledExpr;
-    use continuum_foundation::SignalId;
+    use continuum_foundation::{SignalId, Value};
     use continuum_vm::{ExecutionContext, execute};
 
     struct TestContext;
 
     impl ExecutionContext for TestContext {
-        fn prev(&self) -> f64 {
-            100.0
+        fn prev(&self) -> Value {
+            Value::Scalar(100.0)
         }
-        fn dt(&self) -> f64 {
+        fn dt(&self) -> Value {
+            Value::Scalar(0.1)
+        }
+        fn dt_scalar(&self) -> f64 {
             0.1
         }
-        fn sim_time(&self) -> f64 {
-            10.0
+        fn sim_time(&self) -> Value {
+            Value::Scalar(10.0)
         }
-        fn inputs(&self) -> f64 {
-            5.0
+        fn inputs(&self) -> Value {
+            Value::Scalar(5.0)
         }
-        fn signal(&self, name: &str) -> f64 {
+        fn signal(&self, name: &str) -> Value {
             match name {
-                "temp" => 25.0,
-                _ => 0.0,
+                "temp" => Value::Scalar(25.0),
+                _ => Value::Scalar(0.0),
             }
         }
-        fn constant(&self, name: &str) -> f64 {
+        fn constant(&self, name: &str) -> Value {
             match name {
-                "PI" => std::f64::consts::PI,
-                _ => 0.0,
+                "PI" => Value::Scalar(std::f64::consts::PI),
+                _ => Value::Scalar(0.0),
             }
         }
-        fn config(&self, name: &str) -> f64 {
+        fn config(&self, name: &str) -> Value {
             match name {
-                "scale" => 2.0,
-                _ => 0.0,
+                "scale" => Value::Scalar(2.0),
+                _ => Value::Scalar(0.0),
             }
         }
-        fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
+        fn call_kernel(&self, name: &str, args: &[Value]) -> Value {
             match name {
-                "abs" => args.first().map(|v| v.abs()).unwrap_or(0.0),
-                _ => 0.0,
+                "abs" => args
+                    .first()
+                    .and_then(|v| v.as_scalar())
+                    .map(|v| Value::Scalar(v.abs()))
+                    .unwrap_or(Value::Scalar(0.0)),
+                _ => Value::Scalar(0.0),
             }
         }
     }
@@ -328,7 +335,7 @@ mod tests {
         let expr = CompiledExpr::Literal(42.0, None);
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
-        assert_eq!(result, 42.0);
+        assert_eq!(result, Value::Scalar(42.0));
     }
 
     #[test]
@@ -340,7 +347,7 @@ mod tests {
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
-        assert_eq!(result, 42.0);
+        assert_eq!(result, Value::Scalar(42.0));
     }
 
     #[test]
@@ -348,7 +355,7 @@ mod tests {
         let expr = CompiledExpr::Signal(SignalId::from("temp"));
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
-        assert_eq!(result, 25.0);
+        assert_eq!(result, Value::Scalar(25.0));
     }
 
     #[test]
@@ -359,7 +366,7 @@ mod tests {
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
-        assert_eq!(result, 5.0);
+        assert_eq!(result, Value::Scalar(5.0));
     }
 
     #[test]
@@ -375,7 +382,23 @@ mod tests {
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
-        assert_eq!(result, 100.0); // temp (25) > 20, so 100
+        assert_eq!(result, Value::Scalar(100.0)); // temp (25) > 20, so 100
+    }
+
+    #[test]
+    fn test_compile_prev() {
+        let expr = CompiledExpr::Prev;
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &TestContext);
+        assert_eq!(result, Value::Scalar(100.0));
+    }
+
+    #[test]
+    fn test_compile_dt() {
+        let expr = CompiledExpr::DtRaw;
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &TestContext);
+        assert_eq!(result, Value::Scalar(0.1));
     }
 
     #[test]
@@ -399,7 +422,7 @@ mod tests {
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
-        assert_eq!(result, 110.0);
+        assert_eq!(result, Value::Scalar(110.0));
     }
 
     #[test]
@@ -422,6 +445,6 @@ mod tests {
         };
         let chunk = compile(&expr);
         let result = execute(&chunk, &TestContext);
-        assert_eq!(result, 30.0);
+        assert_eq!(result, Value::Scalar(30.0));
     }
 }

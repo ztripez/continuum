@@ -310,6 +310,8 @@ pub struct EventBuffer {
 /// A recorded event with metadata.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmittedEventRecord {
+    /// Chronicle id that emitted the event.
+    pub chronicle_id: String,
     /// The event name (e.g., "climate.alert")
     pub name: String,
     /// Event fields as key-value pairs
@@ -318,8 +320,12 @@ pub struct EmittedEventRecord {
 
 impl EventBuffer {
     /// Add an event to the buffer.
-    pub fn emit(&mut self, name: String, fields: Vec<(String, Value)>) {
-        self.events.push(EmittedEventRecord { name, fields });
+    pub fn emit(&mut self, chronicle_id: String, name: String, fields: Vec<(String, Value)>) {
+        self.events.push(EmittedEventRecord {
+            chronicle_id,
+            name,
+            fields,
+        });
     }
 
     /// Get all events.

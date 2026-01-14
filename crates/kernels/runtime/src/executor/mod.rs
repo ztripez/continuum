@@ -678,6 +678,7 @@ impl Runtime {
                     &self.current_era,
                     self.tick,
                     dt,
+                    self.sim_time,
                     &strata_states,
                     &self.dags,
                     &self.signals,
@@ -1700,6 +1701,7 @@ mod tests {
                 .unwrap();
             if temp > 100.0 {
                 vec![EmittedEvent {
+                    chronicle_id: "test.chronicle".to_string(),
                     name: "high_temperature".to_string(),
                     fields: vec![("temp".to_string(), Value::Scalar(temp))],
                 }]
@@ -1796,6 +1798,7 @@ mod tests {
                 .unwrap();
             if pressure > 100.0 {
                 vec![EmittedEvent {
+                    chronicle_id: "test.chronicle".to_string(),
                     name: "high_pressure".to_string(),
                     fields: vec![],
                 }]

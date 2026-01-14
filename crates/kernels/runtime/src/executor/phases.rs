@@ -50,6 +50,8 @@ pub type ImpulseFn = Box<dyn Fn(&mut ImpulseContext, &Value) + Send + Sync>;
 /// These events are non-causal and do not affect simulation outcomes.
 #[derive(Debug, Clone)]
 pub struct EmittedEvent {
+    /// Chronicle id that emitted the event.
+    pub chronicle_id: String,
     /// The event name (e.g., "climate.alert")
     pub name: String,
     /// Event fields as key-value pairs
@@ -240,6 +242,7 @@ impl PhaseExecutor {
             let mut ctx = ImpulseContext {
                 signals,
                 channels: input_channels,
+                dt,
                 sim_time,
             };
             trace!(handler_idx, "applying impulse");
@@ -679,6 +682,7 @@ impl PhaseExecutor {
         era: &EraId,
         tick: u64,
         dt: Dt,
+        sim_time: f64,
         strata_states: &IndexMap<StratumId, StratumState>,
         dags: &DagSet,
         signals: &SignalStorage,
@@ -719,7 +723,11 @@ impl PhaseExecutor {
             .par_iter()
             .filter_map(|&chronicle_idx| {
                 let handler = &self.chronicle_handlers[chronicle_idx];
-                let ctx = ChronicleContext { signals, dt };
+                let ctx = ChronicleContext {
+                    signals,
+                    dt,
+                    sim_time,
+                };
                 let events = handler(&ctx);
                 if events.is_empty() {
                     None
@@ -736,7 +744,7 @@ impl PhaseExecutor {
         for (chronicle_idx, events) in all_events {
             for event in events {
                 debug!(chronicle_idx, event_name = %event.name, "chronicle event emitted");
-                event_buffer.emit(event.name, event.fields);
+                event_buffer.emit(event.chronicle_id, event.name, event.fields);
             }
         }
 
