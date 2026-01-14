@@ -41,3 +41,27 @@ Test utility to verify that a full world directory can be loaded and compiled to
 ```bash
 cargo run --bin world-load -- <WORLD_DIR>
 ```
+
+### `world-ipc`
+Runs a world as a long-lived IPC server over a Unix socket.
+
+```bash
+cargo run --bin world-ipc -- examples/terra --socket /tmp/continuum.sock
+```
+
+Commands:
+- `status`
+- `step [n]`
+- `run [n]` (omit `n` to run indefinitely)
+- `stop`
+- `quit`
+
+While running, the server broadcasts lines like:
+- `tick <n> era=<era> sim_time=<seconds>`
+
+### `world-ipc-web`
+Serves a small WebSocket proxy that forwards frames to a Unix IPC socket, plus a basic frontend.
+
+```bash
+cargo run --bin world-ipc-web -- --socket /tmp/continuum.sock --bind 0.0.0.0:8080
+```

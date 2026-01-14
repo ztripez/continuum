@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Continuum IPC Web Proxy</title>
+  <style>
+    body {
+      font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+      margin: 24px;
+      color: #111827;
+      background: #f9fafb;
+    }
+    header {
+      margin-bottom: 16px;
+    }
+    .row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    input[type="text"] {
+      flex: 1 1 360px;
+      padding: 8px 10px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #fff;
+    }
+    button {
+      padding: 8px 12px;
+      border: 1px solid #111827;
+      background: #111827;
+      color: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    button.secondary {
+      background: #fff;
+      color: #111827;
+    }
+    #log {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 12px;
+      border-radius: 8px;
+      height: 360px;
+      overflow: auto;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 12px;
+      white-space: pre-wrap;
+    }
+    .status {
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Continuum IPC Web Proxy</h1>
+    <p>Connects to <code>/ws</code> and forwards frames to the Unix socket.</p>
+  </header>
+
+  <div class="row">
+    <span>Status: <span class="status" id="status">disconnected</span></span>
+    <button id="connect">Connect</button>
+    <button id="disconnect" class="secondary">Disconnect</button>
+  </div>
+
+  <div class="row">
+    <input id="payload" type="text" placeholder="Send text payload to IPC" />
+    <button id="send">Send</button>
+  </div>
+
+  <div id="log"></div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const logEl = document.getElementById('log');
+    const payloadEl = document.getElementById('payload');
+    const connectBtn = document.getElementById('connect');
+    const disconnectBtn = document.getElementById('disconnect');
+    const sendBtn = document.getElementById('send');
+
+    let socket = null;
+
+    function logLine(line) {
+      const entry = document.createElement('div');
+      entry.textContent = line;
+      logEl.appendChild(entry);
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    function hexDump(buffer) {
+      return Array.from(buffer)
+        .map(byte => byte.toString(16).padStart(2, '0'))
+        .join(' ');
+    }
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function connect() {
+      if (socket && socket.readyState === WebSocket.OPEN) {
+        return;
+      }
+
+      const url = `ws://${location.host}/ws`;
+      socket = new WebSocket(url);
+      socket.binaryType = 'arraybuffer';
+
+      setStatus('connecting');
+
+      socket.onopen = () => {
+        setStatus('connected');
+        logLine(`[connected] ${url}`);
+      };
+
+      socket.onmessage = event => {
+        if (typeof event.data === 'string') {
+          logLine(`<< ${event.data}`);
+          return;
+        }
+
+        const bytes = new Uint8Array(event.data);
+        const text = new TextDecoder().decode(bytes);
+        const printable = /^[\x09\x0A\x0D\x20-\x7E]*$/.test(text);
+
+        if (printable) {
+          logLine(`<< ${text.replace(/\n$/, '')}`);
+        } else {
+          logLine(`<< [${bytes.length} bytes] ${hexDump(bytes)}`);
+        }
+      };
+
+      socket.onerror = () => {
+        setStatus('error');
+        logLine('[error] WebSocket error');
+      };
+
+      socket.onclose = () => {
+        setStatus('disconnected');
+        logLine('[closed] WebSocket disconnected');
+      };
+    }
+
+    function disconnect() {
+      if (socket) {
+        socket.close();
+      }
+    }
+
+    function sendPayload() {
+      if (!socket || socket.readyState !== WebSocket.OPEN) {
+        logLine('[warn] Not connected');
+        return;
+      }
+      const payload = payloadEl.value;
+      const line = `${payload}\n`;
+      socket.send(line);
+      logLine(`>> ${payload}`);
+      payloadEl.value = '';
+    }
+
+    connectBtn.addEventListener('click', connect);
+    disconnectBtn.addEventListener('click', disconnect);
+    sendBtn.addEventListener('click', sendPayload);
+
+    payloadEl.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        sendPayload();
+      }
+    });
+  </script>
+</body>
+</html>
