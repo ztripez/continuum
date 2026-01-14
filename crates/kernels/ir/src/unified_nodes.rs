@@ -15,6 +15,8 @@ use super::{
     CompiledTypeField, CompiledWarmup, OperatorPhaseIr, StratumState, TopologyIr, ValueType,
 };
 
+use serde::{Deserialize, Serialize};
+
 /// A unified compilation node representing any DSL construct.
 ///
 /// `CompiledNode` unifies all compilation results (`CompiledSignal`, `CompiledField`, etc.)
@@ -26,7 +28,7 @@ use super::{
 /// - **Uniform span information**: Every node has source location for error reporting
 ///
 /// The `kind` field contains node-specific properties and behavior.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledNode {
     /// The unique path identifier for this node
     pub id: Path,
@@ -45,10 +47,7 @@ pub struct CompiledNode {
 }
 
 /// The specific kind of compilation node and its properties.
-///
-/// Each variant contains the properties that are unique to that node type.
-/// Common properties (id, span, stratum, reads) are stored in the parent `CompiledNode`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NodeKind {
     /// Signal: authoritative simulation state
     Signal(SignalProperties),
@@ -77,7 +76,7 @@ pub enum NodeKind {
 }
 
 /// Properties specific to signal nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalProperties {
     /// Human-readable title
     pub title: Option<String>,
@@ -98,7 +97,7 @@ pub struct SignalProperties {
 }
 
 /// Properties specific to field nodes  
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldProperties {
     /// Human-readable title
     pub title: Option<String>,
@@ -111,7 +110,7 @@ pub struct FieldProperties {
 }
 
 /// Properties specific to operator nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorProperties {
     /// Execution phase
     pub phase: OperatorPhaseIr,
@@ -122,7 +121,7 @@ pub struct OperatorProperties {
 }
 
 /// Properties specific to impulse nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImpulseProperties {
     /// Type of data carried by the impulse
     pub payload_type: ValueType,
@@ -131,7 +130,7 @@ pub struct ImpulseProperties {
 }
 
 /// Properties specific to fracture nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FractureProperties {
     /// Condition expressions (all must be true)
     pub conditions: Vec<CompiledExpr>,
@@ -140,7 +139,7 @@ pub struct FractureProperties {
 }
 
 /// Properties specific to entity nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityProperties {
     /// Count source from config (e.g., "stellar.moon_count")
     pub count_source: Option<String>,
@@ -149,7 +148,7 @@ pub struct EntityProperties {
 }
 
 /// Properties specific to member nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemberProperties {
     /// The entity this member belongs to
     pub entity_id: EntityId,
@@ -172,14 +171,14 @@ pub struct MemberProperties {
 }
 
 /// Properties specific to chronicle nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChronicleProperties {
     /// Observation handlers that emit events when conditions are met
     pub handlers: Vec<CompiledObserveHandler>,
 }
 
 /// Properties specific to function nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionProperties {
     /// Parameter names in order
     pub params: Vec<String>,
@@ -188,14 +187,14 @@ pub struct FunctionProperties {
 }
 
 /// Properties specific to type nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeProperties {
     /// Named fields with their value types
     pub fields: Vec<CompiledTypeField>,
 }
 
 /// Properties specific to stratum nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StratumProperties {
     /// Human-readable title for display
     pub title: Option<String>,
@@ -206,7 +205,7 @@ pub struct StratumProperties {
 }
 
 /// Properties specific to era nodes
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EraProperties {
     /// Whether this is the starting era
     pub is_initial: bool,

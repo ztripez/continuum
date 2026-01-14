@@ -191,6 +191,7 @@ impl Lowerer {
         primitive.params.iter().find(|param| param.kind() == kind)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn lower_tensor_constraint(
         &self,
         c: ast::TensorConstraint,

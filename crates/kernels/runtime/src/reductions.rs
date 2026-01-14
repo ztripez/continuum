@@ -48,8 +48,10 @@
 
 use std::cmp::Ordering;
 
+use serde::{Deserialize, Serialize};
+
 /// Result of a min/max reduction that tracks the winning index.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct IndexedValue<T> {
     /// The index of the winning element
     pub index: usize,
@@ -295,7 +297,7 @@ pub fn count_all<T>(values: &[T]) -> usize {
 // ============================================================================
 
 /// Type of reduction operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ReductionOp {
     /// Sum of all values
     Sum,

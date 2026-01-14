@@ -32,11 +32,13 @@ use crate::reductions::ReductionOp;
 use crate::types::{EntityId, EraId, Phase, SignalId, StratumId};
 use crate::vectorized::MemberSignalId;
 
+use serde::{Deserialize, Serialize};
+
 /// A single execution unit in the dependency graph.
 ///
 /// Each node represents work to be done (signal resolution, operator execution,
 /// etc.) along with its dependencies (signals it reads) and outputs (signals it writes).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DagNode {
     /// Unique identifier for this node (e.g., `"sig.terra.temp"`).
     pub id: NodeId,
@@ -49,17 +51,14 @@ pub struct DagNode {
 }
 
 /// Unique identifier for a node within a DAG.
-///
-/// Node IDs follow conventions like `"sig.terra.temp"` for signals,
-/// `"op.collect_heat"` for operators, `"frac.overheat"` for fractures.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct NodeId(pub String);
 
 /// The type of work a DAG node performs during execution.
 ///
 /// Different node kinds execute in different phases and have different
 /// effects on simulation state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum NodeKind {
     /// Compute a new signal value from its resolver expression.
     SignalResolve {
@@ -149,17 +148,14 @@ pub enum NodeKind {
 }
 
 /// A set of DAG nodes with no inter-dependencies that can execute in parallel.
-///
-/// Levels are the output of topological sorting. All nodes in a level can
-/// run concurrently because none depends on another within the same level.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Level {
     /// Nodes in this level, all of which can execute in parallel.
     pub nodes: Vec<DagNode>,
 }
 
 /// An executable DAG for a specific (phase, stratum, era) combination
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExecutableDag {
     /// The phase this DAG executes in
     pub phase: Phase,
@@ -182,7 +178,7 @@ impl ExecutableDag {
 }
 
 /// Collection of DAGs for an era
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct EraDags {
     /// DAGs indexed by (phase, stratum)
     dags: IndexMap<(Phase, StratumId), ExecutableDag>,
@@ -210,7 +206,7 @@ impl EraDags {
 }
 
 /// All DAGs for all eras
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct DagSet {
     /// DAGs per era
     pub(crate) eras: IndexMap<EraId, EraDags>,

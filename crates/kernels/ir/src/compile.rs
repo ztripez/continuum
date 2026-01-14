@@ -40,6 +40,8 @@ use continuum_runtime::types::Phase;
 
 use crate::{AggregateOpIr, CompiledExpr, CompiledWorld, OperatorPhaseIr};
 
+use serde::{Deserialize, Serialize};
+
 /// The main entry point for compiling a World into an executable CompilationResult.
 
 /// Checks if an expression contains operations not supported by the member interpreter.
@@ -147,6 +149,7 @@ impl From<CycleError> for CompileError {
 }
 
 /// Result of compilation
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CompilationResult {
     /// Executable DAG set for all eras
     pub dags: DagSet,
