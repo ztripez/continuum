@@ -40,6 +40,7 @@ use std::ptr::NonNull;
 use indexmap::IndexMap;
 
 use crate::types::{EntityId, Value};
+use continuum_foundation::PrimitiveStorageClass;
 
 /// Alignment for SIMD-friendly allocation (64 bytes = cache line).
 pub const SIMD_ALIGNMENT: usize = 64;
@@ -103,6 +104,19 @@ impl ValueType {
             Value::Quat(_) => ValueType::Quat,
             Value::Boolean(_) => ValueType::Boolean,
             Value::Integer(_) => ValueType::Integer,
+        }
+    }
+
+    /// Convert from a primitive storage class.
+    pub fn from_storage_class(storage: PrimitiveStorageClass) -> Self {
+        match storage {
+            PrimitiveStorageClass::Scalar => ValueType::Scalar,
+            PrimitiveStorageClass::Vec2 => ValueType::Vec2,
+            PrimitiveStorageClass::Vec3 => ValueType::Vec3,
+            PrimitiveStorageClass::Vec4 => ValueType::Vec4,
+            PrimitiveStorageClass::Tensor => ValueType::Scalar,
+            PrimitiveStorageClass::Grid => ValueType::Scalar,
+            PrimitiveStorageClass::Seq => ValueType::Scalar,
         }
     }
 }

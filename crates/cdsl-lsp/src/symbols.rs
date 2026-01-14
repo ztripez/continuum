@@ -8,7 +8,9 @@ use continuum_compiler::dsl::ast::{
     CompilationUnit, ConfigBlock, ConstBlock, Expr, Item, Literal, OperatorBody, Path, Spanned,
     SpannedExprVisitor,
 };
-use continuum_compiler::ir::{CompiledNode, CompiledWorld, NodeKind, ValueType};
+use continuum_compiler::ir::{
+    CompiledNode, CompiledWorld, NodeKind, PrimitiveParamKind, ValueType, ValueTypeParam,
+};
 use continuum_kernel_registry as kernel_registry;
 
 /// Information about a symbol for hover display.
@@ -568,63 +570,77 @@ fn format_literal(lit: &Literal) -> String {
 }
 
 fn format_value_type(ty: &ValueType) -> String {
-    match ty {
-        ValueType::Scalar { unit, range, .. } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
+    let name = ty.primitive_id().name();
+    match name {
+        "Scalar" => {
+            let unit = match ty.param_value(PrimitiveParamKind::Unit) {
+                Some(ValueTypeParam::Unit(unit)) => unit,
+                _ => "1",
+            };
+            let range = match ty.param_value(PrimitiveParamKind::Range) {
+                Some(ValueTypeParam::Range(range)) => Some(range),
+                _ => None,
+            };
             if let Some(r) = range {
-                format!("Scalar<{}, {}..{}>", unit_str, r.min, r.max)
+                format!("Scalar<{}, {}..{}>", unit, r.min, r.max)
             } else {
-                format!("Scalar<{}>", unit_str)
+                format!("Scalar<{}>", unit)
             }
         }
-        ValueType::Vec2 {
-            unit, magnitude, ..
-        } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
+        "Vec2" | "Vec3" | "Vec4" => {
+            let unit = match ty.param_value(PrimitiveParamKind::Unit) {
+                Some(ValueTypeParam::Unit(unit)) => unit,
+                _ => "1",
+            };
+            let magnitude = match ty.param_value(PrimitiveParamKind::Magnitude) {
+                Some(ValueTypeParam::Magnitude(range)) => Some(range),
+                _ => None,
+            };
             if let Some(m) = magnitude {
-                format!("Vec2<{}, magnitude: {}..{}>", unit_str, m.min, m.max)
+                format!("{}<{}, magnitude: {}..{}>", name, unit, m.min, m.max)
             } else {
-                format!("Vec2<{}>", unit_str)
+                format!("{}<{}>", name, unit)
             }
         }
-        ValueType::Vec3 {
-            unit, magnitude, ..
-        } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
-            if let Some(m) = magnitude {
-                format!("Vec3<{}, magnitude: {}..{}>", unit_str, m.min, m.max)
-            } else {
-                format!("Vec3<{}>", unit_str)
-            }
-        }
-        ValueType::Vec4 {
-            unit, magnitude, ..
-        } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
-            if let Some(m) = magnitude {
-                format!("Vec4<{}, magnitude: {}..{}>", unit_str, m.min, m.max)
-            } else {
-                format!("Vec4<{}>", unit_str)
-            }
-        }
-        ValueType::Quat { magnitude } => {
+        "Quat" => {
+            let magnitude = match ty.param_value(PrimitiveParamKind::Magnitude) {
+                Some(ValueTypeParam::Magnitude(range)) => Some(range),
+                _ => None,
+            };
             if let Some(m) = magnitude {
                 format!("Quat<magnitude: {}..{}>", m.min, m.max)
             } else {
                 "Quat".to_string()
             }
         }
-        ValueType::Tensor {
-            rows, cols, unit, ..
-        } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
-            format!("Tensor<{}, {}, {}>", rows, cols, unit_str)
+        "Tensor" => {
+            let rows = match ty.param_value(PrimitiveParamKind::Rows) {
+                Some(ValueTypeParam::Rows(value)) => value,
+                _ => 0,
+            };
+            let cols = match ty.param_value(PrimitiveParamKind::Cols) {
+                Some(ValueTypeParam::Cols(value)) => value,
+                _ => 0,
+            };
+            let unit = match ty.param_value(PrimitiveParamKind::Unit) {
+                Some(ValueTypeParam::Unit(unit)) => unit,
+                _ => "1",
+            };
+            format!("Tensor<{}, {}, {}>", rows, cols, unit)
         }
-        ValueType::Grid {
-            width,
-            height,
-            element_type,
-        } => {
+        "Grid" => {
+            let width = match ty.param_value(PrimitiveParamKind::Width) {
+                Some(ValueTypeParam::Width(value)) => value,
+                _ => 0,
+            };
+            let height = match ty.param_value(PrimitiveParamKind::Height) {
+                Some(ValueTypeParam::Height(value)) => value,
+                _ => 0,
+            };
+            let element_type = match ty.param_value(PrimitiveParamKind::ElementType) {
+                Some(ValueTypeParam::ElementType(element)) => element,
+                _ => return "Grid<...>".to_string(),
+            };
             format!(
                 "Grid<{}, {}, {}>",
                 width,
@@ -632,16 +648,22 @@ fn format_value_type(ty: &ValueType) -> String {
                 format_value_type(element_type)
             )
         }
-        ValueType::Seq {
-            element_type,
-            constraints,
-        } => {
+        "Seq" => {
+            let element_type = match ty.param_value(PrimitiveParamKind::ElementType) {
+                Some(ValueTypeParam::ElementType(element)) => element,
+                _ => return "Seq<...>".to_string(),
+            };
+            let constraints = match ty {
+                ValueType::Seq { constraints, .. } => constraints.len(),
+                _ => 0,
+            };
             format!(
                 "Seq<{}> ({} constraints)",
                 format_value_type(element_type),
-                constraints.len()
+                constraints
             )
         }
+        _ => name.to_string(),
     }
 }
 

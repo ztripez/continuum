@@ -14,12 +14,13 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
 use continuum_compiler::ir::{
-    ValueType, build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
+    build_aggregate_resolver, build_assertion, build_era_configs, build_field_measure,
     build_fracture, build_member_resolver, build_signal_resolver, build_vec3_member_resolver,
     build_warmup_fn, compile, convert_assertion_severity, eval_initial_expr,
     get_initial_signal_value,
 };
 use continuum_foundation::InstanceId;
+use continuum_foundation::PrimitiveStorageClass;
 use continuum_runtime::executor::{ResolverFn, Runtime};
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
 use continuum_runtime::storage::{EntityInstances, FieldSample, InstanceData};
@@ -390,12 +391,17 @@ fn main() {
             for (_member_id, member) in &members {
                 if &member.entity_id == entity_id {
                     // Use default value based on member's value type
-                    let initial_value = match member.value_type {
-                        ValueType::Scalar { .. } => Value::Scalar(0.0),
-                        ValueType::Vec2 { .. } => Value::Vec2([0.0; 2]),
-                        ValueType::Vec3 { .. } => Value::Vec3([0.0; 3]),
-                        ValueType::Vec4 { .. } => Value::Vec4([0.0; 4]),
-                        ValueType::Quat { .. } => Value::Quat([1.0, 0.0, 0.0, 0.0]),
+                    let initial_value = match member.value_type.storage_class() {
+                        PrimitiveStorageClass::Scalar => Value::Scalar(0.0),
+                        PrimitiveStorageClass::Vec2 => Value::Vec2([0.0; 2]),
+                        PrimitiveStorageClass::Vec3 => Value::Vec3([0.0; 3]),
+                        PrimitiveStorageClass::Vec4 => {
+                            if member.value_type.primitive_id().name() == "Quat" {
+                                Value::Quat([1.0, 0.0, 0.0, 0.0])
+                            } else {
+                                Value::Vec4([0.0; 4])
+                            }
+                        }
                         _ => Value::Scalar(0.0),
                     };
                     fields.insert(member.signal_name.clone(), initial_value);
@@ -443,12 +449,17 @@ fn main() {
 
         // Register member signals (use full member ID to avoid name collisions)
         for (member_id, member) in &members {
-            let value_type = match member.value_type {
-                ValueType::Scalar { .. } => MemberValueType::Scalar,
-                ValueType::Vec2 { .. } => MemberValueType::Vec2,
-                ValueType::Vec3 { .. } => MemberValueType::Vec3,
-                ValueType::Vec4 { .. } => MemberValueType::Vec4,
-                ValueType::Quat { .. } => MemberValueType::Quat,
+            let value_type = match member.value_type.storage_class() {
+                PrimitiveStorageClass::Scalar => MemberValueType::Scalar,
+                PrimitiveStorageClass::Vec2 => MemberValueType::Vec2,
+                PrimitiveStorageClass::Vec3 => MemberValueType::Vec3,
+                PrimitiveStorageClass::Vec4 => {
+                    if member.value_type.primitive_id().name() == "Quat" {
+                        MemberValueType::Quat
+                    } else {
+                        MemberValueType::Vec4
+                    }
+                }
                 _ => MemberValueType::Scalar,
             };
             // Use full member ID (e.g., "stellar.star.mass") instead of just signal_name ("mass")
@@ -521,8 +532,8 @@ fn main() {
                 let entity_prefix = &member.entity_id.to_string();
 
                 // Use the appropriate builder based on value type
-                match member.value_type {
-                    ValueType::Vec3 { .. } => {
+                match member.value_type.storage_class() {
+                    PrimitiveStorageClass::Vec3 => {
                         let resolver = build_vec3_member_resolver(
                             resolve_expr,
                             &world.constants,

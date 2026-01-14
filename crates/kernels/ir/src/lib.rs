@@ -23,6 +23,7 @@ pub mod vectorized;
 
 pub use codegen::compile as compile_to_bytecode;
 pub use compile::{CompilationResult, CompileError, compile};
+pub use continuum_foundation::PrimitiveParamKind;
 pub use expressions::*;
 pub use interpret::{
     InterpValue, MemberInterpContext, MemberResolverFn, Vec3MemberResolverFn,
