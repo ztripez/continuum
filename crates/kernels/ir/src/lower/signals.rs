@@ -214,11 +214,7 @@ impl Lowerer {
                 .ty
                 .as_ref()
                 .map(|t| self.lower_type_expr(&t.node))
-                .unwrap_or(ValueType::Scalar {
-                    unit: None,
-                    dimension: None,
-                    range: None,
-                }),
+                .unwrap_or(ValueType::scalar_untyped()),
             reads,
             measure: def.measure.as_ref().map(|m| self.lower_expr(&m.body.node)),
         };
@@ -300,11 +296,7 @@ impl Lowerer {
     /// Lowers a signal's type, applying any constraints from the signal definition.
     fn lower_signal_type(&self, def: &ast::SignalDef) -> ValueType {
         match &def.ty {
-            None => ValueType::Scalar {
-                unit: None,
-                dimension: None,
-                range: None,
-            },
+            None => ValueType::scalar_untyped(),
             Some(spanned_ty) => {
                 // Clone the type and apply constraints before lowering
                 let mut ty = spanned_ty.node.clone();

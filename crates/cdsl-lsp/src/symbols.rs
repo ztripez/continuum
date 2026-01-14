@@ -10,7 +10,7 @@ use continuum_compiler::dsl::ast::{
 };
 use continuum_compiler::ir::{
     CompiledNode, CompiledWorld, NodeKind, PrimitiveParamKind, PrimitiveParamSpec, ValueType,
-    ValueTypeParam,
+    ValueTypeParamValue,
 };
 use continuum_kernel_registry as kernel_registry;
 
@@ -596,11 +596,7 @@ fn format_value_type(ty: &ValueType) -> String {
     }
 
     if def.name == "Seq" {
-        let constraints = match ty {
-            ValueType::Seq { constraints, .. } => constraints.len(),
-            _ => 0,
-        };
-        name.push_str(&format!(" ({} constraints)", constraints));
+        name.push_str(&format!(" ({} constraints)", ty.seq_constraints.len()));
     }
 
     name
@@ -609,36 +605,40 @@ fn format_value_type(ty: &ValueType) -> String {
 fn format_param_value(ty: &ValueType, spec: &PrimitiveParamSpec) -> Option<String> {
     match spec.kind {
         PrimitiveParamKind::Unit => match ty.param_value(PrimitiveParamKind::Unit) {
-            Some(ValueTypeParam::Unit(unit)) => Some(unit.to_string()),
+            Some(ValueTypeParamValue::Unit(unit)) => Some(unit.to_string()),
             _ if spec.optional => Some("1".to_string()),
             _ => None,
         },
         PrimitiveParamKind::Range => match ty.param_value(PrimitiveParamKind::Range) {
-            Some(ValueTypeParam::Range(range)) => Some(format!("{}..{}", range.min, range.max)),
+            Some(ValueTypeParamValue::Range(range)) => {
+                Some(format!("{}..{}", range.min, range.max))
+            }
             _ => None,
         },
         PrimitiveParamKind::Magnitude => match ty.param_value(PrimitiveParamKind::Magnitude) {
-            Some(ValueTypeParam::Magnitude(range)) => Some(format!("{}..{}", range.min, range.max)),
+            Some(ValueTypeParamValue::Magnitude(range)) => {
+                Some(format!("{}..{}", range.min, range.max))
+            }
             _ => None,
         },
         PrimitiveParamKind::Rows => match ty.param_value(PrimitiveParamKind::Rows) {
-            Some(ValueTypeParam::Rows(value)) => Some(value.to_string()),
+            Some(ValueTypeParamValue::Rows(value)) => Some(value.to_string()),
             _ => None,
         },
         PrimitiveParamKind::Cols => match ty.param_value(PrimitiveParamKind::Cols) {
-            Some(ValueTypeParam::Cols(value)) => Some(value.to_string()),
+            Some(ValueTypeParamValue::Cols(value)) => Some(value.to_string()),
             _ => None,
         },
         PrimitiveParamKind::Width => match ty.param_value(PrimitiveParamKind::Width) {
-            Some(ValueTypeParam::Width(value)) => Some(value.to_string()),
+            Some(ValueTypeParamValue::Width(value)) => Some(value.to_string()),
             _ => None,
         },
         PrimitiveParamKind::Height => match ty.param_value(PrimitiveParamKind::Height) {
-            Some(ValueTypeParam::Height(value)) => Some(value.to_string()),
+            Some(ValueTypeParamValue::Height(value)) => Some(value.to_string()),
             _ => None,
         },
         PrimitiveParamKind::ElementType => match ty.param_value(PrimitiveParamKind::ElementType) {
-            Some(ValueTypeParam::ElementType(element)) => Some(format_value_type(element)),
+            Some(ValueTypeParamValue::ElementType(element)) => Some(format_value_type(element)),
             _ => None,
         },
     }

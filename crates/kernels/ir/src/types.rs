@@ -504,78 +504,166 @@ pub enum AssertionSeverity {
 
 /// The type of a signal or field value.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ValueType {
-    Scalar {
+pub struct ValueType {
+    pub primitive_id: PrimitiveTypeId,
+    pub params: Vec<ValueTypeParamValue>,
+    pub dimension: Option<crate::units::Unit>,
+    pub tensor_constraints: Vec<TensorConstraintIr>,
+    pub seq_constraints: Vec<SeqConstraintIr>,
+}
+
+/// Parameter values available on an IR value type.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValueTypeParamValue {
+    Unit(String),
+    Range(ValueRange),
+    Magnitude(ValueRange),
+    Rows(u8),
+    Cols(u8),
+    Width(u32),
+    Height(u32),
+    ElementType(Box<ValueType>),
+}
+
+impl ValueType {
+    pub fn scalar(
         unit: Option<String>,
         dimension: Option<crate::units::Unit>,
         range: Option<ValueRange>,
-    },
-    Vec2 {
+    ) -> Self {
+        let mut params = Vec::new();
+        if let Some(unit) = unit {
+            params.push(ValueTypeParamValue::Unit(unit));
+        }
+        if let Some(range) = range {
+            params.push(ValueTypeParamValue::Range(range));
+        }
+        Self {
+            primitive_id: PrimitiveTypeId::new("Scalar"),
+            params,
+            dimension,
+            tensor_constraints: Vec::new(),
+            seq_constraints: Vec::new(),
+        }
+    }
+
+    pub fn scalar_untyped() -> Self {
+        Self::scalar(None, None, None)
+    }
+
+    pub fn vector(
+        dim: u8,
         unit: Option<String>,
         dimension: Option<crate::units::Unit>,
         magnitude: Option<ValueRange>,
-    },
-    Vec3 {
-        unit: Option<String>,
-        dimension: Option<crate::units::Unit>,
-        magnitude: Option<ValueRange>,
-    },
-    Vec4 {
-        unit: Option<String>,
-        dimension: Option<crate::units::Unit>,
-        magnitude: Option<ValueRange>,
-    },
-    Quat {
-        magnitude: Option<ValueRange>,
-    },
-    Tensor {
+    ) -> Self {
+        let name = match dim {
+            2 => "Vec2",
+            3 => "Vec3",
+            4 => "Vec4",
+            _ => "Vec4",
+        };
+        let mut params = Vec::new();
+        if let Some(unit) = unit {
+            params.push(ValueTypeParamValue::Unit(unit));
+        }
+        if let Some(magnitude) = magnitude {
+            params.push(ValueTypeParamValue::Magnitude(magnitude));
+        }
+        Self {
+            primitive_id: PrimitiveTypeId::new(name),
+            params,
+            dimension,
+            tensor_constraints: Vec::new(),
+            seq_constraints: Vec::new(),
+        }
+    }
+
+    pub fn vector_untyped(dim: u8) -> Self {
+        Self::vector(dim, None, None, None)
+    }
+
+    pub fn vec2_untyped() -> Self {
+        Self::vector_untyped(2)
+    }
+
+    pub fn vec3_untyped() -> Self {
+        Self::vector_untyped(3)
+    }
+
+    pub fn vec4_untyped() -> Self {
+        Self::vector_untyped(4)
+    }
+
+    pub fn quat(magnitude: Option<ValueRange>) -> Self {
+        let mut params = Vec::new();
+        if let Some(magnitude) = magnitude {
+            params.push(ValueTypeParamValue::Magnitude(magnitude));
+        }
+        Self {
+            primitive_id: PrimitiveTypeId::new("Quat"),
+            params,
+            dimension: None,
+            tensor_constraints: Vec::new(),
+            seq_constraints: Vec::new(),
+        }
+    }
+
+    pub fn tensor(
         rows: u8,
         cols: u8,
         unit: Option<String>,
         dimension: Option<crate::units::Unit>,
         constraints: Vec<TensorConstraintIr>,
-    },
-    Grid {
-        width: u32,
-        height: u32,
-        element_type: Box<ValueType>,
-    },
-    Seq {
-        element_type: Box<ValueType>,
-        constraints: Vec<SeqConstraintIr>,
-    },
-}
+    ) -> Self {
+        let mut params = vec![
+            ValueTypeParamValue::Rows(rows),
+            ValueTypeParamValue::Cols(cols),
+        ];
+        if let Some(unit) = unit {
+            params.push(ValueTypeParamValue::Unit(unit));
+        }
+        Self {
+            primitive_id: PrimitiveTypeId::new("Tensor"),
+            params,
+            dimension,
+            tensor_constraints: constraints,
+            seq_constraints: Vec::new(),
+        }
+    }
 
-/// Parameter values available on an IR value type.
-pub enum ValueTypeParam<'a> {
-    Unit(&'a str),
-    Range(&'a ValueRange),
-    Magnitude(&'a ValueRange),
-    Rows(u8),
-    Cols(u8),
-    Width(u32),
-    Height(u32),
-    ElementType(&'a ValueType),
-}
+    pub fn grid(width: u32, height: u32, element_type: ValueType) -> Self {
+        Self {
+            primitive_id: PrimitiveTypeId::new("Grid"),
+            params: vec![
+                ValueTypeParamValue::Width(width),
+                ValueTypeParamValue::Height(height),
+                ValueTypeParamValue::ElementType(Box::new(element_type)),
+            ],
+            dimension: None,
+            tensor_constraints: Vec::new(),
+            seq_constraints: Vec::new(),
+        }
+    }
 
-impl ValueType {
+    pub fn seq(element_type: ValueType, constraints: Vec<SeqConstraintIr>) -> Self {
+        Self {
+            primitive_id: PrimitiveTypeId::new("Seq"),
+            params: vec![ValueTypeParamValue::ElementType(Box::new(element_type))],
+            dimension: None,
+            tensor_constraints: Vec::new(),
+            seq_constraints: constraints,
+        }
+    }
+
     /// Returns the primitive identifier for this value type.
     pub fn primitive_id(&self) -> PrimitiveTypeId {
-        match self {
-            ValueType::Scalar { .. } => PrimitiveTypeId::new("Scalar"),
-            ValueType::Vec2 { .. } => PrimitiveTypeId::new("Vec2"),
-            ValueType::Vec3 { .. } => PrimitiveTypeId::new("Vec3"),
-            ValueType::Vec4 { .. } => PrimitiveTypeId::new("Vec4"),
-            ValueType::Quat { .. } => PrimitiveTypeId::new("Quat"),
-            ValueType::Tensor { .. } => PrimitiveTypeId::new("Tensor"),
-            ValueType::Grid { .. } => PrimitiveTypeId::new("Grid"),
-            ValueType::Seq { .. } => PrimitiveTypeId::new("Seq"),
-        }
+        self.primitive_id
     }
 
     /// Returns registry metadata for this value type.
     pub fn primitive_def(&self) -> &'static PrimitiveTypeDef {
-        primitive_type_by_name(self.primitive_id().name())
+        primitive_type_by_name(self.primitive_id.name())
             .expect("primitive type missing from registry")
     }
 
@@ -591,60 +679,29 @@ impl ValueType {
 
     /// Returns the dimension associated with this type, if any.
     pub fn dimension(&self) -> Option<crate::units::Unit> {
-        match self {
-            ValueType::Scalar { dimension, .. } => *dimension,
-            ValueType::Vec2 { dimension, .. } => *dimension,
-            ValueType::Vec3 { dimension, .. } => *dimension,
-            ValueType::Vec4 { dimension, .. } => *dimension,
-            ValueType::Quat { .. } => Some(crate::units::Unit::dimensionless()),
-            ValueType::Tensor { dimension, .. } => *dimension,
-            _ => None,
+        if let Some(dimension) = self.dimension {
+            return Some(dimension);
+        }
+        if self.primitive_id.name() == "Quat" {
+            Some(crate::units::Unit::dimensionless())
+        } else {
+            None
         }
     }
 
     /// Returns a parameter value by kind, if present.
-    pub fn param_value(&self, kind: PrimitiveParamKind) -> Option<ValueTypeParam<'_>> {
-        match (self, kind) {
-            (ValueType::Scalar { unit, .. }, PrimitiveParamKind::Unit) => {
-                unit.as_deref().map(ValueTypeParam::Unit)
-            }
-            (ValueType::Scalar { range, .. }, PrimitiveParamKind::Range) => {
-                range.as_ref().map(ValueTypeParam::Range)
-            }
-            (ValueType::Vec2 { unit, .. }, PrimitiveParamKind::Unit)
-            | (ValueType::Vec3 { unit, .. }, PrimitiveParamKind::Unit)
-            | (ValueType::Vec4 { unit, .. }, PrimitiveParamKind::Unit) => {
-                unit.as_deref().map(ValueTypeParam::Unit)
-            }
-            (ValueType::Vec2 { magnitude, .. }, PrimitiveParamKind::Magnitude)
-            | (ValueType::Vec3 { magnitude, .. }, PrimitiveParamKind::Magnitude)
-            | (ValueType::Vec4 { magnitude, .. }, PrimitiveParamKind::Magnitude)
-            | (ValueType::Quat { magnitude }, PrimitiveParamKind::Magnitude) => {
-                magnitude.as_ref().map(ValueTypeParam::Magnitude)
-            }
-            (ValueType::Tensor { rows, .. }, PrimitiveParamKind::Rows) => {
-                Some(ValueTypeParam::Rows(*rows))
-            }
-            (ValueType::Tensor { cols, .. }, PrimitiveParamKind::Cols) => {
-                Some(ValueTypeParam::Cols(*cols))
-            }
-            (ValueType::Tensor { unit, .. }, PrimitiveParamKind::Unit) => {
-                unit.as_deref().map(ValueTypeParam::Unit)
-            }
-            (ValueType::Grid { width, .. }, PrimitiveParamKind::Width) => {
-                Some(ValueTypeParam::Width(*width))
-            }
-            (ValueType::Grid { height, .. }, PrimitiveParamKind::Height) => {
-                Some(ValueTypeParam::Height(*height))
-            }
-            (ValueType::Grid { element_type, .. }, PrimitiveParamKind::ElementType) => {
-                Some(ValueTypeParam::ElementType(element_type.as_ref()))
-            }
-            (ValueType::Seq { element_type, .. }, PrimitiveParamKind::ElementType) => {
-                Some(ValueTypeParam::ElementType(element_type.as_ref()))
-            }
-            _ => None,
-        }
+    pub fn param_value(&self, kind: PrimitiveParamKind) -> Option<&ValueTypeParamValue> {
+        self.params.iter().find(|param| match (kind, param) {
+            (PrimitiveParamKind::Unit, ValueTypeParamValue::Unit(_)) => true,
+            (PrimitiveParamKind::Range, ValueTypeParamValue::Range(_)) => true,
+            (PrimitiveParamKind::Magnitude, ValueTypeParamValue::Magnitude(_)) => true,
+            (PrimitiveParamKind::Rows, ValueTypeParamValue::Rows(_)) => true,
+            (PrimitiveParamKind::Cols, ValueTypeParamValue::Cols(_)) => true,
+            (PrimitiveParamKind::Width, ValueTypeParamValue::Width(_)) => true,
+            (PrimitiveParamKind::Height, ValueTypeParamValue::Height(_)) => true,
+            (PrimitiveParamKind::ElementType, ValueTypeParamValue::ElementType(_)) => true,
+            _ => false,
+        })
     }
 
     /// Returns a default value for this type.
@@ -654,7 +711,7 @@ impl ValueType {
             PrimitiveStorageClass::Vec2 => Value::Vec2([0.0; 2]),
             PrimitiveStorageClass::Vec3 => Value::Vec3([0.0; 3]),
             PrimitiveStorageClass::Vec4 => {
-                if self.primitive_id().name() == "Quat" {
+                if self.primitive_id.name() == "Quat" {
                     Value::Quat([1.0, 0.0, 0.0, 0.0])
                 } else {
                     Value::Vec4([0.0; 4])

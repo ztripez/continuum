@@ -111,11 +111,7 @@ impl Lowerer {
             .ty
             .as_ref()
             .map(|t| self.lower_type_expr(&t.node))
-            .unwrap_or(ValueType::Scalar {
-                unit: None,
-                dimension: None,
-                range: None,
-            });
+            .unwrap_or(ValueType::scalar_untyped());
 
         let uses_dt_raw = def
             .resolve

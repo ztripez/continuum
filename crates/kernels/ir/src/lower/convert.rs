@@ -60,11 +60,7 @@ impl Lowerer {
     pub(crate) fn lower_type_expr(&self, ty: &TypeExpr) -> ValueType {
         match ty {
             TypeExpr::Primitive(primitive) => self.lower_primitive_type(primitive),
-            TypeExpr::Named(_) => ValueType::Scalar {
-                unit: None,
-                dimension: None,
-                range: None,
-            }, // resolve named types later
+            TypeExpr::Named(_) => ValueType::scalar(None, None, None), // resolve named types later
         }
     }
 
@@ -75,40 +71,22 @@ impl Lowerer {
             continuum_foundation::PrimitiveShape::Scalar => {
                 let unit = self.param_unit(primitive);
                 let (unit_str, dimension) = self.parse_unit_with_dimension(&unit);
-                ValueType::Scalar {
-                    unit: unit_str,
+                ValueType::scalar(
+                    unit_str,
                     dimension,
-                    range: self.param_range(primitive, PrimitiveParamKind::Range),
-                }
+                    self.param_range(primitive, PrimitiveParamKind::Range),
+                )
             }
             continuum_foundation::PrimitiveShape::Vector { dim } => {
                 let unit = self.param_unit(primitive);
                 let (unit_str, dimension) = self.parse_unit_with_dimension(&unit);
                 let magnitude = self.param_range(primitive, PrimitiveParamKind::Magnitude);
                 if primitive.id.name() == "Quat" {
-                    return ValueType::Quat { magnitude };
+                    return ValueType::quat(magnitude);
                 }
                 match dim {
-                    2 => ValueType::Vec2 {
-                        unit: unit_str,
-                        dimension,
-                        magnitude,
-                    },
-                    3 => ValueType::Vec3 {
-                        unit: unit_str,
-                        dimension,
-                        magnitude,
-                    },
-                    4 => ValueType::Vec4 {
-                        unit: unit_str,
-                        dimension,
-                        magnitude,
-                    },
-                    _ => ValueType::Scalar {
-                        unit: unit_str,
-                        dimension,
-                        range: None,
-                    },
+                    2 | 3 | 4 => ValueType::vector(dim, unit_str, dimension, magnitude),
+                    _ => ValueType::scalar(unit_str, dimension, None),
                 }
             }
             continuum_foundation::PrimitiveShape::Tensor => {
@@ -116,12 +94,12 @@ impl Lowerer {
                 let cols = self.param_u8(primitive, PrimitiveParamKind::Cols);
                 let unit = self.param_unit(primitive);
                 let (unit_str, dimension) = self.parse_unit_with_dimension(&unit);
-                ValueType::Tensor {
+                ValueType::tensor(
                     rows,
                     cols,
-                    unit: unit_str,
+                    unit_str,
                     dimension,
-                    constraints: primitive
+                    primitive
                         .constraints
                         .iter()
                         .map(|c| match c {
@@ -133,28 +111,24 @@ impl Lowerer {
                             }
                         })
                         .collect(),
-                }
+                )
             }
             continuum_foundation::PrimitiveShape::Grid => {
                 let width = self.param_u32(primitive, PrimitiveParamKind::Width);
                 let height = self.param_u32(primitive, PrimitiveParamKind::Height);
                 let element_type = self.param_element_type(primitive);
-                ValueType::Grid {
-                    width,
-                    height,
-                    element_type: Box::new(self.lower_type_expr(element_type)),
-                }
+                ValueType::grid(width, height, self.lower_type_expr(element_type))
             }
             continuum_foundation::PrimitiveShape::Seq => {
                 let element_type = self.param_element_type(primitive);
-                ValueType::Seq {
-                    element_type: Box::new(self.lower_type_expr(element_type)),
-                    constraints: primitive
+                ValueType::seq(
+                    self.lower_type_expr(element_type),
+                    primitive
                         .seq_constraints
                         .iter()
                         .map(|c| self.lower_seq_constraint(c))
                         .collect(),
-                }
+                )
             }
         }
     }
