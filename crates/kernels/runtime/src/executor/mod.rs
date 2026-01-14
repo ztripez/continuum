@@ -29,6 +29,8 @@ use crate::types::{
     Dt, EntityId, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value,
     WarmupConfig, WarmupResult,
 };
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 
 // Re-export public types
 pub use assertions::{AssertionChecker, AssertionFn, AssertionSeverity, SignalAssertion};
@@ -39,10 +41,172 @@ pub use context::{
 pub use kernel_registry::LaneKernelRegistry;
 pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
 pub use l3_kernel::{
-    L3Kernel, L3KernelBuilder, L3MemberResolver, MemberDag, MemberDagError, MemberEdge,
-    ScalarL3MemberResolver, ScalarL3ResolveContext, ScalarL3ResolverFn, Vec3L3MemberResolver,
-    Vec3L3ResolveContext, Vec3L3ResolverFn,
+    L3Kernel, L3KernelBuilder, MemberDag, MemberDagError, ScalarL3MemberResolver,
+    ScalarL3ResolverFn, Vec3L3MemberResolver, Vec3L3ResolverFn,
 };
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunManifest {
+    pub run_id: String,
+    pub created_at: String,
+    pub seed: u64,
+    pub steps: u64,
+    pub stride: u64,
+    pub signals: Vec<String>,
+    pub fields: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TickSnapshot {
+    pub tick: u64,
+    pub time_seconds: f64,
+    pub signals: std::collections::HashMap<String, Value>,
+    pub fields: std::collections::HashMap<String, Vec<FieldSample>>,
+}
+
+#[derive(Debug, Clone)]
+pub struct SnapshotOptions {
+    pub output_dir: PathBuf,
+    pub stride: u64,
+    pub signals: Vec<SignalId>,
+    pub fields: Vec<FieldId>,
+    pub seed: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunOptions {
+    pub steps: u64,
+    pub print_signals: bool,
+    pub signals: Vec<SignalId>,
+    pub snapshot: Option<SnapshotOptions>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RunReport {
+    pub run_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum RunError {
+    #[error("runtime execution failed: {0}")]
+    Execution(String),
+    #[error("snapshot write failed: {0}")]
+    Snapshot(String),
+}
+
+pub fn run_simulation(
+    runtime: &mut Runtime,
+    options: RunOptions,
+) -> std::result::Result<RunReport, RunError> {
+    let mut run_dir: Option<PathBuf> = None;
+
+    if let Some(snapshot) = &options.snapshot {
+        let run_id = format!(
+            "{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|t| t.as_secs())
+                .unwrap_or(0)
+        );
+        let dir = snapshot.output_dir.join(&run_id);
+        std::fs::create_dir_all(&dir).map_err(|e| RunError::Snapshot(e.to_string()))?;
+
+        let created_at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|t| t.as_secs().to_string())
+            .unwrap_or_else(|_| "0".to_string());
+        let manifest = RunManifest {
+            run_id: run_id.clone(),
+            created_at,
+            seed: snapshot.seed,
+            steps: options.steps,
+            stride: snapshot.stride,
+            signals: snapshot.signals.iter().map(|id| id.to_string()).collect(),
+            fields: snapshot.fields.iter().map(|id| id.to_string()).collect(),
+        };
+        let manifest_json = serde_json::to_string_pretty(&manifest)
+            .map_err(|e| RunError::Snapshot(e.to_string()))?;
+        std::fs::write(dir.join("run.json"), manifest_json)
+            .map_err(|e| RunError::Snapshot(e.to_string()))?;
+        run_dir = Some(dir);
+    }
+
+    if !runtime.is_warmup_complete() {
+        runtime
+            .execute_warmup()
+            .map_err(|e| RunError::Execution(e.to_string()))?;
+    }
+
+    let write_snapshot = |step: u64, runtime: &mut Runtime| -> std::result::Result<(), RunError> {
+        let Some(snapshot) = &options.snapshot else {
+            return Ok(());
+        };
+        let mut signal_values = std::collections::HashMap::new();
+        for id in &snapshot.signals {
+            if let Some(val) = runtime.get_signal(id) {
+                signal_values.insert(id.to_string(), val.clone());
+            }
+        }
+
+        let mut field_values = std::collections::HashMap::new();
+        let all_fields = runtime.drain_fields();
+        for field_id in &snapshot.fields {
+            if let Some(samples) = all_fields.get(field_id) {
+                field_values.insert(field_id.to_string(), samples.clone());
+            }
+        }
+
+        let snapshot_data = TickSnapshot {
+            tick: step,
+            time_seconds: runtime.tick_context().tick as f64 * runtime.tick_context().dt.0,
+            signals: signal_values,
+            fields: field_values,
+        };
+
+        if let Some(dir) = &run_dir {
+            let snap_json = serde_json::to_string_pretty(&snapshot_data)
+                .map_err(|e| RunError::Snapshot(e.to_string()))?;
+            let snap_path = dir.join(format!("tick_{:06}.json", step));
+            std::fs::write(snap_path, snap_json).map_err(|e| RunError::Snapshot(e.to_string()))?;
+        }
+        Ok(())
+    };
+
+    if let Some(snapshot) = &options.snapshot {
+        if snapshot.stride != 0 && 0 % snapshot.stride == 0 {
+            write_snapshot(0, runtime)?;
+        }
+    }
+
+    for step in 0..options.steps {
+        let ctx = runtime
+            .execute_tick()
+            .map_err(|e| RunError::Execution(e.to_string()))?;
+
+        if options.print_signals {
+            let mut first = true;
+            for signal_id in &options.signals {
+                if let Some(value) = runtime.get_signal(signal_id) {
+                    if !first {
+                        print!(", ");
+                    }
+                    first = false;
+                    print!("{} = {}", signal_id, value);
+                }
+            }
+            println!(" (dt={:.2e}s)", ctx.dt.seconds());
+        }
+
+        if let Some(snapshot) = &options.snapshot {
+            if snapshot.stride != 0 && step % snapshot.stride == 0 {
+                write_snapshot(step, runtime)?;
+            }
+        }
+    }
+
+    Ok(RunReport { run_dir })
+}
+
 pub use lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
 pub use lowering_strategy::{LoweringHeuristics, LoweringStrategy};
 pub use member_executor::{

@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Runtime value for signals and fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -104,6 +105,20 @@ impl Value {
 impl Default for Value {
     fn default() -> Self {
         Value::Scalar(0.0)
+    }
+}
+
+impl fmt::Display for Value {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Value::Scalar(v) => write!(f, "{:.4}", v),
+            Value::Boolean(v) => write!(f, "{}", v),
+            Value::Integer(v) => write!(f, "{}", v),
+            Value::Vec2(v) => write!(f, "[{:.4}, {:.4}]", v[0], v[1]),
+            Value::Vec3(v) => write!(f, "[{:.4}, {:.4}, {:.4}]", v[0], v[1], v[2]),
+            Value::Vec4(v) => write!(f, "[{:.4}, {:.4}, {:.4}, {:.4}]", v[0], v[1], v[2], v[3]),
+            Value::Quat(v) => write!(f, "[{:.4}, {:.4}, {:.4}, {:.4}]", v[0], v[1], v[2], v[3]),
+        }
     }
 }
 

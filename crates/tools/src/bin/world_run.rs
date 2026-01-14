@@ -4,37 +4,14 @@
 //!
 //! Usage: `world-run <world-dir> [--steps N] [--dt SECONDS]`
 
-use std::fs;
 use std::path::PathBuf;
 use std::process;
 
-use chrono::Local;
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 
 use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
-use continuum_runtime::storage::FieldSample;
-use continuum_runtime::types::Value;
-
-#[derive(Serialize, Deserialize)]
-struct RunManifest {
-    run_id: String,
-    created_at: String,
-    seed: u64, // Not currently passed in args, defaulting to 0 for now or extracting if added
-    steps: u64,
-    stride: u64,
-    signals: Vec<String>,
-    fields: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct TickSnapshot {
-    tick: u64,
-    time_seconds: f64,
-    signals: std::collections::HashMap<String, Value>,
-    fields: std::collections::HashMap<String, Vec<FieldSample>>,
-}
+use continuum_runtime::executor::{RunOptions, SnapshotOptions, run_simulation};
 
 #[derive(Parser, Debug)]
 #[command(name = "world-run")]
@@ -86,9 +63,6 @@ fn main() {
     let eras = world.eras();
     let signals = world.signals();
     let fields = world.fields();
-    let _fractures = world.fractures();
-    let _entities = world.entities();
-    let _members = world.members();
 
     info!("  Strata: {}", strata.len());
     info!("  Eras: {}", eras.len());
@@ -164,137 +138,34 @@ fn main() {
     }
 
     // Prepare snapshot directory if requested
-    let run_dir = if let Some(base_dir) = args.save_dir {
-        let run_id = Local::now().format("%Y%m%d_%H%M%S").to_string();
-        let dir = base_dir.join(&run_id);
-        fs::create_dir_all(&dir).expect("failed to create run directory");
+    let snapshot = args.save_dir.as_ref().map(|dir| SnapshotOptions {
+        output_dir: dir.clone(),
+        stride: args.stride,
+        signals: signals.keys().cloned().collect(),
+        fields: fields.keys().cloned().collect(),
+        seed: 0,
+    });
 
-        // Write manifest
-        let manifest = RunManifest {
-            run_id: run_id.clone(),
-            created_at: Local::now().to_rfc3339(),
-            seed: 0, // TODO: threaded seed support
-            steps: args.steps,
-            stride: args.stride,
-            signals: signals.keys().map(|id| id.to_string()).collect(),
-            fields: fields.keys().map(|id| id.to_string()).collect(),
-        };
-        let manifest_json = serde_json::to_string_pretty(&manifest).expect("serialization failed");
-        fs::write(dir.join("run.json"), manifest_json).expect("failed to write run.json");
-
-        info!("Snapshot output enabled: {}", dir.display());
-        Some(dir)
-    } else {
-        None
-    };
-
-    // Run warmup if any functions registered
-    if !runtime.is_warmup_complete() {
-        info!("Executing warmup phase...");
-        match runtime.execute_warmup() {
-            Ok(result) => {
-                info!(
-                    "Warmup complete: {} iterations, converged: {}",
-                    result.iterations, result.converged
-                );
-            }
-            Err(e) => {
-                error!("Warmup failed: {}", e);
-                process::exit(1);
-            }
-        }
-    }
-
-    // Run simulation
     info!("Running {} steps...", args.steps);
 
-    for step in 0..args.steps {
-        match runtime.execute_tick() {
-            Ok(ctx) => {
-                print!("Step {}: ", step);
-
-                // Print signal values
-                let mut first = true;
-                for (signal_id, _) in &signals {
-                    let runtime_id = signal_id.clone();
-                    if let Some(value) = runtime.get_signal(&runtime_id) {
-                        if !first {
-                            print!(", ");
-                        }
-                        first = false;
-                        match value {
-                            Value::Scalar(v) => print!("{} = {:.4}", signal_id, v),
-                            Value::Vec3(v) => {
-                                print!("{} = [{:.2}, {:.2}, {:.2}]", signal_id, v[0], v[1], v[2])
-                            }
-                            _ => print!("{} = {:?}", signal_id, value),
-                        }
-                    }
-                }
-                println!(" (dt={:.2e}s)", ctx.dt.seconds());
-
-                // Capture snapshot if enabled
-                if let Some(ref dir) = run_dir {
-                    if step % args.stride == 0 {
-                        let mut signal_values = std::collections::HashMap::new();
-                        for id in signals.keys() {
-                            if let Some(val) = runtime.get_signal(id) {
-                                signal_values.insert(id.to_string(), val.clone());
-                            }
-                        }
-
-                        let mut field_values = std::collections::HashMap::new();
-                        // Drain fields so they are captured (and cleared for next tick)
-                        let all_fields = runtime.drain_fields();
-                        for (id, samples) in &all_fields {
-                            field_values.insert(id.to_string(), samples.clone());
-                        }
-
-                        let snapshot = TickSnapshot {
-                            tick: ctx.tick,
-                            time_seconds: ctx.tick as f64 * ctx.dt.0, // Approximation
-                            signals: signal_values,
-                            fields: field_values,
-                        };
-
-                        let snap_json =
-                            serde_json::to_string_pretty(&snapshot).expect("serialization failed");
-                        let snap_path = dir.join(format!("tick_{:06}.json", step));
-                        if let Err(e) = fs::write(&snap_path, snap_json) {
-                            error!("Failed to write snapshot: {}", e);
-                        }
-                    } else {
-                        // Ensure fields are drained even if not snapshotting, to prevent buffer growth
-                        runtime.drain_fields();
-                    }
-                } else {
-                    // Print field values if any were emitted (legacy behavior)
-                    let fields = runtime.drain_fields();
-                    if !fields.is_empty() {
-                        for (field_id, samples) in &fields {
-                            for sample in samples {
-                                match &sample.value {
-                                    Value::Scalar(v) => {
-                                        println!("  [field] {} = {:.4}", field_id, v)
-                                    }
-                                    Value::Vec3(v) => {
-                                        println!(
-                                            "  [field] {} = [{:.2}, {:.2}, {:.2}]",
-                                            field_id, v[0], v[1], v[2]
-                                        )
-                                    }
-                                    _ => println!("  [field] {} = {:?}", field_id, sample.value),
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                error!("Error at step {}: {}", step, e);
-                process::exit(1);
-            }
+    let report = match run_simulation(
+        &mut runtime,
+        RunOptions {
+            steps: args.steps,
+            print_signals: true,
+            signals: signals.keys().cloned().collect(),
+            snapshot,
+        },
+    ) {
+        Ok(report) => report,
+        Err(e) => {
+            error!("Run failed: {}", e);
+            process::exit(1);
         }
+    };
+
+    if let Some(dir) = report.run_dir {
+        info!("Snapshot output enabled: {}", dir.display());
     }
 
     info!("Simulation complete!");
