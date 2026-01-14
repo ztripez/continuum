@@ -22,11 +22,11 @@ pub use member_interp::{
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
-use continuum_foundation::{EraId, FieldId, SignalId};
+use continuum_foundation::{EraId, FieldId, PrimitiveStorageClass, SignalId};
 use continuum_runtime::MemberSignalBuffer;
 use continuum_runtime::executor::{
-    AggregateResolverFn, AssertionFn, EraConfig, FractureFn, MeasureFn, ResolverFn, TransitionFn,
-    WarmupFn,
+    AggregateResolverFn, AssertionFn, EraConfig, FractureFn, MeasureFn, ResolverFn, Runtime,
+    TransitionFn, WarmupFn,
 };
 // Import functions crate to ensure kernels are registered
 
@@ -119,15 +119,62 @@ pub fn build_signal_resolver(
     world: &CompiledWorld,
 ) -> Option<ResolverFn> {
     let resolve_expr = signal.resolve.as_ref()?;
-    if contains_entity_expression(resolve_expr) {
-        return None;
-    }
-
     Some(build_resolver(
         resolve_expr,
         &world.constants,
         &world.config,
     ))
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MemberResolverStats {
+    pub scalar_count: usize,
+    pub vec3_count: usize,
+}
+
+impl MemberResolverStats {
+    pub fn total(&self) -> usize {
+        self.scalar_count + self.vec3_count
+    }
+}
+
+pub fn register_member_resolvers(
+    runtime: &mut Runtime,
+    world: &CompiledWorld,
+) -> MemberResolverStats {
+    let mut stats = MemberResolverStats::default();
+
+    for (member_id, member) in world.members() {
+        let Some(ref resolve_expr) = member.resolve else {
+            continue;
+        };
+
+        let entity_prefix = member.entity_id.to_string();
+        match member.value_type.storage_class() {
+            PrimitiveStorageClass::Vec3 => {
+                let resolver = build_vec3_member_resolver(
+                    resolve_expr,
+                    &world.constants,
+                    &world.config,
+                    &entity_prefix,
+                );
+                runtime.register_vec3_member_resolver(member_id.to_string(), resolver);
+                stats.vec3_count += 1;
+            }
+            _ => {
+                let resolver = build_member_resolver(
+                    resolve_expr,
+                    &world.constants,
+                    &world.config,
+                    &entity_prefix,
+                );
+                runtime.register_member_resolver(member_id.to_string(), resolver);
+                stats.scalar_count += 1;
+            }
+        }
+    }
+
+    stats
 }
 
 /// Builds a warmup function for a signal.
