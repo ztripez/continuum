@@ -834,56 +834,63 @@ impl MemberSignalBuffer {
     /// Get current value as a Value enum (for compatibility).
     pub fn get_current(&self, signal: &str, instance_idx: usize) -> Option<Value> {
         let meta = self.registry.get(signal)?;
-        match meta.value_type {
-            ValueType::Scalar => self
-                .scalars
-                .get_current(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Scalar(v)),
-            ValueType::Vec2 => self
-                .vec2s
-                .get_current(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Vec2(v)),
-            ValueType::Vec3 => self
-                .vec3s
-                .get_current(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Vec3(v)),
-            ValueType::Vec4 | ValueType::Quat => self.get_vec4_value(meta, instance_idx, false),
-            ValueType::Boolean => self
-                .booleans
-                .get_current(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Boolean(v)),
-            ValueType::Integer => self
-                .integers
-                .get_current(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Integer(v)),
-        }
+        self.get_value(meta, instance_idx, false)
     }
 
     /// Get previous tick value.
     pub fn get_previous(&self, signal: &str, instance_idx: usize) -> Option<Value> {
         let meta = self.registry.get(signal)?;
-        match meta.value_type {
-            ValueType::Scalar => self
-                .scalars
-                .get_previous(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Scalar(v)),
-            ValueType::Vec2 => self
-                .vec2s
-                .get_previous(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Vec2(v)),
-            ValueType::Vec3 => self
-                .vec3s
-                .get_previous(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Vec3(v)),
-            ValueType::Vec4 | ValueType::Quat => self.get_vec4_value(meta, instance_idx, true),
-            ValueType::Boolean => self
-                .booleans
-                .get_previous(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Boolean(v)),
-            ValueType::Integer => self
-                .integers
-                .get_previous(meta.buffer_index, instance_idx)
-                .map(|&v| Value::Integer(v)),
+        self.get_value(meta, instance_idx, true)
+    }
+
+    fn get_value(
+        &self,
+        meta: &MemberSignalMeta,
+        instance_idx: usize,
+        previous: bool,
+    ) -> Option<Value> {
+        match meta.value_type.buffer_class() {
+            MemberBufferClass::Scalar => {
+                let value = if previous {
+                    self.scalars.get_previous(meta.buffer_index, instance_idx)
+                } else {
+                    self.scalars.get_current(meta.buffer_index, instance_idx)
+                }?;
+                Some(Value::Scalar(*value))
+            }
+            MemberBufferClass::Vec2 => {
+                let value = if previous {
+                    self.vec2s.get_previous(meta.buffer_index, instance_idx)
+                } else {
+                    self.vec2s.get_current(meta.buffer_index, instance_idx)
+                }?;
+                Some(Value::Vec2(*value))
+            }
+            MemberBufferClass::Vec3 => {
+                let value = if previous {
+                    self.vec3s.get_previous(meta.buffer_index, instance_idx)
+                } else {
+                    self.vec3s.get_current(meta.buffer_index, instance_idx)
+                }?;
+                Some(Value::Vec3(*value))
+            }
+            MemberBufferClass::Vec4 => self.get_vec4_value(meta, instance_idx, previous),
+            MemberBufferClass::Boolean => {
+                let value = if previous {
+                    self.booleans.get_previous(meta.buffer_index, instance_idx)
+                } else {
+                    self.booleans.get_current(meta.buffer_index, instance_idx)
+                }?;
+                Some(Value::Boolean(*value))
+            }
+            MemberBufferClass::Integer => {
+                let value = if previous {
+                    self.integers.get_previous(meta.buffer_index, instance_idx)
+                } else {
+                    self.integers.get_current(meta.buffer_index, instance_idx)
+                }?;
+                Some(Value::Integer(*value))
+            }
         }
     }
 
@@ -941,20 +948,20 @@ impl MemberSignalBuffer {
             return Err(format!("Unknown signal: {}", signal));
         };
 
-        match (meta.value_type, value) {
-            (ValueType::Scalar, Value::Scalar(v)) => {
+        match (meta.value_type.buffer_class(), value) {
+            (MemberBufferClass::Scalar, Value::Scalar(v)) => {
                 self.scalars.set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
-            (ValueType::Vec2, Value::Vec2(v)) => {
+            (MemberBufferClass::Vec2, Value::Vec2(v)) => {
                 self.vec2s.set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
-            (ValueType::Vec3, Value::Vec3(v)) => {
+            (MemberBufferClass::Vec3, Value::Vec3(v)) => {
                 self.vec3s.set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
-            (ValueType::Vec4 | ValueType::Quat, value) => {
+            (MemberBufferClass::Vec4, value) => {
                 self.set_vec4_value(&meta, instance_idx, value)
                     .map_err(|value| {
                         format!(
@@ -964,19 +971,19 @@ impl MemberSignalBuffer {
                     })?;
                 Ok(())
             }
-            (ValueType::Boolean, Value::Boolean(v)) => {
+            (MemberBufferClass::Boolean, Value::Boolean(v)) => {
                 self.booleans
                     .set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
-            (ValueType::Integer, Value::Integer(v)) => {
+            (MemberBufferClass::Integer, Value::Integer(v)) => {
                 self.integers
                     .set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
-            (t, v) => Err(format!(
+            (_, value) => Err(format!(
                 "Type mismatch for signal {}: expected {:?}, got {:?}",
-                signal, t, v
+                signal, meta.value_type, value
             )),
         }
     }
