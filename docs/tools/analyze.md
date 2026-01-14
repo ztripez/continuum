@@ -2,7 +2,7 @@
 
 This document defines the **analyze** tool, used for validating and comparing simulation runs.
 
-It consumes snapshot artifacts produced by `world-run --save`, and must access
+It consumes snapshot artifacts produced by `run --save`, and must access
 field data through **Lens semantics** (observer-only). `FieldSnapshot` is
 internal transport and must not be treated as a public API for end programs.
 
@@ -45,7 +45,7 @@ Options:
 
 **1. Generate a reference run:**
 ```bash
-cargo run --bin world-run -- examples/terra --save ./output/ref --steps 50
+cargo run --bin run -- examples/terra --save ./output/ref --steps 50
 ```
 
 **2. Record baseline:**
@@ -55,7 +55,7 @@ cargo run --bin analyze -- baseline record ./output/ref --output terra_baseline.
 
 **3. Run a test:**
 ```bash
-cargo run --bin world-run -- examples/terra --save ./output/test --steps 50
+cargo run --bin run -- examples/terra --save ./output/test --steps 50
 ```
 
 **4. Verify against baseline:**

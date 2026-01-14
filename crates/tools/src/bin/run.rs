@@ -1,8 +1,7 @@
-//! World Runner.
 //!
 //! Loads, compiles, and executes a Continuum world.
 //!
-//! Usage: `world-run <world-dir> [--steps N] [--dt SECONDS]`
+//! Usage: `run <world-dir> [--steps N] [--dt SECONDS]`
 
 use std::path::PathBuf;
 use std::process;
@@ -14,7 +13,7 @@ use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
 use continuum_runtime::executor::{RunOptions, SnapshotOptions, run_simulation};
 
 #[derive(Parser, Debug)]
-#[command(name = "world-run")]
+#[command(name = "run")]
 #[command(about = "Compile and execute a Continuum world")]
 struct Args {
     /// Path to the World root directory

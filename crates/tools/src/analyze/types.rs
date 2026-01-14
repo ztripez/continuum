@@ -12,7 +12,7 @@ use continuum_runtime::types::Value;
 // Run Manifest Types
 // ============================================================================
 
-/// Run manifest structure (matches world-run output).
+/// Run manifest structure (matches run output).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunManifest {
     pub run_id: String,

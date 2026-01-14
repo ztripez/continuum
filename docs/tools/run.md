@@ -7,7 +7,7 @@ The run tool implements the lifecycle defined in `@execution/lifecycle.md`.
 ## Usage
 
 ```bash
-cargo run --bin world-run -- [OPTIONS] <WORLD_DIR>
+cargo run --bin run -- [OPTIONS] <WORLD_DIR>
 ```
 
 ## Arguments
@@ -49,11 +49,11 @@ When `--save` is used, the tool creates a subdirectory with a timestamp (e.g., `
 Run the `terra` world for 100 ticks, saving snapshots every 10 ticks:
 
 ```bash
-cargo run --bin world-run -- examples/terra --steps 100 --save ./snapshots --stride 10
+cargo run --bin run -- examples/terra --steps 100 --save ./snapshots --stride 10
 ```
 
 Run with a custom timestep:
 
 ```bash
-cargo run --bin world-run -- examples/terra --dt 3.15e7
+cargo run --bin run -- examples/terra --dt 3.15e7
 ```

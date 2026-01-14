@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "world-load"
-path = "src/bin/world_load.rs"
+name = "check"
+path = "src/bin/check.rs"
 
 [[bin]]
-name = "world-run"
-path = "src/bin/world_run.rs"
+name = "run"
+path = "src/bin/run.rs"
 
 [[bin]]
 name = "analyze"
