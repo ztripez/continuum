@@ -13,7 +13,7 @@ use tracing_subscriber::{EnvFilter, fmt};
 /// Default is `info` for continuum crates and `warn` for others.
 pub fn init_logging() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::new("info,continuum_tools=debug,continuum_runtime=debug,continuum_compiler=debug,continuum_ir=info,continuum_dsl=info")
+        EnvFilter::new("info,continuum_tools=info,continuum_runtime=info,continuum_compiler=info,continuum_ir=info,continuum_dsl=info")
     });
 
     fmt()

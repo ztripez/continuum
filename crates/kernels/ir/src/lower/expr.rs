@@ -252,10 +252,17 @@ impl Lowerer {
                     args: lowered_args,
                 }
             }
-            Expr::FieldAccess { object, field } => CompiledExpr::FieldAccess {
-                object: Box::new(self.lower_expr_with_context(&object.node, ctx)),
-                field: field.clone(),
-            },
+            Expr::FieldAccess { object, field } => {
+                let lowered_object = self.lower_expr_with_context(&object.node, ctx);
+                if let CompiledExpr::Payload = lowered_object {
+                    CompiledExpr::PayloadField(field.clone())
+                } else {
+                    CompiledExpr::FieldAccess {
+                        object: Box::new(lowered_object),
+                        field: field.clone(),
+                    }
+                }
+            }
             Expr::If {
                 condition,
                 then_branch,

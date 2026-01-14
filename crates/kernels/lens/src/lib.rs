@@ -511,6 +511,12 @@ impl CubedSphereTopology {
         let ax = x.abs();
         let ay = y.abs();
         let az = z.abs();
+
+        // Handle origin or extremely small vectors by defaulting to +X face center
+        if ax < 1e-10 && ay < 1e-10 && az < 1e-10 {
+            return (0, 0.0, 0.0);
+        }
+
         if ax >= ay && ax >= az {
             if x >= 0.0 {
                 (0, -z / ax, y / ax)

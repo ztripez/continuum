@@ -283,7 +283,7 @@
         const item = document.createElement('div');
         item.className = 'list-item';
         item.innerHTML = `<code>${id}</code> <span>Query</span>`;
-        item.onclick = () => sendRequest('field.query', { field_id: id, position: [0,0,0] });
+        item.onclick = () => sendRequest('field.query', { field_id: id, position: [1,0,0] });
         list.appendChild(item);
       });
     }

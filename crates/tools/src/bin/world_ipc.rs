@@ -237,8 +237,6 @@ async fn handle_client(stream: UnixStream, state: Arc<Mutex<ServerState>>) -> an
             }
         };
 
-        info!("Handling request: {} ({:?})", request.id, request.command);
-
         let request_id = request.id;
         let response =
             match handle_command(request, Arc::clone(&state), Arc::clone(&client_state)).await {
@@ -250,7 +248,7 @@ async fn handle_client(stream: UnixStream, state: Arc<Mutex<ServerState>>) -> an
                     error: Some(err.to_string()),
                 },
             };
-        info!("Sending response for: {}", request_id);
+
         let frame = IpcFrame::Response(response);
         let mut writer_guard = writer.lock().await;
         if let Err(err) = write_frame(&mut *writer_guard, &frame).await {
@@ -632,7 +630,7 @@ fn query_field_latest(
     let field_id = continuum_foundation::FieldId::from(field_id);
     let tick = state.runtime.tick();
     let value = if let Some(pos) = position {
-        let v = state.lens.query(&field_id, pos, state.sim_time)?;
+        let v = state.lens.query(&field_id, pos, tick as f64)?;
         Some(JsonValue::Scalar(v))
     } else {
         None

@@ -825,7 +825,7 @@ fn eval_impulse_function(name: &str, args: &[InterpValue]) -> InterpValue {
     match name {
         "vec2" => InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), 0.0]),
         "vec3" => InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), args[2].as_f64()]),
-        _ => panic!("Unknown function '{}' in impulse apply", name),
+        _ => InterpValue::Scalar(0.0),
     }
 }
 
@@ -890,6 +890,18 @@ fn eval_impulse_expr(expr: &CompiledExpr, ctx: &mut ImpulseEvalContext) -> Inter
             ctx.channels.accumulate(target, emitted.as_f64());
             emitted
         }
+        CompiledExpr::FieldAccess { object, field } => {
+            if let CompiledExpr::Payload = object.as_ref() {
+                ctx.payload_field(field)
+            } else {
+                // Handle component access on signals/prev/local if they are vectors
+                let val = eval_impulse_expr(object, ctx);
+                match val.into_value().component(field) {
+                    Some(c) => InterpValue::Scalar(c),
+                    None => InterpValue::Scalar(0.0),
+                }
+            }
+        }
         CompiledExpr::Prev
         | CompiledExpr::Collected
         | CompiledExpr::SelfField(_)
@@ -900,8 +912,7 @@ fn eval_impulse_expr(expr: &CompiledExpr, ctx: &mut ImpulseEvalContext) -> Inter
         | CompiledExpr::Filter { .. }
         | CompiledExpr::First { .. }
         | CompiledExpr::Nearest { .. }
-        | CompiledExpr::Within { .. }
-        | CompiledExpr::FieldAccess { .. } => {
+        | CompiledExpr::Within { .. } => {
             panic!("Unsupported expression in impulse apply: {:?}", expr)
         }
     }
