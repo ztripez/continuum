@@ -437,17 +437,17 @@ fn main() {
         // Register member signals (use full member ID to avoid name collisions)
         for (member_id, member) in &members {
             let value_type = match member.value_type.storage_class() {
-                PrimitiveStorageClass::Scalar => MemberValueType::Scalar,
-                PrimitiveStorageClass::Vec2 => MemberValueType::Vec2,
-                PrimitiveStorageClass::Vec3 => MemberValueType::Vec3,
+                PrimitiveStorageClass::Scalar => MemberValueType::scalar(),
+                PrimitiveStorageClass::Vec2 => MemberValueType::vec2(),
+                PrimitiveStorageClass::Vec3 => MemberValueType::vec3(),
                 PrimitiveStorageClass::Vec4 => {
                     if member.value_type.primitive_id().name() == "Quat" {
-                        MemberValueType::Quat
+                        MemberValueType::quat()
                     } else {
-                        MemberValueType::Vec4
+                        MemberValueType::vec4()
                     }
                 }
-                _ => MemberValueType::Scalar,
+                _ => MemberValueType::scalar(),
             };
             // Use full member ID (e.g., "stellar.star.mass") instead of just signal_name ("mass")
             // to avoid collisions between entities with same-named members

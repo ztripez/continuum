@@ -293,7 +293,7 @@ mod tests {
     fn test_scalar_l1_kernel_execution() {
         // Set up population storage
         let mut population = PopulationStorage::new("test.entity".into());
-        population.register_signal("counter".to_string(), ValueType::Scalar);
+        population.register_signal("counter".to_string(), ValueType::scalar());
 
         // Register instances
         for i in 0..10 {
@@ -338,7 +338,7 @@ mod tests {
     fn test_vec3_l1_kernel_execution() {
         // Set up population storage
         let mut population = PopulationStorage::new("test.entity".into());
-        population.register_signal("position".to_string(), ValueType::Vec3);
+        population.register_signal("position".to_string(), ValueType::vec3());
 
         // Register instances
         for i in 0..5 {

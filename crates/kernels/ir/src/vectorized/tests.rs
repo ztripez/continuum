@@ -363,7 +363,7 @@ fn test_l2_self_field_snapshot_semantics() {
 
     // Create a member signal buffer with velocity values
     let mut member_buf = MemberSignalBuffer::new();
-    member_buf.register_signal("velocity".to_string(), ValueType::Scalar);
+    member_buf.register_signal("velocity".to_string(), ValueType::scalar());
     member_buf.init_instances(4);
 
     // Set previous tick values (the snapshot)
@@ -426,7 +426,7 @@ fn test_l2_self_field_missing_field() {
 
     // Create member buffer without the requested field
     let mut member_buf = MemberSignalBuffer::new();
-    member_buf.register_signal("velocity".to_string(), ValueType::Scalar);
+    member_buf.register_signal("velocity".to_string(), ValueType::scalar());
     member_buf.init_instances(4);
 
     let signals = SignalStorage::default();
@@ -458,7 +458,7 @@ fn test_l2_self_field_expression_with_snapshot() {
 
     // Create member buffer with velocity snapshot values
     let mut member_buf = MemberSignalBuffer::new();
-    member_buf.register_signal("velocity".to_string(), ValueType::Scalar);
+    member_buf.register_signal("velocity".to_string(), ValueType::scalar());
     member_buf.init_instances(4);
 
     {

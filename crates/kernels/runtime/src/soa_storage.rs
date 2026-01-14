@@ -40,7 +40,7 @@ use std::ptr::NonNull;
 use indexmap::IndexMap;
 
 use crate::types::{EntityId, Value};
-use continuum_foundation::PrimitiveStorageClass;
+use continuum_foundation::{PrimitiveStorageClass, PrimitiveTypeId, primitive_type_by_name};
 
 /// Alignment for SIMD-friendly allocation (64 bytes = cache line).
 pub const SIMD_ALIGNMENT: usize = 64;
@@ -51,23 +51,17 @@ pub const SIMD_ALIGNMENT: usize = 64;
 
 /// Type discriminant for member signal values.
 ///
-/// Unlike [`Value`], this enum stores only the type tag without data.
+/// Unlike [`Value`], this struct stores only the type tag without data.
 /// Used in the signal registry to route access to the correct buffer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ValueType {
-    /// Single f64 value
-    Scalar,
-    /// 2D vector [f64; 2]
-    Vec2,
-    /// 3D vector [f64; 3]
-    Vec3,
-    /// 4D vector [f64; 4]
-    Vec4,
-    /// Quaternion [f64; 4]
-    Quat,
-    /// Boolean value
+pub struct ValueType {
+    kind: ValueTypeKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ValueTypeKind {
+    Primitive(PrimitiveTypeId),
     Boolean,
-    /// Integer value
     Integer,
 }
 
@@ -82,24 +76,96 @@ enum MemberBufferClass {
 }
 
 impl ValueType {
+    pub fn scalar() -> Self {
+        Self::from_primitive_id(PrimitiveTypeId::new("Scalar"))
+    }
+
+    pub fn vec2() -> Self {
+        Self::from_primitive_id(PrimitiveTypeId::new("Vec2"))
+    }
+
+    pub fn vec3() -> Self {
+        Self::from_primitive_id(PrimitiveTypeId::new("Vec3"))
+    }
+
+    pub fn vec4() -> Self {
+        Self::from_primitive_id(PrimitiveTypeId::new("Vec4"))
+    }
+
+    pub fn quat() -> Self {
+        Self::from_primitive_id(PrimitiveTypeId::new("Quat"))
+    }
+
+    pub fn boolean() -> Self {
+        Self {
+            kind: ValueTypeKind::Boolean,
+        }
+    }
+
+    pub fn integer() -> Self {
+        Self {
+            kind: ValueTypeKind::Integer,
+        }
+    }
+
+    pub fn from_primitive_id(primitive_id: PrimitiveTypeId) -> Self {
+        Self {
+            kind: ValueTypeKind::Primitive(primitive_id),
+        }
+    }
+
+    pub fn primitive_id(&self) -> Option<PrimitiveTypeId> {
+        match self.kind {
+            ValueTypeKind::Primitive(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        self.primitive_id().is_some_and(|id| id.name() == "Scalar")
+    }
+
+    pub fn is_quat(&self) -> bool {
+        self.primitive_id().is_some_and(|id| id.name() == "Quat")
+    }
+
+    pub fn is_vec3(&self) -> bool {
+        self.primitive_id().is_some_and(|id| id.name() == "Vec3")
+    }
+
+    pub fn is_vec2(&self) -> bool {
+        self.primitive_id().is_some_and(|id| id.name() == "Vec2")
+    }
+
+    pub fn is_vec4(&self) -> bool {
+        self.primitive_id().is_some_and(|id| id.name() == "Vec4")
+    }
+
+    pub fn is_boolean(&self) -> bool {
+        matches!(self.kind, ValueTypeKind::Boolean)
+    }
+
+    pub fn is_integer(&self) -> bool {
+        matches!(self.kind, ValueTypeKind::Integer)
+    }
+
     /// Size in bytes for one element of this type
-    pub const fn element_size(&self) -> usize {
-        match self {
-            ValueType::Scalar => std::mem::size_of::<f64>(),
-            ValueType::Vec2 => std::mem::size_of::<[f64; 2]>(),
-            ValueType::Vec3 => std::mem::size_of::<[f64; 3]>(),
-            ValueType::Vec4 => std::mem::size_of::<[f64; 4]>(),
-            ValueType::Quat => std::mem::size_of::<[f64; 4]>(),
-            ValueType::Boolean => std::mem::size_of::<bool>(),
-            ValueType::Integer => std::mem::size_of::<i64>(),
+    pub fn element_size(&self) -> usize {
+        match self.buffer_class() {
+            MemberBufferClass::Scalar => std::mem::size_of::<f64>(),
+            MemberBufferClass::Vec2 => std::mem::size_of::<[f64; 2]>(),
+            MemberBufferClass::Vec3 => std::mem::size_of::<[f64; 3]>(),
+            MemberBufferClass::Vec4 => std::mem::size_of::<[f64; 4]>(),
+            MemberBufferClass::Boolean => std::mem::size_of::<bool>(),
+            MemberBufferClass::Integer => std::mem::size_of::<i64>(),
         }
     }
 
     /// Alignment requirement for this type
-    pub const fn alignment(&self) -> usize {
-        match self {
-            ValueType::Boolean => std::mem::align_of::<bool>(),
-            ValueType::Integer => std::mem::align_of::<i64>(),
+    pub fn alignment(&self) -> usize {
+        match self.kind {
+            ValueTypeKind::Boolean => std::mem::align_of::<bool>(),
+            ValueTypeKind::Integer => std::mem::align_of::<i64>(),
             _ => std::mem::align_of::<f64>(),
         }
     }
@@ -107,37 +173,45 @@ impl ValueType {
     /// Infer type from a Value
     pub fn from_value(value: &Value) -> Self {
         match value {
-            Value::Scalar(_) => ValueType::Scalar,
-            Value::Vec2(_) => ValueType::Vec2,
-            Value::Vec3(_) => ValueType::Vec3,
-            Value::Vec4(_) => ValueType::Vec4,
-            Value::Quat(_) => ValueType::Quat,
-            Value::Boolean(_) => ValueType::Boolean,
-            Value::Integer(_) => ValueType::Integer,
+            Value::Scalar(_) => ValueType::scalar(),
+            Value::Vec2(_) => ValueType::vec2(),
+            Value::Vec3(_) => ValueType::vec3(),
+            Value::Vec4(_) => ValueType::vec4(),
+            Value::Quat(_) => ValueType::quat(),
+            Value::Boolean(_) => ValueType::boolean(),
+            Value::Integer(_) => ValueType::integer(),
         }
     }
 
     /// Convert from a primitive storage class.
     pub fn from_storage_class(storage: PrimitiveStorageClass) -> Self {
         match storage {
-            PrimitiveStorageClass::Scalar => ValueType::Scalar,
-            PrimitiveStorageClass::Vec2 => ValueType::Vec2,
-            PrimitiveStorageClass::Vec3 => ValueType::Vec3,
-            PrimitiveStorageClass::Vec4 => ValueType::Vec4,
-            PrimitiveStorageClass::Tensor => ValueType::Scalar,
-            PrimitiveStorageClass::Grid => ValueType::Scalar,
-            PrimitiveStorageClass::Seq => ValueType::Scalar,
+            PrimitiveStorageClass::Scalar => ValueType::scalar(),
+            PrimitiveStorageClass::Vec2 => ValueType::vec2(),
+            PrimitiveStorageClass::Vec3 => ValueType::vec3(),
+            PrimitiveStorageClass::Vec4 => ValueType::vec4(),
+            PrimitiveStorageClass::Tensor => ValueType::scalar(),
+            PrimitiveStorageClass::Grid => ValueType::scalar(),
+            PrimitiveStorageClass::Seq => ValueType::scalar(),
         }
     }
 
     fn buffer_class(&self) -> MemberBufferClass {
-        match self {
-            ValueType::Scalar => MemberBufferClass::Scalar,
-            ValueType::Vec2 => MemberBufferClass::Vec2,
-            ValueType::Vec3 => MemberBufferClass::Vec3,
-            ValueType::Vec4 | ValueType::Quat => MemberBufferClass::Vec4,
-            ValueType::Boolean => MemberBufferClass::Boolean,
-            ValueType::Integer => MemberBufferClass::Integer,
+        match self.kind {
+            ValueTypeKind::Boolean => MemberBufferClass::Boolean,
+            ValueTypeKind::Integer => MemberBufferClass::Integer,
+            ValueTypeKind::Primitive(id) => match primitive_type_by_name(id.name())
+                .map(|def| def.storage)
+                .unwrap_or(PrimitiveStorageClass::Scalar)
+            {
+                PrimitiveStorageClass::Scalar => MemberBufferClass::Scalar,
+                PrimitiveStorageClass::Vec2 => MemberBufferClass::Vec2,
+                PrimitiveStorageClass::Vec3 => MemberBufferClass::Vec3,
+                PrimitiveStorageClass::Vec4 => MemberBufferClass::Vec4,
+                PrimitiveStorageClass::Tensor => MemberBufferClass::Scalar,
+                PrimitiveStorageClass::Grid => MemberBufferClass::Scalar,
+                PrimitiveStorageClass::Seq => MemberBufferClass::Scalar,
+            },
         }
     }
 }
@@ -762,18 +836,24 @@ impl MemberSignalBuffer {
         self.instance_count = instance_count;
 
         // Initialize type-separated buffers
-        self.scalars
-            .init(self.registry.type_count(ValueType::Scalar), instance_count);
+        self.scalars.init(
+            self.registry.type_count(ValueType::scalar()),
+            instance_count,
+        );
         self.vec2s
-            .init(self.registry.type_count(ValueType::Vec2), instance_count);
+            .init(self.registry.type_count(ValueType::vec2()), instance_count);
         self.vec3s
-            .init(self.registry.type_count(ValueType::Vec3), instance_count);
+            .init(self.registry.type_count(ValueType::vec3()), instance_count);
         self.vec4s
-            .init(self.registry.type_count(ValueType::Vec4), instance_count);
-        self.booleans
-            .init(self.registry.type_count(ValueType::Boolean), instance_count);
-        self.integers
-            .init(self.registry.type_count(ValueType::Integer), instance_count);
+            .init(self.registry.type_count(ValueType::vec4()), instance_count);
+        self.booleans.init(
+            self.registry.type_count(ValueType::boolean()),
+            instance_count,
+        );
+        self.integers.init(
+            self.registry.type_count(ValueType::integer()),
+            instance_count,
+        );
     }
 
     /// Get the maximum number of instances (used for storage).
@@ -910,7 +990,7 @@ impl MemberSignalBuffer {
                 .copied()
         }?;
 
-        if meta.value_type == ValueType::Quat {
+        if meta.value_type.is_quat() {
             Some(Value::Quat(value))
         } else {
             Some(Value::Vec4(value))
@@ -924,11 +1004,11 @@ impl MemberSignalBuffer {
         value: Value,
     ) -> Result<(), Value> {
         match (meta.value_type, value) {
-            (ValueType::Vec4, Value::Vec4(v)) => {
+            (value_type, Value::Vec4(v)) if value_type.is_vec4() => {
                 self.vec4s.set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
-            (ValueType::Quat, Value::Quat(v)) => {
+            (value_type, Value::Quat(v)) if value_type.is_quat() => {
                 self.vec4s.set_current(meta.buffer_index, instance_idx, v);
                 Ok(())
             }
@@ -997,7 +1077,7 @@ impl MemberSignalBuffer {
     /// Returns None if signal doesn't exist or isn't a scalar.
     pub fn scalar_slice(&self, signal: &str) -> Option<&[f64]> {
         let meta = self.registry.get(signal)?;
-        if meta.value_type != ValueType::Scalar {
+        if !meta.value_type.is_scalar() {
             return None;
         }
         Some(self.scalars.signal_slice(meta.buffer_index))
@@ -1006,7 +1086,7 @@ impl MemberSignalBuffer {
     /// Get mutable scalar slice for a signal.
     pub fn scalar_slice_mut(&mut self, signal: &str) -> Option<&mut [f64]> {
         let meta = self.registry.get(signal)?.clone();
-        if meta.value_type != ValueType::Scalar {
+        if !meta.value_type.is_scalar() {
             return None;
         }
         Some(self.scalars.signal_slice_mut(meta.buffer_index))
@@ -1015,7 +1095,7 @@ impl MemberSignalBuffer {
     /// Get Vec3 slice for a signal.
     pub fn vec3_slice(&self, signal: &str) -> Option<&[[f64; 3]]> {
         let meta = self.registry.get(signal)?;
-        if meta.value_type != ValueType::Vec3 {
+        if !meta.value_type.is_vec3() {
             return None;
         }
         Some(self.vec3s.signal_slice(meta.buffer_index))
@@ -1024,7 +1104,7 @@ impl MemberSignalBuffer {
     /// Get mutable Vec3 slice for a signal.
     pub fn vec3_slice_mut(&mut self, signal: &str) -> Option<&mut [[f64; 3]]> {
         let meta = self.registry.get(signal)?.clone();
-        if meta.value_type != ValueType::Vec3 {
+        if !meta.value_type.is_vec3() {
             return None;
         }
         Some(self.vec3s.signal_slice_mut(meta.buffer_index))
@@ -1033,7 +1113,7 @@ impl MemberSignalBuffer {
     /// Get Quat slice for a signal.
     pub fn quat_slice(&self, signal: &str) -> Option<&[[f64; 4]]> {
         let meta = self.registry.get(signal)?;
-        if meta.value_type != ValueType::Quat {
+        if !meta.value_type.is_quat() {
             return None;
         }
         Some(self.vec4s.signal_slice(meta.buffer_index))
@@ -1042,7 +1122,7 @@ impl MemberSignalBuffer {
     /// Get mutable slice for a Quat signal.
     pub fn quat_slice_mut(&mut self, signal: &str) -> Option<&mut [[f64; 4]]> {
         let meta = self.registry.get(signal)?;
-        if meta.value_type != ValueType::Quat {
+        if !meta.value_type.is_quat() {
             return None;
         }
         Some(self.vec4s.signal_slice_mut(meta.buffer_index))
@@ -1058,7 +1138,7 @@ impl MemberSignalBuffer {
     /// enabling batch resolver execution.
     pub fn prev_scalar_slice(&self, signal: &str) -> Option<&[f64]> {
         let meta = self.registry.get(signal)?;
-        if meta.value_type != ValueType::Scalar {
+        if !meta.value_type.is_scalar() {
             return None;
         }
         Some(self.scalars.prev_signal_slice(meta.buffer_index))
@@ -1067,7 +1147,7 @@ impl MemberSignalBuffer {
     /// Get previous tick's Vec3 slice for a signal.
     pub fn prev_vec3_slice(&self, signal: &str) -> Option<&[[f64; 3]]> {
         let meta = self.registry.get(signal)?;
-        if meta.value_type != ValueType::Vec3 {
+        if !meta.value_type.is_vec3() {
             return None;
         }
         Some(self.vec3s.prev_signal_slice(meta.buffer_index))
@@ -1076,7 +1156,7 @@ impl MemberSignalBuffer {
     /// Get previous tick's Vec2 slice for a signal.
     pub fn prev_vec2_slice(&self, signal: &str) -> Option<&[[f64; 2]]> {
         let meta = self.registry.get(signal)?;
-        if meta.value_type != ValueType::Vec2 {
+        if !meta.value_type.is_vec2() {
             return None;
         }
         Some(self.vec2s.prev_signal_slice(meta.buffer_index))
@@ -1085,7 +1165,7 @@ impl MemberSignalBuffer {
     /// Get previous tick's Vec4 slice for a signal.
     pub fn prev_vec4_slice(&self, signal: &str) -> Option<&[[f64; 4]]> {
         let meta = self.registry.get(signal)?;
-        if meta.value_type != ValueType::Vec4 {
+        if !meta.value_type.is_vec4() {
             return None;
         }
         Some(self.vec4s.prev_signal_slice(meta.buffer_index))
@@ -1094,7 +1174,7 @@ impl MemberSignalBuffer {
     /// Get previous tick's Quat slice for a signal.
     pub fn prev_quat_slice(&self, signal: &str) -> Option<&[[f64; 4]]> {
         let meta = self.registry.get(signal)?;
-        if meta.value_type != ValueType::Quat {
+        if !meta.value_type.is_quat() {
             return None;
         }
         Some(self.vec4s.prev_signal_slice(meta.buffer_index))
@@ -1280,28 +1360,28 @@ mod tests {
     fn test_member_signal_registry() {
         let mut registry = MemberSignalRegistry::new();
 
-        let meta1 = registry.register("mass".to_string(), ValueType::Scalar);
-        assert_eq!(meta1.value_type, ValueType::Scalar);
+        let meta1 = registry.register("mass".to_string(), ValueType::scalar());
+        assert_eq!(meta1.value_type, ValueType::scalar());
         assert_eq!(meta1.buffer_index, 0);
 
-        let meta2 = registry.register("position".to_string(), ValueType::Vec3);
-        assert_eq!(meta2.value_type, ValueType::Vec3);
+        let meta2 = registry.register("position".to_string(), ValueType::vec3());
+        assert_eq!(meta2.value_type, ValueType::vec3());
         assert_eq!(meta2.buffer_index, 0); // First Vec3
 
-        let meta3 = registry.register("velocity".to_string(), ValueType::Vec3);
-        assert_eq!(meta3.value_type, ValueType::Vec3);
+        let meta3 = registry.register("velocity".to_string(), ValueType::vec3());
+        assert_eq!(meta3.value_type, ValueType::vec3());
         assert_eq!(meta3.buffer_index, 1); // Second Vec3
 
-        assert_eq!(registry.type_count(ValueType::Scalar), 1);
-        assert_eq!(registry.type_count(ValueType::Vec3), 2);
+        assert_eq!(registry.type_count(ValueType::scalar()), 1);
+        assert_eq!(registry.type_count(ValueType::vec3()), 2);
     }
 
     #[test]
     fn test_member_signal_buffer_basic() {
         let mut buf = MemberSignalBuffer::new();
 
-        buf.register_signal("mass".to_string(), ValueType::Scalar);
-        buf.register_signal("position".to_string(), ValueType::Vec3);
+        buf.register_signal("mass".to_string(), ValueType::scalar());
+        buf.register_signal("position".to_string(), ValueType::vec3());
         buf.init_instances(3);
 
         // Set values
@@ -1328,7 +1408,7 @@ mod tests {
     #[test]
     fn test_member_signal_buffer_slices() {
         let mut buf = MemberSignalBuffer::new();
-        buf.register_signal("mass".to_string(), ValueType::Scalar);
+        buf.register_signal("mass".to_string(), ValueType::scalar());
         buf.init_instances(4);
 
         buf.set_current("mass", 0, Value::Scalar(1.0)).unwrap();
@@ -1343,7 +1423,7 @@ mod tests {
     #[test]
     fn test_member_signal_buffer_tick_advance() {
         let mut buf = MemberSignalBuffer::new();
-        buf.register_signal("mass".to_string(), ValueType::Scalar);
+        buf.register_signal("mass".to_string(), ValueType::scalar());
         buf.init_instances(2);
 
         buf.set_current("mass", 0, Value::Scalar(100.0)).unwrap();
@@ -1366,8 +1446,8 @@ mod tests {
     fn test_population_storage() {
         let mut pop = PopulationStorage::new("stellar.moon".into());
 
-        pop.register_signal("mass".to_string(), ValueType::Scalar);
-        pop.register_signal("position".to_string(), ValueType::Vec3);
+        pop.register_signal("mass".to_string(), ValueType::scalar());
+        pop.register_signal("position".to_string(), ValueType::vec3());
 
         pop.register_instance("moon_1".to_string());
         pop.register_instance("moon_2".to_string());
@@ -1393,7 +1473,7 @@ mod tests {
     #[test]
     fn test_population_storage_tick_advance() {
         let mut pop = PopulationStorage::new("stellar.moon".into());
-        pop.register_signal("mass".to_string(), ValueType::Scalar);
+        pop.register_signal("mass".to_string(), ValueType::scalar());
         pop.register_instance("moon_1".to_string());
         pop.finalize();
 
@@ -1424,7 +1504,7 @@ mod tests {
     fn test_double_buffer_tick_isolation() {
         // Verifies that writes to current buffer don't affect prev buffer
         let mut buf = MemberSignalBuffer::new();
-        buf.register_signal("energy".to_string(), ValueType::Scalar);
+        buf.register_signal("energy".to_string(), ValueType::scalar());
         buf.init_instances(3);
 
         // Write initial values to current tick
@@ -1464,7 +1544,7 @@ mod tests {
         // - Write to current_tick
         // - Verify reads from prev remain stable throughout
         let mut buf = MemberSignalBuffer::new();
-        buf.register_signal("population".to_string(), ValueType::Scalar);
+        buf.register_signal("population".to_string(), ValueType::scalar());
         buf.init_instances(4);
 
         // Set initial population values
@@ -1518,7 +1598,7 @@ mod tests {
     fn test_double_buffer_slice_isolation() {
         // Tests that slice access also maintains tick isolation
         let mut buf = MemberSignalBuffer::new();
-        buf.register_signal("velocity".to_string(), ValueType::Scalar);
+        buf.register_signal("velocity".to_string(), ValueType::scalar());
         buf.init_instances(4);
 
         // Set initial velocities
@@ -1564,7 +1644,7 @@ mod tests {
     fn test_multiple_tick_advances() {
         // Tests that multiple tick advances maintain correct state progression
         let mut buf = MemberSignalBuffer::new();
-        buf.register_signal("counter".to_string(), ValueType::Scalar);
+        buf.register_signal("counter".to_string(), ValueType::scalar());
         buf.init_instances(1);
 
         // Tick 0: counter = 1
@@ -1591,7 +1671,7 @@ mod tests {
     fn test_vec3_double_buffer_isolation() {
         // Tests tick isolation for Vec3 type (not just scalars)
         let mut buf = MemberSignalBuffer::new();
-        buf.register_signal("position".to_string(), ValueType::Vec3);
+        buf.register_signal("position".to_string(), ValueType::vec3());
         buf.init_instances(2);
 
         buf.set_current("position", 0, Value::Vec3([1.0, 2.0, 3.0]))
