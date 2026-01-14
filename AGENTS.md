@@ -65,6 +65,59 @@ These rules must remain true regardless of implementation details.
 - No hidden clamps.
 - No silent correction.
 - Impossible or runaway states are detected via assertions and surfaced as faults.
+Got it. Here’s a **hard-cut, agent-friendly version** — no fluff, no philosophy.
+
+---
+
+## ❌ HARD CODING IS FORBIDDEN
+
+**If behavior is encoded in code shape instead of data or abstraction, reject it.**
+
+### Rules
+
+1. **No large `match` / `if-else`**
+
+   * Especially over enums
+   * If adding a variant requires editing a `match`, it’s wrong
+   * Use traits, tables, or derived order instead
+
+2. **No duplicated structs**
+
+   * If structs differ only by defaults or constants → use one struct + trait/defaults
+
+3. **Enums are not polymorphism**
+
+   * Enums may represent state
+   * Behavior must live behind traits, not `match`
+
+4. **No implicit ordering**
+
+   * Never rely on enum order
+   * Ordering must be explicit (arrays, metadata, config)
+
+5. **No baked-in knowledge**
+
+   * Code must not “know” domain rules
+   * Domain rules must be declared, not hard-coded
+
+6. **If it repeats, generate it**
+
+   * No copy-paste variants
+   * Use generics, traits, or codegen
+
+### Auto-reject if:
+
+* Adding a case touches multiple files
+* Behavior is expressed via `match`
+* Structure encodes policy
+* Ordering is implicit
+
+**One-liner for agents:**
+
+> *If logic lives in syntax instead of data or dispatch, it’s wrong.*
+
+If you want it even shorter (like a single paragraph or lint comments), say so.
+
 
 ---
 
@@ -191,7 +244,7 @@ Kernel phases must never access fields.
 
 ## Kernel Compute
 
-The DSL may call `kernel.*` semantic operations.
+The DSL may call namespaced kernel operations (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`).
 
 - These are engine-provided primitives
 - Implemented via CPU or GPU backends

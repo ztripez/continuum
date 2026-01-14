@@ -3,6 +3,8 @@
 //! Flat, cache-friendly instruction encoding for stack-based execution.
 //! Each instruction operates on an implicit operand stack.
 
+use continuum_kernel_registry::Value;
+
 /// Slot identifier for local variables (let bindings)
 pub type SlotId = u16;
 
@@ -16,8 +18,8 @@ pub type KernelId = u16;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Op {
     // === Literals and loads ===
-    /// Push a literal f64 onto the stack
-    Const(f64),
+    /// Push a literal value onto the stack (index into literals table)
+    Literal(u16),
 
     /// Push the previous value of current signal
     LoadPrev,
@@ -133,6 +135,9 @@ pub struct BytecodeChunk {
     /// Config name table (indices referenced by LoadConfig)
     pub configs: Vec<String>,
 
+    /// Literal value table (indices referenced by Literal)
+    pub literals: Vec<Value>,
+
     /// Kernel function name table (indices referenced by Call)
     pub kernels: Vec<String>,
 
@@ -183,6 +188,16 @@ impl BytecodeChunk {
         }
         let idx = self.configs.len() as u16;
         self.configs.push(name.to_string());
+        idx
+    }
+
+    /// Add a literal value, returning its index
+    pub fn add_literal(&mut self, value: Value) -> u16 {
+        if let Some(idx) = self.literals.iter().position(|v| v == &value) {
+            return idx as u16;
+        }
+        let idx = self.literals.len() as u16;
+        self.literals.push(value);
         idx
     }
 

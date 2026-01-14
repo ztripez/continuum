@@ -46,12 +46,12 @@ use std::sync::Arc;
 
 use indexmap::IndexMap;
 
-use continuum_foundation::{MemberSignalId, SignalId, StratumId};
+use continuum_foundation::{MemberSignalId, PrimitiveStorageClass, SignalId, StratumId};
 use continuum_runtime::types::EntityId;
 
 use crate::ssa::lower_to_ssa;
 use crate::vectorized::ScalarL2Kernel;
-use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, DtRobustOperator, ValueType};
+use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, ValueType};
 
 /// Minimum batch size for SIMD vectorization (matches typical SIMD width).
 ///
@@ -204,6 +204,8 @@ pub enum ValueTypeCategory {
     Vec3,
     /// 4D vector.
     Vec4,
+    /// Quaternion.
+    Quat,
     /// Tensor (matrices).
     Tensor,
     /// Grid (2D array).
@@ -214,14 +216,17 @@ pub enum ValueTypeCategory {
 
 impl From<&ValueType> for ValueTypeCategory {
     fn from(vt: &ValueType) -> Self {
-        match vt {
-            ValueType::Scalar { .. } => ValueTypeCategory::Scalar,
-            ValueType::Vec2 { .. } => ValueTypeCategory::Vec2,
-            ValueType::Vec3 { .. } => ValueTypeCategory::Vec3,
-            ValueType::Vec4 { .. } => ValueTypeCategory::Vec4,
-            ValueType::Tensor { .. } => ValueTypeCategory::Tensor,
-            ValueType::Grid { .. } => ValueTypeCategory::Grid,
-            ValueType::Seq { .. } => ValueTypeCategory::Seq,
+        if vt.primitive_id().name() == "Quat" {
+            return ValueTypeCategory::Quat;
+        }
+        match vt.storage_class() {
+            PrimitiveStorageClass::Scalar => ValueTypeCategory::Scalar,
+            PrimitiveStorageClass::Vec2 => ValueTypeCategory::Vec2,
+            PrimitiveStorageClass::Vec3 => ValueTypeCategory::Vec3,
+            PrimitiveStorageClass::Vec4 => ValueTypeCategory::Vec4,
+            PrimitiveStorageClass::Tensor => ValueTypeCategory::Tensor,
+            PrimitiveStorageClass::Grid => ValueTypeCategory::Grid,
+            PrimitiveStorageClass::Seq => ValueTypeCategory::Seq,
         }
     }
 }
@@ -305,8 +310,11 @@ fn try_match_simple_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern
 /// Try to match `clamp(prev + collected, min, max)` pattern.
 fn try_match_clamped_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::KernelCall { function, args } if function == "clamp" && args.len() == 3 => {
-            // Check if first arg is prev + collected
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } if namespace == "maths" && function == "clamp" && args.len() == 3 => {
             if try_match_simple_accumulator(&args[0]).is_some() {
                 let has_min =
                     !matches!(&args[1], CompiledExpr::Literal(v, _) if *v == f64::NEG_INFINITY);
@@ -340,19 +348,15 @@ fn try_match_decay_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern>
         } => {
             let decay_on_left = matches!(
                 left.as_ref(),
-                CompiledExpr::DtRobustCall {
-                    operator: DtRobustOperator::Decay,
-                    ..
-                }
+                CompiledExpr::KernelCall { namespace, function, .. }
+                    if namespace == "dt" && function == "decay"
             );
             let collected_on_right = matches!(right.as_ref(), CompiledExpr::Collected);
 
             let decay_on_right = matches!(
                 right.as_ref(),
-                CompiledExpr::DtRobustCall {
-                    operator: DtRobustOperator::Decay,
-                    ..
-                }
+                CompiledExpr::KernelCall { namespace, function, .. }
+                    if namespace == "dt" && function == "decay"
             );
             let collected_on_left = matches!(left.as_ref(), CompiledExpr::Collected);
 
@@ -370,11 +374,11 @@ fn try_match_decay_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern>
 /// Try to match `decay(prev, halflife)` pattern (without addition).
 fn try_match_simple_decay(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Decay,
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
             args,
-            ..
-        } if args.len() >= 2 => {
+        } if namespace == "dt" && function == "decay" && args.len() >= 2 => {
             if matches!(args[0], CompiledExpr::Prev) {
                 return Some(ExpressionPattern::SimpleDecay);
             }
@@ -387,11 +391,14 @@ fn try_match_simple_decay(expr: &CompiledExpr) -> Option<ExpressionPattern> {
 /// Try to match `relax(current, target, tau)` pattern.
 fn try_match_relaxation(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Relax | DtRobustOperator::Smooth,
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
             args,
-            ..
-        } if args.len() >= 2 => {
+        } if namespace == "dt"
+            && (function == "relax" || function == "smooth")
+            && args.len() >= 2 =>
+        {
             if matches!(args[0], CompiledExpr::Prev) {
                 return Some(ExpressionPattern::Relaxation);
             }
@@ -404,11 +411,11 @@ fn try_match_relaxation(expr: &CompiledExpr) -> Option<ExpressionPattern> {
 /// Try to match `integrate(prev, rate)` pattern.
 fn try_match_integration(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
-        CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Integrate,
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
             args,
-            ..
-        } if args.len() >= 2 => {
+        } if namespace == "dt" && function == "integrate" && args.len() >= 2 => {
             if matches!(args[0], CompiledExpr::Prev) {
                 return Some(ExpressionPattern::Integration);
             }
@@ -515,7 +522,6 @@ fn expr_uses_prev(expr: &CompiledExpr) -> bool {
         CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
             args.iter().any(expr_uses_prev)
         }
-        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(expr_uses_prev),
         CompiledExpr::FieldAccess { object, .. } => expr_uses_prev(object),
         CompiledExpr::Aggregate { body, .. } => expr_uses_prev(body),
         CompiledExpr::Filter {
@@ -557,7 +563,6 @@ fn expr_uses_collected(expr: &CompiledExpr) -> bool {
         CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
             args.iter().any(expr_uses_collected)
         }
-        CompiledExpr::DtRobustCall { args, .. } => args.iter().any(expr_uses_collected),
         CompiledExpr::FieldAccess { object, .. } => expr_uses_collected(object),
         _ => false,
     }
@@ -619,22 +624,13 @@ fn hash_expr_structure<H: Hasher>(expr: &CompiledExpr, hasher: &mut H) {
                 hash_expr_structure(arg, hasher);
             }
         }
-        CompiledExpr::KernelCall { function, args } => {
-            "kernel".hash(hasher);
-            function.hash(hasher);
-            args.len().hash(hasher);
-            for arg in args {
-                hash_expr_structure(arg, hasher);
-            }
-        }
-        CompiledExpr::DtRobustCall {
-            operator,
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
             args,
-            method,
         } => {
-            "dt_robust".hash(hasher);
-            operator.hash(hasher);
-            method.hash(hasher);
+            namespace.hash(hasher);
+            function.hash(hasher);
             args.len().hash(hasher);
             for arg in args {
                 hash_expr_structure(arg, hasher);
@@ -1439,6 +1435,7 @@ mod tests {
     fn test_extract_clamped_accumulator() {
         // clamp(prev + collected, 0.0, 100.0)
         let expr = CompiledExpr::KernelCall {
+            namespace: "maths".to_string(),
             function: "clamp".to_string(),
             args: vec![
                 CompiledExpr::Binary {
@@ -1465,10 +1462,10 @@ mod tests {
         // decay(prev, 1000.0) + collected
         let expr = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
-            left: Box::new(CompiledExpr::DtRobustCall {
-                operator: DtRobustOperator::Decay,
+            left: Box::new(CompiledExpr::KernelCall {
+                namespace: "dt".to_string(),
+                function: "decay".to_string(),
                 args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
-                method: crate::IntegrationMethod::Euler,
             }),
             right: Box::new(CompiledExpr::Collected),
         };
@@ -1484,10 +1481,10 @@ mod tests {
     #[test]
     fn test_extract_simple_decay() {
         // decay(prev, 1000.0)
-        let expr = CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Decay,
+        let expr = CompiledExpr::KernelCall {
+            namespace: "dt".to_string(),
+            function: "decay".to_string(),
             args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
-            method: crate::IntegrationMethod::Euler,
         };
 
         assert_eq!(extract_pattern(&expr), ExpressionPattern::SimpleDecay);
@@ -1496,13 +1493,13 @@ mod tests {
     #[test]
     fn test_extract_integration() {
         // integrate(prev, rate)
-        let expr = CompiledExpr::DtRobustCall {
-            operator: DtRobustOperator::Integrate,
+        let expr = CompiledExpr::KernelCall {
+            namespace: "dt".to_string(),
+            function: "integrate".to_string(),
             args: vec![
                 CompiledExpr::Prev,
                 CompiledExpr::Signal(SignalId::from("rate")),
             ],
-            method: crate::IntegrationMethod::Euler,
         };
 
         assert_eq!(extract_pattern(&expr), ExpressionPattern::Integration);
@@ -1702,10 +1699,10 @@ mod tests {
         // Decay pattern with collected has Medium benefit (involves transcendentals)
         let expr = CompiledExpr::Binary {
             op: BinaryOpIr::Add,
-            left: Box::new(CompiledExpr::DtRobustCall {
-                operator: DtRobustOperator::Decay,
+            left: Box::new(CompiledExpr::KernelCall {
+                namespace: "dt".to_string(),
+                function: "decay".to_string(),
                 args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1000.0, None)],
-                method: crate::IntegrationMethod::Euler,
             }),
             right: Box::new(CompiledExpr::Collected),
         };

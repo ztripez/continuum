@@ -90,7 +90,7 @@ signal.ecology.npp {
     resolve {
         # Simplified NPP based on temperature
         let temp = signal.surface.temp in
-        let t_factor = clamp((temp - config.ecology.npp.t_min_k) / (config.ecology.npp.t_opt_k - config.ecology.npp.t_min_k), 0.0, 1.0) in
+        let t_factor = maths.clamp((temp - config.ecology.npp.t_min_k) / (config.ecology.npp.t_opt_k - config.ecology.npp.t_min_k), 0.0, 1.0) in
         config.ecology.npp.npp_max * t_factor + collected
     }
 
@@ -134,7 +134,7 @@ signal.ecology.biomass {
         # Biomass relaxes toward NPP-driven equilibrium
         let npp = signal.ecology.npp in
         let equilibrium = npp * config.ecology.biomass.turnover_years in
-        relax_to(prev, equilibrium, config.ecology.biomass.turnover_years * 3.1536e7) + collected
+        dt.relax_to(prev, equilibrium, config.ecology.biomass.turnover_years * 3.1536e7) + collected
     }
 
     assert {
@@ -183,7 +183,7 @@ signal.ecology.respiration_rate {
         # Respiration increases with temperature and biomass
         let temp = signal.surface.temp in
         let biomass = signal.ecology.biomass in
-        let q10_factor = pow(const.ecology.q10_respiration, (temp - const.ecology.t_ref_q10_k) / 10.0) in
+        let q10_factor = maths.pow(const.ecology.q10_respiration, (temp - const.ecology.t_ref_q10_k) / 10.0) in
         config.ecology.respiration_rate.base_rate * biomass * q10_factor + collected
     }
 
@@ -230,7 +230,7 @@ signal.ecology.soil_carbon {
         let temp = signal.surface.temp in
 
         # Temperature factor (Q10 response)
-        let q10_factor = pow(const.ecology.q10_decomp, (temp - const.ecology.t_ref_decomp_k) / 10.0) in
+        let q10_factor = maths.pow(const.ecology.q10_decomp, (temp - const.ecology.t_ref_decomp_k) / 10.0) in
         let k_decomp = const.ecology.k_decomp_base * q10_factor in
 
         # Moisture factor (simplified - assume 70% average)
@@ -246,7 +246,7 @@ signal.ecology.soil_carbon {
 
         # Equilibrium SOC
         let soc_eq = if decomp_rate > 1e-10 {
-            min(litter_input / decomp_rate, const.ecology.soc_max)
+            maths.min(litter_input / decomp_rate, const.ecology.soc_max)
         } else {
             const.ecology.soc_max
         } in
@@ -255,7 +255,7 @@ signal.ecology.soil_carbon {
         let tau_years = if decomp_rate > 1e-10 { 1.0 / decomp_rate } else { 1000.0 } in
         let tau_s = tau_years * 3.1536e7 in
 
-        relax_to(prev, soc_eq, tau_s) + collected
+        dt.relax_to(prev, soc_eq, tau_s) + collected
     }
 
     assert {
@@ -276,7 +276,7 @@ signal.ecology.decomposition_rate {
         let soc = signal.ecology.soil_carbon in
 
         # Q10 response for decomposition
-        let q10_factor = pow(const.ecology.q10_decomp, (temp - const.ecology.t_ref_decomp_k) / 10.0) in
+        let q10_factor = maths.pow(const.ecology.q10_decomp, (temp - const.ecology.t_ref_decomp_k) / 10.0) in
         let k_decomp = const.ecology.k_decomp_base * q10_factor in
 
         # Moisture factor (simplified)
@@ -398,7 +398,7 @@ fracture.ecology.desertification_risk {
         let heat_factor = (temp - 288.0) / 30.0 in  # Normalized heat stress
 
         # Soil carbon loss proportional to risk factors
-        let degradation = config.fracture.ecology.desertification_risk.soil_degradation_rate * (1.0 - veg) * max(heat_factor, 0.0) in
+        let degradation = config.fracture.ecology.desertification_risk.soil_degradation_rate * (1.0 - veg) * maths.max(heat_factor, 0.0) in
         signal.ecology.soil_carbon <- -signal.ecology.soil_carbon * degradation
 
         # Vegetation cover further reduced (positive feedback)

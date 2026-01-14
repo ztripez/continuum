@@ -36,33 +36,23 @@ fn parse_type_expr(source: &str) -> TypeExpr {
     type_expr().parse(input).into_output_errors().0.unwrap()
 }
 
+fn assert_primitive_name(expr: &TypeExpr, expected: &str) {
+    match expr {
+        TypeExpr::Primitive(primitive) => {
+            assert_eq!(primitive.id.name(), expected);
+        }
+        TypeExpr::Named(name) => panic!("Expected primitive type, got named '{name}'"),
+    }
+}
+
 #[test]
 fn parse_core_type_primitives() {
-    assert!(matches!(parse_type_expr("Scalar"), TypeExpr::Scalar { .. }));
-    assert!(matches!(
-        parse_type_expr("Vec3"),
-        TypeExpr::Vector { dim: 3, .. }
-    ));
-    assert!(matches!(
-        parse_type_expr("Tensor<2, 3, kg>"),
-        TypeExpr::Tensor {
-            rows: 2,
-            cols: 3,
-            ..
-        }
-    ));
-    assert!(matches!(
-        parse_type_expr("Grid<4, 4, Scalar>"),
-        TypeExpr::Grid {
-            width: 4,
-            height: 4,
-            ..
-        }
-    ));
-    assert!(matches!(
-        parse_type_expr("Seq<Scalar>"),
-        TypeExpr::Seq { .. }
-    ));
+    assert_primitive_name(&parse_type_expr("Scalar"), "Scalar");
+    assert_primitive_name(&parse_type_expr("Vec3"), "Vec3");
+    assert_primitive_name(&parse_type_expr("Quat"), "Quat");
+    assert_primitive_name(&parse_type_expr("Tensor<2, 3, kg>"), "Tensor");
+    assert_primitive_name(&parse_type_expr("Grid<4, 4, Scalar>"), "Grid");
+    assert_primitive_name(&parse_type_expr("Seq<Scalar>"), "Seq");
 }
 
 #[test]

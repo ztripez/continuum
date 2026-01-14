@@ -955,8 +955,8 @@ mod tests {
 
         // Set up population
         let mut population = PopulationStorage::new("test.entity".into());
-        population.register_signal("a".to_string(), ValueType::Scalar);
-        population.register_signal("b".to_string(), ValueType::Scalar);
+        population.register_signal("a".to_string(), ValueType::scalar());
+        population.register_signal("b".to_string(), ValueType::scalar());
 
         for i in 0..5 {
             population.register_instance(format!("inst_{}", i));
@@ -1026,7 +1026,7 @@ mod tests {
         // Set up population
         let mut population = PopulationStorage::new("test.entity".into());
         for signal in ["a", "b", "c", "d"] {
-            population.register_signal(signal.to_string(), ValueType::Scalar);
+            population.register_signal(signal.to_string(), ValueType::scalar());
         }
         for i in 0..3 {
             population.register_instance(format!("inst_{}", i));
@@ -1109,8 +1109,8 @@ mod tests {
 
         let setup_population = || {
             let mut population = PopulationStorage::new("test.entity".into());
-            population.register_signal("a".to_string(), ValueType::Scalar);
-            population.register_signal("b".to_string(), ValueType::Scalar);
+            population.register_signal("a".to_string(), ValueType::scalar());
+            population.register_signal("b".to_string(), ValueType::scalar());
             for i in 0..10 {
                 population.register_instance(format!("inst_{}", i));
             }

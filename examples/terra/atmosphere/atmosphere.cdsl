@@ -76,15 +76,15 @@ config {
 
 /// Tetens formula for saturation vapor pressure
 fn.atmosphere.saturation_vapor_pressure(temperature_k) {
-    # e_sat(T) = 610.94 * exp((17.625 * T_C) / (T_C + 243.04))
+    # e_sat(T) = 610.94 * maths.exp((17.625 * T_C) / (T_C + 243.04))
     let t_celsius = temperature_k - 273.15 in
-    610.94 * exp((17.625 * t_celsius) / (t_celsius + 243.04))
+    610.94 * maths.exp((17.625 * t_celsius) / (t_celsius + 243.04))
 }
 
 /// Equilibrium water vapor column mass
 fn.atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
     let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k) in
-    let rh = clamp(relative_humidity, 0.0, 1.0) in
+    let rh = maths.clamp(relative_humidity, 0.0, 1.0) in
     (e_sat * rh * scale_height_m) / (461.0 * surface_temp_k)
 }
 
@@ -144,8 +144,8 @@ signal.atmosphere.surface_temp {
         let net_power = signal.atmosphere.external_power - radiative_loss * 1e14 in
         let dt_temp = net_power / config.atmosphere.surface_temp.heat_capacity_j_k in
 
-        vec3(
-            clamp(integrate(t_mean, dt_temp), 50.0, 500.0),
+        vector.vec3(
+            maths.clamp(dt.integrate(t_mean, dt_temp), 50.0, 500.0),
             prev.y + collected,
             prev.z + collected
         )
@@ -180,7 +180,7 @@ signal.atmosphere.water_vapor {
         let t_surf = signal.atmosphere.surface_temp.x in
         let equilibrium = atmosphere.equilibrium_water_vapor(t_surf, config.atmosphere.water_vapor.relative_humidity, config.atmosphere.water_vapor.scale_height_m) in
 
-        relax_to(prev, equilibrium, config.atmosphere.water_vapor.relaxation_time_s)
+        dt.relax_to(prev, equilibrium, config.atmosphere.water_vapor.relaxation_time_s)
     }
 
     assert {
@@ -207,7 +207,7 @@ signal.atmosphere.co2_ppmv {
 
     resolve {
         # CO2 changes through weathering sinks, volcanic sources, biological processes
-        clamp(prev + collected, config.atmosphere.co2_ppmv.min, config.atmosphere.co2_ppmv.max)
+        maths.clamp(prev + collected, config.atmosphere.co2_ppmv.min, config.atmosphere.co2_ppmv.max)
     }
 
     assert {
@@ -232,7 +232,7 @@ signal.atmosphere.ch4_ppmv {
 
     resolve {
         # Methane changes through oxidation decay and biogenic/volcanic sources
-        clamp(prev + collected, config.atmosphere.ch4_ppmv.min, config.atmosphere.ch4_ppmv.max)
+        maths.clamp(prev + collected, config.atmosphere.ch4_ppmv.min, config.atmosphere.ch4_ppmv.max)
     }
 
     assert {
@@ -262,7 +262,7 @@ signal.atmosphere.cloud_cover {
         let water_vapor = signal.atmosphere.water_vapor in
         let cloud_potential = (water_vapor - config.atmosphere.cloud_cover.min_water_vapor) /
                              (config.atmosphere.cloud_cover.saturation_water_vapor - config.atmosphere.cloud_cover.min_water_vapor) in
-        clamp(cloud_potential + collected, 0.0, 1.0)
+        maths.clamp(cloud_potential + collected, 0.0, 1.0)
     }
 
     assert {
@@ -368,9 +368,9 @@ signal.atmosphere.ice_fraction {
             # Partial ice: linear interpolation
             # Ice edge at latitude where T = t_freeze
             # Approximate: ice_fraction ≈ (t_freeze - t_pole) / (t_equator - t_pole)
-            let temp_range = max(t_equator - t_pole, 1.0) in
+            let temp_range = maths.max(t_equator - t_pole, 1.0) in
             let ice_extent = (t_freeze - t_pole) / temp_range in
-            clamp(ice_extent, 0.0, 1.0)
+            maths.clamp(ice_extent, 0.0, 1.0)
         }
     }
 
@@ -409,7 +409,7 @@ signal.atmosphere.albedo {
         let planetary_albedo = cloud_frac * config.atmosphere.albedo.cloud_albedo
                              + clear_frac * surface_albedo in
 
-        clamp(planetary_albedo + collected, 0.0, 1.0)
+        maths.clamp(planetary_albedo + collected, 0.0, 1.0)
     }
 
     assert {
@@ -518,9 +518,9 @@ fracture.atmosphere.volcanic_co2_coupling {
 
     emit {
         # CO2 emission rate = base * activity^exponent
-        let activity = max(signal.tectonics.activity, 0.1) in
-        let emission_factor = pow(activity, config.fracture.atmosphere.volcanic_co2_coupling.activity_exponent) in
-        let emission_rate = max(
+        let activity = maths.max(signal.tectonics.activity, 0.1) in
+        let emission_factor = maths.pow(activity, config.fracture.atmosphere.volcanic_co2_coupling.activity_exponent) in
+        let emission_rate = maths.max(
             config.fracture.atmosphere.volcanic_co2_coupling.base_emission_kg_per_s * emission_factor,
             config.fracture.atmosphere.volcanic_co2_coupling.min_emission_kg_per_s
         ) in
@@ -563,17 +563,17 @@ fracture.atmosphere.silicate_weathering {
         let co2 = signal.atmosphere.co2_ppmv in
 
         # Temperature factor: Arrhenius-like exponential
-        let temp_factor = exp(config.fracture.atmosphere.silicate_weathering.temperature_sensitivity * (temp - config.fracture.atmosphere.silicate_weathering.reference_temp_k)) in
+        let temp_factor = maths.exp(config.fracture.atmosphere.silicate_weathering.temperature_sensitivity * (temp - config.fracture.atmosphere.silicate_weathering.reference_temp_k)) in
 
         # CO2 factor: power law (more CO2 = more carbonic acid = more weathering)
-        let co2_factor = pow(co2 / config.fracture.atmosphere.silicate_weathering.reference_co2_ppmv, config.fracture.atmosphere.silicate_weathering.co2_exponent) in
+        let co2_factor = maths.pow(co2 / config.fracture.atmosphere.silicate_weathering.reference_co2_ppmv, config.fracture.atmosphere.silicate_weathering.co2_exponent) in
 
         # Combined weathering rate
         let weathering_rate = config.fracture.atmosphere.silicate_weathering.base_weathering_kg_per_s * temp_factor * co2_factor in
 
         # Limit removal to prevent oscillations
         let max_removal_ppmv = co2 * config.fracture.atmosphere.silicate_weathering.max_removal_fraction in
-        let removal_ppmv = min(weathering_rate * 1e-15, max_removal_ppmv) in
+        let removal_ppmv = maths.min(weathering_rate * 1e-15, max_removal_ppmv) in
 
         # Weathering removes CO2 (negative delta)
         signal.atmosphere.co2_ppmv <- -removal_ppmv

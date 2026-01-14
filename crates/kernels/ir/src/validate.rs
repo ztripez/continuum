@@ -44,8 +44,10 @@ use tracing::warn;
 
 // Import functions crate to ensure kernels are registered
 use continuum_functions as _;
+use continuum_kernel_registry::{get_in_namespace, namespace_exists};
 
-use crate::{CompiledExpr, CompiledWorld, ValueType};
+use crate::{CompiledExpr, CompiledWorld};
+use continuum_foundation::PrimitiveParamKind;
 
 /// A compilation warning indicating a potential issue in the IR.
 ///
@@ -149,7 +151,10 @@ fn check_range_assertions(world: &CompiledWorld, warnings: &mut Vec<CompileWarni
     let signals = world.signals();
     for (signal_id, signal) in &signals {
         // Check if the signal has a range constraint
-        let has_range = matches!(&signal.value_type, ValueType::Scalar { range: Some(_), .. });
+        let has_range = signal
+            .value_type
+            .param_value(PrimitiveParamKind::Range)
+            .is_some();
 
         if has_range && signal.assertions.is_empty() {
             warnings.push(CompileWarning {
@@ -208,12 +213,13 @@ fn is_prev_only_resolver(expr: &CompiledExpr) -> bool {
     matches!(expr, CompiledExpr::Prev)
 }
 
-/// Checks if a function name is registered in the kernel registry.
-///
-/// This delegates to `continuum_kernel_registry::is_known()` which tracks
-/// all registered kernel functions.
+/// Checks if a namespaced function name is registered in the kernel registry.
 fn is_known_function(name: &str) -> bool {
-    continuum_kernel_registry::is_known(name)
+    if let Some((namespace, function)) = name.split_once('.') {
+        continuum_kernel_registry::is_known_in(namespace, function)
+    } else {
+        false
+    }
 }
 
 /// Checks for undefined symbols in all expressions.
@@ -391,22 +397,34 @@ fn check_expr_symbols(
                 );
             }
         }
-        CompiledExpr::DtRobustCall { args, .. } => {
-            // dt-robust operators are known by definition, just check args
-            for arg in args {
-                check_expr_symbols(
-                    arg,
-                    context,
-                    defined_signals,
-                    defined_constants,
-                    defined_config,
-                    warnings,
-                );
+
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } => {
+            if namespace_exists(namespace) {
+                if get_in_namespace(namespace, function).is_none() {
+                    warnings.push(CompileWarning {
+                        code: WarningCode::UnknownFunction,
+                        message: format!(
+                            "unknown function '{}.{}' in {} (possible typo?)",
+                            namespace, function, context
+                        ),
+                        entity: context.to_string(),
+                    });
+                }
+            } else {
+                warnings.push(CompileWarning {
+                    code: WarningCode::UnknownFunction,
+                    message: format!(
+                        "unknown namespace '{}' in {} (possible typo?)",
+                        namespace, context
+                    ),
+                    entity: context.to_string(),
+                });
             }
-        }
-        CompiledExpr::KernelCall { args, .. } => {
-            // Kernel functions are engine-provided, just check args
-            // TODO: Could validate that specific kernel function names are known
+
             for arg in args {
                 check_expr_symbols(
                     arg,

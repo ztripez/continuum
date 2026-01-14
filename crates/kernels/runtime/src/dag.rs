@@ -129,11 +129,11 @@ pub enum NodeKind {
     ///
     /// # Available Operations
     ///
-    /// - `sum(entity, field)` - Sum all values
-    /// - `mean(entity, field)` - Average of all values
-    /// - `min(entity, field)` - Minimum value (lowest index wins ties)
-    /// - `max(entity, field)` - Maximum value (lowest index wins ties)
-    /// - `count(entity, predicate)` - Count matching instances
+    /// - `agg.sum(entity, field)` - Sum all values
+    /// - `agg.mean(entity, field)` - Average of all values
+    /// - `agg.min(entity, field)` - Minimum value (lowest index wins ties)
+    /// - `agg.max(entity, field)` - Maximum value (lowest index wins ties)
+    /// - `agg.count(entity, predicate)` - Count matching instances
     PopulationAggregate {
         /// The entity type being aggregated over.
         entity_id: EntityId,

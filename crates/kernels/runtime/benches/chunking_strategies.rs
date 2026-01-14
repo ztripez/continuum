@@ -26,7 +26,7 @@ fn create_test_members(count: usize) -> MemberSignalBuffer {
     let mut buffer = MemberSignalBuffer::new();
     buffer.register_signal(
         "value".to_string(),
-        continuum_runtime::soa_storage::ValueType::Scalar,
+        continuum_runtime::soa_storage::ValueType::scalar(),
     );
     buffer.init_instances(count);
     buffer

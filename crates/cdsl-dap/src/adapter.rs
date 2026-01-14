@@ -1,11 +1,6 @@
-use continuum_compiler::ir::{
-    CompiledWorld, build_assertion, build_era_configs, build_field_measure, build_fracture,
-    build_signal_resolver, build_warmup_fn, compile, convert_assertion_severity,
-    get_initial_signal_value,
-};
+use continuum_compiler::ir::{CompiledWorld, RuntimeBuildOptions, build_runtime, compile};
 use continuum_runtime::EraId;
 use continuum_runtime::Runtime;
-use continuum_runtime::types::WarmupConfig;
 use dap::events::{Event, StoppedEventBody};
 use dap::prelude::*;
 use dap::types::{Capabilities, Message, Scope, StackFrame, StoppedEventReason, Thread, Variable};
@@ -138,66 +133,16 @@ impl ContinuumDebugAdapter {
                     }
                 };
 
-                let initial_era = world
-                    .eras()
-                    .iter()
-                    .find(|(_, era)| era.is_initial)
-                    .map(|(id, _)| id.clone())
-                    .unwrap_or_else(|| {
-                        world
-                            .eras()
-                            .keys()
-                            .next()
-                            .cloned()
-                            .unwrap_or_else(|| EraId::from("default"))
-                    });
-
-                let era_configs = build_era_configs(&world);
-                let mut runtime = Runtime::new(initial_era, era_configs, compilation.dags);
-
-                for (id, signal) in &world.signals() {
-                    if let Some(resolver) = build_signal_resolver(signal, &world) {
-                        runtime.register_resolver(resolver);
-                    }
-
-                    // Register warmup if present
-                    if let Some(ref warmup) = signal.warmup {
-                        let warmup_fn =
-                            build_warmup_fn(&warmup.iterate, &world.constants, &world.config);
-                        let config = WarmupConfig {
-                            max_iterations: warmup.iterations,
-                            convergence_epsilon: warmup.convergence,
-                        };
-                        runtime.register_warmup(id.clone(), warmup_fn, config);
-                    }
-                }
-
-                for (id, signal) in &world.signals() {
-                    for assertion in &signal.assertions {
-                        runtime.register_assertion(
-                            id.clone(),
-                            build_assertion(&assertion.condition, &world),
-                            convert_assertion_severity(assertion.severity),
-                            assertion.message.clone(),
-                        );
-                    }
-                }
-
-                for (id, field) in &world.fields() {
-                    if let Some(ref expr) = field.measure {
-                        if let Some(measure_fn) = build_field_measure(id, expr, &world) {
-                            runtime.register_measure_op(measure_fn);
+                let (runtime, _report) =
+                    match build_runtime(&world, compilation, RuntimeBuildOptions::default()) {
+                        Ok(result) => result,
+                        Err(error) => {
+                            return self.make_error_response(
+                                &request,
+                                format!("Runtime build failed: {}", error),
+                            );
                         }
-                    }
-                }
-
-                for (_id, fracture) in &world.fractures() {
-                    runtime.register_fracture(build_fracture(fracture, &world));
-                }
-
-                for (id, _signal) in &world.signals() {
-                    runtime.init_signal(id.clone(), get_initial_signal_value(&world, id));
-                }
+                    };
 
                 let mut session = self.session.lock().await;
                 *session = Some(DebugSession {
@@ -390,7 +335,7 @@ impl ContinuumDebugAdapter {
                             if let Some(val) = session.runtime.get_signal(id) {
                                 variables.push(Variable {
                                     name: id.to_string(),
-                                    value: format!("{:?}", val),
+                                    value: format!("{}", val),
                                     variables_reference: 0,
                                     ..Default::default()
                                 });
@@ -455,7 +400,7 @@ impl ContinuumDebugAdapter {
                                 for (field_name, val) in &data.fields {
                                     variables.push(Variable {
                                         name: field_name.clone(),
-                                        value: format!("{:?}", val),
+                                        value: format!("{}", val),
                                         variables_reference: 0,
                                         ..Default::default()
                                     });

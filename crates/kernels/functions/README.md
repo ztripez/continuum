@@ -2,7 +2,7 @@
 
 Standard library of kernel functions.
 
-This crate implements the built-in mathematical and physical primitives available to the DSL via the `kernel.*` namespace.
+This crate implements built-in primitives under namespaces like `maths.*`, `vector.*`, and `dt.*`.
 
 ## Categories
 

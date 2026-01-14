@@ -15,21 +15,47 @@ use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
 use indexmap::IndexMap;
 
-use crate::{CompiledExpr, DtRobustOperator};
+use crate::CompiledExpr;
 
 /// Intermediate value during interpretation.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InterpValue {
     Scalar(f64),
     Vec3([f64; 3]),
+    Vec4([f64; 4]),
+    Quat([f64; 4]),
     Bool(bool),
 }
 
 impl InterpValue {
+    pub fn into_value(self) -> Value {
+        match self {
+            InterpValue::Scalar(v) => Value::Scalar(v),
+            InterpValue::Vec3(v) => Value::Vec3(v),
+            InterpValue::Vec4(v) => Value::Vec4(v),
+            InterpValue::Quat(v) => Value::Quat(v),
+            InterpValue::Bool(b) => Value::Boolean(b),
+        }
+    }
+
+    pub fn from_value(v: &Value) -> Self {
+        match v {
+            Value::Scalar(s) => InterpValue::Scalar(*s),
+            Value::Vec3(v) => InterpValue::Vec3(*v),
+            Value::Vec4(v) => InterpValue::Vec4(*v),
+            Value::Quat(v) => InterpValue::Quat(*v),
+            Value::Boolean(b) => InterpValue::Bool(*b),
+            Value::Integer(i) => InterpValue::Scalar(*i as f64),
+            _ => InterpValue::Scalar(0.0),
+        }
+    }
+
     pub fn as_f64(&self) -> f64 {
         match self {
             InterpValue::Scalar(v) => *v,
             InterpValue::Vec3(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt(),
+            InterpValue::Vec4(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt(),
+            InterpValue::Quat(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt(),
             InterpValue::Bool(b) => {
                 if *b {
                     1.0
@@ -44,6 +70,8 @@ impl InterpValue {
         match self {
             InterpValue::Scalar(v) => [*v, 0.0, 0.0],
             InterpValue::Vec3(v) => *v,
+            InterpValue::Vec4(v) => [v[0], v[1], v[2]],
+            InterpValue::Quat(v) => [v[1], v[2], v[3]],
             InterpValue::Bool(b) => [if *b { 1.0 } else { 0.0 }, 0.0, 0.0],
         }
     }
@@ -56,12 +84,24 @@ impl InterpValue {
                 (InterpValue::Vec3(a), InterpValue::Vec3(b)) => {
                     InterpValue::Vec3([a[0] + b[0], a[1] + b[1], a[2] + b[2]])
                 }
+                (InterpValue::Vec4(a), InterpValue::Vec4(b)) => {
+                    InterpValue::Vec4([a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]])
+                }
+                (InterpValue::Quat(a), InterpValue::Quat(b)) => {
+                    InterpValue::Quat([a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]])
+                }
                 _ => InterpValue::Scalar(self.as_f64() + other.as_f64()),
             },
             Sub => match (self, other) {
                 (InterpValue::Scalar(a), InterpValue::Scalar(b)) => InterpValue::Scalar(a - b),
                 (InterpValue::Vec3(a), InterpValue::Vec3(b)) => {
                     InterpValue::Vec3([a[0] - b[0], a[1] - b[1], a[2] - b[2]])
+                }
+                (InterpValue::Vec4(a), InterpValue::Vec4(b)) => {
+                    InterpValue::Vec4([a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]])
+                }
+                (InterpValue::Quat(a), InterpValue::Quat(b)) => {
+                    InterpValue::Quat([a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]])
                 }
                 _ => InterpValue::Scalar(self.as_f64() - other.as_f64()),
             },
@@ -73,12 +113,30 @@ impl InterpValue {
                 (InterpValue::Vec3(v), InterpValue::Scalar(s)) => {
                     InterpValue::Vec3([v[0] * s, v[1] * s, v[2] * s])
                 }
+                (InterpValue::Scalar(s), InterpValue::Vec4(v)) => {
+                    InterpValue::Vec4([v[0] * s, v[1] * s, v[2] * s, v[3] * s])
+                }
+                (InterpValue::Vec4(v), InterpValue::Scalar(s)) => {
+                    InterpValue::Vec4([v[0] * s, v[1] * s, v[2] * s, v[3] * s])
+                }
+                (InterpValue::Scalar(s), InterpValue::Quat(v)) => {
+                    InterpValue::Quat([v[0] * s, v[1] * s, v[2] * s, v[3] * s])
+                }
+                (InterpValue::Quat(v), InterpValue::Scalar(s)) => {
+                    InterpValue::Quat([v[0] * s, v[1] * s, v[2] * s, v[3] * s])
+                }
                 _ => InterpValue::Scalar(self.as_f64() * other.as_f64()),
             },
             Div => match (self, other) {
                 (InterpValue::Scalar(a), InterpValue::Scalar(b)) => InterpValue::Scalar(a / b),
                 (InterpValue::Vec3(v), InterpValue::Scalar(s)) => {
                     InterpValue::Vec3([v[0] / s, v[1] / s, v[2] / s])
+                }
+                (InterpValue::Vec4(v), InterpValue::Scalar(s)) => {
+                    InterpValue::Vec4([v[0] / s, v[1] / s, v[2] / s, v[3] / s])
+                }
+                (InterpValue::Quat(v), InterpValue::Scalar(s)) => {
+                    InterpValue::Quat([v[0] / s, v[1] / s, v[2] / s, v[3] / s])
                 }
                 _ => InterpValue::Scalar(self.as_f64() / other.as_f64()),
             },
@@ -100,6 +158,8 @@ impl InterpValue {
             Neg => match self {
                 InterpValue::Scalar(v) => InterpValue::Scalar(-v),
                 InterpValue::Vec3(v) => InterpValue::Vec3([-v[0], -v[1], -v[2]]),
+                InterpValue::Vec4(v) => InterpValue::Vec4([-v[0], -v[1], -v[2], -v[3]]),
+                InterpValue::Quat(v) => InterpValue::Quat([-v[0], -v[1], -v[2], -v[3]]),
                 InterpValue::Bool(b) => InterpValue::Scalar(if *b { -1.0 } else { 0.0 }),
             },
             Not => InterpValue::Bool(self.as_f64() == 0.0),
@@ -134,11 +194,20 @@ impl MemberInterpContext<'_> {
         match self.signals.get(&id) {
             Some(Value::Scalar(v)) => InterpValue::Scalar(*v),
             Some(Value::Vec3(v)) => InterpValue::Vec3(*v),
+            Some(Value::Vec4(v)) => InterpValue::Vec4(*v),
+            Some(Value::Quat(v)) => InterpValue::Quat(*v),
             _ => InterpValue::Scalar(0.0),
         }
     }
-    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or(0.0)
+    fn call_kernel(&self, namespace: &str, name: &str, args: &[Value]) -> Value {
+        continuum_kernel_registry::eval_in_namespace(namespace, name, args, self.dt).unwrap_or_else(
+            || {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, name
+                )
+            },
+        )
     }
 }
 
@@ -165,26 +234,16 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
             let arg_vals: Vec<_> = args.iter().map(|a| interpret_expr(a, ctx)).collect();
             eval_function(function, &arg_vals, ctx)
         }
-        CompiledExpr::KernelCall { function, args } => {
-            let arg_vals: Vec<f64> = args
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } => {
+            let arg_vals: Vec<Value> = args
                 .iter()
-                .map(|a| interpret_expr(a, ctx).as_f64())
+                .map(|a| interpret_expr(a, ctx).into_value())
                 .collect();
-            let name = format!("kernel.{}", function);
-            InterpValue::Scalar(ctx.call_kernel(&name, &arg_vals))
-        }
-        CompiledExpr::DtRobustCall { operator, args, .. } => {
-            let arg_vals: Vec<f64> = args
-                .iter()
-                .map(|a| interpret_expr(a, ctx).as_f64())
-                .collect();
-            let name = match operator {
-                DtRobustOperator::Integrate => "integrate",
-                DtRobustOperator::Decay => "decay",
-                DtRobustOperator::Relax => "relax",
-                _ => "unknown",
-            };
-            InterpValue::Scalar(ctx.call_kernel(name, &arg_vals))
+            InterpValue::from_value(&ctx.call_kernel(namespace, function, &arg_vals))
         }
         CompiledExpr::If {
             condition,

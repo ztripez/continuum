@@ -8,7 +8,10 @@ use continuum_compiler::dsl::ast::{
     CompilationUnit, ConfigBlock, ConstBlock, Expr, Item, Literal, OperatorBody, Path, Spanned,
     SpannedExprVisitor,
 };
-use continuum_compiler::ir::{CompiledNode, CompiledWorld, NodeKind, ValueType};
+use continuum_compiler::ir::{
+    CompiledNode, CompiledWorld, NodeKind, PrimitiveParamKind, PrimitiveParamSpec, ValueType,
+    ValueTypeParamValue,
+};
 use continuum_kernel_registry as kernel_registry;
 
 /// Information about a symbol for hover display.
@@ -568,73 +571,76 @@ fn format_literal(lit: &Literal) -> String {
 }
 
 fn format_value_type(ty: &ValueType) -> String {
-    match ty {
-        ValueType::Scalar { unit, range, .. } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
-            if let Some(r) = range {
-                format!("Scalar<{}, {}..{}>", unit_str, r.min, r.max)
-            } else {
-                format!("Scalar<{}>", unit_str)
+    let def = ty.primitive_def();
+    let mut positional: Vec<_> = def.params.iter().filter(|p| p.position.is_some()).collect();
+    positional.sort_by_key(|spec| spec.position);
+
+    let mut parts = Vec::new();
+    for spec in positional {
+        if let Some(value) = format_param_value(ty, spec) {
+            parts.push(value);
+        }
+    }
+
+    for spec in def.params.iter().filter(|p| p.position.is_none()) {
+        if let Some(value) = format_param_value(ty, spec) {
+            parts.push(format!("{}: {}", spec.name, value));
+        }
+    }
+
+    let mut name = def.name.to_string();
+    if !parts.is_empty() {
+        name.push('<');
+        name.push_str(&parts.join(", "));
+        name.push('>');
+    }
+
+    if def.name == "Seq" {
+        name.push_str(&format!(" ({} constraints)", ty.seq_constraints.len()));
+    }
+
+    name
+}
+
+fn format_param_value(ty: &ValueType, spec: &PrimitiveParamSpec) -> Option<String> {
+    match spec.kind {
+        PrimitiveParamKind::Unit => match ty.param_value(PrimitiveParamKind::Unit) {
+            Some(ValueTypeParamValue::Unit(unit)) => Some(unit.to_string()),
+            _ if spec.optional => Some("1".to_string()),
+            _ => None,
+        },
+        PrimitiveParamKind::Range => match ty.param_value(PrimitiveParamKind::Range) {
+            Some(ValueTypeParamValue::Range(range)) => {
+                Some(format!("{}..{}", range.min, range.max))
             }
-        }
-        ValueType::Vec2 {
-            unit, magnitude, ..
-        } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
-            if let Some(m) = magnitude {
-                format!("Vec2<{}, magnitude: {}..{}>", unit_str, m.min, m.max)
-            } else {
-                format!("Vec2<{}>", unit_str)
+            _ => None,
+        },
+        PrimitiveParamKind::Magnitude => match ty.param_value(PrimitiveParamKind::Magnitude) {
+            Some(ValueTypeParamValue::Magnitude(range)) => {
+                Some(format!("{}..{}", range.min, range.max))
             }
-        }
-        ValueType::Vec3 {
-            unit, magnitude, ..
-        } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
-            if let Some(m) = magnitude {
-                format!("Vec3<{}, magnitude: {}..{}>", unit_str, m.min, m.max)
-            } else {
-                format!("Vec3<{}>", unit_str)
-            }
-        }
-        ValueType::Vec4 {
-            unit, magnitude, ..
-        } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
-            if let Some(m) = magnitude {
-                format!("Vec4<{}, magnitude: {}..{}>", unit_str, m.min, m.max)
-            } else {
-                format!("Vec4<{}>", unit_str)
-            }
-        }
-        ValueType::Tensor {
-            rows, cols, unit, ..
-        } => {
-            let unit_str = unit.as_deref().unwrap_or("1");
-            format!("Tensor<{}, {}, {}>", rows, cols, unit_str)
-        }
-        ValueType::Grid {
-            width,
-            height,
-            element_type,
-        } => {
-            format!(
-                "Grid<{}, {}, {}>",
-                width,
-                height,
-                format_value_type(element_type)
-            )
-        }
-        ValueType::Seq {
-            element_type,
-            constraints,
-        } => {
-            format!(
-                "Seq<{}> ({} constraints)",
-                format_value_type(element_type),
-                constraints.len()
-            )
-        }
+            _ => None,
+        },
+        PrimitiveParamKind::Rows => match ty.param_value(PrimitiveParamKind::Rows) {
+            Some(ValueTypeParamValue::Rows(value)) => Some(value.to_string()),
+            _ => None,
+        },
+        PrimitiveParamKind::Cols => match ty.param_value(PrimitiveParamKind::Cols) {
+            Some(ValueTypeParamValue::Cols(value)) => Some(value.to_string()),
+            _ => None,
+        },
+        PrimitiveParamKind::Width => match ty.param_value(PrimitiveParamKind::Width) {
+            Some(ValueTypeParamValue::Width(value)) => Some(value.to_string()),
+            _ => None,
+        },
+        PrimitiveParamKind::Height => match ty.param_value(PrimitiveParamKind::Height) {
+            Some(ValueTypeParamValue::Height(value)) => Some(value.to_string()),
+            _ => None,
+        },
+        PrimitiveParamKind::ElementType => match ty.param_value(PrimitiveParamKind::ElementType) {
+            Some(ValueTypeParamValue::ElementType(element)) => Some(format_value_type(element)),
+            _ => None,
+        },
     }
 }
 
@@ -733,10 +739,11 @@ pub fn format_hover_markdown(info: &SymbolInfo) -> String {
 }
 
 pub fn get_builtin_hover(name: &str) -> Option<String> {
-    kernel_registry::get(name).map(|k| {
+    let (namespace, function) = name.split_once('.')?;
+    kernel_registry::get_in_namespace(namespace, function).map(|k| {
         format!(
-            "**{}** (built-in)\n\n`{}`\n\n---\n\n{}",
-            k.name, k.signature, k.doc
+            "**{}.{}** (built-in)\n\n`{}`\n\n---\n\n{}",
+            k.namespace, k.name, k.signature, k.doc
         )
     })
 }

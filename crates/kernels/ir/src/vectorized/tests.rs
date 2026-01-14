@@ -110,6 +110,7 @@ fn test_l2_unary_neg() {
 #[test]
 fn test_l2_kernel_sqrt() {
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "sqrt".to_string(),
         args: vec![CompiledExpr::Prev],
     };
@@ -122,6 +123,7 @@ fn test_l2_kernel_sqrt() {
 #[test]
 fn test_l2_kernel_sin() {
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "sin".to_string(),
         args: vec![CompiledExpr::Literal(0.0, None)],
     };
@@ -136,6 +138,7 @@ fn test_l2_kernel_sin() {
 #[test]
 fn test_l2_kernel_clamp() {
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "clamp".to_string(),
         args: vec![
             CompiledExpr::Prev,
@@ -152,6 +155,7 @@ fn test_l2_kernel_clamp() {
 #[test]
 fn test_l2_kernel_lerp() {
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "lerp".to_string(),
         args: vec![
             CompiledExpr::Literal(0.0, None),
@@ -171,10 +175,10 @@ fn test_l2_kernel_lerp() {
 #[test]
 fn test_l2_integrate_euler() {
     // prev + rate * dt where rate = 1.0
-    let expr = CompiledExpr::DtRobustCall {
-        operator: DtRobustOperator::Integrate,
+    let expr = CompiledExpr::KernelCall {
+        namespace: "dt".to_string(),
+        function: "integrate".to_string(),
         args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1.0, None)],
-        method: IntegrationMethod::Euler,
     };
     let prev = vec![0.0, 10.0, 20.0, 30.0];
     let dt = 0.1;
@@ -299,13 +303,13 @@ fn test_l2_kernel_struct_properties() {
 #[test]
 fn test_l2_decay_operator() {
     // decay(prev, half_life=1.0)
-    let expr = CompiledExpr::DtRobustCall {
-        operator: DtRobustOperator::Decay,
+    let expr = CompiledExpr::KernelCall {
+        namespace: "dt".to_string(),
+        function: "decay".to_string(),
         args: vec![
             CompiledExpr::Prev,
             CompiledExpr::Literal(1.0, None), // half_life
         ],
-        method: IntegrationMethod::Euler, // method not used for decay
     };
 
     let prev = vec![100.0, 100.0, 100.0, 100.0];
@@ -322,14 +326,14 @@ fn test_l2_decay_operator() {
 #[test]
 fn test_l2_smooth_operator() {
     // smooth(prev, target=100.0, tau=1.0)
-    let expr = CompiledExpr::DtRobustCall {
-        operator: DtRobustOperator::Smooth,
+    let expr = CompiledExpr::KernelCall {
+        namespace: "dt".to_string(),
+        function: "smooth".to_string(),
         args: vec![
             CompiledExpr::Prev,
             CompiledExpr::Literal(100.0, None), // target
             CompiledExpr::Literal(1.0, None),   // tau
         ],
-        method: IntegrationMethod::Euler,
     };
 
     let prev = vec![0.0, 50.0, 90.0, 100.0];
@@ -359,7 +363,7 @@ fn test_l2_self_field_snapshot_semantics() {
 
     // Create a member signal buffer with velocity values
     let mut member_buf = MemberSignalBuffer::new();
-    member_buf.register_signal("velocity".to_string(), ValueType::Scalar);
+    member_buf.register_signal("velocity".to_string(), ValueType::scalar());
     member_buf.init_instances(4);
 
     // Set previous tick values (the snapshot)
@@ -422,7 +426,7 @@ fn test_l2_self_field_missing_field() {
 
     // Create member buffer without the requested field
     let mut member_buf = MemberSignalBuffer::new();
-    member_buf.register_signal("velocity".to_string(), ValueType::Scalar);
+    member_buf.register_signal("velocity".to_string(), ValueType::scalar());
     member_buf.init_instances(4);
 
     let signals = SignalStorage::default();
@@ -454,7 +458,7 @@ fn test_l2_self_field_expression_with_snapshot() {
 
     // Create member buffer with velocity snapshot values
     let mut member_buf = MemberSignalBuffer::new();
-    member_buf.register_signal("velocity".to_string(), ValueType::Scalar);
+    member_buf.register_signal("velocity".to_string(), ValueType::scalar());
     member_buf.init_instances(4);
 
     {

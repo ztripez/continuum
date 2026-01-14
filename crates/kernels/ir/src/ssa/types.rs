@@ -6,7 +6,7 @@ use std::fmt;
 
 use continuum_foundation::SignalId;
 
-use crate::{AggregateOpIr, BinaryOpIr, DtRobustOperator, IntegrationMethod, UnaryOpIr};
+use crate::{AggregateOpIr, BinaryOpIr, UnaryOpIr};
 
 /// Virtual register identifier.
 ///
@@ -201,16 +201,9 @@ pub enum SsaInstruction {
     /// Kernel function call (engine-provided).
     KernelCall {
         dst: VReg,
+        namespace: String,
         function: String,
         args: Vec<VReg>,
-    },
-
-    /// dt-robust operator call.
-    DtRobustCall {
-        dst: VReg,
-        operator: DtRobustOperator,
-        args: Vec<VReg>,
-        method: IntegrationMethod,
     },
 
     /// Field access on a value.
@@ -262,7 +255,6 @@ impl SsaInstruction {
             | SsaInstruction::UnaryOp { dst, .. }
             | SsaInstruction::Call { dst, .. }
             | SsaInstruction::KernelCall { dst, .. }
-            | SsaInstruction::DtRobustCall { dst, .. }
             | SsaInstruction::FieldAccess { dst, .. }
             | SsaInstruction::Phi { dst, .. }
             | SsaInstruction::SelfField { dst, .. }
@@ -289,9 +281,9 @@ impl SsaInstruction {
 
             SsaInstruction::UnaryOp { operand, .. } => vec![*operand],
 
-            SsaInstruction::Call { args, .. }
-            | SsaInstruction::KernelCall { args, .. }
-            | SsaInstruction::DtRobustCall { args, .. } => args.clone(),
+            SsaInstruction::Call { args, .. } | SsaInstruction::KernelCall { args, .. } => {
+                args.clone()
+            }
 
             SsaInstruction::FieldAccess { object, .. } => vec![*object],
 
@@ -335,32 +327,20 @@ impl SsaInstruction {
             }
             SsaInstruction::KernelCall {
                 dst,
+                namespace,
                 function,
                 args,
             } => {
                 let args_str: Vec<_> = args.iter().map(|a| a.to_string()).collect();
                 format!(
-                    "{} = KernelCall({}, [{}])",
+                    "{} = KernelCall({}.{}, [{}])",
                     dst,
+                    namespace,
                     function,
                     args_str.join(", ")
                 )
             }
-            SsaInstruction::DtRobustCall {
-                dst,
-                operator,
-                args,
-                method,
-            } => {
-                let args_str: Vec<_> = args.iter().map(|a| a.to_string()).collect();
-                format!(
-                    "{} = DtRobust({:?}, [{}], {:?})",
-                    dst,
-                    operator,
-                    args_str.join(", "),
-                    method
-                )
-            }
+
             SsaInstruction::FieldAccess { dst, object, field } => {
                 format!("{} = FieldAccess({}, {})", dst, object, field)
             }

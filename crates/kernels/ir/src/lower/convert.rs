@@ -4,9 +4,11 @@
 //! including operators, type expressions, and literal values.
 
 use continuum_dsl::ast::{
-    self, AggregateOp, AssertBlock, AssertSeverity, BinaryOp, Expr, Literal, OperatorPhase, Span,
-    Topology, TypeExpr, UnaryOp,
+    self, AggregateOp, AssertBlock, AssertSeverity, BinaryOp, Expr, Literal, OperatorPhase,
+    PrimitiveParamValue, PrimitiveTypeExpr, Span, Topology, TypeExpr, UnaryOp,
 };
+
+use continuum_foundation::{PrimitiveParamKind, primitive_type_by_name};
 
 use crate::{
     AggregateOpIr, AssertionSeverity, BinaryOpIr, CompiledAssertion, OperatorPhaseIr, TopologyIr,
@@ -57,98 +59,136 @@ impl Lowerer {
 
     pub(crate) fn lower_type_expr(&self, ty: &TypeExpr) -> ValueType {
         match ty {
-            TypeExpr::Scalar { unit, range } => {
-                let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
-                ValueType::Scalar {
-                    unit: unit_str,
-                    dimension,
-                    range: range.as_ref().map(|r| ValueRange {
-                        min: r.min,
-                        max: r.max,
-                    }),
-                }
-            }
-            TypeExpr::Vector {
-                dim,
-                unit,
-                magnitude,
-            } => {
-                let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
-                match dim {
-                    2 => ValueType::Vec2 {
-                        unit: unit_str,
-                        dimension,
-                        magnitude: magnitude.as_ref().map(|r| ValueRange {
-                            min: r.min,
-                            max: r.max,
-                        }),
-                    },
-                    3 => ValueType::Vec3 {
-                        unit: unit_str,
-                        dimension,
-                        magnitude: magnitude.as_ref().map(|r| ValueRange {
-                            min: r.min,
-                            max: r.max,
-                        }),
-                    },
-                    4 => ValueType::Vec4 {
-                        unit: unit_str,
-                        dimension,
-                        magnitude: magnitude.as_ref().map(|r| ValueRange {
-                            min: r.min,
-                            max: r.max,
-                        }),
-                    },
-                    _ => ValueType::Scalar {
-                        unit: unit_str,
-                        dimension,
-                        range: None,
-                    },
-                }
-            }
-            TypeExpr::Tensor {
-                rows,
-                cols,
-                unit,
-                constraints,
-            } => {
-                let (unit_str, dimension) = self.parse_unit_with_dimension(unit);
-                ValueType::Tensor {
-                    rows: *rows,
-                    cols: *cols,
-                    unit: unit_str,
-                    dimension,
-                    constraints: constraints
-                        .iter()
-                        .map(|c| self.lower_tensor_constraint(*c))
-                        .collect(),
-                }
-            }
-            TypeExpr::Grid {
-                width,
-                height,
-                element_type,
-            } => ValueType::Grid {
-                width: *width,
-                height: *height,
-                element_type: Box::new(self.lower_type_expr(element_type)),
-            },
-            TypeExpr::Seq {
-                element_type,
-                constraints,
-            } => ValueType::Seq {
-                element_type: Box::new(self.lower_type_expr(element_type)),
-                constraints: constraints
-                    .iter()
-                    .map(|c| self.lower_seq_constraint(c))
-                    .collect(),
-            },
-            TypeExpr::Named(_) => ValueType::Scalar {
-                unit: None,
-                dimension: None,
-                range: None,
-            }, // resolve named types later
+            TypeExpr::Primitive(primitive) => self.lower_primitive_type(primitive),
+            TypeExpr::Named(_) => ValueType::scalar(None, None, None), // resolve named types later
         }
+    }
+
+    fn lower_primitive_type(&self, primitive: &PrimitiveTypeExpr) -> ValueType {
+        let def = primitive_type_by_name(primitive.id.name())
+            .expect("primitive type missing from registry");
+        match def.shape {
+            continuum_foundation::PrimitiveShape::Scalar => {
+                let unit = self.param_unit(primitive);
+                let (unit_str, dimension) = self.parse_unit_with_dimension(&unit);
+                ValueType::scalar(
+                    unit_str,
+                    dimension,
+                    self.param_range(primitive, PrimitiveParamKind::Range),
+                )
+            }
+            continuum_foundation::PrimitiveShape::Vector { dim } => {
+                let unit = self.param_unit(primitive);
+                let (unit_str, dimension) = self.parse_unit_with_dimension(&unit);
+                let magnitude = self.param_range(primitive, PrimitiveParamKind::Magnitude);
+                if primitive.id.name() == "Quat" {
+                    return ValueType::quat(magnitude);
+                }
+                match dim {
+                    2 | 3 | 4 => ValueType::vector(dim, unit_str, dimension, magnitude),
+                    _ => ValueType::scalar(unit_str, dimension, None),
+                }
+            }
+            continuum_foundation::PrimitiveShape::Tensor => {
+                let rows = self.param_u8(primitive, PrimitiveParamKind::Rows);
+                let cols = self.param_u8(primitive, PrimitiveParamKind::Cols);
+                let unit = self.param_unit(primitive);
+                let (unit_str, dimension) = self.parse_unit_with_dimension(&unit);
+                ValueType::tensor(
+                    rows,
+                    cols,
+                    unit_str,
+                    dimension,
+                    primitive
+                        .constraints
+                        .iter()
+                        .map(|c| match c {
+                            ast::TensorConstraint::Symmetric => {
+                                crate::TensorConstraintIr::Symmetric
+                            }
+                            ast::TensorConstraint::PositiveDefinite => {
+                                crate::TensorConstraintIr::PositiveDefinite
+                            }
+                        })
+                        .collect(),
+                )
+            }
+            continuum_foundation::PrimitiveShape::Grid => {
+                let width = self.param_u32(primitive, PrimitiveParamKind::Width);
+                let height = self.param_u32(primitive, PrimitiveParamKind::Height);
+                let element_type = self.param_element_type(primitive);
+                ValueType::grid(width, height, self.lower_type_expr(element_type))
+            }
+            continuum_foundation::PrimitiveShape::Seq => {
+                let element_type = self.param_element_type(primitive);
+                ValueType::seq(
+                    self.lower_type_expr(element_type),
+                    primitive
+                        .seq_constraints
+                        .iter()
+                        .map(|c| self.lower_seq_constraint(c))
+                        .collect(),
+                )
+            }
+        }
+    }
+
+    fn param_unit(&self, primitive: &PrimitiveTypeExpr) -> String {
+        match self.param_value(primitive, PrimitiveParamKind::Unit) {
+            Some(PrimitiveParamValue::Unit(unit)) => unit.clone(),
+            _ => "".to_string(),
+        }
+    }
+
+    fn param_range(
+        &self,
+        primitive: &PrimitiveTypeExpr,
+        kind: PrimitiveParamKind,
+    ) -> Option<ValueRange> {
+        match self.param_value(primitive, kind) {
+            Some(PrimitiveParamValue::Range(range)) => Some(ValueRange {
+                min: range.min,
+                max: range.max,
+            }),
+            Some(PrimitiveParamValue::Magnitude(range)) => Some(ValueRange {
+                min: range.min,
+                max: range.max,
+            }),
+            _ => None,
+        }
+    }
+
+    fn param_u8(&self, primitive: &PrimitiveTypeExpr, kind: PrimitiveParamKind) -> u8 {
+        match self.param_value(primitive, kind) {
+            Some(PrimitiveParamValue::Rows(value)) => *value,
+            Some(PrimitiveParamValue::Cols(value)) => *value,
+            _ => panic!("missing required integer parameter"),
+        }
+    }
+
+    fn param_u32(&self, primitive: &PrimitiveTypeExpr, kind: PrimitiveParamKind) -> u32 {
+        match self.param_value(primitive, kind) {
+            Some(PrimitiveParamValue::Width(value)) => *value,
+            Some(PrimitiveParamValue::Height(value)) => *value,
+            _ => panic!("missing required integer parameter"),
+        }
+    }
+
+    fn param_element_type<'a>(&self, primitive: &'a PrimitiveTypeExpr) -> &'a TypeExpr {
+        match self.param_value(primitive, PrimitiveParamKind::ElementType) {
+            Some(PrimitiveParamValue::ElementType(inner)) => inner.as_ref(),
+            _ => {
+                panic!("missing element_type parameter");
+            }
+        }
+    }
+
+    fn param_value<'a>(
+        &self,
+        primitive: &'a PrimitiveTypeExpr,
+        kind: PrimitiveParamKind,
+    ) -> Option<&'a PrimitiveParamValue> {
+        primitive.params.iter().find(|param| param.kind() == kind)
     }
 
     pub(crate) fn lower_tensor_constraint(
@@ -287,6 +327,8 @@ impl Lowerer {
             Expr::Within {
                 position, radius, ..
             } => self.expr_uses_dt_raw(&position.node) || self.expr_uses_dt_raw(&radius.node),
+            // Vector literal check
+            Expr::Vector(elems) => elems.iter().any(|e| self.expr_uses_dt_raw(&e.node)),
             // These don't contain dt_raw
             Expr::Literal(_)
             | Expr::LiteralWithUnit { .. }

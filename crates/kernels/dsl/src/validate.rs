@@ -31,7 +31,7 @@
 //! ```
 
 use crate::ast::{AstVisitor, CompilationUnit, Expr, Item, Spanned, uses_dt_raw};
-use continuum_kernel_registry::{Arity, get};
+use continuum_kernel_registry::{Arity, get_in_namespace};
 use std::collections::HashMap;
 
 /// A semantic validation error with source location.
@@ -262,10 +262,12 @@ fn collect_unknown_functions(
 
 /// Check if a function name is valid and return its expected arity.
 fn get_expected_arity(name: &str, user_functions: &HashMap<String, usize>) -> Option<Arity> {
-    // Check kernel registry
-    if let Some(k) = get(name) {
-        return Some(k.arity);
+    if let Some((namespace, function)) = name.split_once('.') {
+        if let Some(k) = get_in_namespace(namespace, function) {
+            return Some(k.arity);
+        }
     }
+
     // Check user-defined functions
     if let Some(&arity) = user_functions.get(name) {
         return Some(Arity::Fixed(arity));
@@ -484,7 +486,7 @@ mod tests {
                 : strata(thermal)
 
                 resolve {
-                    sin(1.0, 2.0)
+                    maths.sin(1.0, 2.0)
                 }
             }
         "#;
@@ -524,14 +526,16 @@ mod tests {
 
     #[test]
     fn test_arity_mismatch_method() {
-        // clamp expects 3 arguments (object + 2 args)
+        // my_clamp expects 3 arguments (object + 2 args)
         let source = r#"
+            fn.maths.my_clamp(val, min, max) { val }
+
             signal.core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
                 resolve {
-                    prev.clamp(0.0)
+                    prev.my_clamp(0.0)
                 }
             }
         "#;
@@ -543,7 +547,7 @@ mod tests {
         assert!(
             errors[0]
                 .message
-                .contains("method 'clamp' expects 3 arguments, got 2")
+                .contains("method 'my_clamp' expects 3 arguments, got 2")
         );
     }
 }

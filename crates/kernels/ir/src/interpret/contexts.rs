@@ -12,6 +12,11 @@ use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
 use continuum_vm::ExecutionContext;
 
+fn split_kernel_name(name: &str) -> (&str, &str) {
+    name.split_once('.')
+        .unwrap_or_else(|| panic!("Kernel call '{}' is missing a namespace", name))
+}
+
 /// Shared data available to all execution contexts.
 ///
 /// This struct holds the common data needed across all phases:
@@ -25,46 +30,42 @@ pub(crate) struct SharedContextData<'a> {
 
 impl SharedContextData<'_> {
     /// Get signal value by name
-    fn signal(&self, name: &str) -> f64 {
+    fn signal(&self, name: &str) -> Value {
         let runtime_id = SignalId::from(name);
         match self.signals.get(&runtime_id) {
-            Some(v) => v.as_scalar().unwrap_or_else(|| {
-                panic!(
-                    "Signal '{}' exists but is not a scalar - cannot convert to f64",
-                    name
-                )
-            }),
+            Some(v) => v.clone(),
             None => panic!("Signal '{}' not found in storage", name),
         }
     }
 
     /// Get signal component by name and component (x, y, z, w)
-    fn signal_component(&self, name: &str, component: &str) -> f64 {
+    fn signal_component(&self, name: &str, component: &str) -> Value {
         let runtime_id = SignalId::from(name);
         match self.signals.get(&runtime_id) {
-            Some(v) => v.component(component).unwrap_or_else(|| {
-                panic!(
-                    "Signal '{}' has no component '{}' - expected vector with x/y/z/w components",
-                    name, component
-                )
-            }),
+            Some(v) => {
+                if let Some(c) = v.component(component) {
+                    Value::Scalar(c)
+                } else {
+                    Value::Scalar(0.0) // Or panic?
+                }
+            }
             None => panic!("Signal '{}' not found in storage", name),
         }
     }
 
     /// Get constant value by name
-    fn constant(&self, name: &str) -> f64 {
+    fn constant(&self, name: &str) -> Value {
         self.constants
             .get(name)
-            .map(|(v, _)| *v)
+            .map(|(v, _)| Value::Scalar(*v))
             .unwrap_or_else(|| panic!("Constant '{}' not defined", name))
     }
 
     /// Get config value by name
-    fn config(&self, name: &str) -> f64 {
+    fn config(&self, name: &str) -> Value {
         self.config
             .get(name)
-            .map(|(v, _)| *v)
+            .map(|(v, _)| Value::Scalar(*v))
             .unwrap_or_else(|| panic!("Config value '{}' not defined", name))
     }
 }
@@ -82,59 +83,47 @@ pub(crate) struct ResolverContext<'a> {
 }
 
 impl ExecutionContext for ResolverContext<'_> {
-    fn prev(&self) -> f64 {
-        self.prev.as_scalar().unwrap_or_else(|| {
-            panic!(
-                "prev value {:?} is not a scalar - cannot use prev on vector signals without component access",
-                self.prev
-            )
-        })
+    fn prev(&self) -> Value {
+        self.prev.clone()
     }
 
-    fn prev_component(&self, component: &str) -> f64 {
-        self.prev.component(component).unwrap_or_else(|| {
-            panic!(
-                "prev value {:?} has no component '{}' - expected vector with x/y/z/w components",
-                self.prev, component
-            )
-        })
-    }
-
-    fn dt(&self) -> f64 {
+    fn dt_scalar(&self) -> f64 {
         self.dt
     }
 
-    fn sim_time(&self) -> f64 {
-        self.sim_time
+    fn sim_time(&self) -> Value {
+        Value::Scalar(self.sim_time)
     }
 
-    fn inputs(&self) -> f64 {
-        self.inputs
+    fn inputs(&self) -> Value {
+        Value::Scalar(self.inputs)
     }
 
-    fn signal(&self, name: &str) -> f64 {
+    fn signal(&self, name: &str) -> Value {
         self.shared.signal(name)
     }
 
-    fn signal_component(&self, name: &str, component: &str) -> f64 {
+    fn signal_component(&self, name: &str, component: &str) -> Value {
         self.shared.signal_component(name, component)
     }
 
-    fn constant(&self, name: &str) -> f64 {
+    fn constant(&self, name: &str) -> Value {
         self.shared.constant(name)
     }
 
-    fn config(&self, name: &str) -> f64 {
+    fn config(&self, name: &str) -> Value {
         self.shared.config(name)
     }
 
-    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
-            panic!(
-                "Unknown kernel function '{}' - function not found in registry",
-                name
-            )
-        })
+    fn call_kernel(&self, name: &str, args: &[Value]) -> Value {
+        let (namespace, function) = split_kernel_name(name);
+        continuum_kernel_registry::eval_in_namespace(namespace, function, args, self.dt)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, function
+                )
+            })
     }
 }
 
@@ -152,61 +141,49 @@ pub(crate) struct AssertionContext<'a> {
 }
 
 impl ExecutionContext for AssertionContext<'_> {
-    fn prev(&self) -> f64 {
+    fn prev(&self) -> Value {
         // In assertions, 'prev' refers to the current (post-resolve) value being asserted
-        self.current.as_scalar().unwrap_or_else(|| {
-            panic!(
-                "Assertion value {:?} is not a scalar - cannot assert on vector signals without component access",
-                self.current
-            )
-        })
+        self.current.clone()
     }
 
-    fn prev_component(&self, component: &str) -> f64 {
-        // In assertions, 'prev' refers to the current (post-resolve) value being asserted
-        self.current.component(component).unwrap_or_else(|| {
-            panic!(
-                "Assertion value {:?} has no component '{}' - expected vector with x/y/z/w components",
-                self.current, component
-            )
-        })
-    }
-
-    fn dt(&self) -> f64 {
+    fn dt_scalar(&self) -> f64 {
         self.dt
     }
 
-    fn sim_time(&self) -> f64 {
-        self.sim_time
+    fn sim_time(&self) -> Value {
+        Value::Scalar(self.sim_time)
     }
 
-    fn inputs(&self) -> f64 {
-        0.0 // Not used in assertions
+    fn inputs(&self) -> Value {
+        Value::Scalar(0.0) // Not used in assertions
     }
 
-    fn signal(&self, name: &str) -> f64 {
+    fn signal(&self, name: &str) -> Value {
         self.shared.signal(name)
     }
 
-    fn signal_component(&self, name: &str, component: &str) -> f64 {
+    fn signal_component(&self, name: &str, component: &str) -> Value {
         self.shared.signal_component(name, component)
     }
 
-    fn constant(&self, name: &str) -> f64 {
+    fn constant(&self, name: &str) -> Value {
         self.shared.constant(name)
     }
 
-    fn config(&self, name: &str) -> f64 {
+    fn config(&self, name: &str) -> Value {
         self.shared.config(name)
     }
 
-    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
-            panic!(
-                "Unknown kernel function '{}' - function not found in registry",
-                name
-            )
-        })
+    fn call_kernel(&self, name: &str, args: &[Value]) -> Value {
+        let (namespace, function) = split_kernel_name(name);
+        continuum_kernel_registry::eval_in_namespace(namespace, function, args, 0.0).unwrap_or_else(
+            || {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, function
+                )
+            },
+        )
     }
 }
 
@@ -220,45 +197,48 @@ pub(crate) struct TransitionContext<'a> {
 }
 
 impl ExecutionContext for TransitionContext<'_> {
-    fn prev(&self) -> f64 {
+    fn prev(&self) -> Value {
+        Value::Scalar(0.0) // Not used in transitions
+    }
+
+    fn dt_scalar(&self) -> f64 {
         0.0 // Not used in transitions
     }
 
-    fn dt(&self) -> f64 {
-        0.0 // Not used in transitions
+    fn sim_time(&self) -> Value {
+        Value::Scalar(self.sim_time)
     }
 
-    fn sim_time(&self) -> f64 {
-        self.sim_time
+    fn inputs(&self) -> Value {
+        Value::Scalar(0.0) // Not used in transitions
     }
 
-    fn inputs(&self) -> f64 {
-        0.0 // Not used in transitions
-    }
-
-    fn signal(&self, name: &str) -> f64 {
+    fn signal(&self, name: &str) -> Value {
         self.shared.signal(name)
     }
 
-    fn signal_component(&self, name: &str, component: &str) -> f64 {
+    fn signal_component(&self, name: &str, component: &str) -> Value {
         self.shared.signal_component(name, component)
     }
 
-    fn constant(&self, name: &str) -> f64 {
+    fn constant(&self, name: &str) -> Value {
         self.shared.constant(name)
     }
 
-    fn config(&self, name: &str) -> f64 {
+    fn config(&self, name: &str) -> Value {
         self.shared.config(name)
     }
 
-    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
-            panic!(
-                "Unknown kernel function '{}' - function not found in registry",
-                name
-            )
-        })
+    fn call_kernel(&self, name: &str, args: &[Value]) -> Value {
+        let (namespace, function) = split_kernel_name(name);
+        continuum_kernel_registry::eval_in_namespace(namespace, function, args, 0.0).unwrap_or_else(
+            || {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, function
+                )
+            },
+        )
     }
 }
 
@@ -273,45 +253,47 @@ pub(crate) struct MeasureContext<'a> {
 }
 
 impl ExecutionContext for MeasureContext<'_> {
-    fn prev(&self) -> f64 {
-        0.0 // Not used in measure
+    fn prev(&self) -> Value {
+        Value::Scalar(0.0) // Not used in measure
     }
 
-    fn dt(&self) -> f64 {
+    fn dt_scalar(&self) -> f64 {
         self.dt
     }
 
-    fn sim_time(&self) -> f64 {
-        self.sim_time
+    fn sim_time(&self) -> Value {
+        Value::Scalar(self.sim_time)
     }
 
-    fn inputs(&self) -> f64 {
-        0.0 // Not used in measure
+    fn inputs(&self) -> Value {
+        Value::Scalar(0.0) // Not used in measure
     }
 
-    fn signal(&self, name: &str) -> f64 {
+    fn signal(&self, name: &str) -> Value {
         self.shared.signal(name)
     }
 
-    fn signal_component(&self, name: &str, component: &str) -> f64 {
+    fn signal_component(&self, name: &str, component: &str) -> Value {
         self.shared.signal_component(name, component)
     }
 
-    fn constant(&self, name: &str) -> f64 {
+    fn constant(&self, name: &str) -> Value {
         self.shared.constant(name)
     }
 
-    fn config(&self, name: &str) -> f64 {
+    fn config(&self, name: &str) -> Value {
         self.shared.config(name)
     }
 
-    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
-            panic!(
-                "Unknown kernel function '{}' - function not found in registry",
-                name
-            )
-        })
+    fn call_kernel(&self, name: &str, args: &[Value]) -> Value {
+        let (namespace, function) = split_kernel_name(name);
+        continuum_kernel_registry::eval_in_namespace(namespace, function, args, self.dt)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, function
+                )
+            })
     }
 }
 
@@ -326,45 +308,47 @@ pub(crate) struct FractureExecContext<'a> {
 }
 
 impl ExecutionContext for FractureExecContext<'_> {
-    fn prev(&self) -> f64 {
-        0.0 // Not used in fractures
+    fn prev(&self) -> Value {
+        Value::Scalar(0.0) // Not used in fractures
     }
 
-    fn dt(&self) -> f64 {
+    fn dt_scalar(&self) -> f64 {
         self.dt
     }
 
-    fn sim_time(&self) -> f64 {
-        self.sim_time
+    fn sim_time(&self) -> Value {
+        Value::Scalar(self.sim_time)
     }
 
-    fn inputs(&self) -> f64 {
-        0.0 // Not used in fractures
+    fn inputs(&self) -> Value {
+        Value::Scalar(0.0) // Not used in fractures
     }
 
-    fn signal(&self, name: &str) -> f64 {
+    fn signal(&self, name: &str) -> Value {
         self.shared.signal(name)
     }
 
-    fn signal_component(&self, name: &str, component: &str) -> f64 {
+    fn signal_component(&self, name: &str, component: &str) -> Value {
         self.shared.signal_component(name, component)
     }
 
-    fn constant(&self, name: &str) -> f64 {
+    fn constant(&self, name: &str) -> Value {
         self.shared.constant(name)
     }
 
-    fn config(&self, name: &str) -> f64 {
+    fn config(&self, name: &str) -> Value {
         self.shared.config(name)
     }
 
-    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
-        continuum_kernel_registry::eval(name, args, self.dt).unwrap_or_else(|| {
-            panic!(
-                "Unknown kernel function '{}' - function not found in registry",
-                name
-            )
-        })
+    fn call_kernel(&self, name: &str, args: &[Value]) -> Value {
+        let (namespace, function) = split_kernel_name(name);
+        continuum_kernel_registry::eval_in_namespace(namespace, function, args, self.dt)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, function
+                )
+            })
     }
 }
 
@@ -378,59 +362,48 @@ pub(crate) struct WarmupContext<'a> {
 }
 
 impl ExecutionContext for WarmupContext<'_> {
-    fn prev(&self) -> f64 {
-        self.current.as_scalar().unwrap_or_else(|| {
-            panic!(
-                "warmup value {:?} is not a scalar - cannot use prev on vector signals without component access",
-                self.current
-            )
-        })
+    fn prev(&self) -> Value {
+        self.current.clone()
     }
 
-    fn prev_component(&self, component: &str) -> f64 {
-        self.current.component(component).unwrap_or_else(|| {
-            panic!(
-                "warmup value {:?} has no component '{}' - expected vector with x/y/z/w components",
-                self.current, component
-            )
-        })
-    }
-
-    fn dt(&self) -> f64 {
+    fn dt_scalar(&self) -> f64 {
         0.0 // dt is not available during warmup
     }
 
-    fn sim_time(&self) -> f64 {
-        self.sim_time
+    fn sim_time(&self) -> Value {
+        Value::Scalar(self.sim_time)
     }
 
-    fn inputs(&self) -> f64 {
-        0.0 // inputs are not available during warmup
+    fn inputs(&self) -> Value {
+        Value::Scalar(0.0) // inputs are not available during warmup
     }
 
-    fn signal(&self, name: &str) -> f64 {
+    fn signal(&self, name: &str) -> Value {
         self.shared.signal(name)
     }
 
-    fn signal_component(&self, name: &str, component: &str) -> f64 {
+    fn signal_component(&self, name: &str, component: &str) -> Value {
         self.shared.signal_component(name, component)
     }
 
-    fn constant(&self, name: &str) -> f64 {
+    fn constant(&self, name: &str) -> Value {
         self.shared.constant(name)
     }
 
-    fn config(&self, name: &str) -> f64 {
+    fn config(&self, name: &str) -> Value {
         self.shared.config(name)
     }
 
-    fn call_kernel(&self, name: &str, args: &[f64]) -> f64 {
+    fn call_kernel(&self, name: &str, args: &[Value]) -> Value {
+        let (namespace, function) = split_kernel_name(name);
         // Kernels that depend on dt might behave unexpectedly here
-        continuum_kernel_registry::eval(name, args, 0.0).unwrap_or_else(|| {
-            panic!(
-                "Unknown kernel function '{}' - function not found in registry",
-                name
-            )
-        })
+        continuum_kernel_registry::eval_in_namespace(namespace, function, args, 0.0).unwrap_or_else(
+            || {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, function
+                )
+            },
+        )
     }
 }

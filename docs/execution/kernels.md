@@ -11,7 +11,7 @@ Kernels are engine-provided mathematical primitives that execute on CPU or GPU.
 A **kernel** is a named, typed compute operation provided by the engine.
 
 Kernels:
-- are called from DSL via `kernel.*` syntax
+- are called from DSL via namespaced syntax (e.g. `maths.*`, `vector.*`, `physics.*`)
 - have fixed signatures (inputs, outputs, types)
 - may execute on CPU or GPU
 - must be deterministic within their declared guarantee level
@@ -34,7 +34,7 @@ Kernels encapsulate this complexity.
 
 The DSL author writes:
 ```
-kernel.gravity_field(masses, positions, target)
+physics.gravity_field(masses, positions, target)
 ```
 
 The engine decides:
@@ -52,43 +52,45 @@ The engine decides:
 Basic mathematical operations with unit awareness.
 
 ```
-kernel.sqrt(x: Scalar<T²>) -> Scalar<T>
-kernel.pow(base: Scalar<T>, exp: Scalar<1>) -> Scalar<T^exp>
-kernel.exp(x: Scalar<1>) -> Scalar<1>
-kernel.log(x: Scalar<1>) -> Scalar<1>
-kernel.sin(x: Scalar<rad>) -> Scalar<1>
-kernel.cos(x: Scalar<rad>) -> Scalar<1>
-kernel.atan2(y: Scalar<T>, x: Scalar<T>) -> Scalar<rad>
-kernel.clamp(x: Scalar<T>, lo: Scalar<T>, hi: Scalar<T>) -> Scalar<T>
-kernel.lerp(a: Scalar<T>, b: Scalar<T>, t: Scalar<1>) -> Scalar<T>
+maths.sqrt(x: Scalar<T²>) -> Scalar<T>
+maths.pow(base: Scalar<T>, exp: Scalar<1>) -> Scalar<T^exp>
+maths.exp(x: Scalar<1>) -> Scalar<1>
+maths.log(x: Scalar<1>) -> Scalar<1>
+maths.sin(x: Scalar<rad>) -> Scalar<1>
+maths.cos(x: Scalar<rad>) -> Scalar<1>
+maths.tan(x: Scalar<rad>) -> Scalar<1>
+maths.atan(x: Scalar<1>) -> Scalar<rad>
+maths.atan2(y: Scalar<T>, x: Scalar<T>) -> Scalar<rad>
+maths.clamp(x: Scalar<T>, lo: Scalar<T>, hi: Scalar<T>) -> Scalar<T>
+maths.lerp(a: Scalar<T>, b: Scalar<T>, t: Scalar<1>) -> Scalar<T>
 ```
 
 ### 3.2 Vector Operations
 
 ```
-kernel.dot(a: Vec3<T>, b: Vec3<T>) -> Scalar<T²>
-kernel.cross(a: Vec3<T>, b: Vec3<T>) -> Vec3<T²>
-kernel.normalize(v: Vec3<T>) -> Vec3<1>
-kernel.magnitude(v: Vec3<T>) -> Scalar<T>
-kernel.distance(a: Vec3<T>, b: Vec3<T>) -> Scalar<T>
+vector.dot(a: Vec3<T>, b: Vec3<T>) -> Scalar<T²>
+vector.cross(a: Vec3<T>, b: Vec3<T>) -> Vec3<T²>
+vector.normalize(v: Vec3<T>) -> Vec3<1>
+vector.magnitude(v: Vec3<T>) -> Scalar<T>
+vector.distance(a: Vec3<T>, b: Vec3<T>) -> Scalar<T>
 ```
 
 ### 3.3 Matrix Operations
 
 ```
-kernel.mat_mul(a: Mat4<T>, b: Mat4<U>) -> Mat4<T*U>
-kernel.mat_vec_mul(m: Mat4<T>, v: Vec4<U>) -> Vec4<T*U>
-kernel.transpose(m: Mat4<T>) -> Mat4<T>
-kernel.inverse(m: Mat4<1>) -> Mat4<1>
-kernel.determinant(m: Mat4<T>) -> Scalar<T^4>
+matrix.mat_mul(a: Mat4<T>, b: Mat4<U>) -> Mat4<T*U>
+matrix.mat_vec_mul(m: Mat4<T>, v: Vec4<U>) -> Vec4<T*U>
+matrix.transpose(m: Mat4<T>) -> Mat4<T>
+matrix.inverse(m: Mat4<1>) -> Mat4<1>
+matrix.determinant(m: Mat4<T>) -> Scalar<T^4>
 ```
 
 ### 3.4 Tensor Operations
 
 ```
-kernel.tensor_contract(a: Tensor<N,M,T>, b: Tensor<M,P,U>) -> Tensor<N,P,T*U>
-kernel.tensor_trace(t: Tensor<N,N,T>) -> Scalar<T>
-kernel.tensor_symmetric(t: Tensor<N,N,T>) -> Tensor<N,N,T>
+tensor.tensor_contract(a: Tensor<N,M,T>, b: Tensor<M,P,U>) -> Tensor<N,P,T*U>
+tensor.tensor_trace(t: Tensor<N,N,T>) -> Scalar<T>
+tensor.tensor_symmetric(t: Tensor<N,N,T>) -> Tensor<N,N,T>
 ```
 
 ### 3.5 Reductions
@@ -96,11 +98,11 @@ kernel.tensor_symmetric(t: Tensor<N,N,T>) -> Tensor<N,N,T>
 Deterministic parallel reductions over collections.
 
 ```
-kernel.sum(seq: Seq<Scalar<T>>) -> Scalar<T>
-kernel.product(seq: Seq<Scalar<T>>) -> Scalar<T>
-kernel.min(seq: Seq<Scalar<T>>) -> Scalar<T>
-kernel.max(seq: Seq<Scalar<T>>) -> Scalar<T>
-kernel.mean(seq: Seq<Scalar<T>>) -> Scalar<T>
+maths.sum(seq: Seq<Scalar<T>>) -> Scalar<T>
+maths.product(seq: Seq<Scalar<T>>) -> Scalar<T>
+maths.min(seq: Seq<Scalar<T>>) -> Scalar<T>
+maths.max(seq: Seq<Scalar<T>>) -> Scalar<T>
+maths.mean(seq: Seq<Scalar<T>>) -> Scalar<T>
 ```
 
 ### 3.6 Grid Operations
@@ -108,11 +110,11 @@ kernel.mean(seq: Seq<Scalar<T>>) -> Scalar<T>
 Operations on spatial grids.
 
 ```
-kernel.grid_sample(grid: Grid<W,H,T>, uv: Vec2<1>) -> T
-kernel.grid_gradient(grid: Grid<W,H,Scalar<T>>) -> Grid<W,H,Vec2<T>>
-kernel.grid_laplacian(grid: Grid<W,H,Scalar<T>>) -> Grid<W,H,Scalar<T>>
-kernel.grid_blur(grid: Grid<W,H,T>, radius: Scalar<1>) -> Grid<W,H,T>
-kernel.grid_convolve(grid: Grid<W,H,T>, kernel: Grid<K,K,Scalar<1>>) -> Grid<W,H,T>
+grid.grid_sample(grid: Grid<W,H,T>, uv: Vec2<1>) -> T
+grid.grid_gradient(grid: Grid<W,H,Scalar<T>>) -> Grid<W,H,Vec2<T>>
+grid.grid_laplacian(grid: Grid<W,H,Scalar<T>>) -> Grid<W,H,Scalar<T>>
+grid.grid_blur(grid: Grid<W,H,T>, radius: Scalar<1>) -> Grid<W,H,T>
+grid.grid_convolve(grid: Grid<W,H,T>, kernel: Grid<K,K,Scalar<1>>) -> Grid<W,H,T>
 ```
 
 ### 3.7 Physics Primitives
@@ -120,28 +122,28 @@ kernel.grid_convolve(grid: Grid<W,H,T>, kernel: Grid<K,K,Scalar<1>>) -> Grid<W,H
 Domain-specific physics computations.
 
 ```
-kernel.gravity_acceleration(
+physics.gravity_acceleration(
     mass: Scalar<kg>,
     distance: Scalar<m>
 ) -> Scalar<m/s²>
 
-kernel.orbital_velocity(
+physics.orbital_velocity(
     central_mass: Scalar<kg>,
     radius: Scalar<m>
 ) -> Scalar<m/s>
 
-kernel.kepler_position(
+physics.kepler_position(
     semi_major: Scalar<m>,
     eccentricity: Scalar<1>,
     mean_anomaly: Scalar<rad>
 ) -> Vec3<m>
 
-kernel.blackbody_radiation(
+physics.blackbody_radiation(
     temperature: Scalar<K>,
     surface_area: Scalar<m²>
 ) -> Scalar<W>
 
-kernel.stefan_boltzmann_flux(
+physics.stefan_boltzmann_flux(
     temperature: Scalar<K>
 ) -> Scalar<W/m²>
 ```
@@ -151,19 +153,19 @@ kernel.stefan_boltzmann_flux(
 Spatial field calculations (typically GPU-accelerated).
 
 ```
-kernel.gravity_field(
+physics.gravity_field(
     masses: Seq<Scalar<kg>>,
     positions: Seq<Vec3<m>>,
     sample_points: Grid<W,H,Vec3<m>>
 ) -> Grid<W,H,Vec3<m/s²>>
 
-kernel.temperature_diffusion(
+physics.temperature_diffusion(
     current: Grid<W,H,Scalar<K>>,
     conductivity: Grid<W,H,Scalar<W/m/K>>,
     dt: Scalar<s>
 ) -> Grid<W,H,Scalar<K>>
 
-kernel.fluid_advection(
+physics.fluid_advection(
     field: Grid<W,H,T>,
     velocity: Grid<W,H,Vec2<m/s>>,
     dt: Scalar<s>
@@ -173,15 +175,15 @@ kernel.fluid_advection(
 ### 3.9 Geometric Operations
 
 ```
-kernel.sphere_surface_area(radius: Scalar<m>) -> Scalar<m²>
-kernel.sphere_volume(radius: Scalar<m>) -> Scalar<m³>
-kernel.great_circle_distance(
+physics.sphere_surface_area(radius: Scalar<m>) -> Scalar<m²>
+physics.sphere_volume(radius: Scalar<m>) -> Scalar<m³>
+physics.great_circle_distance(
     a: Vec2<rad>,
     b: Vec2<rad>,
     radius: Scalar<m>
 ) -> Scalar<m>
 
-kernel.ray_sphere_intersect(
+physics.ray_sphere_intersect(
     ray_origin: Vec3<m>,
     ray_dir: Vec3<1>,
     sphere_center: Vec3<m>,
@@ -221,7 +223,7 @@ Kernel types use the DSL type system:
 Some kernels are unit-polymorphic:
 
 ```
-kernel.dot<T>(a: Vec3<T>, b: Vec3<T>) -> Scalar<T²>
+vector.dot<T>(a: Vec3<T>, b: Vec3<T>) -> Scalar<T²>
 ```
 
 The compiler infers `T` from usage.
@@ -261,10 +263,10 @@ The compiler enforces:
 
 ```
 // In a signal resolve block:
-kernel.gravity_field(...)  // OK if Strict
+physics.gravity_field(...)  // OK if Strict
 
 // In a field measure block:
-kernel.approximate_render(...)  // OK if Relaxed
+render.approximate_render(...)  // OK if Relaxed
 ```
 
 ---
@@ -332,7 +334,7 @@ Each call is independent.
 ```
 signal.terra.surface.flux {
     resolve {
-        kernel.stefan_boltzmann_flux(signal.terra.surface.temperature)
+        physics.stefan_boltzmann_flux(signal.terra.surface.temperature)
     }
 }
 ```
@@ -342,11 +344,11 @@ signal.terra.surface.flux {
 ```
 signal.terra.orbit.position {
     resolve {
-        let anomaly = kernel.kepler_mean_to_true(
+        let anomaly = physics.kepler_mean_to_true(
             signal.terra.orbit.mean_anomaly,
             config.terra.orbit.eccentricity
         )
-        kernel.kepler_position(
+        physics.kepler_position(
             config.terra.orbit.semi_major,
             config.terra.orbit.eccentricity,
             anomaly
@@ -360,8 +362,8 @@ signal.terra.orbit.position {
 ```
 signal.stellar.total_luminosity {
     resolve {
-        kernel.sum(
-            map(entity.stellar.star, kernel.blackbody_radiation(self.temperature, self.surface_area))
+        maths.sum(
+            map(entity.stellar.star, physics.blackbody_radiation(self.temperature, self.surface_area))
         )
     }
 }
@@ -389,7 +391,7 @@ fn radiogenic_heat(
 ### 9.2 Registration
 
 Custom kernels are registered at engine startup.
-They appear in the `kernel.*` namespace.
+They appear in namespaces like `maths.*`, `vector.*`, `grid.*`, and `physics.*`.
 
 ### 9.3 Validation
 
@@ -408,13 +410,13 @@ When multiple nodes call the same kernel:
 
 ```
 // Three entity instances each call:
-kernel.gravity_acceleration(self.mass, self.distance)
+physics.gravity_acceleration(self.mass, self.distance)
 ```
 
 The engine may batch into single dispatch:
 
 ```
-kernel.gravity_acceleration_batch(masses[], distances[]) -> accelerations[]
+physics.gravity_acceleration_batch(masses[], distances[]) -> accelerations[]
 ```
 
 ### 10.2 Batching Requirements
@@ -447,7 +449,7 @@ Kernel errors become faults:
 ```
 Fault {
     kind: KernelError,
-    kernel: "kernel.sqrt",
+    kernel: "maths.sqrt",
     message: "negative input",
     location: SignalId("terra.orbit.velocity"),
 }
@@ -481,7 +483,7 @@ Standard kernels provided by the engine:
 ## Summary
 
 - Kernels are engine-provided compute primitives
-- Called via `kernel.*` syntax in DSL
+- Called via namespaced syntax in DSL (e.g. `maths.*`, `vector.*`, `physics.*`)
 - Execute on CPU or GPU transparently
 - Must declare determinism level (Strict for causal, Relaxed for observation)
 - Unit-typed and validated at compile time

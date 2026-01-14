@@ -7,8 +7,9 @@ use std::collections::HashSet;
 
 use continuum_dsl::ast::{self, Expr, Literal};
 use continuum_foundation::{EntityId, FnId, InstanceId, SignalId};
+use continuum_kernel_registry::namespace_exists;
 
-use crate::{CompiledExpr, DtRobustOperator, IntegrationMethod, ValueType};
+use crate::{CompiledExpr, ValueType};
 
 use super::Lowerer;
 
@@ -153,26 +154,48 @@ impl Lowerer {
             Expr::Call { function, args } => {
                 let func_name = self.expr_to_function_name(&function.node);
 
-                // Check if this is a dt-robust operator
-                if let Some(operator) = self.parse_dt_robust_operator(&func_name) {
-                    let lowered_args: Vec<_> = args
-                        .iter()
-                        .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
-                        .collect();
-                    CompiledExpr::DtRobustCall {
-                        operator,
-                        args: lowered_args,
-                        method: IntegrationMethod::default(),
-                    }
-                } else if func_name.starts_with("kernel.") {
-                    // Kernel function - engine-provided primitive
-                    let kernel_name = func_name.strip_prefix("kernel.").unwrap().to_string();
-                    CompiledExpr::KernelCall {
-                        function: kernel_name,
-                        args: args
-                            .iter()
-                            .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
-                            .collect(),
+                if let Some((namespace, function)) = func_name.split_once('.') {
+                    if namespace_exists(namespace) {
+                        CompiledExpr::KernelCall {
+                            namespace: namespace.to_string(),
+                            function: function.to_string(),
+                            args: args
+                                .iter()
+                                .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
+                                .collect(),
+                        }
+                    } else {
+                        let fn_id = FnId::from(func_name.as_str());
+
+                        // Check if this is a user-defined function
+                        if let Some(user_fn) = self.functions.get(&fn_id) {
+                            // Inline the function by wrapping body in let bindings for each param
+                            let lowered_args: Vec<_> = args
+                                .iter()
+                                .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
+                                .collect();
+
+                            // Build nested let expressions: let param1 = arg1 in let param2 = arg2 in body
+                            let mut result = user_fn.body.clone();
+                            for (param, arg) in
+                                user_fn.params.iter().rev().zip(lowered_args.iter().rev())
+                            {
+                                result = CompiledExpr::Let {
+                                    name: param.clone(),
+                                    value: Box::new(arg.clone()),
+                                    body: Box::new(result),
+                                };
+                            }
+                            result
+                        } else {
+                            CompiledExpr::Call {
+                                function: func_name,
+                                args: args
+                                    .iter()
+                                    .map(|a| self.lower_expr_with_context(&a.value.node, ctx))
+                                    .collect(),
+                            }
+                        }
                     }
                 } else {
                     let fn_id = FnId::from(func_name.as_str());
@@ -291,7 +314,7 @@ impl Lowerer {
 
             Expr::EntityRef(path) => {
                 panic!(
-                    "EntityRef '{}' cannot be evaluated to a value - entity references must be used in aggregation context (e.g., sum(entity.{}, ...))",
+                    "EntityRef '{}' cannot be evaluated to a value - entity references must be used in aggregation context (e.g., agg.sum(entity.{}, ...))",
                     path, path
                 )
             }
@@ -391,24 +414,6 @@ impl Lowerer {
                 "Cannot extract function name from expression: {:?} - expected Path or FieldAccess",
                 other
             ),
-        }
-    }
-
-    /// Parse a function name into a dt-robust operator if it matches.
-    ///
-    /// dt-robust operators are special functions that provide numerically stable
-    /// time integration. They are recognized by name and converted to a dedicated
-    /// IR variant for special code generation.
-    pub(crate) fn parse_dt_robust_operator(&self, name: &str) -> Option<DtRobustOperator> {
-        match name {
-            "integrate" => Some(DtRobustOperator::Integrate),
-            "decay" => Some(DtRobustOperator::Decay),
-            "relax" => Some(DtRobustOperator::Relax),
-            "accumulate" => Some(DtRobustOperator::Accumulate),
-            "advance_phase" => Some(DtRobustOperator::AdvancePhase),
-            "smooth" => Some(DtRobustOperator::Smooth),
-            "damp" => Some(DtRobustOperator::Damp),
-            _ => None,
         }
     }
 }

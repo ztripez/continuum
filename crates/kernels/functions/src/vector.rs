@@ -1,49 +1,192 @@
 //! Vector Constructors
 //!
 //! Functions for constructing vector types.
-//! Note: These return f64 for now as the DSL only supports f64.
-//! In the future, these will return proper vector types.
 
+use continuum_foundation::Value;
 use continuum_kernel_macros::kernel_fn;
 
 /// Construct a 2D vector: `vec2(x, y)`
-/// Returns the magnitude for now (until proper vector types are supported)
-#[kernel_fn(name = "vec2", category = "vector")]
-pub fn vec2(x: f64, y: f64) -> f64 {
-    (x * x + y * y).sqrt()
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn vec2(x: f64, y: f64) -> [f64; 2] {
+    [x, y]
 }
 
 /// Construct a 3D vector: `vec3(x, y, z)`
-/// Returns the magnitude for now (until proper vector types are supported)
-#[kernel_fn(name = "vec3", category = "vector")]
-pub fn vec3(x: f64, y: f64, z: f64) -> f64 {
-    (x * x + y * y + z * z).sqrt()
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn vec3(x: f64, y: f64, z: f64) -> [f64; 3] {
+    [x, y, z]
 }
 
-/// Vector length/magnitude: `length(x, y, z)`
-/// Variadic - works with 2 or 3 components
-#[kernel_fn(name = "length", category = "vector", variadic)]
-pub fn length(args: &[f64]) -> f64 {
-    args.iter().map(|x| x * x).sum::<f64>().sqrt()
+/// Construct a 4D vector: `vec4(x, y, z, w)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn vec4(x: f64, y: f64, z: f64, w: f64) -> [f64; 4] {
+    [x, y, z, w]
+}
+
+/// Construct a vector from 2-4 scalar components or pass through a vector.
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn vec(args: &[Value]) -> Value {
+    if args.len() == 1 {
+        return match &args[0] {
+            Value::Vec2(v) => Value::Vec2(*v),
+            Value::Vec3(v) => Value::Vec3(*v),
+            Value::Vec4(v) => Value::Vec4(*v),
+            _ => panic!("vector.vec expects a vector or 2-4 scalar components"),
+        };
+    }
+
+    let mut components = Vec::new();
+    for arg in args {
+        if let Some(v) = arg.as_scalar() {
+            components.push(v);
+        } else {
+            panic!("vector.vec expects scalar components");
+        }
+    }
+
+    match components.len() {
+        2 => Value::Vec2([components[0], components[1]]),
+        3 => Value::Vec3([components[0], components[1], components[2]]),
+        4 => Value::Vec4([components[0], components[1], components[2], components[3]]),
+        _ => panic!("vector.vec expects 2-4 scalar components"),
+    }
+}
+
+/// Vector length/magnitude: `length(x, y, z)` or `length(vec)`
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn length(args: &[Value]) -> f64 {
+    if args.len() == 1 {
+        // Single argument: expect vector type
+        match &args[0] {
+            Value::Vec2(v) => (v[0] * v[0] + v[1] * v[1]).sqrt(),
+            Value::Vec3(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt(),
+            Value::Vec4(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt(),
+            Value::Scalar(s) => s.abs(),
+            _ => 0.0,
+        }
+    } else {
+        // Multiple arguments: treat as components
+        let mut sum_sq = 0.0;
+        for arg in args {
+            if let Some(v) = arg.as_scalar() {
+                sum_sq += v * v;
+            }
+        }
+        sum_sq.sqrt()
+    }
+}
+
+/// Normalize a vector: `normalize(vec)` or `normalize(x, y, z)`
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn normalize(args: &[Value]) -> Value {
+    if args.len() == 1 {
+        match &args[0] {
+            Value::Vec2(v) => {
+                let mag = (v[0] * v[0] + v[1] * v[1]).sqrt();
+                if mag > 0.0 {
+                    Value::Vec2([v[0] / mag, v[1] / mag])
+                } else {
+                    Value::Vec2([0.0, 0.0])
+                }
+            }
+            Value::Vec3(v) => {
+                let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+                if mag > 0.0 {
+                    Value::Vec3([v[0] / mag, v[1] / mag, v[2] / mag])
+                } else {
+                    Value::Vec3([0.0, 0.0, 0.0])
+                }
+            }
+            Value::Vec4(v) => {
+                let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt();
+                if mag > 0.0 {
+                    Value::Vec4([v[0] / mag, v[1] / mag, v[2] / mag, v[3] / mag])
+                } else {
+                    Value::Vec4([0.0, 0.0, 0.0, 0.0])
+                }
+            }
+            Value::Scalar(s) => Value::Scalar(s.signum()),
+            v => v.clone(),
+        }
+    } else {
+        // Multiple scalar args -> return normalized vector
+        // Infer dimension from arg count
+        let mut components = Vec::new();
+        let mut sum_sq = 0.0;
+        for arg in args {
+            if let Some(v) = arg.as_scalar() {
+                components.push(v);
+                sum_sq += v * v;
+            }
+        }
+
+        let mag = sum_sq.sqrt();
+        if mag > 0.0 {
+            for c in &mut components {
+                *c /= mag;
+            }
+        }
+
+        match components.len() {
+            2 => Value::Vec2([components[0], components[1]]),
+            3 => Value::Vec3([components[0], components[1], components[2]]),
+            4 => Value::Vec4([components[0], components[1], components[2], components[3]]),
+            _ => Value::Scalar(0.0), // Error or fallback
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{Arity, get, is_known};
+    use super::*;
+    use continuum_kernel_registry::{Arity, Value, get_in_namespace, is_known_in};
 
     #[test]
     fn test_vec2_registered() {
-        assert!(is_known("vec2"));
-        let desc = get("vec2").unwrap();
+        assert!(is_known_in("vector", "vec2"));
+        let desc = get_in_namespace("vector", "vec2").unwrap();
         assert_eq!(desc.arity, Arity::Fixed(2));
-        assert!(!desc.requires_dt());
     }
 
     #[test]
     fn test_vec3_registered() {
-        assert!(is_known("vec3"));
-        let desc = get("vec3").unwrap();
+        assert!(is_known_in("vector", "vec3"));
+        let desc = get_in_namespace("vector", "vec3").unwrap();
         assert_eq!(desc.arity, Arity::Fixed(3));
-        assert!(!desc.requires_dt());
+    }
+
+    #[test]
+    fn test_vec4_registered() {
+        assert!(is_known_in("vector", "vec4"));
+        let desc = get_in_namespace("vector", "vec4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(4));
+    }
+
+    #[test]
+    fn test_vec_variadic_registered() {
+        assert!(is_known_in("vector", "vec"));
+        let desc = get_in_namespace("vector", "vec").unwrap();
+        assert_eq!(desc.arity, Arity::Variadic);
+    }
+
+    #[test]
+    fn test_length_variadic() {
+        let args = [Value::Scalar(3.0), Value::Scalar(4.0)];
+        let res = length(&args);
+        assert_eq!(res, 5.0);
+    }
+
+    #[test]
+    fn test_length_vector() {
+        let args = [Value::Vec3([1.0, 2.0, 2.0])];
+        let res = length(&args);
+        assert_eq!(res, 3.0);
+    }
+
+    #[test]
+    fn test_vec_variadic_value() {
+        let args = [Value::Scalar(1.0), Value::Scalar(2.0), Value::Scalar(3.0)];
+        let res = vec(&args);
+        assert_eq!(res, Value::Vec3([1.0, 2.0, 3.0]));
     }
 }

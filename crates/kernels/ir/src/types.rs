@@ -5,7 +5,8 @@ use indexmap::IndexMap;
 use continuum_dsl::ast::Span;
 use continuum_foundation::{
     ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
-    OperatorId, Path, SignalId, StratumId, TypeId,
+    OperatorId, Path, PrimitiveParamKind, PrimitiveStorageClass, PrimitiveTypeDef, PrimitiveTypeId,
+    SignalId, StratumId, TypeId, Value, primitive_type_by_name,
 };
 
 // Re-export StratumState from foundation for backwards compatibility
@@ -503,43 +504,222 @@ pub enum AssertionSeverity {
 
 /// The type of a signal or field value.
 #[derive(Debug, Clone, PartialEq)]
-pub enum ValueType {
-    Scalar {
+pub struct ValueType {
+    pub primitive_id: PrimitiveTypeId,
+    pub params: Vec<ValueTypeParamValue>,
+    pub dimension: Option<crate::units::Unit>,
+    pub tensor_constraints: Vec<TensorConstraintIr>,
+    pub seq_constraints: Vec<SeqConstraintIr>,
+}
+
+/// Parameter values available on an IR value type.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ValueTypeParamValue {
+    Unit(String),
+    Range(ValueRange),
+    Magnitude(ValueRange),
+    Rows(u8),
+    Cols(u8),
+    Width(u32),
+    Height(u32),
+    ElementType(Box<ValueType>),
+}
+
+impl ValueType {
+    pub fn scalar(
         unit: Option<String>,
         dimension: Option<crate::units::Unit>,
         range: Option<ValueRange>,
-    },
-    Vec2 {
+    ) -> Self {
+        let mut params = Vec::new();
+        if let Some(unit) = unit {
+            params.push(ValueTypeParamValue::Unit(unit));
+        }
+        if let Some(range) = range {
+            params.push(ValueTypeParamValue::Range(range));
+        }
+        Self {
+            primitive_id: PrimitiveTypeId::new("Scalar"),
+            params,
+            dimension,
+            tensor_constraints: Vec::new(),
+            seq_constraints: Vec::new(),
+        }
+    }
+
+    pub fn scalar_untyped() -> Self {
+        Self::scalar(None, None, None)
+    }
+
+    pub fn vector(
+        dim: u8,
         unit: Option<String>,
         dimension: Option<crate::units::Unit>,
         magnitude: Option<ValueRange>,
-    },
-    Vec3 {
-        unit: Option<String>,
-        dimension: Option<crate::units::Unit>,
-        magnitude: Option<ValueRange>,
-    },
-    Vec4 {
-        unit: Option<String>,
-        dimension: Option<crate::units::Unit>,
-        magnitude: Option<ValueRange>,
-    },
-    Tensor {
+    ) -> Self {
+        let name = match dim {
+            2 => "Vec2",
+            3 => "Vec3",
+            4 => "Vec4",
+            _ => "Vec4",
+        };
+        let mut params = Vec::new();
+        if let Some(unit) = unit {
+            params.push(ValueTypeParamValue::Unit(unit));
+        }
+        if let Some(magnitude) = magnitude {
+            params.push(ValueTypeParamValue::Magnitude(magnitude));
+        }
+        Self {
+            primitive_id: PrimitiveTypeId::new(name),
+            params,
+            dimension,
+            tensor_constraints: Vec::new(),
+            seq_constraints: Vec::new(),
+        }
+    }
+
+    pub fn vector_untyped(dim: u8) -> Self {
+        Self::vector(dim, None, None, None)
+    }
+
+    pub fn vec2_untyped() -> Self {
+        Self::vector_untyped(2)
+    }
+
+    pub fn vec3_untyped() -> Self {
+        Self::vector_untyped(3)
+    }
+
+    pub fn vec4_untyped() -> Self {
+        Self::vector_untyped(4)
+    }
+
+    pub fn quat(magnitude: Option<ValueRange>) -> Self {
+        let mut params = Vec::new();
+        if let Some(magnitude) = magnitude {
+            params.push(ValueTypeParamValue::Magnitude(magnitude));
+        }
+        Self {
+            primitive_id: PrimitiveTypeId::new("Quat"),
+            params,
+            dimension: None,
+            tensor_constraints: Vec::new(),
+            seq_constraints: Vec::new(),
+        }
+    }
+
+    pub fn tensor(
         rows: u8,
         cols: u8,
         unit: Option<String>,
         dimension: Option<crate::units::Unit>,
         constraints: Vec<TensorConstraintIr>,
-    },
-    Grid {
-        width: u32,
-        height: u32,
-        element_type: Box<ValueType>,
-    },
-    Seq {
-        element_type: Box<ValueType>,
-        constraints: Vec<SeqConstraintIr>,
-    },
+    ) -> Self {
+        let mut params = vec![
+            ValueTypeParamValue::Rows(rows),
+            ValueTypeParamValue::Cols(cols),
+        ];
+        if let Some(unit) = unit {
+            params.push(ValueTypeParamValue::Unit(unit));
+        }
+        Self {
+            primitive_id: PrimitiveTypeId::new("Tensor"),
+            params,
+            dimension,
+            tensor_constraints: constraints,
+            seq_constraints: Vec::new(),
+        }
+    }
+
+    pub fn grid(width: u32, height: u32, element_type: ValueType) -> Self {
+        Self {
+            primitive_id: PrimitiveTypeId::new("Grid"),
+            params: vec![
+                ValueTypeParamValue::Width(width),
+                ValueTypeParamValue::Height(height),
+                ValueTypeParamValue::ElementType(Box::new(element_type)),
+            ],
+            dimension: None,
+            tensor_constraints: Vec::new(),
+            seq_constraints: Vec::new(),
+        }
+    }
+
+    pub fn seq(element_type: ValueType, constraints: Vec<SeqConstraintIr>) -> Self {
+        Self {
+            primitive_id: PrimitiveTypeId::new("Seq"),
+            params: vec![ValueTypeParamValue::ElementType(Box::new(element_type))],
+            dimension: None,
+            tensor_constraints: Vec::new(),
+            seq_constraints: constraints,
+        }
+    }
+
+    /// Returns the primitive identifier for this value type.
+    pub fn primitive_id(&self) -> PrimitiveTypeId {
+        self.primitive_id
+    }
+
+    /// Returns registry metadata for this value type.
+    pub fn primitive_def(&self) -> &'static PrimitiveTypeDef {
+        primitive_type_by_name(self.primitive_id.name())
+            .expect("primitive type missing from registry")
+    }
+
+    /// Returns the storage class for this value type.
+    pub fn storage_class(&self) -> PrimitiveStorageClass {
+        self.primitive_def().storage
+    }
+
+    /// Returns component names for vector-like types.
+    pub fn component_names(&self) -> Option<&'static [&'static str]> {
+        self.primitive_def().components
+    }
+
+    /// Returns the dimension associated with this type, if any.
+    pub fn dimension(&self) -> Option<crate::units::Unit> {
+        if let Some(dimension) = self.dimension {
+            return Some(dimension);
+        }
+        if self.primitive_id.name() == "Quat" {
+            Some(crate::units::Unit::dimensionless())
+        } else {
+            None
+        }
+    }
+
+    /// Returns a parameter value by kind, if present.
+    pub fn param_value(&self, kind: PrimitiveParamKind) -> Option<&ValueTypeParamValue> {
+        self.params.iter().find(|param| match (kind, param) {
+            (PrimitiveParamKind::Unit, ValueTypeParamValue::Unit(_)) => true,
+            (PrimitiveParamKind::Range, ValueTypeParamValue::Range(_)) => true,
+            (PrimitiveParamKind::Magnitude, ValueTypeParamValue::Magnitude(_)) => true,
+            (PrimitiveParamKind::Rows, ValueTypeParamValue::Rows(_)) => true,
+            (PrimitiveParamKind::Cols, ValueTypeParamValue::Cols(_)) => true,
+            (PrimitiveParamKind::Width, ValueTypeParamValue::Width(_)) => true,
+            (PrimitiveParamKind::Height, ValueTypeParamValue::Height(_)) => true,
+            (PrimitiveParamKind::ElementType, ValueTypeParamValue::ElementType(_)) => true,
+            _ => false,
+        })
+    }
+
+    /// Returns a default value for this type.
+    pub fn default_value(&self) -> Value {
+        match self.storage_class() {
+            PrimitiveStorageClass::Scalar => Value::Scalar(0.0),
+            PrimitiveStorageClass::Vec2 => Value::Vec2([0.0; 2]),
+            PrimitiveStorageClass::Vec3 => Value::Vec3([0.0; 3]),
+            PrimitiveStorageClass::Vec4 => {
+                if self.primitive_id.name() == "Quat" {
+                    Value::Quat([1.0, 0.0, 0.0, 0.0])
+                } else {
+                    Value::Vec4([0.0; 4])
+                }
+            }
+            _ => Value::Scalar(0.0),
+        }
+    }
 }
 
 /// A numeric range constraint for scalar values.
@@ -604,13 +784,9 @@ pub enum CompiledExpr {
         args: Vec<CompiledExpr>,
     },
     KernelCall {
+        namespace: String,
         function: String,
         args: Vec<CompiledExpr>,
-    },
-    DtRobustCall {
-        operator: DtRobustOperator,
-        args: Vec<CompiledExpr>,
-        method: IntegrationMethod,
     },
     FieldAccess {
         object: Box<CompiledExpr>,
@@ -698,9 +874,7 @@ impl CompiledExpr {
                 then_branch.collect_signal_dependencies(deps);
                 else_branch.collect_signal_dependencies(deps);
             }
-            CompiledExpr::Call { args, .. }
-            | CompiledExpr::KernelCall { args, .. }
-            | CompiledExpr::DtRobustCall { args, .. } => {
+            CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
                 for arg in args {
                     arg.collect_signal_dependencies(deps);
                 }
@@ -778,27 +952,6 @@ pub enum BinaryOpIr {
 pub enum UnaryOpIr {
     Neg,
     Not,
-}
-
-/// dt-robust operators that provide numerically stable time integration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum DtRobustOperator {
-    Integrate,
-    Decay,
-    Relax,
-    Accumulate,
-    AdvancePhase,
-    Smooth,
-    Damp,
-}
-
-/// Integration method for dt-robust operators.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub enum IntegrationMethod {
-    #[default]
-    Euler,
-    Rk4,
-    Verlet,
 }
 
 impl_locatable!(CompiledSignal);

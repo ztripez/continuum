@@ -1,5 +1,33 @@
 use super::*;
-use crate::ast::{BinaryOp, Expr, Item, Literal, TypeExpr, UnaryOp};
+use crate::ast::{
+    BinaryOp, Expr, Item, Literal, PrimitiveParamValue, PrimitiveTypeExpr, TypeExpr, UnaryOp,
+};
+use continuum_foundation::PrimitiveParamKind;
+
+fn expect_primitive<'a>(expr: &'a TypeExpr, expected: &str) -> &'a PrimitiveTypeExpr {
+    match expr {
+        TypeExpr::Primitive(primitive) => {
+            assert_eq!(primitive.id.name(), expected);
+            primitive
+        }
+        TypeExpr::Named(name) => panic!("Expected primitive type, got named '{name}'"),
+    }
+}
+
+fn find_param<'a>(
+    primitive: &'a PrimitiveTypeExpr,
+    kind: PrimitiveParamKind,
+) -> Option<&'a PrimitiveParamValue> {
+    primitive.params.iter().find(|param| param.kind() == kind)
+}
+
+fn expect_unit<'a>(expr: &'a TypeExpr, expected_type: &str) -> &'a str {
+    let primitive = expect_primitive(expr, expected_type);
+    match find_param(primitive, PrimitiveParamKind::Unit) {
+        Some(PrimitiveParamValue::Unit(unit)) => unit,
+        _ => panic!("expected {expected_type} unit"),
+    }
+}
 
 #[test]
 fn test_parse_comparison_with_unit_repro() {
@@ -150,7 +178,7 @@ fn test_parse_signal_with_tensor_constraints() {
         Item::SignalDef(def) => {
             // Verify the type is Tensor
             let ty = def.ty.as_ref().expect("should have type");
-            assert!(matches!(ty.node, TypeExpr::Tensor { .. }));
+            expect_primitive(&ty.node, "Tensor");
             // Constraints are now stored on SignalDef, not TypeExpr
             assert_eq!(def.tensor_constraints.len(), 2);
             assert_eq!(
@@ -187,7 +215,7 @@ fn test_parse_signal_with_seq_constraints() {
         Item::SignalDef(def) => {
             // Verify the type is Seq
             let ty = def.ty.as_ref().expect("should have type");
-            assert!(matches!(ty.node, TypeExpr::Seq { .. }));
+            expect_primitive(&ty.node, "Seq");
             // Constraints are now stored on SignalDef, not TypeExpr
             assert_eq!(def.seq_constraints.len(), 2);
             match &def.seq_constraints[0] {
@@ -411,20 +439,18 @@ fn test_parse_vector_with_magnitude_range() {
     match &unit.items[0].node {
         Item::TypeDef(def) => {
             assert_eq!(def.fields.len(), 1);
-            match &def.fields[0].ty.node {
-                TypeExpr::Vector {
-                    dim,
-                    unit,
-                    magnitude,
-                } => {
-                    assert_eq!(*dim, 3);
-                    assert_eq!(unit, "m");
-                    let mag = magnitude.as_ref().expect("should have magnitude");
-                    assert_eq!(mag.min, 1e10);
-                    assert_eq!(mag.max, 1e12);
-                }
-                _ => panic!("expected Vector type"),
-            }
+            let primitive = expect_primitive(&def.fields[0].ty.node, "Vec3");
+            let unit = match find_param(primitive, PrimitiveParamKind::Unit) {
+                Some(PrimitiveParamValue::Unit(unit)) => unit,
+                _ => panic!("expected Vec3 unit"),
+            };
+            assert_eq!(unit, "m");
+            let magnitude = match find_param(primitive, PrimitiveParamKind::Magnitude) {
+                Some(PrimitiveParamValue::Magnitude(range)) => range,
+                _ => panic!("expected Vec3 magnitude"),
+            };
+            assert_eq!(magnitude.min, 1e10);
+            assert_eq!(magnitude.max, 1e12);
         }
         _ => panic!("expected TypeDef"),
     }
@@ -443,23 +469,19 @@ fn test_parse_vec4_unit_quaternion() {
     let unit = result.unwrap();
     match &unit.items[0].node {
         Item::TypeDef(def) => {
-            match &def.fields[0].ty.node {
-                TypeExpr::Vector {
-                    dim,
-                    unit,
-                    magnitude,
-                } => {
-                    assert_eq!(*dim, 4);
-                    assert_eq!(unit, "1");
-                    let mag = magnitude
-                        .as_ref()
-                        .expect("should have magnitude constraint");
-                    // Single value 1 is converted to range 1..1
-                    assert_eq!(mag.min, 1.0);
-                    assert_eq!(mag.max, 1.0);
-                }
-                _ => panic!("expected Vector type"),
-            }
+            let primitive = expect_primitive(&def.fields[0].ty.node, "Vec4");
+            let unit = match find_param(primitive, PrimitiveParamKind::Unit) {
+                Some(PrimitiveParamValue::Unit(unit)) => unit,
+                _ => panic!("expected Vec4 unit"),
+            };
+            assert_eq!(unit, "1");
+            let magnitude = match find_param(primitive, PrimitiveParamKind::Magnitude) {
+                Some(PrimitiveParamValue::Magnitude(range)) => range,
+                _ => panic!("expected Vec4 magnitude"),
+            };
+            // Single value 1 is converted to range 1..1
+            assert_eq!(magnitude.min, 1.0);
+            assert_eq!(magnitude.max, 1.0);
         }
         _ => panic!("expected TypeDef"),
     }
@@ -899,10 +921,8 @@ fn test_parse_unicode_unit_superscripts() {
     match &unit.items[0].node {
         Item::SignalDef(def) => {
             let ty = def.ty.as_ref().unwrap();
-            match &ty.node {
-                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "kg/m³"),
-                _ => panic!("expected Scalar"),
-            }
+            let unit = expect_unit(&ty.node, "Scalar");
+            assert_eq!(unit, "kg/m³");
         }
         _ => panic!("expected SignalDef"),
     }
@@ -910,10 +930,8 @@ fn test_parse_unicode_unit_superscripts() {
     match &unit.items[1].node {
         Item::SignalDef(def) => {
             let ty = def.ty.as_ref().unwrap();
-            match &ty.node {
-                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "W/m²"),
-                _ => panic!("expected Scalar"),
-            }
+            let unit = expect_unit(&ty.node, "Scalar");
+            assert_eq!(unit, "W/m²");
         }
         _ => panic!("expected SignalDef"),
     }
@@ -921,10 +939,8 @@ fn test_parse_unicode_unit_superscripts() {
     match &unit.items[2].node {
         Item::SignalDef(def) => {
             let ty = def.ty.as_ref().unwrap();
-            match &ty.node {
-                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "m/s²"),
-                _ => panic!("expected Scalar"),
-            }
+            let unit = expect_unit(&ty.node, "Scalar");
+            assert_eq!(unit, "m/s²");
         }
         _ => panic!("expected SignalDef"),
     }
@@ -932,10 +948,8 @@ fn test_parse_unicode_unit_superscripts() {
     match &unit.items[3].node {
         Item::SignalDef(def) => {
             let ty = def.ty.as_ref().unwrap();
-            match &ty.node {
-                TypeExpr::Scalar { unit, .. } => assert_eq!(unit, "W/m²/K⁴"),
-                _ => panic!("expected Scalar"),
-            }
+            let unit = expect_unit(&ty.node, "Scalar");
+            assert_eq!(unit, "W/m²/K⁴");
         }
         _ => panic!("expected SignalDef"),
     }
@@ -957,15 +971,15 @@ fn test_parse_unicode_unit_with_range() {
     match &unit.items[0].node {
         Item::SignalDef(def) => {
             let ty = def.ty.as_ref().unwrap();
-            match &ty.node {
-                TypeExpr::Scalar { unit, range } => {
-                    assert_eq!(unit, "kg/m³");
-                    let r = range.as_ref().unwrap();
-                    assert_eq!(r.min, 1000.0);
-                    assert_eq!(r.max, 10000.0);
-                }
-                _ => panic!("expected Scalar"),
-            }
+            let primitive = expect_primitive(&ty.node, "Scalar");
+            let unit = expect_unit(&ty.node, "Scalar");
+            assert_eq!(unit, "kg/m³");
+            let range = match find_param(primitive, PrimitiveParamKind::Range) {
+                Some(PrimitiveParamValue::Range(range)) => range,
+                _ => panic!("expected Scalar range"),
+            };
+            assert_eq!(range.min, 1000.0);
+            assert_eq!(range.max, 10000.0);
         }
         _ => panic!("expected SignalDef"),
     }
@@ -987,15 +1001,15 @@ fn test_parse_unit_with_multiplication() {
     match &unit.items[0].node {
         Item::SignalDef(def) => {
             let ty = def.ty.as_ref().unwrap();
-            match &ty.node {
-                TypeExpr::Scalar { unit, range } => {
-                    assert_eq!(unit, "Pa*s");
-                    let r = range.as_ref().unwrap();
-                    assert_eq!(r.min, 0.0);
-                    assert_eq!(r.max, 1e24);
-                }
-                _ => panic!("expected Scalar"),
-            }
+            let primitive = expect_primitive(&ty.node, "Scalar");
+            let unit = expect_unit(&ty.node, "Scalar");
+            assert_eq!(unit, "Pa*s");
+            let range = match find_param(primitive, PrimitiveParamKind::Range) {
+                Some(PrimitiveParamValue::Range(range)) => range,
+                _ => panic!("expected Scalar range"),
+            };
+            assert_eq!(range.min, 0.0);
+            assert_eq!(range.max, 1e24);
         }
         _ => panic!("expected SignalDef"),
     }
@@ -1017,15 +1031,15 @@ fn test_parse_unit_with_multiple_slashes() {
     match &unit.items[0].node {
         Item::SignalDef(def) => {
             let ty = def.ty.as_ref().unwrap();
-            match &ty.node {
-                TypeExpr::Scalar { unit, range } => {
-                    assert_eq!(unit, "kg/m²/yr");
-                    let r = range.as_ref().unwrap();
-                    assert_eq!(r.min, 0.0);
-                    assert_eq!(r.max, 1.0);
-                }
-                _ => panic!("expected Scalar"),
-            }
+            let primitive = expect_primitive(&ty.node, "Scalar");
+            let unit = expect_unit(&ty.node, "Scalar");
+            assert_eq!(unit, "kg/m²/yr");
+            let range = match find_param(primitive, PrimitiveParamKind::Range) {
+                Some(PrimitiveParamValue::Range(range)) => range,
+                _ => panic!("expected Scalar range"),
+            };
+            assert_eq!(range.min, 0.0);
+            assert_eq!(range.max, 1.0);
         }
         _ => panic!("expected SignalDef"),
     }
@@ -1057,15 +1071,15 @@ signal.mantle.viscosity {
     match &unit.items[0].node {
         Item::SignalDef(def) => {
             let ty = def.ty.as_ref().unwrap();
-            match &ty.node {
-                TypeExpr::Scalar { unit, range } => {
-                    assert_eq!(unit, "Pa*s");
-                    let r = range.as_ref().unwrap();
-                    assert_eq!(r.min, 0.0);
-                    assert_eq!(r.max, 1e24);
-                }
-                _ => panic!("expected Scalar"),
-            }
+            let primitive = expect_primitive(&ty.node, "Scalar");
+            let unit = expect_unit(&ty.node, "Scalar");
+            assert_eq!(unit, "Pa*s");
+            let range = match find_param(primitive, PrimitiveParamKind::Range) {
+                Some(PrimitiveParamValue::Range(range)) => range,
+                _ => panic!("expected Scalar range"),
+            };
+            assert_eq!(range.min, 0.0);
+            assert_eq!(range.max, 1e24);
         }
         _ => panic!("expected SignalDef"),
     }

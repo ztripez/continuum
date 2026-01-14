@@ -26,15 +26,15 @@ If changing `dt` changes qualitative behavior, the model is wrong.
 
 ## 2. The Solution: dt-Robust Operators
 
-Instead of raw `dt`, authors use **semantic operators** that express intent:
+Instead of raw `dt`, authors use **semantic operators** exposed as standard library calls under `dt.*` that express intent:
 
 | Intent | Raw (fragile) | dt-Robust |
 |--------|---------------|-----------|
-| Accumulate rate | `prev + rate * dt` | `integrate(prev, rate)` |
-| Decay toward zero | `prev * (1 - k * dt)` | `decay(prev, halflife)` |
-| Relax toward target | `prev + (target - prev) * k * dt` | `relax(prev, target, tau)` |
-| Bounded accumulation | `clamp(prev + delta * dt, 0, max)` | `accumulate(prev, delta, 0..max)` |
-| Phase advancement | `wrap(prev + omega * dt, 0, TAU)` | `advance_phase(prev, omega)` |
+| Accumulate rate | `prev + rate * dt` | `dt.integrate(prev, rate)` |
+| Decay toward zero | `prev * (1 - k * dt)` | `dt.decay(prev, halflife)` |
+| Relax toward target | `prev + (target - prev) * k * dt` | `dt.relax(prev, target, tau)` |
+| Bounded accumulation | `clamp(prev + delta * dt, 0, max)` | `dt.accumulate(prev, delta, 0, max)` |
+| Phase advancement | `wrap(prev + omega * dt, 0, TAU)` | `dt.advance_phase(prev, omega)` |
 
 The engine implements these with proper numerical methods.
 
@@ -75,10 +75,10 @@ If uncertain, prefer dt-robust operators.
 ### Integration
 
 ```
-integrate(prev, rate)
-integrate(prev, rate, method: euler)
-integrate(prev, rate, method: rk4)
-integrate(prev, rate, method: verlet)
+dt.integrate(prev, rate)
+dt.integrate_euler(prev, rate)
+dt.integrate_rk4(prev, rate)
+dt.integrate_verlet(prev, rate)
 ```
 
 Accumulates a rate over time. Default method chosen for stability.
@@ -86,9 +86,7 @@ Accumulates a rate over time. Default method chosen for stability.
 ### Decay
 
 ```
-decay(value, halflife)        // value * 0.5^(dt/halflife)
-decay(value, rate: k)         // value * e^(-k*dt)
-decay(value, tau)             // value * e^(-dt/tau)
+dt.decay(value, halflife)        // value * 0.5^(dt/halflife)
 ```
 
 Exponential decay toward zero. Exact solution, stable at any dt.
@@ -96,9 +94,7 @@ Exponential decay toward zero. Exact solution, stable at any dt.
 ### Relaxation
 
 ```
-relax(current, target, tau)
-relax(current, target, tau, method: exp)
-relax(current, target, halflife)
+dt.relax(current, target, tau)
 ```
 
 Exponential relaxation toward a target value:
@@ -110,9 +106,8 @@ Exact exponential solution, stable at any dt.
 ### Bounded Accumulation
 
 ```
-accumulate(prev, delta, bounds)
-accumulate(prev, delta, 0..max)
-accumulate(prev, delta, min..max)
+dt.accumulate(prev, delta, min, max)
+dt.accumulate(prev, delta, 0, max)
 ```
 
 Integrates with clamping. Prevents overflow/underflow.
@@ -120,9 +115,7 @@ Integrates with clamping. Prevents overflow/underflow.
 ### Phase Advancement
 
 ```
-advance_phase(phase, omega)
-advance_phase(phase, omega, period)
-advance_phase(phase, omega, 0..TAU)
+dt.advance_phase(phase, omega)
 ```
 
 Advances a cyclic quantity, wrapping at bounds. Default period is TAU (2π).
@@ -130,8 +123,7 @@ Advances a cyclic quantity, wrapping at bounds. Default period is TAU (2π).
 ### Smoothing
 
 ```
-smooth(prev, input, tau)
-smooth(prev, input, samples: N)
+dt.smooth(prev, input, tau)
 ```
 
 Exponential moving average. `samples: N` gives equivalent N-sample EMA behavior.
@@ -139,11 +131,10 @@ Exponential moving average. `samples: N` gives equivalent N-sample EMA behavior.
 ### Damping (Spring-Damper)
 
 ```
-damp(position, velocity, target, stiffness, damping)
-damp(state, target, omega, zeta)  // canonical form
+dt.damp(value, damping_factor)
 ```
 
-Second-order spring-damper system. Stable even at large dt.
+Exponential damping for scalar values. Stable at large dt.
 
 ---
 
@@ -174,7 +165,7 @@ signal.terra.temperature {
 
   resolve {
     // relax() is stable, but if target is extreme, assertion fires
-    relax(prev, signal.terra.heat_input * 1e10, 1000 <s>)
+    dt.relax(prev, signal.terra.heat_input * 1e10, 1000 <s>)
   }
 }
 ```
@@ -221,7 +212,8 @@ signal.terra.surface.temperature {
       signal.stellar.flux,
       signal.terra.albedo
     ) in
-    relax(prev, equilibrium, config.terra.thermal_tau)
+    dt.relax(prev, equilibrium, config.terra.thermal_tau)
+
   }
 }
 ```
@@ -234,7 +226,8 @@ signal.terra.core.radiogenic_heat {
   : strata(terra.thermal)
 
   resolve {
-    decay(prev, config.terra.radiogenic_halflife)
+    dt.decay(prev, config.terra.radiogenic_halflife)
+
   }
 }
 ```
@@ -249,7 +242,7 @@ signal.terra.orbit.true_anomaly {
 
   resolve {
     let n = fn.mean_motion(signal.stellar.mass, signal.terra.orbit.semi_major) in
-    advance_phase(prev, n)
+    dt.advance_phase(prev, n)
   }
 }
 ```
@@ -262,7 +255,7 @@ signal.terra.chandler_wobble {
   : strata(terra.rotation)
 
   resolve {
-    damp(prev, Vec2(0, 0), omega: config.chandler_frequency, zeta: config.chandler_damping)
+    dt.damp(prev, config.chandler_damping)
   }
 }
 ```

@@ -40,6 +40,8 @@ pub struct OperatorDeps {
 /// A kernel function call within an operator.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct KernelCall {
+    /// Namespace of the kernel function.
+    pub namespace: String,
     /// Name of the kernel function.
     pub function: String,
     /// Number of arguments.
@@ -85,8 +87,13 @@ impl OperatorDeps {
             CompiledExpr::Config(name, _) => {
                 self.configs.insert(name.clone());
             }
-            CompiledExpr::KernelCall { function, args } => {
+            CompiledExpr::KernelCall {
+                namespace,
+                function,
+                args,
+            } => {
                 self.kernel_calls.push(KernelCall {
+                    namespace: namespace.clone(),
                     function: function.clone(),
                     arity: args.len(),
                 });
@@ -118,11 +125,6 @@ impl OperatorDeps {
             CompiledExpr::Let { value, body, .. } => {
                 self.extract_from_expr(value);
                 self.extract_from_expr(body);
-            }
-            CompiledExpr::DtRobustCall { args, .. } => {
-                for arg in args {
-                    self.extract_from_expr(arg);
-                }
             }
             CompiledExpr::FieldAccess { object, .. } => {
                 self.extract_from_expr(object);

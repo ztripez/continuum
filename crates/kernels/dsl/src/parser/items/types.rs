@@ -42,9 +42,7 @@ fn type_field<'src>()
 
 pub fn type_expr<'src>()
 -> impl Parser<'src, ParserInput<'src>, TypeExpr, extra::Err<ParseError<'src>>> + Clone {
-    recursive(|type_expr_recurse| {
-        primitive_type_parser(type_expr_recurse.clone()).or(ident().map(TypeExpr::Named))
-    })
+    recursive(|type_expr_recurse| primitive_type_parser(type_expr_recurse.clone()))
 }
 
 // === Function Definitions ===

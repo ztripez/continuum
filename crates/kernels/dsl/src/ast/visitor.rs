@@ -17,7 +17,8 @@ use super::items::{
     Topology, Transition, TypeDef, TypeField, ValueWithUnit, WarmupBlock, WorldDef,
 };
 use super::{
-    CompilationUnit, Expr, Item, Path, Range, SeqConstraint, Spanned, TensorConstraint, TypeExpr,
+    CompilationUnit, Expr, Item, Path, PrimitiveParamValue, PrimitiveTypeExpr, Range,
+    SeqConstraint, Spanned, TensorConstraint, TypeExpr,
 };
 
 /// Visitor trait for expression traversal.
@@ -185,6 +186,11 @@ pub trait ExprVisitor {
 
     /// Visit struct literal. Children: field values.
     fn visit_struct(&mut self) -> bool {
+        true
+    }
+
+    /// Visit vector literal. Children: elements.
+    fn visit_vector(&mut self) -> bool {
         true
     }
 
@@ -404,6 +410,11 @@ pub trait SpannedExprVisitor {
 
     /// Visit struct literal.
     fn visit_struct(&mut self, _span: std::ops::Range<usize>) -> bool {
+        true
+    }
+
+    /// Visit vector literal.
+    fn visit_vector(&mut self, _span: std::ops::Range<usize>) -> bool {
         true
     }
 
@@ -629,6 +640,13 @@ pub fn walk_expr<V: ExprVisitor + ?Sized>(visitor: &mut V, expr: &Expr) {
                 }
             }
         }
+        Expr::Vector(elems) => {
+            if visitor.visit_vector() {
+                for elem in elems {
+                    visitor.walk_spanned(elem);
+                }
+            }
+        }
         Expr::Map { sequence, function } => {
             if visitor.visit_map() {
                 visitor.walk_spanned(sequence);
@@ -835,6 +853,13 @@ pub fn walk_spanned_expr<V: SpannedExprVisitor + ?Sized>(visitor: &mut V, expr: 
             if visitor.visit_struct(span) {
                 for (_, val) in fields {
                     visitor.walk(val);
+                }
+            }
+        }
+        Expr::Vector(elems) => {
+            if visitor.visit_vector(span) {
+                for elem in elems {
+                    visitor.walk(elem);
                 }
             }
         }
@@ -1508,30 +1533,24 @@ pub fn walk_call_arg<V: AstVisitor + ?Sized>(visitor: &mut V, arg: &CallArg) {
 
 pub fn walk_type_expr<V: AstVisitor + ?Sized>(visitor: &mut V, expr: &TypeExpr) {
     match expr {
-        TypeExpr::Scalar { range, .. } => {
-            if let Some(range) = range {
-                visitor.visit_range(range);
+        TypeExpr::Primitive(primitive) => {
+            for param in &primitive.params {
+                match param {
+                    PrimitiveParamValue::Range(range) | PrimitiveParamValue::Magnitude(range) => {
+                        visitor.visit_range(range)
+                    }
+                    PrimitiveParamValue::ElementType(inner) => visitor.visit_type_expr(inner),
+                    PrimitiveParamValue::Unit(_)
+                    | PrimitiveParamValue::Rows(_)
+                    | PrimitiveParamValue::Cols(_)
+                    | PrimitiveParamValue::Width(_)
+                    | PrimitiveParamValue::Height(_) => {}
+                }
             }
-        }
-        TypeExpr::Vector { magnitude, .. } => {
-            if let Some(range) = magnitude {
-                visitor.visit_range(range);
-            }
-        }
-        TypeExpr::Tensor { constraints, .. } => {
-            for constraint in constraints {
+            for constraint in &primitive.constraints {
                 visitor.visit_tensor_constraint(constraint);
             }
-        }
-        TypeExpr::Grid { element_type, .. } => {
-            visitor.visit_type_expr(element_type);
-        }
-        TypeExpr::Seq {
-            element_type,
-            constraints,
-        } => {
-            visitor.visit_type_expr(element_type);
-            for constraint in constraints {
+            for constraint in &primitive.seq_constraints {
                 visitor.visit_seq_constraint(constraint);
             }
         }
@@ -1624,6 +1643,11 @@ pub fn walk_ast_expr<V: AstVisitor + ?Sized>(visitor: &mut V, expr: &Spanned<Exp
         Expr::Struct(fields) => {
             for (_, value) in fields {
                 visitor.visit_expr(value);
+            }
+        }
+        Expr::Vector(elems) => {
+            for elem in elems {
+                visitor.visit_expr(elem);
             }
         }
         Expr::Map { sequence, function } => {
@@ -2553,52 +2577,46 @@ pub fn walk_type_expr_transform<T: AstTransformer + ?Sized>(
     expr: TypeExpr,
 ) -> TypeExpr {
     match expr {
-        TypeExpr::Scalar { unit, range } => TypeExpr::Scalar {
-            unit: transformer.transform_string(unit),
-            range: range.map(|range| transformer.transform_range(range)),
-        },
-        TypeExpr::Vector {
-            dim,
-            unit,
-            magnitude,
-        } => TypeExpr::Vector {
-            dim,
-            unit: transformer.transform_string(unit),
-            magnitude: magnitude.map(|range| transformer.transform_range(range)),
-        },
-        TypeExpr::Tensor {
-            rows,
-            cols,
-            unit,
-            constraints,
-        } => TypeExpr::Tensor {
-            rows,
-            cols,
-            unit: transformer.transform_string(unit),
-            constraints: constraints
+        TypeExpr::Primitive(primitive) => {
+            let params = primitive
+                .params
+                .into_iter()
+                .map(|param| match param {
+                    PrimitiveParamValue::Unit(unit) => {
+                        PrimitiveParamValue::Unit(transformer.transform_string(unit))
+                    }
+                    PrimitiveParamValue::Range(range) => {
+                        PrimitiveParamValue::Range(transformer.transform_range(range))
+                    }
+                    PrimitiveParamValue::Magnitude(range) => {
+                        PrimitiveParamValue::Magnitude(transformer.transform_range(range))
+                    }
+                    PrimitiveParamValue::Rows(value) => PrimitiveParamValue::Rows(value),
+                    PrimitiveParamValue::Cols(value) => PrimitiveParamValue::Cols(value),
+                    PrimitiveParamValue::Width(value) => PrimitiveParamValue::Width(value),
+                    PrimitiveParamValue::Height(value) => PrimitiveParamValue::Height(value),
+                    PrimitiveParamValue::ElementType(inner) => PrimitiveParamValue::ElementType(
+                        Box::new(transformer.transform_type_expr(*inner)),
+                    ),
+                })
+                .collect();
+            let constraints = primitive
+                .constraints
                 .into_iter()
                 .map(|constraint| transformer.transform_tensor_constraint(constraint))
-                .collect(),
-        },
-        TypeExpr::Grid {
-            width,
-            height,
-            element_type,
-        } => TypeExpr::Grid {
-            width,
-            height,
-            element_type: Box::new(transformer.transform_type_expr(*element_type)),
-        },
-        TypeExpr::Seq {
-            element_type,
-            constraints,
-        } => TypeExpr::Seq {
-            element_type: Box::new(transformer.transform_type_expr(*element_type)),
-            constraints: constraints
+                .collect();
+            let seq_constraints = primitive
+                .seq_constraints
                 .into_iter()
                 .map(|constraint| transformer.transform_seq_constraint(constraint))
-                .collect(),
-        },
+                .collect();
+            TypeExpr::Primitive(PrimitiveTypeExpr {
+                id: primitive.id,
+                params,
+                constraints,
+                seq_constraints,
+            })
+        }
         TypeExpr::Named(name) => TypeExpr::Named(transformer.transform_string(name)),
     }
 }
@@ -2704,6 +2722,12 @@ pub fn walk_ast_expr_transform<T: AstTransformer + ?Sized>(
                         transformer.transform_expr(expr),
                     )
                 })
+                .collect(),
+        ),
+        Expr::Vector(elems) => Expr::Vector(
+            elems
+                .into_iter()
+                .map(|elem| transformer.transform_expr(elem))
                 .collect(),
         ),
         Expr::Collected => Expr::Collected,

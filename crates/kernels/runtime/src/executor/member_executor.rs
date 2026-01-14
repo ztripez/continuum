@@ -535,7 +535,7 @@ mod tests {
 
     fn create_test_members(count: usize) -> MemberSignalBuffer {
         let mut buffer = MemberSignalBuffer::new();
-        buffer.register_signal("age".to_string(), crate::soa_storage::ValueType::Scalar);
+        buffer.register_signal("age".to_string(), crate::soa_storage::ValueType::scalar());
         buffer.init_instances(count);
         buffer
     }

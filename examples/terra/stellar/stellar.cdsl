@@ -182,9 +182,9 @@ member.stellar.star.orbit_phase {
     resolve {
         # Advance phase based on orbital period
         let mu = const.stellar.gravitational_constant * self.mass in
-        let period = TAU * sqrt(pow(self.orbit_radius, 3) / mu) in
-        let omega = TAU / max(period, 1.0) in
-        wrap(prev + omega * dt_raw, 0.0, TAU)
+        let period = TAU * maths.sqrt(maths.pow(self.orbit_radius, 3) / mu) in
+        let omega = TAU / maths.max(period, 1.0) in
+        maths.wrap(prev + omega * dt_raw, 0.0, TAU)
     }
 }
 
@@ -210,11 +210,11 @@ member.stellar.star.position {
 
     resolve {
         # Compute position from Keplerian elements
-        let r = self.orbit_radius * (1.0 - self.orbit_eccentricity * cos(self.orbit_phase)) in
-        let x = r * cos(self.orbit_phase) in
-        let y = r * sin(self.orbit_phase) * cos(self.orbit_inclination) in
-        let z = r * sin(self.orbit_phase) * sin(self.orbit_inclination) in
-        vec3(x, y, z)
+        let r = self.orbit_radius * (1.0 - self.orbit_eccentricity * maths.cos(self.orbit_phase)) in
+        let x = r * maths.cos(self.orbit_phase) in
+        let y = r * maths.sin(self.orbit_phase) * maths.cos(self.orbit_inclination) in
+        let z = r * maths.sin(self.orbit_phase) * maths.sin(self.orbit_inclination) in
+        vector.vec3(x, y, z)
     }
 }
 
@@ -297,11 +297,11 @@ member.stellar.star.variability_factor {
     resolve {
         # Rotational modulation (starspots)
         let rot_phase = sim_time / (self.rotation_period * 86400.0) in
-        let spot_mod = 1.0 - self.spot_amplitude * sin(TAU * rot_phase) in
+        let spot_mod = 1.0 - self.spot_amplitude * maths.sin(TAU * rot_phase) in
 
         # Activity cycle modulation
         let cycle_phase = sim_time / (self.activity_cycle_period * 3.1536e7) in
-        let cycle_mod = 1.0 - self.spot_amplitude * 0.5 * sin(TAU * cycle_phase) in
+        let cycle_mod = 1.0 - self.spot_amplitude * 0.5 * maths.sin(TAU * cycle_phase) in
 
         spot_mod * cycle_mod
     }
@@ -336,7 +336,7 @@ member.stellar.star.angular_radius {
     : symbol("theta_star")
 
     resolve {
-        atan(self.radius / max(self.distance, 1.0))
+        maths.atan(self.radius / maths.max(self.distance, 1.0))
     }
 }
 
@@ -352,7 +352,7 @@ member.stellar.star.flux {
 
     resolve {
         # For single star at center, use planet orbit distance; for binary stars, use star distance
-        let d = max(self.distance, config.stellar.default_planet_orbit_radius) in
+        let d = maths.max(self.distance, config.stellar.default_planet_orbit_radius) in
         self.luminosity / (4.0 * PI * d * d)
     }
 }
@@ -426,9 +426,9 @@ member.stellar.moon.orbit_phase {
     resolve {
         # Kepler's third law for orbital period
         let mu = const.stellar.gravitational_constant * signal.planet.mass in
-        let period = TAU * sqrt(pow(self.orbit_radius, 3) / mu) in
-        let omega = TAU / max(period, 1.0) in
-        wrap(prev + omega * dt_raw, 0.0, TAU)
+        let period = TAU * maths.sqrt(maths.pow(self.orbit_radius, 3) / mu) in
+        let omega = TAU / maths.max(period, 1.0) in
+        maths.wrap(prev + omega * dt_raw, 0.0, TAU)
     }
 }
 
@@ -463,11 +463,11 @@ member.stellar.moon.position {
     : symbol("r_moon")
 
     resolve {
-        let r = self.orbit_radius * (1.0 - self.orbit_eccentricity * cos(self.orbit_phase)) in
-        let x = r * cos(self.orbit_phase) in
-        let y = r * sin(self.orbit_phase) * cos(self.orbit_inclination) in
-        let z = r * sin(self.orbit_phase) * sin(self.orbit_inclination) in
-        vec3(x, y, z)
+        let r = self.orbit_radius * (1.0 - self.orbit_eccentricity * maths.cos(self.orbit_phase)) in
+        let x = r * maths.cos(self.orbit_phase) in
+        let y = r * maths.sin(self.orbit_phase) * maths.cos(self.orbit_inclination) in
+        let z = r * maths.sin(self.orbit_phase) * maths.sin(self.orbit_inclination) in
+        vector.vec3(x, y, z)
     }
 }
 
@@ -504,7 +504,7 @@ member.stellar.moon.angular_radius {
     : symbol("theta_moon")
 
     resolve {
-        atan(self.radius / max(self.distance, 1.0))
+        maths.atan(self.radius / maths.max(self.distance, 1.0))
     }
 }
 
@@ -520,8 +520,8 @@ member.stellar.moon.tidal_force {
 
     resolve {
         # Tidal acceleration = 2 * G * M / r³ * R_planet
-        let r3 = pow(self.distance, 3) in
-        2.0 * const.stellar.gravitational_constant * self.mass * signal.planet.radius / max(r3, 1.0)
+        let r3 = maths.pow(self.distance, 3) in
+        2.0 * const.stellar.gravitational_constant * self.mass * signal.planet.radius / maths.max(r3, 1.0)
     }
 }
 
@@ -533,11 +533,11 @@ member.stellar.moon.tidal_heating {
 
     resolve {
         # Simplified tidal heating: P = k * (M_moon/r³)² * e² * R^5 * n
-        let n = sqrt(const.stellar.gravitational_constant * signal.planet.mass / pow(self.orbit_radius, 3)) in
+        let n = maths.sqrt(const.stellar.gravitational_constant * signal.planet.mass / maths.pow(self.orbit_radius, 3)) in
         let factor = const.stellar.love_number / const.stellar.tidal_quality_factor in
-        let r3 = pow(self.distance, 3) in
-        let term = self.mass / max(r3, 1.0) in
-        factor * term * term * pow(self.orbit_eccentricity, 2) * pow(signal.planet.radius, 5) * n
+        let r3 = maths.pow(self.distance, 3) in
+        let term = self.mass / maths.max(r3, 1.0) in
+        factor * term * term * maths.pow(self.orbit_eccentricity, 2) * maths.pow(signal.planet.radius, 5) * n
     }
 }
 
@@ -553,7 +553,7 @@ signal.stellar.total_insolation {
     : symbol("F_total")
 
     resolve {
-        sum(entity.stellar.star, self.flux)
+        agg.sum(entity.stellar.star, self.flux)
     }
 }
 
@@ -565,7 +565,7 @@ signal.stellar.total_tidal_power {
     : symbol("P_tidal_total")
 
     resolve {
-        sum(entity.stellar.moon, self.tidal_heating)
+        agg.sum(entity.stellar.moon, self.tidal_heating)
     }
 }
 
@@ -578,7 +578,7 @@ signal.stellar.total_tidal_amplitude {
     : symbol("A_tidal_total")
 
     resolve {
-        sum(entity.stellar.moon, self.tidal_force * signal.planet.radius)
+        agg.sum(entity.stellar.moon, self.tidal_force * signal.planet.radius)
     }
 }
 
@@ -590,7 +590,7 @@ signal.stellar.star_count {
     : symbol("N_star")
 
     resolve {
-        count(entity.stellar.star)
+        agg.count(entity.stellar.star)
     }
 }
 
@@ -602,7 +602,7 @@ signal.stellar.moon_count {
     : symbol("N_moon")
 
     resolve {
-        count(entity.stellar.moon)
+        agg.count(entity.stellar.moon)
     }
 }
 

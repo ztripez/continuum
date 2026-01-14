@@ -132,7 +132,7 @@ impl ComplexityScore {
                 }
 
                 // Simple loads (low cost)
-                Op::Const(_)
+                Op::Literal(_)
                 | Op::LoadPrev
                 | Op::LoadPrevComponent(_)
                 | Op::LoadDt

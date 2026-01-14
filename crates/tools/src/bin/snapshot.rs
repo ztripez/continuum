@@ -11,23 +11,14 @@
 // Link against functions crate to pull in kernel function registrations
 extern crate continuum_functions;
 
-use std::fs;
 use std::path::PathBuf;
 use std::process;
 
-use chrono::Local;
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 use tracing::{error, info};
 
-use continuum_compiler::ir::{
-    build_assertion, build_era_configs, build_field_measure, build_fracture, build_signal_resolver,
-    build_warmup_fn, compile, convert_assertion_severity, get_initial_signal_value,
-};
-// use continuum_foundation::EraId;
-use continuum_runtime::executor::Runtime;
-use continuum_runtime::storage::FieldSample;
-use continuum_runtime::types::{Dt, Value, WarmupConfig};
+use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
+use continuum_runtime::executor::{RunOptions, SnapshotOptions, run_simulation};
 
 /// Simulation snapshot capture tool
 #[derive(Parser, Debug)]
@@ -60,25 +51,6 @@ struct Args {
     /// World seed for deterministic simulation
     #[arg(long, default_value = "1")]
     seed: u64,
-}
-
-#[derive(Serialize, Deserialize)]
-struct RunManifest {
-    run_id: String,
-    created_at: String,
-    seed: u64,
-    steps: u64,
-    stride: u64,
-    signals: Vec<String>,
-    fields: Vec<String>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct TickSnapshot {
-    tick: u64,
-    time_seconds: f64,
-    signals: std::collections::HashMap<String, Value>,
-    fields: std::collections::HashMap<String, Vec<FieldSample>>,
 }
 
 fn main() {
@@ -120,165 +92,61 @@ fn main() {
         }
     };
 
-    // Prepare runtime
-    let initial_era = world
-        .eras()
-        .iter()
-        .find(|(_, era)| era.is_initial)
-        .map(|(id, _)| id.clone())
-        .unwrap_or_else(|| {
-            world
-                .eras()
-                .keys()
-                .next()
-                .cloned()
-                .unwrap_or_else(|| continuum_foundation::EraId::from("default"))
-        });
-
-    let mut era_configs = build_era_configs(&world);
-    if let Some(dt) = args.dt {
-        for config in era_configs.values_mut() {
-            config.dt = Dt(dt);
+    let (mut runtime, _report) = match build_runtime(
+        &world,
+        compilation,
+        RuntimeBuildOptions {
+            dt_override: args.dt,
+        },
+    ) {
+        Ok(result) => result,
+        Err(e) => {
+            error!("Runtime build error: {}", e);
+            process::exit(1);
         }
-    }
-
-    let mut runtime = Runtime::new(initial_era, era_configs, compilation.dags);
+    };
 
     let signals = world.signals();
     let fields = world.fields();
-    let fractures = world.fractures();
 
-    // Register all functions (resolvers, assertions, fields, fractures)
-    for (signal_id, signal) in &signals {
-        if let Some(resolver) = build_signal_resolver(signal, &world) {
-            runtime.register_resolver(resolver);
-        }
-
-        // Register warmup if present
-        if let Some(ref warmup) = signal.warmup {
-            let warmup_fn = build_warmup_fn(&warmup.iterate, &world.constants, &world.config);
-            let config = WarmupConfig {
-                max_iterations: warmup.iterations,
-                convergence_epsilon: warmup.convergence,
-            };
-            runtime.register_warmup(signal_id.clone(), warmup_fn, config);
-        }
-
-        for assertion in &signal.assertions {
-            let assertion_fn = build_assertion(&assertion.condition, &world);
-            let severity = convert_assertion_severity(assertion.severity);
-            runtime.register_assertion(
-                signal_id.clone(),
-                assertion_fn,
-                severity,
-                assertion.message.clone(),
-            );
-        }
-    }
-
-    for (field_id, field) in &fields {
-        if let Some(ref expr) = field.measure {
-            let runtime_id = field_id.clone();
-            // Skip fields with entity expressions (aggregates, etc.)
-            if let Some(measure_fn) = build_field_measure(&runtime_id, expr, &world) {
-                runtime.register_measure_op(measure_fn);
-            }
-        }
-    }
-
-    for (_, fracture) in &fractures {
-        runtime.register_fracture(build_fracture(fracture, &world));
-    }
-
-    // Initialize signals
-    for (signal_id, _) in &signals {
-        runtime.init_signal(
-            signal_id.clone(),
-            get_initial_signal_value(&world, signal_id),
-        );
-    }
-
-    // Create run directory
-    let run_id = Local::now().format("%Y%m%d_%H%M%S").to_string();
-    let run_dir = args.output.join(&run_id);
-    fs::create_dir_all(&run_dir).expect("failed to create run directory");
-
-    // Write manifest
-    let manifest = RunManifest {
-        run_id: run_id.clone(),
-        created_at: Local::now().to_rfc3339(),
-        seed: args.seed,
-        steps: args.steps,
-        stride: args.stride,
-        signals: signals.keys().map(|id| id.to_string()).collect(),
-        fields: fields.keys().map(|id| id.to_string()).collect(),
-    };
-    let manifest_json = serde_json::to_string_pretty(&manifest).expect("serialization failed");
-    fs::write(run_dir.join("run.json"), manifest_json).expect("failed to write run.json");
-
-    info!("Starting snapshot run: {}, steps={}", run_id, args.steps);
-
-    // Run warmup if any functions registered
-    if !runtime.is_warmup_complete() {
-        info!("Executing warmup phase...");
-        if let Err(e) = runtime.execute_warmup() {
-            error!("Warmup failed: {}", e);
-            process::exit(1);
-        }
-    }
-
-    // Filter requested fields
-    let requested_fields: Vec<String> = if args.fields.is_empty() {
-        fields.keys().map(|id| id.to_string()).collect()
+    let requested_fields: Vec<continuum_foundation::FieldId> = if args.fields.is_empty() {
+        fields.keys().cloned().collect()
     } else {
         args.fields
             .split(',')
-            .map(|s| s.trim().to_string())
+            .map(|s| s.trim())
             .filter(|s| !s.is_empty())
+            .map(continuum_foundation::FieldId::from)
             .collect()
     };
 
-    // Run loop
-    for step in 0..=args.steps {
-        if step > 0 {
-            if let Err(e) = runtime.execute_tick() {
-                error!("Error at tick {}: {}", step - 1, e);
-                process::exit(1);
-            }
+    let snapshot = SnapshotOptions {
+        output_dir: args.output.clone(),
+        stride: args.stride,
+        signals: signals.keys().cloned().collect(),
+        fields: requested_fields,
+        seed: args.seed,
+    };
+
+    info!("Starting snapshot run: steps={}", args.steps);
+
+    let report = match run_simulation(
+        &mut runtime,
+        RunOptions {
+            steps: args.steps,
+            print_signals: false,
+            signals: signals.keys().cloned().collect(),
+            snapshot: Some(snapshot),
+        },
+    ) {
+        Ok(report) => report,
+        Err(e) => {
+            error!("Run failed: {}", e);
+            process::exit(1);
         }
+    };
 
-        // Capture snapshot at stride
-        if step % args.stride == 0 {
-            let mut signal_values = std::collections::HashMap::new();
-            for id in signals.keys() {
-                if let Some(val) = runtime.get_signal(id) {
-                    signal_values.insert(id.to_string(), val.clone());
-                }
-            }
-
-            let mut field_values = std::collections::HashMap::new();
-            let all_fields = runtime.drain_fields();
-            for field_name in &requested_fields {
-                let id = continuum_foundation::FieldId::from(field_name.as_str());
-                if let Some(samples) = all_fields.get(&id) {
-                    field_values.insert(field_name.clone(), samples.clone());
-                }
-            }
-
-            let snapshot = TickSnapshot {
-                tick: step,
-                time_seconds: runtime.tick_context().tick as f64 * runtime.tick_context().dt.0,
-                signals: signal_values,
-                fields: field_values,
-            };
-
-            let snap_json = serde_json::to_string_pretty(&snapshot).expect("serialization failed");
-            let snap_path = run_dir.join(format!("tick_{:06}.json", step));
-            fs::write(snap_path, snap_json).expect("failed to write snapshot");
-
-            info!("Captured snapshot at tick {}", step);
-        }
+    if let Some(dir) = report.run_dir {
+        info!("Snapshot run complete. Saved to: {}", dir.display());
     }
-
-    info!("Snapshot run complete. Saved to: {}", run_dir.display());
 }

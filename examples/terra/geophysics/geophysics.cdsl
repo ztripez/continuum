@@ -264,9 +264,9 @@ signal.rotation.state {
 
     resolve {
         # Phase advances with angular velocity using integrate
-        let phase = integrate(prev.x, prev.y) in
+        let phase = dt.integrate(prev.x, prev.y) in
         let omega = prev.y + collected in
-        vec2(mod(phase, TAU), omega)
+        vector.vec2(maths.mod(phase, TAU), omega)
     }
 
     assert {
@@ -314,7 +314,7 @@ signal.rotation.precession {
 
     resolve {
         # Precession advances at a rate determined by torques
-        mod(integrate(prev, config.rotation.precession.rate) + collected, TAU)
+        maths.mod(dt.integrate(prev, config.rotation.precession.rate) + collected, TAU)
     }
 
     assert {
@@ -337,17 +337,17 @@ signal.rotation.spin_axis {
         # precession = rotation around Y axis in XZ plane
         let obl = signal.rotation.obliquity in
         let prec = signal.rotation.precession in
-        let sin_obl = sin(obl) in
-        let cos_obl = cos(obl) in
-        vec3(
-            sin_obl * sin(prec),   # x component
+        let sin_obl = maths.sin(obl) in
+        let cos_obl = maths.cos(obl) in
+        vector.vec3(
+            sin_obl * maths.sin(prec),   # x component
             cos_obl,               # y component (ecliptic normal)
-            sin_obl * cos(prec)    # z component
+            sin_obl * maths.cos(prec)    # z component
         )
     }
 
     assert {
-        abs(length(prev) - 1.0) < 0.01 : warn, "Spin axis should be unit vector"
+        maths.abs(vector.length(prev) - 1.0) < 0.01 : warn, "Spin axis should be unit vector"
     }
 }
 
@@ -366,7 +366,7 @@ signal.core.temp {
     }
 
     resolve {
-        decay(prev, config.core.temp.decay_halflife) + collected
+        dt.decay(prev, config.core.temp.decay_halflife) + collected
     }
 
     assert {
@@ -392,7 +392,7 @@ signal.core.heat_power {
         # Radiogenic decay reduces heat production over time
         # Earth's core heat flow is ~2-6 TW
         # Clamp to prevent negative accumulation from heat budget fracture
-        max(decay(prev, config.core.heat_power.radiogenic_halflife_gyr * 3.1536e16) + collected, 0.0)
+        maths.max(dt.decay(prev, config.core.heat_power.radiogenic_halflife_gyr * 3.1536e16) + collected, 0.0)
     }
 
     assert {
@@ -415,7 +415,7 @@ signal.mantle.heat_content {
     resolve {
         # Heat content changes with net power input: dQ/dt = P_in
         # Earth's mantle: mass ~4e24 kg, Cp ~1200 J/kg/K, T ~1600K = 8e30 J
-        integrate(prev, signal.core.heat_power) + collected
+        dt.integrate(prev, signal.core.heat_power) + collected
     }
 
     assert {
@@ -437,7 +437,7 @@ signal.mantle.temp {
 
     resolve {
         let core_coupling = (signal.core.temp - prev) * config.mantle.temp.core_coupling_factor in
-        clamp(prev + core_coupling + collected, config.mantle.temp.min_temp, config.mantle.temp.max_temp)
+        maths.clamp(prev + core_coupling + collected, config.mantle.temp.min_temp, config.mantle.temp.max_temp)
     }
 
     assert {
@@ -478,7 +478,7 @@ signal.surface.heat_flow {
 
     resolve {
         let thermal_contribution = (signal.mantle.temp - signal.surface.temp) * 0.00001 in
-        clamp(config.surface.heat_flow.baseline + thermal_contribution + collected, 0.01, 0.5)
+        maths.clamp(config.surface.heat_flow.baseline + thermal_contribution + collected, 0.01, 0.5)
     }
 
     assert {
@@ -505,7 +505,7 @@ signal.crust.density {
     }
 
     resolve {
-        clamp(prev + collected, config.crust.density.min, config.crust.density.max)
+        maths.clamp(prev + collected, config.crust.density.min, config.crust.density.max)
     }
 
     assert {
@@ -526,7 +526,7 @@ signal.crust.thickness {
     }
 
     resolve {
-        clamp(prev + collected, config.crust.thickness.min, config.crust.thickness.max)
+        maths.clamp(prev + collected, config.crust.thickness.min, config.crust.thickness.max)
     }
 
     assert {
@@ -618,7 +618,7 @@ signal.topography.dynamic_offset {
     resolve {
         let thermal_gradient = (signal.mantle.temp - const.thermal.mantle_temp) / 1000.0 in
         let uplift = thermal_gradient * const.topography.max_plume_uplift * config.topography.dynamic_offset.flow_coupling * config.topography.dynamic_offset.uplift_scale in
-        clamp(
+        maths.clamp(
             prev + uplift + collected,
             -const.topography.max_slab_depression,
             const.topography.max_plume_uplift
@@ -647,7 +647,7 @@ signal.crust.elevation {
     }
 
     resolve {
-        clamp(
+        maths.clamp(
             signal.isostasy.elevation + signal.topography.dynamic_offset + collected,
             -config.crust.elevation.max_depth,
             config.crust.elevation.max_height
@@ -735,9 +735,9 @@ signal.tectonics.boundary_stress {
     }
 
     resolve {
-        let thermal_stress = abs(signal.mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor in
-        let thickness_stress = abs(signal.crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor in
-        clamp(prev + thermal_stress + thickness_stress + collected, 0.0, config.tectonics.boundary_stress.max_stress)
+        let thermal_stress = maths.abs(signal.mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor in
+        let thickness_stress = maths.abs(signal.crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor in
+        maths.clamp(prev + thermal_stress + thickness_stress + collected, 0.0, config.tectonics.boundary_stress.max_stress)
     }
 
     assert {
@@ -780,7 +780,7 @@ signal.tectonics.plate_count {
     : title("Plate Count")
 
     resolve {
-        count(entity.terra.plate)
+        agg.count(entity.terra.plate)
     }
 
     assert {
@@ -865,10 +865,10 @@ signal.mantle.convection_cells {
     resolve {
         # n = mode * (Ra / Ra_ref)^exponent
         # Guard against negative Rayleigh (would cause NaN in pow with fractional exponent)
-        let ra = max(signal.mantle.rayleigh_number, 0.0) in
+        let ra = maths.max(signal.mantle.rayleigh_number, 0.0) in
         let ratio = ra / config.mantle.convection_cells.reference_ra in
-        let n = config.mantle.convection_cells.mode_count * pow(ratio, config.mantle.convection_cells.exponent) in
-        clamp(n, config.mantle.convection_cells.min_count, config.mantle.convection_cells.max_count)
+        let n = config.mantle.convection_cells.mode_count * maths.pow(ratio, config.mantle.convection_cells.exponent) in
+        maths.clamp(n, config.mantle.convection_cells.min_count, config.mantle.convection_cells.max_count)
     }
 
     assert {
@@ -894,7 +894,7 @@ signal.mantle.flow_strength {
     resolve {
         # strength ~ base * (Q/Q_ref)^exponent
         let ratio = signal.core.heat_power / config.mantle.flow_strength.reference_heat_power in
-        let scale = pow(max(ratio, 0.0), config.mantle.flow_strength.exponent) in
+        let scale = maths.pow(maths.max(ratio, 0.0), config.mantle.flow_strength.exponent) in
         config.mantle.flow_strength.base_strength * scale + collected
     }
 
@@ -946,10 +946,10 @@ signal.tectonics.volcanism {
 
     resolve {
         # Volcanism driven by excess mantle temperature and convection strength
-        let temp_excess = max(signal.mantle.temp - config.tectonics.volcanism.reference_mantle_temp, 0.0) in
+        let temp_excess = maths.max(signal.mantle.temp - config.tectonics.volcanism.reference_mantle_temp, 0.0) in
         let temp_contribution = temp_excess * config.tectonics.volcanism.temp_sensitivity in
         let flow_contribution = signal.mantle.flow_strength * config.tectonics.volcanism.flow_factor in
-        clamp(temp_contribution + flow_contribution + collected, 0.0, 100.0)
+        maths.clamp(temp_contribution + flow_contribution + collected, 0.0, 100.0)
     }
 
     assert {
@@ -973,7 +973,7 @@ signal.tectonics.subduction_rate {
     resolve {
         # Subduction rate driven by plate velocities and convergent boundaries
         let velocity_contribution = signal.plates.boundary_shear * 1e6 * config.tectonics.subduction_rate.velocity_factor in
-        let oceanic_fraction = signal.plates.oceanic_count / max(signal.plates.count, 1.0) in
+        let oceanic_fraction = signal.plates.oceanic_count / maths.max(signal.plates.count, 1.0) in
         velocity_contribution * oceanic_fraction * signal.tectonics.activity + collected
     }
 
@@ -1051,10 +1051,10 @@ member.terra.plate.age {
     resolve {
         # Plates age with simulation time (rate = 1 Myr per 3.1536e13 seconds)
         # Oceanic plates are capped at max age (subduction recycling)
-        let new_age = integrate(prev, 3.1688e-14) in  # 1/3.1536e13 Myr/s
+        let new_age = dt.integrate(prev, 3.1688e-14) in  # 1/3.1536e13 Myr/s
         if self.kind < 0.5 {
             # Oceanic: cap at max age
-            min(new_age, config.terra.plate.age.max_oceanic_age_myr)
+            maths.min(new_age, config.terra.plate.age.max_oceanic_age_myr)
         } else {
             # Continental: no cap
             new_age
@@ -1080,7 +1080,7 @@ member.terra.plate.thickness {
     initial { config.terra.plate.thickness.initial_thickness_m }
 
     resolve {
-        clamp(prev + collected, 5000.0, 70000.0)
+        maths.clamp(prev + collected, 5000.0, 70000.0)
     }
 
     assert {
@@ -1104,7 +1104,7 @@ member.terra.plate.buoyancy {
     initial { config.terra.plate.buoyancy.initial_buoyancy }
 
     resolve {
-        clamp(prev + collected, 0.0, 1.0)
+        maths.clamp(prev + collected, 0.0, 1.0)
     }
 
     assert {
@@ -1125,7 +1125,7 @@ member.terra.plate.seed_direction {
     : symbol("n_plate")
 
     # Default to +Z axis; scenario/worldgen distributes plates over sphere
-    initial { vec3(0.0, 0.0, 1.0) }
+    initial { vector.vec3(0.0, 0.0, 1.0) }
 
     resolve {
         # Normalize to maintain unit vector
@@ -1133,7 +1133,7 @@ member.terra.plate.seed_direction {
     }
 
     assert {
-        abs(length(prev) - 1.0) < 0.01 : warn, "Plate seed should be unit vector"
+        maths.abs(vector.length(prev) - 1.0) < 0.01 : warn, "Plate seed should be unit vector"
     }
 }
 
@@ -1153,7 +1153,7 @@ member.terra.plate.omega {
     }
 
     # Start at rest; mantle flow will drive plate motion
-    initial { vec3(0.0, 0.0, 0.0) }
+    initial { vector.vec3(0.0, 0.0, 0.0) }
 
     resolve {
         # Plate motion derived from mantle flow and collected impulses
@@ -1170,7 +1170,7 @@ member.terra.plate.velocity {
 
     resolve {
         # v = omega * R (velocity at planet radius)
-        length(self.omega) * signal.planet.radius
+        vector.length(self.omega) * signal.planet.radius
     }
 
     assert {
@@ -1190,7 +1190,7 @@ signal.plates.count {
     : symbol("N_plates")
 
     resolve {
-        count(entity.terra.plate)
+        agg.count(entity.terra.plate)
     }
 }
 
@@ -1202,7 +1202,7 @@ signal.plates.mean_age {
     : symbol("t_mean")
 
     resolve {
-        mean(entity.terra.plate, self.age)
+        agg.mean(entity.terra.plate, self.age)
     }
 }
 
@@ -1214,7 +1214,7 @@ signal.plates.mean_thickness {
     : symbol("h_mean")
 
     resolve {
-        mean(entity.terra.plate, self.thickness)
+        agg.mean(entity.terra.plate, self.thickness)
     }
 }
 
@@ -1226,7 +1226,7 @@ signal.plates.oceanic_count {
     : symbol("N_oceanic")
 
     resolve {
-        sum(entity.terra.plate, if self.kind < 0.5 { 1.0 } else { 0.0 })
+        agg.sum(entity.terra.plate, if self.kind < 0.5 { 1.0 } else { 0.0 })
     }
 }
 
@@ -1238,7 +1238,7 @@ signal.plates.continental_count {
     : symbol("N_continental")
 
     resolve {
-        sum(entity.terra.plate, if self.kind >= 0.5 { 1.0 } else { 0.0 })
+        agg.sum(entity.terra.plate, if self.kind >= 0.5 { 1.0 } else { 0.0 })
     }
 }
 
@@ -1251,8 +1251,8 @@ signal.plates.boundary_shear {
 
     resolve {
         # Approximate shear as max velocity difference between plates
-        let max_v = max(entity.terra.plate, self.velocity) in
-        let min_v = min(entity.terra.plate, self.velocity) in
+        let max_v = agg.max(entity.terra.plate, self.velocity) in
+        let min_v = agg.min(entity.terra.plate, self.velocity) in
         max_v - min_v + collected
     }
 }
@@ -1270,7 +1270,7 @@ signal.plates.mean_buoyancy {
     : symbol("b_mean")
 
     resolve {
-        mean(entity.terra.plate, self.buoyancy)
+        agg.mean(entity.terra.plate, self.buoyancy)
     }
 }
 
@@ -1282,7 +1282,7 @@ signal.plates.total_buoyancy {
     : symbol("b_sum")
 
     resolve {
-        sum(entity.terra.plate, self.buoyancy)
+        agg.sum(entity.terra.plate, self.buoyancy)
     }
 }
 
@@ -1294,7 +1294,7 @@ signal.plates.max_age {
     : symbol("t_max")
 
     resolve {
-        max(entity.terra.plate, self.age)
+        agg.max(entity.terra.plate, self.age)
     }
 }
 
@@ -1306,7 +1306,7 @@ signal.plates.min_age {
     : symbol("t_min")
 
     resolve {
-        min(entity.terra.plate, self.age)
+        agg.min(entity.terra.plate, self.age)
     }
 }
 
@@ -1318,7 +1318,7 @@ signal.plates.total_thickness {
     : symbol("h_sum")
 
     resolve {
-        sum(entity.terra.plate, self.thickness)
+        agg.sum(entity.terra.plate, self.thickness)
     }
 }
 
@@ -1335,7 +1335,7 @@ signal.plates.mean_velocity {
     : symbol("v_mean")
 
     resolve {
-        mean(entity.terra.plate, self.velocity)
+        agg.mean(entity.terra.plate, self.velocity)
     }
 }
 
@@ -1347,7 +1347,7 @@ signal.plates.max_velocity {
     : symbol("v_max")
 
     resolve {
-        max(entity.terra.plate, self.velocity)
+        agg.max(entity.terra.plate, self.velocity)
     }
 }
 
@@ -1359,7 +1359,7 @@ signal.plates.min_velocity {
     : symbol("v_min")
 
     resolve {
-        min(entity.terra.plate, self.velocity)
+        agg.min(entity.terra.plate, self.velocity)
     }
 }
 
@@ -1371,7 +1371,7 @@ signal.plates.mean_omega {
     : symbol("omega_mean")
 
     resolve {
-        mean(entity.terra.plate, length(self.omega))
+        agg.mean(entity.terra.plate, vector.length(self.omega))
     }
 }
 
@@ -1392,8 +1392,8 @@ signal.plates.velocity_variance {
     resolve {
         # Variance = E[X²] - E[X]²
         let mean_v = signal.plates.mean_velocity in
-        let mean_v_sq = mean(entity.terra.plate, self.velocity * self.velocity) in
-        max(mean_v_sq - mean_v * mean_v, 0.0)
+        let mean_v_sq = agg.mean(entity.terra.plate, self.velocity * self.velocity) in
+        maths.max(mean_v_sq - mean_v * mean_v, 0.0)
     }
 }
 
@@ -1414,7 +1414,7 @@ signal.plates.divergent_activity {
         # Divergent activity correlates with mantle upwelling and plate velocities
         let flow_factor = signal.mantle.flow_strength * config.plates.divergent_activity.flow_sensitivity in
         let velocity_factor = signal.plates.mean_velocity * config.plates.divergent_activity.velocity_sensitivity in
-        clamp(flow_factor + velocity_factor + collected, 0.0, 10.0)
+        maths.clamp(flow_factor + velocity_factor + collected, 0.0, 10.0)
     }
 }
 
@@ -1435,7 +1435,7 @@ signal.plates.convergent_activity {
         # Convergent activity driven by boundary shear and oceanic plate count
         let shear_factor = signal.plates.boundary_shear * config.plates.convergent_activity.shear_sensitivity in
         let oceanic_factor = signal.plates.oceanic_count * config.plates.convergent_activity.oceanic_weight in
-        clamp(shear_factor * oceanic_factor + collected, 0.0, 10.0)
+        maths.clamp(shear_factor * oceanic_factor + collected, 0.0, 10.0)
     }
 }
 
@@ -1454,7 +1454,7 @@ signal.plates.transform_activity {
     resolve {
         # Transform activity correlates with velocity variance (plates moving in different directions)
         let variance_contribution = signal.plates.velocity_variance * config.plates.transform_activity.velocity_variance_weight in
-        clamp(variance_contribution + collected, 0.0, 10.0)
+        maths.clamp(variance_contribution + collected, 0.0, 10.0)
     }
 }
 
@@ -1544,7 +1544,7 @@ fracture.thermal.mechanical_coupling {
 
     when {
         # Activate when heat content deviates significantly from reference
-        abs(signal.mantle.heat_content - config.fracture.thermal.mechanical_coupling.reference_heat_j) > 1e29
+        maths.abs(signal.mantle.heat_content - config.fracture.thermal.mechanical_coupling.reference_heat_j) > 1e29
     }
 
     emit {
@@ -1584,7 +1584,7 @@ fracture.thermal.heat_budget {
 
         # Core heat contribution (from core.heat_power with efficiency)
         # Guard against negative heat power feeding back
-        let core_contribution = max(signal.core.heat_power, 0.0) * config.fracture.thermal.heat_budget.core_transfer_efficiency in
+        let core_contribution = maths.max(signal.core.heat_power, 0.0) * config.fracture.thermal.heat_budget.core_transfer_efficiency in
 
         # Surface heat loss (proportional to heat content above reference)
         let reference = 8.0e30 in
@@ -1593,7 +1593,7 @@ fracture.thermal.heat_budget {
 
         # Net power change - cap surface loss to not exceed available heat
         let net_input = radiogenic + core_contribution in
-        let capped_loss = min(surface_loss, net_input + max(signal.core.heat_power, 0.0)) in
+        let capped_loss = maths.min(surface_loss, net_input + maths.max(signal.core.heat_power, 0.0)) in
 
         # Emit net change (will be non-negative if current heat_power >= 0)
         signal.core.heat_power <- net_input - capped_loss

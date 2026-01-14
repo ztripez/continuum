@@ -267,7 +267,7 @@ No inter-signal dependency, but creates a temporal dependency.
 ### 5.3 Entity Iteration
 
 ```
-sum(entity.stellar.moon, expr)
+agg.sum(entity.stellar.moon, expr)
 ```
 
 Creates dependencies on all entity instance signals referenced in expr.
@@ -317,7 +317,7 @@ SignalResolveNode(entity.stellar.moon[2])
 ```
 signal.terra.tidal {
     resolve {
-        sum(entity.stellar.moon, fn.tidal_force(self.mass))
+        agg.sum(entity.stellar.moon, fn.tidal_force(self.mass))
     }
 }
 ```
@@ -327,7 +327,7 @@ Creates edges from all moon instance nodes to the tidal signal.
 ### 6.3 Pairwise Operations
 
 ```
-sum(pairs(entity.stellar.body), fn.gravity(self, other))
+agg.sum(pairs(entity.stellar.body), fn.gravity(self, other))
 ```
 
 For N instances, creates N*(N-1)/2 pair computations.

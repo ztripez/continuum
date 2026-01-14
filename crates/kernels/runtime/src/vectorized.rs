@@ -255,7 +255,7 @@ impl VectorizedPrimitive for GlobalSignal {
 /// // The signal "person.age" for all people
 /// let age = MemberSignal::new(
 ///     MemberSignalId::new("human.person".into(), "age"),
-///     ValueType::Scalar,
+///     ValueType::scalar(),
 ///     100, // 100 people
 /// );
 ///
@@ -760,7 +760,7 @@ mod tests {
 
     #[test]
     fn test_global_signal_cardinality() {
-        let signal = GlobalSignal::new("terra.temperature".into(), ValueType::Scalar);
+        let signal = GlobalSignal::new("terra.temperature".into(), ValueType::scalar());
         assert_eq!(signal.cardinality(), 1);
         assert!(signal.is_scalar());
         assert!(!signal.is_vectorized());
@@ -768,7 +768,7 @@ mod tests {
 
     #[test]
     fn test_global_signal_identity() {
-        let signal = GlobalSignal::new("terra.temperature".into(), ValueType::Scalar);
+        let signal = GlobalSignal::new("terra.temperature".into(), ValueType::scalar());
         let identity = signal.identity_at(0);
         assert_eq!(identity.0, "terra.temperature");
     }
@@ -776,13 +776,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "index must be 0")]
     fn test_global_signal_identity_out_of_bounds() {
-        let signal = GlobalSignal::new("terra.temperature".into(), ValueType::Scalar);
+        let signal = GlobalSignal::new("terra.temperature".into(), ValueType::scalar());
         let _ = signal.identity_at(1);
     }
 
     #[test]
     fn test_global_signal_identities() {
-        let signal = GlobalSignal::new("terra.temperature".into(), ValueType::Scalar);
+        let signal = GlobalSignal::new("terra.temperature".into(), ValueType::scalar());
         let ids: Vec<_> = signal.identities().collect();
         assert_eq!(ids.len(), 1);
         assert_eq!(ids[0].0, "terra.temperature");
@@ -796,7 +796,7 @@ mod tests {
     fn test_member_signal_cardinality() {
         let signal = MemberSignal::new(
             MemberSignalId::new("human.person".into(), "age"),
-            ValueType::Scalar,
+            ValueType::scalar(),
             100,
         );
         assert_eq!(signal.cardinality(), 100);
@@ -808,7 +808,7 @@ mod tests {
     fn test_member_signal_identity() {
         let signal = MemberSignal::new(
             MemberSignalId::new("human.person".into(), "age"),
-            ValueType::Scalar,
+            ValueType::scalar(),
             100,
         );
 
@@ -822,7 +822,7 @@ mod tests {
     fn test_member_signal_identity_out_of_bounds() {
         let signal = MemberSignal::new(
             MemberSignalId::new("human.person".into(), "age"),
-            ValueType::Scalar,
+            ValueType::scalar(),
             100,
         );
         let _ = signal.identity_at(100);
@@ -832,7 +832,7 @@ mod tests {
     fn test_member_signal_identities() {
         let signal = MemberSignal::new(
             MemberSignalId::new("human.person".into(), "age"),
-            ValueType::Scalar,
+            ValueType::scalar(),
             3,
         );
 
@@ -849,14 +849,14 @@ mod tests {
 
     #[test]
     fn test_field_primitive_cardinality() {
-        let field = FieldPrimitive::new("terra.temperature".into(), ValueType::Scalar, 1000);
+        let field = FieldPrimitive::new("terra.temperature".into(), ValueType::scalar(), 1000);
         assert_eq!(field.cardinality(), 1000);
         assert!(field.is_vectorized());
     }
 
     #[test]
     fn test_field_primitive_identity() {
-        let field = FieldPrimitive::new("terra.temperature".into(), ValueType::Scalar, 100);
+        let field = FieldPrimitive::new("terra.temperature".into(), ValueType::scalar(), 100);
         let identity = field.identity_at(42);
         assert_eq!(identity.sample_index.0, 42);
         assert_eq!(identity.field_id.0, "terra.temperature");
@@ -993,10 +993,10 @@ mod tests {
 
     #[test]
     fn test_cardinality_from_primitive() {
-        let global = GlobalSignal::new("test".into(), ValueType::Scalar);
+        let global = GlobalSignal::new("test".into(), ValueType::scalar());
         let member = MemberSignal::new(
             MemberSignalId::new("entity".into(), "signal"),
-            ValueType::Scalar,
+            ValueType::scalar(),
             500,
         );
 
@@ -1021,7 +1021,7 @@ mod tests {
         for size in boundary_sizes {
             let signal = MemberSignal::new(
                 MemberSignalId::new("entity".into(), "signal"),
-                ValueType::Scalar,
+                ValueType::scalar(),
                 size,
             );
 
@@ -1072,7 +1072,7 @@ mod tests {
         for (size, expected_tail) in sizes_for_f32x4 {
             let signal = MemberSignal::new(
                 MemberSignalId::new("entity".into(), "data"),
-                ValueType::Scalar,
+                ValueType::scalar(),
                 size,
             );
 
@@ -1099,7 +1099,7 @@ mod tests {
         let boundary_sizes = [4, 8, 16, 32, 64, 128, 255, 256, 257];
 
         for size in boundary_sizes {
-            let field = FieldPrimitive::new("spatial.data".into(), ValueType::Scalar, size);
+            let field = FieldPrimitive::new("spatial.data".into(), ValueType::scalar(), size);
 
             assert_eq!(field.cardinality(), size);
 
@@ -1173,13 +1173,13 @@ mod tests {
         for size in boundary_sizes {
             let signal = MemberSignal::new(
                 MemberSignalId::new("entity".into(), "energy"),
-                ValueType::Scalar,
+                ValueType::scalar(),
                 size,
             );
 
             // Create storage
             let mut storage = MemberSignalBuffer::new();
-            storage.register_signal("energy".to_string(), ValueType::Scalar);
+            storage.register_signal("energy".to_string(), ValueType::scalar());
             storage.init_instances(size);
 
             // Write values at all indices
@@ -1222,13 +1222,13 @@ mod tests {
         for size in boundary_sizes {
             let signal = MemberSignal::new(
                 MemberSignalId::new("entity".into(), "position"),
-                ValueType::Vec3,
+                ValueType::vec3(),
                 size,
             );
 
             // Create storage
             let mut storage = MemberSignalBuffer::new();
-            storage.register_signal("position".to_string(), ValueType::Vec3);
+            storage.register_signal("position".to_string(), ValueType::vec3());
             storage.init_instances(size);
 
             // Write Vec3 values at all indices

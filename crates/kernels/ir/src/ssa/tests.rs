@@ -2,7 +2,7 @@
 
 use continuum_foundation::SignalId;
 
-use crate::{BinaryOpIr, CompiledExpr, DtRobustOperator, IntegrationMethod, UnaryOpIr};
+use crate::{BinaryOpIr, CompiledExpr, UnaryOpIr};
 
 use super::{BlockId, SsaInstruction, Terminator, lower_to_ssa, validate_ssa};
 
@@ -235,8 +235,9 @@ fn test_lower_let_binding() {
 
 #[test]
 fn test_lower_kernel_call() {
-    // kernel.sqrt(prev)
+    // maths.sqrt(prev)
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "sqrt".to_string(),
         args: vec![CompiledExpr::Prev],
     };
@@ -254,12 +255,12 @@ fn test_lower_kernel_call() {
 }
 
 #[test]
-fn test_lower_dt_robust_call() {
-    // integrate(prev, rate)
-    let expr = CompiledExpr::DtRobustCall {
-        operator: DtRobustOperator::Integrate,
+fn test_lower_kernel_call_integrate() {
+    // dt.integrate(prev, rate)
+    let expr = CompiledExpr::KernelCall {
+        namespace: "dt".to_string(),
+        function: "integrate".to_string(),
         args: vec![CompiledExpr::Prev, CompiledExpr::Literal(1.0, None)],
-        method: IntegrationMethod::Euler,
     };
     let ssa = lower_to_ssa(&expr);
 
@@ -267,11 +268,7 @@ fn test_lower_dt_robust_call() {
     let block = &ssa.blocks[0];
     assert!(matches!(
         &block.instructions[2],
-        SsaInstruction::DtRobustCall {
-            operator: DtRobustOperator::Integrate,
-            method: IntegrationMethod::Euler,
-            ..
-        }
+        SsaInstruction::KernelCall { function, .. } if function == "integrate"
     ));
 
     assert!(validate_ssa(&ssa).is_ok());
@@ -319,8 +316,9 @@ fn test_pretty_print() {
 #[test]
 fn test_complex_expression() {
     // clamp(prev + collected - signal.stress * dt, 0.0, 1.0)
-    // Represented as: kernel.clamp(prev + collected - signal.stress * dt, 0.0, 1.0)
+    // Represented as: maths.clamp(prev + collected - signal.stress * dt, 0.0, 1.0)
     let expr = CompiledExpr::KernelCall {
+        namespace: "maths".to_string(),
         function: "clamp".to_string(),
         args: vec![
             CompiledExpr::Binary {

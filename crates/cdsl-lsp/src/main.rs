@@ -18,6 +18,7 @@
 mod formatter;
 mod symbols;
 
+use continuum_functions as _;
 use continuum_kernel_registry as kernel_registry;
 use std::collections::HashMap;
 use std::path::Path;
@@ -596,10 +597,10 @@ impl LanguageServer for Backend {
                 completion_item("Tensor", CompletionItemKind::TYPE_PARAMETER, "Tensor type"),
             ]);
 
-            for name in kernel_registry::all_names() {
-                if let Some(k) = kernel_registry::get(name) {
+            for (namespace, name) in kernel_registry::all_names() {
+                if let Some(k) = kernel_registry::get_in_namespace(namespace, name) {
                     items.push(CompletionItem {
-                        label: name.to_string(),
+                        label: format!("{}.{}", namespace, name),
                         kind: Some(CompletionItemKind::FUNCTION),
                         detail: Some(k.signature.to_string()),
                         documentation: Some(Documentation::MarkupContent(MarkupContent {
@@ -907,7 +908,9 @@ impl LanguageServer for Backend {
             }
         }
 
-        if let Some(k) = kernel_registry::get(&fn_path) {
+        if let Some((namespace, function)) = fn_path.split_once('.')
+            && let Some(k) = kernel_registry::get_in_namespace(namespace, function)
+        {
             let label = k.signature;
             let mut param_infos = Vec::new();
 
