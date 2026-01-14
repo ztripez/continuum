@@ -93,6 +93,13 @@ const PARAM_UNIT: PrimitiveParamSpec = PrimitiveParamSpec {
     optional: true,
 };
 
+const PARAM_UNIT_TENSOR: PrimitiveParamSpec = PrimitiveParamSpec {
+    name: "unit",
+    kind: PrimitiveParamKind::Unit,
+    position: Some(2),
+    optional: false,
+};
+
 const PARAM_RANGE: PrimitiveParamSpec = PrimitiveParamSpec {
     name: "range",
     kind: PrimitiveParamKind::Range,
@@ -189,7 +196,7 @@ pub static PRIMITIVE_TYPES: &[PrimitiveTypeDef] = &[
         name: "Tensor",
         shape: PrimitiveShape::Tensor,
         storage: PrimitiveStorageClass::Tensor,
-        params: &[PARAM_ROWS, PARAM_COLS, PARAM_UNIT],
+        params: &[PARAM_ROWS, PARAM_COLS, PARAM_UNIT_TENSOR],
         components: None,
     },
     PrimitiveTypeDef {
