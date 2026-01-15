@@ -1174,4 +1174,107 @@ mod tests {
     fn test_abs_vec4_registered() {
         assert!(is_known_in("vector", "abs_vec4"));
     }
+
+    // Tests for angle, refract, faceforward
+
+    #[test]
+    fn test_angle_registered() {
+        assert!(is_known_in("vector", "angle"));
+    }
+
+    #[test]
+    fn test_angle_perpendicular() {
+        let a = [1.0, 0.0, 0.0];
+        let b = [0.0, 1.0, 0.0];
+        let result = angle(a, b);
+        assert!((result - std::f64::consts::FRAC_PI_2).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_angle_parallel() {
+        let a = [1.0, 0.0, 0.0];
+        let b = [2.0, 0.0, 0.0];
+        let result = angle(a, b);
+        assert!(result.abs() < 1e-10); // 0 radians
+    }
+
+    #[test]
+    fn test_angle_opposite() {
+        let a = [1.0, 0.0, 0.0];
+        let b = [-1.0, 0.0, 0.0];
+        let result = angle(a, b);
+        assert!((result - std::f64::consts::PI).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_angle_zero_vector() {
+        let a = [0.0, 0.0, 0.0];
+        let b = [1.0, 0.0, 0.0];
+        let result = angle(a, b);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_refract_registered() {
+        assert!(is_known_in("vector", "refract"));
+    }
+
+    #[test]
+    fn test_refract_normal_incidence() {
+        // Normal incidence (perpendicular)
+        let i = [0.0, -1.0, 0.0];
+        let n = [0.0, 1.0, 0.0];
+        let eta = 1.5; // Glass (air -> glass)
+        let result = refract(i, n, eta);
+        // Should maintain direction, just scaled by eta
+        assert!((result[0]).abs() < 1e-10);
+        assert!(result[1] < 0.0); // Still going down
+        assert!((result[2]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_refract_total_internal_reflection() {
+        // Incident angle beyond critical angle
+        let i = [0.8, -0.6, 0.0]; // Shallow angle
+        let n = [0.0, 1.0, 0.0];
+        let eta = 1.5; // Glass -> air (flipped ratio for TIR)
+        let result = refract(i, n, eta);
+        // Should return zero vector for total internal reflection
+        assert_eq!(result, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_faceforward_registered() {
+        assert!(is_known_in("vector", "faceforward"));
+    }
+
+    #[test]
+    fn test_faceforward_toward_viewer() {
+        // Normal already facing viewer (dot(nref, i) < 0)
+        let n = [0.0, 1.0, 0.0];
+        let i = [0.0, -1.0, 0.0]; // Incident going down
+        let nref = [0.0, 1.0, 0.0]; // Reference normal up
+        let result = faceforward(n, i, nref);
+        assert_eq!(result, n); // Should keep normal as-is
+    }
+
+    #[test]
+    fn test_faceforward_away_from_viewer() {
+        // Normal facing away (dot(nref, i) >= 0)
+        let n = [0.0, 1.0, 0.0];
+        let i = [0.0, 1.0, 0.0]; // Incident going up (same direction as nref)
+        let nref = [0.0, 1.0, 0.0];
+        let result = faceforward(n, i, nref);
+        assert_eq!(result, [0.0, -1.0, 0.0]); // Should flip normal
+    }
+
+    #[test]
+    fn test_faceforward_perpendicular() {
+        // Edge case: incident perpendicular to reference normal
+        let n = [1.0, 0.0, 0.0];
+        let i = [1.0, 0.0, 0.0]; // Perpendicular to normal
+        let nref = [0.0, 1.0, 0.0];
+        let result = faceforward(n, i, nref);
+        assert_eq!(result, [-1.0, 0.0, 0.0]); // dot is 0, so >= 0, flip normal
+    }
 }
