@@ -54,6 +54,25 @@ pub fn mul(a: Quat, b: Quat) -> Quat {
     ])
 }
 
+/// Quaternion inverse: `inverse(q)`
+#[kernel_fn(namespace = "quat", category = "quaternion")]
+pub fn inverse(q: Quat) -> Quat {
+    let [w, x, y, z] = q.0;
+    let norm_sq = w * w + x * x + y * y + z * z;
+    if norm_sq == 0.0 {
+        panic!("quat.inverse requires non-zero quaternion");
+    }
+    Quat([w / norm_sq, -x / norm_sq, -y / norm_sq, -z / norm_sq])
+}
+
+/// Quaternion dot product: `dot(a, b)`
+#[kernel_fn(namespace = "quat", category = "quaternion")]
+pub fn dot(a: Quat, b: Quat) -> f64 {
+    let [aw, ax, ay, az] = a.0;
+    let [bw, bx, by, bz] = b.0;
+    aw * bw + ax * bx + ay * by + az * bz
+}
+
 /// Construct a quaternion from axis-angle: `from_axis_angle(axis, angle)`
 #[kernel_fn(namespace = "quat", category = "quaternion")]
 pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Quat {
@@ -103,5 +122,76 @@ mod tests {
         let q = quat(2.0, 0.0, 0.0, 0.0);
         let normed = normalize(q);
         assert_eq!(normed.0, [1.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_inverse_registered() {
+        assert!(is_known_in("quat", "inverse"));
+        let desc = get_in_namespace("quat", "inverse").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_dot_registered() {
+        assert!(is_known_in("quat", "dot"));
+        let desc = get_in_namespace("quat", "dot").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(2));
+    }
+
+    #[test]
+    fn test_inverse_identity() {
+        let q = identity();
+        let inv = inverse(q);
+        assert_eq!(inv.0, [1.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_inverse_mul_yields_identity() {
+        let q = quat(1.0, 2.0, 3.0, 4.0);
+        let inv = inverse(q);
+        let q2 = quat(1.0, 2.0, 3.0, 4.0);
+        let result = mul(q2, inv);
+        let [w, x, y, z] = result.0;
+        assert!((w - 1.0).abs() < 1e-10);
+        assert!(x.abs() < 1e-10);
+        assert!(y.abs() < 1e-10);
+        assert!(z.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_dot_identity() {
+        let q1 = identity();
+        let q2 = identity();
+        let result = dot(q1, q2);
+        assert_eq!(result, 1.0);
+    }
+
+    #[test]
+    fn test_dot_orthogonal() {
+        let q1 = quat(1.0, 0.0, 0.0, 0.0);
+        let q2 = quat(0.0, 1.0, 0.0, 0.0);
+        let result = dot(q1, q2);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_dot_commutative() {
+        let q1 = quat(1.0, 2.0, 3.0, 4.0);
+        let q2 = quat(5.0, 6.0, 7.0, 8.0);
+        let d1 = dot(q1, q2);
+        let q1b = quat(1.0, 2.0, 3.0, 4.0);
+        let q2b = quat(5.0, 6.0, 7.0, 8.0);
+        let d2 = dot(q2b, q1b);
+        assert_eq!(d1, d2);
+    }
+
+    #[test]
+    fn test_dot_with_self_is_norm_squared() {
+        let q1 = quat(1.0, 2.0, 3.0, 4.0);
+        let q2 = quat(1.0, 2.0, 3.0, 4.0);
+        let d = dot(q1, q2);
+        let q3 = quat(1.0, 2.0, 3.0, 4.0);
+        let n = norm(q3);
+        assert!((d - n * n).abs() < 1e-10);
     }
 }
