@@ -150,6 +150,16 @@ pub fn dot(args: &[Value]) -> f64 {
     }
 }
 
+/// Cross product (Vec3 only): `cross(a, b)` -> Vec3
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,5 +257,46 @@ mod tests {
     #[test]
     fn test_dot_registered() {
         assert!(is_known_in("vector", "dot"));
+    }
+
+    #[test]
+    fn test_cross_basis_vectors() {
+        // i × j = k
+        let i = [1.0, 0.0, 0.0];
+        let j = [0.0, 1.0, 0.0];
+        let k = cross(i, j);
+        assert_eq!(k, [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_cross_reverse() {
+        // j × i = -k
+        let i = [1.0, 0.0, 0.0];
+        let j = [0.0, 1.0, 0.0];
+        let result = cross(j, i);
+        assert_eq!(result, [0.0, 0.0, -1.0]);
+    }
+
+    #[test]
+    fn test_cross_parallel() {
+        // Parallel vectors have zero cross product
+        let a = [2.0, 0.0, 0.0];
+        let b = [4.0, 0.0, 0.0];
+        let result = cross(a, b);
+        assert_eq!(result, [0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_cross_general() {
+        let a = [1.0, 2.0, 3.0];
+        let b = [4.0, 5.0, 6.0];
+        let result = cross(a, b);
+        // a × b = (2*6-3*5, 3*4-1*6, 1*5-2*4) = (-3, 6, -3)
+        assert_eq!(result, [-3.0, 6.0, -3.0]);
+    }
+
+    #[test]
+    fn test_cross_registered() {
+        assert!(is_known_in("vector", "cross"));
     }
 }
