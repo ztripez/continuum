@@ -161,15 +161,19 @@ pub fn slerp(a: Quat, b: Quat, t: f64) -> Quat {
 pub fn to_mat3(q: Quat) -> Mat3 {
     let [w, x, y, z] = q.0;
 
+    // Column-major order: [col0, col1, col2]
     Mat3([
+        // Column 0
         1.0 - 2.0 * (y * y + z * z),
-        2.0 * (x * y - w * z),
-        2.0 * (x * z + w * y),
         2.0 * (x * y + w * z),
-        1.0 - 2.0 * (x * x + z * z),
-        2.0 * (y * z - w * x),
         2.0 * (x * z - w * y),
+        // Column 1
+        2.0 * (x * y - w * z),
+        1.0 - 2.0 * (x * x + z * z),
         2.0 * (y * z + w * x),
+        // Column 2
+        2.0 * (x * z + w * y),
+        2.0 * (y * z - w * x),
         1.0 - 2.0 * (x * x + y * y),
     ])
 }
@@ -179,19 +183,24 @@ pub fn to_mat3(q: Quat) -> Mat3 {
 pub fn to_mat4(q: Quat) -> Mat4 {
     let [w, x, y, z] = q.0;
 
+    // Column-major order: [col0, col1, col2, col3]
     Mat4([
+        // Column 0
         1.0 - 2.0 * (y * y + z * z),
-        2.0 * (x * y - w * z),
-        2.0 * (x * z + w * y),
-        0.0,
         2.0 * (x * y + w * z),
-        1.0 - 2.0 * (x * x + z * z),
-        2.0 * (y * z - w * x),
-        0.0,
         2.0 * (x * z - w * y),
+        0.0,
+        // Column 1
+        2.0 * (x * y - w * z),
+        1.0 - 2.0 * (x * x + z * z),
         2.0 * (y * z + w * x),
+        0.0,
+        // Column 2
+        2.0 * (x * z + w * y),
+        2.0 * (y * z - w * x),
         1.0 - 2.0 * (x * x + y * y),
         0.0,
+        // Column 3
         0.0,
         0.0,
         0.0,
@@ -597,5 +606,167 @@ mod tests {
         assert!((rotated[0] - rotated2[0]).abs() < 1e-10);
         assert!((rotated[1] - rotated2[1]).abs() < 1e-10);
         assert!((rotated[2] - rotated2[2]).abs() < 1e-10);
+    }
+
+    // Matrix conversion and extraction tests
+    #[test]
+    fn test_to_mat3_registered() {
+        assert!(is_known_in("quat", "to_mat3"));
+        let desc = get_in_namespace("quat", "to_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_to_mat4_registered() {
+        assert!(is_known_in("quat", "to_mat4"));
+        let desc = get_in_namespace("quat", "to_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_angle_registered() {
+        assert!(is_known_in("quat", "angle"));
+        let desc = get_in_namespace("quat", "angle").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_axis_registered() {
+        assert!(is_known_in("quat", "axis"));
+        let desc = get_in_namespace("quat", "axis").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_to_mat3_identity() {
+        let q = identity();
+        let m = to_mat3(q);
+        // Should be identity matrix (column-major)
+        assert_eq!(
+            m.0,
+            [
+                1.0, 0.0, 0.0, // column 0
+                0.0, 1.0, 0.0, // column 1
+                0.0, 0.0, 1.0, // column 2
+            ]
+        );
+    }
+
+    #[test]
+    fn test_to_mat4_identity() {
+        let q = identity();
+        let m = to_mat4(q);
+        // Should be identity matrix (column-major)
+        assert_eq!(
+            m.0,
+            [
+                1.0, 0.0, 0.0, 0.0, // column 0
+                0.0, 1.0, 0.0, 0.0, // column 1
+                0.0, 0.0, 1.0, 0.0, // column 2
+                0.0, 0.0, 0.0, 1.0, // column 3
+            ]
+        );
+    }
+
+    #[test]
+    fn test_to_mat3_90deg_z() {
+        // 90-degree rotation around Z axis
+        let axis = [0.0, 0.0, 1.0];
+        let angle = std::f64::consts::PI / 2.0;
+        let q = from_axis_angle(axis, angle);
+        let m = to_mat3(q);
+
+        // Rotation matrix for 90deg around Z (column-major):
+        // col0: [ 0,  1,  0 ]
+        // col1: [-1,  0,  0 ]
+        // col2: [ 0,  0,  1 ]
+        assert!((m.0[0] - 0.0).abs() < 1e-10); // col0[0]
+        assert!((m.0[1] - 1.0).abs() < 1e-10); // col0[1]
+        assert!((m.0[2] - 0.0).abs() < 1e-10); // col0[2]
+        assert!((m.0[3] + 1.0).abs() < 1e-10); // col1[0]
+        assert!((m.0[4] - 0.0).abs() < 1e-10); // col1[1]
+        assert!((m.0[5] - 0.0).abs() < 1e-10); // col1[2]
+        assert!((m.0[6] - 0.0).abs() < 1e-10); // col2[0]
+        assert!((m.0[7] - 0.0).abs() < 1e-10); // col2[1]
+        assert!((m.0[8] - 1.0).abs() < 1e-10); // col2[2]
+    }
+
+    #[test]
+    fn test_angle_identity() {
+        let q = identity();
+        let a = angle(q);
+        assert!((a - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_angle_90deg() {
+        let axis = [0.0, 0.0, 1.0];
+        let expected_angle = std::f64::consts::PI / 2.0;
+        let q = from_axis_angle(axis, expected_angle);
+        let a = angle(q);
+        assert!((a - expected_angle).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_axis_identity() {
+        let q = identity();
+        let a = axis(q);
+        // For identity, axis is arbitrary (we return [1, 0, 0])
+        assert_eq!(a, [1.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_axis_z_rotation() {
+        let expected_axis = [0.0, 0.0, 1.0];
+        let q = from_axis_angle(expected_axis, std::f64::consts::PI / 4.0);
+        let a = axis(q);
+        // Should recover the Z axis
+        assert!((a[0] - 0.0).abs() < 1e-10);
+        assert!((a[1] - 0.0).abs() < 1e-10);
+        assert!((a[2] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_axis_angle_roundtrip() {
+        // Create a quaternion from axis-angle, then extract axis and angle
+        let original_axis = [
+            1.0 / 3.0_f64.sqrt(),
+            1.0 / 3.0_f64.sqrt(),
+            1.0 / 3.0_f64.sqrt(),
+        ];
+        let original_angle = std::f64::consts::PI / 3.0;
+
+        let q = from_axis_angle(original_axis, original_angle);
+        let extracted_angle = angle(q);
+        let extracted_axis = axis(q);
+
+        // Check angle
+        assert!((extracted_angle - original_angle).abs() < 1e-10);
+
+        // Check axis (should be normalized)
+        assert!((extracted_axis[0] - original_axis[0]).abs() < 1e-10);
+        assert!((extracted_axis[1] - original_axis[1]).abs() < 1e-10);
+        assert!((extracted_axis[2] - original_axis[2]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_mat3_rotate_vector() {
+        // Create a quaternion for 90-degree rotation around Z
+        let axis = [0.0, 0.0, 1.0];
+        let q = from_axis_angle(axis, std::f64::consts::PI / 2.0);
+        let m = to_mat3(q);
+
+        // Rotate [1, 0, 0] using matrix (column-major: result = m * v)
+        let v = [1.0, 0.0, 0.0];
+        let result = [
+            m.0[0] * v[0] + m.0[3] * v[1] + m.0[6] * v[2], // col0*x + col1*y + col2*z
+            m.0[1] * v[0] + m.0[4] * v[1] + m.0[7] * v[2],
+            m.0[2] * v[0] + m.0[5] * v[1] + m.0[8] * v[2],
+        ];
+
+        // Should give [0, 1, 0]
+        assert!((result[0] - 0.0).abs() < 1e-10);
+        assert!((result[1] - 1.0).abs() < 1e-10);
+        assert!((result[2] - 0.0).abs() < 1e-10);
     }
 }
