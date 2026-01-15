@@ -8,3 +8,4 @@ continuum-foundation = { path = "../foundation" }
 continuum-kernel-registry = { path = "../../kernel-registry" }
 continuum-kernel-macros = { path = "../../kernel-macros" }
 linkme = "0.3"
+nalgebra = "0.33"

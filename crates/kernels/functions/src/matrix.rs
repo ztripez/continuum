@@ -1,9 +1,10 @@
 //! Matrix Operations
 //!
-//! Functions for matrix operations: identity, transpose, determinant, inverse.
+//! Functions for matrix operations: identity, transpose, determinant, inverse, eigenvalues, SVD.
 
 use continuum_foundation::{Mat2, Mat3, Mat4, Value};
 use continuum_kernel_macros::kernel_fn;
+use nalgebra as na;
 
 /// Identity 2x2 matrix: `identity2()`
 /// Returns column-major: [1, 0, 0, 1]
@@ -414,6 +415,206 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
     ])
 }
 
+/// Eigenvalues of a symmetric matrix: `eigenvalues(m)` -> Vec
+/// Returns eigenvalues sorted in descending order
+/// Note: Only works for symmetric matrices. Non-symmetric matrices will give incorrect results.
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+pub fn eigenvalues(args: &[Value]) -> Value {
+    if args.len() != 1 {
+        panic!("matrix.eigenvalues expects exactly 1 argument");
+    }
+    match &args[0] {
+        Value::Mat2(arr) => {
+            let mat = na::Matrix2::from_column_slice(arr);
+            let eig = mat.symmetric_eigen();
+            // Sort descending
+            let mut vals = [eig.eigenvalues[0], eig.eigenvalues[1]];
+            vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+            Value::Vec2(vals)
+        }
+        Value::Mat3(arr) => {
+            let mat = na::Matrix3::from_column_slice(arr);
+            let eig = mat.symmetric_eigen();
+            let mut vals = [eig.eigenvalues[0], eig.eigenvalues[1], eig.eigenvalues[2]];
+            vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+            Value::Vec3(vals)
+        }
+        Value::Mat4(arr) => {
+            let mat = na::Matrix4::from_column_slice(arr);
+            let eig = mat.symmetric_eigen();
+            let mut vals = [
+                eig.eigenvalues[0],
+                eig.eigenvalues[1],
+                eig.eigenvalues[2],
+                eig.eigenvalues[3],
+            ];
+            vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+            Value::Vec4(vals)
+        }
+        _ => panic!("matrix.eigenvalues expects Mat2, Mat3, or Mat4"),
+    }
+}
+
+/// Eigenvectors of a symmetric matrix: `eigenvectors(m)` -> Mat
+/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues)
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+pub fn eigenvectors(args: &[Value]) -> Value {
+    if args.len() != 1 {
+        panic!("matrix.eigenvectors expects exactly 1 argument");
+    }
+    match &args[0] {
+        Value::Mat2(arr) => {
+            let mat = na::Matrix2::from_column_slice(arr);
+            let eig = mat.symmetric_eigen();
+            // Sort by eigenvalues descending
+            let mut pairs: Vec<_> = eig
+                .eigenvalues
+                .iter()
+                .zip(eig.eigenvectors.column_iter())
+                .collect();
+            pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+
+            // Extract eigenvectors as owned vectors
+            let v0 = na::Vector2::from_iterator(pairs[0].1.iter().cloned());
+            let v1 = na::Vector2::from_iterator(pairs[1].1.iter().cloned());
+            let result = na::Matrix2::from_columns(&[v0, v1]);
+            Value::Mat2(result.as_slice().try_into().unwrap())
+        }
+        Value::Mat3(arr) => {
+            let mat = na::Matrix3::from_column_slice(arr);
+            let eig = mat.symmetric_eigen();
+            let mut pairs: Vec<_> = eig
+                .eigenvalues
+                .iter()
+                .zip(eig.eigenvectors.column_iter())
+                .collect();
+            pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+
+            // Extract eigenvectors as owned vectors
+            let v0 = na::Vector3::from_iterator(pairs[0].1.iter().cloned());
+            let v1 = na::Vector3::from_iterator(pairs[1].1.iter().cloned());
+            let v2 = na::Vector3::from_iterator(pairs[2].1.iter().cloned());
+            let result = na::Matrix3::from_columns(&[v0, v1, v2]);
+            Value::Mat3(result.as_slice().try_into().unwrap())
+        }
+        Value::Mat4(arr) => {
+            let mat = na::Matrix4::from_column_slice(arr);
+            let eig = mat.symmetric_eigen();
+            let mut pairs: Vec<_> = eig
+                .eigenvalues
+                .iter()
+                .zip(eig.eigenvectors.column_iter())
+                .collect();
+            pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+
+            // Extract eigenvectors as owned vectors
+            let v0 = na::Vector4::from_iterator(pairs[0].1.iter().cloned());
+            let v1 = na::Vector4::from_iterator(pairs[1].1.iter().cloned());
+            let v2 = na::Vector4::from_iterator(pairs[2].1.iter().cloned());
+            let v3 = na::Vector4::from_iterator(pairs[3].1.iter().cloned());
+            let result = na::Matrix4::from_columns(&[v0, v1, v2, v3]);
+            Value::Mat4(result.as_slice().try_into().unwrap())
+        }
+        _ => panic!("matrix.eigenvectors expects Mat2, Mat3, or Mat4"),
+    }
+}
+
+/// SVD - U matrix: `svd_u(m)` -> Mat
+/// Returns the left singular vectors (U in A = UΣV^T)
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+pub fn svd_u(args: &[Value]) -> Value {
+    if args.len() != 1 {
+        panic!("matrix.svd_u expects exactly 1 argument");
+    }
+    match &args[0] {
+        Value::Mat2(arr) => {
+            let mat = na::Matrix2::from_column_slice(arr);
+            let svd = mat.svd(true, false);
+            let u = svd.u.unwrap();
+            Value::Mat2(u.as_slice().try_into().unwrap())
+        }
+        Value::Mat3(arr) => {
+            let mat = na::Matrix3::from_column_slice(arr);
+            let svd = mat.svd(true, false);
+            let u = svd.u.unwrap();
+            Value::Mat3(u.as_slice().try_into().unwrap())
+        }
+        Value::Mat4(arr) => {
+            let mat = na::Matrix4::from_column_slice(arr);
+            let svd = mat.svd(true, false);
+            let u = svd.u.unwrap();
+            Value::Mat4(u.as_slice().try_into().unwrap())
+        }
+        _ => panic!("matrix.svd_u expects Mat2, Mat3, or Mat4"),
+    }
+}
+
+/// SVD - singular values: `svd_s(m)` -> Vec
+/// Returns the singular values (diagonal of Σ in A = UΣV^T)
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+pub fn svd_s(args: &[Value]) -> Value {
+    if args.len() != 1 {
+        panic!("matrix.svd_s expects exactly 1 argument");
+    }
+    match &args[0] {
+        Value::Mat2(arr) => {
+            let mat = na::Matrix2::from_column_slice(arr);
+            let svd = mat.svd(false, false);
+            Value::Vec2([svd.singular_values[0], svd.singular_values[1]])
+        }
+        Value::Mat3(arr) => {
+            let mat = na::Matrix3::from_column_slice(arr);
+            let svd = mat.svd(false, false);
+            Value::Vec3([
+                svd.singular_values[0],
+                svd.singular_values[1],
+                svd.singular_values[2],
+            ])
+        }
+        Value::Mat4(arr) => {
+            let mat = na::Matrix4::from_column_slice(arr);
+            let svd = mat.svd(false, false);
+            Value::Vec4([
+                svd.singular_values[0],
+                svd.singular_values[1],
+                svd.singular_values[2],
+                svd.singular_values[3],
+            ])
+        }
+        _ => panic!("matrix.svd_s expects Mat2, Mat3, or Mat4"),
+    }
+}
+
+/// SVD - V^T matrix: `svd_vt(m)` -> Mat
+/// Returns the transposed right singular vectors (V^T in A = UΣV^T)
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+pub fn svd_vt(args: &[Value]) -> Value {
+    if args.len() != 1 {
+        panic!("matrix.svd_vt expects exactly 1 argument");
+    }
+    match &args[0] {
+        Value::Mat2(arr) => {
+            let mat = na::Matrix2::from_column_slice(arr);
+            let svd = mat.svd(false, true);
+            let vt = svd.v_t.unwrap();
+            Value::Mat2(vt.as_slice().try_into().unwrap())
+        }
+        Value::Mat3(arr) => {
+            let mat = na::Matrix3::from_column_slice(arr);
+            let svd = mat.svd(false, true);
+            let vt = svd.v_t.unwrap();
+            Value::Mat3(vt.as_slice().try_into().unwrap())
+        }
+        Value::Mat4(arr) => {
+            let mat = na::Matrix4::from_column_slice(arr);
+            let svd = mat.svd(false, true);
+            let vt = svd.v_t.unwrap();
+            Value::Mat4(vt.as_slice().try_into().unwrap())
+        }
+        _ => panic!("matrix.svd_vt expects Mat2, Mat3, or Mat4"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -621,5 +822,106 @@ mod tests {
     #[test]
     fn test_from_axis_angle_registered() {
         assert!(is_known_in("matrix", "from_axis_angle"));
+    }
+
+    #[test]
+    fn test_eigenvalues_mat2_identity() {
+        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
+        let result = eigenvalues(&[identity]);
+        // Identity has eigenvalues [1, 1]
+        if let Value::Vec2(vals) = result {
+            assert!((vals[0] - 1.0).abs() < 1e-10);
+            assert!((vals[1] - 1.0).abs() < 1e-10);
+        } else {
+            panic!("Expected Vec2");
+        }
+    }
+
+    #[test]
+    fn test_eigenvalues_mat3_diagonal() {
+        // Diagonal matrix [[2, 0, 0], [0, 3, 0], [0, 0, 1]]
+        let m = Value::Mat3([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0]);
+        let result = eigenvalues(&[m]);
+        // Eigenvalues should be [3, 2, 1] (sorted descending)
+        if let Value::Vec3(vals) = result {
+            assert!((vals[0] - 3.0).abs() < 1e-10);
+            assert!((vals[1] - 2.0).abs() < 1e-10);
+            assert!((vals[2] - 1.0).abs() < 1e-10);
+        } else {
+            panic!("Expected Vec3");
+        }
+    }
+
+    #[test]
+    fn test_eigenvectors_mat2_identity() {
+        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
+        let result = eigenvectors(&[identity]);
+        // Identity matrix has any orthonormal basis as eigenvectors
+        // Just check it's a valid matrix
+        if let Value::Mat2(_) = result {
+            // Success - eigenvectors returned
+        } else {
+            panic!("Expected Mat2");
+        }
+    }
+
+    #[test]
+    fn test_svd_identity_mat2() {
+        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
+
+        // Singular values should be [1, 1]
+        let s = svd_s(&[identity.clone()]);
+        if let Value::Vec2(vals) = s {
+            assert!((vals[0] - 1.0).abs() < 1e-10);
+            assert!((vals[1] - 1.0).abs() < 1e-10);
+        } else {
+            panic!("Expected Vec2");
+        }
+
+        // U should be approximately identity (or a rotation)
+        let u = svd_u(&[identity.clone()]);
+        assert!(matches!(u, Value::Mat2(_)));
+    }
+
+    #[test]
+    fn test_svd_diagonal_mat3() {
+        // Diagonal matrix [[2, 0, 0], [0, 3, 0], [0, 0, 1]]
+        let m = Value::Mat3([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0]);
+
+        // Singular values should be [3, 2, 1] (sorted descending by nalgebra)
+        let s = svd_s(&[m.clone()]);
+        if let Value::Vec3(vals) = s {
+            // Singular values are sorted descending
+            assert!((vals[0] - 3.0).abs() < 1e-10);
+            assert!((vals[1] - 2.0).abs() < 1e-10);
+            assert!((vals[2] - 1.0).abs() < 1e-10);
+        } else {
+            panic!("Expected Vec3");
+        }
+    }
+
+    #[test]
+    fn test_eigenvalues_registered() {
+        assert!(is_known_in("matrix", "eigenvalues"));
+    }
+
+    #[test]
+    fn test_eigenvectors_registered() {
+        assert!(is_known_in("matrix", "eigenvectors"));
+    }
+
+    #[test]
+    fn test_svd_u_registered() {
+        assert!(is_known_in("matrix", "svd_u"));
+    }
+
+    #[test]
+    fn test_svd_s_registered() {
+        assert!(is_known_in("matrix", "svd_s"));
+    }
+
+    #[test]
+    fn test_svd_vt_registered() {
+        assert!(is_known_in("matrix", "svd_vt"));
     }
 }
