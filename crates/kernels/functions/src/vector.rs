@@ -160,6 +160,27 @@ pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     ]
 }
 
+/// Reflect vector v around normal n: `reflect(v, n)`
+/// Normal n is assumed to be normalized (unit vector)
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn reflect(v: [f64; 3], n: [f64; 3]) -> [f64; 3] {
+    let d = 2.0 * (v[0] * n[0] + v[1] * n[1] + v[2] * n[2]);
+    [v[0] - d * n[0], v[1] - d * n[1], v[2] - d * n[2]]
+}
+
+/// Project a onto b: `project(a, onto)`
+/// Returns the projection of vector a onto vector b
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn project(a: [f64; 3], onto: [f64; 3]) -> [f64; 3] {
+    let dot_ab = a[0] * onto[0] + a[1] * onto[1] + a[2] * onto[2];
+    let dot_bb = onto[0] * onto[0] + onto[1] * onto[1] + onto[2] * onto[2];
+    if dot_bb < 1e-10 {
+        panic!("vector.project: cannot project onto zero vector");
+    }
+    let scale = dot_ab / dot_bb;
+    [onto[0] * scale, onto[1] * scale, onto[2] * scale]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,5 +319,78 @@ mod tests {
     #[test]
     fn test_cross_registered() {
         assert!(is_known_in("vector", "cross"));
+    }
+
+    #[test]
+    fn test_reflect_horizontal() {
+        // Reflect downward vector off horizontal surface (normal points up)
+        let v = [0.0, -1.0, 0.0]; // Going down
+        let n = [0.0, 1.0, 0.0]; // Normal pointing up
+        let result = reflect(v, n);
+        assert_eq!(result, [0.0, 1.0, 0.0]); // Bounces up
+    }
+
+    #[test]
+    fn test_reflect_45_degrees() {
+        // Reflect at 45 degrees
+        let v = [1.0, -1.0, 0.0]; // Down and right
+        let n = [0.0, 1.0, 0.0]; // Normal pointing up
+        let result = reflect(v, n);
+        assert_eq!(result, [1.0, 1.0, 0.0]); // Up and right
+    }
+
+    #[test]
+    fn test_reflect_parallel() {
+        // Reflecting along the normal reverses direction
+        let v = [0.0, 1.0, 0.0];
+        let n = [0.0, 1.0, 0.0];
+        let result = reflect(v, n);
+        assert_eq!(result, [0.0, -1.0, 0.0]);
+    }
+
+    #[test]
+    fn test_project_onto_x() {
+        // Project [3,4,0] onto x-axis
+        let a = [3.0, 4.0, 0.0];
+        let x_axis = [1.0, 0.0, 0.0];
+        let result = project(a, x_axis);
+        assert_eq!(result, [3.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn test_project_general() {
+        // Project [1,2,3] onto [1,1,0]
+        let a = [1.0, 2.0, 3.0];
+        let b = [1.0, 1.0, 0.0];
+        let result = project(a, b);
+        // dot(a,b) = 1+2 = 3, dot(b,b) = 1+1 = 2
+        // proj = (3/2) * [1,1,0] = [1.5, 1.5, 0]
+        assert_eq!(result, [1.5, 1.5, 0.0]);
+    }
+
+    #[test]
+    fn test_project_parallel() {
+        // Projecting a vector onto itself
+        let a = [3.0, 4.0, 0.0];
+        let result = project(a, a);
+        assert_eq!(result, a);
+    }
+
+    #[test]
+    #[should_panic(expected = "zero vector")]
+    fn test_project_onto_zero() {
+        let a = [1.0, 2.0, 3.0];
+        let zero = [0.0, 0.0, 0.0];
+        let _ = project(a, zero);
+    }
+
+    #[test]
+    fn test_reflect_registered() {
+        assert!(is_known_in("vector", "reflect"));
+    }
+
+    #[test]
+    fn test_project_registered() {
+        assert!(is_known_in("vector", "project"));
     }
 }
