@@ -566,6 +566,230 @@ pub fn svd_vt(args: &[Value]) -> Value {
     }
 }
 
+// ============================================================================
+// Matrix Construction Functions
+// ============================================================================
+
+/// Trace of a matrix (sum of diagonal elements): `trace(m)` -> Scalar
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+pub fn trace(args: &[Value]) -> f64 {
+    if args.len() != 1 {
+        panic!("matrix.trace expects exactly 1 argument");
+    }
+    match &args[0] {
+        // Column-major: Mat2 [m00, m10, m01, m11] -> diagonal is m00 + m11
+        Value::Mat2(m) => m[0] + m[3],
+        // Column-major: Mat3 [m00, m10, m20, m01, m11, m21, m02, m12, m22]
+        Value::Mat3(m) => m[0] + m[4] + m[8],
+        // Column-major: Mat4 [m00, m10, m20, m30, m01, m11, ...]
+        Value::Mat4(m) => m[0] + m[5] + m[10] + m[15],
+        _ => panic!("matrix.trace expects Mat2, Mat3, or Mat4"),
+    }
+}
+
+/// Scale matrix: `scale(x, y, z)` -> Mat4
+/// Creates a 4x4 scaling transformation matrix.
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn scale(x: f64, y: f64, z: f64) -> Mat4 {
+    // Column-major 4x4:
+    // [[x, 0, 0, 0], [0, y, 0, 0], [0, 0, z, 0], [0, 0, 0, 1]]
+    Mat4([
+        x, 0.0, 0.0, 0.0, // column 0
+        0.0, y, 0.0, 0.0, // column 1
+        0.0, 0.0, z, 0.0, // column 2
+        0.0, 0.0, 0.0, 1.0, // column 3
+    ])
+}
+
+/// Translation matrix: `translation(x, y, z)` -> Mat4
+/// Creates a 4x4 translation transformation matrix.
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn translation(x: f64, y: f64, z: f64) -> Mat4 {
+    // Column-major 4x4:
+    // [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [x, y, z, 1]]
+    Mat4([
+        1.0, 0.0, 0.0, 0.0, // column 0
+        0.0, 1.0, 0.0, 0.0, // column 1
+        0.0, 0.0, 1.0, 0.0, // column 2
+        x, y, z, 1.0, // column 3
+    ])
+}
+
+/// Rotation around X axis: `rotation_x(angle)` -> Mat4
+/// Creates a 4x4 rotation matrix around the X axis.
+/// Angle is in radians.
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn rotation_x(angle: f64) -> Mat4 {
+    let c = angle.cos();
+    let s = angle.sin();
+    // Column-major 4x4:
+    // [[1, 0, 0, 0], [0, c, s, 0], [0, -s, c, 0], [0, 0, 0, 1]]
+    Mat4([
+        1.0, 0.0, 0.0, 0.0, // column 0
+        0.0, c, s, 0.0, // column 1
+        0.0, -s, c, 0.0, // column 2
+        0.0, 0.0, 0.0, 1.0, // column 3
+    ])
+}
+
+/// Rotation around Y axis: `rotation_y(angle)` -> Mat4
+/// Creates a 4x4 rotation matrix around the Y axis.
+/// Angle is in radians.
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn rotation_y(angle: f64) -> Mat4 {
+    let c = angle.cos();
+    let s = angle.sin();
+    // Column-major 4x4:
+    // [[c, 0, -s, 0], [0, 1, 0, 0], [s, 0, c, 0], [0, 0, 0, 1]]
+    Mat4([
+        c, 0.0, -s, 0.0, // column 0
+        0.0, 1.0, 0.0, 0.0, // column 1
+        s, 0.0, c, 0.0, // column 2
+        0.0, 0.0, 0.0, 1.0, // column 3
+    ])
+}
+
+/// Rotation around Z axis: `rotation_z(angle)` -> Mat4
+/// Creates a 4x4 rotation matrix around the Z axis.
+/// Angle is in radians.
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn rotation_z(angle: f64) -> Mat4 {
+    let c = angle.cos();
+    let s = angle.sin();
+    // Column-major 4x4:
+    // [[c, s, 0, 0], [-s, c, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    Mat4([
+        c, s, 0.0, 0.0, // column 0
+        -s, c, 0.0, 0.0, // column 1
+        0.0, 0.0, 1.0, 0.0, // column 2
+        0.0, 0.0, 0.0, 1.0, // column 3
+    ])
+}
+
+// ============================================================================
+// Projection Matrix Functions
+// ============================================================================
+
+/// Perspective projection matrix: `perspective(fov_y, aspect, near, far)` -> Mat4
+///
+/// Creates a perspective projection matrix (OpenGL-style, right-handed, depth [-1, 1]).
+///
+/// # Arguments
+/// * `fov_y` - Vertical field of view in radians
+/// * `aspect` - Aspect ratio (width / height)
+/// * `near` - Near clipping plane distance (positive)
+/// * `far` - Far clipping plane distance (positive)
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn perspective(fov_y: f64, aspect: f64, near: f64, far: f64) -> Mat4 {
+    let f = 1.0 / (fov_y / 2.0).tan();
+    let nf = 1.0 / (near - far);
+
+    // Column-major OpenGL-style perspective matrix
+    Mat4([
+        f / aspect,
+        0.0,
+        0.0,
+        0.0, // column 0
+        0.0,
+        f,
+        0.0,
+        0.0, // column 1
+        0.0,
+        0.0,
+        (far + near) * nf,
+        -1.0, // column 2
+        0.0,
+        0.0,
+        2.0 * far * near * nf,
+        0.0, // column 3
+    ])
+}
+
+/// Orthographic projection matrix: `orthographic(left, right, bottom, top, near, far)` -> Mat4
+///
+/// Creates an orthographic projection matrix (OpenGL-style, right-handed, depth [-1, 1]).
+///
+/// # Arguments
+/// * `left` - Left clipping plane
+/// * `right` - Right clipping plane
+/// * `bottom` - Bottom clipping plane
+/// * `top` - Top clipping plane
+/// * `near` - Near clipping plane
+/// * `far` - Far clipping plane
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn orthographic(left: f64, right: f64, bottom: f64, top: f64, near: f64, far: f64) -> Mat4 {
+    let lr = 1.0 / (left - right);
+    let bt = 1.0 / (bottom - top);
+    let nf = 1.0 / (near - far);
+
+    // Column-major OpenGL-style orthographic matrix
+    Mat4([
+        -2.0 * lr,
+        0.0,
+        0.0,
+        0.0, // column 0
+        0.0,
+        -2.0 * bt,
+        0.0,
+        0.0, // column 1
+        0.0,
+        0.0,
+        2.0 * nf,
+        0.0, // column 2
+        (left + right) * lr,
+        (top + bottom) * bt,
+        (far + near) * nf,
+        1.0, // column 3
+    ])
+}
+
+/// Look-at view matrix: `look_at(eye, target, up)` -> Mat4
+///
+/// Creates a view matrix that looks from `eye` position towards `target` with `up` vector.
+///
+/// # Arguments
+/// * `eye` - Camera position as Vec3
+/// * `target` - Target position to look at as Vec3
+/// * `up` - Up direction as Vec3 (usually [0, 1, 0])
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn look_at(eye: [f64; 3], target: [f64; 3], up: [f64; 3]) -> Mat4 {
+    // Forward vector (from eye to target, normalized)
+    let fx = target[0] - eye[0];
+    let fy = target[1] - eye[1];
+    let fz = target[2] - eye[2];
+    let f_len = (fx * fx + fy * fy + fz * fz).sqrt();
+    let fx = fx / f_len;
+    let fy = fy / f_len;
+    let fz = fz / f_len;
+
+    // Right vector (cross product of forward and up, normalized)
+    let rx = fy * up[2] - fz * up[1];
+    let ry = fz * up[0] - fx * up[2];
+    let rz = fx * up[1] - fy * up[0];
+    let r_len = (rx * rx + ry * ry + rz * rz).sqrt();
+    let rx = rx / r_len;
+    let ry = ry / r_len;
+    let rz = rz / r_len;
+
+    // Actual up vector (cross product of right and forward)
+    let ux = ry * fz - rz * fy;
+    let uy = rz * fx - rx * fz;
+    let uz = rx * fy - ry * fx;
+
+    // Translation (dot products)
+    let tx = -(rx * eye[0] + ry * eye[1] + rz * eye[2]);
+    let ty = -(ux * eye[0] + uy * eye[1] + uz * eye[2]);
+    let tz = fx * eye[0] + fy * eye[1] + fz * eye[2];
+
+    // Column-major view matrix
+    Mat4([
+        rx, ux, -fx, 0.0, // column 0
+        ry, uy, -fy, 0.0, // column 1
+        rz, uz, -fz, 0.0, // column 2
+        tx, ty, tz, 1.0, // column 3
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -874,5 +1098,222 @@ mod tests {
     #[test]
     fn test_svd_vt_registered() {
         assert!(is_known_in("matrix", "svd_vt"));
+    }
+
+    // ============================================================================
+    // Matrix Construction Tests
+    // ============================================================================
+
+    #[test]
+    fn test_trace_mat2() {
+        // Mat2 in column-major: [m00, m10, m01, m11]
+        // Diagonal: m00 + m11 = 1 + 4 = 5
+        let m = Value::Mat2([1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(trace(&[m]), 5.0);
+    }
+
+    #[test]
+    fn test_trace_mat3_identity() {
+        let m = Value::Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(trace(&[m]), 3.0);
+    }
+
+    #[test]
+    fn test_trace_mat4_identity() {
+        let m = Value::Mat4([
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ]);
+        assert_eq!(trace(&[m]), 4.0);
+    }
+
+    #[test]
+    fn test_trace_registered() {
+        assert!(is_known_in("matrix", "trace"));
+    }
+
+    #[test]
+    fn test_scale_uniform() {
+        let m = scale(2.0, 2.0, 2.0);
+        // Diagonal should be [2, 2, 2, 1]
+        assert_eq!(m.0[0], 2.0); // m00
+        assert_eq!(m.0[5], 2.0); // m11
+        assert_eq!(m.0[10], 2.0); // m22
+        assert_eq!(m.0[15], 1.0); // m33
+    }
+
+    #[test]
+    fn test_scale_non_uniform() {
+        let m = scale(1.0, 2.0, 3.0);
+        assert_eq!(m.0[0], 1.0);
+        assert_eq!(m.0[5], 2.0);
+        assert_eq!(m.0[10], 3.0);
+    }
+
+    #[test]
+    fn test_scale_registered() {
+        assert!(is_known_in("matrix", "scale"));
+    }
+
+    #[test]
+    fn test_translation_basic() {
+        let m = translation(10.0, 20.0, 30.0);
+        // Translation is in column 3: [x, y, z, 1]
+        assert_eq!(m.0[12], 10.0); // tx
+        assert_eq!(m.0[13], 20.0); // ty
+        assert_eq!(m.0[14], 30.0); // tz
+        assert_eq!(m.0[15], 1.0); // w
+        // Identity in upper-left 3x3
+        assert_eq!(m.0[0], 1.0);
+        assert_eq!(m.0[5], 1.0);
+        assert_eq!(m.0[10], 1.0);
+    }
+
+    #[test]
+    fn test_translation_registered() {
+        assert!(is_known_in("matrix", "translation"));
+    }
+
+    #[test]
+    fn test_rotation_x_zero() {
+        let m = rotation_x(0.0);
+        // Should be identity
+        assert!((m.0[0] - 1.0).abs() < 1e-10);
+        assert!((m.0[5] - 1.0).abs() < 1e-10);
+        assert!((m.0[10] - 1.0).abs() < 1e-10);
+        assert!((m.0[15] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_rotation_x_90_deg() {
+        let m = rotation_x(std::f64::consts::FRAC_PI_2);
+        // Rotating (0, 1, 0) by 90 deg around X should give (0, 0, 1)
+        // Using matrix.transform would verify this
+        assert!((m.0[5] - 0.0).abs() < 1e-10); // cos(90) = 0
+        assert!((m.0[6] - 1.0).abs() < 1e-10); // sin(90) = 1
+    }
+
+    #[test]
+    fn test_rotation_x_registered() {
+        assert!(is_known_in("matrix", "rotation_x"));
+    }
+
+    #[test]
+    fn test_rotation_y_zero() {
+        let m = rotation_y(0.0);
+        assert!((m.0[0] - 1.0).abs() < 1e-10);
+        assert!((m.0[5] - 1.0).abs() < 1e-10);
+        assert!((m.0[10] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_rotation_y_registered() {
+        assert!(is_known_in("matrix", "rotation_y"));
+    }
+
+    #[test]
+    fn test_rotation_z_zero() {
+        let m = rotation_z(0.0);
+        assert!((m.0[0] - 1.0).abs() < 1e-10);
+        assert!((m.0[5] - 1.0).abs() < 1e-10);
+        assert!((m.0[10] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_rotation_z_90_deg() {
+        let m = rotation_z(std::f64::consts::FRAC_PI_2);
+        // cos(90) = 0, sin(90) = 1
+        assert!((m.0[0] - 0.0).abs() < 1e-10);
+        assert!((m.0[1] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_rotation_z_registered() {
+        assert!(is_known_in("matrix", "rotation_z"));
+    }
+
+    // ============================================================================
+    // Projection Matrix Tests
+    // ============================================================================
+
+    #[test]
+    fn test_perspective_basic() {
+        let fov = std::f64::consts::FRAC_PI_4; // 45 degrees
+        let m = perspective(fov, 1.0, 0.1, 100.0);
+        // Check that it produces a valid perspective matrix
+        // m[15] should be 0 for perspective (not 1 like affine transforms)
+        assert_eq!(m.0[15], 0.0);
+        // m[11] should be -1 (perspective divide flag)
+        assert_eq!(m.0[11], -1.0);
+    }
+
+    #[test]
+    fn test_perspective_aspect_ratio() {
+        let fov = std::f64::consts::FRAC_PI_2; // 90 degrees
+        let m1 = perspective(fov, 1.0, 0.1, 100.0);
+        let m2 = perspective(fov, 2.0, 0.1, 100.0);
+        // With aspect 2.0, horizontal FOV is wider
+        // m[0] (x scaling) should be smaller for wider aspect
+        assert!(m2.0[0] < m1.0[0]);
+    }
+
+    #[test]
+    fn test_perspective_registered() {
+        assert!(is_known_in("matrix", "perspective"));
+    }
+
+    #[test]
+    fn test_orthographic_basic() {
+        let m = orthographic(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0);
+        // Check that it produces a valid orthographic matrix
+        // m[15] should be 1.0 for orthographic
+        assert_eq!(m.0[15], 1.0);
+        // m[11] should be 0.0 (no perspective divide)
+        assert_eq!(m.0[11], 0.0);
+    }
+
+    #[test]
+    fn test_orthographic_symmetric() {
+        let m = orthographic(-10.0, 10.0, -10.0, 10.0, 1.0, 100.0);
+        // For symmetric bounds, translation should be 0
+        assert!((m.0[12] - 0.0).abs() < 1e-10); // tx
+        assert!((m.0[13] - 0.0).abs() < 1e-10); // ty
+    }
+
+    #[test]
+    fn test_orthographic_registered() {
+        assert!(is_known_in("matrix", "orthographic"));
+    }
+
+    #[test]
+    fn test_look_at_basic() {
+        let eye = [0.0, 0.0, 5.0];
+        let target = [0.0, 0.0, 0.0];
+        let up = [0.0, 1.0, 0.0];
+        let m = look_at(eye, target, up);
+        // Looking down -Z axis from (0,0,5)
+        // m[15] should be 1.0 (view matrix is affine)
+        assert_eq!(m.0[15], 1.0);
+    }
+
+    #[test]
+    fn test_look_at_identity_like() {
+        // Eye at origin looking down -Z with Y up should be close to identity
+        // (except for sign of Z column)
+        let eye = [0.0, 0.0, 0.0];
+        let target = [0.0, 0.0, -1.0];
+        let up = [0.0, 1.0, 0.0];
+        let m = look_at(eye, target, up);
+
+        // Right vector should be (1, 0, 0)
+        assert!((m.0[0] - 1.0).abs() < 1e-10);
+        // Up vector should be (0, 1, 0)
+        assert!((m.0[5] - 1.0).abs() < 1e-10);
+        // Forward (negated) should be (0, 0, 1)
+        assert!((m.0[10] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_look_at_registered() {
+        assert!(is_known_in("matrix", "look_at"));
     }
 }
