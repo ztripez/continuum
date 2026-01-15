@@ -494,6 +494,13 @@
     let socket = null;
     let requestId = 1;
     let currentSelection = null;
+    const MAX_LOG_ENTRIES = 500; // Prevent memory issues
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
 
     function log(msg, type = '') {
       const entry = document.createElement('div');
@@ -504,6 +511,12 @@
       const content = typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2);
       entry.textContent = `[${time}] ${prefix}${content}`;
       logEl.appendChild(entry);
+      
+      // Limit log entries to prevent memory bloat
+      while (logEl.children.length > MAX_LOG_ENTRIES) {
+        logEl.removeChild(logEl.firstChild);
+      }
+      
       logEl.scrollTop = logEl.scrollHeight;
     }
 
@@ -557,8 +570,13 @@
             if (msg.payload.fields) updateFieldList(msg.payload.fields);
             if (msg.payload.entities) updateEntityList(msg.payload.entities);
             
+            // Handle field.query response
+            if (msg.payload.field_id && msg.payload.value !== undefined) {
+              updateFieldValue(msg.payload.field_id, msg.payload.value);
+            }
+            
             // Handle describe responses
-            if (msg.id && msg.payload.id) {
+            if (msg.payload.id) {
               handleDescribeResponse(msg.payload);
             }
           }
@@ -644,6 +662,7 @@
 
     function showFieldDetail(id) {
       sendRequest('field.describe', { field_id: id });
+      sendRequest('field.query', { field_id: id, position: [0, 0, 0] }); // Query value at origin
       currentSelection = { type: 'field', id };
     }
 
@@ -662,7 +681,18 @@
       currentSelection = { type: 'era', id };
     }
 
+    function updateFieldValue(field_id, value) {
+      // Update the detail view if this field is currently selected
+      if (currentSelection && currentSelection.type === 'field' && currentSelection.id === field_id) {
+        const valueEl = document.getElementById('current-value');
+        if (valueEl) {
+          valueEl.textContent = JSON.stringify(value);
+        }
+      }
+    }
+
     function handleDescribeResponse(data) {
+      console.log('handleDescribeResponse called with:', data);
       let html = '';
       
       const typeColors = {
@@ -687,7 +717,17 @@
       `;
       
       if (data.doc) {
-        html += `<div class="detail-doc">${data.doc}</div>`;
+        html += `<div class="detail-doc">${escapeHtml(data.doc)}</div>`;
+      } else {
+        console.log('No doc field in data');
+      }
+      
+      // Add current value section for fields
+      if (type === 'field') {
+        html += '<div class="detail-section"><h3>Current Value</h3>';
+        html += '<div style="padding: 12px; background: var(--code-bg); border-radius: 6px; font-family: monospace; font-size: 12px;">';
+        html += '<span id="current-value" style="color: var(--primary);">Querying...</span>';
+        html += '</div></div>';
       }
       
       html += '<div class="detail-section"><h3>Properties</h3><div class="detail-grid">';
