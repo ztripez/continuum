@@ -505,11 +505,6 @@ impl Runtime {
         self.event_buffer.drain()
     }
 
-    /// Drain the field buffer (for observer consumption)
-    pub fn drain_fields(&mut self) -> indexmap::IndexMap<FieldId, Vec<FieldSample>> {
-        self.field_buffer.drain()
-    }
-
     /// Get context for the current tick state
     pub fn tick_context(&self) -> TickContext {
         let dt = self
@@ -1192,7 +1187,7 @@ mod tests {
         let era_a_config = EraConfig {
             dt: Dt(1.0),
             strata: strata_a.clone(),
-            transition: Some(Box::new(move |signals, _sim_time| {
+            transition: Some(Box::new(move |signals, _entities, _sim_time| {
                 if let Some(value) = signals.get(&signal_id_clone) {
                     if value.as_scalar().unwrap_or(0.0) >= 5.0 {
                         return Some(era_b_clone.clone());
