@@ -68,6 +68,26 @@ pub fn atan2(y: f64, x: f64) -> f64 {
     y.atan2(x)
 }
 
+/// Arcsine: `asin(x)` → angle in radians whose sine is x
+///
+/// # Panics
+///
+/// Returns NaN if x is outside [-1, 1]
+#[kernel_fn(namespace = "maths")]
+pub fn asin(x: f64) -> f64 {
+    x.asin()
+}
+
+/// Arccosine: `acos(x)` → angle in radians whose cosine is x
+///
+/// # Panics
+///
+/// Returns NaN if x is outside [-1, 1]
+#[kernel_fn(namespace = "maths")]
+pub fn acos(x: f64) -> f64 {
+    x.acos()
+}
+
 // === Exponential / Logarithmic ===
 
 /// Exponential: `exp(x)` → `e^x`
@@ -86,6 +106,46 @@ pub fn ln(x: f64) -> f64 {
 #[kernel_fn(namespace = "maths")]
 pub fn log10(x: f64) -> f64 {
     x.log10()
+}
+
+/// Logarithm with arbitrary base: `log(x, base)`
+///
+/// Computes log_base(x) = ln(x) / ln(base)
+#[kernel_fn(namespace = "maths")]
+pub fn log(x: f64, base: f64) -> f64 {
+    x.ln() / base.ln()
+}
+
+// === Rounding ===
+
+/// Floor: `floor(x)` → largest integer ≤ x
+#[kernel_fn(namespace = "maths")]
+pub fn floor(x: f64) -> f64 {
+    x.floor()
+}
+
+/// Ceiling: `ceil(x)` → smallest integer ≥ x
+#[kernel_fn(namespace = "maths")]
+pub fn ceil(x: f64) -> f64 {
+    x.ceil()
+}
+
+/// Round: `round(x)` → nearest integer (half-way rounds away from zero)
+#[kernel_fn(namespace = "maths")]
+pub fn round(x: f64) -> f64 {
+    x.round()
+}
+
+/// Truncate: `trunc(x)` → integer part (round toward zero)
+#[kernel_fn(namespace = "maths")]
+pub fn trunc(x: f64) -> f64 {
+    x.trunc()
+}
+
+/// Sign: `sign(x)` → -1.0 if x < 0, 0.0 if x == 0, 1.0 if x > 0
+#[kernel_fn(namespace = "maths")]
+pub fn sign(x: f64) -> f64 {
+    if x == 0.0 { 0.0 } else { x.signum() }
 }
 
 /// Modulo: `mod(a, b)` → `a % b` (always positive)
@@ -152,11 +212,19 @@ mod tests {
         assert!(is_known_in("maths", "tan"));
         assert!(is_known_in("maths", "atan"));
         assert!(is_known_in("maths", "atan2"));
+        assert!(is_known_in("maths", "asin"));
+        assert!(is_known_in("maths", "acos"));
         assert!(is_known_in("maths", "exp"));
         assert!(is_known_in("maths", "ln"));
         assert!(is_known_in("maths", "log10"));
+        assert!(is_known_in("maths", "log"));
         assert!(is_known_in("maths", "pow"));
         assert!(is_known_in("maths", "clamp"));
+        assert!(is_known_in("maths", "floor"));
+        assert!(is_known_in("maths", "ceil"));
+        assert!(is_known_in("maths", "round"));
+        assert!(is_known_in("maths", "trunc"));
+        assert!(is_known_in("maths", "sign"));
     }
 
     #[test]
@@ -309,5 +377,176 @@ mod tests {
     fn test_eval_wrap_zero_range() {
         let args = [Value::Scalar(1.0), Value::Scalar(10.0), Value::Scalar(10.0)];
         eval_in_namespace("maths", "wrap", &args, 1.0);
+    }
+
+    #[test]
+    fn test_eval_floor() {
+        assert_eq!(
+            eval_in_namespace("maths", "floor", &[Value::Scalar(3.7)], 1.0),
+            Some(Value::Scalar(3.0))
+        );
+        assert_eq!(
+            eval_in_namespace("maths", "floor", &[Value::Scalar(-3.7)], 1.0),
+            Some(Value::Scalar(-4.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_ceil() {
+        assert_eq!(
+            eval_in_namespace("maths", "ceil", &[Value::Scalar(3.2)], 1.0),
+            Some(Value::Scalar(4.0))
+        );
+        assert_eq!(
+            eval_in_namespace("maths", "ceil", &[Value::Scalar(-3.2)], 1.0),
+            Some(Value::Scalar(-3.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_round() {
+        assert_eq!(
+            eval_in_namespace("maths", "round", &[Value::Scalar(3.5)], 1.0),
+            Some(Value::Scalar(4.0))
+        );
+        assert_eq!(
+            eval_in_namespace("maths", "round", &[Value::Scalar(3.4)], 1.0),
+            Some(Value::Scalar(3.0))
+        );
+        assert_eq!(
+            eval_in_namespace("maths", "round", &[Value::Scalar(-3.5)], 1.0),
+            Some(Value::Scalar(-4.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_trunc() {
+        assert_eq!(
+            eval_in_namespace("maths", "trunc", &[Value::Scalar(3.7)], 1.0),
+            Some(Value::Scalar(3.0))
+        );
+        assert_eq!(
+            eval_in_namespace("maths", "trunc", &[Value::Scalar(-3.7)], 1.0),
+            Some(Value::Scalar(-3.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_sign() {
+        assert_eq!(
+            eval_in_namespace("maths", "sign", &[Value::Scalar(5.0)], 1.0),
+            Some(Value::Scalar(1.0))
+        );
+        assert_eq!(
+            eval_in_namespace("maths", "sign", &[Value::Scalar(-5.0)], 1.0),
+            Some(Value::Scalar(-1.0))
+        );
+        assert_eq!(
+            eval_in_namespace("maths", "sign", &[Value::Scalar(0.0)], 1.0),
+            Some(Value::Scalar(0.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_asin() {
+        use std::f64::consts::PI;
+
+        // asin(0) = 0
+        let result = eval_in_namespace("maths", "asin", &[Value::Scalar(0.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+
+        // asin(1) = π/2
+        let result = eval_in_namespace("maths", "asin", &[Value::Scalar(1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - PI / 2.0).abs() < 1e-10);
+
+        // asin(-1) = -π/2
+        let result = eval_in_namespace("maths", "asin", &[Value::Scalar(-1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result + PI / 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_acos() {
+        use std::f64::consts::PI;
+
+        // acos(1) = 0
+        let result = eval_in_namespace("maths", "acos", &[Value::Scalar(1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+
+        // acos(0) = π/2
+        let result = eval_in_namespace("maths", "acos", &[Value::Scalar(0.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - PI / 2.0).abs() < 1e-10);
+
+        // acos(-1) = π
+        let result = eval_in_namespace("maths", "acos", &[Value::Scalar(-1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - PI).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_log() {
+        // log(8, 2) = 3  (log base 2 of 8)
+        let result = eval_in_namespace(
+            "maths",
+            "log",
+            &[Value::Scalar(8.0), Value::Scalar(2.0)],
+            1.0,
+        )
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+        assert!((result - 3.0).abs() < 1e-10);
+
+        // log(1000, 10) = 3  (log base 10 of 1000)
+        let result = eval_in_namespace(
+            "maths",
+            "log",
+            &[Value::Scalar(1000.0), Value::Scalar(10.0)],
+            1.0,
+        )
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+        assert!((result - 3.0).abs() < 1e-10);
+
+        // log(27, 3) = 3  (log base 3 of 27)
+        let result = eval_in_namespace(
+            "maths",
+            "log",
+            &[Value::Scalar(27.0), Value::Scalar(3.0)],
+            1.0,
+        )
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+        assert!((result - 3.0).abs() < 1e-10);
+
+        // log(1, x) = 0 for any base
+        let result = eval_in_namespace(
+            "maths",
+            "log",
+            &[Value::Scalar(1.0), Value::Scalar(5.0)],
+            1.0,
+        )
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
     }
 }
