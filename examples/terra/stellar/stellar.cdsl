@@ -226,7 +226,7 @@ member stellar.star.direction {
     : symbol("d_star")
 
     resolve {
-        normalize(self.position)
+        vector.normalize(self.position)
     }
 }
 
@@ -237,7 +237,7 @@ member stellar.star.distance {
     : symbol("r_star")
 
     resolve {
-        magnitude(self.position)
+        vector.length(self.position)
     }
 }
 
@@ -480,7 +480,7 @@ member stellar.moon.direction {
     : symbol("d_moon")
 
     resolve {
-        normalize(self.position)
+        vector.normalize(self.position)
     }
 }
 
@@ -491,7 +491,7 @@ member stellar.moon.distance {
     : symbol("r_moon")
 
     resolve {
-        magnitude(self.position)
+        vector.length(self.position)
     }
 }
 

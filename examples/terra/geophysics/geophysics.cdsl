@@ -1129,7 +1129,7 @@ member terra.plate.seed_direction {
 
     resolve {
         # Normalize to maintain unit vector
-        normalize(prev + collected)
+        vector.normalize(prev + collected)
     }
 
     assert {
