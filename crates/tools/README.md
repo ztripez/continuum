@@ -9,15 +9,20 @@ This crate provides the binary entry points for running simulations, analyzing o
 All tools use `tracing` for structured logging. You can control the log level using the `RUST_LOG` environment variable.
 
 - **Default**: `info` level for continuum crates, `warn` for dependencies.
-- **Example**: `RUST_LOG=debug cargo run --bin world-run -- examples/terra`
+- **Example**: `RUST_LOG=debug cargo run --bin run -- examples/terra`
 
-## Binaries
-
-### `world-run`
+### `run`
 Executes a simulation world and optionally captures state snapshots.
 
 ```bash
-cargo run --bin world-run -- <WORLD_DIR> [--steps N] [--save DIR]
+cargo run --bin run -- <WORLD_DIR> [--steps N] [--save DIR]
+```
+
+### `compile`
+Compiles a world into a bytecode bundle for later execution.
+
+```bash
+cargo run --bin compile -- <WORLD_DIR> [--out-dir build]
 ```
 
 ### `analyze`
@@ -35,11 +40,11 @@ Parses and validates DSL files, reporting syntax and semantic errors.
 cargo run --bin dsl-lint -- <FILE_OR_DIR>
 ```
 
-### `world-load`
+### `check`
 Test utility to verify that a full world directory can be loaded and compiled to IR without error.
 
 ```bash
-cargo run --bin world-load -- <WORLD_DIR>
+cargo run --bin check -- <WORLD_DIR>
 ```
 
 ### `world-ipc`

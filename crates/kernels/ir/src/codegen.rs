@@ -46,9 +46,25 @@
 //!
 
 use continuum_vm::BytecodeChunk;
+use continuum_vm::bytecode::ReductionOp;
 use continuum_vm::compiler::{BinaryOp, Expr, UnaryOp};
 
-use crate::{BinaryOpIr, CompiledExpr, UnaryOpIr};
+use crate::{AggregateOpIr, BinaryOpIr, CompiledExpr, UnaryOpIr};
+
+/// Converts an IR aggregate operator to its VM equivalent.
+fn convert_reduction_op(op: AggregateOpIr) -> ReductionOp {
+    match op {
+        AggregateOpIr::Sum => ReductionOp::Sum,
+        AggregateOpIr::Product => ReductionOp::Product,
+        AggregateOpIr::Min => ReductionOp::Min,
+        AggregateOpIr::Max => ReductionOp::Max,
+        AggregateOpIr::Mean => ReductionOp::Mean,
+        AggregateOpIr::Count => ReductionOp::Count,
+        AggregateOpIr::Any => ReductionOp::Any,
+        AggregateOpIr::All => ReductionOp::All,
+        AggregateOpIr::None => ReductionOp::None,
+    }
+}
 
 /// Converts an IR binary operator to its VM equivalent.
 ///
@@ -156,6 +172,31 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
                     // Convert to CollectedComponent for vector inputs component access
                     Expr::CollectedComponent(field.clone())
                 }
+                CompiledExpr::SelfField(_) => {
+                    // Nested field access on SelfField should be simplified to just SelfField with component
+                    Expr::SelfField(field.clone())
+                }
+                CompiledExpr::EntityAccess {
+                    entity, instance, ..
+                } => {
+                    // entity[0].field
+                    Expr::EntityAccess {
+                        entity: entity.to_string(),
+                        instance: instance.to_string(),
+                        field: field.clone(),
+                    }
+                }
+                CompiledExpr::First { entity, predicate } => Expr::First {
+                    entity: entity.to_string(),
+                    predicate: Box::new(convert_expr(predicate)),
+                    field: field.clone(),
+                },
+                CompiledExpr::Nearest { entity, position } => Expr::Nearest {
+                    entity: entity.to_string(),
+                    position: Box::new(convert_expr(position)),
+                    field: field.clone(),
+                },
+                CompiledExpr::Payload => Expr::PayloadField(field.clone()),
                 other => {
                     panic!(
                         "Nested field access on {:?} not supported in bytecode compiler",
@@ -165,86 +206,67 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
             }
         }
 
-        // Entity expressions are handled by the EntityExecutor at runtime, NOT the bytecode VM.
-        // If these expressions reach the bytecode compiler, it indicates a bug in the
-        // compilation pipeline - entity operations should be routed to EntityExecutor instead.
-        CompiledExpr::SelfField(field) => {
-            panic!(
-                "SelfField({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                field
-            );
-        }
+        CompiledExpr::SelfField(field) => Expr::SelfField(field.clone()),
         CompiledExpr::EntityAccess {
             entity,
             instance,
             field,
-        } => {
-            panic!(
-                "EntityAccess({}.{}.{}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity, instance, field
-            );
-        }
-        CompiledExpr::Aggregate { op, entity, .. } => {
-            panic!(
-                "Aggregate({:?} over {}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                op, entity
-            );
-        }
-        CompiledExpr::Other { entity, .. } => {
-            panic!(
-                "Other({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity
-            );
-        }
-        CompiledExpr::Pairs { entity, .. } => {
-            panic!(
-                "Pairs({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity
-            );
-        }
-        CompiledExpr::Filter { entity, .. } => {
-            panic!(
-                "Filter({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity
-            );
-        }
-        CompiledExpr::First { entity, .. } => {
-            panic!(
-                "First({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity
-            );
-        }
-        CompiledExpr::Nearest { entity, .. } => {
-            panic!(
-                "Nearest({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity
-            );
-        }
-        CompiledExpr::Within { entity, .. } => {
-            panic!(
-                "Within({}) reached bytecode compiler - entity expressions must use EntityExecutor",
-                entity
-            );
-        }
+        } => Expr::EntityAccess {
+            entity: entity.to_string(),
+            instance: instance.to_string(),
+            field: field.clone(),
+        },
+        CompiledExpr::Aggregate { op, entity, body } => Expr::Aggregate {
+            op: convert_reduction_op(*op),
+            entity: entity.to_string(),
+            body: Box::new(convert_expr(body)),
+        },
+        CompiledExpr::Other { entity, body } => Expr::Other {
+            entity: entity.to_string(),
+            body: Box::new(convert_expr(body)),
+        },
+        CompiledExpr::Pairs { entity, body } => Expr::Pairs {
+            entity: entity.to_string(),
+            body: Box::new(convert_expr(body)),
+        },
+        CompiledExpr::Filter {
+            entity,
+            predicate,
+            body,
+        } => Expr::Filter {
+            entity: entity.to_string(),
+            predicate: Box::new(convert_expr(predicate)),
+            body: Box::new(convert_expr(body)),
+        },
+        CompiledExpr::First { entity, predicate } => Expr::First {
+            entity: entity.to_string(),
+            predicate: Box::new(convert_expr(predicate)),
+            field: String::new(),
+        },
+        CompiledExpr::Nearest { entity, position } => Expr::Nearest {
+            entity: entity.to_string(),
+            position: Box::new(convert_expr(position)),
+            field: String::new(),
+        },
+        CompiledExpr::Within {
+            entity,
+            position,
+            radius,
+            body,
+        } => Expr::Within {
+            entity: entity.to_string(),
+            position: Box::new(convert_expr(position)),
+            radius: Box::new(convert_expr(radius)),
+            op: ReductionOp::Sum, // Default to sum for within(..), DSL might refine this
+            body: Box::new(convert_expr(body)),
+        },
 
-        // Impulse expressions should be handled by impulse executor
-        CompiledExpr::Payload => {
-            panic!(
-                "Payload reached bytecode compiler - impulse expressions must use ImpulseExecutor"
-            );
-        }
-        CompiledExpr::PayloadField(field) => {
-            panic!(
-                "PayloadField({}) reached bytecode compiler - impulse expressions must use ImpulseExecutor",
-                field
-            );
-        }
-        CompiledExpr::EmitSignal { target, .. } => {
-            panic!(
-                "EmitSignal({}) reached bytecode compiler - impulse expressions must use ImpulseExecutor",
-                target
-            );
-        }
+        CompiledExpr::Payload => Expr::Payload,
+        CompiledExpr::PayloadField(field) => Expr::PayloadField(field.clone()),
+        CompiledExpr::EmitSignal { target, value } => Expr::EmitSignal {
+            target: target.to_string(),
+            value: Box::new(convert_expr(value)),
+        },
     }
 }
 
@@ -288,9 +310,6 @@ mod tests {
         fn prev(&self) -> Value {
             Value::Scalar(100.0)
         }
-        fn dt(&self) -> Value {
-            Value::Scalar(0.1)
-        }
         fn dt_scalar(&self) -> f64 {
             0.1
         }
@@ -328,13 +347,36 @@ mod tests {
                 _ => Value::Scalar(0.0),
             }
         }
+
+        fn self_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn entity_field(&self, _entity: &str, _instance: &str, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn other_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn entity_instances(&self, _entity: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn set_current_entity(&mut self, _entity: Option<String>) {}
+        fn set_self_instance(&mut self, _instance: Option<String>) {}
+        fn set_other_instance(&mut self, _instance: Option<String>) {}
+        fn payload(&self) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn payload_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn emit_signal(&self, _target: &str, _value: Value) {}
     }
 
     #[test]
     fn test_compile_literal() {
         let expr = CompiledExpr::Literal(42.0, None);
         let chunk = compile(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(42.0));
     }
 
@@ -346,7 +388,7 @@ mod tests {
             right: Box::new(CompiledExpr::Literal(32.0, None)),
         };
         let chunk = compile(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(42.0));
     }
 
@@ -354,7 +396,7 @@ mod tests {
     fn test_compile_signal() {
         let expr = CompiledExpr::Signal(SignalId::from("temp"));
         let chunk = compile(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(25.0));
     }
 
@@ -365,7 +407,7 @@ mod tests {
             args: vec![CompiledExpr::Literal(-5.0, None)],
         };
         let chunk = compile(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(5.0));
     }
 
@@ -381,7 +423,7 @@ mod tests {
             else_branch: Box::new(CompiledExpr::Literal(0.0, None)),
         };
         let chunk = compile(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(100.0)); // temp (25) > 20, so 100
     }
 
@@ -389,7 +431,7 @@ mod tests {
     fn test_compile_prev() {
         let expr = CompiledExpr::Prev;
         let chunk = compile(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(100.0));
     }
 
@@ -397,7 +439,7 @@ mod tests {
     fn test_compile_dt() {
         let expr = CompiledExpr::DtRaw;
         let chunk = compile(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(0.1));
     }
 
@@ -421,7 +463,7 @@ mod tests {
             }),
         };
         let chunk = compile(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(110.0));
     }
 
@@ -444,7 +486,7 @@ mod tests {
             }),
         };
         let chunk = compile(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(30.0));
     }
 }

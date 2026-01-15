@@ -89,6 +89,7 @@ impl LaneKernel for ScalarL1Kernel {
     fn execute(
         &self,
         signals: &SignalStorage,
+        entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
     ) -> Result<LaneKernelResult, LaneKernelError> {
@@ -118,6 +119,7 @@ impl LaneKernel for ScalarL1Kernel {
                     prev,
                     index: EntityIndex(idx),
                     signals,
+                    entities,
                     members: member_signals,
                     dt,
                     sim_time: 0.0, // TODO: Add sim_time to LaneKernel trait
@@ -207,6 +209,7 @@ impl LaneKernel for Vec3L1Kernel {
     fn execute(
         &self,
         signals: &SignalStorage,
+        entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
     ) -> Result<LaneKernelResult, LaneKernelError> {
@@ -236,6 +239,7 @@ impl LaneKernel for Vec3L1Kernel {
                     prev,
                     index: EntityIndex(idx),
                     signals,
+                    entities,
                     members: member_signals,
                     dt,
                     sim_time: 0.0, // TODO: Add sim_time to LaneKernel trait
@@ -317,7 +321,10 @@ mod tests {
 
         // Execute
         let signals = SignalStorage::default();
-        let result = kernel.execute(&signals, &mut population, Dt(1.0)).unwrap();
+        let entities = crate::storage::EntityStorage::default();
+        let result = kernel
+            .execute(&signals, &entities, &mut population, Dt(1.0))
+            .unwrap();
 
         assert_eq!(result.instances_processed, 10);
         assert!(result.execution_ns.is_some());
@@ -366,7 +373,10 @@ mod tests {
 
         // Execute
         let signals = SignalStorage::default();
-        let result = kernel.execute(&signals, &mut population, Dt(1.0)).unwrap();
+        let entities = crate::storage::EntityStorage::default();
+        let result = kernel
+            .execute(&signals, &entities, &mut population, Dt(1.0))
+            .unwrap();
 
         assert_eq!(result.instances_processed, 5);
 

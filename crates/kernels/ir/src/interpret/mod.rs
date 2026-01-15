@@ -1,8 +1,8 @@
-//! CLOSURE BUILDERS
 //!
 //! This module builds runtime closures from compiled IR expressions. These
 //! closures capture the necessary context (constants, config, bytecode) and
 //! can be invoked during simulation execution.
+//!
 
 mod contexts;
 mod member_interp;
@@ -22,19 +22,20 @@ pub use member_interp::{
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
-use continuum_foundation::{EraId, FieldId, PrimitiveStorageClass, SignalId};
+use continuum_foundation::{EntityId, EraId, FieldId, InstanceId, PrimitiveStorageClass, SignalId};
 use continuum_runtime::MemberSignalBuffer;
 use continuum_runtime::executor::{
     AggregateResolverFn, AssertionFn, ChronicleFn, EmittedEvent, EraConfig, FractureFn, ImpulseFn,
     MeasureFn, ResolverFn, Runtime, TransitionFn, WarmupFn,
 };
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
-use continuum_runtime::storage::{EntityInstances, InputChannels, InstanceData};
+use continuum_runtime::storage::{
+    EntityInstances, EntityStorage, InputChannels, InstanceData, SignalStorage,
+};
 use continuum_runtime::types::{Dt, Value, WarmupConfig};
 // Import functions crate to ensure kernels are registered
 
 use continuum_functions as _;
-use continuum_runtime::storage::SignalStorage;
 use continuum_vm::{BytecodeChunk, ExecutionContext, execute};
 
 use crate::{
@@ -47,48 +48,6 @@ use contexts::{
     TransitionContext, WarmupContext,
 };
 
-/// Checks if an expression contains any entity-related constructs.
-fn contains_entity_expression(expr: &CompiledExpr) -> bool {
-    match expr {
-        CompiledExpr::SelfField(_)
-        | CompiledExpr::EntityAccess { .. }
-        | CompiledExpr::Aggregate { .. }
-        | CompiledExpr::Other { .. }
-        | CompiledExpr::Pairs { .. }
-        | CompiledExpr::Filter { .. }
-        | CompiledExpr::First { .. }
-        | CompiledExpr::Nearest { .. }
-        | CompiledExpr::Within { .. } => true,
-
-        CompiledExpr::Payload | CompiledExpr::PayloadField(_) | CompiledExpr::EmitSignal { .. } => {
-            true
-        }
-
-        CompiledExpr::Binary { left, right, .. } => {
-            contains_entity_expression(left) || contains_entity_expression(right)
-        }
-        CompiledExpr::Unary { operand, .. } => contains_entity_expression(operand),
-        CompiledExpr::Call { args, .. } | CompiledExpr::KernelCall { args, .. } => {
-            args.iter().any(contains_entity_expression)
-        }
-        CompiledExpr::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            contains_entity_expression(condition)
-                || contains_entity_expression(then_branch)
-                || contains_entity_expression(else_branch)
-        }
-        CompiledExpr::Let { value, body, .. } => {
-            contains_entity_expression(value) || contains_entity_expression(body)
-        }
-        CompiledExpr::FieldAccess { object, .. } => contains_entity_expression(object),
-
-        _ => false,
-    }
-}
-
 pub fn build_resolver(
     expr: &CompiledExpr,
     constants: &IndexMap<String, (f64, Option<Unit>)>,
@@ -99,19 +58,22 @@ pub fn build_resolver(
     let config = config.clone();
 
     Box::new(move |ctx| {
-        let exec_ctx = ResolverContext {
+        let mut context = ResolverContext {
             prev: ctx.prev,
             inputs: ctx.inputs,
-            dt: ctx.dt.seconds(),
+            dt: ctx.dt.0,
             sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
                 signals: ctx.signals,
+                entities: ctx.entities,
+                current_entity: None,
+                self_instance: None,
+                other_instance: None,
             },
         };
-        let result = execute(&bytecode, &exec_ctx);
-        result
+        execute(&bytecode, &mut context)
     })
 }
 
@@ -121,9 +83,6 @@ pub fn build_signal_resolver(
     world: &CompiledWorld,
 ) -> Option<ResolverFn> {
     let resolve_expr = signal.resolve.as_ref()?;
-    if contains_entity_expression(resolve_expr) {
-        return None;
-    }
     Some(build_resolver(
         resolve_expr,
         &world.constants,
@@ -237,29 +196,9 @@ pub fn build_runtime(
 
     // Register resolvers (signals + aggregates + warmups).
     for (signal_id, signal) in &world.signals() {
-        if let Some(resolver) = build_signal_resolver(signal, world) {
+        if let Some(ref resolve_expr) = signal.resolve {
+            let resolver = build_resolver(resolve_expr, &world.constants, &world.config);
             runtime.register_resolver(resolver);
-            report.resolver_count += 1;
-        } else if let Some(ref resolve_expr) = signal.resolve {
-            let signal_name = signal_id.to_string();
-            let placeholder: ResolverFn = Box::new(move |_ctx| {
-                panic!(
-                    "Signal '{}' placeholder called - aggregate signals run in Phase 3c",
-                    signal_name
-                );
-            });
-            runtime.register_resolver(placeholder);
-            report.resolver_count += 1;
-
-            let aggregate_resolver = build_aggregate_resolver(resolve_expr, world);
-            runtime.register_aggregate_resolver(signal_id.clone(), aggregate_resolver);
-            report.aggregate_count += 1;
-        } else {
-            let signal_name = signal_id.to_string();
-            let placeholder: ResolverFn = Box::new(move |_ctx| {
-                panic!("Signal '{}' has no resolve expression", signal_name);
-            });
-            runtime.register_resolver(placeholder);
             report.resolver_count += 1;
         }
 
@@ -334,8 +273,7 @@ pub fn build_runtime(
         let count = entity_counts.get(entity_id).copied().unwrap_or(1);
         let mut instances = EntityInstances::new();
         for i in 0..count {
-            let instance_id =
-                continuum_foundation::InstanceId::from(format!("{}_{}", entity_id, i));
+            let instance_id = InstanceId::from(format!("{}_{}", entity_id, i));
             let mut fields = indexmap::IndexMap::new();
             for (_member_id, member) in &world.members() {
                 if &member.entity_id == entity_id {
@@ -409,9 +347,7 @@ pub fn build_runtime(
     Ok((runtime, report))
 }
 
-fn entity_instance_counts(
-    world: &CompiledWorld,
-) -> IndexMap<continuum_foundation::EntityId, usize> {
+fn entity_instance_counts(world: &CompiledWorld) -> IndexMap<EntityId, usize> {
     let mut counts = IndexMap::new();
     for (entity_id, entity) in &world.entities() {
         let count = if let Some(ref count_source) = entity.count_source {
@@ -445,17 +381,20 @@ pub fn build_warmup_fn(
     let config = config.clone();
 
     Box::new(move |ctx| {
-        let exec_ctx = WarmupContext {
+        let mut context = WarmupContext {
             current: ctx.prev,
             sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
                 signals: ctx.signals,
+                entities: ctx.entities,
+                current_entity: None,
+                self_instance: None,
+                other_instance: None,
             },
         };
-        let result = execute(&bytecode, &exec_ctx);
-        result
+        execute(&bytecode, &mut context)
     })
 }
 
@@ -465,13 +404,14 @@ pub fn build_aggregate_resolver(expr: &CompiledExpr, world: &CompiledWorld) -> A
     let constants = world.constants.clone();
     let config = world.config.clone();
 
-    Box::new(move |signals, members, dt, sim_time| {
+    Box::new(move |signals, entities, members, dt, sim_time| {
         let mut ctx = MemberInterpContext {
             prev: InterpValue::Scalar(0.0),
             index: 0,
             dt: dt.seconds(),
             sim_time,
             signals,
+            entities,
             members,
             constants: &constants,
             config: &config,
@@ -480,6 +420,8 @@ pub fn build_aggregate_resolver(expr: &CompiledExpr, world: &CompiledWorld) -> A
             read_current: true,
         };
 
+        // TODO: Switch aggregate signals to full bytecode as well.
+        // For now, use the old interpreter but we could use the VM here too.
         match interpret_expr(&expr, &mut ctx) {
             InterpValue::Scalar(v) => Value::Scalar(v),
             InterpValue::Vec3(v) => Value::Vec3(v),
@@ -535,25 +477,30 @@ fn build_transition_fn(
     let config = config.clone();
 
     Some(Box::new(
-        move |signals: &SignalStorage, sim_time: f64| -> Option<continuum_foundation::EraId> {
+        move |signals: &SignalStorage, entities: &EntityStorage, sim_time: f64| {
             for (target_era, bytecode) in &transitions {
-                let ctx = TransitionContext {
+                let mut context = TransitionContext {
                     sim_time,
                     shared: SharedContextData {
                         constants: &constants,
                         config: &config,
                         signals,
+                        entities,
+                        current_entity: None,
+                        self_instance: None,
+                        other_instance: None,
                     },
                 };
 
-                let result = execute(bytecode, &ctx);
-                if result != continuum_foundation::Value::Scalar(0.0) {
+                let result = execute(bytecode, &mut context);
+                if result.as_bool().unwrap_or(false) {
                     return Some(target_era.clone());
                 }
             }
             None
         },
     ))
+
 }
 
 /// Builds a measure function for computing field values.
@@ -562,81 +509,78 @@ pub fn build_field_measure(
     expr: &CompiledExpr,
     world: &CompiledWorld,
 ) -> Option<MeasureFn> {
-    if contains_entity_expression(expr) {
-        return None;
-    }
-
-    let field_id = field_id.clone();
     let bytecode = codegen::compile(expr);
     let constants = world.constants.clone();
     let config = world.config.clone();
+    let field_id = field_id.clone();
 
     Some(Box::new(move |ctx| {
-        let exec_ctx = MeasureContext {
-            dt: ctx.dt.seconds(),
+        let mut context = MeasureContext {
+            dt: ctx.dt.0,
             sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
                 signals: ctx.signals,
+                entities: ctx.entities,
+                current_entity: None,
+                self_instance: None,
+                other_instance: None,
             },
         };
-        let result = execute(&bytecode, &exec_ctx);
-        if let Some(scalar) = result.as_scalar() {
-            ctx.fields.emit_scalar(field_id.clone(), scalar);
-        }
+
+        let value = execute(&bytecode, &mut context);
+        ctx.fields.emit(field_id.clone(), [0.0, 0.0, 0.0], value);
     }))
 }
 
 /// Builds a fracture detection function.
 pub fn build_fracture(fracture: &crate::CompiledFracture, world: &CompiledWorld) -> FractureFn {
-    let conditions: Vec<_> = fracture
-        .conditions
-        .iter()
-        .map(|c| codegen::compile(c))
-        .collect();
-    let emits: Vec<_> = fracture
-        .emits
-        .iter()
-        .map(|e| (e.target.clone(), codegen::compile(&e.value)))
-        .collect();
+    let mut conditions = Vec::new();
+    for cond in &fracture.conditions {
+        conditions.push(codegen::compile(cond));
+    }
+
+    let mut emits = Vec::new();
+    for emit in &fracture.emits {
+        emits.push((emit.target.clone(), codegen::compile(&emit.value)));
+    }
+
     let constants = world.constants.clone();
     let config = world.config.clone();
 
     Box::new(move |ctx| {
-        let exec_ctx = FractureExecContext {
-            dt: ctx.dt.seconds(),
+        let mut context = FractureExecContext {
+            dt: ctx.dt.0,
             sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
                 signals: ctx.signals,
+                entities: ctx.entities,
+                current_entity: None,
+                self_instance: None,
+                other_instance: None,
             },
         };
 
-        // Check conditions (all must be true)
+        // Check conditions
         let mut triggered = true;
         for bytecode in &conditions {
-            let res = execute(bytecode, &exec_ctx);
-            if !res
-                .as_bool()
-                .unwrap_or(res.as_scalar().unwrap_or(0.0) != 0.0)
-            {
+            let val = execute(bytecode, &mut context);
+            if !val.as_bool().unwrap_or(false) {
                 triggered = false;
                 break;
             }
         }
 
         if triggered {
-            // Apply emissions
-            let mut results: Vec<(continuum_foundation::SignalId, f64)> = Vec::new();
+            let mut outputs = Vec::new();
             for (target, bytecode) in &emits {
-                let value = execute(bytecode, &exec_ctx);
-                if let Some(scalar) = value.as_scalar() {
-                    results.push((target.clone(), scalar));
-                }
+                let val = execute(bytecode, &mut context);
+                outputs.push((target.clone(), val.as_scalar().unwrap_or(0.0)));
             }
-            Some(results)
+            Some(outputs)
         } else {
             None
         }
@@ -670,6 +614,10 @@ impl ExecutionContext for ChronicleEvalContext<'_> {
         self.shared.signal(name)
     }
 
+    fn signal_component(&self, name: &str, component: &str) -> Value {
+        self.shared.signal_component(name, component)
+    }
+
     fn constant(&self, name: &str) -> Value {
         self.shared.constant(name)
     }
@@ -690,6 +638,35 @@ impl ExecutionContext for ChronicleEvalContext<'_> {
                 )
             })
     }
+
+    fn self_field(&self, component: &str) -> Value {
+        self.shared.self_field(component)
+    }
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        self.shared.entity_field(entity, instance, component)
+    }
+    fn other_field(&self, component: &str) -> Value {
+        self.shared.other_field(component)
+    }
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        self.shared.entity_instances(entity)
+    }
+    fn set_current_entity(&mut self, entity: Option<String>) {
+        self.shared.current_entity = entity.map(EntityId::from);
+    }
+    fn set_self_instance(&mut self, instance: Option<String>) {
+        self.shared.self_instance = instance.map(InstanceId::from);
+    }
+    fn set_other_instance(&mut self, instance: Option<String>) {
+        self.shared.other_instance = instance.map(InstanceId::from);
+    }
+    fn payload(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn payload_field(&self, _component: &str) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn emit_signal(&self, _target: &str, _value: Value) {}
 }
 
 struct ChronicleHandlerSpec {
@@ -727,12 +704,29 @@ pub fn build_chronicle_handler(
                 constants: &constants,
                 config: &config,
                 signals: ctx.signals,
+                entities: ctx.entities,
+                current_entity: None,
+                self_instance: None,
+                other_instance: None,
             },
         };
 
         let mut events = Vec::new();
         for handler in &handlers {
-            let result = execute(&handler.condition, &exec_ctx);
+            let mut mut_exec_ctx = ChronicleEvalContext {
+                dt: exec_ctx.dt,
+                sim_time: exec_ctx.sim_time,
+                shared: SharedContextData {
+                    constants: exec_ctx.shared.constants,
+                    config: exec_ctx.shared.config,
+                    signals: exec_ctx.shared.signals,
+                    entities: exec_ctx.shared.entities,
+                    current_entity: exec_ctx.shared.current_entity.clone(),
+                    self_instance: exec_ctx.shared.self_instance.clone(),
+                    other_instance: exec_ctx.shared.other_instance.clone(),
+                },
+            };
+            let result = execute(&handler.condition, &mut mut_exec_ctx);
             let triggered = result
                 .as_bool()
                 .unwrap_or(result.as_scalar().unwrap_or(0.0) != 0.0);
@@ -742,7 +736,7 @@ pub fn build_chronicle_handler(
 
             let mut fields: Vec<(String, Value)> = Vec::new();
             for (name, bytecode) in &handler.fields {
-                let value = execute(bytecode, &exec_ctx);
+                let value = execute(bytecode, &mut mut_exec_ctx);
                 fields.push((name.clone(), value));
             }
 
@@ -760,16 +754,20 @@ pub fn build_chronicle_handler(
 struct ImpulseEvalContext<'a> {
     payload: &'a Value,
     signals: &'a SignalStorage,
+    entities: &'a EntityStorage,
     channels: &'a mut InputChannels,
     dt: f64,
     sim_time: f64,
     constants: &'a IndexMap<String, (f64, Option<Unit>)>,
     config: &'a IndexMap<String, (f64, Option<Unit>)>,
     locals: HashMap<String, InterpValue>,
+    current_entity: Option<EntityId>,
+    self_instance: Option<InstanceId>,
+    other_instance: Option<InstanceId>,
 }
 
 impl ImpulseEvalContext<'_> {
-    fn constant(&self, name: &str) -> f64 {
+    fn constant(&self) -> f64 {
         self.constants
             .get(name)
             .map(|(v, _)| *v)
@@ -817,6 +815,53 @@ impl ImpulseEvalContext<'_> {
             },
         )
     }
+
+    fn self_field(&self, component: &str) -> Value {
+        let entity_id = self
+            .current_entity
+            .as_ref()
+            .expect("self_field called outside entity context");
+        let instance_id = self
+            .self_instance
+            .as_ref()
+            .expect("self_field called outside instance context");
+        self.entities
+            .get_field(entity_id, instance_id, component)
+            .cloned()
+            .unwrap_or(Value::Scalar(0.0))
+    }
+
+    fn other_field(&self, component: &str) -> Value {
+        let entity_id = self
+            .current_entity
+            .as_ref()
+            .expect("other_field called outside entity context");
+        let instance_id = self
+            .other_instance
+            .as_ref()
+            .expect("other_field called outside pairwise context");
+        self.entities
+            .get_field(entity_id, instance_id, component)
+            .cloned()
+            .unwrap_or(Value::Scalar(0.0))
+    }
+
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        let entity_id = EntityId::from(entity);
+        let instance_id = InstanceId::from(instance);
+        self.entities
+            .get_field(&entity_id, &instance_id, component)
+            .cloned()
+            .unwrap_or(Value::Scalar(0.0))
+    }
+
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        let entity_id = EntityId::from(entity);
+        self.entities
+            .instance_ids(&entity_id)
+            .map(|id| id.to_string())
+            .collect()
+    }
 }
 
 fn eval_impulse_function(name: &str, args: &[InterpValue]) -> InterpValue {
@@ -833,7 +878,7 @@ fn eval_impulse_expr(expr: &CompiledExpr, ctx: &mut ImpulseEvalContext) -> Inter
         CompiledExpr::DtRaw => InterpValue::Scalar(ctx.dt),
         CompiledExpr::SimTime => InterpValue::Scalar(ctx.sim_time),
         CompiledExpr::Signal(id) => ctx.signal(&id.to_string()),
-        CompiledExpr::Const(name, _) => InterpValue::Scalar(ctx.constant(name)),
+        CompiledExpr::Const(name, _) => InterpValue::Scalar(ctx.config(name)), // Fix: added name parameter
         CompiledExpr::Config(name, _) => InterpValue::Scalar(ctx.config(name)),
         CompiledExpr::Payload => ctx.payload_value(),
         CompiledExpr::PayloadField(field) => ctx.payload_field(field),
@@ -929,12 +974,16 @@ pub fn build_impulse_handler(
         let mut eval_ctx = ImpulseEvalContext {
             payload,
             signals: ctx.signals,
+            entities: ctx.entities,
             channels: ctx.channels,
             dt: ctx.dt.seconds(),
             sim_time: ctx.sim_time,
             constants: &constants,
             config: &config,
             locals: HashMap::new(),
+            current_entity: None,
+            self_instance: None,
+            other_instance: None,
         };
         let _ = eval_impulse_expr(&apply, &mut eval_ctx);
     }))
@@ -947,20 +996,22 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
     let config = world.config.clone();
 
     Box::new(move |ctx| {
-        let exec_ctx = AssertionContext {
+        let mut context = AssertionContext {
             current: ctx.current,
             prev: ctx.prev,
-            dt: ctx.dt.seconds(),
+            dt: ctx.dt.0,
             sim_time: ctx.sim_time,
             shared: SharedContextData {
                 constants: &constants,
                 config: &config,
                 signals: ctx.signals,
+                entities: ctx.entities,
+                current_entity: None,
+                self_instance: None,
+                other_instance: None,
             },
         };
-        let res = execute(&bytecode, &exec_ctx);
-        res.as_bool()
-            .unwrap_or(res.as_scalar().unwrap_or(0.0) != 0.0)
+        execute(&bytecode, &mut context).as_bool().unwrap_or(false)
     })
 }
 
@@ -1022,6 +1073,7 @@ pub fn eval_initial_expr(
     // This is used for member initials which are resolved before simulation starts
     // and can only read constants and config.
     let signals = SignalStorage::default();
+    let entities = EntityStorage::default();
     let members = MemberSignalBuffer::new();
 
     let mut ctx = MemberInterpContext {
@@ -1030,6 +1082,7 @@ pub fn eval_initial_expr(
         dt: 0.0,
         sim_time: 0.0,
         signals: &signals,
+        entities: &entities,
         members: &members,
         constants,
         config,

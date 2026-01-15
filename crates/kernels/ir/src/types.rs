@@ -12,6 +12,8 @@ use continuum_foundation::{
 // Re-export StratumState from foundation for backwards compatibility
 pub use continuum_foundation::StratumState;
 
+use serde::{Deserialize, Serialize};
+
 /// Trait for items that have a source location (file and span).
 pub trait Locatable {
     fn file(&self) -> Option<&std::path::Path>;
@@ -32,7 +34,7 @@ macro_rules! impl_locatable {
 }
 
 /// A compiled simulation world, ready for DAG construction.
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CompiledWorld {
     /// Global constants (evaluated at compile time)
     pub constants: IndexMap<String, (f64, Option<crate::units::Unit>)>,
@@ -309,7 +311,7 @@ impl CompiledWorld {
 }
 
 /// A compiled stratum definition representing a simulation layer.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledStratum {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -320,7 +322,7 @@ pub struct CompiledStratum {
 }
 
 /// A compiled user-defined function declaration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledFn {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -330,7 +332,7 @@ pub struct CompiledFn {
 }
 
 /// A compiled era definition representing a distinct time phase.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledEra {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -344,14 +346,14 @@ pub struct CompiledEra {
 }
 
 /// A compiled transition between eras.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledTransition {
     pub target_era: EraId,
     pub condition: CompiledExpr,
 }
 
 /// A compiled signal definition representing authoritative simulation state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledSignal {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -369,7 +371,7 @@ pub struct CompiledSignal {
 }
 
 /// A compiled field definition for observable (non-causal) data.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledField {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -383,7 +385,7 @@ pub struct CompiledField {
 }
 
 /// A compiled operator definition for phase-specific computation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledOperator {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -396,7 +398,7 @@ pub struct CompiledOperator {
 }
 
 /// A compiled impulse definition for external causal input.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledImpulse {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -406,7 +408,7 @@ pub struct CompiledImpulse {
 }
 
 /// A compiled fracture definition for emergent tension detection.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledFracture {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -418,14 +420,14 @@ pub struct CompiledFracture {
 }
 
 /// A signal emission from a fracture.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledEmit {
     pub target: SignalId,
     pub value: CompiledExpr,
 }
 
 /// A compiled entity definition representing a pure index space.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledEntity {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -435,7 +437,7 @@ pub struct CompiledEntity {
 }
 
 /// A compiled member signal definition representing per-entity authoritative state.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledMember {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -455,7 +457,7 @@ pub struct CompiledMember {
 }
 
 /// A compiled chronicle definition for observer-only event recording.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledChronicle {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -465,7 +467,7 @@ pub struct CompiledChronicle {
 }
 
 /// A compiled custom type definition.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledType {
     pub file: Option<PathBuf>,
     pub span: Span,
@@ -474,14 +476,14 @@ pub struct CompiledType {
 }
 
 /// A field within a compiled custom type.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledTypeField {
     pub name: String,
     pub value_type: ValueType,
 }
 
 /// An observation handler within a chronicle.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledObserveHandler {
     pub condition: CompiledExpr,
     pub event_name: String,
@@ -489,14 +491,14 @@ pub struct CompiledObserveHandler {
 }
 
 /// A field within a chronicle event payload.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledEventField {
     pub name: String,
     pub value: CompiledExpr,
 }
 
 /// Warmup configuration for signal initialization.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledWarmup {
     pub iterations: u32,
     pub convergence: Option<f64>,
@@ -504,7 +506,7 @@ pub struct CompiledWarmup {
 }
 
 /// A compiled assertion for runtime validation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledAssertion {
     pub condition: CompiledExpr,
     pub severity: AssertionSeverity,
@@ -512,7 +514,7 @@ pub struct CompiledAssertion {
 }
 
 /// The severity level of an assertion failure.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum AssertionSeverity {
     Warn,
     #[default]
@@ -521,7 +523,7 @@ pub enum AssertionSeverity {
 }
 
 /// The type of a signal or field value.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ValueType {
     pub primitive_id: PrimitiveTypeId,
     pub params: Vec<ValueTypeParamValue>,
@@ -531,7 +533,7 @@ pub struct ValueType {
 }
 
 /// Parameter values available on an IR value type.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ValueTypeParamValue {
     Unit(String),
     Range(ValueRange),
@@ -741,28 +743,28 @@ impl ValueType {
 }
 
 /// A numeric range constraint for scalar values.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ValueRange {
     pub min: f64,
     pub max: f64,
 }
 
 /// Tensor mathematical constraint.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TensorConstraintIr {
     Symmetric,
     PositiveDefinite,
 }
 
 /// Sequence aggregate constraint.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum SeqConstraintIr {
     Each(ValueRange),
     Sum(ValueRange),
 }
 
 /// Spatial topology for field data distribution.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TopologyIr {
     SphereSurface,
     PointCloud,
@@ -770,7 +772,7 @@ pub enum TopologyIr {
 }
 
 /// The execution phase for an operator.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum OperatorPhaseIr {
     Warmup,
     Collect,
@@ -778,7 +780,7 @@ pub enum OperatorPhaseIr {
 }
 
 /// A compiled expression tree ready for bytecode generation or interpretation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompiledExpr {
     Literal(f64, Option<crate::units::Unit>),
     Prev,
@@ -934,7 +936,7 @@ impl CompiledExpr {
 }
 
 /// Aggregate operations over collections of entity instances.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AggregateOpIr {
     Sum,
     Product,
@@ -948,7 +950,7 @@ pub enum AggregateOpIr {
 }
 
 /// Binary operators for two-operand expressions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum BinaryOpIr {
     Add,
     Sub,
@@ -966,13 +968,20 @@ pub enum BinaryOpIr {
 }
 
 /// Unary operators for single-operand expressions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum UnaryOpIr {
     Neg,
     Not,
 }
 
-impl_locatable!(CompiledSignal);
+/// A binary bundle containing a compiled world and its execution DAGs.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BinaryBundle {
+    pub version: u32,
+    pub world_name: String,
+    pub world: CompiledWorld,
+    pub compilation: crate::compile::CompilationResult,
+}
 impl_locatable!(CompiledField);
 impl_locatable!(CompiledOperator);
 impl_locatable!(CompiledImpulse);

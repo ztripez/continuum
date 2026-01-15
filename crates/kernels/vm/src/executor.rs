@@ -2,7 +2,7 @@
 //!
 //! Stack-based VM that executes compiled bytecode.
 
-use crate::bytecode::{BytecodeChunk, Op};
+use crate::bytecode::{BytecodeChunk, Op, ReductionOp};
 use continuum_kernel_registry::Value;
 
 /// Execution context providing runtime values
@@ -67,10 +67,42 @@ pub trait ExecutionContext {
 
     /// Call a kernel function
     fn call_kernel(&self, name: &str, args: &[Value]) -> Value;
+
+    // === Entity access ===
+    /// Get value of a member signal of the current instance
+    fn self_field(&self, component: &str) -> Value;
+
+    /// Get value of a field from a specific entity instance
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value;
+
+    /// Get value of another instance in the same entity set (for n-body)
+    fn other_field(&self, component: &str) -> Value;
+
+    /// Get all instance IDs for an entity type (MUST be sorted)
+    fn entity_instances(&self, entity: &str) -> Vec<String>;
+
+    /// Set the current entity type ID for subsequent entity-relative calls
+    fn set_current_entity(&mut self, entity: Option<String>);
+
+    /// Set the 'self' instance for subsequent self_field calls (during iteration)
+    fn set_self_instance(&mut self, instance: Option<String>);
+
+    /// Set the 'other' instance for subsequent other_field calls (during pairwise iteration)
+    fn set_other_instance(&mut self, instance: Option<String>);
+
+    // === Impulse access ===
+    /// Get the current impulse payload
+    fn payload(&self) -> Value;
+
+    /// Get a field from the current impulse payload
+    fn payload_field(&self, component: &str) -> Value;
+
+    /// Emit a signal from an impulse
+    fn emit_signal(&self, target: &str, value: Value);
 }
 
 /// Execute bytecode with the given context
-pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> Value {
+pub fn execute(chunk: &BytecodeChunk, ctx: &mut dyn ExecutionContext) -> Value {
     let mut stack: Vec<Value> = Vec::with_capacity(32);
     let mut locals: Vec<Value> = vec![Value::Scalar(0.0); chunk.local_count as usize];
     let mut ip = 0;
@@ -137,10 +169,295 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &dyn ExecutionContext) -> Value {
                 locals[slot as usize] = v;
             }
 
+            Op::LoadSelfField(component_idx) => {
+                let component = &chunk.components[component_idx as usize];
+                stack.push(ctx.self_field(component));
+            }
+
+            Op::LoadEntityField(entity_idx, instance_idx, component_idx) => {
+                let entity = &chunk.entities[entity_idx as usize];
+                let instance = &chunk.instances[instance_idx as usize];
+                let component = &chunk.components[component_idx as usize];
+                stack.push(ctx.entity_field(entity, instance, component));
+            }
+
+            Op::LoadOtherField(component_idx) => {
+                let component = &chunk.components[component_idx as usize];
+                stack.push(ctx.other_field(component));
+            }
+
+            Op::Aggregate(entity_idx, op, sub_chunk_idx) => {
+                let entity = &chunk.entities[entity_idx as usize];
+                let sub_chunk = &chunk.sub_chunks[sub_chunk_idx as usize];
+                let instances = ctx.entity_instances(entity);
+
+                let mut result = match op {
+                    ReductionOp::Sum | ReductionOp::Mean => Value::Scalar(0.0),
+                    ReductionOp::Product => Value::Scalar(1.0),
+                    ReductionOp::Min => Value::Scalar(f64::INFINITY),
+                    ReductionOp::Max => Value::Scalar(f64::NEG_INFINITY),
+                    ReductionOp::Count => Value::Integer(0),
+                    ReductionOp::Any => Value::Boolean(false),
+                    ReductionOp::All => Value::Boolean(true),
+                    ReductionOp::None => Value::Boolean(true),
+                };
+
+                let count = instances.len();
+                if op == ReductionOp::Count {
+                    stack.push(Value::Integer(count as i64));
+                } else {
+                    ctx.set_current_entity(Some(entity.clone()));
+                    for instance_id in instances {
+                        ctx.set_self_instance(Some(instance_id.clone()));
+                        let val = execute(sub_chunk, ctx);
+
+                        match op {
+                            ReductionOp::Sum | ReductionOp::Mean => {
+                                result = val_add(result, val);
+                            }
+                            ReductionOp::Product => {
+                                result = val_mul(result, val);
+                            }
+                            ReductionOp::Min => {
+                                if val_cmp(val.clone(), result.clone()) < 0 {
+                                    result = val;
+                                }
+                            }
+                            ReductionOp::Max => {
+                                if val_cmp(val.clone(), result.clone()) > 0 {
+                                    result = val;
+                                }
+                            }
+                            ReductionOp::Any => {
+                                if val_truthy(&val) {
+                                    result = Value::Boolean(true);
+                                    break;
+                                }
+                            }
+                            ReductionOp::All => {
+                                if !val_truthy(&val) {
+                                    result = Value::Boolean(false);
+                                    break;
+                                }
+                            }
+                            ReductionOp::None => {
+                                if val_truthy(&val) {
+                                    result = Value::Boolean(false);
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if op == ReductionOp::Mean && count > 0 {
+                        result = val_div(result, Value::Scalar(count as f64));
+                    }
+
+                    ctx.set_self_instance(None);
+                    ctx.set_current_entity(None);
+                    stack.push(result);
+                }
+            }
+
+            Op::Filter(entity_idx, pred_chunk_idx, body_chunk_idx) => {
+                let entity = &chunk.entities[entity_idx as usize];
+                let pred_chunk = &chunk.sub_chunks[pred_chunk_idx as usize];
+                let body_chunk = &chunk.sub_chunks[body_chunk_idx as usize];
+                let instances = ctx.entity_instances(entity);
+
+                ctx.set_current_entity(Some(entity.clone()));
+                let mut last_val = Value::Scalar(0.0);
+                for instance_id in instances {
+                    ctx.set_self_instance(Some(instance_id.clone()));
+                    let pred = execute(pred_chunk, ctx);
+                    if val_truthy(&pred) {
+                        last_val = execute(body_chunk, ctx);
+                    }
+                }
+                ctx.set_self_instance(None);
+                ctx.set_current_entity(None);
+                stack.push(last_val);
+            }
+
+            Op::FindFirstField(entity_idx, pred_chunk_idx, component_idx) => {
+                let entity = &chunk.entities[entity_idx as usize];
+                let pred_chunk = &chunk.sub_chunks[pred_chunk_idx as usize];
+                let component = &chunk.components[component_idx as usize];
+                let instances = ctx.entity_instances(entity);
+
+                ctx.set_current_entity(Some(entity.clone()));
+                let mut result = Value::Scalar(0.0);
+                for instance_id in instances {
+                    ctx.set_self_instance(Some(instance_id.clone()));
+                    let pred = execute(pred_chunk, ctx);
+                    if val_truthy(&pred) {
+                        result = ctx.self_field(component);
+                        break;
+                    }
+                }
+                ctx.set_self_instance(None);
+                ctx.set_current_entity(None);
+                stack.push(result);
+            }
+
+            Op::LoadNearestField(entity_idx, component_idx) => {
+                let entity = &chunk.entities[entity_idx as usize];
+                let component = &chunk.components[component_idx as usize];
+                let pos = stack.pop().expect("vm bug: stack underflow");
+                let instances = ctx.entity_instances(entity);
+
+                ctx.set_current_entity(Some(entity.clone()));
+                let mut nearest_id = None;
+                let mut min_dist_sq = f64::INFINITY;
+
+                for instance_id in instances {
+                    ctx.set_self_instance(Some(instance_id.clone()));
+                    let inst_pos = ctx.self_field("position");
+                    let dist_sq = val_dist_sq(pos.clone(), inst_pos);
+
+                    if dist_sq < min_dist_sq {
+                        min_dist_sq = dist_sq;
+                        nearest_id = Some(instance_id);
+                    } else if dist_sq == min_dist_sq {
+                        if let Some(ref current_nearest) = nearest_id {
+                            if instance_id < *current_nearest {
+                                nearest_id = Some(instance_id);
+                            }
+                        }
+                    }
+                }
+
+                if let Some(id) = nearest_id {
+                    ctx.set_self_instance(Some(id));
+                    stack.push(ctx.self_field(component));
+                } else {
+                    stack.push(Value::Scalar(0.0));
+                }
+                ctx.set_self_instance(None);
+                ctx.set_current_entity(None);
+            }
+
+            Op::WithinAggregate(entity_idx, op, body_chunk_idx) => {
+                let entity = &chunk.entities[entity_idx as usize];
+                let body_chunk = &chunk.sub_chunks[body_chunk_idx as usize];
+                let radius = stack
+                    .pop()
+                    .expect("vm bug: stack underflow")
+                    .as_scalar()
+                    .unwrap_or(0.0);
+                let radius_sq = radius * radius;
+                let pos = stack.pop().expect("vm bug: stack underflow");
+                let instances = ctx.entity_instances(entity);
+
+                ctx.set_current_entity(Some(entity.clone()));
+                let mut result = match op {
+                    ReductionOp::Sum | ReductionOp::Mean => Value::Scalar(0.0),
+                    ReductionOp::Product => Value::Scalar(1.0),
+                    ReductionOp::Min => Value::Scalar(f64::INFINITY),
+                    ReductionOp::Max => Value::Scalar(f64::NEG_INFINITY),
+                    ReductionOp::Count => Value::Integer(0),
+                    ReductionOp::Any => Value::Boolean(false),
+                    ReductionOp::All => Value::Boolean(true),
+                    ReductionOp::None => Value::Boolean(true),
+                };
+
+                let mut count = 0usize;
+                for instance_id in instances {
+                    ctx.set_self_instance(Some(instance_id.clone()));
+                    let inst_pos = ctx.self_field("position");
+                    if val_dist_sq(pos.clone(), inst_pos) <= radius_sq {
+                        count += 1;
+                        let val = execute(body_chunk, ctx);
+
+                        match op {
+                            ReductionOp::Sum | ReductionOp::Mean => {
+                                result = val_add(result, val);
+                            }
+                            ReductionOp::Product => {
+                                result = val_mul(result, val);
+                            }
+                            ReductionOp::Min => {
+                                if val_cmp(val.clone(), result.clone()) < 0 {
+                                    result = val;
+                                }
+                            }
+                            ReductionOp::Max => {
+                                if val_cmp(val.clone(), result.clone()) > 0 {
+                                    result = val;
+                                }
+                            }
+                            ReductionOp::Any => {
+                                if val_truthy(&val) {
+                                    result = Value::Boolean(true);
+                                    break;
+                                }
+                            }
+                            ReductionOp::All => {
+                                if !val_truthy(&val) {
+                                    result = Value::Boolean(false);
+                                    break;
+                                }
+                            }
+                            ReductionOp::None => {
+                                if val_truthy(&val) {
+                                    result = Value::Boolean(false);
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
+                if op == ReductionOp::Count {
+                    result = Value::Integer(count as i64);
+                } else if op == ReductionOp::Mean && count > 0 {
+                    result = val_div(result, Value::Scalar(count as f64));
+                }
+
+                ctx.set_self_instance(None);
+                ctx.set_current_entity(None);
+                stack.push(result);
+            }
+
+            Op::Pairs(entity_idx, body_chunk_idx) => {
+                let entity = &chunk.entities[entity_idx as usize];
+                let body_chunk = &chunk.sub_chunks[body_chunk_idx as usize];
+                let instances = ctx.entity_instances(entity);
+
+                ctx.set_current_entity(Some(entity.clone()));
+                for i in 0..instances.len() {
+                    for j in (i + 1)..instances.len() {
+                        ctx.set_self_instance(Some(instances[i].clone()));
+                        ctx.set_other_instance(Some(instances[j].clone()));
+                        execute(body_chunk, ctx);
+                    }
+                }
+                ctx.set_self_instance(None);
+                ctx.set_other_instance(None);
+                ctx.set_current_entity(None);
+                stack.push(Value::Scalar(0.0));
+            }
+
+            Op::LoadPayload => {
+                stack.push(ctx.payload());
+            }
+
+            Op::LoadPayloadField(component_idx) => {
+                let component = &chunk.components[component_idx as usize];
+                stack.push(ctx.payload_field(component));
+            }
+
+            Op::EmitSignal(signal_idx) => {
+                let target = &chunk.signals[signal_idx as usize];
+                let val = stack.pop().expect("vm bug: stack underflow");
+                ctx.emit_signal(target, val);
+            }
+
             Op::Add => {
                 let r = stack.pop().expect("vm bug: stack underflow");
                 let l = stack.pop().expect("vm bug: stack underflow");
-                // Implement generic Add
                 stack.push(val_add(l, r));
             }
 
@@ -266,12 +583,8 @@ fn val_add(l: Value, r: Value) -> Value {
     match (l, r) {
         (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a + b),
         (Value::Integer(a), Value::Integer(b)) => Value::Integer(a + b),
-        // Scalar + Int -> Scalar
         (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a + b as f64),
         (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(a as f64 + b),
-        // Vector addition? Assuming component-wise or broadcasting if supported
-        // For now, keep it simple/safe or panic if unsupported?
-        // Let's support Vec3 + Vec3
         (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3([a[0] + b[0], a[1] + b[1], a[2] + b[2]]),
         (Value::Map(a), Value::Map(b)) => {
             let mut res = a.clone();
@@ -301,7 +614,6 @@ fn val_mul(l: Value, r: Value) -> Value {
         (Value::Integer(a), Value::Integer(b)) => Value::Integer(a * b),
         (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a * b as f64),
         (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(a as f64 * b),
-        // Vector * Scalar
         (Value::Vec3(v), Value::Scalar(s)) => Value::Vec3([v[0] * s, v[1] * s, v[2] * s]),
         (Value::Scalar(s), Value::Vec3(v)) => Value::Vec3([v[0] * s, v[1] * s, v[2] * s]),
         _ => Value::Scalar(0.0),
@@ -311,7 +623,6 @@ fn val_mul(l: Value, r: Value) -> Value {
 fn val_div(l: Value, r: Value) -> Value {
     match (l, r) {
         (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a / b),
-        // Vector / Scalar
         (Value::Vec3(v), Value::Scalar(s)) => Value::Vec3([v[0] / s, v[1] / s, v[2] / s]),
         _ => Value::Scalar(0.0),
     }
@@ -339,7 +650,7 @@ fn val_cmp(l: Value, r: Value) -> i8 {
         (Value::Integer(a), Value::Integer(b)) => (a - b) as f64,
         (Value::Scalar(a), Value::Integer(b)) => a - b as f64,
         (Value::Integer(a), Value::Scalar(b)) => a as f64 - b,
-        _ => return 0, // Incomparable
+        _ => return 0,
     };
 
     if diff < 0.0 {
@@ -358,6 +669,27 @@ fn val_truthy(v: &Value) -> bool {
         Value::Integer(i) => *i != 0,
         Value::Map(v) => !v.is_empty(),
         _ => false,
+    }
+}
+
+fn val_dist_sq(a: Value, b: Value) -> f64 {
+    match (a, b) {
+        (Value::Vec3(v1), Value::Vec3(v2)) => {
+            let dx = v1[0] - v2[0];
+            let dy = v1[1] - v2[1];
+            let dz = v1[2] - v2[2];
+            dx * dx + dy * dy + dz * dz
+        }
+        (Value::Vec2(v1), Value::Vec2(v2)) => {
+            let dx = v1[0] - v2[0];
+            let dy = v1[1] - v2[1];
+            dx * dx + dy * dy
+        }
+        (Value::Scalar(s1), Value::Scalar(s2)) => {
+            let ds = s1 - s2;
+            ds * ds
+        }
+        _ => f64::INFINITY,
     }
 }
 
@@ -420,12 +752,35 @@ mod tests {
                 _ => Value::Scalar(0.0),
             }
         }
+
+        fn self_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn entity_field(&self, _entity: &str, _instance: &str, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn other_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn entity_instances(&self, _entity: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn set_current_entity(&mut self, _entity: Option<String>) {}
+        fn set_self_instance(&mut self, _instance: Option<String>) {}
+        fn set_other_instance(&mut self, _instance: Option<String>) {}
+        fn payload(&self) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn payload_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn emit_signal(&self, _target: &str, _value: Value) {}
     }
 
     #[test]
     fn test_execute_literal() {
         let chunk = compile_expr(&Expr::Literal(42.0));
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(42.0));
     }
 
@@ -437,21 +792,21 @@ mod tests {
             right: Box::new(Expr::Literal(32.0)),
         };
         let chunk = compile_expr(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(42.0));
     }
 
     #[test]
     fn test_execute_prev() {
         let chunk = compile_expr(&Expr::Prev);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(100.0));
     }
 
     #[test]
     fn test_execute_signal() {
         let chunk = compile_expr(&Expr::Signal("temp".to_string()));
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(25.0));
     }
 
@@ -462,7 +817,7 @@ mod tests {
             args: vec![Expr::Literal(-5.0)],
         };
         let chunk = compile_expr(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(5.0));
     }
 
@@ -474,7 +829,7 @@ mod tests {
             else_branch: Box::new(Expr::Literal(20.0)),
         };
         let chunk = compile_expr(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(10.0));
     }
 
@@ -486,7 +841,7 @@ mod tests {
             else_branch: Box::new(Expr::Literal(20.0)),
         };
         let chunk = compile_expr(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(20.0));
     }
 
@@ -503,7 +858,7 @@ mod tests {
             }),
         };
         let chunk = compile_expr(&expr);
-        let result = execute(&chunk, &TestContext);
+        let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(150.0));
     }
 
@@ -516,12 +871,10 @@ mod tests {
 
     impl ExecutionContext for VectorTestContext {
         fn prev(&self) -> Value {
-            // Full vector magnitude or default
             Value::Scalar(100.0)
         }
 
         fn prev_component(&self, component: &str) -> Value {
-            // prev = (1.0, 2.0, 3.0, 4.0)
             match component {
                 "x" => Value::Scalar(1.0),
                 "y" => Value::Scalar(2.0),
@@ -540,12 +893,10 @@ mod tests {
         }
 
         fn inputs(&self) -> Value {
-            // Full inputs magnitude
             Value::Scalar(10.0)
         }
 
         fn inputs_component(&self, component: &str) -> Value {
-            // inputs = (10.0, 20.0, 30.0, 40.0)
             match component {
                 "x" => Value::Scalar(10.0),
                 "y" => Value::Scalar(20.0),
@@ -564,7 +915,6 @@ mod tests {
         }
 
         fn signal_component(&self, name: &str, component: &str) -> Value {
-            // velocity = (5.0, 6.0, 7.0), position = (100.0, 200.0, 300.0)
             match (name, component) {
                 ("velocity", "x") => Value::Scalar(5.0),
                 ("velocity", "y") => Value::Scalar(6.0),
@@ -587,40 +937,63 @@ mod tests {
         fn call_kernel(&self, _name: &str, _args: &[Value]) -> Value {
             Value::Scalar(0.0)
         }
+
+        fn self_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn entity_field(&self, _entity: &str, _instance: &str, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn other_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn entity_instances(&self, _entity: &str) -> Vec<String> {
+            Vec::new()
+        }
+        fn set_current_entity(&mut self, _entity: Option<String>) {}
+        fn set_self_instance(&mut self, _instance: Option<String>) {}
+        fn set_other_instance(&mut self, _instance: Option<String>) {}
+        fn payload(&self) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn payload_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn emit_signal(&self, _target: &str, _value: Value) {}
     }
 
     #[test]
     fn test_execute_prev_component_x() {
         let chunk = compile_expr(&Expr::PrevComponent("x".to_string()));
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(1.0));
     }
 
     #[test]
     fn test_execute_prev_component_y() {
         let chunk = compile_expr(&Expr::PrevComponent("y".to_string()));
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(2.0));
     }
 
     #[test]
     fn test_execute_prev_component_z() {
         let chunk = compile_expr(&Expr::PrevComponent("z".to_string()));
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(3.0));
     }
 
     #[test]
     fn test_execute_collected_component_x() {
         let chunk = compile_expr(&Expr::CollectedComponent("x".to_string()));
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(10.0));
     }
 
     #[test]
     fn test_execute_collected_component_y() {
         let chunk = compile_expr(&Expr::CollectedComponent("y".to_string()));
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(20.0));
     }
 
@@ -630,7 +1003,7 @@ mod tests {
             "velocity".to_string(),
             "x".to_string(),
         ));
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(5.0));
     }
 
@@ -640,7 +1013,7 @@ mod tests {
             "velocity".to_string(),
             "y".to_string(),
         ));
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(6.0));
     }
 
@@ -650,7 +1023,7 @@ mod tests {
             "position".to_string(),
             "z".to_string(),
         ));
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(300.0));
     }
 
@@ -663,7 +1036,7 @@ mod tests {
             right: Box::new(Expr::PrevComponent("y".to_string())),
         };
         let chunk = compile_expr(&expr);
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(3.0));
     }
 
@@ -683,7 +1056,7 @@ mod tests {
             )),
         };
         let chunk = compile_expr(&expr);
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(28.0));
     }
 
@@ -707,7 +1080,7 @@ mod tests {
             )),
         };
         let chunk = compile_expr(&expr);
-        let result = execute(&chunk, &VectorTestContext);
+        let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(6.0));
     }
 }

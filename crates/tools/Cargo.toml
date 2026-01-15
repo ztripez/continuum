@@ -4,12 +4,12 @@ version.workspace = true
 edition.workspace = true
 
 [[bin]]
-name = "world-load"
-path = "src/bin/world_load.rs"
+name = "check"
+path = "src/bin/check.rs"
 
 [[bin]]
-name = "world-run"
-path = "src/bin/world_run.rs"
+name = "run"
+path = "src/bin/run.rs"
 
 [[bin]]
 name = "analyze"
@@ -27,12 +27,17 @@ path = "src/bin/world_ipc.rs"
 name = "world-ipc-web"
 path = "src/bin/world_ipc_web.rs"
 
+[[bin]]
+name = "compile"
+path = "src/bin/compile.rs"
+
 [dependencies]
 continuum-compiler = { version = "0.1.0", path = "../continuum-compiler" }
 continuum-foundation = { path = "../kernels/foundation" }
 continuum-functions = { version = "0.1.0", path = "../kernels/functions" }
 continuum-lens = { path = "../kernels/lens" }
 continuum-runtime = { path = "../kernels/runtime" }
+continuum-vm = { path = "../kernels/vm" }
 anyhow = "1.0"
 axum = { version = "0.7", features = ["ws"] }
 bincode = "1.3"

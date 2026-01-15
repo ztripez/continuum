@@ -634,6 +634,7 @@ impl LaneKernel for ScalarL2Kernel {
     fn execute(
         &self,
         signals: &SignalStorage,
+        _entities: &continuum_runtime::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
     ) -> Result<LaneKernelResult, LaneKernelError> {

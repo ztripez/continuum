@@ -3,7 +3,7 @@
 //! Each phase has a specific context type that provides access to
 //! the appropriate data and operations.
 
-use crate::storage::{FieldBuffer, InputChannels, SignalStorage};
+use crate::storage::{EntityStorage, FieldBuffer, InputChannels, SignalStorage};
 use crate::types::{Dt, Value};
 
 /// Context available to warmup functions
@@ -12,6 +12,8 @@ pub struct WarmupContext<'a> {
     pub prev: &'a Value,
     /// Access to other signals (current iteration if resolved, else previous)
     pub signals: &'a SignalStorage,
+    /// Access to entity instances
+    pub entities: &'a EntityStorage,
     /// Current warmup iteration (0-indexed)
     pub iteration: u32,
     /// Accumulated simulation time in seconds
@@ -24,6 +26,8 @@ pub struct ResolveContext<'a> {
     pub prev: &'a Value,
     /// Access to other signals (current tick if resolved, else previous)
     pub signals: &'a SignalStorage,
+    /// Access to entity instances
+    pub entities: &'a EntityStorage,
     /// Accumulated inputs for this signal
     pub inputs: f64,
     /// Time step
@@ -36,6 +40,8 @@ pub struct ResolveContext<'a> {
 pub struct CollectContext<'a> {
     /// Access to signals (previous tick values)
     pub signals: &'a SignalStorage,
+    /// Access to entity instances
+    pub entities: &'a EntityStorage,
     /// Channel to write inputs
     pub channels: &'a mut InputChannels,
     /// Time step
@@ -48,6 +54,8 @@ pub struct CollectContext<'a> {
 pub struct FractureContext<'a> {
     /// Access to signals (current tick values)
     pub signals: &'a SignalStorage,
+    /// Access to entity instances
+    pub entities: &'a EntityStorage,
     /// Time step
     pub dt: Dt,
     /// Accumulated simulation time in seconds
@@ -58,6 +66,8 @@ pub struct FractureContext<'a> {
 pub struct MeasureContext<'a> {
     /// Access to signals (current tick values, post-resolve)
     pub signals: &'a SignalStorage,
+    /// Access to entity instances
+    pub entities: &'a EntityStorage,
     /// Field buffer for emission
     pub fields: &'a mut FieldBuffer,
     /// Time step
@@ -70,6 +80,8 @@ pub struct MeasureContext<'a> {
 pub struct ImpulseContext<'a> {
     /// Access to signals (previous tick values)
     pub signals: &'a SignalStorage,
+    /// Access to entity instances
+    pub entities: &'a EntityStorage,
     /// Channel to write inputs
     pub channels: &'a mut InputChannels,
     /// Time step
@@ -86,6 +98,8 @@ pub struct AssertContext<'a> {
     pub prev: &'a Value,
     /// Access to all signals
     pub signals: &'a SignalStorage,
+    /// Access to entity instances
+    pub entities: &'a EntityStorage,
     /// Time step
     pub dt: Dt,
     /// Accumulated simulation time in seconds
@@ -99,6 +113,8 @@ pub struct AssertContext<'a> {
 pub struct ChronicleContext<'a> {
     /// Access to signals (current tick values, post-resolve)
     pub signals: &'a SignalStorage,
+    /// Access to entity instances
+    pub entities: &'a EntityStorage,
     /// Time step
     pub dt: Dt,
     /// Accumulated simulation time in seconds

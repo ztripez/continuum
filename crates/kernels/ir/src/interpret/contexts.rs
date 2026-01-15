@@ -7,8 +7,8 @@
 
 use indexmap::IndexMap;
 
-use continuum_foundation::SignalId;
-use continuum_runtime::storage::SignalStorage;
+use continuum_foundation::{EntityId, InstanceId, SignalId};
+use continuum_runtime::storage::{EntityStorage, SignalStorage};
 use continuum_runtime::types::Value;
 use continuum_vm::ExecutionContext;
 
@@ -26,6 +26,10 @@ pub(crate) struct SharedContextData<'a> {
     pub(crate) constants: &'a IndexMap<String, (f64, Option<crate::units::Unit>)>,
     pub(crate) config: &'a IndexMap<String, (f64, Option<crate::units::Unit>)>,
     pub(crate) signals: &'a SignalStorage,
+    pub(crate) entities: &'a EntityStorage,
+    pub(crate) current_entity: Option<EntityId>,
+    pub(crate) self_instance: Option<InstanceId>,
+    pub(crate) other_instance: Option<InstanceId>,
 }
 
 impl SharedContextData<'_> {
@@ -46,7 +50,7 @@ impl SharedContextData<'_> {
                 if let Some(c) = v.component(component) {
                     Value::Scalar(c)
                 } else {
-                    Value::Scalar(0.0) // Or panic?
+                    Value::Scalar(0.0)
                 }
             }
             None => panic!("Signal '{}' not found in storage", name),
@@ -67,6 +71,57 @@ impl SharedContextData<'_> {
             .get(name)
             .map(|(v, _)| Value::Scalar(*v))
             .unwrap_or_else(|| panic!("Config value '{}' not defined", name))
+    }
+
+    /// Get value of a member signal of the current instance
+    fn self_field(&self, component: &str) -> Value {
+        let entity_id = self
+            .current_entity
+            .as_ref()
+            .expect("self_field called outside entity context");
+        let instance_id = self
+            .self_instance
+            .as_ref()
+            .expect("self_field called outside instance context");
+        self.entities
+            .get_field(entity_id, instance_id, component)
+            .cloned()
+            .unwrap_or(Value::Scalar(0.0))
+    }
+
+    /// Get value of another instance in the same set
+    fn other_field(&self, component: &str) -> Value {
+        let entity_id = self
+            .current_entity
+            .as_ref()
+            .expect("other_field called outside entity context");
+        let instance_id = self
+            .other_instance
+            .as_ref()
+            .expect("other_field called outside pairwise context");
+        self.entities
+            .get_field(entity_id, instance_id, component)
+            .cloned()
+            .unwrap_or(Value::Scalar(0.0))
+    }
+
+    /// Get value of a field from a specific entity instance
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        let entity_id = EntityId::from(entity);
+        let instance_id = InstanceId::from(instance);
+        self.entities
+            .get_field(&entity_id, &instance_id, component)
+            .cloned()
+            .unwrap_or(Value::Scalar(0.0))
+    }
+
+    /// Get all instance IDs for an entity type
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        let entity_id = EntityId::from(entity);
+        self.entities
+            .instance_ids(&entity_id)
+            .map(|id| id.to_string())
+            .collect()
     }
 }
 
@@ -125,6 +180,35 @@ impl ExecutionContext for ResolverContext<'_> {
                 )
             })
     }
+
+    fn self_field(&self, component: &str) -> Value {
+        self.shared.self_field(component)
+    }
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        self.shared.entity_field(entity, instance, component)
+    }
+    fn other_field(&self, component: &str) -> Value {
+        self.shared.other_field(component)
+    }
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        self.shared.entity_instances(entity)
+    }
+    fn set_current_entity(&mut self, entity: Option<String>) {
+        self.shared.current_entity = entity.map(EntityId::from);
+    }
+    fn set_self_instance(&mut self, instance: Option<String>) {
+        self.shared.self_instance = instance.map(InstanceId::from);
+    }
+    fn set_other_instance(&mut self, instance: Option<String>) {
+        self.shared.other_instance = instance.map(InstanceId::from);
+    }
+    fn payload(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn payload_field(&self, _component: &str) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn emit_signal(&self, _target: &str, _value: Value) {}
 }
 
 /// Execution context for assertion evaluation.
@@ -185,6 +269,35 @@ impl ExecutionContext for AssertionContext<'_> {
             },
         )
     }
+
+    fn self_field(&self, component: &str) -> Value {
+        self.shared.self_field(component)
+    }
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        self.shared.entity_field(entity, instance, component)
+    }
+    fn other_field(&self, component: &str) -> Value {
+        self.shared.other_field(component)
+    }
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        self.shared.entity_instances(entity)
+    }
+    fn set_current_entity(&mut self, entity: Option<String>) {
+        self.shared.current_entity = entity.map(EntityId::from);
+    }
+    fn set_self_instance(&mut self, instance: Option<String>) {
+        self.shared.self_instance = instance.map(InstanceId::from);
+    }
+    fn set_other_instance(&mut self, instance: Option<String>) {
+        self.shared.other_instance = instance.map(InstanceId::from);
+    }
+    fn payload(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn payload_field(&self, _component: &str) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn emit_signal(&self, _target: &str, _value: Value) {}
 }
 
 /// Execution context for era transition evaluation.
@@ -240,6 +353,35 @@ impl ExecutionContext for TransitionContext<'_> {
             },
         )
     }
+
+    fn self_field(&self, component: &str) -> Value {
+        self.shared.self_field(component)
+    }
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        self.shared.entity_field(entity, instance, component)
+    }
+    fn other_field(&self, component: &str) -> Value {
+        self.shared.other_field(component)
+    }
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        self.shared.entity_instances(entity)
+    }
+    fn set_current_entity(&mut self, entity: Option<String>) {
+        self.shared.current_entity = entity.map(EntityId::from);
+    }
+    fn set_self_instance(&mut self, instance: Option<String>) {
+        self.shared.self_instance = instance.map(InstanceId::from);
+    }
+    fn set_other_instance(&mut self, instance: Option<String>) {
+        self.shared.other_instance = instance.map(InstanceId::from);
+    }
+    fn payload(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn payload_field(&self, _component: &str) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn emit_signal(&self, _target: &str, _value: Value) {}
 }
 
 /// Execution context for field measurement.
@@ -295,6 +437,35 @@ impl ExecutionContext for MeasureContext<'_> {
                 )
             })
     }
+
+    fn self_field(&self, component: &str) -> Value {
+        self.shared.self_field(component)
+    }
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        self.shared.entity_field(entity, instance, component)
+    }
+    fn other_field(&self, component: &str) -> Value {
+        self.shared.other_field(component)
+    }
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        self.shared.entity_instances(entity)
+    }
+    fn set_current_entity(&mut self, entity: Option<String>) {
+        self.shared.current_entity = entity.map(EntityId::from);
+    }
+    fn set_self_instance(&mut self, instance: Option<String>) {
+        self.shared.self_instance = instance.map(InstanceId::from);
+    }
+    fn set_other_instance(&mut self, instance: Option<String>) {
+        self.shared.other_instance = instance.map(InstanceId::from);
+    }
+    fn payload(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn payload_field(&self, _component: &str) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn emit_signal(&self, _target: &str, _value: Value) {}
 }
 
 /// Execution context for fracture condition and emission evaluation.
@@ -350,6 +521,35 @@ impl ExecutionContext for FractureExecContext<'_> {
                 )
             })
     }
+
+    fn self_field(&self, component: &str) -> Value {
+        self.shared.self_field(component)
+    }
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        self.shared.entity_field(entity, instance, component)
+    }
+    fn other_field(&self, component: &str) -> Value {
+        self.shared.other_field(component)
+    }
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        self.shared.entity_instances(entity)
+    }
+    fn set_current_entity(&mut self, entity: Option<String>) {
+        self.shared.current_entity = entity.map(EntityId::from);
+    }
+    fn set_self_instance(&mut self, instance: Option<String>) {
+        self.shared.self_instance = instance.map(InstanceId::from);
+    }
+    fn set_other_instance(&mut self, instance: Option<String>) {
+        self.shared.other_instance = instance.map(InstanceId::from);
+    }
+    fn payload(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn payload_field(&self, _component: &str) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn emit_signal(&self, _target: &str, _value: Value) {}
 }
 
 /// Execution context for warmup iterations.
@@ -406,4 +606,33 @@ impl ExecutionContext for WarmupContext<'_> {
             },
         )
     }
+
+    fn self_field(&self, component: &str) -> Value {
+        self.shared.self_field(component)
+    }
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        self.shared.entity_field(entity, instance, component)
+    }
+    fn other_field(&self, component: &str) -> Value {
+        self.shared.other_field(component)
+    }
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        self.shared.entity_instances(entity)
+    }
+    fn set_current_entity(&mut self, entity: Option<String>) {
+        self.shared.current_entity = entity.map(EntityId::from);
+    }
+    fn set_self_instance(&mut self, instance: Option<String>) {
+        self.shared.self_instance = instance.map(InstanceId::from);
+    }
+    fn set_other_instance(&mut self, instance: Option<String>) {
+        self.shared.other_instance = instance.map(InstanceId::from);
+    }
+    fn payload(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn payload_field(&self, _component: &str) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn emit_signal(&self, _target: &str, _value: Value) {}
 }

@@ -1,152 +1,71 @@
 //! DSL Lint Tool
 //!
-//! Parses a single .cdsl file and reports detailed parse errors with line numbers.
+//! Parses a single .cdsl file or a directory of .cdsl files and reports detailed diagnostics.
 //!
-//! Usage: dsl-lint <file.cdsl>
+//! Usage: dsl-lint <FILE_OR_DIR>
 
-use std::env;
+use clap::Parser;
+use std::collections::HashMap;
 use std::fs;
+use std::path::{Path, PathBuf};
 use std::process;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use continuum_compiler::dsl::ast::Item;
+#[derive(Parser, Debug)]
+#[command(name = "dsl-lint")]
+struct Cli {
+    path: PathBuf,
+}
 
 fn main() {
     continuum_tools::init_logging();
 
-    let args: Vec<String> = env::args().collect();
+    let cli = Cli::parse();
+    let target_path = cli.path;
 
-    if args.len() != 2 {
-        eprintln!("Usage: {} <file.cdsl>", args[0]);
+    if !target_path.exists() {
+        error!("Path '{}' does not exist", target_path.display());
         process::exit(1);
     }
 
-    let file_path = &args[1];
-
-    let source = match fs::read_to_string(file_path) {
-        Ok(s) => s,
-        Err(e) => {
-            error!("Error reading file '{}': {}", file_path, e);
+    let compile_result = match compile_target(&target_path) {
+        Ok(result) => result,
+        Err(message) => {
+            error!("{}", message);
             process::exit(1);
         }
     };
 
-    info!("Linting: {}", file_path);
-    info!(
-        "File size: {} bytes, {} lines",
-        source.len(),
-        source.lines().count()
-    );
-
-    let (result, parse_errors) = continuum_compiler::dsl::parse(&source);
-
-    if !parse_errors.is_empty() {
-        error!("Parse errors found:");
-        for err in &parse_errors {
-            let span = err.span();
-            show_error_context(&source, (span.start, span.end), file_path);
-            error!("  Error: {}", err);
-        }
+    let diagnostics = compile_result.format_diagnostics();
+    if compile_result.has_errors() {
+        error!("Errors found:\n{}", diagnostics);
         process::exit(1);
     }
 
-    match result {
-        Some(unit) => {
-            info!("Successfully parsed {} items:", unit.items.len());
-            for item in &unit.items {
-                info!("  - {}", describe_item(&item.node));
-            }
+    if !compile_result.diagnostics.is_empty() {
+        warn!("Warnings found:\n{}", diagnostics);
+    }
 
-            // Run validation
-            let validation_errors = continuum_compiler::dsl::validate(&unit);
-            if !validation_errors.is_empty() {
-                error!("Validation errors:");
-                for err in &validation_errors {
-                    show_error_context(&source, (err.span.start, err.span.end), file_path);
-                    error!("  - {}", err.message);
-                }
-                process::exit(1);
-            }
-
-            info!("No errors found.");
-        }
-        None => {
-            error!("Failed to produce AST (no specific errors reported)");
-            process::exit(1);
-        }
+    if let Some(world) = compile_result.world.as_ref() {
+        info!("Successfully compiled world");
+        info!("  - Signals: {}", world.signals().len());
+        info!("  - Fields: {}", world.fields().len());
+        info!("  - Operators: {}", world.operators().len());
+        info!("  - Entities: {}", world.entities().len());
+    } else {
+        info!("No errors found.");
     }
 }
 
-fn show_error_context(source: &str, span: (usize, usize), file_path: &str) {
-    let (start, _end) = span;
-
-    // Find line number and column
-    let mut line_num: usize = 1;
-    let mut line_start = 0;
-
-    for (i, c) in source.char_indices() {
-        if i >= start {
-            break;
-        }
-        if c == '\n' {
-            line_num += 1;
-            line_start = i + 1;
-        }
+fn compile_target(path: &Path) -> Result<continuum_compiler::CompileResult, String> {
+    if path.is_dir() {
+        return Ok(continuum_compiler::compile_from_dir_result(path));
     }
 
-    let col = start - line_start + 1;
+    let source = fs::read_to_string(path)
+        .map_err(|error| format!("Error reading file '{}': {}", path.display(), error))?;
+    let mut source_map = HashMap::new();
+    source_map.insert(path.to_path_buf(), source.as_str());
 
-    // Get the line content
-    let line_end = source[start..]
-        .find('\n')
-        .map(|p| start + p)
-        .unwrap_or(source.len());
-    let line_content = &source[line_start..line_end];
-
-    eprintln!();
-    eprintln!("  --> {}:{}:{}", file_path, line_num, col);
-    eprintln!("   |");
-    eprintln!("{:>4} | {}", line_num, line_content);
-    eprintln!("   | {}^", " ".repeat(col.saturating_sub(1)));
-    eprintln!();
-
-    // Show surrounding context
-    let lines: Vec<&str> = source.lines().collect();
-    let ctx_start = line_num.saturating_sub(3);
-    let ctx_end = (line_num + 2).min(lines.len());
-
-    eprintln!("  Context:");
-    for (i, line) in lines
-        .iter()
-        .enumerate()
-        .skip(ctx_start)
-        .take(ctx_end - ctx_start)
-    {
-        let marker = if i + 1 == line_num { ">>>" } else { "   " };
-        eprintln!("{} {:>4} | {}", marker, i + 1, line);
-    }
-}
-
-fn describe_item(item: &Item) -> String {
-    match item {
-        Item::ConstBlock(consts) => {
-            format!("const block ({} constants)", consts.entries.len())
-        }
-        Item::ConfigBlock(config) => {
-            format!("config block ({} entries)", config.entries.len())
-        }
-        Item::TypeDef(t) => format!("type {}", t.name.node),
-        Item::FnDef(f) => format!("fn {}", f.path.node),
-        Item::StrataDef(s) => format!("strata {}", s.path.node),
-        Item::EraDef(e) => format!("era {}", e.name.node),
-        Item::SignalDef(s) => format!("signal {}", s.path.node),
-        Item::FieldDef(f) => format!("field {}", f.path.node),
-        Item::OperatorDef(o) => format!("operator {}", o.path.node),
-        Item::ImpulseDef(i) => format!("impulse {}", i.path.node),
-        Item::FractureDef(f) => format!("fracture {}", f.path.node),
-        Item::ChronicleDef(c) => format!("chronicle {}", c.path.node),
-        Item::EntityDef(e) => format!("entity {}", e.path.node),
-        Item::MemberDef(m) => format!("member {}", m.path.node),
-        Item::WorldDef(w) => format!("world {}", w.path.node),
-    }
+    Ok(continuum_compiler::compile(&source_map))
 }

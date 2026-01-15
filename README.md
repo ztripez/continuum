@@ -46,11 +46,17 @@ Comprehensive documentation is available in the `docs/` directory:
 To run a simulation world:
 
 ```bash
-cargo run --bin world-run -- examples/terra
+cargo run --bin run -- examples/terra
 ```
 
 To lint a DSL file:
 
 ```bash
 cargo run --bin dsl-lint -- examples/terra/terra.cdsl
+```
+
+To compile a world into a bytecode bundle:
+
+```bash
+cargo run --bin compile -- examples/terra
 ```

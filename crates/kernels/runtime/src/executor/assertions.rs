@@ -5,7 +5,7 @@
 use tracing::{debug, error, warn};
 
 use crate::error::{Error, Result};
-use crate::storage::SignalStorage;
+use crate::storage::{EntityStorage, SignalStorage};
 use crate::types::{Dt, SignalId, Value};
 
 use super::context::AssertContext;
@@ -82,6 +82,7 @@ impl AssertionChecker {
         current: &Value,
         prev: &Value,
         signals: &SignalStorage,
+        entities: &EntityStorage,
         dt: Dt,
         sim_time: f64,
     ) -> Result<()> {
@@ -89,6 +90,7 @@ impl AssertionChecker {
             current,
             prev,
             signals,
+            entities,
             dt,
             sim_time,
         };
@@ -132,12 +134,13 @@ impl AssertionChecker {
         &self,
         resolved_signals: &[(SignalId, Value)],
         signals: &SignalStorage,
+        entities: &EntityStorage,
         dt: Dt,
         sim_time: f64,
     ) -> Result<()> {
         for (signal, current) in resolved_signals {
             let prev = signals.get_prev(signal).unwrap_or(current);
-            self.check_signal(signal, current, prev, signals, dt, sim_time)?;
+            self.check_signal(signal, current, prev, signals, entities, dt, sim_time)?;
         }
         Ok(())
     }
@@ -171,10 +174,12 @@ mod tests {
         );
 
         let signals = SignalStorage::default();
+        let entities = EntityStorage::default();
         let current = Value::Scalar(10.0);
         let prev = Value::Scalar(5.0);
 
-        let result = checker.check_signal(&signal, &current, &prev, &signals, Dt(1.0), 0.0);
+        let result =
+            checker.check_signal(&signal, &current, &prev, &signals, &entities, Dt(1.0), 0.0);
         assert!(result.is_ok());
     }
 
@@ -192,10 +197,12 @@ mod tests {
         );
 
         let signals = SignalStorage::default();
+        let entities = EntityStorage::default();
         let current = Value::Scalar(-5.0);
         let prev = Value::Scalar(5.0);
 
-        let result = checker.check_signal(&signal, &current, &prev, &signals, Dt(1.0), 0.0);
+        let result =
+            checker.check_signal(&signal, &current, &prev, &signals, &entities, Dt(1.0), 0.0);
         assert!(matches!(result, Err(Error::AssertionFailed { .. })));
     }
 
@@ -213,11 +220,13 @@ mod tests {
         );
 
         let signals = SignalStorage::default();
+        let entities = EntityStorage::default();
         let current = Value::Scalar(150.0); // Exceeds 100
         let prev = Value::Scalar(50.0);
 
         // Should succeed despite warning
-        let result = checker.check_signal(&signal, &current, &prev, &signals, Dt(1.0), 0.0);
+        let result =
+            checker.check_signal(&signal, &current, &prev, &signals, &entities, Dt(1.0), 0.0);
         assert!(result.is_ok());
     }
 }

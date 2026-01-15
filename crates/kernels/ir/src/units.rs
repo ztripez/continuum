@@ -33,6 +33,8 @@
 
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 /// Represents a physical unit as a combination of SI base dimensions.
 ///
 /// Each dimension is stored as an integer exponent. Dimensionless quantities
@@ -43,7 +45,7 @@ use std::fmt;
 /// - Velocity (m/s): length=1, time=-1, others=0
 /// - Force (N = kg·m/s²): mass=1, length=1, time=-2
 /// - Energy (J = kg·m²/s²): mass=1, length=2, time=-2
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Serialize, Deserialize)]
 pub struct Unit {
     /// Length dimension exponent (L) - base unit: meter (m)
     pub length: i8,

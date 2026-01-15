@@ -4,6 +4,7 @@
 //! Each instruction operates on an implicit operand stack.
 
 use continuum_kernel_registry::Value;
+use serde::{Deserialize, Serialize};
 
 /// Slot identifier for local variables (let bindings)
 pub type SlotId = u16;
@@ -11,11 +12,25 @@ pub type SlotId = u16;
 /// Kernel function identifier (index into function table)
 pub type KernelId = u16;
 
+/// Reduction operation for aggregates
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum ReductionOp {
+    Sum,
+    Product,
+    Min,
+    Max,
+    Mean,
+    Count,
+    Any,
+    All,
+    None,
+}
+
 /// Bytecode instruction
 ///
 /// Stack-based: operands are popped from stack, results pushed back.
 /// All instructions are designed to be simple enough for future GPU translation.
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum Op {
     // === Literals and loads ===
     /// Push a literal value onto the stack (index into literals table)
@@ -56,6 +71,52 @@ pub enum Op {
 
     /// Store top of stack to local slot (does not pop)
     StoreLocal(SlotId),
+
+    // === Entity access ===
+    /// Push value of a member signal of the current instance (component index)
+    LoadSelfField(u16),
+
+    /// Push value of a field from a specific entity instance
+    /// (entity_idx, instance_idx, component_idx)
+    LoadEntityField(u16, u16, u16),
+
+    /// Push value of another instance in the same entity set (for n-body)
+    /// (component_idx)
+    LoadOtherField(u16),
+
+    // === Entity Iteration / Aggregation ===
+    /// Aggregate over an entity set (entity_idx, reduction_op, sub_chunk_idx)
+    Aggregate(u16, ReductionOp, u16),
+
+    /// Filter an entity set (entity_idx, pred_chunk_idx, body_chunk_idx)
+    Filter(u16, u16, u16),
+
+    /// Find first matching instance (entity_idx, pred_chunk_idx, component_idx)
+    FindFirstField(u16, u16, u16),
+
+    /// Find nearest instance and load field (entity_idx, component_idx)
+    /// Expects position on stack.
+    LoadNearestField(u16, u16),
+
+    /// Iterate over instances within radius and aggregate
+    /// (entity_idx, reduction_op, body_chunk_idx)
+    /// Expects position and radius on stack.
+    WithinAggregate(u16, ReductionOp, u16),
+
+    /// Iterate over all unique pairs and execute body
+    /// (entity_idx, body_chunk_idx)
+    Pairs(u16, u16),
+
+    // === Impulse ===
+    /// Push the impulse payload
+    LoadPayload,
+
+    /// Push a field from the impulse payload (component index)
+    LoadPayloadField(u16),
+
+    /// Emit a signal from an impulse (signal_idx)
+    /// Pops value from stack.
+    EmitSignal(u16),
 
     // === Arithmetic ===
     /// Add top two stack values (pop b, pop a, push a + b)
@@ -118,28 +179,37 @@ pub enum Op {
 }
 
 /// A compiled bytecode chunk
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct BytecodeChunk {
     /// The instruction sequence
     pub ops: Vec<Op>,
 
-    /// Signal name table (indices referenced by LoadSignal)
+    /// Signal name table
     pub signals: Vec<String>,
 
-    /// Component name table (indices referenced by LoadSignalComponent)
+    /// Component name table
     pub components: Vec<String>,
 
-    /// Constant name table (indices referenced by LoadConst)
+    /// Constant name table
     pub constants: Vec<String>,
 
-    /// Config name table (indices referenced by LoadConfig)
+    /// Config name table
     pub configs: Vec<String>,
 
-    /// Literal value table (indices referenced by Literal)
+    /// Literal value table
     pub literals: Vec<Value>,
 
-    /// Kernel function name table (indices referenced by Call)
+    /// Kernel function name table
     pub kernels: Vec<String>,
+
+    /// Entity ID table
+    pub entities: Vec<String>,
+
+    /// Instance ID table
+    pub instances: Vec<String>,
+
+    /// Sub-chunks (for loops, filters, aggregates)
+    pub sub_chunks: Vec<BytecodeChunk>,
 
     /// Number of local slots needed
     pub local_count: u16,
@@ -149,6 +219,33 @@ impl BytecodeChunk {
     /// Create a new, empty bytecode chunk.
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Add an entity reference, returning its index
+    pub fn add_entity(&mut self, id: &str) -> u16 {
+        if let Some(idx) = self.entities.iter().position(|s| s == id) {
+            return idx as u16;
+        }
+        let idx = self.entities.len() as u16;
+        self.entities.push(id.to_string());
+        idx
+    }
+
+    /// Add an instance reference, returning its index
+    pub fn add_instance(&mut self, id: &str) -> u16 {
+        if let Some(idx) = self.instances.iter().position(|s| s == id) {
+            return idx as u16;
+        }
+        let idx = self.instances.len() as u16;
+        self.instances.push(id.to_string());
+        idx
+    }
+
+    /// Add a sub-chunk, returning its index
+    pub fn add_sub_chunk(&mut self, chunk: BytecodeChunk) -> u16 {
+        let idx = self.sub_chunks.len() as u16;
+        self.sub_chunks.push(chunk);
+        idx
     }
 
     /// Add a signal reference, returning its index

@@ -1,5 +1,7 @@
 //! Primitive type registry metadata shared across the stack.
 
+use serde::{Deserialize, Serialize};
+
 /// Identifier for a primitive type definition in the registry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct PrimitiveTypeId(&'static str);
@@ -16,8 +18,34 @@ impl PrimitiveTypeId {
     }
 }
 
+impl Serialize for PrimitiveTypeId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for PrimitiveTypeId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let name = String::deserialize(deserializer)?;
+        // Map to static string from registry if possible
+        for def in PRIMITIVE_TYPES {
+            if def.name == name {
+                return Ok(def.id);
+            }
+        }
+        // Fallback: leak it. This should be rare (only during dev/tests with new types)
+        Ok(PrimitiveTypeId::new(Box::leak(name.into_boxed_str())))
+    }
+}
+
 /// High-level shape for a primitive type.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PrimitiveShape {
     Scalar,
     Vector { dim: u8 },
@@ -27,7 +55,7 @@ pub enum PrimitiveShape {
 }
 
 /// Storage class for runtime value buffers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PrimitiveStorageClass {
     Scalar,
     Vec2,
@@ -39,7 +67,7 @@ pub enum PrimitiveStorageClass {
 }
 
 /// Parameter kinds that can appear in primitive type declarations.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PrimitiveParamKind {
     Unit,
     Range,

@@ -68,18 +68,22 @@ pub use continuum_foundation::MemberSignalId;
 ///
 /// This newtype provides type safety and documents the contract that indices
 /// are stable across ticks within a simulation run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct EntityIndex(pub usize);
 
 /// A stable sample index for field data.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct SampleIndex(pub usize);
 
 /// Identity for a member signal value.
 ///
 /// Combines the signal identity with the entity instance to uniquely
 /// identify a single value in the member signal family.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct MemberSignalIdentity {
     /// The member signal's unique identifier
     pub signal_id: MemberSignalId,
@@ -88,7 +92,10 @@ pub struct MemberSignalIdentity {
 }
 
 /// Identity for a field sample.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+///
+/// Combines the field identity with the sample index to uniquely
+/// identify a single value in the field sample family.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct FieldSampleIdentity {
     /// The field's unique identifier
     pub field_id: FieldId,

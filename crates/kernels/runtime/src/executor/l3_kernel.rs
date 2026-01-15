@@ -537,6 +537,7 @@ impl L3Kernel {
     fn execute_sequential(
         &self,
         signals: &SignalStorage,
+        _entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
         population_size: usize,
@@ -561,6 +562,7 @@ impl L3Kernel {
     fn execute_hybrid(
         &self,
         signals: &SignalStorage,
+        _entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
         population_size: usize,
@@ -643,6 +645,7 @@ impl LaneKernel for L3Kernel {
     fn execute(
         &self,
         signals: &SignalStorage,
+        _entities: &crate::storage::EntityStorage,
         population: &mut PopulationStorage,
         dt: Dt,
     ) -> Result<LaneKernelResult, LaneKernelError> {
@@ -673,9 +676,9 @@ impl LaneKernel for L3Kernel {
 
         // Choose execution strategy based on population size
         let mut result = if population_size <= self.hybrid_threshold {
-            self.execute_sequential(signals, population, dt, population_size)?
+            self.execute_sequential(signals, _entities, population, dt, population_size)?
         } else {
-            self.execute_hybrid(signals, population, dt, population_size)?
+            self.execute_hybrid(signals, _entities, population, dt, population_size)?
         };
 
         result.execution_ns = Some(start.elapsed().as_nanos() as u64);
@@ -980,7 +983,10 @@ mod tests {
 
         // Execute
         let signals = SignalStorage::default();
-        let result = kernel.execute(&signals, &mut population, Dt(1.0)).unwrap();
+        let entities = crate::storage::EntityStorage::default();
+        let result = kernel
+            .execute(&signals, &entities, &mut population, Dt(1.0))
+            .unwrap();
 
         assert_eq!(result.instances_processed, 5);
 
@@ -1052,7 +1058,10 @@ mod tests {
 
         // Execute
         let signals = SignalStorage::default();
-        let result = kernel.execute(&signals, &mut population, Dt(1.0)).unwrap();
+        let entities = crate::storage::EntityStorage::default();
+        let result = kernel
+            .execute(&signals, &entities, &mut population, Dt(1.0))
+            .unwrap();
 
         assert_eq!(result.instances_processed, 3);
 
@@ -1134,9 +1143,14 @@ mod tests {
         let mut pop1 = setup_population();
         let mut pop2 = setup_population();
         let signals = SignalStorage::default();
+        let entities = crate::storage::EntityStorage::default();
 
-        kernel1.execute(&signals, &mut pop1, Dt(1.0)).unwrap();
-        kernel2.execute(&signals, &mut pop2, Dt(1.0)).unwrap();
+        kernel1
+            .execute(&signals, &entities, &mut pop1, Dt(1.0))
+            .unwrap();
+        kernel2
+            .execute(&signals, &entities, &mut pop2, Dt(1.0))
+            .unwrap();
 
         // Results must be identical
         for i in 0..10 {

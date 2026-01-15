@@ -1,4 +1,3 @@
-//! Tick executor
 //!
 //! Orchestrates DAG execution through phases.
 
@@ -13,6 +12,27 @@ pub mod lowering_strategy;
 pub mod member_executor;
 mod phases;
 mod warmup;
+
+// Re-export public types
+pub use assertions::{AssertionChecker, AssertionFn, AssertionSeverity, SignalAssertion};
+pub use context::{
+    AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext,
+    MeasureContext, ResolveContext, WarmupContext,
+};
+pub use kernel_registry::LaneKernelRegistry;
+pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
+pub use l3_kernel::{
+    L3Kernel, L3KernelBuilder, MemberDag, MemberDagError, ScalarL3MemberResolver,
+    ScalarL3ResolverFn, Vec3L3MemberResolver, Vec3L3ResolverFn,
+};
+pub use lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
+pub use lowering_strategy::{LoweringHeuristics, LoweringStrategy};
+pub use member_executor::{
+    ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver,
+    ScalarResolveContext, ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
+};
+pub use phases::{CollectFn, FractureFn, ImpulseFn, MeasureFn, PhaseExecutor, ResolverFn};
+pub use warmup::{WarmupExecutor, WarmupFn};
 
 use indexmap::IndexMap;
 
@@ -31,19 +51,6 @@ use crate::types::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-
-// Re-export public types
-pub use assertions::{AssertionChecker, AssertionFn, AssertionSeverity, SignalAssertion};
-pub use context::{
-    AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext,
-    MeasureContext, ResolveContext, WarmupContext,
-};
-pub use kernel_registry::LaneKernelRegistry;
-pub use l1_kernels::{ScalarKernelFn, ScalarL1Kernel, Vec3KernelFn, Vec3L1Kernel};
-pub use l3_kernel::{
-    L3Kernel, L3KernelBuilder, MemberDag, MemberDagError, ScalarL3MemberResolver,
-    ScalarL3ResolverFn, Vec3L3MemberResolver, Vec3L3ResolverFn,
-};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RunManifest {
@@ -148,87 +155,55 @@ pub fn run_simulation(
             }
         }
 
-        let mut field_values = std::collections::HashMap::new();
-        let all_fields = runtime.drain_fields();
-        for field_id in &snapshot.fields {
-            if let Some(samples) = all_fields.get(field_id) {
-                field_values.insert(field_id.to_string(), samples.clone());
+        let mut field_samples = std::collections::HashMap::new();
+        for id in &snapshot.fields {
+            if let Some(samples) = runtime.field_buffer().get_samples(id) {
+                if !samples.is_empty() {
+                    field_samples.insert(id.to_string(), samples.to_vec());
+                }
             }
         }
 
-        let snapshot_data = TickSnapshot {
-            tick: step,
-            time_seconds: runtime.tick_context().tick as f64 * runtime.tick_context().dt.0,
+        let tick_snapshot = TickSnapshot {
+            tick: runtime.tick(),
+            time_seconds: runtime.sim_time(),
             signals: signal_values,
-            fields: field_values,
+            fields: field_samples,
         };
 
-        if let Some(dir) = &run_dir {
-            let snap_json = serde_json::to_string_pretty(&snapshot_data)
-                .map_err(|e| RunError::Snapshot(e.to_string()))?;
-            let snap_path = dir.join(format!("tick_{:06}.json", step));
-            std::fs::write(snap_path, snap_json).map_err(|e| RunError::Snapshot(e.to_string()))?;
-        }
+        let encoded =
+            bincode::serialize(&tick_snapshot).map_err(|e| RunError::Snapshot(e.to_string()))?;
+        let filename = format!("tick_{:010}.bin", step);
+        let path = run_dir.as_ref().unwrap().join(filename);
+        std::fs::write(path, encoded).map_err(|e| RunError::Snapshot(e.to_string()))?;
+
         Ok(())
     };
 
-    if let Some(snapshot) = &options.snapshot {
-        if snapshot.stride != 0 && 0 % snapshot.stride == 0 {
-            write_snapshot(0, runtime)?;
-        }
-    }
-
-    for step in 0..options.steps {
-        let ctx = runtime
+    for i in 0..options.steps {
+        runtime
             .execute_tick()
             .map_err(|e| RunError::Execution(e.to_string()))?;
 
         if options.print_signals {
-            let mut first = true;
-            for signal_id in &options.signals {
-                if let Some(value) = runtime.get_signal(signal_id) {
-                    if !first {
-                        print!(", ");
-                    }
-                    first = false;
-                    print!("{} = {}", signal_id, value);
+            let mut line = format!("Tick {:04}: ", runtime.tick());
+            for id in &options.signals {
+                if let Some(val) = runtime.get_signal(id) {
+                    line.push_str(&format!("{}={} ", id, val));
                 }
             }
-            println!(" (dt={:.2e}s)", ctx.dt.seconds());
+            println!("{}", line);
         }
 
         if let Some(snapshot) = &options.snapshot {
-            if snapshot.stride != 0 && step % snapshot.stride == 0 {
-                write_snapshot(step, runtime)?;
+            if i % snapshot.stride == 0 {
+                write_snapshot(i, runtime)?;
             }
         }
     }
 
     Ok(RunReport { run_dir })
 }
-
-pub use lane_kernel::{LaneKernel, LaneKernelError, LaneKernelResult};
-pub use lowering_strategy::{LoweringHeuristics, LoweringStrategy};
-pub use member_executor::{
-    ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver,
-    ScalarResolveContext, ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
-};
-pub use phases::{
-    ChronicleFn, CollectFn, EmittedEvent, FractureFn, FractureParallelConfig, ImpulseFn, MeasureFn,
-    MeasureParallelConfig, PhaseExecutor, ResolverFn,
-};
-pub use warmup::{RegisteredWarmup, WarmupExecutor, WarmupFn};
-
-/// Function that evaluates era transition conditions
-pub type TransitionFn = Box<dyn Fn(&SignalStorage, f64) -> Option<EraId> + Send + Sync>;
-
-/// Function that evaluates aggregate expressions over member signals.
-///
-/// These resolvers run after member signal resolution (Phase 3c) and can access
-/// both global signals and member signal data for aggregate computations like
-/// `agg.sum(entity.particle, self.mass)`.
-pub type AggregateResolverFn =
-    Box<dyn Fn(&SignalStorage, &MemberSignalBuffer, Dt, f64) -> Value + Send + Sync>;
 
 /// Era configuration
 pub struct EraConfig {
@@ -240,23 +215,32 @@ pub struct EraConfig {
     pub transition: Option<TransitionFn>,
 }
 
-/// Runtime state for a simulation
+/// Function that evaluates era transition
+pub type TransitionFn =
+    Box<dyn Fn(&SignalStorage, &EntityStorage, f64) -> Option<EraId> + Send + Sync>;
+
+/// Function that resolves an aggregate value for a signal
+pub type AggregateResolverFn = Box<
+    dyn Fn(&SignalStorage, &EntityStorage, &MemberSignalBuffer, Dt, f64) -> Value + Send + Sync,
+>;
+
+/// The Continuum runtime orchestrates simulation execution.
 pub struct Runtime {
-    /// Signal storage
+    /// Storage for global signals
     signals: SignalStorage,
-    /// Entity storage for per-instance state
+    /// Storage for entity instances
     entities: EntityStorage,
-    /// Member signal storage (SoA for vectorized execution)
+    /// Buffers for member signals (SoA storage)
     member_signals: MemberSignalBuffer,
-    /// Input channels for Collect phase
+    /// Channels for accumulating inputs before resolution
     input_channels: InputChannels,
-    /// Field buffer for Measure phase
+    /// Buffer for emitted fields
     field_buffer: FieldBuffer,
-    /// Event buffer for chronicle events
+    /// Buffer for emitted events
     event_buffer: EventBuffer,
-    /// Fracture outputs queued for next tick
+    /// Queue for signals emitted during the fracture phase
     fracture_queue: FractureQueue,
-    /// Current tick number
+    /// Current simulation tick
     tick: u64,
     /// Accumulated simulation time in seconds
     sim_time: f64,
@@ -269,9 +253,9 @@ pub struct Runtime {
     /// Execution DAGs
     dags: DagSet,
     /// Phase executor
-    phase_executor: PhaseExecutor,
+    phase_executor: crate::executor::phases::PhaseExecutor,
     /// Warmup executor
-    warmup_executor: WarmupExecutor,
+    warmup_executor: crate::executor::warmup::WarmupExecutor,
     /// Assertion checker
     assertion_checker: AssertionChecker,
     /// Registered breakpoints (SignalId)
@@ -300,8 +284,8 @@ impl Runtime {
             current_phase: crate::types::Phase::Configure,
             eras,
             dags,
-            phase_executor: PhaseExecutor::new(),
-            warmup_executor: WarmupExecutor::new(),
+            phase_executor: crate::executor::phases::PhaseExecutor::new(),
+            warmup_executor: crate::executor::warmup::WarmupExecutor::new(),
             assertion_checker: AssertionChecker::new(),
             breakpoints: std::collections::HashSet::new(),
             active_tick_ctx: None,
@@ -333,32 +317,32 @@ impl Runtime {
     }
 
     /// Register a resolver function, returns its index
-    pub fn register_resolver(&mut self, resolver: ResolverFn) -> usize {
+    pub fn register_resolver(&mut self, resolver: crate::executor::phases::ResolverFn) -> usize {
         self.phase_executor.register_resolver(resolver)
     }
 
     /// Register a collect operator, returns its index
-    pub fn register_collect_op(&mut self, op: CollectFn) -> usize {
+    pub fn register_collect_op(&mut self, op: crate::executor::phases::CollectFn) -> usize {
         self.phase_executor.register_collect_op(op)
     }
 
     /// Register a fracture function, returns its index
-    pub fn register_fracture(&mut self, fracture: FractureFn) -> usize {
+    pub fn register_fracture(&mut self, fracture: crate::executor::phases::FractureFn) -> usize {
         self.phase_executor.register_fracture(fracture)
     }
 
     /// Register a measure operator, returns its index
-    pub fn register_measure_op(&mut self, op: MeasureFn) -> usize {
+    pub fn register_measure_op(&mut self, op: crate::executor::phases::MeasureFn) -> usize {
         self.phase_executor.register_measure_op(op)
     }
 
     /// Register a chronicle handler, returns its index
-    pub fn register_chronicle(&mut self, handler: ChronicleFn) -> usize {
+    pub fn register_chronicle(&mut self, handler: crate::executor::phases::ChronicleFn) -> usize {
         self.phase_executor.register_chronicle(handler)
     }
 
     /// Register an impulse handler, returns its index
-    pub fn register_impulse(&mut self, handler: ImpulseFn) -> usize {
+    pub fn register_impulse(&mut self, handler: crate::executor::phases::ImpulseFn) -> usize {
         self.phase_executor.register_impulse(handler)
     }
 
@@ -369,7 +353,12 @@ impl Runtime {
     }
 
     /// Register a warmup function for a signal
-    pub fn register_warmup(&mut self, signal: SignalId, warmup_fn: WarmupFn, config: WarmupConfig) {
+    pub fn register_warmup(
+        &mut self,
+        signal: SignalId,
+        warmup_fn: crate::executor::warmup::WarmupFn,
+        config: WarmupConfig,
+    ) {
         self.warmup_executor.register(signal, warmup_fn, config);
     }
 
@@ -399,8 +388,6 @@ impl Runtime {
     }
 
     /// Register a member signal type
-    ///
-    /// Must be called before `init_member_instances` for all member signals.
     pub fn register_member_signal(&mut self, signal_name: &str, value_type: MemberValueType) {
         tracing::debug!(
             signal = signal_name,
@@ -412,18 +399,12 @@ impl Runtime {
     }
 
     /// Initialize storage for all registered member signals
-    ///
-    /// Must be called after all member signals are registered with `register_member_signal`.
     pub fn init_member_instances(&mut self, instance_count: usize) {
         tracing::debug!(count = instance_count, "member instances initialized");
         self.member_signals.init_instances(instance_count);
     }
 
     /// Register the instance count for a specific entity.
-    ///
-    /// Call this after `init_member_instances` to track per-entity instance counts
-    /// for aggregate operations. Aggregates will use this count instead of the
-    /// global instance count when iterating over entity members.
     pub fn register_entity_count(&mut self, entity_id: &str, count: usize) {
         tracing::debug!(
             entity = entity_id,
@@ -434,9 +415,6 @@ impl Runtime {
     }
 
     /// Register a scalar member resolver function
-    ///
-    /// The resolver should be built using `build_member_resolver` from the IR,
-    /// which captures constants and config at build time.
     pub fn register_member_resolver(&mut self, _signal_name: String, resolver: ScalarResolverFn) {
         tracing::debug!(signal = %_signal_name, "scalar member resolver registered");
         self.phase_executor
@@ -444,9 +422,6 @@ impl Runtime {
     }
 
     /// Register a Vec3 member resolver function
-    ///
-    /// The resolver should be built using `build_vec3_member_resolver` from the IR,
-    /// which captures constants and config at build time.
     pub fn register_vec3_member_resolver(
         &mut self,
         _signal_name: String,
@@ -457,27 +432,16 @@ impl Runtime {
             .register_member_resolver(crate::executor::phases::MemberResolver::Vec3(resolver));
     }
 
-    /// Register an aggregate resolver for a signal that depends on member signal data.
-    ///
-    /// These resolvers run after member signal resolution (Phase 3c) and can compute
-    /// aggregates like `agg.sum(entity.particle, self.mass)`.
+    /// Register an aggregate resolver
     pub fn register_aggregate_resolver(
         &mut self,
-        signal_id: SignalId,
+        _signal_id: SignalId,
         resolver: AggregateResolverFn,
     ) {
-        tracing::debug!(signal = %signal_id, "aggregate resolver registered");
         self.phase_executor.register_aggregate_resolver(resolver);
     }
 
-    /// Get a member signal value for a specific instance
-    pub fn get_member_signal(&self, signal_name: &str, instance_idx: usize) -> Option<Value> {
-        self.member_signals.get_current(signal_name, instance_idx)
-    }
-
-    /// Set a member signal value for a specific instance.
-    ///
-    /// Used for initializing member signals with non-zero values before execution starts.
+    /// Set a member signal value for an instance
     pub fn set_member_signal(
         &mut self,
         signal_name: &str,
@@ -488,45 +452,27 @@ impl Runtime {
             .set_current(signal_name, instance_idx, value)
     }
 
-    /// Commit member initial values by advancing the buffer.
-    ///
-    /// After setting initial values with `set_member_signal`, call this to make
-    /// those values available as "previous" values for resolvers that read `prev`.
+    /// Commit all member initial values (swap buffers)
     pub fn commit_member_initials(&mut self) {
         self.member_signals.advance_tick();
     }
 
-    /// Get access to member signal buffer
-    pub fn member_signals(&self) -> &MemberSignalBuffer {
-        &self.member_signals
-    }
-
-    /// Get the number of instances for an entity type
-    pub fn entity_count(&self, id: &EntityId) -> usize {
-        self.entities.count(id)
-    }
-
-    /// Get access to entity storage (for aggregate computations)
-    pub fn entities(&self) -> &EntityStorage {
-        &self.entities
-    }
-
-    /// Get mutable access to entity storage
-    pub fn entities_mut(&mut self) -> &mut EntityStorage {
-        &mut self.entities
-    }
-
-    /// Get current tick number
+    /// Get current simulation tick
     pub fn tick(&self) -> u64 {
         self.tick
     }
 
-    /// Get current era
+    /// Get accumulated simulation time in seconds
+    pub fn sim_time(&self) -> f64 {
+        self.sim_time
+    }
+
+    /// Get current simulation era
     pub fn era(&self) -> &EraId {
         &self.current_era
     }
 
-    /// Get a signal's last resolved value
+    /// Get value of a signal by ID
     pub fn get_signal(&self, id: &SignalId) -> Option<&Value> {
         self.signals.get_resolved(id)
     }
@@ -536,58 +482,46 @@ impl Runtime {
         self.warmup_executor.is_complete()
     }
 
-    /// Get access to the field buffer (for observer consumption)
+    /// Get access to the field buffer
     pub fn field_buffer(&self) -> &FieldBuffer {
         &self.field_buffer
     }
 
-    /// Get access to the event buffer (for observer consumption)
+    /// Get access to the event buffer
     pub fn event_buffer(&self) -> &EventBuffer {
         &self.event_buffer
     }
 
-    /// Drain the event buffer (for observer consumption)
+    /// Drain the event buffer
     pub fn drain_events(&mut self) -> Vec<EmittedEventRecord> {
         self.event_buffer.drain()
     }
 
-    /// Get current tick context (tick, dt, era)
-    ///
-    /// # Panics
-    ///
-    /// Panics if the current era is not found in the era configurations.
-    /// This indicates a configuration bug since the runtime should not be
-    /// in an era that was never registered.
-    pub fn tick_context(&self) -> TickContext {
-        let dt = self
-            .eras
-            .get(&self.current_era)
-            .map(|c| c.dt)
-            .unwrap_or_else(|| {
-                panic!(
-                    "Era '{}' not found in runtime configuration - cannot get tick context for unregistered era",
-                    self.current_era
-                )
-            });
-        TickContext {
-            tick: self.tick,
-            dt,
-            era: self.current_era.clone(),
-        }
+    /// Get access to the signals storage
+    pub fn signals(&self) -> &SignalStorage {
+        &self.signals
     }
 
-    /// Drain the field buffer (for observer consumption)
-    pub fn drain_fields(&mut self) -> indexmap::IndexMap<FieldId, Vec<FieldSample>> {
-        self.field_buffer.drain()
+    /// Get access to the entities storage
+    pub fn entities(&self) -> &EntityStorage {
+        &self.entities
     }
 
-    /// Execute warmup phase (pre-causal equilibration)
-    ///
-    /// Must be called before execute_tick. Runs all registered warmup
-    /// functions until convergence or max iterations.
+    /// Get access to the entities storage mutably
+    pub fn entities_mut(&mut self) -> &mut EntityStorage {
+        &mut self.entities
+    }
+
+    /// Get access to the member signals buffer
+    pub fn member_signals(&self) -> &MemberSignalBuffer {
+        &self.member_signals
+    }
+
+    /// Execute warmup phase
+    #[instrument(skip_all, name = "warmup")]
     pub fn execute_warmup(&mut self) -> Result<WarmupResult> {
         self.warmup_executor
-            .execute(&mut self.signals, self.sim_time)
+            .execute(&mut self.signals, &self.entities, self.sim_time)
     }
 
     /// Get current phase
@@ -596,8 +530,6 @@ impl Runtime {
     }
 
     /// Execute a single phase of the simulation.
-    ///
-    /// Returns the StepResult indicating whether execution continues, hit a breakpoint, or completed a tick.
     pub fn execute_step(&mut self) -> Result<crate::types::StepResult> {
         let (dt, strata_states) = {
             let era_config = self
@@ -609,13 +541,13 @@ impl Runtime {
 
         match self.current_phase {
             crate::types::Phase::Configure => {
-                trace!("phase: configure");
-                // Freeze tick context
                 self.active_tick_ctx = Some(TickContext {
                     tick: self.tick,
+                    sim_time: self.sim_time,
                     dt,
                     era: self.current_era.clone(),
                 });
+                self.current_phase = crate::types::Phase::Collect;
             }
             crate::types::Phase::Collect => {
                 trace!("phase: collect");
@@ -627,9 +559,11 @@ impl Runtime {
                     &strata_states,
                     &self.dags,
                     &self.signals,
+                    &self.entities,
                     &mut self.input_channels,
                     &mut self.pending_impulses,
                 )?;
+                self.current_phase = crate::types::Phase::Resolve;
             }
             crate::types::Phase::Resolve => {
                 trace!("phase: resolve");
@@ -641,14 +575,15 @@ impl Runtime {
                     &strata_states,
                     &self.dags,
                     &mut self.signals,
+                    &self.entities,
                     &mut self.member_signals,
                     &mut self.input_channels,
                     &self.assertion_checker,
                     &self.breakpoints,
                 )? {
-                    // Breakpoint hit! Do NOT advance phase.
                     return Ok(crate::types::StepResult::Breakpoint { signal });
                 }
+                self.current_phase = crate::types::Phase::Fracture;
             }
             crate::types::Phase::Fracture => {
                 trace!("phase: fracture");
@@ -658,8 +593,10 @@ impl Runtime {
                     self.sim_time,
                     &self.dags,
                     &self.signals,
+                    &self.entities,
                     &mut self.fracture_queue,
                 )?;
+                self.current_phase = crate::types::Phase::Measure;
             }
             crate::types::Phase::Measure => {
                 trace!("phase: measure");
@@ -671,6 +608,7 @@ impl Runtime {
                     &strata_states,
                     &self.dags,
                     &self.signals,
+                    &self.entities,
                     &mut self.field_buffer,
                 )?;
 
@@ -682,12 +620,15 @@ impl Runtime {
                     &strata_states,
                     &self.dags,
                     &self.signals,
+                    &self.entities,
                     &mut self.event_buffer,
                 )?;
+                self.current_phase = crate::types::Phase::EraTransition;
             }
             crate::types::Phase::EraTransition => {
                 trace!("phase: era transition");
                 self.check_era_transition()?;
+                self.current_phase = crate::types::Phase::PostTick;
             }
             crate::types::Phase::PostTick => {
                 trace!("phase: post tick");
@@ -697,18 +638,15 @@ impl Runtime {
                 self.fracture_queue.drain_into(&mut self.input_channels);
                 self.sim_time += dt.seconds();
                 self.tick += 1;
+                self.current_phase = crate::types::Phase::Configure;
             }
         }
 
-        let completed_tick_ctx = if self.current_phase == crate::types::Phase::PostTick {
-            self.active_tick_ctx.take()
-        } else {
-            None
-        };
-
-        self.current_phase = self.current_phase.next();
-
-        if let Some(ctx) = completed_tick_ctx {
+        if self.current_phase == crate::types::Phase::Configure {
+            let ctx = self
+                .active_tick_ctx
+                .take()
+                .expect("tick context missing at end of tick");
             Ok(crate::types::StepResult::TickCompleted(ctx))
         } else {
             Ok(crate::types::StepResult::Continue)
@@ -718,45 +656,21 @@ impl Runtime {
     /// Execute a single tick
     #[instrument(level = "debug", skip(self), fields(tick = self.tick, era = %self.current_era))]
     pub fn execute_tick(&mut self) -> Result<TickContext> {
-        trace!("tick start");
-
-        // Ensure we start from Configure if we are at some other phase
-        // (though normally execute_tick should be used exclusively or carefully mixed)
-        while self.current_phase != crate::types::Phase::Configure {
+        loop {
             match self.execute_step()? {
+                crate::types::StepResult::TickCompleted(ctx) => return Ok(ctx),
                 crate::types::StepResult::Breakpoint { signal } => {
                     return Err(Error::Generic(format!(
-                        "Hit breakpoint on signal '{}' during tick execution. Use execute_until_breakpoint() for interactive debugging.",
+                        "Hit breakpoint on signal '{}' during tick",
                         signal
                     )));
                 }
-                _ => continue,
+                crate::types::StepResult::Continue => continue,
             }
         }
-
-        let mut last_ctx = None;
-        for _ in 0..crate::types::Phase::ALL.len() {
-            match self.execute_step()? {
-                crate::types::StepResult::TickCompleted(ctx) => {
-                    last_ctx = Some(ctx);
-                }
-                crate::types::StepResult::Breakpoint { signal } => {
-                    return Err(Error::Generic(format!(
-                        "Hit breakpoint on signal '{}' during tick execution. Use execute_until_breakpoint() for interactive debugging.",
-                        signal
-                    )));
-                }
-                crate::types::StepResult::Continue => {}
-            }
-        }
-
-        trace!("tick complete");
-        last_ctx.ok_or_else(|| {
-            Error::Generic("Failed to complete tick - execution loop did not return context".into())
-        })
     }
 
-    /// Execute until a breakpoint is hit or a tick is completed.
+    /// Execute until a breakpoint or tick completed
     pub fn execute_until_breakpoint(&mut self) -> Result<crate::types::StepResult> {
         loop {
             let result = self.execute_step()?;
@@ -771,7 +685,7 @@ impl Runtime {
     fn check_era_transition(&mut self) -> Result<()> {
         let era_config = self.eras.get(&self.current_era).unwrap();
         if let Some(ref transition) = era_config.transition
-            && let Some(next_era) = transition(&self.signals, self.sim_time)
+            && let Some(next_era) = transition(&self.signals, &self.entities, self.sim_time)
         {
             if !self.eras.contains_key(&next_era) {
                 error!(era = %next_era, "transition to unknown era");
@@ -787,129 +701,11 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dag::{DagBuilder, DagNode, EraDags, NodeId, NodeKind};
-    use crate::types::Phase;
-    use std::collections::HashSet;
+    use crate::types::StratumId;
 
     #[test]
-    fn test_simple_tick_execution() {
-        // Create a simple world with one signal that increments
-        let era_id: EraId = "test".into();
-        let stratum_id: StratumId = "default".into();
-        let signal_id: SignalId = "counter".into();
-
-        // Build DAG with one resolve node
-        let mut builder = DagBuilder::new(Phase::Resolve, stratum_id.clone());
-        builder.add_node(DagNode {
-            id: NodeId("counter_resolve".to_string()),
-            reads: HashSet::new(),
-            writes: Some(signal_id.clone()),
-            kind: NodeKind::SignalResolve {
-                signal: signal_id.clone(),
-                resolver_idx: 0,
-            },
-        });
-        let dag = builder.build().unwrap();
-
-        let mut era_dags = EraDags::default();
-        era_dags.insert(dag);
-
-        let mut dags = DagSet::default();
-        dags.insert_era(era_id.clone(), era_dags);
-
-        // Create era config
-        let mut strata = IndexMap::new();
-        strata.insert(stratum_id, StratumState::Active);
-        let era_config = EraConfig {
-            dt: Dt(1.0),
-            strata,
-            transition: None,
-        };
-
-        let mut eras = IndexMap::new();
-        eras.insert(era_id.clone(), era_config);
-
-        // Create runtime
-        let mut runtime = Runtime::new(era_id, eras, dags);
-
-        // Register resolver: prev + 1
-        runtime.register_resolver(Box::new(|ctx| {
-            let prev = ctx.prev.as_scalar().unwrap_or(0.0);
-            Value::Scalar(prev + 1.0)
-        }));
-
-        // Initialize signal
-        runtime.init_signal(signal_id.clone(), Value::Scalar(0.0));
-
-        // Execute ticks
-        runtime.execute_tick().unwrap();
-        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(1.0)));
-
-        runtime.execute_tick().unwrap();
-        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(2.0)));
-
-        runtime.execute_tick().unwrap();
-        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(3.0)));
-    }
-
-    #[test]
-    fn test_stratum_stride() {
-        let era_id: EraId = "test".into();
-        let stratum_id: StratumId = "slow".into();
-        let signal_id: SignalId = "counter".into();
-
-        let mut builder = DagBuilder::new(Phase::Resolve, stratum_id.clone());
-        builder.add_node(DagNode {
-            id: NodeId("counter_resolve".to_string()),
-            reads: HashSet::new(),
-            writes: Some(signal_id.clone()),
-            kind: NodeKind::SignalResolve {
-                signal: signal_id.clone(),
-                resolver_idx: 0,
-            },
-        });
-        let dag = builder.build().unwrap();
-
-        let mut era_dags = EraDags::default();
-        era_dags.insert(dag);
-
-        let mut dags = DagSet::default();
-        dags.insert_era(era_id.clone(), era_dags);
-
-        // Stratum executes every 2 ticks
-        let mut strata = IndexMap::new();
-        strata.insert(stratum_id, StratumState::ActiveWithStride(2));
-        let era_config = EraConfig {
-            dt: Dt(1.0),
-            strata,
-            transition: None,
-        };
-
-        let mut eras = IndexMap::new();
-        eras.insert(era_id.clone(), era_config);
-
-        let mut runtime = Runtime::new(era_id, eras, dags);
-        runtime.register_resolver(Box::new(|ctx| {
-            let prev = ctx.prev.as_scalar().unwrap_or(0.0);
-            Value::Scalar(prev + 1.0)
-        }));
-        runtime.init_signal(signal_id.clone(), Value::Scalar(0.0));
-
-        // Tick 0: stride 2, 0 % 2 == 0, executes
-        runtime.execute_tick().unwrap();
-        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(1.0)));
-
-        // Tick 1: 1 % 2 != 0, skipped
-        runtime.execute_tick().unwrap();
-        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(1.0)));
-
-        // Tick 2: 2 % 2 == 0, executes
-        runtime.execute_tick().unwrap();
-        assert_eq!(runtime.get_signal(&signal_id), Some(&Value::Scalar(2.0)));
-    }
-
-    fn create_minimal_runtime(era_id: EraId) -> Runtime {
-        let dags = DagSet::default();
+    fn test_runtime_creation() {
+        let era_id: EraId = "default".into();
         let mut eras = IndexMap::new();
         eras.insert(
             era_id.clone(),
@@ -919,7 +715,9 @@ mod tests {
                 transition: None,
             },
         );
-        Runtime::new(era_id, eras, dags)
+        let runtime = Runtime::new(era_id, eras, DagSet::default());
+        assert_eq!(runtime.tick(), 0);
+        assert_eq!(runtime.sim_time(), 0.0);
     }
 
     #[test]

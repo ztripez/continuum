@@ -1,24 +1,24 @@
-//! World Runner.
 //!
 //! Loads, compiles, and executes a Continuum world.
 //!
-//! Usage: `world-run <world-dir> [--steps N] [--dt SECONDS]`
+//! Usage: `run <world-dir> [--steps N] [--dt SECONDS]`
 
+use std::fs;
 use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
 use tracing::{error, info, warn};
 
-use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
+use continuum_compiler::ir::{BinaryBundle, RuntimeBuildOptions, build_runtime, compile};
 use continuum_runtime::executor::{RunOptions, SnapshotOptions, run_simulation};
 
 #[derive(Parser, Debug)]
-#[command(name = "world-run")]
-#[command(about = "Compile and execute a Continuum world")]
+#[command(name = "run")]
+#[command(about = "Execute a Continuum world from a directory or binary bundle (.cvm)")]
 struct Args {
-    /// Path to the World root directory
-    world_dir: PathBuf,
+    /// Path to the World root directory or binary bundle (.cvm)
+    path: PathBuf,
 
     /// Number of simulation steps
     #[arg(long = "steps", default_value = "10")]
@@ -42,49 +42,68 @@ fn main() {
 
     let args = Args::parse();
 
-    // Load and compile world using unified compiler
-    info!("Loading world from: {}", args.world_dir.display());
+    let (world, compilation) =
+        if args.path.is_file() && args.path.extension().map_or(false, |ext| ext == "cvm") {
+            info!("Loading binary bundle from: {}", args.path.display());
+            let data = match fs::read(&args.path) {
+                Ok(d) => d,
+                Err(e) => {
+                    error!("Error reading file '{}': {}", args.path.display(), e);
+                    process::exit(1);
+                }
+            };
+            let bundle: BinaryBundle = match bincode::deserialize(&data) {
+                Ok(b) => b,
+                Err(e) => {
+                    error!(
+                        "Error decoding binary bundle '{}': {}",
+                        args.path.display(),
+                        e
+                    );
+                    process::exit(1);
+                }
+            };
+            info!("Loaded world: {}", bundle.world_name);
+            (bundle.world, bundle.compilation)
+        } else {
+            // Load and compile world from directory
+            info!("Loading world source from: {}", args.path.display());
 
-    let compile_result = continuum_compiler::compile_from_dir_result(&args.world_dir);
+            let compile_result = continuum_compiler::compile_from_dir_result(&args.path);
 
-    if compile_result.has_errors() {
-        error!("{}", compile_result.format_diagnostics().trim_end());
-        process::exit(1);
-    }
+            if compile_result.has_errors() {
+                error!("{}", compile_result.format_diagnostics().trim_end());
+                process::exit(1);
+            }
 
-    if !compile_result.diagnostics.is_empty() {
-        warn!("{}", compile_result.format_diagnostics().trim_end());
-    }
+            if !compile_result.diagnostics.is_empty() {
+                warn!("{}", compile_result.format_diagnostics().trim_end());
+            }
 
-    let world = compile_result.world.expect("no world despite no errors");
-    info!("Successfully compiled world");
+            let world = compile_result.world.expect("no world despite no errors");
+            info!("Successfully compiled world source");
 
-    let strata = world.strata();
-    let eras = world.eras();
+            // Compile to DAGs
+            info!("Compiling to DAGs...");
+            let compilation = match compile(&world) {
+                Ok(c) => c,
+                Err(e) => {
+                    error!("Compilation error: {}", e);
+                    process::exit(1);
+                }
+            };
+            (world, compilation)
+        };
+
     let signals = world.signals();
     let fields = world.fields();
 
-    info!("  Strata: {}", strata.len());
-    info!("  Eras: {}", eras.len());
+    info!("  Strata: {}", world.strata().len());
+    info!("  Eras: {}", world.eras().len());
     info!("  Signals: {}", signals.len());
     info!("  Fields: {}", fields.len());
     info!("  Constants: {}", world.constants.len());
     info!("  Config: {}", world.config.len());
-
-    // Compile to DAGs
-    info!("Compiling to DAGs...");
-    let compilation = match compile(&world) {
-        Ok(c) => c,
-        Err(e) => {
-            error!("Compilation error: {}", e);
-            process::exit(1);
-        }
-    };
-
-    info!("  Resolver indices: {}", compilation.resolver_indices.len());
-    info!("  Field indices: {}", compilation.field_indices.len());
-    info!("  Fracture indices: {}", compilation.fracture_indices.len());
-    info!("  Eras in DAG: {}", compilation.dags.era_count());
 
     info!("Building runtime...");
     let (mut runtime, report) = match build_runtime(
@@ -103,7 +122,7 @@ fn main() {
 
     if report.resolver_count > 0 || report.aggregate_count > 0 {
         info!(
-            "  Total: {} resolvers, {} aggregate resolvers",
+            "  Total: {} resolvers, {} aggregate resolvers registered",
             report.resolver_count, report.aggregate_count
         );
     }
@@ -113,12 +132,6 @@ fn main() {
     if report.field_count > 0 {
         info!("  Registered {} field measures", report.field_count);
     }
-    if report.skipped_fields > 0 {
-        info!(
-            "  Skipped {} fields with entity expressions (EntityExecutor not yet implemented)",
-            report.skipped_fields
-        );
-    }
     if report.fracture_count > 0 {
         info!("  Registered {} fractures", report.fracture_count);
     }
@@ -127,14 +140,6 @@ fn main() {
             "  Initialized {} member signals (max {} instances)",
             report.member_signal_count, report.max_member_instances
         );
-        if report.member_resolvers.total() > 0 {
-            info!(
-                "  Total: {} scalar + {} Vec3 = {} member resolvers registered",
-                report.member_resolvers.scalar_count,
-                report.member_resolvers.vec3_count,
-                report.member_resolvers.total()
-            );
-        }
     }
 
     // Prepare snapshot directory if requested

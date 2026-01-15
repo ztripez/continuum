@@ -64,7 +64,7 @@ impl StratumState {
 /// A member signal is a "family" of signals - one per entity instance.
 /// For example, `member.human.person.age` identifies the family, while
 /// a specific person's age is identified by `(signal_id, entity_index)`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub struct MemberSignalId {
     /// The entity type this signal belongs to
     pub entity_id: EntityId,
