@@ -4,6 +4,7 @@
 //! Provides stable hashing, deterministic ID generation, and other
 //! primitives required across crates.
 
+pub mod coercion;
 pub mod field;
 pub mod ids;
 pub mod primitives;
@@ -17,12 +18,12 @@ pub use ids::{
     OperatorId, Path, SignalId, StratumId, TypeId,
 };
 
+pub use coercion::{BinaryOp, TypeCheckResult, can_operate, type_shape};
 pub use field::FieldSample;
 pub use primitives::{
     PRIMITIVE_TYPES, PrimitiveParamKind, PrimitiveParamSpec, PrimitiveShape, PrimitiveStorageClass,
     PrimitiveTypeDef, PrimitiveTypeId, primitive_type_by_name,
 };
-pub use tensor::TensorData;
 pub use value::{FromValue, IntoValue, Mat2, Mat3, Mat4, Quat, Value};
 
 // Re-export stable hash items at crate root
