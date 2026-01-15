@@ -263,6 +263,218 @@ pub fn distance_sq(args: &[Value]) -> f64 {
     }
 }
 
+/// Linear interpolation for Vec2: `lerp(a, b, t)` → a + t * (b - a)
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn lerp_vec2(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
+    [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
+}
+
+/// Linear interpolation for Vec3: `lerp(a, b, t)` → a + t * (b - a)
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn lerp_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
+    [
+        a[0] + t * (b[0] - a[0]),
+        a[1] + t * (b[1] - a[1]),
+        a[2] + t * (b[2] - a[2]),
+    ]
+}
+
+/// Linear interpolation for Vec4: `lerp(a, b, t)` → a + t * (b - a)
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn lerp_vec4(a: [f64; 4], b: [f64; 4], t: f64) -> [f64; 4] {
+    [
+        a[0] + t * (b[0] - a[0]),
+        a[1] + t * (b[1] - a[1]),
+        a[2] + t * (b[2] - a[2]),
+        a[3] + t * (b[3] - a[3]),
+    ]
+}
+
+/// Linear interpolation: `lerp(a, b, t)` → a + t * (b - a) (variadic)
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn lerp(args: &[Value]) -> Value {
+    if args.len() != 3 {
+        panic!("vector.lerp expects exactly 3 arguments");
+    }
+    let t = match &args[2] {
+        Value::Scalar(s) => *s,
+        _ => panic!("vector.lerp: third argument must be a scalar"),
+    };
+    match (&args[0], &args[1]) {
+        (Value::Vec2(a), Value::Vec2(b)) => Value::Vec2(lerp_vec2(*a, *b, t)),
+        (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3(lerp_vec3(*a, *b, t)),
+        (Value::Vec4(a), Value::Vec4(b)) => Value::Vec4(lerp_vec4(*a, *b, t)),
+        _ => panic!("vector.lerp requires two vectors of same dimension"),
+    }
+}
+
+/// Mix for Vec2 (GLSL alias for lerp): `mix(a, b, t)` → a + t * (b - a)
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn mix_vec2(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
+    lerp_vec2(a, b, t)
+}
+
+/// Mix for Vec3 (GLSL alias for lerp): `mix(a, b, t)` → a + t * (b - a)
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn mix_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
+    lerp_vec3(a, b, t)
+}
+
+/// Mix for Vec4 (GLSL alias for lerp): `mix(a, b, t)` → a + t * (b - a)
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn mix_vec4(a: [f64; 4], b: [f64; 4], t: f64) -> [f64; 4] {
+    lerp_vec4(a, b, t)
+}
+
+/// Mix (GLSL alias for lerp): `mix(a, b, t)` → a + t * (b - a) (variadic)
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn mix(args: &[Value]) -> Value {
+    lerp(args)
+}
+
+/// Component-wise clamp for Vec2: `clamp(v, min, max)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn clamp_vec2(v: [f64; 2], min: f64, max: f64) -> [f64; 2] {
+    [v[0].clamp(min, max), v[1].clamp(min, max)]
+}
+
+/// Component-wise clamp for Vec3: `clamp(v, min, max)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn clamp_vec3(v: [f64; 3], min: f64, max: f64) -> [f64; 3] {
+    [
+        v[0].clamp(min, max),
+        v[1].clamp(min, max),
+        v[2].clamp(min, max),
+    ]
+}
+
+/// Component-wise clamp for Vec4: `clamp(v, min, max)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn clamp_vec4(v: [f64; 4], min: f64, max: f64) -> [f64; 4] {
+    [
+        v[0].clamp(min, max),
+        v[1].clamp(min, max),
+        v[2].clamp(min, max),
+        v[3].clamp(min, max),
+    ]
+}
+
+/// Component-wise minimum for Vec2: `min(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn min_vec2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    [a[0].min(b[0]), a[1].min(b[1])]
+}
+
+/// Component-wise minimum for Vec3: `min(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn min_vec3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0].min(b[0]), a[1].min(b[1]), a[2].min(b[2])]
+}
+
+/// Component-wise minimum for Vec4: `min(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn min_vec4(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    [
+        a[0].min(b[0]),
+        a[1].min(b[1]),
+        a[2].min(b[2]),
+        a[3].min(b[3]),
+    ]
+}
+
+/// Component-wise maximum for Vec2: `max(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn max_vec2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    [a[0].max(b[0]), a[1].max(b[1])]
+}
+
+/// Component-wise maximum for Vec3: `max(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn max_vec3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0].max(b[0]), a[1].max(b[1]), a[2].max(b[2])]
+}
+
+/// Component-wise maximum for Vec4: `max(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn max_vec4(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    [
+        a[0].max(b[0]),
+        a[1].max(b[1]),
+        a[2].max(b[2]),
+        a[3].max(b[3]),
+    ]
+}
+
+/// Component-wise absolute value for Vec2: `abs(v)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn abs_vec2(v: [f64; 2]) -> [f64; 2] {
+    [v[0].abs(), v[1].abs()]
+}
+
+/// Component-wise absolute value for Vec3: `abs(v)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn abs_vec3(v: [f64; 3]) -> [f64; 3] {
+    [v[0].abs(), v[1].abs(), v[2].abs()]
+}
+
+/// Component-wise absolute value for Vec4: `abs(v)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn abs_vec4(v: [f64; 4]) -> [f64; 4] {
+    [v[0].abs(), v[1].abs(), v[2].abs(), v[3].abs()]
+}
+
+// Helper functions for internal use (not exposed via kernel_fn)
+fn dot_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+fn length_vec3(v: [f64; 3]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
+/// Angle between two vectors in radians: `angle(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn angle(a: [f64; 3], b: [f64; 3]) -> f64 {
+    let d = dot_vec3(a, b);
+    let la = length_vec3(a);
+    let lb = length_vec3(b);
+    if la < 1e-10 || lb < 1e-10 {
+        return 0.0; // Degenerate case: angle with zero vector
+    }
+    (d / (la * lb)).clamp(-1.0, 1.0).acos()
+}
+
+/// Refraction vector: `refract(I, N, eta)`
+/// I: incident vector, N: normal, eta: refraction index ratio (eta1/eta2)
+/// Returns refraction vector or zero vector for total internal reflection
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn refract(i: [f64; 3], n: [f64; 3], eta: f64) -> [f64; 3] {
+    let cosi = -dot_vec3(n, i);
+    let k = 1.0 - eta * eta * (1.0 - cosi * cosi);
+    if k < 0.0 {
+        // Total internal reflection
+        [0.0, 0.0, 0.0]
+    } else {
+        let factor = eta * cosi - k.sqrt();
+        [
+            eta * i[0] + factor * n[0],
+            eta * i[1] + factor * n[1],
+            eta * i[2] + factor * n[2],
+        ]
+    }
+}
+
+/// Orient normal to face toward viewer: `faceforward(N, I, Nref)`
+/// Returns N if dot(Nref, I) < 0, otherwise -N
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn faceforward(n: [f64; 3], i: [f64; 3], nref: [f64; 3]) -> [f64; 3] {
+    if dot_vec3(nref, i) < 0.0 {
+        n
+    } else {
+        [-n[0], -n[1], -n[2]]
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -626,5 +838,340 @@ mod tests {
     #[test]
     fn test_distance_sq_vec4_registered() {
         assert!(is_known_in("vector", "distance_sq_vec4"));
+    }
+
+    #[test]
+    fn test_lerp_vec2_registered() {
+        assert!(is_known_in("vector", "lerp_vec2"));
+    }
+
+    #[test]
+    fn test_lerp_vec3_registered() {
+        assert!(is_known_in("vector", "lerp_vec3"));
+    }
+
+    #[test]
+    fn test_lerp_vec4_registered() {
+        assert!(is_known_in("vector", "lerp_vec4"));
+    }
+
+    #[test]
+    fn test_lerp_variadic_registered() {
+        assert!(is_known_in("vector", "lerp"));
+    }
+
+    #[test]
+    fn test_mix_vec2_registered() {
+        assert!(is_known_in("vector", "mix_vec2"));
+    }
+
+    #[test]
+    fn test_mix_vec3_registered() {
+        assert!(is_known_in("vector", "mix_vec3"));
+    }
+
+    #[test]
+    fn test_mix_vec4_registered() {
+        assert!(is_known_in("vector", "mix_vec4"));
+    }
+
+    #[test]
+    fn test_mix_variadic_registered() {
+        assert!(is_known_in("vector", "mix"));
+    }
+
+    #[test]
+    fn test_lerp_vec2_at_t0() {
+        let a = [1.0, 2.0];
+        let b = [5.0, 10.0];
+        let result = lerp_vec2(a, b, 0.0);
+        assert_eq!(result, a);
+    }
+
+    #[test]
+    fn test_lerp_vec2_at_t1() {
+        let a = [1.0, 2.0];
+        let b = [5.0, 10.0];
+        let result = lerp_vec2(a, b, 1.0);
+        assert_eq!(result, b);
+    }
+
+    #[test]
+    fn test_lerp_vec2_at_midpoint() {
+        let a = [0.0, 0.0];
+        let b = [10.0, 20.0];
+        let result = lerp_vec2(a, b, 0.5);
+        assert_eq!(result, [5.0, 10.0]);
+    }
+
+    #[test]
+    fn test_lerp_vec3_at_t0() {
+        let a = [1.0, 2.0, 3.0];
+        let b = [5.0, 10.0, 15.0];
+        let result = lerp_vec3(a, b, 0.0);
+        assert_eq!(result, a);
+    }
+
+    #[test]
+    fn test_lerp_vec3_at_t1() {
+        let a = [1.0, 2.0, 3.0];
+        let b = [5.0, 10.0, 15.0];
+        let result = lerp_vec3(a, b, 1.0);
+        assert_eq!(result, b);
+    }
+
+    #[test]
+    fn test_lerp_vec3_at_midpoint() {
+        let a = [0.0, 0.0, 0.0];
+        let b = [10.0, 20.0, 30.0];
+        let result = lerp_vec3(a, b, 0.5);
+        assert_eq!(result, [5.0, 10.0, 15.0]);
+    }
+
+    #[test]
+    fn test_lerp_vec4_at_t0() {
+        let a = [1.0, 2.0, 3.0, 4.0];
+        let b = [5.0, 10.0, 15.0, 20.0];
+        let result = lerp_vec4(a, b, 0.0);
+        assert_eq!(result, a);
+    }
+
+    #[test]
+    fn test_lerp_vec4_at_t1() {
+        let a = [1.0, 2.0, 3.0, 4.0];
+        let b = [5.0, 10.0, 15.0, 20.0];
+        let result = lerp_vec4(a, b, 1.0);
+        assert_eq!(result, b);
+    }
+
+    #[test]
+    fn test_lerp_vec4_at_midpoint() {
+        let a = [0.0, 0.0, 0.0, 0.0];
+        let b = [10.0, 20.0, 30.0, 40.0];
+        let result = lerp_vec4(a, b, 0.5);
+        assert_eq!(result, [5.0, 10.0, 15.0, 20.0]);
+    }
+
+    #[test]
+    fn test_lerp_variadic_vec2() {
+        let a = Value::Vec2([0.0, 0.0]);
+        let b = Value::Vec2([10.0, 20.0]);
+        let t = Value::Scalar(0.5);
+        let result = lerp(&[a, b, t]);
+        assert_eq!(result, Value::Vec2([5.0, 10.0]));
+    }
+
+    #[test]
+    fn test_lerp_variadic_vec3() {
+        let a = Value::Vec3([0.0, 0.0, 0.0]);
+        let b = Value::Vec3([10.0, 20.0, 30.0]);
+        let t = Value::Scalar(0.5);
+        let result = lerp(&[a, b, t]);
+        assert_eq!(result, Value::Vec3([5.0, 10.0, 15.0]));
+    }
+
+    #[test]
+    fn test_lerp_variadic_vec4() {
+        let a = Value::Vec4([0.0, 0.0, 0.0, 0.0]);
+        let b = Value::Vec4([10.0, 20.0, 30.0, 40.0]);
+        let t = Value::Scalar(0.5);
+        let result = lerp(&[a, b, t]);
+        assert_eq!(result, Value::Vec4([5.0, 10.0, 15.0, 20.0]));
+    }
+
+    #[test]
+    #[should_panic(expected = "same dimension")]
+    fn test_lerp_dimension_mismatch() {
+        let a = Value::Vec2([1.0, 2.0]);
+        let b = Value::Vec3([1.0, 2.0, 3.0]);
+        let t = Value::Scalar(0.5);
+        let _ = lerp(&[a, b, t]);
+    }
+
+    #[test]
+    fn test_mix_vec2() {
+        let a = [0.0, 0.0];
+        let b = [10.0, 20.0];
+        let result = mix_vec2(a, b, 0.5);
+        assert_eq!(result, [5.0, 10.0]);
+    }
+
+    #[test]
+    fn test_mix_vec3() {
+        let a = [0.0, 0.0, 0.0];
+        let b = [10.0, 20.0, 30.0];
+        let result = mix_vec3(a, b, 0.5);
+        assert_eq!(result, [5.0, 10.0, 15.0]);
+    }
+
+    #[test]
+    fn test_mix_vec4() {
+        let a = [0.0, 0.0, 0.0, 0.0];
+        let b = [10.0, 20.0, 30.0, 40.0];
+        let result = mix_vec4(a, b, 0.5);
+        assert_eq!(result, [5.0, 10.0, 15.0, 20.0]);
+    }
+
+    #[test]
+    fn test_mix_variadic_vec3() {
+        let a = Value::Vec3([0.0, 0.0, 0.0]);
+        let b = Value::Vec3([10.0, 20.0, 30.0]);
+        let t = Value::Scalar(0.5);
+        let result = mix(&[a, b, t]);
+        assert_eq!(result, Value::Vec3([5.0, 10.0, 15.0]));
+    }
+
+    // Component-wise clamp tests
+    #[test]
+    fn test_clamp_vec2() {
+        let v = [-1.0, 5.0];
+        let result = clamp_vec2(v, 0.0, 1.0);
+        assert_eq!(result, [0.0, 1.0]);
+    }
+
+    #[test]
+    fn test_clamp_vec3() {
+        let v = [-1.0, 0.5, 5.0];
+        let result = clamp_vec3(v, 0.0, 1.0);
+        assert_eq!(result, [0.0, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn test_clamp_vec4() {
+        let v = [-2.0, -1.0, 0.5, 10.0];
+        let result = clamp_vec4(v, 0.0, 1.0);
+        assert_eq!(result, [0.0, 0.0, 0.5, 1.0]);
+    }
+
+    #[test]
+    fn test_clamp_vec2_registered() {
+        assert!(is_known_in("vector", "clamp_vec2"));
+    }
+
+    #[test]
+    fn test_clamp_vec3_registered() {
+        assert!(is_known_in("vector", "clamp_vec3"));
+    }
+
+    #[test]
+    fn test_clamp_vec4_registered() {
+        assert!(is_known_in("vector", "clamp_vec4"));
+    }
+
+    // Component-wise min tests
+    #[test]
+    fn test_min_vec2() {
+        let a = [1.0, 4.0];
+        let b = [2.0, 3.0];
+        let result = min_vec2(a, b);
+        assert_eq!(result, [1.0, 3.0]);
+    }
+
+    #[test]
+    fn test_min_vec3() {
+        let a = [1.0, 4.0, 2.0];
+        let b = [2.0, 3.0, 5.0];
+        let result = min_vec3(a, b);
+        assert_eq!(result, [1.0, 3.0, 2.0]);
+    }
+
+    #[test]
+    fn test_min_vec4() {
+        let a = [1.0, 4.0, 2.0, 6.0];
+        let b = [2.0, 3.0, 5.0, 1.0];
+        let result = min_vec4(a, b);
+        assert_eq!(result, [1.0, 3.0, 2.0, 1.0]);
+    }
+
+    #[test]
+    fn test_min_vec2_registered() {
+        assert!(is_known_in("vector", "min_vec2"));
+    }
+
+    #[test]
+    fn test_min_vec3_registered() {
+        assert!(is_known_in("vector", "min_vec3"));
+    }
+
+    #[test]
+    fn test_min_vec4_registered() {
+        assert!(is_known_in("vector", "min_vec4"));
+    }
+
+    // Component-wise max tests
+    #[test]
+    fn test_max_vec2() {
+        let a = [1.0, 4.0];
+        let b = [2.0, 3.0];
+        let result = max_vec2(a, b);
+        assert_eq!(result, [2.0, 4.0]);
+    }
+
+    #[test]
+    fn test_max_vec3() {
+        let a = [1.0, 4.0, 2.0];
+        let b = [2.0, 3.0, 5.0];
+        let result = max_vec3(a, b);
+        assert_eq!(result, [2.0, 4.0, 5.0]);
+    }
+
+    #[test]
+    fn test_max_vec4() {
+        let a = [1.0, 4.0, 2.0, 6.0];
+        let b = [2.0, 3.0, 5.0, 1.0];
+        let result = max_vec4(a, b);
+        assert_eq!(result, [2.0, 4.0, 5.0, 6.0]);
+    }
+
+    #[test]
+    fn test_max_vec2_registered() {
+        assert!(is_known_in("vector", "max_vec2"));
+    }
+
+    #[test]
+    fn test_max_vec3_registered() {
+        assert!(is_known_in("vector", "max_vec3"));
+    }
+
+    #[test]
+    fn test_max_vec4_registered() {
+        assert!(is_known_in("vector", "max_vec4"));
+    }
+
+    // Component-wise abs tests
+    #[test]
+    fn test_abs_vec2() {
+        let v = [-1.0, 2.0];
+        let result = abs_vec2(v);
+        assert_eq!(result, [1.0, 2.0]);
+    }
+
+    #[test]
+    fn test_abs_vec3() {
+        let v = [-1.0, 2.0, -3.0];
+        let result = abs_vec3(v);
+        assert_eq!(result, [1.0, 2.0, 3.0]);
+    }
+
+    #[test]
+    fn test_abs_vec4() {
+        let v = [-1.0, 2.0, -3.0, 4.0];
+        let result = abs_vec4(v);
+        assert_eq!(result, [1.0, 2.0, 3.0, 4.0]);
+    }
+
+    #[test]
+    fn test_abs_vec2_registered() {
+        assert!(is_known_in("vector", "abs_vec2"));
+    }
+
+    #[test]
+    fn test_abs_vec3_registered() {
+        assert!(is_known_in("vector", "abs_vec3"));
+    }
+
+    #[test]
+    fn test_abs_vec4_registered() {
+        assert!(is_known_in("vector", "abs_vec4"));
     }
 }
