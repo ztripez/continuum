@@ -224,6 +224,9 @@ impl From<&ValueType> for ValueTypeCategory {
             PrimitiveStorageClass::Vec2 => ValueTypeCategory::Vec2,
             PrimitiveStorageClass::Vec3 => ValueTypeCategory::Vec3,
             PrimitiveStorageClass::Vec4 => ValueTypeCategory::Vec4,
+            PrimitiveStorageClass::Mat2 => ValueTypeCategory::Scalar, // TODO: matrix category
+            PrimitiveStorageClass::Mat3 => ValueTypeCategory::Scalar, // TODO: matrix category
+            PrimitiveStorageClass::Mat4 => ValueTypeCategory::Scalar, // TODO: matrix category
             PrimitiveStorageClass::Tensor => ValueTypeCategory::Tensor,
             PrimitiveStorageClass::Grid => ValueTypeCategory::Grid,
             PrimitiveStorageClass::Seq => ValueTypeCategory::Seq,

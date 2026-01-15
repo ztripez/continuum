@@ -191,6 +191,9 @@ impl ValueType {
             PrimitiveStorageClass::Vec2 => ValueType::vec2(),
             PrimitiveStorageClass::Vec3 => ValueType::vec3(),
             PrimitiveStorageClass::Vec4 => ValueType::vec4(),
+            PrimitiveStorageClass::Mat2 => ValueType::scalar(), // TODO: implement matrix types
+            PrimitiveStorageClass::Mat3 => ValueType::scalar(), // TODO: implement matrix types
+            PrimitiveStorageClass::Mat4 => ValueType::scalar(), // TODO: implement matrix types
             PrimitiveStorageClass::Tensor => ValueType::scalar(),
             PrimitiveStorageClass::Grid => ValueType::scalar(),
             PrimitiveStorageClass::Seq => ValueType::scalar(),
@@ -209,6 +212,9 @@ impl ValueType {
                 PrimitiveStorageClass::Vec2 => MemberBufferClass::Vec2,
                 PrimitiveStorageClass::Vec3 => MemberBufferClass::Vec3,
                 PrimitiveStorageClass::Vec4 => MemberBufferClass::Vec4,
+                PrimitiveStorageClass::Mat2 => MemberBufferClass::Scalar, // TODO: matrix buffer class
+                PrimitiveStorageClass::Mat3 => MemberBufferClass::Scalar, // TODO: matrix buffer class
+                PrimitiveStorageClass::Mat4 => MemberBufferClass::Scalar, // TODO: matrix buffer class
                 PrimitiveStorageClass::Tensor => MemberBufferClass::Scalar,
                 PrimitiveStorageClass::Grid => MemberBufferClass::Scalar,
                 PrimitiveStorageClass::Seq => MemberBufferClass::Scalar,

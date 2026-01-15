@@ -89,6 +89,13 @@ impl Lowerer {
                     _ => ValueType::scalar(unit_str, dimension, None),
                 }
             }
+            continuum_foundation::PrimitiveShape::Matrix { rows, cols } => {
+                let unit = self.param_unit(primitive);
+                let (unit_str, dimension) = self.parse_unit_with_dimension(&unit);
+                // TODO: implement proper matrix value type when ValueType supports it
+                // For now, treat as vector with rows*cols elements
+                ValueType::vector(rows * cols, unit_str, dimension, None)
+            }
             continuum_foundation::PrimitiveShape::Tensor => {
                 let rows = self.param_u8(primitive, PrimitiveParamKind::Rows);
                 let cols = self.param_u8(primitive, PrimitiveParamKind::Cols);
