@@ -657,11 +657,8 @@ dependencies = [
  "continuum-functions",
  "continuum-lens",
  "continuum-runtime",
-<<<<<<< HEAD
  "futures-util",
-=======
  "continuum-vm",
->>>>>>> origin/main
  "indexmap",
  "serde",
  "serde_json",
@@ -679,11 +676,8 @@ name = "continuum-vm"
 version = "0.1.0"
 dependencies = [
  "continuum-kernel-registry",
-<<<<<<< HEAD
  "serde_json",
-=======
  "serde",
->>>>>>> origin/main
 ]
 
 [[package]]
