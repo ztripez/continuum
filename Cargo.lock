@@ -647,11 +647,8 @@ dependencies = [
 name = "continuum-tools"
 version = "0.1.0"
 dependencies = [
-<<<<<<< HEAD
  "anyhow",
  "axum",
-=======
->>>>>>> origin/main
  "bincode",
  "chrono",
  "clap",
