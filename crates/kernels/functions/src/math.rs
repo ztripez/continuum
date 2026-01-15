@@ -36,6 +36,36 @@ pub fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + t * (b - a)
 }
 
+/// Step function: `step(edge, x)` → 0.0 if x < edge, else 1.0
+///
+/// Sharp transition at edge. Common in shader programming.
+#[kernel_fn(namespace = "maths")]
+pub fn step(edge: f64, x: f64) -> f64 {
+    if x < edge {
+        0.0
+    } else {
+        1.0
+    }
+}
+
+/// Smooth Hermite interpolation: `smoothstep(e0, e1, x)`
+///
+/// Returns 0 if x ≤ e0, 1 if x ≥ e1, smooth interpolation between.
+/// Uses cubic Hermite polynomial: 3t² - 2t³
+#[kernel_fn(namespace = "maths")]
+pub fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+
+/// Saturate: `saturate(x)` → clamp to [0, 1]
+///
+/// Equivalent to `clamp(x, 0.0, 1.0)`. Common in shader programming.
+#[kernel_fn(namespace = "maths")]
+pub fn saturate(x: f64) -> f64 {
+    x.clamp(0.0, 1.0)
+}
+
 // === Trigonometry ===
 
 /// Sine: `sin(x)`
@@ -86,6 +116,52 @@ pub fn asin(x: f64) -> f64 {
 #[kernel_fn(namespace = "maths")]
 pub fn acos(x: f64) -> f64 {
     x.acos()
+}
+
+// === Hyperbolic ===
+
+/// Hyperbolic sine: `sinh(x)`
+#[kernel_fn(namespace = "maths")]
+pub fn sinh(x: f64) -> f64 {
+    x.sinh()
+}
+
+/// Hyperbolic cosine: `cosh(x)`
+#[kernel_fn(namespace = "maths")]
+pub fn cosh(x: f64) -> f64 {
+    x.cosh()
+}
+
+/// Hyperbolic tangent: `tanh(x)`
+#[kernel_fn(namespace = "maths")]
+pub fn tanh(x: f64) -> f64 {
+    x.tanh()
+}
+
+/// Inverse hyperbolic sine: `asinh(x)`
+#[kernel_fn(namespace = "maths")]
+pub fn asinh(x: f64) -> f64 {
+    x.asinh()
+}
+
+/// Inverse hyperbolic cosine: `acosh(x)` → non-negative value whose hyperbolic cosine is x
+///
+/// # Panics
+///
+/// Returns NaN if x < 1
+#[kernel_fn(namespace = "maths")]
+pub fn acosh(x: f64) -> f64 {
+    x.acosh()
+}
+
+/// Inverse hyperbolic tangent: `atanh(x)`
+///
+/// # Panics
+///
+/// Returns NaN if x is outside (-1, 1)
+#[kernel_fn(namespace = "maths")]
+pub fn atanh(x: f64) -> f64 {
+    x.atanh()
 }
 
 // === Exponential / Logarithmic ===
@@ -145,7 +221,11 @@ pub fn trunc(x: f64) -> f64 {
 /// Sign: `sign(x)` → -1.0 if x < 0, 0.0 if x == 0, 1.0 if x > 0
 #[kernel_fn(namespace = "maths")]
 pub fn sign(x: f64) -> f64 {
-    if x == 0.0 { 0.0 } else { x.signum() }
+    if x == 0.0 {
+        0.0
+    } else {
+        x.signum()
+    }
 }
 
 /// Modulo: `mod(a, b)` → `a % b` (always positive)
@@ -200,7 +280,7 @@ pub fn sum(args: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use continuum_kernel_registry::{
-        Arity, Value, eval_in_namespace, get_in_namespace, is_known_in,
+        eval_in_namespace, get_in_namespace, is_known_in, Arity, Value,
     };
 
     #[test]
@@ -214,12 +294,22 @@ mod tests {
         assert!(is_known_in("maths", "atan2"));
         assert!(is_known_in("maths", "asin"));
         assert!(is_known_in("maths", "acos"));
+        assert!(is_known_in("maths", "sinh"));
+        assert!(is_known_in("maths", "cosh"));
+        assert!(is_known_in("maths", "tanh"));
+        assert!(is_known_in("maths", "asinh"));
+        assert!(is_known_in("maths", "acosh"));
+        assert!(is_known_in("maths", "atanh"));
         assert!(is_known_in("maths", "exp"));
         assert!(is_known_in("maths", "ln"));
         assert!(is_known_in("maths", "log10"));
         assert!(is_known_in("maths", "log"));
         assert!(is_known_in("maths", "pow"));
         assert!(is_known_in("maths", "clamp"));
+        assert!(is_known_in("maths", "lerp"));
+        assert!(is_known_in("maths", "step"));
+        assert!(is_known_in("maths", "smoothstep"));
+        assert!(is_known_in("maths", "saturate"));
         assert!(is_known_in("maths", "floor"));
         assert!(is_known_in("maths", "ceil"));
         assert!(is_known_in("maths", "round"));
@@ -548,5 +638,239 @@ mod tests {
         .as_scalar()
         .unwrap();
         assert!((result - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_sinh() {
+        // sinh(0) = 0
+        let result = eval_in_namespace("maths", "sinh", &[Value::Scalar(0.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+
+        // sinh(1) ≈ 1.175201
+        let result = eval_in_namespace("maths", "sinh", &[Value::Scalar(1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 1.175201193643801).abs() < 1e-10);
+
+        // sinh(-1) = -sinh(1)
+        let result = eval_in_namespace("maths", "sinh", &[Value::Scalar(-1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result + 1.175201193643801).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_cosh() {
+        // cosh(0) = 1
+        let result = eval_in_namespace("maths", "cosh", &[Value::Scalar(0.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 1.0).abs() < 1e-10);
+
+        // cosh(1) ≈ 1.543081
+        let result = eval_in_namespace("maths", "cosh", &[Value::Scalar(1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 1.5430806348152437).abs() < 1e-10);
+
+        // cosh(-1) = cosh(1) (even function)
+        let result = eval_in_namespace("maths", "cosh", &[Value::Scalar(-1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 1.5430806348152437).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_tanh() {
+        // tanh(0) = 0
+        let result = eval_in_namespace("maths", "tanh", &[Value::Scalar(0.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+
+        // tanh(1) ≈ 0.761594
+        let result = eval_in_namespace("maths", "tanh", &[Value::Scalar(1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.7615941559557649).abs() < 1e-10);
+
+        // tanh(-1) = -tanh(1) (odd function)
+        let result = eval_in_namespace("maths", "tanh", &[Value::Scalar(-1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result + 0.7615941559557649).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_asinh() {
+        // asinh(0) = 0
+        let result = eval_in_namespace("maths", "asinh", &[Value::Scalar(0.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+
+        // asinh(sinh(1)) = 1
+        let sinh_1 = 1.175201193643801f64;
+        let result = eval_in_namespace("maths", "asinh", &[Value::Scalar(sinh_1)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 1.0).abs() < 1e-10);
+
+        // asinh(-x) = -asinh(x) (odd function)
+        let result = eval_in_namespace("maths", "asinh", &[Value::Scalar(-sinh_1)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result + 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_acosh() {
+        // acosh(1) = 0
+        let result = eval_in_namespace("maths", "acosh", &[Value::Scalar(1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+
+        // acosh(cosh(1)) = 1
+        let cosh_1 = 1.5430806348152437f64;
+        let result = eval_in_namespace("maths", "acosh", &[Value::Scalar(cosh_1)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 1.0).abs() < 1e-10);
+
+        // acosh(2) ≈ 1.316958
+        let result = eval_in_namespace("maths", "acosh", &[Value::Scalar(2.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 1.3169578969248166).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_atanh() {
+        // atanh(0) = 0
+        let result = eval_in_namespace("maths", "atanh", &[Value::Scalar(0.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+
+        // atanh(tanh(0.5)) = 0.5
+        let tanh_half = 0.46211715726000974f64;
+        let result = eval_in_namespace("maths", "atanh", &[Value::Scalar(tanh_half)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.5).abs() < 1e-10);
+
+        // atanh(-x) = -atanh(x) (odd function)
+        let result = eval_in_namespace("maths", "atanh", &[Value::Scalar(-tanh_half)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result + 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_step() {
+        // x < edge → 0.0
+        assert_eq!(
+            eval_in_namespace(
+                "maths",
+                "step",
+                &[Value::Scalar(5.0), Value::Scalar(3.0)],
+                1.0
+            ),
+            Some(Value::Scalar(0.0))
+        );
+        // x >= edge → 1.0
+        assert_eq!(
+            eval_in_namespace(
+                "maths",
+                "step",
+                &[Value::Scalar(5.0), Value::Scalar(5.0)],
+                1.0
+            ),
+            Some(Value::Scalar(1.0))
+        );
+        assert_eq!(
+            eval_in_namespace(
+                "maths",
+                "step",
+                &[Value::Scalar(5.0), Value::Scalar(7.0)],
+                1.0
+            ),
+            Some(Value::Scalar(1.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_smoothstep() {
+        // x <= edge0 → 0.0
+        assert_eq!(
+            eval_in_namespace(
+                "maths",
+                "smoothstep",
+                &[Value::Scalar(0.0), Value::Scalar(1.0), Value::Scalar(-1.0)],
+                1.0
+            ),
+            Some(Value::Scalar(0.0))
+        );
+        // x >= edge1 → 1.0
+        assert_eq!(
+            eval_in_namespace(
+                "maths",
+                "smoothstep",
+                &[Value::Scalar(0.0), Value::Scalar(1.0), Value::Scalar(2.0)],
+                1.0
+            ),
+            Some(Value::Scalar(1.0))
+        );
+        // midpoint (x=0.5) → 0.5
+        let result = eval_in_namespace(
+            "maths",
+            "smoothstep",
+            &[Value::Scalar(0.0), Value::Scalar(1.0), Value::Scalar(0.5)],
+            1.0,
+        )
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+        assert!((result - 0.5).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_saturate() {
+        // x < 0 → 0
+        assert_eq!(
+            eval_in_namespace("maths", "saturate", &[Value::Scalar(-5.0)], 1.0),
+            Some(Value::Scalar(0.0))
+        );
+        // 0 <= x <= 1 → x
+        assert_eq!(
+            eval_in_namespace("maths", "saturate", &[Value::Scalar(0.5)], 1.0),
+            Some(Value::Scalar(0.5))
+        );
+        // x > 1 → 1
+        assert_eq!(
+            eval_in_namespace("maths", "saturate", &[Value::Scalar(5.0)], 1.0),
+            Some(Value::Scalar(1.0))
+        );
     }
 }
