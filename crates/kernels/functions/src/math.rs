@@ -41,11 +41,7 @@ pub fn lerp(a: f64, b: f64, t: f64) -> f64 {
 /// Sharp transition at edge. Common in shader programming.
 #[kernel_fn(namespace = "maths")]
 pub fn step(edge: f64, x: f64) -> f64 {
-    if x < edge {
-        0.0
-    } else {
-        1.0
-    }
+    if x < edge { 0.0 } else { 1.0 }
 }
 
 /// Smooth Hermite interpolation: `smoothstep(e0, e1, x)`
@@ -221,11 +217,7 @@ pub fn trunc(x: f64) -> f64 {
 /// Sign: `sign(x)` → -1.0 if x < 0, 0.0 if x == 0, 1.0 if x > 0
 #[kernel_fn(namespace = "maths")]
 pub fn sign(x: f64) -> f64 {
-    if x == 0.0 {
-        0.0
-    } else {
-        x.signum()
-    }
+    if x == 0.0 { 0.0 } else { x.signum() }
 }
 
 /// Modulo: `mod(a, b)` → `a % b` (always positive)
@@ -280,7 +272,7 @@ pub fn sum(args: &[f64]) -> f64 {
 #[cfg(test)]
 mod tests {
     use continuum_kernel_registry::{
-        eval_in_namespace, get_in_namespace, is_known_in, Arity, Value,
+        Arity, Value, eval_in_namespace, get_in_namespace, is_known_in,
     };
 
     #[test]
