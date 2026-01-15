@@ -1,15 +1,15 @@
-use continuum_compiler::ir::{CompiledWorld, RuntimeBuildOptions, build_runtime, compile};
-use continuum_runtime::Runtime;
+use continuum_compiler::ir::{build_runtime, compile, CompiledWorld, RuntimeBuildOptions};
 use continuum_runtime::types::WarmupConfig;
+use continuum_runtime::Runtime;
 use dap::events::{Event, StoppedEventBody};
 use dap::prelude::*;
 use dap::types::{Capabilities, Message, Scope, StackFrame, StoppedEventReason, Thread, Variable};
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::sync::{Mutex, mpsc};
+use std::sync::Arc;
+use tokio::sync::{mpsc, Mutex};
 use tracing::{error, info};
 
 pub struct ContinuumDebugAdapter {
