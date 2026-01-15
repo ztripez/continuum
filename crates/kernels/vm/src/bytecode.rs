@@ -94,14 +94,14 @@ pub enum Op {
     /// Find first matching instance (entity_idx, pred_chunk_idx, component_idx)
     FindFirstField(u16, u16, u16),
 
-    /// Find nearest instance and load field (entity_idx, component_idx)
+    /// Find nearest instance and load field (entity_idx, position_field_idx, component_idx)
     /// Expects position on stack.
-    LoadNearestField(u16, u16),
+    LoadNearestField(u16, u16, u16),
 
     /// Iterate over instances within radius and aggregate
-    /// (entity_idx, reduction_op, body_chunk_idx)
+    /// (entity_idx, position_field_idx, reduction_op, body_chunk_idx)
     /// Expects position and radius on stack.
-    WithinAggregate(u16, ReductionOp, u16),
+    WithinAggregate(u16, u16, ReductionOp, u16),
 
     /// Iterate over all unique pairs and execute body
     /// (entity_idx, body_chunk_idx)

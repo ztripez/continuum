@@ -184,6 +184,7 @@ impl ValueType {
             Value::Boolean(_) => ValueType::boolean(),
             Value::Integer(_) => ValueType::integer(),
             Value::Map(_) => panic!("Map values are not supported in member signals"),
+            Value::Tensor(_) => panic!("Tensor values are not yet supported in member signals"),
         }
     }
 

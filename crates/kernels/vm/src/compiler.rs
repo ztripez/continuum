@@ -178,6 +178,8 @@ pub enum Expr {
         entity: String,
         /// The position to search from
         position: Box<Expr>,
+        /// The field name on target entities that holds their position
+        position_field: String,
         /// The field to return from the nearest instance
         field: String,
     },
@@ -187,6 +189,8 @@ pub enum Expr {
         entity: String,
         /// The position to search from
         position: Box<Expr>,
+        /// The field name on target entities that holds their position
+        position_field: String,
         /// The search radius
         radius: Box<Expr>,
         /// The reduction operation
@@ -453,18 +457,24 @@ impl Compiler {
             Expr::Nearest {
                 entity,
                 position,
+                position_field,
                 field,
             } => {
                 let entity_idx = self.chunk.add_entity(entity);
                 self.compile_expr(position);
+                let position_field_idx = self.chunk.add_component(position_field);
                 let component_idx = self.chunk.add_component(field);
-                self.chunk
-                    .emit(Op::LoadNearestField(entity_idx, component_idx));
+                self.chunk.emit(Op::LoadNearestField(
+                    entity_idx,
+                    position_field_idx,
+                    component_idx,
+                ));
             }
 
             Expr::Within {
                 entity,
                 position,
+                position_field,
                 radius,
                 op,
                 body,
@@ -472,10 +482,15 @@ impl Compiler {
                 let entity_idx = self.chunk.add_entity(entity);
                 self.compile_expr(position);
                 self.compile_expr(radius);
+                let position_field_idx = self.chunk.add_component(position_field);
                 let body_chunk = compile_expr(body);
                 let body_idx = self.chunk.add_sub_chunk(body_chunk);
-                self.chunk
-                    .emit(Op::WithinAggregate(entity_idx, *op, body_idx));
+                self.chunk.emit(Op::WithinAggregate(
+                    entity_idx,
+                    position_field_idx,
+                    *op,
+                    body_idx,
+                ));
             }
 
             Expr::Pairs { entity, body } => {

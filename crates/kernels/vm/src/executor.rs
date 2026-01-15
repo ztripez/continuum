@@ -315,8 +315,9 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &mut dyn ExecutionContext) -> Value {
                 stack.push(result);
             }
 
-            Op::LoadNearestField(entity_idx, component_idx) => {
+            Op::LoadNearestField(entity_idx, position_field_idx, component_idx) => {
                 let entity = &chunk.entities[entity_idx as usize];
+                let position_field = &chunk.components[position_field_idx as usize];
                 let component = &chunk.components[component_idx as usize];
                 let pos = stack.pop().expect("vm bug: stack underflow");
                 let instances = ctx.entity_instances(entity);
@@ -327,7 +328,7 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &mut dyn ExecutionContext) -> Value {
 
                 for instance_id in instances {
                     ctx.set_self_instance(Some(instance_id.clone()));
-                    let inst_pos = ctx.self_field("position");
+                    let inst_pos = ctx.self_field(position_field);
                     let dist_sq = val_dist_sq(&pos, &inst_pos);
 
                     if dist_sq < min_dist_sq {
@@ -352,8 +353,9 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &mut dyn ExecutionContext) -> Value {
                 ctx.set_current_entity(None);
             }
 
-            Op::WithinAggregate(entity_idx, op, body_chunk_idx) => {
+            Op::WithinAggregate(entity_idx, position_field_idx, op, body_chunk_idx) => {
                 let entity = &chunk.entities[entity_idx as usize];
+                let position_field = &chunk.components[position_field_idx as usize];
                 let body_chunk = &chunk.sub_chunks[body_chunk_idx as usize];
                 let radius = stack
                     .pop()
@@ -379,7 +381,7 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &mut dyn ExecutionContext) -> Value {
                 let mut count = 0usize;
                 for instance_id in instances {
                     ctx.set_self_instance(Some(instance_id.clone()));
-                    let inst_pos = ctx.self_field("position");
+                    let inst_pos = ctx.self_field(position_field);
                     if val_dist_sq(&pos, &inst_pos) <= radius_sq {
                         count += 1;
                         let val = execute(body_chunk, ctx);
@@ -1460,5 +1462,211 @@ mod tests {
             result,
             Value::Mat3([-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0, -9.0])
         );
+    }
+
+    // ============================================================================
+    // Custom Position Field Tests (for spatial operations)
+    // ============================================================================
+
+    /// Test context with entity spatial operations
+    struct SpatialTestContext {
+        current_entity: Option<String>,
+        self_instance: Option<String>,
+    }
+
+    impl SpatialTestContext {
+        fn new() -> Self {
+            Self {
+                current_entity: None,
+                self_instance: None,
+            }
+        }
+    }
+
+    impl ExecutionContext for SpatialTestContext {
+        fn prev(&self) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn dt_scalar(&self) -> f64 {
+            0.1
+        }
+        fn sim_time(&self) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn inputs(&self) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn signal(&self, _name: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn constant(&self, _name: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn config(&self, _name: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn call_kernel(&self, _name: &str, _args: &[Value]) -> Value {
+            Value::Scalar(0.0)
+        }
+
+        fn self_field(&self, component: &str) -> Value {
+            // Entities with custom "location" field and "value" field
+            match (&self.self_instance, component) {
+                // Entity A at location (0, 0, 0) with value 10
+                (Some(id), "location") if id == "entity_a" => Value::Vec3([0.0, 0.0, 0.0]),
+                (Some(id), "value") if id == "entity_a" => Value::Scalar(10.0),
+                // Entity B at location (1, 0, 0) with value 20
+                (Some(id), "location") if id == "entity_b" => Value::Vec3([1.0, 0.0, 0.0]),
+                (Some(id), "value") if id == "entity_b" => Value::Scalar(20.0),
+                // Entity C at location (10, 0, 0) with value 30
+                (Some(id), "location") if id == "entity_c" => Value::Vec3([10.0, 0.0, 0.0]),
+                (Some(id), "value") if id == "entity_c" => Value::Scalar(30.0),
+                _ => Value::Scalar(0.0),
+            }
+        }
+
+        fn entity_field(&self, _entity: &str, _instance: &str, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn other_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn entity_instances(&self, entity: &str) -> Vec<String> {
+            match entity {
+                "particles" => vec![
+                    "entity_a".to_string(),
+                    "entity_b".to_string(),
+                    "entity_c".to_string(),
+                ],
+                _ => Vec::new(),
+            }
+        }
+        fn set_current_entity(&mut self, entity: Option<String>) {
+            self.current_entity = entity;
+        }
+        fn set_self_instance(&mut self, instance: Option<String>) {
+            self.self_instance = instance;
+        }
+        fn set_other_instance(&mut self, _instance: Option<String>) {}
+        fn payload(&self) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn payload_field(&self, _component: &str) -> Value {
+            Value::Scalar(0.0)
+        }
+        fn emit_signal(&self, _target: &str, _value: Value) {}
+    }
+
+    #[test]
+    fn test_nearest_with_custom_position_field() {
+        // Find nearest entity to position (0.5, 0, 0) using "location" field
+        // entity_a is at (0, 0, 0) - distance 0.5
+        // entity_b is at (1, 0, 0) - distance 0.5
+        // entity_c is at (10, 0, 0) - distance 9.5
+        // entity_a or entity_b wins (tied at 0.5), deterministically entity_a wins (lexicographically first)
+
+        // Build the bytecode manually to use Vec3 position
+        let mut chunk = BytecodeChunk::new();
+        let entity_idx = chunk.add_entity("particles");
+        let position_field_idx = chunk.add_component("location");
+        let component_idx = chunk.add_component("value");
+        let pos_lit_idx = chunk.add_literal(Value::Vec3([0.5, 0.0, 0.0]));
+        chunk.emit(Op::Literal(pos_lit_idx));
+        chunk.emit(Op::LoadNearestField(
+            entity_idx,
+            position_field_idx,
+            component_idx,
+        ));
+
+        let mut ctx = SpatialTestContext::new();
+        let result = execute(&chunk, &mut ctx);
+
+        // entity_a (at 0,0,0) and entity_b (at 1,0,0) are both 0.5 away
+        // entity_a wins lexicographically, its value is 10.0
+        assert_eq!(result, Value::Scalar(10.0));
+    }
+
+    #[test]
+    fn test_within_aggregate_with_custom_position_field() {
+        // Sum values of entities within radius 2.0 of position (0, 0, 0) using "location" field
+        // entity_a at (0, 0, 0) - distance 0.0 - included
+        // entity_b at (1, 0, 0) - distance 1.0 - included
+        // entity_c at (10, 0, 0) - distance 10.0 - excluded
+        // Sum = 10 + 20 = 30
+
+        let mut chunk = BytecodeChunk::new();
+        let entity_idx = chunk.add_entity("particles");
+        let position_field_idx = chunk.add_component("location");
+
+        // Body chunk: just load the "value" field
+        let mut body_chunk = BytecodeChunk::new();
+        let value_idx = body_chunk.add_component("value");
+        body_chunk.emit(Op::LoadSelfField(value_idx));
+
+        let body_idx = chunk.add_sub_chunk(body_chunk);
+
+        // Push position (0, 0, 0)
+        let pos_lit_idx = chunk.add_literal(Value::Vec3([0.0, 0.0, 0.0]));
+        chunk.emit(Op::Literal(pos_lit_idx));
+
+        // Push radius 2.0
+        let radius_lit_idx = chunk.add_literal(Value::Scalar(2.0));
+        chunk.emit(Op::Literal(radius_lit_idx));
+
+        // Emit WithinAggregate with Sum reduction
+        chunk.emit(Op::WithinAggregate(
+            entity_idx,
+            position_field_idx,
+            ReductionOp::Sum,
+            body_idx,
+        ));
+
+        let mut ctx = SpatialTestContext::new();
+        let result = execute(&chunk, &mut ctx);
+
+        // Sum of entity_a (10) + entity_b (20) = 30
+        assert_eq!(result, Value::Scalar(30.0));
+    }
+
+    #[test]
+    fn test_within_aggregate_count_with_custom_position_field() {
+        // Count entities within radius 1.5 of position (0, 0, 0) using "location" field
+        // entity_a at (0, 0, 0) - distance 0.0 - included
+        // entity_b at (1, 0, 0) - distance 1.0 - included
+        // entity_c at (10, 0, 0) - distance 10.0 - excluded
+        // Count = 2
+
+        let mut chunk = BytecodeChunk::new();
+        let entity_idx = chunk.add_entity("particles");
+        let position_field_idx = chunk.add_component("location");
+
+        // Body chunk: just return 1
+        let mut body_chunk = BytecodeChunk::new();
+        let one_idx = body_chunk.add_literal(Value::Scalar(1.0));
+        body_chunk.emit(Op::Literal(one_idx));
+
+        let body_idx = chunk.add_sub_chunk(body_chunk);
+
+        // Push position (0, 0, 0)
+        let pos_lit_idx = chunk.add_literal(Value::Vec3([0.0, 0.0, 0.0]));
+        chunk.emit(Op::Literal(pos_lit_idx));
+
+        // Push radius 1.5
+        let radius_lit_idx = chunk.add_literal(Value::Scalar(1.5));
+        chunk.emit(Op::Literal(radius_lit_idx));
+
+        // Emit WithinAggregate with Count reduction
+        chunk.emit(Op::WithinAggregate(
+            entity_idx,
+            position_field_idx,
+            ReductionOp::Count,
+            body_idx,
+        ));
+
+        let mut ctx = SpatialTestContext::new();
+        let result = execute(&chunk, &mut ctx);
+
+        // Count of entity_a + entity_b = 2
+        assert_eq!(result, Value::Integer(2));
     }
 }
