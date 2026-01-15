@@ -139,6 +139,11 @@ pub struct FieldDescribeRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct SignalDescribeRequest {
+    pub signal_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct FieldTileRequest {
     pub field_id: String,
     pub tile: TileAddress,
@@ -185,6 +190,10 @@ pub enum IpcCommand {
         count: Option<u64>,
     },
     Stop,
+    SignalList,
+    SignalDescribe {
+        signal_id: String,
+    },
     FieldList,
     FieldDescribe {
         field_id: String,
@@ -249,6 +258,8 @@ pub struct IpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcResponsePayload {
     Status(StatusPayload),
+    SignalList(SignalListPayload),
+    SignalDescribe(SignalInfo),
     FieldList(FieldListPayload),
     FieldDescribe(FieldInfo),
     FieldHistory(FieldHistoryPayload),
@@ -322,6 +333,23 @@ pub struct FieldInfo {
     pub unit: Option<String>,
     pub range: Option<(f64, f64)>,
     pub topology: String,
+    pub stratum: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalListPayload {
+    pub signals: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub symbol: Option<String>,
+    pub value_type: String,
+    pub unit: Option<String>,
+    pub range: Option<(f64, f64)>,
     pub stratum: String,
 }
 
@@ -471,6 +499,8 @@ pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
             map.insert("running".to_string(), serde_json::json!(p.running));
             Some(serde_json::Value::Object(map))
         }
+        Some(IpcResponsePayload::SignalList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::SignalDescribe(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::FieldList(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::FieldDescribe(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::FieldHistory(p)) => serde_json::to_value(p).ok(),
@@ -539,6 +569,13 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
             IpcCommand::Run { count: req.count }
         }
         "stop" => IpcCommand::Stop,
+        "signal.list" => IpcCommand::SignalList,
+        "signal.describe" => {
+            let req: SignalDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::SignalDescribe {
+                signal_id: req.signal_id,
+            }
+        }
         "field.list" => IpcCommand::FieldList,
         "field.describe" => {
             let req: FieldDescribeRequest = serde_json::from_value(request.payload)?;

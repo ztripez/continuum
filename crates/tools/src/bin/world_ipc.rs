@@ -23,8 +23,8 @@ use continuum_tools::ipc_protocol::{
     ChronicleEvent, ChroniclePollPayload, FieldHistoryPayload, FieldInfo, FieldLatestPayload,
     FieldListPayload, FieldQueryBatchPayload, FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo,
     ImpulseListPayload, IpcCommand, IpcEvent, IpcFrame, IpcRequest, IpcResponse,
-    IpcResponsePayload, JsonValue, PlaybackPayload, StatusPayload, TickEvent, read_frame,
-    write_frame,
+    IpcResponsePayload, JsonValue, PlaybackPayload, SignalInfo, SignalListPayload, StatusPayload,
+    TickEvent, read_frame, write_frame,
 };
 
 #[derive(Parser, Debug)]
@@ -56,6 +56,7 @@ struct ServerState {
     running: bool,
     tick_delay: Duration,
     events: broadcast::Sender<IpcEvent>,
+    signals: Vec<String>,
     fields: Vec<String>,
     impulse_handlers: HashMap<String, usize>,
     impulses: Vec<ImpulseInfo>,
@@ -120,6 +121,12 @@ async fn main() {
     };
     let playback = PlaybackClock::new(0.0);
 
+    let signals = world
+        .signals()
+        .keys()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>();
+
     let fields = world
         .fields()
         .keys()
@@ -152,6 +159,7 @@ async fn main() {
         running: false,
         tick_delay: Duration::from_millis(cli.tick_delay_ms),
         events,
+        signals,
         fields,
         impulse_handlers,
         impulses,
@@ -337,6 +345,62 @@ async fn handle_command(
                 id,
                 ok: true,
                 payload: Some(IpcResponsePayload::Status(status_payload(&state))),
+                error: None,
+            })
+        }
+        IpcCommand::SignalList => {
+            let state = state.lock().await;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::SignalList(SignalListPayload {
+                    signals: state.signals.clone(),
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::SignalDescribe { signal_id } => {
+            let state = state.lock().await;
+            let sid = continuum_foundation::SignalId::from(signal_id.as_str());
+
+            // Get signal from compiled world
+            let signals = state.world.signals();
+            let signal = signals
+                .get(&sid)
+                .ok_or_else(|| anyhow::anyhow!("signal '{}' not found", signal_id))?;
+
+            // Extract unit and range from value_type
+            let unit = signal
+                .value_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Unit)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Unit(u) => Some(u.clone()),
+                    _ => None,
+                });
+
+            let range = signal
+                .value_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Range)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Range(r) => Some((r.min, r.max)),
+                    _ => None,
+                });
+
+            let signal_info = SignalInfo {
+                id: signal_id.clone(),
+                doc: signal.doc.clone(),
+                title: signal.title.clone(),
+                symbol: signal.symbol.clone(),
+                value_type: signal.value_type.primitive_id().name().to_string(),
+                unit,
+                range,
+                stratum: signal.stratum.to_string(),
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::SignalDescribe(signal_info)),
                 error: None,
             })
         }
