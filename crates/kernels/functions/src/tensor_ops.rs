@@ -2,7 +2,7 @@
 //!
 //! Functions for creating and manipulating dynamic tensors.
 
-use continuum_foundation::TensorData;
+use continuum_foundation::tensor::TensorData;
 use continuum_kernel_macros::kernel_fn;
 
 /// Create tensor filled with zeros: `zeros(rows, cols)`
