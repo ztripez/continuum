@@ -11,6 +11,7 @@ use super::super::{ParseError, ParserInput};
 use super::common::assert_block;
 use super::config::config_entry;
 use super::types::type_expr;
+use chumsky::prelude::select;
 
 // === Member Signal ===
 
@@ -32,6 +33,7 @@ pub fn member_def<'src>()
                 strata: None,
                 title: None,
                 symbol: None,
+                dt_raw: false,
                 local_config: vec![],
                 initial: None,
                 resolve: None,
@@ -43,6 +45,7 @@ pub fn member_def<'src>()
                     MemberContent::Strata(s) => def.strata = Some(s),
                     MemberContent::Title(t) => def.title = Some(t),
                     MemberContent::Symbol(s) => def.symbol = Some(s),
+                    MemberContent::DtRaw => def.dt_raw = true,
                     MemberContent::Config(c) => def.local_config = c,
                     MemberContent::Initial(i) => def.initial = Some(i),
                     MemberContent::Resolve(r) => def.resolve = Some(r),
@@ -59,6 +62,7 @@ enum MemberContent {
     Strata(Spanned<crate::ast::Path>),
     Title(Spanned<String>),
     Symbol(Spanned<String>),
+    DtRaw,
     Config(Vec<ConfigEntry>),
     Initial(ResolveBlock),
     Resolve(ResolveBlock),
@@ -74,6 +78,17 @@ fn member_content<'src>()
         attr_string(Token::Title).map(MemberContent::Title),
         // : symbol("...")
         attr_string(Token::Symbol).map(MemberContent::Symbol),
+        // : uses(dt.raw) - mark member as using raw dt
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
+            .ignore_then(
+                tok(Token::LParen)
+                    .ignore_then(tok(Token::Dt))
+                    .then_ignore(tok(Token::Dot))
+                    .then_ignore(select! { Token::Ident(s) if s == "raw" => s })
+                    .then_ignore(tok(Token::RParen)),
+            )
+            .to(MemberContent::DtRaw),
         // : Type - comes after specific attributes
         tok(Token::Colon)
             .ignore_then(spanned(type_expr()))

@@ -694,6 +694,8 @@ pub struct MemberDef {
     pub title: Option<Spanned<String>>,
     /// Unicode symbol for display.
     pub symbol: Option<Spanned<String>>,
+    /// Whether member uses raw dt (`: uses(dt.raw)`).
+    pub dt_raw: bool,
     /// Member-local config with defaults.
     pub local_config: Vec<ConfigEntry>,
     /// Initial value expression (evaluated once at entity creation).
