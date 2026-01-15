@@ -39,11 +39,18 @@ pub trait ExecutionContext {
     fn inputs(&self) -> Value;
 
     /// Get inputs component by name (x, y, z, w) for vector signals
+    ///
+    /// # Panics
+    ///
+    /// Panics if the component doesn't exist on the value type
     fn inputs_component(&self, component: &str) -> Value {
-        if let Some(v) = self.inputs().component(component) {
-            Value::Scalar(v)
-        } else {
-            Value::Scalar(0.0)
+        let inputs = self.inputs();
+        match inputs.component(component) {
+            Some(v) => Value::Scalar(v),
+            None => panic!(
+                "inputs_component: component '{}' not found on {:?}",
+                component, inputs
+            ),
         }
     }
 
@@ -51,11 +58,18 @@ pub trait ExecutionContext {
     fn signal(&self, name: &str) -> Value;
 
     /// Get signal component by name and component (x, y, z, w)
+    ///
+    /// # Panics
+    ///
+    /// Panics if the component doesn't exist on the signal's value type
     fn signal_component(&self, name: &str, component: &str) -> Value {
-        if let Some(v) = self.signal(name).component(component) {
-            Value::Scalar(v)
-        } else {
-            Value::Scalar(0.0)
+        let signal = self.signal(name);
+        match signal.component(component) {
+            Some(v) => Value::Scalar(v),
+            None => panic!(
+                "signal_component: component '{}' not found on signal '{}' ({:?})",
+                component, name, signal
+            ),
         }
     }
 
@@ -314,7 +328,7 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &mut dyn ExecutionContext) -> Value {
                 for instance_id in instances {
                     ctx.set_self_instance(Some(instance_id.clone()));
                     let inst_pos = ctx.self_field("position");
-                    let dist_sq = val_dist_sq(pos.clone(), inst_pos);
+                    let dist_sq = val_dist_sq(&pos, &inst_pos);
 
                     if dist_sq < min_dist_sq {
                         min_dist_sq = dist_sq;
@@ -366,7 +380,7 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &mut dyn ExecutionContext) -> Value {
                 for instance_id in instances {
                     ctx.set_self_instance(Some(instance_id.clone()));
                     let inst_pos = ctx.self_field("position");
-                    if val_dist_sq(pos.clone(), inst_pos) <= radius_sq {
+                    if val_dist_sq(&pos, &inst_pos) <= radius_sq {
                         count += 1;
                         let val = execute(body_chunk, ctx);
 
@@ -647,12 +661,21 @@ fn mat4_vec4_mul(m: [f64; 16], v: [f64; 4]) -> [f64; 4] {
 }
 
 fn val_add(l: Value, r: Value) -> Value {
-    match (l, r) {
+    match (&l, &r) {
         (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a + b),
         (Value::Integer(a), Value::Integer(b)) => Value::Integer(a + b),
-        (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a + b as f64),
-        (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(a as f64 + b),
+        (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a + *b as f64),
+        (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(*a as f64 + b),
+        // Vector addition
+        (Value::Vec2(a), Value::Vec2(b)) => Value::Vec2([a[0] + b[0], a[1] + b[1]]),
         (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3([a[0] + b[0], a[1] + b[1], a[2] + b[2]]),
+        (Value::Vec4(a), Value::Vec4(b)) => {
+            Value::Vec4([a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]])
+        }
+        // Quaternion addition (component-wise)
+        (Value::Quat(a), Value::Quat(b)) => {
+            Value::Quat([a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]])
+        }
         // Matrix element-wise addition
         (Value::Mat2(a), Value::Mat2(b)) => {
             let mut result = [0.0; 4];
@@ -680,19 +703,26 @@ fn val_add(l: Value, r: Value) -> Value {
             res.extend(b.clone());
             Value::Map(res)
         }
-        // Fallback to Scalar(0.0) or panic for type mismatch?
-        // Returning 0.0 is safer for now to avoid crashes during dev
-        _ => Value::Scalar(0.0),
+        _ => panic!("val_add: cannot add {:?} and {:?}", l, r),
     }
 }
 
 fn val_sub(l: Value, r: Value) -> Value {
-    match (l, r) {
+    match (&l, &r) {
         (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a - b),
         (Value::Integer(a), Value::Integer(b)) => Value::Integer(a - b),
-        (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a - b as f64),
-        (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(a as f64 - b),
+        (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a - *b as f64),
+        (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(*a as f64 - b),
+        // Vector subtraction
+        (Value::Vec2(a), Value::Vec2(b)) => Value::Vec2([a[0] - b[0], a[1] - b[1]]),
         (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3([a[0] - b[0], a[1] - b[1], a[2] - b[2]]),
+        (Value::Vec4(a), Value::Vec4(b)) => {
+            Value::Vec4([a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]])
+        }
+        // Quaternion subtraction (component-wise)
+        (Value::Quat(a), Value::Quat(b)) => {
+            Value::Quat([a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]])
+        }
         // Matrix element-wise subtraction
         (Value::Mat2(a), Value::Mat2(b)) => {
             let mut result = [0.0; 4];
@@ -715,58 +745,80 @@ fn val_sub(l: Value, r: Value) -> Value {
             }
             Value::Mat4(result)
         }
-        _ => Value::Scalar(0.0),
+        _ => panic!("val_sub: cannot subtract {:?} from {:?}", r, l),
     }
 }
 
 fn val_mul(l: Value, r: Value) -> Value {
-    match (l, r) {
+    match (&l, &r) {
         (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a * b),
         (Value::Integer(a), Value::Integer(b)) => Value::Integer(a * b),
-        (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a * b as f64),
-        (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(a as f64 * b),
-        // Vector * Scalar
+        (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a * *b as f64),
+        (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(*a as f64 * b),
+
+        // Vec2 * Scalar
+        (Value::Vec2(v), Value::Scalar(s)) => Value::Vec2([v[0] * s, v[1] * s]),
+        (Value::Scalar(s), Value::Vec2(v)) => Value::Vec2([v[0] * s, v[1] * s]),
+        // Vec3 * Scalar
         (Value::Vec3(v), Value::Scalar(s)) => Value::Vec3([v[0] * s, v[1] * s, v[2] * s]),
         (Value::Scalar(s), Value::Vec3(v)) => Value::Vec3([v[0] * s, v[1] * s, v[2] * s]),
+        // Vec4 * Scalar
+        (Value::Vec4(v), Value::Scalar(s)) => Value::Vec4([v[0] * s, v[1] * s, v[2] * s, v[3] * s]),
+        (Value::Scalar(s), Value::Vec4(v)) => Value::Vec4([v[0] * s, v[1] * s, v[2] * s, v[3] * s]),
+
+        // Quat * Quat (Hamilton product)
+        (Value::Quat(a), Value::Quat(b)) => {
+            let [aw, ax, ay, az] = a;
+            let [bw, bx, by, bz] = b;
+            Value::Quat([
+                aw * bw - ax * bx - ay * by - az * bz,
+                aw * bx + ax * bw + ay * bz - az * by,
+                aw * by - ax * bz + ay * bw + az * bx,
+                aw * bz + ax * by - ay * bx + az * bw,
+            ])
+        }
+        // Quat * Scalar
+        (Value::Quat(q), Value::Scalar(s)) => Value::Quat([q[0] * s, q[1] * s, q[2] * s, q[3] * s]),
+        (Value::Scalar(s), Value::Quat(q)) => Value::Quat([q[0] * s, q[1] * s, q[2] * s, q[3] * s]),
 
         // Scalar * Matrix (broadcast)
         (Value::Scalar(s), Value::Mat2(m)) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..4 {
                 result[i] *= s;
             }
             Value::Mat2(result)
         }
         (Value::Mat2(m), Value::Scalar(s)) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..4 {
                 result[i] *= s;
             }
             Value::Mat2(result)
         }
         (Value::Scalar(s), Value::Mat3(m)) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..9 {
                 result[i] *= s;
             }
             Value::Mat3(result)
         }
         (Value::Mat3(m), Value::Scalar(s)) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..9 {
                 result[i] *= s;
             }
             Value::Mat3(result)
         }
         (Value::Scalar(s), Value::Mat4(m)) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..16 {
                 result[i] *= s;
             }
             Value::Mat4(result)
         }
         (Value::Mat4(m), Value::Scalar(s)) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..16 {
                 result[i] *= s;
             }
@@ -774,94 +826,112 @@ fn val_mul(l: Value, r: Value) -> Value {
         }
 
         // Matrix * Matrix (proper matrix multiplication)
-        (Value::Mat2(a), Value::Mat2(b)) => Value::Mat2(mat2_mul(a, b)),
-        (Value::Mat3(a), Value::Mat3(b)) => Value::Mat3(mat3_mul(a, b)),
-        (Value::Mat4(a), Value::Mat4(b)) => Value::Mat4(mat4_mul(a, b)),
+        (Value::Mat2(a), Value::Mat2(b)) => Value::Mat2(mat2_mul(*a, *b)),
+        (Value::Mat3(a), Value::Mat3(b)) => Value::Mat3(mat3_mul(*a, *b)),
+        (Value::Mat4(a), Value::Mat4(b)) => Value::Mat4(mat4_mul(*a, *b)),
 
         // Matrix * Vector (transform)
-        (Value::Mat2(m), Value::Vec2(v)) => Value::Vec2(mat2_vec2_mul(m, v)),
-        (Value::Mat3(m), Value::Vec3(v)) => Value::Vec3(mat3_vec3_mul(m, v)),
-        (Value::Mat4(m), Value::Vec4(v)) => Value::Vec4(mat4_vec4_mul(m, v)),
+        (Value::Mat2(m), Value::Vec2(v)) => Value::Vec2(mat2_vec2_mul(*m, *v)),
+        (Value::Mat3(m), Value::Vec3(v)) => Value::Vec3(mat3_vec3_mul(*m, *v)),
+        (Value::Mat4(m), Value::Vec4(v)) => Value::Vec4(mat4_vec4_mul(*m, *v)),
 
-        _ => Value::Scalar(0.0),
+        _ => panic!("val_mul: cannot multiply {:?} and {:?}", l, r),
     }
 }
 
 fn val_div(l: Value, r: Value) -> Value {
-    match (l, r) {
+    match (&l, &r) {
         (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a / b),
+        (Value::Integer(a), Value::Integer(b)) => Value::Integer(a / b),
+        (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a / *b as f64),
+        (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(*a as f64 / b),
+        // Vector / Scalar
+        (Value::Vec2(v), Value::Scalar(s)) => Value::Vec2([v[0] / s, v[1] / s]),
         (Value::Vec3(v), Value::Scalar(s)) => Value::Vec3([v[0] / s, v[1] / s, v[2] / s]),
+        (Value::Vec4(v), Value::Scalar(s)) => Value::Vec4([v[0] / s, v[1] / s, v[2] / s, v[3] / s]),
+        // Quat / Scalar
+        (Value::Quat(q), Value::Scalar(s)) => Value::Quat([q[0] / s, q[1] / s, q[2] / s, q[3] / s]),
         // Matrix / Scalar (element-wise division)
         (Value::Mat2(m), Value::Scalar(s)) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..4 {
                 result[i] /= s;
             }
             Value::Mat2(result)
         }
         (Value::Mat3(m), Value::Scalar(s)) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..9 {
                 result[i] /= s;
             }
             Value::Mat3(result)
         }
         (Value::Mat4(m), Value::Scalar(s)) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..16 {
                 result[i] /= s;
             }
             Value::Mat4(result)
         }
-        _ => Value::Scalar(0.0),
+        _ => panic!("val_div: cannot divide {:?} by {:?}", l, r),
     }
 }
 
 fn val_pow(l: Value, r: Value) -> Value {
-    match (l, r) {
-        (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a.powf(b)),
-        _ => Value::Scalar(0.0),
+    match (&l, &r) {
+        (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a.powf(*b)),
+        (Value::Integer(a), Value::Integer(b)) => {
+            Value::Integer((*a as f64).powf(*b as f64) as i64)
+        }
+        (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a.powf(*b as f64)),
+        (Value::Integer(a), Value::Scalar(b)) => Value::Scalar((*a as f64).powf(*b)),
+        _ => panic!("val_pow: cannot raise {:?} to power {:?}", l, r),
     }
 }
 
 fn val_neg(v: Value) -> Value {
-    match v {
+    match &v {
         Value::Scalar(a) => Value::Scalar(-a),
         Value::Integer(a) => Value::Integer(-a),
+        // Vector negation
+        Value::Vec2(a) => Value::Vec2([-a[0], -a[1]]),
         Value::Vec3(a) => Value::Vec3([-a[0], -a[1], -a[2]]),
+        Value::Vec4(a) => Value::Vec4([-a[0], -a[1], -a[2], -a[3]]),
+        // Quaternion negation
+        Value::Quat(a) => Value::Quat([-a[0], -a[1], -a[2], -a[3]]),
         // Matrix negation (element-wise)
         Value::Mat2(m) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..4 {
                 result[i] = -result[i];
             }
             Value::Mat2(result)
         }
         Value::Mat3(m) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..9 {
                 result[i] = -result[i];
             }
             Value::Mat3(result)
         }
         Value::Mat4(m) => {
-            let mut result = m;
+            let mut result = *m;
             for i in 0..16 {
                 result[i] = -result[i];
             }
             Value::Mat4(result)
         }
-        _ => v,
+        _ => panic!("val_neg: cannot negate {:?}", v),
     }
 }
 
 fn val_cmp(l: Value, r: Value) -> i8 {
-    let diff = match (l, r) {
+    let diff = match (&l, &r) {
         (Value::Scalar(a), Value::Scalar(b)) => a - b,
         (Value::Integer(a), Value::Integer(b)) => (a - b) as f64,
-        (Value::Scalar(a), Value::Integer(b)) => a - b as f64,
-        (Value::Integer(a), Value::Scalar(b)) => a as f64 - b,
-        _ => return 0,
+        (Value::Scalar(a), Value::Integer(b)) => a - *b as f64,
+        (Value::Integer(a), Value::Scalar(b)) => *a as f64 - b,
+        _ => panic!("val_cmp: cannot compare {:?} and {:?}", l, r),
     };
 
     if diff < 0.0 {
@@ -878,29 +948,39 @@ fn val_truthy(v: &Value) -> bool {
         Value::Boolean(b) => *b,
         Value::Scalar(s) => *s != 0.0,
         Value::Integer(i) => *i != 0,
-        Value::Map(v) => !v.is_empty(),
-        _ => false,
+        Value::Map(m) => !m.is_empty(),
+        _ => panic!("val_truthy: cannot convert {:?} to boolean", v),
     }
 }
 
-fn val_dist_sq(a: Value, b: Value) -> f64 {
+fn val_dist_sq(a: &Value, b: &Value) -> f64 {
     match (a, b) {
+        (Value::Vec2(v1), Value::Vec2(v2)) => {
+            let dx = v1[0] - v2[0];
+            let dy = v1[1] - v2[1];
+            dx * dx + dy * dy
+        }
         (Value::Vec3(v1), Value::Vec3(v2)) => {
             let dx = v1[0] - v2[0];
             let dy = v1[1] - v2[1];
             let dz = v1[2] - v2[2];
             dx * dx + dy * dy + dz * dz
         }
-        (Value::Vec2(v1), Value::Vec2(v2)) => {
+        (Value::Vec4(v1), Value::Vec4(v2)) => {
             let dx = v1[0] - v2[0];
             let dy = v1[1] - v2[1];
-            dx * dx + dy * dy
+            let dz = v1[2] - v2[2];
+            let dw = v1[3] - v2[3];
+            dx * dx + dy * dy + dz * dz + dw * dw
         }
         (Value::Scalar(s1), Value::Scalar(s2)) => {
             let ds = s1 - s2;
             ds * ds
         }
-        _ => f64::INFINITY,
+        _ => panic!(
+            "val_dist_sq: cannot compute distance between {:?} and {:?}",
+            a, b
+        ),
     }
 }
 
