@@ -301,7 +301,15 @@ impl Lowerer {
                         .map(|e| self.expr_uses_dt_raw(&e.node))
                         .unwrap_or(false)
             }
-            Expr::FieldAccess { object, .. } => self.expr_uses_dt_raw(&object.node),
+            Expr::FieldAccess { object, field } => {
+                // Detect dt.raw pattern
+                if let Expr::Path(path) = &object.node {
+                    if path.segments.len() == 1 && path.segments[0] == "dt" && field == "raw" {
+                        return true;
+                    }
+                }
+                self.expr_uses_dt_raw(&object.node)
+            }
             Expr::Block(exprs) => exprs.iter().any(|e| self.expr_uses_dt_raw(&e.node)),
             Expr::For { iter, body, .. } => {
                 self.expr_uses_dt_raw(&iter.node) || self.expr_uses_dt_raw(&body.node)

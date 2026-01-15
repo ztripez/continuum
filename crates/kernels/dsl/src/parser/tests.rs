@@ -1141,7 +1141,7 @@ signal.rotation.state {
     : strata(rotation)
 
     resolve {
-        let phase = prev.x + prev.y * dt_raw in
+        let phase = prev.x + prev.y * dt.raw in
         let omega = prev.y + collected in
         vec2(mod(phase, 6.283185307), omega)
     }

@@ -178,13 +178,14 @@ member.stellar.star.orbit_phase {
     : strata(stellar.orbit)
     : title("Orbit Phase")
     : symbol("phi_star")
+    : uses(dt.raw)
 
     resolve {
         # Advance phase based on orbital period
         let mu = const.stellar.gravitational_constant * self.mass in
         let period = TAU * maths.sqrt(maths.pow(self.orbit_radius, 3) / mu) in
         let omega = TAU / maths.max(period, 1.0) in
-        maths.wrap(prev + omega * dt_raw, 0.0, TAU)
+        maths.wrap(prev + omega * dt.raw, 0.0, TAU)
     }
 }
 
@@ -422,13 +423,14 @@ member.stellar.moon.orbit_phase {
     : strata(stellar.orbit)
     : title("Orbit Phase")
     : symbol("phi_moon")
+    : uses(dt.raw)
 
     resolve {
         # Kepler's third law for orbital period
         let mu = const.stellar.gravitational_constant * signal.planet.mass in
         let period = TAU * maths.sqrt(maths.pow(self.orbit_radius, 3) / mu) in
         let omega = TAU / maths.max(period, 1.0) in
-        maths.wrap(prev + omega * dt_raw, 0.0, TAU)
+        maths.wrap(prev + omega * dt.raw, 0.0, TAU)
     }
 }
 

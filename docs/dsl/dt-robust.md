@@ -42,13 +42,13 @@ The engine implements these with proper numerical methods.
 
 ## 3. Raw dt Access: Explicit Opt-In
 
-To access raw `dt`, a signal must declare `: dt_raw`:
+To access raw `dt`, a signal must declare `: dt.raw`:
 
 ```
 signal.terra.rotation.phase {
   : Scalar<rad, 0..TAU>
   : strata(terra.rotation)
-  : dt_raw  // explicit opt-in
+  : dt.raw  // explicit opt-in
 
   resolve {
     wrap(prev + signal.terra.rotation.omega * dt, 0, TAU)
@@ -56,9 +56,9 @@ signal.terra.rotation.phase {
 }
 ```
 
-Without `: dt_raw`, referencing `dt` is a **compile error**.
+Without `: dt.raw`, referencing `dt` is a **compile error**.
 
-### When to Use dt_raw
+### When to Use dt.raw
 
 Legitimate uses:
 - Energy = Power × dt (physics definition)
@@ -182,7 +182,7 @@ For advanced use, raw dt with explicit method declaration:
 signal.terra.orbit.position {
   : Vec3<m>
   : strata(terra.orbital)
-  : dt_raw
+  : dt.raw
   : integrator(symplectic_euler)  // declare method for analysis
 
   resolve {
@@ -238,7 +238,7 @@ signal.terra.core.radiogenic_heat {
 signal.terra.orbit.true_anomaly {
   : Scalar<rad, 0..TAU>
   : strata(terra.orbital)
-  : dt_raw
+  : dt.raw
 
   resolve {
     let n = fn.mean_motion(signal.stellar.mass, signal.terra.orbit.semi_major) in
@@ -264,11 +264,11 @@ signal.terra.chandler_wobble {
 
 ## Summary
 
-- Raw `dt` requires explicit `: dt_raw` declaration
+- Raw `dt` requires explicit `: dt.raw` declaration
 - Prefer dt-robust operators for stability
 - Operators express intent, not mechanism
 - Assertions still validate bounds
 - Use raw dt only when physics demands it
 
 If a simulation behaves differently at different dt values,
-the model is wrong unless dt_raw is explicitly used and justified.
+the model is wrong unless dt.raw is explicitly used and justified.

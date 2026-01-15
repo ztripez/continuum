@@ -253,6 +253,21 @@ impl Lowerer {
                 }
             }
             Expr::FieldAccess { object, field } => {
+                // Special case: dt.raw
+                if let Expr::Path(path) = &object.node {
+                    if path.segments.len() == 1 && path.segments[0] == "dt" {
+                        if field == "raw" {
+                            return CompiledExpr::DtRaw;
+                        } else {
+                            // Future: handle dt.scaled, etc.
+                            panic!(
+                                "Unknown dt field: '{}'. Only dt.raw is currently supported.",
+                                field
+                            );
+                        }
+                    }
+                }
+
                 let lowered_object = self.lower_expr_with_context(&object.node, ctx);
                 if let CompiledExpr::Payload = lowered_object {
                     CompiledExpr::PayloadField(field.clone())

@@ -90,12 +90,13 @@ fn signal_content<'src>()
         attr_path(Token::Strata).map(SignalContent::Strata),
         attr_string(Token::Title).map(SignalContent::Title),
         attr_string(Token::Symbol).map(SignalContent::Symbol),
-        attr_flag(Token::DtRaw).to(SignalContent::DtRaw),
         tok(Token::Colon)
             .ignore_then(tok(Token::Uses))
             .ignore_then(
                 tok(Token::LParen)
-                    .ignore_then(tok(Token::DtRaw))
+                    .ignore_then(select! { Token::Ident(s) if s == "dt" => s })
+                    .then_ignore(tok(Token::Dot))
+                    .then_ignore(select! { Token::Ident(s) if s == "raw" => s })
                     .then_ignore(tok(Token::RParen)),
             )
             .to(SignalContent::DtRaw),

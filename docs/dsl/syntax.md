@@ -294,7 +294,7 @@ signal.terra.geophysics.core.temp_k {
 - `signal.path` — read other resolved signals
 - `const.path` — read constants
 - `config.path` — read configuration
-- `dt_raw` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
+- `dt.raw` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
 - `collected` — accumulated inputs from Collect phase
 - `namespace.fn(...)` — engine-provided functions (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`)
 - `let name = expr in body` — local bindings (ML-style)
@@ -741,7 +741,7 @@ field.target <- position, value
 | `config.` | Configuration parameter |
 | `prev` | Previous signal value (in resolve blocks) |
 | `payload` | Impulse data (in apply blocks) |
-| `dt_raw` | Raw timestep (requires `: dt_raw` declaration, prefer dt-robust operators) |
+| `dt.raw` | Raw timestep (requires `: uses(dt.raw)` declaration, prefer dt-robust operators) |
 | `namespace.` | Engine-provided function (e.g. `maths.`, `vector.`, `dt.`, `physics.`) |
 | `dt.` | dt-robust integration operators |
 

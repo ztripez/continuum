@@ -45,9 +45,10 @@ member.test.particle.mass {
     : strata(simulation)
     : title("Particle Mass")
     : symbol("m")
+    : uses(dt.raw)
 
     resolve {
-        prev + const.physics.growth_rate * dt_raw
+        prev + const.physics.growth_rate * dt.raw
     }
 }
 
@@ -57,9 +58,10 @@ member.test.particle.energy {
     : strata(simulation)
     : title("Particle Energy")
     : symbol("E")
+    : uses(dt.raw)
 
     resolve {
-        prev * (1.0 - config.test.decay_rate * dt_raw)
+        prev * (1.0 - config.test.decay_rate * dt.raw)
     }
 }
 

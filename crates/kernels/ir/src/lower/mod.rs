@@ -60,7 +60,9 @@ pub enum LowerError {
         file: Option<std::path::PathBuf>,
         span: Span,
     },
-    #[error("undeclared dt_raw usage in signal '{name}'")]
+    #[error(
+        "undeclared dt.raw usage in signal '{name}'\n\n  Raw dt usage requires explicit declaration.\n  help: add `: uses(dt.raw)` to signal definition\n  help: or prefer dt-robust operators:\n        - dt.integrate(prev, rate) for accumulation\n        - dt.advance_phase(prev, omega) for phase advancement\n        - dt.decay(value, halflife) for exponential decay\n  see: @docs/dsl/dt-robust.md"
+    )]
     UndeclaredDtRawUsage {
         name: String,
         file: Option<std::path::PathBuf>,
