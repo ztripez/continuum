@@ -16,10 +16,11 @@ use tokio::time::{Duration, sleep};
 use tracing::{debug, error, warn};
 
 use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
+use continuum_ir::CompiledWorld;
 use continuum_lens::{FieldLens, FieldLensConfig, PlaybackClock};
 use continuum_runtime::executor::Runtime;
 use continuum_tools::ipc_protocol::{
-    ChronicleEvent, ChroniclePollPayload, FieldHistoryPayload, FieldLatestPayload,
+    ChronicleEvent, ChroniclePollPayload, FieldHistoryPayload, FieldInfo, FieldLatestPayload,
     FieldListPayload, FieldQueryBatchPayload, FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo,
     ImpulseListPayload, IpcCommand, IpcEvent, IpcFrame, IpcRequest, IpcResponse,
     IpcResponsePayload, JsonValue, PlaybackPayload, StatusPayload, TickEvent, read_frame,
@@ -47,6 +48,7 @@ struct Cli {
 }
 
 struct ServerState {
+    world: Arc<CompiledWorld>,
     runtime: Runtime,
     lens: FieldLens,
     playback: PlaybackClock,
@@ -142,6 +144,7 @@ async fn main() {
     let (events, _rx) = broadcast::channel(1024);
 
     let state = Arc::new(Mutex::new(ServerState {
+        world: Arc::new(world),
         runtime,
         lens,
         playback,
@@ -345,6 +348,52 @@ async fn handle_command(
                 payload: Some(IpcResponsePayload::FieldList(FieldListPayload {
                     fields: state.fields.clone(),
                 })),
+                error: None,
+            })
+        }
+        IpcCommand::FieldDescribe { field_id } => {
+            let state = state.lock().await;
+            let fid = continuum_foundation::FieldId::from(field_id.as_str());
+
+            // Get field from compiled world
+            let fields = state.world.fields();
+            let field = fields
+                .get(&fid)
+                .ok_or_else(|| anyhow::anyhow!("field '{}' not found", field_id))?;
+
+            // Extract unit and range from value_type
+            let unit = field
+                .value_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Unit)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Unit(u) => Some(u.clone()),
+                    _ => None,
+                });
+
+            let range = field
+                .value_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Range)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Range(r) => Some((r.min, r.max)),
+                    _ => None,
+                });
+
+            let field_info = FieldInfo {
+                id: field_id.clone(),
+                doc: field.doc.clone(),
+                title: field.title.clone(),
+                symbol: field.symbol.clone(),
+                value_type: field.value_type.primitive_id().name().to_string(),
+                unit,
+                range,
+                topology: format!("{:?}", field.topology),
+                stratum: field.stratum.to_string(),
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::FieldDescribe(field_info)),
                 error: None,
             })
         }

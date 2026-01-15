@@ -665,6 +665,7 @@ dependencies = [
  "continuum-compiler",
  "continuum-foundation",
  "continuum-functions",
+ "continuum-ir",
  "continuum-lens",
  "continuum-runtime",
  "continuum-vm",

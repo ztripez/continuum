@@ -134,6 +134,11 @@ pub struct FieldLatestRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct FieldDescribeRequest {
+    pub field_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct FieldTileRequest {
     pub field_id: String,
     pub tile: TileAddress,
@@ -181,6 +186,9 @@ pub enum IpcCommand {
     },
     Stop,
     FieldList,
+    FieldDescribe {
+        field_id: String,
+    },
     FieldHistory {
         field_id: String,
     },
@@ -242,6 +250,7 @@ pub struct IpcResponse {
 pub enum IpcResponsePayload {
     Status(StatusPayload),
     FieldList(FieldListPayload),
+    FieldDescribe(FieldInfo),
     FieldHistory(FieldHistoryPayload),
     FieldQuery(FieldQueryPayload),
     FieldQueryBatch(FieldQueryBatchPayload),
@@ -301,6 +310,19 @@ pub struct FieldLatestPayload {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChroniclePollPayload {
     pub events: Vec<ChronicleEvent>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub symbol: Option<String>,
+    pub value_type: String,
+    pub unit: Option<String>,
+    pub range: Option<(f64, f64)>,
+    pub topology: String,
+    pub stratum: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -450,6 +472,7 @@ pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
             Some(serde_json::Value::Object(map))
         }
         Some(IpcResponsePayload::FieldList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::FieldDescribe(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::FieldHistory(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::FieldQuery(p)) => {
             let mut map = serde_json::Map::new();
@@ -517,6 +540,12 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
         }
         "stop" => IpcCommand::Stop,
         "field.list" => IpcCommand::FieldList,
+        "field.describe" => {
+            let req: FieldDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::FieldDescribe {
+                field_id: req.field_id,
+            }
+        }
         "field.history" => {
             let req: FieldHistoryRequest = serde_json::from_value(request.payload)?;
             IpcCommand::FieldHistory {

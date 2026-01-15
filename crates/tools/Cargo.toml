@@ -39,6 +39,7 @@ path = "src/bin/gen_textmate.rs"
 continuum-compiler = { version = "0.1.0", path = "../continuum-compiler" }
 continuum-foundation = { path = "../kernels/foundation" }
 continuum-functions = { version = "0.1.0", path = "../kernels/functions" }
+continuum-ir = { path = "../kernels/ir" }
 continuum-lens = { path = "../kernels/lens" }
 continuum-runtime = { path = "../kernels/runtime" }
 continuum-vm = { path = "../kernels/vm" }
