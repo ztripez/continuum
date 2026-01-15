@@ -803,3 +803,86 @@ field atmosphere.greenhouse_map {
         signal.atmosphere.tau_greenhouse
     }
 }
+
+# =============================================================================
+# Atmosphere Chronicles
+# =============================================================================
+
+# Snowball Earth event: global glaciation
+chronicle atmosphere.events.snowball_earth {
+    observe {
+        when signal.atmosphere.ice_fraction > 0.9 {
+            emit event.snowball_earth {
+                ice_fraction: signal.atmosphere.ice_fraction
+                surface_temp: signal.atmosphere.surface_temp.x
+                co2_ppmv: signal.atmosphere.co2_ppmv
+                albedo: signal.atmosphere.albedo
+                severity: "critical"
+                description: "Global glaciation - snowball Earth conditions"
+            }
+        }
+    }
+}
+
+# Runaway greenhouse event: Venus-like conditions
+chronicle atmosphere.events.runaway_greenhouse {
+    observe {
+        when signal.atmosphere.surface_temp.x > 350.0 <K> {
+            emit event.runaway_greenhouse {
+                surface_temp: signal.atmosphere.surface_temp.x
+                water_vapor: signal.atmosphere.water_vapor
+                co2_ppmv: signal.atmosphere.co2_ppmv
+                greenhouse_depth: signal.atmosphere.tau_greenhouse
+                severity: "critical"
+                description: "Runaway greenhouse - Venus-like atmospheric conditions"
+            }
+        }
+    }
+}
+
+# Oxygenation event: significant O2 buildup (when O2 tracking is enabled)
+# Currently placeholder since O2 signal not implemented yet
+# chronicle atmosphere.events.oxygenation {
+#     observe {
+#         when signal.atmosphere.o2_ppmv > 1000.0 {
+#             emit event.oxygenation {
+#                 o2_ppmv: signal.atmosphere.o2_ppmv
+#                 co2_ppmv: signal.atmosphere.co2_ppmv
+#                 surface_temp: signal.atmosphere.surface_temp.x
+#                 severity: "major"
+#                 description: "Great oxygenation event - atmospheric O2 buildup"
+#             }
+#         }
+#     }
+# }
+
+# Ice age onset: significant cooling and glaciation
+chronicle atmosphere.events.ice_age_onset {
+    observe {
+        when signal.atmosphere.surface_temp.x < 270.0 <K>
+             signal.atmosphere.ice_fraction > 0.3 {
+            emit event.ice_age_onset {
+                surface_temp: signal.atmosphere.surface_temp.x
+                ice_fraction: signal.atmosphere.ice_fraction
+                co2_ppmv: signal.atmosphere.co2_ppmv
+                severity: "major"
+                description: "Ice age onset - significant glaciation"
+            }
+        }
+    }
+}
+
+# Atmospheric collapse: extreme pressure loss
+chronicle atmosphere.events.atmospheric_collapse {
+    observe {
+        when signal.atmosphere.pressure < 10000.0 {
+            emit event.atmospheric_collapse {
+                pressure: signal.atmosphere.pressure
+                surface_temp: signal.atmosphere.surface_temp.x
+                water_vapor: signal.atmosphere.water_vapor
+                severity: "critical"
+                description: "Atmospheric collapse - extreme pressure loss"
+            }
+        }
+    }
+}

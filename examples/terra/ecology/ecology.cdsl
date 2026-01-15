@@ -545,3 +545,112 @@ field ecology.decomposition_map {
         signal.ecology.decomposition_rate
     }
 }
+
+# =============================================================================
+# Ecology Chronicles
+# =============================================================================
+
+# Mass extinction event: catastrophic biomass loss
+chronicle ecology.events.mass_extinction {
+    observe {
+        when signal.ecology.biomass < 1.0
+             signal.surface.temp > 315.0 <K> {
+            emit event.mass_extinction {
+                biomass: signal.ecology.biomass
+                npp: signal.ecology.npp
+                surface_temp: signal.surface.temp
+                vegetation_cover: signal.ecology.vegetation_cover
+                severity: "critical"
+                description: "Mass extinction - catastrophic biosphere collapse"
+            }
+        }
+    }
+}
+
+# Biodiversity bloom: rapid biomass expansion
+chronicle ecology.events.biodiversity_bloom {
+    observe {
+        when signal.ecology.biomass > 50.0
+             signal.ecology.npp > 2.5
+             signal.ecology.vegetation_cover > 0.8 {
+            emit event.biodiversity_bloom {
+                biomass: signal.ecology.biomass
+                npp: signal.ecology.npp
+                vegetation_cover: signal.ecology.vegetation_cover
+                soil_carbon: signal.ecology.soil_carbon
+                severity: "moderate"
+                description: "Biodiversity bloom - rapid biosphere expansion"
+            }
+        }
+    }
+}
+
+# Soil carbon depletion: major soil degradation
+chronicle ecology.events.soil_carbon_depletion {
+    observe {
+        when signal.ecology.soil_carbon < 2.0
+             signal.ecology.decomposition_rate > 5.0 {
+            emit event.soil_carbon_depletion {
+                soil_carbon: signal.ecology.soil_carbon
+                decomposition_rate: signal.ecology.decomposition_rate
+                biomass: signal.ecology.biomass
+                surface_temp: signal.surface.temp
+                severity: "major"
+                description: "Soil carbon depletion - major soil degradation"
+            }
+        }
+    }
+}
+
+# Carbon cycle acceleration: extreme carbon turnover
+chronicle ecology.events.carbon_cycle_acceleration {
+    observe {
+        when signal.ecology.npp > 4.0
+             signal.ecology.decomposition_rate > 8.0 {
+            emit event.carbon_cycle_acceleration {
+                npp: signal.ecology.npp
+                decomposition_rate: signal.ecology.decomposition_rate
+                nee: signal.ecology.nee
+                soil_carbon: signal.ecology.soil_carbon
+                severity: "moderate"
+                description: "Carbon cycle acceleration - extreme carbon turnover"
+            }
+        }
+    }
+}
+
+# Desertification event: vegetation collapse
+chronicle ecology.events.desertification {
+    observe {
+        when signal.ecology.vegetation_cover < 0.1
+             signal.ecology.biomass < 5.0
+             signal.surface.temp > 300.0 <K> {
+            emit event.desertification {
+                vegetation_cover: signal.ecology.vegetation_cover
+                biomass: signal.ecology.biomass
+                soil_carbon: signal.ecology.soil_carbon
+                surface_temp: signal.surface.temp
+                severity: "major"
+                description: "Desertification - vegetation collapse"
+            }
+        }
+    }
+}
+
+# Biosphere recovery: post-extinction recovery
+chronicle ecology.events.biosphere_recovery {
+    observe {
+        when signal.ecology.biomass > 20.0
+             signal.ecology.npp > 1.5
+             signal.ecology.vegetation_cover > 0.5 {
+            emit event.biosphere_recovery {
+                biomass: signal.ecology.biomass
+                npp: signal.ecology.npp
+                vegetation_cover: signal.ecology.vegetation_cover
+                soil_carbon: signal.ecology.soil_carbon
+                severity: "moderate"
+                description: "Biosphere recovery - ecosystem restoration"
+            }
+        }
+    }
+}
