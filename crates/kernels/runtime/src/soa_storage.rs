@@ -178,6 +178,9 @@ impl ValueType {
             Value::Vec3(_) => ValueType::vec3(),
             Value::Vec4(_) => ValueType::vec4(),
             Value::Quat(_) => ValueType::quat(),
+            Value::Mat2(_) => ValueType::scalar(), // TODO: proper matrix value type
+            Value::Mat3(_) => ValueType::scalar(), // TODO: proper matrix value type
+            Value::Mat4(_) => ValueType::scalar(), // TODO: proper matrix value type
             Value::Boolean(_) => ValueType::boolean(),
             Value::Integer(_) => ValueType::integer(),
             Value::Map(_) => panic!("Map values are not supported in member signals"),

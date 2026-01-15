@@ -21,7 +21,7 @@ pub use primitives::{
     PRIMITIVE_TYPES, PrimitiveParamKind, PrimitiveParamSpec, PrimitiveShape, PrimitiveStorageClass,
     PrimitiveTypeDef, PrimitiveTypeId, primitive_type_by_name,
 };
-pub use value::{FromValue, IntoValue, Quat, Value};
+pub use value::{FromValue, IntoValue, Mat2, Mat3, Mat4, Quat, Value};
 
 // Re-export stable hash items at crate root
 pub use stable_hash::{

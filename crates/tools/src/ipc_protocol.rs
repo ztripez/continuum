@@ -16,6 +16,9 @@ pub enum JsonValue {
     Vec3([f64; 3]),
     Vec4([f64; 4]),
     Quat([f64; 4]),
+    Mat2([f64; 4]),
+    Mat3([f64; 9]),
+    Mat4([f64; 16]),
     Struct(BTreeMap<String, JsonValue>),
 }
 
@@ -29,6 +32,9 @@ impl JsonValue {
             JsonValue::Vec3(value) => Value::Vec3(*value),
             JsonValue::Vec4(value) => Value::Vec4(*value),
             JsonValue::Quat(value) => Value::Quat(*value),
+            JsonValue::Mat2(value) => Value::Mat2(*value),
+            JsonValue::Mat3(value) => Value::Mat3(*value),
+            JsonValue::Mat4(value) => Value::Mat4(*value),
             JsonValue::Struct(fields) => {
                 let items = fields
                     .iter()
@@ -48,6 +54,9 @@ impl JsonValue {
             Value::Vec3(v) => JsonValue::Vec3(*v),
             Value::Vec4(v) => JsonValue::Vec4(*v),
             Value::Quat(v) => JsonValue::Quat(*v),
+            Value::Mat2(v) => JsonValue::Mat2(*v),
+            Value::Mat3(v) => JsonValue::Mat3(*v),
+            Value::Mat4(v) => JsonValue::Mat4(*v),
             Value::Map(v) => {
                 let mut fields = BTreeMap::new();
                 for (k, val) in v {
@@ -380,6 +389,27 @@ impl JsonValue {
                     if v[2].is_finite() { v[2] } else { 0.0 },
                     if v[3].is_finite() { v[3] } else { 0.0 },
                 ];
+                serde_json::json!(v)
+            }
+            JsonValue::Mat2(v) => {
+                let v: Vec<f64> = v
+                    .iter()
+                    .map(|&x| if x.is_finite() { x } else { 0.0 })
+                    .collect();
+                serde_json::json!(v)
+            }
+            JsonValue::Mat3(v) => {
+                let v: Vec<f64> = v
+                    .iter()
+                    .map(|&x| if x.is_finite() { x } else { 0.0 })
+                    .collect();
+                serde_json::json!(v)
+            }
+            JsonValue::Mat4(v) => {
+                let v: Vec<f64> = v
+                    .iter()
+                    .map(|&x| if x.is_finite() { x } else { 0.0 })
+                    .collect();
                 serde_json::json!(v)
             }
             JsonValue::Struct(fields) => {

@@ -18,9 +18,15 @@ pub enum Value {
     Vec4([f64; 4]),
     /// Quaternion (w, x, y, z).
     Quat([f64; 4]),
+    /// 2x2 matrix (column-major: [m00, m10, m01, m11]).
+    Mat2([f64; 4]),
+    /// 3x3 matrix (column-major: [m00, m10, m20, m01, m11, m21, m02, m12, m22]).
+    Mat3([f64; 9]),
+    /// 4x4 matrix (column-major: 4 columns × 4 rows = 16 elements).
+    Mat4([f64; 16]),
     /// Structured payload with named fields.
     Map(Vec<(String, Value)>),
-    // TODO: Mat3, Mat4, Tensor, Grid, Seq
+    // TODO: Tensor, Grid, Seq
 }
 
 impl Value {
@@ -81,6 +87,30 @@ impl Value {
         }
     }
 
+    /// Attempt to get the value as a 2x2 matrix (column-major).
+    pub fn as_mat2(&self) -> Option<[f64; 4]> {
+        match self {
+            Value::Mat2(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Attempt to get the value as a 3x3 matrix (column-major).
+    pub fn as_mat3(&self) -> Option<[f64; 9]> {
+        match self {
+            Value::Mat3(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Attempt to get the value as a 4x4 matrix (column-major).
+    pub fn as_mat4(&self) -> Option<[f64; 16]> {
+        match self {
+            Value::Mat4(v) => Some(*v),
+            _ => None,
+        }
+    }
+
     /// Attempt to get the value as a structured map.
     pub fn as_map(&self) -> Option<&[(String, Value)]> {
         match self {
@@ -108,6 +138,30 @@ impl Value {
             (Value::Quat(v), "x") => Some(v[1]),
             (Value::Quat(v), "y") => Some(v[2]),
             (Value::Quat(v), "z") => Some(v[3]),
+            // Matrix component access (mXY where X=row, Y=col)
+            // Storage is column-major: [col0_row0, col0_row1, ..., col1_row0, col1_row1, ...]
+            (Value::Mat2(v), "m00") => Some(v[0]),
+            (Value::Mat2(v), "m10") => Some(v[1]),
+            (Value::Mat2(v), "m01") => Some(v[2]),
+            (Value::Mat2(v), "m11") => Some(v[3]),
+            (Value::Mat3(v), component) if component.starts_with('m') && component.len() == 3 => {
+                let row = component.as_bytes()[1] - b'0';
+                let col = component.as_bytes()[2] - b'0';
+                if row < 3 && col < 3 {
+                    Some(v[(col * 3 + row) as usize])
+                } else {
+                    None
+                }
+            }
+            (Value::Mat4(v), component) if component.starts_with('m') && component.len() == 3 => {
+                let row = component.as_bytes()[1] - b'0';
+                let col = component.as_bytes()[2] - b'0';
+                if row < 4 && col < 4 {
+                    Some(v[(col * 4 + row) as usize])
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
@@ -129,6 +183,56 @@ impl fmt::Display for Value {
             Value::Vec3(v) => write!(f, "[{:.4}, {:.4}, {:.4}]", v[0], v[1], v[2]),
             Value::Vec4(v) => write!(f, "[{:.4}, {:.4}, {:.4}, {:.4}]", v[0], v[1], v[2], v[3]),
             Value::Quat(v) => write!(f, "[{:.4}, {:.4}, {:.4}, {:.4}]", v[0], v[1], v[2], v[3]),
+            Value::Mat2(v) => {
+                // Display as 2x2 matrix (column-major storage, display row-major for readability)
+                write!(
+                    f,
+                    "[[{:.3}, {:.3}], [{:.3}, {:.3}]]",
+                    v[0],
+                    v[2], // row 0: m00, m01
+                    v[1],
+                    v[3]
+                ) // row 1: m10, m11
+            }
+            Value::Mat3(v) => {
+                // Display as 3x3 matrix (column-major storage, display row-major for readability)
+                write!(
+                    f,
+                    "[[{:.3}, {:.3}, {:.3}], [{:.3}, {:.3}, {:.3}], [{:.3}, {:.3}, {:.3}]]",
+                    v[0],
+                    v[3],
+                    v[6], // row 0: m00, m01, m02
+                    v[1],
+                    v[4],
+                    v[7], // row 1: m10, m11, m12
+                    v[2],
+                    v[5],
+                    v[8]
+                ) // row 2: m20, m21, m22
+            }
+            Value::Mat4(v) => {
+                // Display as 4x4 matrix (column-major storage, display row-major for readability)
+                write!(
+                    f,
+                    "[[{:.2}, {:.2}, {:.2}, {:.2}], [{:.2}, {:.2}, {:.2}, {:.2}], [{:.2}, {:.2}, {:.2}, {:.2}], [{:.2}, {:.2}, {:.2}, {:.2}]]",
+                    v[0],
+                    v[4],
+                    v[8],
+                    v[12], // row 0
+                    v[1],
+                    v[5],
+                    v[9],
+                    v[13], // row 1
+                    v[2],
+                    v[6],
+                    v[10],
+                    v[14], // row 2
+                    v[3],
+                    v[7],
+                    v[11],
+                    v[15]
+                ) // row 3
+            }
             Value::Map(v) => {
                 let items: Vec<_> = v.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", items.join(", "))
@@ -235,6 +339,48 @@ impl IntoValue for Quat {
     }
 }
 
+pub struct Mat2(pub [f64; 4]);
+
+impl FromValue for Mat2 {
+    fn from_value(value: &Value) -> Option<Self> {
+        value.as_mat2().map(Mat2)
+    }
+}
+
+impl IntoValue for Mat2 {
+    fn into_value(self) -> Value {
+        Value::Mat2(self.0)
+    }
+}
+
+pub struct Mat3(pub [f64; 9]);
+
+impl FromValue for Mat3 {
+    fn from_value(value: &Value) -> Option<Self> {
+        value.as_mat3().map(Mat3)
+    }
+}
+
+impl IntoValue for Mat3 {
+    fn into_value(self) -> Value {
+        Value::Mat3(self.0)
+    }
+}
+
+pub struct Mat4(pub [f64; 16]);
+
+impl FromValue for Mat4 {
+    fn from_value(value: &Value) -> Option<Self> {
+        value.as_mat4().map(Mat4)
+    }
+}
+
+impl IntoValue for Mat4 {
+    fn into_value(self) -> Value {
+        Value::Mat4(self.0)
+    }
+}
+
 impl IntoValue for Value {
     fn into_value(self) -> Value {
         self
@@ -294,5 +440,60 @@ mod tests {
             Quat::from_value(&value).map(|q| q.0),
             Some([1.0, 0.0, 0.0, 0.0])
         );
+    }
+
+    #[test]
+    fn test_mat3_conversions() {
+        // Identity matrix (column-major storage)
+        let m = Mat3([
+            1.0, 0.0, 0.0, // column 0
+            0.0, 1.0, 0.0, // column 1
+            0.0, 0.0, 1.0, // column 2
+        ]);
+        let value = m.into_value();
+        match &value {
+            Value::Mat3(arr) => assert_eq!(arr, &[1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+            _ => panic!("Expected Mat3"),
+        }
+        assert_eq!(
+            Mat3::from_value(&value).map(|m| m.0),
+            Some([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+        );
+    }
+
+    #[test]
+    fn test_mat3_component_access() {
+        let m = Value::Mat3([
+            1.0, 2.0, 3.0, // column 0: m00=1, m10=2, m20=3
+            4.0, 5.0, 6.0, // column 1: m01=4, m11=5, m21=6
+            7.0, 8.0, 9.0, // column 2: m02=7, m12=8, m22=9
+        ]);
+
+        // Test component access
+        assert_eq!(m.component("m00"), Some(1.0));
+        assert_eq!(m.component("m10"), Some(2.0));
+        assert_eq!(m.component("m20"), Some(3.0));
+        assert_eq!(m.component("m01"), Some(4.0));
+        assert_eq!(m.component("m11"), Some(5.0));
+        assert_eq!(m.component("m21"), Some(6.0));
+        assert_eq!(m.component("m02"), Some(7.0));
+        assert_eq!(m.component("m12"), Some(8.0));
+        assert_eq!(m.component("m22"), Some(9.0));
+    }
+
+    #[test]
+    fn test_mat2_mat4_conversions() {
+        let m2 = Mat2([1.0, 2.0, 3.0, 4.0]);
+        let v2 = m2.into_value();
+        assert!(matches!(v2, Value::Mat2(_)));
+        assert_eq!(
+            Mat2::from_value(&v2).map(|m| m.0),
+            Some([1.0, 2.0, 3.0, 4.0])
+        );
+
+        let m4 = Mat4([1.0; 16]);
+        let v4 = m4.into_value();
+        assert!(matches!(v4, Value::Mat4(_)));
+        assert_eq!(Mat4::from_value(&v4).map(|m| m.0), Some([1.0; 16]));
     }
 }
