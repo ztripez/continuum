@@ -8,7 +8,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use continuum_foundation::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "value")]
 pub enum JsonValue {
     Scalar(f64),
     Boolean(bool),
@@ -338,18 +337,127 @@ pub enum IpcFrame {
     Event(IpcEvent),
 }
 
+impl JsonValue {
+    pub fn to_json_value(&self) -> serde_json::Value {
+        match self {
+            JsonValue::Scalar(v) => {
+                if v.is_finite() {
+                    serde_json::json!(*v)
+                } else {
+                    serde_json::json!(0.0)
+                }
+            }
+            JsonValue::Boolean(v) => serde_json::json!(*v),
+            JsonValue::Integer(v) => serde_json::json!(*v),
+            JsonValue::Vec2(v) => {
+                let v = [
+                    if v[0].is_finite() { v[0] } else { 0.0 },
+                    if v[1].is_finite() { v[1] } else { 0.0 },
+                ];
+                serde_json::json!(v)
+            }
+            JsonValue::Vec3(v) => {
+                let v = [
+                    if v[0].is_finite() { v[0] } else { 0.0 },
+                    if v[1].is_finite() { v[1] } else { 0.0 },
+                    if v[2].is_finite() { v[2] } else { 0.0 },
+                ];
+                serde_json::json!(v)
+            }
+            JsonValue::Vec4(v) => {
+                let v = [
+                    if v[0].is_finite() { v[0] } else { 0.0 },
+                    if v[1].is_finite() { v[1] } else { 0.0 },
+                    if v[2].is_finite() { v[2] } else { 0.0 },
+                    if v[3].is_finite() { v[3] } else { 0.0 },
+                ];
+                serde_json::json!(v)
+            }
+            JsonValue::Quat(v) => {
+                let v = [
+                    if v[0].is_finite() { v[0] } else { 0.0 },
+                    if v[1].is_finite() { v[1] } else { 0.0 },
+                    if v[2].is_finite() { v[2] } else { 0.0 },
+                    if v[3].is_finite() { v[3] } else { 0.0 },
+                ];
+                serde_json::json!(v)
+            }
+            JsonValue::Struct(fields) => {
+                let mut map = serde_json::Map::new();
+                for (key, val) in fields {
+                    map.insert(key.clone(), val.to_json_value());
+                }
+                serde_json::Value::Object(map)
+            }
+        }
+    }
+}
+
 pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
     let payload = match &response.payload {
-        Some(IpcResponsePayload::Status(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::Status(p)) => {
+            let mut map = serde_json::Map::new();
+            map.insert("tick".to_string(), serde_json::json!(p.tick));
+            map.insert("era".to_string(), serde_json::json!(p.era));
+            map.insert(
+                "sim_time".to_string(),
+                serde_json::json!(if p.sim_time.is_finite() {
+                    p.sim_time
+                } else {
+                    0.0
+                }),
+            );
+            map.insert(
+                "dt".to_string(),
+                serde_json::json!(if p.dt.is_finite() { p.dt } else { 0.0 }),
+            );
+            map.insert("phase".to_string(), serde_json::json!(p.phase));
+            map.insert("running".to_string(), serde_json::json!(p.running));
+            Some(serde_json::Value::Object(map))
+        }
         Some(IpcResponsePayload::FieldList(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::FieldHistory(p)) => serde_json::to_value(p).ok(),
-        Some(IpcResponsePayload::FieldQuery(p)) => serde_json::to_value(p).ok(),
-        Some(IpcResponsePayload::FieldQueryBatch(p)) => serde_json::to_value(p).ok(),
-        Some(IpcResponsePayload::FieldLatest(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::FieldQuery(p)) => {
+            let mut map = serde_json::Map::new();
+            map.insert("field_id".to_string(), serde_json::json!(p.field_id));
+            map.insert("value".to_string(), p.value.to_json_value());
+            Some(serde_json::Value::Object(map))
+        }
+        Some(IpcResponsePayload::FieldQueryBatch(p)) => {
+            let values: Vec<_> = p
+                .values
+                .iter()
+                .map(|v| if v.is_finite() { *v } else { 0.0 })
+                .collect();
+            let mut map = serde_json::Map::new();
+            map.insert("field_id".to_string(), serde_json::json!(p.field_id));
+            map.insert("values".to_string(), serde_json::json!(values));
+            Some(serde_json::Value::Object(map))
+        }
+        Some(IpcResponsePayload::FieldLatest(p)) => {
+            let mut map = serde_json::Map::new();
+            map.insert("field_id".to_string(), serde_json::json!(p.field_id));
+            map.insert("tick".to_string(), serde_json::json!(p.tick));
+            map.insert(
+                "value".to_string(),
+                p.value
+                    .as_ref()
+                    .map(|v| v.to_json_value())
+                    .unwrap_or(serde_json::Value::Null),
+            );
+            Some(serde_json::Value::Object(map))
+        }
         Some(IpcResponsePayload::ChroniclePoll(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::ImpulseList(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::ImpulseEmit(p)) => serde_json::to_value(p).ok(),
-        Some(IpcResponsePayload::Playback(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::Playback(p)) => {
+            let mut map = serde_json::Map::new();
+            map.insert(
+                "time".to_string(),
+                serde_json::json!(if p.time.is_finite() { p.time } else { 0.0 }),
+            );
+            Some(serde_json::Value::Object(map))
+        }
         None => None,
     };
     JsonResponse {
@@ -451,14 +559,52 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
 
 pub fn ipc_event_to_json(event: &IpcEvent) -> JsonEvent {
     match event {
-        IpcEvent::Tick(payload) => JsonEvent {
-            kind: "tick".to_string(),
-            payload: serde_json::to_value(payload).expect("tick serialize"),
-        },
-        IpcEvent::Chronicle(payload) => JsonEvent {
-            kind: "chronicle.event".to_string(),
-            payload: serde_json::to_value(payload).expect("chronicle serialize"),
-        },
+        IpcEvent::Tick(p) => {
+            let mut map = serde_json::Map::new();
+            map.insert("tick".to_string(), serde_json::json!(p.tick));
+            map.insert("era".to_string(), serde_json::json!(p.era));
+            map.insert(
+                "sim_time".to_string(),
+                serde_json::json!(if p.sim_time.is_finite() {
+                    p.sim_time
+                } else {
+                    0.0
+                }),
+            );
+            map.insert("field_count".to_string(), serde_json::json!(p.field_count));
+            map.insert("event_count".to_string(), serde_json::json!(p.event_count));
+            JsonEvent {
+                kind: "tick".to_string(),
+                payload: serde_json::Value::Object(map),
+            }
+        }
+        IpcEvent::Chronicle(p) => {
+            let mut fields = serde_json::Map::new();
+            for (k, v) in &p.fields {
+                fields.insert(k.clone(), v.to_json_value());
+            }
+            let mut map = serde_json::Map::new();
+            map.insert(
+                "chronicle_id".to_string(),
+                serde_json::json!(p.chronicle_id),
+            );
+            map.insert("name".to_string(), serde_json::json!(p.name));
+            map.insert("fields".to_string(), serde_json::Value::Object(fields));
+            map.insert("tick".to_string(), serde_json::json!(p.tick));
+            map.insert("era".to_string(), serde_json::json!(p.era));
+            map.insert(
+                "sim_time".to_string(),
+                serde_json::json!(if p.sim_time.is_finite() {
+                    p.sim_time
+                } else {
+                    0.0
+                }),
+            );
+            JsonEvent {
+                kind: "chronicle.event".to_string(),
+                payload: serde_json::Value::Object(map),
+            }
+        }
     }
 }
 
@@ -473,8 +619,12 @@ where
         .read_exact(&mut buffer)
         .await
         .context("read frame payload")?;
-    let value = bincode::deserialize(&buffer).context("decode frame")?;
-    Ok(value)
+    let value: anyhow::Result<T> = bincode::deserialize(&buffer).map_err(|e| anyhow::anyhow!(e));
+    if let Err(ref e) = value {
+        tracing::error!("Failed to decode frame of {} bytes: {}", buffer.len(), e);
+        tracing::error!("Buffer content: {:02x?}", buffer);
+    }
+    value.context("decode frame")
 }
 
 pub async fn write_frame<W, T>(writer: &mut W, value: &T) -> anyhow::Result<()>

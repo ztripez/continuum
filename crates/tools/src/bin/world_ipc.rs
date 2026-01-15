@@ -13,7 +13,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task::yield_now;
 use tokio::time::{Duration, sleep};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
 use continuum_lens::{FieldLens, FieldLensConfig, PlaybackClock};
@@ -70,7 +70,7 @@ async fn main() {
 
     let cli = Cli::parse();
 
-    info!("Loading world from: {}", cli.world_dir.display());
+    debug!("Loading world from: {}", cli.world_dir.display());
 
     let compile_result = continuum_compiler::compile_from_dir_result(&cli.world_dir);
 
@@ -85,7 +85,7 @@ async fn main() {
 
     let world = compile_result.world.expect("no world despite no errors");
 
-    info!("Compiling to DAGs...");
+    debug!("Compiling to DAGs...");
     let compilation = match compile(&world) {
         Ok(compilation) => compilation,
         Err(err) => {
@@ -94,7 +94,7 @@ async fn main() {
         }
     };
 
-    info!("Building runtime...");
+    debug!("Building runtime...");
     let (runtime, report) = match build_runtime(
         &world,
         compilation,
@@ -170,7 +170,7 @@ async fn main() {
         }
     };
 
-    info!("Listening on socket {}", cli.socket.display());
+    debug!("Listening on socket {}", cli.socket.display());
 
     loop {
         match listener.accept().await {
@@ -232,7 +232,10 @@ async fn handle_client(stream: UnixStream, state: Arc<Mutex<ServerState>>) -> an
         let request: IpcRequest = match read_frame(&mut reader).await {
             Ok(req) => req,
             Err(err) => {
-                warn!("read frame error: {err}");
+                // Only warn if it's not a normal EOF
+                if !err.to_string().contains("read frame length") {
+                    warn!("read frame error: {err}");
+                }
                 break;
             }
         };

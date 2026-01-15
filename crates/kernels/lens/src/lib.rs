@@ -889,6 +889,16 @@ impl FieldLens {
         self.query(field_id, position, playback.current_time())
     }
 
+    /// Query scalar value at the latest available tick.
+    pub fn query_latest(
+        &mut self,
+        field_id: &FieldId,
+        position: [f64; 3],
+    ) -> Result<f64, LensError> {
+        let reconstruction = self.latest_reconstruction(field_id)?;
+        Ok(reconstruction.query(position))
+    }
+
     /// Query vector value at fractional time (temporal interpolation).
     pub fn query_vector(
         &mut self,

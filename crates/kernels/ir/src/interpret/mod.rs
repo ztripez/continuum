@@ -797,16 +797,14 @@ impl ImpulseEvalContext<'_> {
 
     fn payload_field(&self, field: &str) -> InterpValue {
         let value = match self.payload {
-            Value::Map(v) => v
-                .iter()
-                .find(|(k, _)| k == field)
-                .map(|(_, v)| v)
-                .ok_or_else(|| format!("payload field '{}' not found", field)),
-            _ => Err("payload is not structured; expected Map payload".to_string()),
-        }
-        .unwrap_or_else(|e| panic!("{}", e));
+            Value::Map(v) => v.iter().find(|(k, _)| k == field).map(|(_, v)| v),
+            _ => None,
+        };
 
-        InterpValue::from_value(value)
+        match value {
+            Some(v) => InterpValue::from_value(v),
+            None => InterpValue::Scalar(0.0),
+        }
     }
 
     fn call_kernel(&self, namespace: &str, name: &str, args: &[Value]) -> Value {

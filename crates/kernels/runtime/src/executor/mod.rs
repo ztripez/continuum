@@ -16,7 +16,7 @@ mod warmup;
 
 use indexmap::IndexMap;
 
-use tracing::{error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
@@ -716,7 +716,7 @@ impl Runtime {
     }
 
     /// Execute a single tick
-    #[instrument(skip(self), fields(tick = self.tick, era = %self.current_era))]
+    #[instrument(level = "debug", skip(self), fields(tick = self.tick, era = %self.current_era))]
     pub fn execute_tick(&mut self) -> Result<TickContext> {
         trace!("tick start");
 
@@ -777,7 +777,7 @@ impl Runtime {
                 error!(era = %next_era, "transition to unknown era");
                 return Err(Error::EraNotFound(next_era));
             }
-            info!(from = %self.current_era, to = %next_era, "era transition");
+            debug!(from = %self.current_era, to = %next_era, "era transition");
             self.current_era = next_era;
         }
         Ok(())
