@@ -154,6 +154,35 @@ type ImpactEvent {
   : sum(1e25..1e30)
 ```
 
+### Unit Annotations
+
+Units use angle brackets and are normalized to SI base dimensions:
+
+```
+# Base units
+value: 100.0 <m>
+mass: 5.97e24 <kg>
+duration: 3600 <s>
+
+# Derived units (automatically decomposed)
+force: 9.8 <N>              # = kg·m/s²
+pressure: 101325 <Pa>       # = kg/(m·s²)
+energy: 4.2e9 <J>           # = kg·m²/s²
+power: 1e12 <W>             # = kg·m²/s³
+
+# Compound units
+velocity: 30000 <m/s>
+density: 5500 <kg/m³>
+flux: 1361 <W/m²>
+
+# Equivalent forms (same dimensions)
+work_a: 1000 <J>            # M¹·L²·T⁻²
+work_b: 1000 <N·m>          # M¹·L²·T⁻² (same)
+work_c: 1000 <W·s>          # M¹·L²·T⁻² (same)
+```
+
+See `types-and-units.md` for dimensional algebra rules.
+
 ---
 
 ## 7. Strata
