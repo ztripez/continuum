@@ -184,55 +184,37 @@ pub fn project(a: [f64; 3], onto: [f64; 3]) -> [f64; 3] {
 /// Distance between two 2D vectors: `distance(a, b)`
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn distance_vec2(a: [f64; 2], b: [f64; 2]) -> f64 {
-    let dx = a[0] - b[0];
-    let dy = a[1] - b[1];
-    (dx * dx + dy * dy).sqrt()
+    continuum_foundation::vector_ops::distance_vec2(a, b)
 }
 
 /// Distance between two 3D vectors: `distance(a, b)`
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn distance_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    let dx = a[0] - b[0];
-    let dy = a[1] - b[1];
-    let dz = a[2] - b[2];
-    (dx * dx + dy * dy + dz * dz).sqrt()
+    continuum_foundation::vector_ops::distance_vec3(a, b)
 }
 
 /// Distance between two 4D vectors: `distance(a, b)`
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn distance_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
-    let dx = a[0] - b[0];
-    let dy = a[1] - b[1];
-    let dz = a[2] - b[2];
-    let dw = a[3] - b[3];
-    (dx * dx + dy * dy + dz * dz + dw * dw).sqrt()
+    continuum_foundation::vector_ops::distance_vec4(a, b)
 }
 
 /// Squared distance between two 2D vectors: `distance_sq(a, b)` - cheaper than distance
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn distance_sq_vec2(a: [f64; 2], b: [f64; 2]) -> f64 {
-    let dx = a[0] - b[0];
-    let dy = a[1] - b[1];
-    dx * dx + dy * dy
+    continuum_foundation::vector_ops::distance_sq_vec2(a, b)
 }
 
 /// Squared distance between two 3D vectors: `distance_sq(a, b)` - cheaper than distance
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn distance_sq_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    let dx = a[0] - b[0];
-    let dy = a[1] - b[1];
-    let dz = a[2] - b[2];
-    dx * dx + dy * dy + dz * dz
+    continuum_foundation::vector_ops::distance_sq_vec3(a, b)
 }
 
 /// Squared distance between two 4D vectors: `distance_sq(a, b)` - cheaper than distance
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn distance_sq_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
-    let dx = a[0] - b[0];
-    let dy = a[1] - b[1];
-    let dz = a[2] - b[2];
-    let dw = a[3] - b[3];
-    dx * dx + dy * dy + dz * dz + dw * dw
+    continuum_foundation::vector_ops::distance_sq_vec4(a, b)
 }
 
 /// Distance between two vectors: `distance(a, b)` (variadic)

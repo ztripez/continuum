@@ -12,6 +12,7 @@ pub mod primitives;
 pub mod stable_hash;
 pub mod tensor;
 pub mod value;
+pub mod vector_ops;
 
 // Re-export ID types at crate root
 pub use ids::{

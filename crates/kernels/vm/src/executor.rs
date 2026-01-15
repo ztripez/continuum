@@ -894,29 +894,14 @@ fn val_truthy(v: &Value) -> bool {
 }
 
 fn val_dist_sq(a: &Value, b: &Value) -> f64 {
+    use continuum_foundation::vector_ops::{
+        distance_sq_scalar, distance_sq_vec2, distance_sq_vec3, distance_sq_vec4,
+    };
     match (a, b) {
-        (Value::Vec2(v1), Value::Vec2(v2)) => {
-            let dx = v1[0] - v2[0];
-            let dy = v1[1] - v2[1];
-            dx * dx + dy * dy
-        }
-        (Value::Vec3(v1), Value::Vec3(v2)) => {
-            let dx = v1[0] - v2[0];
-            let dy = v1[1] - v2[1];
-            let dz = v1[2] - v2[2];
-            dx * dx + dy * dy + dz * dz
-        }
-        (Value::Vec4(v1), Value::Vec4(v2)) => {
-            let dx = v1[0] - v2[0];
-            let dy = v1[1] - v2[1];
-            let dz = v1[2] - v2[2];
-            let dw = v1[3] - v2[3];
-            dx * dx + dy * dy + dz * dz + dw * dw
-        }
-        (Value::Scalar(s1), Value::Scalar(s2)) => {
-            let ds = s1 - s2;
-            ds * ds
-        }
+        (Value::Vec2(v1), Value::Vec2(v2)) => distance_sq_vec2(*v1, *v2),
+        (Value::Vec3(v1), Value::Vec3(v2)) => distance_sq_vec3(*v1, *v2),
+        (Value::Vec4(v1), Value::Vec4(v2)) => distance_sq_vec4(*v1, *v2),
+        (Value::Scalar(s1), Value::Scalar(s2)) => distance_sq_scalar(*s1, *s2),
         _ => panic!(
             "val_dist_sq: cannot compute distance between {:?} and {:?}",
             a, b
