@@ -363,7 +363,7 @@ fn test_kernel_functions() {
         signal.terra.temp {
             : Scalar<K>
             : strata(terra)
-            resolve { decay(prev, 100.0) }
+            resolve { dt.decay(prev, 100.0) }
         }
     "#;
 

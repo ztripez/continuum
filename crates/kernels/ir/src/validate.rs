@@ -786,7 +786,7 @@ mod tests {
             signal.terra.temp {
                 : Scalar<K>
                 : strata(terra)
-                resolve { decay(prev, config.thermal.decay_halflife) + collected }
+                resolve { dt.decay(prev, config.thermal.decay_halflife) + collected }
             }
         "#;
 
@@ -846,7 +846,7 @@ era.main { : initial }
 member.test.entity.age {
     : Scalar<yr>
     : strata(test)
-    resolve { integrate(prev, 1.0) }
+    resolve { dt.integrate(prev, 1.0) }
 }
         "#;
 

@@ -487,6 +487,11 @@ impl Runtime {
         &self.field_buffer
     }
 
+    /// Drain field samples (clears the buffer)
+    pub fn drain_fields(&mut self) -> IndexMap<FieldId, Vec<FieldSample>> {
+        self.field_buffer.drain()
+    }
+
     /// Get access to the event buffer
     pub fn event_buffer(&self) -> &EventBuffer {
         &self.event_buffer

@@ -30,6 +30,12 @@ pub fn clamp(value: f64, min: f64, max: f64) -> f64 {
     value.clamp(min, max)
 }
 
+/// Linear interpolation: `lerp(a, b, t)` → `a + t * (b - a)`
+#[kernel_fn(namespace = "maths")]
+pub fn lerp(a: f64, b: f64, t: f64) -> f64 {
+    a + t * (b - a)
+}
+
 // === Trigonometry ===
 
 /// Sine: `sin(x)`
