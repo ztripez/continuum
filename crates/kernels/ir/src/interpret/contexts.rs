@@ -74,7 +74,7 @@ impl SharedContextData<'_> {
     }
 
     /// Get value of a member signal of the current instance
-    fn self_field(&self, component: &str) -> Value {
+    pub(crate) fn self_field(&self, component: &str) -> Value {
         let entity_id = self
             .current_entity
             .as_ref()
@@ -90,7 +90,7 @@ impl SharedContextData<'_> {
     }
 
     /// Get value of another instance in the same set
-    fn other_field(&self, component: &str) -> Value {
+    pub(crate) fn other_field(&self, component: &str) -> Value {
         let entity_id = self
             .current_entity
             .as_ref()
@@ -106,7 +106,7 @@ impl SharedContextData<'_> {
     }
 
     /// Get value of a field from a specific entity instance
-    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+    pub(crate) fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
         let entity_id = EntityId::from(entity);
         let instance_id = InstanceId::from(instance);
         self.entities
@@ -116,7 +116,7 @@ impl SharedContextData<'_> {
     }
 
     /// Get all instance IDs for an entity type
-    fn entity_instances(&self, entity: &str) -> Vec<String> {
+    pub(crate) fn entity_instances(&self, entity: &str) -> Vec<String> {
         let entity_id = EntityId::from(entity);
         self.entities
             .instance_ids(&entity_id)

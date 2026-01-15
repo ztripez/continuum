@@ -31,7 +31,10 @@ pub use member_executor::{
     ChunkConfig, MemberResolveContext, MemberSignalResolver, ScalarL1Resolver,
     ScalarResolveContext, ScalarResolverFn, Vec3L1Resolver, Vec3ResolveContext, Vec3ResolverFn,
 };
-pub use phases::{CollectFn, FractureFn, ImpulseFn, MeasureFn, PhaseExecutor, ResolverFn};
+pub use phases::{
+    ChronicleFn, CollectFn, EmittedEvent, FractureFn, ImpulseFn, MeasureFn, PhaseExecutor,
+    ResolverFn,
+};
 pub use warmup::{WarmupExecutor, WarmupFn};
 
 use indexmap::IndexMap;
@@ -497,6 +500,26 @@ impl Runtime {
         self.event_buffer.drain()
     }
 
+    /// Drain the field buffer (for observer consumption)
+    pub fn drain_fields(&mut self) -> indexmap::IndexMap<FieldId, Vec<FieldSample>> {
+        self.field_buffer.drain()
+    }
+
+    /// Get context for the current tick state
+    pub fn tick_context(&self) -> TickContext {
+        let dt = self
+            .eras
+            .get(&self.current_era)
+            .map(|e| e.dt)
+            .unwrap_or(Dt(0.0));
+        TickContext {
+            tick: self.tick,
+            sim_time: self.sim_time,
+            dt,
+            era: self.current_era.clone(),
+        }
+    }
+
     /// Get access to the signals storage
     pub fn signals(&self) -> &SignalStorage {
         &self.signals
@@ -701,7 +724,22 @@ impl Runtime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::StratumId;
+    use crate::dag::{DagBuilder, DagNode, EraDags, NodeId, NodeKind};
+    use crate::types::{Phase, StratumId};
+    use std::collections::HashSet;
+
+    fn create_minimal_runtime(era_id: EraId) -> Runtime {
+        let mut eras = IndexMap::new();
+        eras.insert(
+            era_id.clone(),
+            EraConfig {
+                dt: Dt(1.0),
+                strata: IndexMap::new(),
+                transition: None,
+            },
+        );
+        Runtime::new(era_id, eras, DagSet::default())
+    }
 
     #[test]
     fn test_runtime_creation() {

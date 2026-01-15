@@ -657,8 +657,8 @@ dependencies = [
  "continuum-functions",
  "continuum-lens",
  "continuum-runtime",
- "futures-util",
  "continuum-vm",
+ "futures-util",
  "indexmap",
  "serde",
  "serde_json",
@@ -676,8 +676,8 @@ name = "continuum-vm"
 version = "0.1.0"
 dependencies = [
  "continuum-kernel-registry",
- "serde_json",
  "serde",
+ "serde_json",
 ]
 
 [[package]]

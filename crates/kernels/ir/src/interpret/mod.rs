@@ -500,7 +500,6 @@ fn build_transition_fn(
             None
         },
     ))
-
 }
 
 /// Builds a measure function for computing field values.
@@ -767,7 +766,7 @@ struct ImpulseEvalContext<'a> {
 }
 
 impl ImpulseEvalContext<'_> {
-    fn constant(&self) -> f64 {
+    fn constant(&self, name: &str) -> f64 {
         self.constants
             .get(name)
             .map(|(v, _)| *v)
