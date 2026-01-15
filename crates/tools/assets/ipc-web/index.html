@@ -703,7 +703,7 @@
         era: 'var(--accent)'
       };
       
-      const type = data.value_type ? 'signal' : data.topology ? 'field' : data.count_bounds ? 'entity' : 
+      const type = data.topology ? 'field' : data.value_type ? 'signal' : data.count_bounds ? 'entity' : 
                    data.default_stride !== undefined ? 'stratum' : data.dt_seconds !== undefined ? 'era' : 'unknown';
       
       html += `
