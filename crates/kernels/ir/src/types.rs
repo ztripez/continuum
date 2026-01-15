@@ -46,266 +46,89 @@ pub struct CompiledWorld {
     pub nodes: IndexMap<Path, crate::unified_nodes::CompiledNode>,
 }
 
+/// Trait for extracting compiled items from unified nodes.
+///
+/// This eliminates boilerplate in CompiledWorld extraction methods.
+/// Each Compiled* type implements this to specify how to extract itself from a node.
+trait ExtractFromNode: Sized {
+    /// The ID type for this node (e.g., SignalId, FieldId)
+    type Id: From<Path> + Clone + std::hash::Hash + Eq;
+
+    /// Try to extract this type from a compiled node.
+    /// Returns None if the node is not of the expected kind.
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self>;
+}
+
 impl CompiledWorld {
-    /// Get all signal nodes from the unified node map.
-    pub fn signals(&self) -> IndexMap<SignalId, CompiledSignal> {
-        let mut signals = IndexMap::new();
+    /// Generic extraction method - extracts all nodes of type T.
+    fn extract_nodes<T: ExtractFromNode>(&self) -> IndexMap<T::Id, T> {
+        let mut result = IndexMap::new();
         for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Signal(props) = &node.kind {
-                let signal = CompiledSignal {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: SignalId::from(path.clone()),
-                    stratum: node
-                        .stratum
-                        .clone()
-                        .unwrap_or_else(|| StratumId::from("default")),
-                    title: props.title.clone(),
-                    symbol: props.symbol.clone(),
-                    value_type: props.value_type.clone(),
-                    uses_dt_raw: props.uses_dt_raw,
-                    reads: node.reads.clone(),
-                    resolve: props.resolve.clone(),
-                    warmup: props.warmup.clone(),
-                    assertions: props.assertions.clone(),
-                };
-                signals.insert(SignalId::from(path.clone()), signal);
+            if let Some(item) = T::try_extract(path, node) {
+                result.insert(T::Id::from(path.clone()), item);
             }
         }
-        signals
+        result
+    }
+
+    /// Get all signal nodes from the unified node map.
+    pub fn signals(&self) -> IndexMap<SignalId, CompiledSignal> {
+        self.extract_nodes()
     }
 
     /// Get all field nodes from the unified node map.
     pub fn fields(&self) -> IndexMap<FieldId, CompiledField> {
-        let mut fields = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Field(props) = &node.kind {
-                let field = CompiledField {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: FieldId::from(path.clone()),
-                    stratum: node
-                        .stratum
-                        .clone()
-                        .unwrap_or_else(|| StratumId::from("default")),
-                    title: props.title.clone(),
-                    topology: props.topology,
-                    value_type: props.value_type.clone(),
-                    reads: node.reads.clone(),
-                    measure: props.measure.clone(),
-                };
-                fields.insert(FieldId::from(path.clone()), field);
-            }
-        }
-        fields
+        self.extract_nodes()
     }
 
     /// Get all operator nodes from the unified node map.
     pub fn operators(&self) -> IndexMap<OperatorId, CompiledOperator> {
-        let mut operators = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Operator(props) = &node.kind {
-                let operator = CompiledOperator {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: OperatorId::from(path.clone()),
-                    stratum: node
-                        .stratum
-                        .clone()
-                        .unwrap_or_else(|| StratumId::from("default")),
-                    phase: props.phase,
-                    reads: node.reads.clone(),
-                    body: props.body.clone(),
-                    assertions: props.assertions.clone(),
-                };
-                operators.insert(OperatorId::from(path.clone()), operator);
-            }
-        }
-        operators
+        self.extract_nodes()
     }
 
     /// Get all impulse nodes from the unified node map.
     pub fn impulses(&self) -> IndexMap<ImpulseId, CompiledImpulse> {
-        let mut impulses = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Impulse(props) = &node.kind {
-                let impulse = CompiledImpulse {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: ImpulseId::from(path.clone()),
-                    payload_type: props.payload_type.clone(),
-                    apply: props.apply.clone(),
-                };
-                impulses.insert(ImpulseId::from(path.clone()), impulse);
-            }
-        }
-        impulses
+        self.extract_nodes()
     }
 
     /// Get all era nodes from the unified node map.
     pub fn eras(&self) -> IndexMap<EraId, CompiledEra> {
-        let mut eras = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Era(props) = &node.kind {
-                let era = CompiledEra {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: EraId::from(path.clone()),
-                    is_initial: props.is_initial,
-                    is_terminal: props.is_terminal,
-                    title: props.title.clone(),
-                    dt_seconds: props.dt_seconds,
-                    strata_states: props.strata_states.clone(),
-                    transitions: props.transitions.clone(),
-                };
-                eras.insert(EraId::from(path.clone()), era);
-            }
-        }
-        eras
+        self.extract_nodes()
     }
 
     /// Get all stratum nodes from the unified node map.
     pub fn strata(&self) -> IndexMap<StratumId, CompiledStratum> {
-        let mut strata = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Stratum(props) = &node.kind {
-                let stratum = CompiledStratum {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: StratumId::from(path.clone()),
-                    title: props.title.clone(),
-                    symbol: props.symbol.clone(),
-                    default_stride: props.default_stride,
-                };
-                strata.insert(StratumId::from(path.clone()), stratum);
-            }
-        }
-        strata
+        self.extract_nodes()
     }
 
     /// Get all member nodes from the unified node map.
     pub fn members(&self) -> IndexMap<MemberId, CompiledMember> {
-        let mut members = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Member(props) = &node.kind {
-                let member = CompiledMember {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: MemberId::from(path.clone()),
-                    entity_id: props.entity_id.clone(),
-                    signal_name: props.signal_name.clone(),
-                    stratum: node
-                        .stratum
-                        .clone()
-                        .unwrap_or_else(|| StratumId::from("default")),
-                    title: props.title.clone(),
-                    symbol: props.symbol.clone(),
-                    value_type: props.value_type.clone(),
-                    uses_dt_raw: props.uses_dt_raw,
-                    reads: node.reads.clone(),
-                    member_reads: node.member_reads.clone(),
-                    initial: props.initial.clone(),
-                    resolve: props.resolve.clone(),
-                    assertions: props.assertions.clone(),
-                };
-                members.insert(MemberId::from(path.clone()), member);
-            }
-        }
-        members
+        self.extract_nodes()
     }
 
     /// Get all fracture nodes from the unified node map.
     pub fn fractures(&self) -> IndexMap<FractureId, CompiledFracture> {
-        let mut fractures = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Fracture(props) = &node.kind {
-                let fracture = CompiledFracture {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: FractureId::from(path.clone()),
-                    stratum: node
-                        .stratum
-                        .clone()
-                        .unwrap_or_else(|| StratumId::from("default")),
-                    reads: node.reads.clone(),
-                    conditions: props.conditions.clone(),
-                    emits: props.emits.clone(),
-                };
-                fractures.insert(FractureId::from(path.clone()), fracture);
-            }
-        }
-        fractures
+        self.extract_nodes()
     }
 
     /// Get all entity nodes from the unified node map.
     pub fn entities(&self) -> IndexMap<EntityId, CompiledEntity> {
-        let mut entities = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Entity(props) = &node.kind {
-                let entity = CompiledEntity {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: EntityId::from(path.clone()),
-                    count_source: props.count_source.clone(),
-                    count_bounds: props.count_bounds,
-                };
-                entities.insert(EntityId::from(path.clone()), entity);
-            }
-        }
-        entities
+        self.extract_nodes()
     }
 
     /// Get all chronicle nodes from the unified node map.
     pub fn chronicles(&self) -> IndexMap<ChronicleId, CompiledChronicle> {
-        let mut chronicles = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Chronicle(props) = &node.kind {
-                let chronicle = CompiledChronicle {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: ChronicleId::from(path.clone()),
-                    reads: node.reads.clone(),
-                    handlers: props.handlers.clone(),
-                };
-                chronicles.insert(ChronicleId::from(path.clone()), chronicle);
-            }
-        }
-        chronicles
+        self.extract_nodes()
     }
 
     /// Get all function nodes from the unified node map.
     pub fn functions(&self) -> IndexMap<FnId, CompiledFn> {
-        let mut functions = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Function(props) = &node.kind {
-                let func = CompiledFn {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: FnId::from(path.clone()),
-                    params: props.params.clone(),
-                    body: props.body.clone(),
-                };
-                functions.insert(FnId::from(path.clone()), func);
-            }
-        }
-        functions
+        self.extract_nodes()
     }
 
     /// Get all type nodes from the unified node map.
     pub fn types(&self) -> IndexMap<TypeId, CompiledType> {
-        let mut types = IndexMap::new();
-        for (path, node) in &self.nodes {
-            if let crate::unified_nodes::NodeKind::Type(props) = &node.kind {
-                let ty = CompiledType {
-                    file: node.file.clone(),
-                    span: node.span.clone(),
-                    id: TypeId::from(path.clone()),
-                    fields: props.fields.clone(),
-                };
-                types.insert(TypeId::from(path.clone()), ty);
-            }
-        }
-        types
+        self.extract_nodes()
     }
 }
 
@@ -1003,5 +826,270 @@ impl Locatable for crate::unified_nodes::CompiledNode {
     }
     fn span(&self) -> &Span {
         &self.span
+    }
+}
+
+// ============================================================================
+// ExtractFromNode implementations
+// ============================================================================
+
+impl ExtractFromNode for CompiledSignal {
+    type Id = SignalId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Signal(props) = &node.kind {
+            Some(CompiledSignal {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: SignalId::from(path.clone()),
+                stratum: node
+                    .stratum
+                    .clone()
+                    .unwrap_or_else(|| StratumId::from("default")),
+                title: props.title.clone(),
+                symbol: props.symbol.clone(),
+                value_type: props.value_type.clone(),
+                uses_dt_raw: props.uses_dt_raw,
+                reads: node.reads.clone(),
+                resolve: props.resolve.clone(),
+                warmup: props.warmup.clone(),
+                assertions: props.assertions.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledField {
+    type Id = FieldId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Field(props) = &node.kind {
+            Some(CompiledField {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: FieldId::from(path.clone()),
+                stratum: node
+                    .stratum
+                    .clone()
+                    .unwrap_or_else(|| StratumId::from("default")),
+                title: props.title.clone(),
+                topology: props.topology,
+                value_type: props.value_type.clone(),
+                reads: node.reads.clone(),
+                measure: props.measure.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledOperator {
+    type Id = OperatorId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Operator(props) = &node.kind {
+            Some(CompiledOperator {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: OperatorId::from(path.clone()),
+                stratum: node
+                    .stratum
+                    .clone()
+                    .unwrap_or_else(|| StratumId::from("default")),
+                phase: props.phase,
+                reads: node.reads.clone(),
+                body: props.body.clone(),
+                assertions: props.assertions.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledImpulse {
+    type Id = ImpulseId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Impulse(props) = &node.kind {
+            Some(CompiledImpulse {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: ImpulseId::from(path.clone()),
+                payload_type: props.payload_type.clone(),
+                apply: props.apply.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledEra {
+    type Id = EraId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Era(props) = &node.kind {
+            Some(CompiledEra {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: EraId::from(path.clone()),
+                is_initial: props.is_initial,
+                is_terminal: props.is_terminal,
+                title: props.title.clone(),
+                dt_seconds: props.dt_seconds,
+                strata_states: props.strata_states.clone(),
+                transitions: props.transitions.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledStratum {
+    type Id = StratumId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Stratum(props) = &node.kind {
+            Some(CompiledStratum {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: StratumId::from(path.clone()),
+                title: props.title.clone(),
+                symbol: props.symbol.clone(),
+                default_stride: props.default_stride,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledMember {
+    type Id = MemberId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Member(props) = &node.kind {
+            Some(CompiledMember {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: MemberId::from(path.clone()),
+                entity_id: props.entity_id.clone(),
+                signal_name: props.signal_name.clone(),
+                stratum: node
+                    .stratum
+                    .clone()
+                    .unwrap_or_else(|| StratumId::from("default")),
+                title: props.title.clone(),
+                symbol: props.symbol.clone(),
+                value_type: props.value_type.clone(),
+                uses_dt_raw: props.uses_dt_raw,
+                reads: node.reads.clone(),
+                member_reads: node.member_reads.clone(),
+                initial: props.initial.clone(),
+                resolve: props.resolve.clone(),
+                assertions: props.assertions.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledFracture {
+    type Id = FractureId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Fracture(props) = &node.kind {
+            Some(CompiledFracture {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: FractureId::from(path.clone()),
+                stratum: node
+                    .stratum
+                    .clone()
+                    .unwrap_or_else(|| StratumId::from("default")),
+                reads: node.reads.clone(),
+                conditions: props.conditions.clone(),
+                emits: props.emits.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledEntity {
+    type Id = EntityId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Entity(props) = &node.kind {
+            Some(CompiledEntity {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: EntityId::from(path.clone()),
+                count_source: props.count_source.clone(),
+                count_bounds: props.count_bounds,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledChronicle {
+    type Id = ChronicleId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Chronicle(props) = &node.kind {
+            Some(CompiledChronicle {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: ChronicleId::from(path.clone()),
+                reads: node.reads.clone(),
+                handlers: props.handlers.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledFn {
+    type Id = FnId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Function(props) = &node.kind {
+            Some(CompiledFn {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: FnId::from(path.clone()),
+                params: props.params.clone(),
+                body: props.body.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledType {
+    type Id = TypeId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Type(props) = &node.kind {
+            Some(CompiledType {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: TypeId::from(path.clone()),
+                fields: props.fields.clone(),
+            })
+        } else {
+            None
+        }
     }
 }
