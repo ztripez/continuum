@@ -9,21 +9,36 @@ use continuum_kernel_registry::{VRegBuffer, VectorizedResult, eval_in_namespace}
 
 /// Integration: `integrate(prev, rate)` → `prev + rate * dt`
 /// Default uses Euler method
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    category = "simulation",
+    vectorized,
+    unit_inference = "integrate"
+)]
 pub fn integrate(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
 }
 
 /// Euler integration: `integrate_euler(prev, rate)` → `prev + rate * dt`
 /// Explicit Euler method (same as default integrate)
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    category = "simulation",
+    vectorized,
+    unit_inference = "integrate"
+)]
 pub fn integrate_euler(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
 }
 
 /// RK4 integration: `integrate_rk4(prev, rate)` → higher-order integration
 /// Note: This is a simplified RK4 that assumes constant rate over dt
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    category = "simulation",
+    vectorized,
+    unit_inference = "integrate"
+)]
 pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified RK4 for constant rate case
     // For constant rate: result = prev + 6 * rate * dt / 6 = prev + rate * dt
@@ -32,14 +47,24 @@ pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
 
 /// Verlet integration: `integrate_verlet(prev, rate)` → Velocity Verlet approximation
 /// Note: This is simplified for single-variable case
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    category = "simulation",
+    vectorized,
+    unit_inference = "integrate"
+)]
 pub fn integrate_verlet(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified Verlet integration
     prev + rate * dt
 }
 
 /// Exponential decay: `decay(value, halflife)` → `value * 0.5^(dt/halflife)`
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    category = "simulation",
+    vectorized,
+    unit_inference = "decay"
+)]
 pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
     value * 0.5_f64.powf(dt / halflife)
 }

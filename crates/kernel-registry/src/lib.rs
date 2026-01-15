@@ -225,6 +225,35 @@ pub enum Arity {
     Variadic,
 }
 
+/// Unit inference strategy for dimensional analysis.
+///
+/// Since Unit types live in continuum-ir and we can't create a circular dependency,
+/// we use string-based descriptors that the dimension analyzer interprets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnitInference {
+    /// Output is dimensionless (e.g., sin, cos, tan)
+    /// If requires_angle is true, input must be angle or dimensionless
+    Dimensionless { requires_angle: bool },
+
+    /// Output has same unit as first argument (e.g., abs, min, max, clamp)
+    /// All arguments must have matching units
+    PreserveFirst,
+
+    /// Output is square root of input unit (e.g., sqrt)
+    Sqrt,
+
+    /// Integration: prev + rate * dt
+    /// Validates that prev.unit == rate.unit * time
+    Integrate,
+
+    /// Decay: preserves value unit, validates halflife is time
+    /// decay(value, halflife) -> value * 0.5^(dt/halflife)
+    Decay,
+
+    /// No dimensional analysis (defaults to dimensionless)
+    None,
+}
+
 impl Arity {
     /// Get as `Option<usize>` for compatibility
     pub fn as_option(&self) -> Option<usize> {
@@ -253,6 +282,8 @@ pub struct KernelDescriptor {
     pub implementation: KernelImpl,
     /// Optional vectorized implementation for high-performance entity processing
     pub vectorized_impl: Option<VectorizedImpl>,
+    /// Unit inference strategy for dimensional analysis
+    pub unit_inference: UnitInference,
 }
 
 impl KernelDescriptor {
@@ -387,6 +418,7 @@ mod tests {
             Value::Scalar(val.abs())
         }),
         vectorized_impl: None,
+        unit_inference: UnitInference::PreserveFirst,
     };
 
     #[test]

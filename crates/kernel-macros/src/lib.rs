@@ -41,6 +41,7 @@ struct KernelFnArgs {
     category: String,
     variadic: bool,
     vectorized: bool,
+    unit_inference: Option<String>,
 }
 
 /// Arguments to the vectorized_kernel_fn attribute
@@ -56,6 +57,7 @@ impl Parse for KernelFnArgs {
         let mut category = String::from("math");
         let mut variadic = false;
         let mut vectorized = false;
+        let mut unit_inference = None;
 
         let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
         for arg in args {
@@ -65,6 +67,7 @@ impl Parse for KernelFnArgs {
                 KernelArg::Category(c) => category = c,
                 KernelArg::Variadic => variadic = true,
                 KernelArg::Vectorized => vectorized = true,
+                KernelArg::UnitInference(u) => unit_inference = Some(u),
             }
         }
 
@@ -76,6 +79,7 @@ impl Parse for KernelFnArgs {
             category,
             variadic,
             vectorized,
+            unit_inference,
         })
     }
 }
@@ -90,7 +94,10 @@ impl Parse for VectorizedKernelArgs {
             match arg {
                 KernelArg::Name(n) => name = Some(n),
                 KernelArg::Namespace(n) => namespace = Some(n),
-                KernelArg::Category(_) | KernelArg::Variadic | KernelArg::Vectorized => {}
+                KernelArg::Category(_)
+                | KernelArg::Variadic
+                | KernelArg::Vectorized
+                | KernelArg::UnitInference(_) => {}
             }
         }
 
@@ -106,6 +113,7 @@ enum KernelArg {
     Category(String),
     Variadic,
     Vectorized,
+    UnitInference(String),
 }
 
 impl Parse for KernelArg {
@@ -126,6 +134,11 @@ impl Parse for KernelArg {
                 input.parse::<Token![=]>()?;
                 let lit: LitStr = input.parse()?;
                 Ok(KernelArg::Category(lit.value()))
+            }
+            "unit_inference" => {
+                input.parse::<Token![=]>()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::UnitInference(lit.value()))
             }
             "variadic" => Ok(KernelArg::Variadic),
             "vectorized" => Ok(KernelArg::Vectorized),
@@ -175,6 +188,7 @@ fn generate_kernel_registration(
     let category = &args.category;
     let variadic = args.variadic;
     let vectorized = args.vectorized;
+    let unit_inference = &args.unit_inference;
 
     // Extract doc comments
     let doc = func
@@ -364,6 +378,27 @@ fn generate_kernel_registration(
         quote! { None }
     };
 
+    // Parse unit inference specification
+    let unit_inference_value = if let Some(ui_str) = unit_inference {
+        match ui_str.as_str() {
+            "dimensionless" => {
+                quote! { ::continuum_kernel_registry::UnitInference::Dimensionless { requires_angle: false } }
+            }
+            "dimensionless_angle" => {
+                quote! { ::continuum_kernel_registry::UnitInference::Dimensionless { requires_angle: true } }
+            }
+            "preserve_first" => {
+                quote! { ::continuum_kernel_registry::UnitInference::PreserveFirst }
+            }
+            "sqrt" => quote! { ::continuum_kernel_registry::UnitInference::Sqrt },
+            "integrate" => quote! { ::continuum_kernel_registry::UnitInference::Integrate },
+            "decay" => quote! { ::continuum_kernel_registry::UnitInference::Decay },
+            _ => quote! { ::continuum_kernel_registry::UnitInference::None },
+        }
+    } else {
+        quote! { ::continuum_kernel_registry::UnitInference::None }
+    };
+
     Ok(quote! {
         #func
 
@@ -380,6 +415,7 @@ fn generate_kernel_registration(
                 arity: #arity,
                 implementation: #impl_variant,
                 vectorized_impl: #vectorized_impl,
+                unit_inference: #unit_inference_value,
             }
         };
     })

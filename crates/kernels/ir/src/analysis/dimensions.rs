@@ -154,73 +154,81 @@ fn infer_unit(
             function,
             args,
         } => {
-            match (namespace.as_str(), function.as_str()) {
-                ("maths", "sin") | ("maths", "cos") | ("maths", "tan") => {
-                    let u = infer_unit(&args[0], world, symbol_units, current_signal)?;
-                    if u.is_angle() || u.is_dimensionless() {
-                        Ok(Unit::dimensionless())
-                    } else {
-                        Err(DimensionError::RequiresAngle {
-                            function: function.clone(),
-                            found: u,
-                        })
-                    }
-                }
-                ("maths", "abs") | ("maths", "min") | ("maths", "max") | ("maths", "clamp") => {
-                    // All args should match
-                    let u0 = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
-                    for arg in args.iter().skip(1) {
-                        let ui = infer_unit(arg, world, symbol_units, current_signal.clone())?;
-                        if ui != u0 {
-                            return Err(DimensionError::IncompatibleUnits {
-                                expected: u0,
-                                found: ui,
-                                operation: format!("maths call '{}'", function),
-                            });
+            // Query kernel registry for unit inference strategy
+            if let Some(descriptor) =
+                continuum_kernel_registry::get_in_namespace(namespace, function)
+            {
+                use continuum_kernel_registry::UnitInference;
+                match descriptor.unit_inference {
+                    UnitInference::Dimensionless { requires_angle } => {
+                        let u = infer_unit(&args[0], world, symbol_units, current_signal)?;
+                        if requires_angle && !(u.is_angle() || u.is_dimensionless()) {
+                            Err(DimensionError::RequiresAngle {
+                                function: function.clone(),
+                                found: u,
+                            })
+                        } else {
+                            Ok(Unit::dimensionless())
                         }
                     }
-                    Ok(u0)
-                }
-                ("maths", "sqrt") => {
-                    let u = infer_unit(&args[0], world, symbol_units, current_signal)?;
-                    u.sqrt().ok_or(DimensionError::InvalidSqrt { unit: u })
-                }
-                ("dt", "integrate")
-                | ("dt", "integrate_euler")
-                | ("dt", "integrate_rk4")
-                | ("dt", "integrate_verlet") => {
-                    // integrate(prev, rate) -> prev + rate * dt
-                    let u_prev = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
-                    let u_rate = infer_unit(&args[1], world, symbol_units, current_signal)?;
-                    let u_dt = Unit::parse("s").unwrap();
-                    let u_integrated = u_rate.multiply(&u_dt);
+                    UnitInference::PreserveFirst => {
+                        // All args should match
+                        let u0 = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
+                        for arg in args.iter().skip(1) {
+                            let ui = infer_unit(arg, world, symbol_units, current_signal.clone())?;
+                            if ui != u0 {
+                                return Err(DimensionError::IncompatibleUnits {
+                                    expected: u0,
+                                    found: ui,
+                                    operation: format!("{}.{}", namespace, function),
+                                });
+                            }
+                        }
+                        Ok(u0)
+                    }
+                    UnitInference::Sqrt => {
+                        let u = infer_unit(&args[0], world, symbol_units, current_signal)?;
+                        u.sqrt().ok_or(DimensionError::InvalidSqrt { unit: u })
+                    }
+                    UnitInference::Integrate => {
+                        // integrate(prev, rate) -> prev + rate * dt
+                        let u_prev =
+                            infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
+                        let u_rate = infer_unit(&args[1], world, symbol_units, current_signal)?;
+                        let u_dt = Unit::parse("s").unwrap();
+                        let u_integrated = u_rate.multiply(&u_dt);
 
-                    if u_prev == u_integrated {
-                        Ok(u_prev)
-                    } else {
-                        Err(DimensionError::IncompatibleUnits {
-                            expected: u_prev,
-                            found: u_integrated,
-                            operation: function.clone(),
-                        })
+                        if u_prev == u_integrated {
+                            Ok(u_prev)
+                        } else {
+                            Err(DimensionError::IncompatibleUnits {
+                                expected: u_prev,
+                                found: u_integrated,
+                                operation: function.clone(),
+                            })
+                        }
                     }
-                }
-                ("dt", "decay") => {
-                    // decay(value, halflife) -> value * 0.5^(dt/halflife)
-                    let u_val = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
-                    let u_half = infer_unit(&args[1], world, symbol_units, current_signal)?;
-                    let u_dt = Unit::parse("s").unwrap();
-                    if u_half == u_dt || u_half.is_dimensionless() {
-                        Ok(u_val)
-                    } else {
-                        Err(DimensionError::IncompatibleUnits {
-                            expected: u_dt,
-                            found: u_half,
-                            operation: "decay halflife".to_string(),
-                        })
+                    UnitInference::Decay => {
+                        // decay(value, halflife) -> value * 0.5^(dt/halflife)
+                        let u_val =
+                            infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
+                        let u_half = infer_unit(&args[1], world, symbol_units, current_signal)?;
+                        let u_dt = Unit::parse("s").unwrap();
+                        if u_half == u_dt || u_half.is_dimensionless() {
+                            Ok(u_val)
+                        } else {
+                            Err(DimensionError::IncompatibleUnits {
+                                expected: u_dt,
+                                found: u_half,
+                                operation: "decay halflife".to_string(),
+                            })
+                        }
                     }
+                    UnitInference::None => Ok(Unit::dimensionless()),
                 }
-                _ => Ok(Unit::dimensionless()),
+            } else {
+                // Function not found in registry - default to dimensionless
+                Ok(Unit::dimensionless())
             }
         }
 

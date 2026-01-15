@@ -7,13 +7,13 @@ use continuum_kernel_macros::kernel_fn;
 // === Basic math ===
 
 /// Absolute value: `abs(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(namespace = "maths", unit_inference = "preserve_first")]
 pub fn abs(x: f64) -> f64 {
     x.abs()
 }
 
 /// Square root: `sqrt(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(namespace = "maths", unit_inference = "sqrt")]
 pub fn sqrt(x: f64) -> f64 {
     x.sqrt()
 }
@@ -25,7 +25,7 @@ pub fn pow(base: f64, exp: f64) -> f64 {
 }
 
 /// Clamp: `clamp(value, min, max)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(namespace = "maths", unit_inference = "preserve_first")]
 pub fn clamp(value: f64, min: f64, max: f64) -> f64 {
     value.clamp(min, max)
 }
@@ -65,19 +65,19 @@ pub fn saturate(x: f64) -> f64 {
 // === Trigonometry ===
 
 /// Sine: `sin(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(namespace = "maths", unit_inference = "dimensionless_angle")]
 pub fn sin(x: f64) -> f64 {
     x.sin()
 }
 
 /// Cosine: `cos(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(namespace = "maths", unit_inference = "dimensionless_angle")]
 pub fn cos(x: f64) -> f64 {
     x.cos()
 }
 
 /// Tangent: `tan(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(namespace = "maths", unit_inference = "dimensionless_angle")]
 pub fn tan(x: f64) -> f64 {
     x.tan()
 }
@@ -273,13 +273,13 @@ pub fn wrap(value: f64, min: f64, max: f64) -> f64 {
 // === Variadic ===
 
 /// Minimum: `min(a, b, ...)`
-#[kernel_fn(namespace = "maths", variadic)]
+#[kernel_fn(namespace = "maths", variadic, unit_inference = "preserve_first")]
 pub fn min(args: &[f64]) -> f64 {
     args.iter().cloned().fold(f64::INFINITY, f64::min)
 }
 
 /// Maximum: `max(a, b, ...)`
-#[kernel_fn(namespace = "maths", variadic)]
+#[kernel_fn(namespace = "maths", variadic, unit_inference = "preserve_first")]
 pub fn max(args: &[f64]) -> f64 {
     args.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
 }
