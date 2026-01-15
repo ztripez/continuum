@@ -144,6 +144,21 @@ pub struct SignalDescribeRequest {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+pub struct StratumDescribeRequest {
+    pub stratum_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EraDescribeRequest {
+    pub era_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EntityDescribeRequest {
+    pub entity_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct FieldTileRequest {
     pub field_id: String,
     pub tile: TileAddress,
@@ -190,6 +205,7 @@ pub enum IpcCommand {
         count: Option<u64>,
     },
     Stop,
+    WorldInfo,
     SignalList,
     SignalDescribe {
         signal_id: String,
@@ -238,6 +254,18 @@ pub enum IpcCommand {
         impulse_id: String,
         payload: Value,
     },
+    StratumList,
+    StratumDescribe {
+        stratum_id: String,
+    },
+    EraList,
+    EraDescribe {
+        era_id: String,
+    },
+    EntityList,
+    EntityDescribe {
+        entity_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -258,6 +286,7 @@ pub struct IpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcResponsePayload {
     Status(StatusPayload),
+    WorldInfo(WorldInfo),
     SignalList(SignalListPayload),
     SignalDescribe(SignalInfo),
     FieldList(FieldListPayload),
@@ -270,6 +299,12 @@ pub enum IpcResponsePayload {
     ImpulseList(ImpulseListPayload),
     ImpulseEmit(ImpulseEmitPayload),
     Playback(PlaybackPayload),
+    StratumList(StratumListPayload),
+    StratumDescribe(StratumInfo),
+    EraList(EraListPayload),
+    EraDescribe(EraInfo),
+    EntityList(EntityListPayload),
+    EntityDescribe(EntityInfo),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -362,6 +397,53 @@ pub struct ImpulseInfo {
     pub payload_type: String,
     pub unit: Option<String>,
     pub range: Option<(f64, f64)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldInfo {
+    pub strata: Vec<StratumInfo>,
+    pub eras: Vec<EraInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StratumListPayload {
+    pub strata: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StratumInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub symbol: Option<String>,
+    pub default_stride: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EraListPayload {
+    pub eras: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EraInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub is_initial: bool,
+    pub is_terminal: bool,
+    pub dt_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityListPayload {
+    pub entities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub count_bounds: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -484,6 +566,7 @@ impl JsonValue {
 
 pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
     let payload = match &response.payload {
+        Some(IpcResponsePayload::WorldInfo(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::Status(p)) => {
             let mut map = serde_json::Map::new();
             map.insert("tick".to_string(), serde_json::json!(p.tick));
@@ -550,6 +633,12 @@ pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
             );
             Some(serde_json::Value::Object(map))
         }
+        Some(IpcResponsePayload::StratumList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::StratumDescribe(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::EraList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::EraDescribe(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::EntityList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::EntityDescribe(p)) => serde_json::to_value(p).ok(),
         None => None,
     };
     JsonResponse {
@@ -574,6 +663,7 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
             IpcCommand::Run { count: req.count }
         }
         "stop" => IpcCommand::Stop,
+        "world.info" => IpcCommand::WorldInfo,
         "signal.list" => IpcCommand::SignalList,
         "signal.describe" => {
             let req: SignalDescribeRequest = serde_json::from_value(request.payload)?;
@@ -651,6 +741,25 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
             IpcCommand::ImpulseEmit {
                 impulse_id: req.impulse_id,
                 payload: req.payload.to_value(),
+            }
+        }
+        "stratum.list" => IpcCommand::StratumList,
+        "stratum.describe" => {
+            let req: StratumDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::StratumDescribe {
+                stratum_id: req.stratum_id,
+            }
+        }
+        "era.list" => IpcCommand::EraList,
+        "era.describe" => {
+            let req: EraDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::EraDescribe { era_id: req.era_id }
+        }
+        "entity.list" => IpcCommand::EntityList,
+        "entity.describe" => {
+            let req: EntityDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::EntityDescribe {
+                entity_id: req.entity_id,
             }
         }
         _ => anyhow::bail!("unknown request type: {}", request.kind),

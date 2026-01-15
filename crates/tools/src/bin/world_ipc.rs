@@ -20,11 +20,12 @@ use continuum_ir::CompiledWorld;
 use continuum_lens::{FieldLens, FieldLensConfig, PlaybackClock};
 use continuum_runtime::executor::Runtime;
 use continuum_tools::ipc_protocol::{
-    ChronicleEvent, ChroniclePollPayload, FieldHistoryPayload, FieldInfo, FieldLatestPayload,
-    FieldListPayload, FieldQueryBatchPayload, FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo,
-    ImpulseListPayload, IpcCommand, IpcEvent, IpcFrame, IpcRequest, IpcResponse,
-    IpcResponsePayload, JsonValue, PlaybackPayload, SignalInfo, SignalListPayload, StatusPayload,
-    TickEvent, read_frame, write_frame,
+    ChronicleEvent, ChroniclePollPayload, EntityInfo, EntityListPayload, EraInfo, EraListPayload,
+    FieldHistoryPayload, FieldInfo, FieldLatestPayload, FieldListPayload, FieldQueryBatchPayload,
+    FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo, ImpulseListPayload, IpcCommand, IpcEvent,
+    IpcFrame, IpcRequest, IpcResponse, IpcResponsePayload, JsonValue, PlaybackPayload, SignalInfo,
+    SignalListPayload, StatusPayload, StratumInfo, StratumListPayload, TickEvent, WorldInfo,
+    read_frame, write_frame,
 };
 
 #[derive(Parser, Debug)]
@@ -371,6 +372,43 @@ async fn handle_command(
                 error: None,
             })
         }
+        IpcCommand::WorldInfo => {
+            let state = state.lock().await;
+
+            let strata = state
+                .world
+                .strata()
+                .values()
+                .map(|s| StratumInfo {
+                    id: s.id.to_string(),
+                    doc: s.doc.clone(),
+                    title: s.title.clone(),
+                    symbol: s.symbol.clone(),
+                    default_stride: s.default_stride,
+                })
+                .collect();
+
+            let eras = state
+                .world
+                .eras()
+                .values()
+                .map(|e| EraInfo {
+                    id: e.id.to_string(),
+                    doc: e.doc.clone(),
+                    title: e.title.clone(),
+                    is_initial: e.is_initial,
+                    is_terminal: e.is_terminal,
+                    dt_seconds: e.dt_seconds,
+                })
+                .collect();
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::WorldInfo(WorldInfo { strata, eras })),
+                error: None,
+            })
+        }
         IpcCommand::SignalList => {
             let state = state.lock().await;
             Ok(IpcResponse {
@@ -652,6 +690,118 @@ async fn handle_command(
                     seq,
                     applied_tick,
                 })),
+                error: None,
+            })
+        }
+        IpcCommand::StratumList => {
+            let state = state.lock().await;
+            let strata = state
+                .world
+                .strata()
+                .keys()
+                .map(|id| id.to_string())
+                .collect();
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::StratumList(StratumListPayload {
+                    strata,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::StratumDescribe { stratum_id } => {
+            let state = state.lock().await;
+            let sid = continuum_foundation::StratumId::from(stratum_id.as_str());
+            let strata = state.world.strata();
+            let stratum = strata
+                .get(&sid)
+                .ok_or_else(|| anyhow::anyhow!("stratum '{}' not found", stratum_id))?;
+
+            let info = StratumInfo {
+                id: stratum_id,
+                doc: stratum.doc.clone(),
+                title: stratum.title.clone(),
+                symbol: stratum.symbol.clone(),
+                default_stride: stratum.default_stride,
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::StratumDescribe(info)),
+                error: None,
+            })
+        }
+        IpcCommand::EraList => {
+            let state = state.lock().await;
+            let eras = state.world.eras().keys().map(|id| id.to_string()).collect();
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::EraList(EraListPayload { eras })),
+                error: None,
+            })
+        }
+        IpcCommand::EraDescribe { era_id } => {
+            let state = state.lock().await;
+            let eid = continuum_foundation::EraId::from(era_id.as_str());
+            let eras = state.world.eras();
+            let era = eras
+                .get(&eid)
+                .ok_or_else(|| anyhow::anyhow!("era '{}' not found", era_id))?;
+
+            let info = EraInfo {
+                id: era_id,
+                doc: era.doc.clone(),
+                title: era.title.clone(),
+                is_initial: era.is_initial,
+                is_terminal: era.is_terminal,
+                dt_seconds: era.dt_seconds,
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::EraDescribe(info)),
+                error: None,
+            })
+        }
+        IpcCommand::EntityList => {
+            let state = state.lock().await;
+            let entities = state
+                .world
+                .entities()
+                .keys()
+                .map(|id| id.to_string())
+                .collect();
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::EntityList(EntityListPayload {
+                    entities,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::EntityDescribe { entity_id } => {
+            let state = state.lock().await;
+            let eid = continuum_foundation::EntityId::from(entity_id.as_str());
+            let entities = state.world.entities();
+            let entity = entities
+                .get(&eid)
+                .ok_or_else(|| anyhow::anyhow!("entity '{}' not found", entity_id))?;
+
+            let info = EntityInfo {
+                id: entity_id,
+                doc: entity.doc.clone(),
+                count_bounds: entity.count_bounds,
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::EntityDescribe(info)),
                 error: None,
             })
         }
