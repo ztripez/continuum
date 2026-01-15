@@ -136,6 +136,20 @@ pub fn normalize(args: &[Value]) -> Value {
     }
 }
 
+/// Dot product: `dot(a, b)` -> Scalar
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn dot(args: &[Value]) -> f64 {
+    if args.len() != 2 {
+        panic!("vector.dot expects exactly 2 arguments");
+    }
+    match (&args[0], &args[1]) {
+        (Value::Vec2(a), Value::Vec2(b)) => a[0] * b[0] + a[1] * b[1],
+        (Value::Vec3(a), Value::Vec3(b)) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
+        (Value::Vec4(a), Value::Vec4(b)) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3],
+        _ => panic!("vector.dot requires two vectors of same dimension"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -188,5 +202,50 @@ mod tests {
         let args = [Value::Scalar(1.0), Value::Scalar(2.0), Value::Scalar(3.0)];
         let res = vec(&args);
         assert_eq!(res, Value::Vec3([1.0, 2.0, 3.0]));
+    }
+
+    #[test]
+    fn test_dot_vec2() {
+        let a = Value::Vec2([1.0, 2.0]);
+        let b = Value::Vec2([3.0, 4.0]);
+        let result = dot(&[a, b]);
+        assert_eq!(result, 11.0); // 1*3 + 2*4 = 3 + 8 = 11
+    }
+
+    #[test]
+    fn test_dot_vec3() {
+        let a = Value::Vec3([1.0, 0.0, 0.0]);
+        let b = Value::Vec3([0.0, 1.0, 0.0]);
+        let result = dot(&[a, b]);
+        assert_eq!(result, 0.0); // Perpendicular vectors
+    }
+
+    #[test]
+    fn test_dot_vec3_parallel() {
+        let a = Value::Vec3([2.0, 0.0, 0.0]);
+        let b = Value::Vec3([3.0, 0.0, 0.0]);
+        let result = dot(&[a, b]);
+        assert_eq!(result, 6.0); // Parallel vectors
+    }
+
+    #[test]
+    fn test_dot_vec4() {
+        let a = Value::Vec4([1.0, 2.0, 3.0, 4.0]);
+        let b = Value::Vec4([1.0, 1.0, 1.0, 1.0]);
+        let result = dot(&[a, b]);
+        assert_eq!(result, 10.0); // 1+2+3+4
+    }
+
+    #[test]
+    #[should_panic(expected = "same dimension")]
+    fn test_dot_dimension_mismatch() {
+        let a = Value::Vec2([1.0, 2.0]);
+        let b = Value::Vec3([1.0, 2.0, 3.0]);
+        let _ = dot(&[a, b]);
+    }
+
+    #[test]
+    fn test_dot_registered() {
+        assert!(is_known_in("vector", "dot"));
     }
 }
