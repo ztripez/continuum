@@ -717,6 +717,14 @@ impl TypeCheckContext {
             );
         }
 
+        // Collect field types (for observation expressions that reference fields)
+        for (id, field) in world.fields() {
+            signal_types.insert(
+                id.to_string(),
+                InferredShape::from_value_type(&field.value_type),
+            );
+        }
+
         Self {
             signal_types,
             local_types: HashMap::new(),
@@ -798,6 +806,13 @@ fn check_type_compatibility(world: &CompiledWorld, warnings: &mut Vec<CompileWar
     for (op_id, operator) in world.operators() {
         if let Some(body) = &operator.body {
             check_expr_types(body, &format!("operator.{}", op_id), &ctx, warnings);
+        }
+    }
+
+    // Check impulses
+    for (impulse_id, impulse) in world.impulses() {
+        if let Some(apply) = &impulse.apply {
+            check_expr_types(apply, &format!("impulse.{}", impulse_id), &ctx, warnings);
         }
     }
 }
@@ -1746,5 +1761,91 @@ signal.test.invalid {
         // This might not trigger if we can't infer the type of vector.new2
         // but it tests the let binding propagation
         // The test passes even without type warning since function return types aren't inferred
+    }
+
+    #[test]
+    fn test_field_type_checking() {
+        // Fields should have their expressions type-checked
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+signal.test.vec2 {
+    : Vec2<m>
+    : strata(test)
+    resolve { prev }
+}
+
+signal.test.vec3 {
+    : Vec3<m>
+    : strata(test)
+    resolve { prev }
+}
+
+field.test.invalid_measure {
+    : Vec3<m>
+    : strata(test)
+    measure { signal.test.vec2 + signal.test.vec3 }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        let type_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::TypeMismatch)
+            .collect();
+        assert_eq!(
+            type_warnings.len(),
+            1,
+            "expected TypeMismatch warning for field measure with Vec2 + Vec3"
+        );
+        assert!(
+            type_warnings[0]
+                .entity
+                .contains("field.test.invalid_measure")
+        );
+    }
+
+    #[test]
+    fn test_fracture_emit_type_checking() {
+        // Fracture emit expressions should be type-checked
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+signal.test.vec2 {
+    : Vec2<m>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+signal.test.vec3 {
+    : Vec3<m>
+    : strata(test)
+    resolve { prev + collected }
+}
+
+fracture.test.tension {
+    : strata(test)
+    when { signal.test.vec2.x > 10.0 }
+    emit { signal.test.vec3 <- signal.test.vec2 + signal.test.vec3 }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        let type_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::TypeMismatch)
+            .collect();
+        assert_eq!(
+            type_warnings.len(),
+            1,
+            "expected TypeMismatch warning for fracture emit with Vec2 + Vec3"
+        );
+        assert!(type_warnings[0].entity.contains("fracture.test.tension"));
     }
 }
