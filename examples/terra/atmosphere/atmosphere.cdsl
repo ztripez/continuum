@@ -75,21 +75,21 @@ config {
 # =============================================================================
 
 /// Tetens formula for saturation vapor pressure
-fn.atmosphere.saturation_vapor_pressure(temperature_k) {
+fn atmosphere.saturation_vapor_pressure(temperature_k) {
     # e_sat(T) = 610.94 * maths.exp((17.625 * T_C) / (T_C + 243.04))
     let t_celsius = temperature_k - 273.15 in
     610.94 * maths.exp((17.625 * t_celsius) / (t_celsius + 243.04))
 }
 
 /// Equilibrium water vapor column mass
-fn.atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
+fn atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
     let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k) in
     let rh = maths.clamp(relative_humidity, 0.0, 1.0) in
     (e_sat * rh * scale_height_m) / (461.0 * surface_temp_k)
 }
 
 # Effective greenhouse emissivity
-fn.atmosphere.effective_emissivity(base_emissivity, tau_greenhouse) {
+fn atmosphere.effective_emissivity(base_emissivity, tau_greenhouse) {
     base_emissivity / (1.0 + 0.75 * tau_greenhouse)
 }
 
@@ -97,7 +97,7 @@ fn.atmosphere.effective_emissivity(base_emissivity, tau_greenhouse) {
 # External Radiative Forcing
 # =============================================================================
 
-signal.atmosphere.external_power {
+signal atmosphere.external_power {
     : Scalar<W, 0..1e20>
     : strata(atmosphere)
     : title("External Radiative Power")
@@ -118,7 +118,7 @@ signal.atmosphere.external_power {
 # =============================================================================
 
 # Mean surface temperature
-signal.atmosphere.surface_temp {
+signal atmosphere.surface_temp {
     : Vec3<K>
     : strata(atmosphere)
     : title("Surface Temperature")
@@ -161,7 +161,7 @@ signal.atmosphere.surface_temp {
 # Water Vapor Feedback (Clausius-Clapeyron)
 # =============================================================================
 
-signal.atmosphere.water_vapor {
+signal atmosphere.water_vapor {
     : Scalar<kg/m², 0.1..200>
     : strata(atmosphere)
     : title("Water Vapor Column")
@@ -193,7 +193,7 @@ signal.atmosphere.water_vapor {
 # Atmospheric Composition
 # =============================================================================
 
-signal.atmosphere.co2_ppmv {
+signal atmosphere.co2_ppmv {
     : Scalar<ppmv, 100..10000>
     : strata(atmosphere)
     : title("CO2 Concentration")
@@ -218,7 +218,7 @@ signal.atmosphere.co2_ppmv {
 
 # Methane concentration in atmosphere
 # Important greenhouse gas with ~12 year lifetime
-signal.atmosphere.ch4_ppmv {
+signal atmosphere.ch4_ppmv {
     : Scalar<ppmv, 0..50>
     : strata(atmosphere)
     : title("CH4 Concentration")
@@ -245,7 +245,7 @@ signal.atmosphere.ch4_ppmv {
 # Cloud Cover
 # =============================================================================
 
-signal.atmosphere.cloud_cover {
+signal atmosphere.cloud_cover {
     : Scalar<1, 0..1>
     : strata(atmosphere)
     : title("Cloud Cover Fraction")
@@ -275,7 +275,7 @@ signal.atmosphere.cloud_cover {
 # Atmospheric Optical Depth (Greenhouse)
 # =============================================================================
 
-signal.atmosphere.tau_greenhouse {
+signal atmosphere.tau_greenhouse {
     : Scalar<1, 0..10>
     : strata(atmosphere)
     : title("Greenhouse Optical Depth")
@@ -305,7 +305,7 @@ signal.atmosphere.tau_greenhouse {
 # Atmospheric Pressure
 # =============================================================================
 
-signal.atmosphere.pressure {
+signal atmosphere.pressure {
     : Scalar<Pa, 0..1e8>
     : strata(atmosphere)
     : title("Surface Atmospheric Pressure")
@@ -333,7 +333,7 @@ signal.atmosphere.pressure {
 # =============================================================================
 
 # Ice/snow fraction of planetary surface
-signal.atmosphere.ice_fraction {
+signal atmosphere.ice_fraction {
     : Scalar<1, 0..1>
     : strata(atmosphere)
     : title("Ice Fraction")
@@ -381,7 +381,7 @@ signal.atmosphere.ice_fraction {
 }
 
 # Effective planetary albedo with ice-albedo feedback
-signal.atmosphere.albedo {
+signal atmosphere.albedo {
     : Scalar<1, 0..1>
     : strata(atmosphere)
     : title("Effective Planetary Albedo")
@@ -422,7 +422,7 @@ signal.atmosphere.albedo {
 # Solar Insolation (from stellar domain coupling)
 # =============================================================================
 
-signal.atmosphere.solar_constant {
+signal atmosphere.solar_constant {
     : Scalar<W/m², 0..1e5>
     : strata(atmosphere)
     : title("Solar Constant")
@@ -445,7 +445,7 @@ signal.atmosphere.solar_constant {
 }
 
 # Absorbed solar radiation (after albedo reflection)
-signal.atmosphere.absorbed_radiation {
+signal atmosphere.absorbed_radiation {
     : Scalar<W/m², 0..1e5>
     : strata(atmosphere)
     : title("Absorbed Solar Radiation")
@@ -469,7 +469,7 @@ signal.atmosphere.absorbed_radiation {
 # =============================================================================
 
 # Runaway greenhouse threshold
-fracture.atmosphere.runaway_greenhouse {
+fracture atmosphere.runaway_greenhouse {
     when {
         signal.atmosphere.surface_temp.x > 350.0 <K>
         signal.atmosphere.water_vapor > 150.0
@@ -482,7 +482,7 @@ fracture.atmosphere.runaway_greenhouse {
 }
 
 # Ice age trigger
-fracture.atmosphere.ice_age {
+fracture atmosphere.ice_age {
     when {
         signal.atmosphere.surface_temp.x < 270.0 <K>
         signal.atmosphere.co2_ppmv < 200.0
@@ -500,7 +500,7 @@ fracture.atmosphere.ice_age {
 
 # Volcanic CO2 coupling: tectonic activity -> atmospheric CO2 emissions
 # Represents background volcanic outgassing from ridges, subduction, hotspots
-fracture.atmosphere.volcanic_co2_coupling {
+fracture atmosphere.volcanic_co2_coupling {
     : strata(atmosphere)
 
     config {
@@ -534,7 +534,7 @@ fracture.atmosphere.volcanic_co2_coupling {
 
 # Silicate weathering CO2 sink (carbonate-silicate cycle)
 # Long-term climate thermostat: warmer -> more weathering -> CO2 removal -> cooling
-fracture.atmosphere.silicate_weathering {
+fracture atmosphere.silicate_weathering {
     : strata(atmosphere)
 
     config {
@@ -582,7 +582,7 @@ fracture.atmosphere.silicate_weathering {
 
 # Ocean CO2 absorption: temperature-dependent CO2 solubility
 # Cold oceans absorb more CO2, warm oceans release CO2
-fracture.atmosphere.ocean_co2_exchange {
+fracture atmosphere.ocean_co2_exchange {
     : strata(atmosphere)
 
     config {
@@ -616,7 +616,7 @@ fracture.atmosphere.ocean_co2_exchange {
 
 # Methane oxidation: CH4 -> CO2 conversion in atmosphere
 # Long-term methane sink, short-term CO2 source
-fracture.atmosphere.methane_oxidation {
+fracture atmosphere.methane_oxidation {
     : strata(atmosphere)
 
     config {
@@ -648,7 +648,7 @@ fracture.atmosphere.methane_oxidation {
 # Atmosphere Fields
 # =============================================================================
 
-field.atmosphere.temperature {
+field atmosphere.temperature {
     : Scalar<K>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -659,7 +659,7 @@ field.atmosphere.temperature {
     }
 }
 
-field.atmosphere.water_vapor_map {
+field atmosphere.water_vapor_map {
     : Scalar<kg/m²>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -670,7 +670,7 @@ field.atmosphere.water_vapor_map {
     }
 }
 
-field.atmosphere.cloud_map {
+field atmosphere.cloud_map {
     : Scalar<1>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -681,7 +681,7 @@ field.atmosphere.cloud_map {
     }
 }
 
-field.atmosphere.co2_map {
+field atmosphere.co2_map {
     : Scalar<ppmv>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -692,7 +692,7 @@ field.atmosphere.co2_map {
     }
 }
 
-field.atmosphere.pressure_map {
+field atmosphere.pressure_map {
     : Scalar<Pa>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -703,7 +703,7 @@ field.atmosphere.pressure_map {
     }
 }
 
-field.atmosphere.ice_fraction_map {
+field atmosphere.ice_fraction_map {
     : Scalar<1>
     : strata(atmosphere)
     : topology(sphere_surface)
@@ -714,7 +714,7 @@ field.atmosphere.ice_fraction_map {
     }
 }
 
-field.atmosphere.albedo_map {
+field atmosphere.albedo_map {
     : Scalar<1>
     : strata(atmosphere)
     : topology(sphere_surface)
@@ -725,7 +725,7 @@ field.atmosphere.albedo_map {
     }
 }
 
-field.atmosphere.solar_constant_map {
+field atmosphere.solar_constant_map {
     : Scalar<W/m²>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -736,7 +736,7 @@ field.atmosphere.solar_constant_map {
     }
 }
 
-field.atmosphere.absorbed_radiation_map {
+field atmosphere.absorbed_radiation_map {
     : Scalar<W/m²>
     : strata(atmosphere)
     : topology(sphere_surface)

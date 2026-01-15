@@ -932,15 +932,15 @@ mod tests {
     #[test]
     fn test_compile_simple_signal() {
         let src = r#"
-            strata.terra {
+            strata terra {
                 : title("Terra")
             }
 
-            era.hadean {
+            era hadean {
                 : initial
             }
 
-            signal.terra.temp {
+            signal terra.temp {
                 : strata(terra)
                 resolve { prev + 1.0 }
             }
@@ -960,23 +960,23 @@ mod tests {
     #[test]
     fn test_compile_signal_dependencies() {
         let src = r#"
-            strata.terra {}
+            strata terra {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            signal.terra.a {
+            signal terra.a {
                 : strata(terra)
                 resolve { 1.0 }
             }
 
-            signal.terra.b {
+            signal terra.b {
                 : strata(terra)
                 resolve { signal.terra.a * 2.0 }
             }
 
-            signal.terra.c {
+            signal terra.c {
                 : strata(terra)
                 resolve { signal.terra.b + signal.terra.a }
             }
@@ -994,17 +994,17 @@ mod tests {
     #[test]
     fn test_compile_member_signal() {
         let src = r#"
-            strata.human {}
+            strata human {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.human.person {
+            entity human.person {
                 : count(1..100)
             }
 
-            member.human.person.age {
+            member human.person.age {
                 : Scalar
                 : strata(human)
                 resolve { prev + 1.0 }
@@ -1026,23 +1026,23 @@ mod tests {
     #[test]
     fn test_compile_multiple_member_signals_same_entity() {
         let src = r#"
-            strata.stellar {}
+            strata stellar {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.stellar.moon {
+            entity stellar.moon {
                 : count(1..10)
             }
 
-            member.stellar.moon.mass {
+            member stellar.moon.mass {
                 : Scalar<kg>
                 : strata(stellar)
                 resolve { prev }
             }
 
-            member.stellar.moon.radius {
+            member stellar.moon.radius {
                 : Scalar<m>
                 : strata(stellar)
                 resolve { prev * 1.01 }
@@ -1065,23 +1065,23 @@ mod tests {
     #[test]
     fn test_compile_aggregate_sum() {
         let src = r#"
-            strata.stellar {}
+            strata stellar {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.stellar.moon {
+            entity stellar.moon {
                 : count(1..10)
             }
 
-            member.stellar.moon.mass {
+            member stellar.moon.mass {
                 : Scalar<kg>
                 : strata(stellar)
                 resolve { prev }
             }
 
-            signal.stellar.total_mass {
+            signal stellar.total_mass {
                 : strata(stellar)
                 resolve { agg.sum(entity.stellar.moon, self.mass) }
             }
@@ -1112,23 +1112,23 @@ mod tests {
         // It doesn't take a body/predicate - the body is implicitly "1"
         // For count aggregates, we need at least one member signal to iterate over
         let src = r#"
-            strata.human {}
+            strata human {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.human.person {
+            entity human.person {
                 : count(1..100)
             }
 
-            member.human.person.age {
+            member human.person.age {
                 : Scalar<s>
                 : strata(human)
                 resolve { prev }
             }
 
-            signal.human.person_count {
+            signal human.person_count {
                 : strata(human)
                 resolve { agg.count(entity.human.person) }
             }
@@ -1149,34 +1149,34 @@ mod tests {
     #[test]
     fn test_compile_multiple_aggregates_in_stratum() {
         let src = r#"
-            strata.stellar {}
+            strata stellar {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.stellar.planet {
+            entity stellar.planet {
                 : count(1..20)
             }
 
-            member.stellar.planet.mass {
+            member stellar.planet.mass {
                 : Scalar<kg>
                 : strata(stellar)
                 resolve { prev }
             }
 
-            member.stellar.planet.radius {
+            member stellar.planet.radius {
                 : Scalar<m>
                 : strata(stellar)
                 resolve { prev }
             }
 
-            signal.stellar.total_mass {
+            signal stellar.total_mass {
                 : strata(stellar)
                 resolve { agg.sum(entity.stellar.planet, self.mass) }
             }
 
-            signal.stellar.max_radius {
+            signal stellar.max_radius {
                 : strata(stellar)
                 resolve { agg.max(entity.stellar.planet, self.radius) }
             }
@@ -1205,18 +1205,18 @@ mod tests {
     #[test]
     fn test_compile_member_referencing_self_field() {
         let src = r#"
-            strata.bio {}
-            era.main { : initial }
+            strata bio {}
+            era main { : initial }
 
-            entity.bio.cell { : count(1..10) }
+            entity bio.cell { : count(1..10) }
 
-            member.bio.cell.energy {
+            member bio.cell.energy {
                 : Scalar
                 : strata(bio)
                 resolve { prev }
             }
 
-            member.bio.cell.health {
+            member bio.cell.health {
                 : Scalar
                 : strata(bio)
                 resolve { self.energy * 0.5 }

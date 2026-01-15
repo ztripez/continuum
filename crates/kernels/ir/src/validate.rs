@@ -1132,10 +1132,10 @@ mod tests {
     #[test]
     fn test_signal_with_range_no_assertion_warns() {
         let src = r#"
-            strata.terra {}
-            era.main { : initial }
+            strata terra {}
+            era main { : initial }
 
-            signal.terra.temp {
+            signal terra.temp {
                 : Scalar<K, 100..10000>
                 : strata(terra)
                 resolve { prev }
@@ -1153,10 +1153,10 @@ mod tests {
     #[test]
     fn test_signal_with_range_and_assertion_no_warning() {
         let src = r#"
-            strata.terra {}
-            era.main { : initial }
+            strata terra {}
+            era main { : initial }
 
-            signal.terra.temp {
+            signal terra.temp {
                 : Scalar<K, 100..10000>
                 : strata(terra)
                 resolve { prev }
@@ -1175,10 +1175,10 @@ mod tests {
     #[test]
     fn test_signal_without_range_no_warning() {
         let src = r#"
-            strata.terra {}
-            era.main { : initial }
+            strata terra {}
+            era main { : initial }
 
-            signal.terra.temp {
+            signal terra.temp {
                 : Scalar<K>
                 : strata(terra)
                 resolve { prev }
@@ -1196,10 +1196,10 @@ mod tests {
         // "colected" is a typo - should be "collected"
         // The parser will treat it as a path/signal reference
         let src = r#"
-            strata.terra {}
-            era.main { : initial }
+            strata terra {}
+            era main { : initial }
 
-            signal.terra.temp {
+            signal terra.temp {
                 : Scalar<K>
                 : strata(terra)
                 resolve { prev + colected }
@@ -1222,10 +1222,10 @@ mod tests {
     #[test]
     fn test_unknown_function_warns() {
         let src = r#"
-            strata.terra {}
-            era.main { : initial }
+            strata terra {}
+            era main { : initial }
 
-            signal.terra.temp {
+            signal terra.temp {
                 : Scalar<K>
                 : strata(terra)
                 resolve { unknownfunc(prev) }
@@ -1255,10 +1255,10 @@ mod tests {
                 thermal.decay_halflife: 1.0
             }
 
-            strata.terra {}
-            era.main { : initial }
+            strata terra {}
+            era main { : initial }
 
-            signal.terra.temp {
+            signal terra.temp {
                 : Scalar<K>
                 : strata(terra)
                 resolve { dt.decay(prev, config.thermal.decay_halflife) + collected }
@@ -1289,10 +1289,10 @@ mod tests {
     fn test_uninitialized_member_warns() {
         // Note: member signals can be defined without entity declaration for lowering
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-member.test.entity.value {
+member test.entity.value {
     : Scalar<1>
     : strata(test)
     resolve { prev }
@@ -1315,10 +1315,10 @@ member.test.entity.value {
     #[test]
     fn test_member_with_computation_no_warning() {
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-member.test.entity.age {
+member test.entity.age {
     : Scalar<yr>
     : strata(test)
     resolve { dt.integrate(prev, 1.0) }
@@ -1339,14 +1339,14 @@ member.test.entity.age {
     #[test]
     fn test_member_with_initial_no_warning() {
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
 config {
     test.default_value: 25.0
 }
 
-member.test.entity.value {
+member test.entity.value {
     : Scalar<1>
     : strata(test)
     initial { config.test.default_value }
@@ -1371,27 +1371,27 @@ member.test.entity.value {
     #[test]
     fn test_let_binding_in_fracture_emit_no_warning() {
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
 config {
     test.threshold: 100.0
     test.coupling_strength: 0.5
 }
 
-signal.test.heat {
+signal test.heat {
     : Scalar<J>
     : strata(test)
     resolve { prev + collected }
 }
 
-signal.test.flow {
+signal test.flow {
     : Scalar<W>
     : strata(test)
     resolve { prev + collected }
 }
 
-fracture.test.thermal_coupling {
+fracture test.thermal_coupling {
     when {
         signal.test.heat > config.test.threshold
     }
@@ -1424,33 +1424,33 @@ fracture.test.thermal_coupling {
     fn test_multiple_let_bindings_and_emits_no_warning() {
         // Test pattern matching terra fractures: multiple let bindings with multiple emits
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
 config {
     test.burn_fraction: 0.1
     test.release_fraction: 0.8
 }
 
-signal.test.biomass {
+signal test.biomass {
     : Scalar<kg>
     : strata(test)
     resolve { prev + collected }
 }
 
-signal.test.carbon {
+signal test.carbon {
     : Scalar<kg>
     : strata(test)
     resolve { prev + collected }
 }
 
-signal.test.released {
+signal test.released {
     : Scalar<kg>
     : strata(test)
     resolve { prev + collected }
 }
 
-fracture.test.fire {
+fracture test.fire {
     when {
         signal.test.biomass > 10.0
     }
@@ -1495,22 +1495,22 @@ fracture.test.fire {
     #[test]
     fn test_vec2_add_vec3_type_mismatch() {
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.pos2 {
+signal test.pos2 {
     : Vec2<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.pos3 {
+signal test.pos3 {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.invalid {
+signal test.invalid {
     : Vec3<m>
     : strata(test)
     resolve { signal.test.pos2 + signal.test.pos3 }
@@ -1536,22 +1536,22 @@ signal.test.invalid {
     #[test]
     fn test_mat3_mul_vec4_type_mismatch() {
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.matrix {
+signal test.matrix {
     : Mat3<1>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.vec4 {
+signal test.vec4 {
     : Vec4<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.invalid {
+signal test.invalid {
     : Vec3<m>
     : strata(test)
     resolve { signal.test.matrix * signal.test.vec4 }
@@ -1577,22 +1577,22 @@ signal.test.invalid {
     #[test]
     fn test_vec3_add_vec3_no_warning() {
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.pos1 {
+signal test.pos1 {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.pos2 {
+signal test.pos2 {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.sum {
+signal test.sum {
     : Vec3<m>
     : strata(test)
     resolve { signal.test.pos1 + signal.test.pos2 }
@@ -1615,22 +1615,22 @@ signal.test.sum {
     #[test]
     fn test_scalar_mul_vec3_no_warning() {
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.scale {
+signal test.scale {
     : Scalar<1>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.vec {
+signal test.vec {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.scaled {
+signal test.scaled {
     : Vec3<m>
     : strata(test)
     resolve { signal.test.scale * signal.test.vec }
@@ -1653,22 +1653,22 @@ signal.test.scaled {
     #[test]
     fn test_mat3_mul_vec3_no_warning() {
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.matrix {
+signal test.matrix {
     : Mat3<1>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.vec {
+signal test.vec {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.transformed {
+signal test.transformed {
     : Vec3<m>
     : strata(test)
     resolve { signal.test.matrix * signal.test.vec }
@@ -1692,22 +1692,22 @@ signal.test.transformed {
     fn test_comparison_ops_no_type_warning() {
         // Comparison operators should work with any types
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.vec2 {
+signal test.vec2 {
     : Vec2<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.vec3 {
+signal test.vec3 {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.result {
+signal test.result {
     : Scalar<1>
     : strata(test)
     resolve { if signal.test.vec2 > signal.test.vec3 { 1.0 } else { 0.0 } }
@@ -1732,22 +1732,22 @@ signal.test.result {
     fn test_nested_type_error_detected() {
         // Type error in nested expression should be detected
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.vec2 {
+signal test.vec2 {
     : Vec2<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.vec3 {
+signal test.vec3 {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.invalid {
+signal test.invalid {
     : Vec3<m>
     : strata(test)
     resolve { (signal.test.vec2 + signal.test.vec3) * 2.0 }
@@ -1772,16 +1772,16 @@ signal.test.invalid {
     fn test_let_binding_preserves_type() {
         // Let bindings should propagate type info for checking
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.vec3 {
+signal test.vec3 {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.invalid {
+signal test.invalid {
     : Vec3<m>
     : strata(test)
     resolve {
@@ -1810,22 +1810,22 @@ signal.test.invalid {
     fn test_field_type_checking() {
         // Fields should have their expressions type-checked
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.vec2 {
+signal test.vec2 {
     : Vec2<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.vec3 {
+signal test.vec3 {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-field.test.invalid_measure {
+field test.invalid_measure {
     : Vec3<m>
     : strata(test)
     measure { signal.test.vec2 + signal.test.vec3 }
@@ -1855,22 +1855,22 @@ field.test.invalid_measure {
     fn test_fracture_emit_type_checking() {
         // Fracture emit expressions should be type-checked
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.vec2 {
+signal test.vec2 {
     : Vec2<m>
     : strata(test)
     resolve { prev + collected }
 }
 
-signal.test.vec3 {
+signal test.vec3 {
     : Vec3<m>
     : strata(test)
     resolve { prev + collected }
 }
 
-fracture.test.tension {
+fracture test.tension {
     : strata(test)
     when { signal.test.vec2.x > 10.0 }
     emit { signal.test.vec3 <- signal.test.vec2 + signal.test.vec3 }
@@ -1896,22 +1896,22 @@ fracture.test.tension {
     fn test_chronicle_type_checking() {
         // Chronicle handler conditions and event fields should be type-checked
         let src = r#"
-strata.test {}
-era.main { : initial }
+strata test {}
+era main { : initial }
 
-signal.test.vec2 {
+signal test.vec2 {
     : Vec2<m>
     : strata(test)
     resolve { prev }
 }
 
-signal.test.vec3 {
+signal test.vec3 {
     : Vec3<m>
     : strata(test)
     resolve { prev }
 }
 
-chronicle.test.observer {
+chronicle test.observer {
     observe {
         when signal.test.vec2.x > 0.0 {
             emit event.update {

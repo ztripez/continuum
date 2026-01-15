@@ -360,12 +360,12 @@ mod tests {
         source_map.insert(
             PathBuf::from("main.cdsl"),
             r#"
-            world.test { }
-            era.main { : initial }
-            strata.test {}
+            world test { }
+            era main { : initial }
+            strata test {}
 
-            signal.a { : Scalar : strata(test) resolve { signal.b } }
-            signal.b { : Scalar : strata(test) resolve { signal.a } }
+            signal a { : Scalar : strata(test) resolve { signal.b } }
+            signal b { : Scalar : strata(test) resolve { signal.a } }
             "#,
         );
 
@@ -388,14 +388,14 @@ mod tests {
         source_map.insert(
             PathBuf::from("main.cdsl"),
             r#"
-            world.test { }
-            era.main { : initial }
-            strata.test {}
+            world test { }
+            era main { : initial }
+            strata test {}
 
-            signal.used { : Scalar : strata(test) resolve { prev } }
-            signal.unused { : Scalar : strata(test) resolve { prev } }
+            signal used { : Scalar : strata(test) resolve { prev } }
+            signal unused { : Scalar : strata(test) resolve { prev } }
 
-            field.out { : Scalar : strata(test) measure { signal.used } }
+            field out { : Scalar : strata(test) measure { signal.used } }
             "#,
         );
 
@@ -429,20 +429,20 @@ mod tests {
         source_map.insert(
             PathBuf::from("main.cdsl"),
             r#"
-            world.test { }
-            era.main { : initial }
-            strata.test {}
+            world test { }
+            era main { : initial }
+            strata test {}
 
-            signal.length { : Scalar<m> : strata(test) resolve { 10.0 } }
-            signal.time { : Scalar<s> : strata(test) resolve { 2.0 } }
+            signal length { : Scalar<m> : strata(test) resolve { 10.0 } }
+            signal time { : Scalar<s> : strata(test) resolve { 2.0 } }
             
             // This should warn: adding m and s
-            signal.bad { : Scalar<m> : strata(test) resolve { signal.length + signal.time } }
+            signal bad { : Scalar<m> : strata(test) resolve { signal.length + signal.time } }
             
             // This should be fine: m/s
-            signal.velocity { : Scalar<m/s> : strata(test) resolve { signal.length / signal.time } }
+            signal velocity { : Scalar<m/s> : strata(test) resolve { signal.length / signal.time } }
             
-            field.out { : Scalar measure { signal.velocity } }
+            field out { : Scalar measure { signal.velocity } }
             "#,
         );
 

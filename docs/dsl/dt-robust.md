@@ -45,7 +45,7 @@ The engine implements these with proper numerical methods.
 To access raw `dt`, a signal must declare `: dt.raw`:
 
 ```
-signal.terra.rotation.phase {
+signal terra.rotation.phase {
   : Scalar<rad, 0..TAU>
   : strata(terra.rotation)
   : dt.raw  // explicit opt-in
@@ -159,7 +159,7 @@ Operators do NOT:
 Using dt-robust operators does not bypass bounds checking:
 
 ```
-signal.terra.temperature {
+signal terra.temperature {
   : Scalar<K, 0..1e6>  // bounds enforced
   : strata(terra.thermal)
 
@@ -179,7 +179,7 @@ If a value diverges despite using dt-robust operators, the simulation fails loud
 For advanced use, raw dt with explicit method declaration:
 
 ```
-signal.terra.orbit.position {
+signal terra.orbit.position {
   : Vec3<m>
   : strata(terra.orbital)
   : dt.raw
@@ -203,7 +203,7 @@ The `: integrator(...)` annotation documents intent and enables tooling to verif
 ### Temperature Relaxation
 
 ```
-signal.terra.surface.temperature {
+signal terra.surface.temperature {
   : Scalar<K, 50..500>
   : strata(terra.atmosphere)
 
@@ -221,7 +221,7 @@ signal.terra.surface.temperature {
 ### Radioactive Decay
 
 ```
-signal.terra.core.radiogenic_heat {
+signal terra.core.radiogenic_heat {
   : Scalar<W, 0..1e14>
   : strata(terra.thermal)
 
@@ -235,7 +235,7 @@ signal.terra.core.radiogenic_heat {
 ### Orbital Phase (Raw dt)
 
 ```
-signal.terra.orbit.true_anomaly {
+signal terra.orbit.true_anomaly {
   : Scalar<rad, 0..TAU>
   : strata(terra.orbital)
   : dt.raw
@@ -250,7 +250,7 @@ signal.terra.orbit.true_anomaly {
 ### Damped Oscillator
 
 ```
-signal.terra.chandler_wobble {
+signal terra.chandler_wobble {
   : Vec2<rad>
   : strata(terra.rotation)
 

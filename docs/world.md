@@ -106,7 +106,7 @@ The manifest defines **execution policy**, not simulation logic.
 Use the `world` primitive in any `.cdsl` file:
 
 ```cdsl
-world.terra {
+world terra {
     : title("Earth Planetary Simulation")
     : version("1.0.0")
 

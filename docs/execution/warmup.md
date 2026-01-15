@@ -60,7 +60,7 @@ Only signals and operators explicitly tagged for warmup execution participate.
 Signals that require warmup declare a `warmup` block:
 
 ```
-signal.terra.thermal.equilibrium {
+signal terra.thermal.equilibrium {
   : Scalar<K>
   : strata(terra.thermal)
 
@@ -106,7 +106,7 @@ If `convergence` is omitted:
 Operators may also participate in warmup:
 
 ```
-operator.terra.thermal.warmup_budget {
+operator terra.thermal.warmup_budget {
   : strata(terra.thermal)
   : phase(warmup)
 
@@ -218,7 +218,7 @@ config {
   terra.thermal.convergence_rate: 0.05
 }
 
-signal.terra.thermal.equilibrium_temp {
+signal terra.thermal.equilibrium_temp {
   : Scalar<K, 200..6000>
   : strata(terra.thermal)
 
@@ -241,7 +241,7 @@ signal.terra.thermal.equilibrium_temp {
   }
 }
 
-signal.terra.thermal.crust_temp {
+signal terra.thermal.crust_temp {
   : Scalar<K, 200..2000>
   : strata(terra.thermal)
 

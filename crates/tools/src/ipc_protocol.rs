@@ -64,6 +64,10 @@ impl JsonValue {
                 }
                 JsonValue::Struct(fields)
             }
+            Value::Tensor(_) => {
+                // Tensors are not yet supported in JSON serialization
+                JsonValue::Struct(BTreeMap::new())
+            }
         }
     }
 }

@@ -38,22 +38,22 @@
 # =============================================================================
 
 # Compute isostatic buoyancy factor from density contrast
-fn.isostasy.buoyancy_factor(crustal_density, mantle_density) {
+fn isostasy.buoyancy_factor(crustal_density, mantle_density) {
     1.0 - crustal_density / mantle_density
 }
 
 # Compute isostatic elevation from thickness, factor, and reference level
-fn.isostasy.compute_elevation(thickness, factor, reference_level) {
+fn isostasy.compute_elevation(thickness, factor, reference_level) {
     factor * thickness - reference_level
 }
 
 # Compute lithostatic pressure at depth
-fn.pressure.lithostatic(surface_pressure, density, gravity, depth) {
+fn pressure.lithostatic(surface_pressure, density, gravity, depth) {
     surface_pressure + density * gravity * depth
 }
 
 # Compute geothermal temperature at depth
-fn.thermal.geothermal_temp(surface_temp, gradient, depth_km) {
+fn thermal.geothermal_temp(surface_temp, gradient, depth_km) {
     surface_temp + gradient * depth_km
 }
 
@@ -180,7 +180,7 @@ config {
 # Core Planetary Signals
 # =============================================================================
 
-signal.planet.radius {
+signal planet.radius {
     : Scalar<m, 1e6..1e8>
     : strata(genesis)
     : title("Planet Radius")
@@ -196,7 +196,7 @@ signal.planet.radius {
     }
 }
 
-signal.planet.mass {
+signal planet.mass {
     : Scalar<kg, 1e22..1e28>
     : strata(genesis)
     : title("Planet Mass")
@@ -213,7 +213,7 @@ signal.planet.mass {
 }
 
 # Gravitational parameter mu = G * M
-signal.planet.gravity_mu {
+signal planet.gravity_mu {
     : Scalar<m³/s², 1e12..1e18>
     : strata(genesis)
     : title("Gravitational Parameter")
@@ -230,7 +230,7 @@ signal.planet.gravity_mu {
 }
 
 # Surface gravity g = mu / R^2
-signal.planet.surface_gravity {
+signal planet.surface_gravity {
     : Scalar<m/s², 1..50>
     : strata(genesis)
     : title("Surface Gravity")
@@ -251,7 +251,7 @@ signal.planet.surface_gravity {
 # =============================================================================
 
 # Rotation state: phase and angular velocity
-signal.rotation.state {
+signal rotation.state {
     : Vec2<rad>
     : strata(rotation)
     : title("Rotation State")
@@ -277,7 +277,7 @@ signal.rotation.state {
 
 # Axial obliquity (tilt angle from ecliptic normal)
 # Earth: ~23.4 degrees = 0.409 rad
-signal.rotation.obliquity {
+signal rotation.obliquity {
     : Scalar<rad, 0..PI>
     : strata(rotation)
     : title("Axial Obliquity")
@@ -301,7 +301,7 @@ signal.rotation.obliquity {
 
 # Precession angle (rotation of spin axis around ecliptic normal)
 # Earth: completes one cycle in ~26,000 years
-signal.rotation.precession {
+signal rotation.precession {
     : Scalar<rad, 0..TAU>
     : strata(rotation)
     : title("Precession Angle")
@@ -325,7 +325,7 @@ signal.rotation.precession {
 
 # Spin axis in world coordinates (computed from obliquity and precession)
 # +Y is ecliptic normal, spin axis tilts from +Y by obliquity
-signal.rotation.spin_axis {
+signal rotation.spin_axis {
     : Vec3<1>
     : strata(rotation)
     : title("Spin Axis World")
@@ -355,7 +355,7 @@ signal.rotation.spin_axis {
 # Thermal Signals
 # =============================================================================
 
-signal.core.temp {
+signal core.temp {
     : Scalar<K, 100..10000>
     : strata(thermal)
     : title("Core Temperature")
@@ -377,7 +377,7 @@ signal.core.temp {
 }
 
 # Core heat power - net power from core to mantle
-signal.core.heat_power {
+signal core.heat_power {
     : Scalar<W, 0..1e15>
     : strata(thermal)
     : title("Core Heat Power")
@@ -402,7 +402,7 @@ signal.core.heat_power {
 }
 
 # Mantle heat content - thermal reservoir
-signal.mantle.heat_content {
+signal mantle.heat_content {
     : Scalar<J, 1e28..1e32>
     : strata(thermal)
     : title("Mantle Heat Content")
@@ -424,7 +424,7 @@ signal.mantle.heat_content {
     }
 }
 
-signal.mantle.temp {
+signal mantle.temp {
     : Scalar<K, 500..5000>
     : strata(thermal)
     : title("Mantle Temperature")
@@ -446,7 +446,7 @@ signal.mantle.temp {
     }
 }
 
-signal.surface.temp {
+signal surface.temp {
     : Scalar<K, 50..500>
     : strata(thermal)
     : title("Surface Temperature")
@@ -465,7 +465,7 @@ signal.surface.temp {
     }
 }
 
-signal.surface.heat_flow {
+signal surface.heat_flow {
     : Scalar<W/m², 0.01..0.5>
     : strata(thermal)
     : title("Surface Heat Flow")
@@ -491,7 +491,7 @@ signal.surface.heat_flow {
 # Crust Signals - Isostasy Implementation
 # =============================================================================
 
-signal.crust.density {
+signal crust.density {
     : Scalar<kg/m³, 2000..3500>
     : strata(tectonics)
     : title("Crustal Density")
@@ -514,7 +514,7 @@ signal.crust.density {
     }
 }
 
-signal.crust.thickness {
+signal crust.thickness {
     : Scalar<m, 3000..80000>
     : strata(tectonics)
     : title("Crustal Thickness")
@@ -535,7 +535,7 @@ signal.crust.thickness {
     }
 }
 
-signal.crust.total_thickness {
+signal crust.total_thickness {
     : Scalar<m, 0..100000>
     : strata(tectonics)
     : title("Total Crustal Thickness")
@@ -551,7 +551,7 @@ signal.crust.total_thickness {
 }
 
 # Isostatic factor: 1 - (crust_density / mantle_density)
-signal.isostasy.factor {
+signal isostasy.factor {
     : Scalar<1, 0..1>
     : strata(tectonics)
     : title("Isostatic Factor")
@@ -571,7 +571,7 @@ signal.isostasy.factor {
     }
 }
 
-signal.isostasy.reference_level {
+signal isostasy.reference_level {
     : Scalar<m, 0..10000>
     : strata(tectonics)
     : title("Isostatic Reference Level")
@@ -586,7 +586,7 @@ signal.isostasy.reference_level {
     }
 }
 
-signal.isostasy.elevation {
+signal isostasy.elevation {
     : Scalar<m, -15000..15000>
     : strata(tectonics)
     : title("Isostatic Elevation")
@@ -605,7 +605,7 @@ signal.isostasy.elevation {
 # Dynamic Topography
 # =============================================================================
 
-signal.topography.dynamic_offset {
+signal topography.dynamic_offset {
     : Scalar<m, -1200..2400>
     : strata(tectonics)
     : title("Dynamic Topography Offset")
@@ -635,7 +635,7 @@ signal.topography.dynamic_offset {
 # Combined Elevation
 # =============================================================================
 
-signal.crust.elevation {
+signal crust.elevation {
     : Scalar<m, -11000..9000>
     : strata(tectonics)
     : title("Surface Elevation")
@@ -664,7 +664,7 @@ signal.crust.elevation {
 # Derived Crust Properties
 # =============================================================================
 
-signal.crust.pressure_base {
+signal crust.pressure_base {
     : Scalar<kg/m/s², 1e5..3e9>
     : strata(tectonics)
     : title("Base Crustal Pressure")
@@ -686,7 +686,7 @@ signal.crust.pressure_base {
     }
 }
 
-signal.crust.temp_base {
+signal crust.temp_base {
     : Scalar<K, 300..1500>
     : strata(thermal)
     : title("Base Crustal Temperature")
@@ -701,7 +701,7 @@ signal.crust.temp_base {
     }
 }
 
-signal.crust.moho_depth {
+signal crust.moho_depth {
     : Scalar<m, 3000..80000>
     : strata(tectonics)
     : title("Moho Depth")
@@ -720,7 +720,7 @@ signal.crust.moho_depth {
 # Tectonic Signals
 # =============================================================================
 
-signal.tectonics.boundary_stress {
+signal tectonics.boundary_stress {
     : Scalar<N/m², 0..1e9>
     : strata(tectonics)
     : title("Plate Boundary Stress")
@@ -747,7 +747,7 @@ signal.tectonics.boundary_stress {
 }
 
 # Tectonic activity index (from old signals.rs)
-signal.tectonics.activity {
+signal tectonics.activity {
     : Scalar<1, 0..100>
     : strata(tectonics)
     : title("Tectonic Activity")
@@ -774,7 +774,7 @@ signal.tectonics.activity {
 }
 
 # Plate count diagnostic (now derived from plate entity)
-signal.tectonics.plate_count {
+signal tectonics.plate_count {
     : Scalar<1, 0..64>
     : strata(tectonics)
     : title("Plate Count")
@@ -790,7 +790,7 @@ signal.tectonics.plate_count {
 }
 
 # Mantle viscosity diagnostic
-signal.mantle.viscosity {
+signal mantle.viscosity {
     : Scalar<Pa*s, 0..1e24>
     : strata(tectonics)
     : title("Mantle Viscosity")
@@ -819,7 +819,7 @@ signal.mantle.viscosity {
 
 # Effective Rayleigh number - dimensionless measure of convection vigor
 # Ra ~ Q/ν (heat power / viscosity) normalized to Earth-like conditions
-signal.mantle.rayleigh_number {
+signal mantle.rayleigh_number {
     : Scalar<1, 0..1e10>
     : strata(tectonics)
     : title("Effective Rayleigh Number")
@@ -848,7 +848,7 @@ signal.mantle.rayleigh_number {
 
 # Convection cell count - derived from Rayleigh number
 # More vigorous convection produces more cells
-signal.mantle.convection_cells {
+signal mantle.convection_cells {
     : Scalar<1, 2..12>
     : strata(tectonics)
     : title("Convection Cell Count")
@@ -879,7 +879,7 @@ signal.mantle.convection_cells {
 
 # Mantle flow strength - vortex velocity scale (cm/yr)
 # Higher heat power drives more vigorous convection
-signal.mantle.flow_strength {
+signal mantle.flow_strength {
     : Scalar<cm/yr, 0..50>
     : strata(tectonics)
     : title("Mantle Flow Strength")
@@ -908,7 +908,7 @@ signal.mantle.flow_strength {
 # =============================================================================
 
 # Orogeny rate - rate of mountain building from plate collisions
-signal.tectonics.orogeny_rate {
+signal tectonics.orogeny_rate {
     : Scalar<m/Myr, 0..10000>
     : strata(tectonics)
     : title("Orogeny Rate")
@@ -932,7 +932,7 @@ signal.tectonics.orogeny_rate {
 }
 
 # Volcanism index - volcanic activity level from thermal state
-signal.tectonics.volcanism {
+signal tectonics.volcanism {
     : Scalar<1, 0..100>
     : strata(tectonics)
     : title("Volcanism Index")
@@ -959,7 +959,7 @@ signal.tectonics.volcanism {
 }
 
 # Subduction rate - rate at which oceanic crust is recycled
-signal.tectonics.subduction_rate {
+signal tectonics.subduction_rate {
     : Scalar<km²/Myr, 0..10>
     : strata(tectonics)
     : title("Subduction Rate")
@@ -983,7 +983,7 @@ signal.tectonics.subduction_rate {
 }
 
 # Seafloor spreading rate - rate of new oceanic crust creation
-signal.tectonics.spreading_rate {
+signal tectonics.spreading_rate {
     : Scalar<km²/Myr, 0..10>
     : strata(tectonics)
     : title("Seafloor Spreading Rate")
@@ -1010,7 +1010,7 @@ signal.tectonics.spreading_rate {
 # Tectonic Plate Entity
 # =============================================================================
 
-entity.terra.plate {
+entity terra.plate {
     : count(config.plates.count)
     : count(5..64)
 }
@@ -1021,7 +1021,7 @@ entity.terra.plate {
 
 # Plate type: 0 = oceanic, 1 = continental
 # Initialized via scenario or worldgen; 0 = oceanic, 1 = continental
-member.terra.plate.kind {
+member terra.plate.kind {
     : Scalar<1, 0..1>
     : strata(tectonics)
     : title("Plate Type")
@@ -1035,7 +1035,7 @@ member.terra.plate.kind {
 
 # Plate age in millions of years
 # Oceanic plates age and eventually subduct; continental plates can be billions of years old
-member.terra.plate.age {
+member terra.plate.age {
     : Scalar<Myr, 0..5000>
     : strata(tectonics)
     : title("Plate Age")
@@ -1067,7 +1067,7 @@ member.terra.plate.age {
 }
 
 # Plate lithosphere thickness
-member.terra.plate.thickness {
+member terra.plate.thickness {
     : Scalar<m, 5000..70000>
     : strata(tectonics)
     : title("Plate Thickness")
@@ -1091,7 +1091,7 @@ member.terra.plate.thickness {
 
 # Plate buoyancy (0 = dense/subductable, 1 = buoyant/resistant)
 # Lower buoyancy = more likely to subduct
-member.terra.plate.buoyancy {
+member terra.plate.buoyancy {
     : Scalar<1, 0..1>
     : strata(tectonics)
     : title("Plate Buoyancy")
@@ -1118,7 +1118,7 @@ member.terra.plate.buoyancy {
 # -----------------------------------------------------------------------------
 
 # Plate seed direction in body frame (unit vector defining plate center)
-member.terra.plate.seed_direction {
+member terra.plate.seed_direction {
     : Vec3<1>
     : strata(tectonics)
     : title("Plate Seed Direction")
@@ -1142,7 +1142,7 @@ member.terra.plate.seed_direction {
 # -----------------------------------------------------------------------------
 
 # Plate angular velocity (rotation axis and rate in body frame)
-member.terra.plate.omega {
+member terra.plate.omega {
     : Vec3<rad/s>
     : strata(tectonics)
     : title("Plate Angular Velocity")
@@ -1162,7 +1162,7 @@ member.terra.plate.omega {
 }
 
 # Plate surface velocity magnitude at equator of rotation
-member.terra.plate.velocity {
+member terra.plate.velocity {
     : Scalar<m/s, 0..1>
     : strata(tectonics)
     : title("Plate Velocity")
@@ -1183,7 +1183,7 @@ member.terra.plate.velocity {
 # -----------------------------------------------------------------------------
 
 # Number of plates (derived from entity count)
-signal.plates.count {
+signal plates.count {
     : Scalar<1, 0..64>
     : strata(tectonics)
     : title("Number of Plates")
@@ -1195,7 +1195,7 @@ signal.plates.count {
 }
 
 # Mean plate age
-signal.plates.mean_age {
+signal plates.mean_age {
     : Scalar<Myr, 0..5000>
     : strata(tectonics)
     : title("Mean Plate Age")
@@ -1207,7 +1207,7 @@ signal.plates.mean_age {
 }
 
 # Mean plate thickness
-signal.plates.mean_thickness {
+signal plates.mean_thickness {
     : Scalar<m, 5000..70000>
     : strata(tectonics)
     : title("Mean Plate Thickness")
@@ -1219,7 +1219,7 @@ signal.plates.mean_thickness {
 }
 
 # Oceanic plate count
-signal.plates.oceanic_count {
+signal plates.oceanic_count {
     : Scalar<1, 0..64>
     : strata(tectonics)
     : title("Oceanic Plate Count")
@@ -1231,7 +1231,7 @@ signal.plates.oceanic_count {
 }
 
 # Continental plate count
-signal.plates.continental_count {
+signal plates.continental_count {
     : Scalar<1, 0..64>
     : strata(tectonics)
     : title("Continental Plate Count")
@@ -1243,7 +1243,7 @@ signal.plates.continental_count {
 }
 
 # Maximum boundary shear (approximation from plate velocities)
-signal.plates.boundary_shear {
+signal plates.boundary_shear {
     : Scalar<m/s, 0..1>
     : strata(tectonics)
     : title("Plate Boundary Shear")
@@ -1263,7 +1263,7 @@ signal.plates.boundary_shear {
 # -----------------------------------------------------------------------------
 
 # Mean plate buoyancy
-signal.plates.mean_buoyancy {
+signal plates.mean_buoyancy {
     : Scalar<1, 0..1>
     : strata(tectonics)
     : title("Mean Plate Buoyancy")
@@ -1275,7 +1275,7 @@ signal.plates.mean_buoyancy {
 }
 
 # Total buoyancy (proxy for continental mass)
-signal.plates.total_buoyancy {
+signal plates.total_buoyancy {
     : Scalar<1, 0..64>
     : strata(tectonics)
     : title("Total Plate Buoyancy")
@@ -1287,7 +1287,7 @@ signal.plates.total_buoyancy {
 }
 
 # Maximum plate age (oldest plate)
-signal.plates.max_age {
+signal plates.max_age {
     : Scalar<Myr, 0..5000>
     : strata(tectonics)
     : title("Maximum Plate Age")
@@ -1299,7 +1299,7 @@ signal.plates.max_age {
 }
 
 # Minimum plate age (youngest plate)
-signal.plates.min_age {
+signal plates.min_age {
     : Scalar<Myr, 0..5000>
     : strata(tectonics)
     : title("Minimum Plate Age")
@@ -1311,7 +1311,7 @@ signal.plates.min_age {
 }
 
 # Total crustal area proxy (sum of thicknesses as volume proxy)
-signal.plates.total_thickness {
+signal plates.total_thickness {
     : Scalar<m, 0..1000000>
     : strata(tectonics)
     : title("Total Plate Thickness")
@@ -1328,7 +1328,7 @@ signal.plates.total_thickness {
 # -----------------------------------------------------------------------------
 
 # Mean plate velocity magnitude
-signal.plates.mean_velocity {
+signal plates.mean_velocity {
     : Scalar<m/s, 0..1>
     : strata(tectonics)
     : title("Mean Plate Velocity")
@@ -1340,7 +1340,7 @@ signal.plates.mean_velocity {
 }
 
 # Maximum plate velocity
-signal.plates.max_velocity {
+signal plates.max_velocity {
     : Scalar<m/s, 0..1>
     : strata(tectonics)
     : title("Maximum Plate Velocity")
@@ -1352,7 +1352,7 @@ signal.plates.max_velocity {
 }
 
 # Minimum plate velocity
-signal.plates.min_velocity {
+signal plates.min_velocity {
     : Scalar<m/s, 0..0.1>
     : strata(tectonics)
     : title("Minimum Plate Velocity")
@@ -1364,7 +1364,7 @@ signal.plates.min_velocity {
 }
 
 # Mean angular velocity magnitude
-signal.plates.mean_omega {
+signal plates.mean_omega {
     : Scalar<rad/s, 0..1e-8>
     : strata(tectonics)
     : title("Mean Angular Velocity")
@@ -1383,7 +1383,7 @@ signal.plates.mean_omega {
 # -----------------------------------------------------------------------------
 
 # Velocity variance (high variance indicates diverse plate motions)
-signal.plates.velocity_variance {
+signal plates.velocity_variance {
     : Scalar<m²/s², 0..1>
     : strata(tectonics)
     : title("Plate Velocity Variance")
@@ -1399,7 +1399,7 @@ signal.plates.velocity_variance {
 
 # Spreading rate proxy - divergent boundary activity
 # Estimated from mantle upwelling and plate separation
-signal.plates.divergent_activity {
+signal plates.divergent_activity {
     : Scalar<1, 0..10>
     : strata(tectonics)
     : title("Divergent Boundary Activity")
@@ -1420,7 +1420,7 @@ signal.plates.divergent_activity {
 
 # Subduction rate proxy - convergent boundary activity
 # Estimated from oceanic plate area and boundary shear
-signal.plates.convergent_activity {
+signal plates.convergent_activity {
     : Scalar<1, 0..10>
     : strata(tectonics)
     : title("Convergent Boundary Activity")
@@ -1441,7 +1441,7 @@ signal.plates.convergent_activity {
 
 # Transform fault activity proxy
 # Lateral motion without significant convergence or divergence
-signal.plates.transform_activity {
+signal plates.transform_activity {
     : Scalar<1, 0..10>
     : strata(tectonics)
     : title("Transform Boundary Activity")
@@ -1459,7 +1459,7 @@ signal.plates.transform_activity {
 }
 
 # Total boundary activity index
-signal.plates.total_boundary_activity {
+signal plates.total_boundary_activity {
     : Scalar<1, 0..30>
     : strata(tectonics)
     : title("Total Boundary Activity")
@@ -1475,7 +1475,7 @@ signal.plates.total_boundary_activity {
 # =============================================================================
 
 # Rifting: thin crust + high stress -> rift opening
-fracture.tectonics.rift {
+fracture tectonics.rift {
     when {
         signal.crust.thickness < 25000
         signal.tectonics.boundary_stress > 5e8
@@ -1489,7 +1489,7 @@ fracture.tectonics.rift {
 }
 
 # Orogeny: thick crust + compression -> mountain building
-fracture.tectonics.orogeny {
+fracture tectonics.orogeny {
     when {
         signal.crust.thickness > 50000
         signal.tectonics.boundary_stress > 7e8
@@ -1503,7 +1503,7 @@ fracture.tectonics.orogeny {
 }
 
 # Volcanism: hot mantle + thin crust -> volcanic activity
-fracture.thermal.volcanism {
+fracture thermal.volcanism {
     when {
         signal.mantle.temp > 1800 <K>
         signal.crust.thickness < 30000
@@ -1517,7 +1517,7 @@ fracture.thermal.volcanism {
 }
 
 # Radioactive heating burst
-fracture.core.decay_heat {
+fracture core.decay_heat {
     when {
         signal.core.temp < 5000 <K>
     }
@@ -1533,7 +1533,7 @@ fracture.core.decay_heat {
 
 # Thermal-mechanical coupling: modulate mantle flow vigor based on heat content.
 # Higher mantle heat -> more vigorous convection -> faster plate motion.
-fracture.thermal.mechanical_coupling {
+fracture thermal.mechanical_coupling {
     : strata(thermal)
 
     config {
@@ -1563,7 +1563,7 @@ fracture.thermal.mechanical_coupling {
 # - Radiogenic heating (decays with time)
 # - Core-mantle boundary heat flux
 # - Surface heat loss (temperature-dependent)
-fracture.thermal.heat_budget {
+fracture thermal.heat_budget {
     : strata(thermal)
 
     config {
@@ -1605,7 +1605,7 @@ fracture.thermal.heat_budget {
 # -----------------------------------------------------------------------------
 
 # Convergent boundary uplift: plate collision drives crustal thickening
-fracture.tectonics.convergent_uplift {
+fracture tectonics.convergent_uplift {
     : strata(tectonics)
 
     config {
@@ -1630,7 +1630,7 @@ fracture.tectonics.convergent_uplift {
 }
 
 # Divergent boundary subsidence: plate separation drives crustal thinning
-fracture.tectonics.divergent_subsidence {
+fracture tectonics.divergent_subsidence {
     : strata(tectonics)
 
     config {
@@ -1660,7 +1660,7 @@ fracture.tectonics.divergent_subsidence {
 
 # Plate fragmentation: high boundary shear can rift plates apart
 # Creates new oceanic basins between continental fragments
-fracture.tectonics.wilson_fragmentation {
+fracture tectonics.wilson_fragmentation {
     : strata(tectonics)
 
     config {
@@ -1684,7 +1684,7 @@ fracture.tectonics.wilson_fragmentation {
 }
 
 # Plate merger (supercontinent formation): continental collision merges plates
-fracture.tectonics.wilson_merger {
+fracture tectonics.wilson_merger {
     : strata(tectonics)
 
     config {
@@ -1709,7 +1709,7 @@ fracture.tectonics.wilson_merger {
 }
 
 # Subduction recycling: old oceanic plates sink into mantle
-fracture.tectonics.wilson_subduction {
+fracture tectonics.wilson_subduction {
     : strata(tectonics)
 
     config {
@@ -1737,7 +1737,7 @@ fracture.tectonics.wilson_subduction {
 
 # Derive plate motion from mantle convection
 # Mantle flow vortices drive plate angular velocities
-fracture.tectonics.derive_motion {
+fracture tectonics.derive_motion {
     : strata(tectonics)
 
     config {
@@ -1764,7 +1764,7 @@ fracture.tectonics.derive_motion {
 # Geophysics Fields (Observer Data)
 # =============================================================================
 
-field.elevation.map {
+field elevation.map {
     : Scalar<m>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1775,7 +1775,7 @@ field.elevation.map {
     }
 }
 
-field.thickness.map {
+field thickness.map {
     : Scalar<m>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1786,7 +1786,7 @@ field.thickness.map {
     }
 }
 
-field.thermal.core {
+field thermal.core {
     : Scalar<K>
     : strata(thermal)
     : topology(point_cloud)
@@ -1797,7 +1797,7 @@ field.thermal.core {
     }
 }
 
-field.thermal.mantle {
+field thermal.mantle {
     : Scalar<K>
     : strata(thermal)
     : topology(point_cloud)
@@ -1808,7 +1808,7 @@ field.thermal.mantle {
     }
 }
 
-field.pressure.crustal {
+field pressure.crustal {
     : Scalar<kg/m/s²>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1819,7 +1819,7 @@ field.pressure.crustal {
     }
 }
 
-field.stress.boundary {
+field stress.boundary {
     : Scalar<N/m²>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1830,7 +1830,7 @@ field.stress.boundary {
     }
 }
 
-field.topography.dynamic {
+field topography.dynamic {
     : Scalar<m>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1841,7 +1841,7 @@ field.topography.dynamic {
     }
 }
 
-field.isostasy.elevation_field {
+field isostasy.elevation_field {
     : Scalar<m>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1852,7 +1852,7 @@ field.isostasy.elevation_field {
     }
 }
 
-field.density.crustal {
+field density.crustal {
     : Scalar<kg/m³>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1863,7 +1863,7 @@ field.density.crustal {
     }
 }
 
-field.thermal.heat_flow {
+field thermal.heat_flow {
     : Scalar<W/m²>
     : strata(thermal)
     : topology(point_cloud)
@@ -1874,7 +1874,7 @@ field.thermal.heat_flow {
     }
 }
 
-field.plates.velocity_map {
+field plates.velocity_map {
     : Scalar<m/s>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1885,7 +1885,7 @@ field.plates.velocity_map {
     }
 }
 
-field.plates.age_map {
+field plates.age_map {
     : Scalar<Myr>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1896,7 +1896,7 @@ field.plates.age_map {
     }
 }
 
-field.mantle.rayleigh {
+field mantle.rayleigh {
     : Scalar<1>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1907,7 +1907,7 @@ field.mantle.rayleigh {
     }
 }
 
-field.mantle.flow {
+field mantle.flow {
     : Scalar<cm/yr>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1918,7 +1918,7 @@ field.mantle.flow {
     }
 }
 
-field.tectonics.orogeny {
+field tectonics.orogeny {
     : Scalar<m/Myr>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1929,7 +1929,7 @@ field.tectonics.orogeny {
     }
 }
 
-field.tectonics.volcanism_map {
+field tectonics.volcanism_map {
     : Scalar<1>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1940,7 +1940,7 @@ field.tectonics.volcanism_map {
     }
 }
 
-field.tectonics.subduction {
+field tectonics.subduction {
     : Scalar<km²/Myr>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1951,7 +1951,7 @@ field.tectonics.subduction {
     }
 }
 
-field.tectonics.spreading {
+field tectonics.spreading {
     : Scalar<km²/Myr>
     : strata(tectonics)
     : topology(point_cloud)
@@ -1975,13 +1975,13 @@ field.tectonics.spreading {
 # Triggered when two tectonic plates collide, representing a contact event
 # that affects plate dynamics and can trigger seismic/orogenic effects.
 
-type.PlateCollisionPayload {
+type PlateCollisionPayload {
     plate_a: Scalar<1>           # First plate ID
     plate_b: Scalar<1>           # Second plate ID
     energy: Scalar<J>            # Collision energy
 }
 
-impulse.tectonics.plate_collision {
+impulse tectonics.plate_collision {
     : PlateCollisionPayload
     : title("Plate Collision")
     : symbol("×")
@@ -2018,7 +2018,7 @@ impulse.tectonics.plate_collision {
 # Deterministic volcanic venting tied to crustal tension and hydration.
 # Deposits heat, releases volatiles, and adds ejecta to the surface.
 
-type.VolcanicImpulsePayload {
+type VolcanicImpulsePayload {
     index: Scalar<1>             # Crust sample index where impulse originates
     shell: Scalar<1>             # Shell index affected (0 = surface)
     heat_j: Scalar<J>            # Heat deposited into the shell
@@ -2026,7 +2026,7 @@ type.VolcanicImpulsePayload {
     ejecta_thickness_m: Scalar<m> # Local crustal thickening from deposits
 }
 
-impulse.tectonics.volcanic {
+impulse tectonics.volcanic {
     : VolcanicImpulsePayload
     : title("Volcanic Impulse")
     : symbol("🌋")

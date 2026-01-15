@@ -6,7 +6,7 @@ They emit structured faults on failure.
 ## Syntax
 
 ```cdsl
-signal.core.temp {
+signal core.temp {
     : Scalar<K, 100..10000>
     : strata(thermal)
 
@@ -46,7 +46,7 @@ If a signal declares a range constraint in its type but has no assertions,
 the compiler emits a warning:
 
 ```cdsl
-signal.core.temp {
+signal core.temp {
     : Scalar<K, 100..10000>  # Range declared here
     : strata(thermal)
 
@@ -58,7 +58,7 @@ signal.core.temp {
 To resolve this warning, add assertions that validate the range:
 
 ```cdsl
-signal.core.temp {
+signal core.temp {
     : Scalar<K, 100..10000>
     : strata(thermal)
 
@@ -74,7 +74,7 @@ signal.core.temp {
 Signals without range constraints do not trigger this warning:
 
 ```cdsl
-signal.core.counter {
+signal core.counter {
     : Scalar<count>  # No range, no warning
     resolve { prev + 1 }
 }
@@ -85,7 +85,7 @@ signal.core.counter {
 Operators can also have assertions:
 
 ```cdsl
-operator.validate_energy {
+operator validate_energy {
     : strata(physics)
     : phase(resolve)
 

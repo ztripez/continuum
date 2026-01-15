@@ -367,7 +367,7 @@ mod tests {
     #[test]
     fn test_dt_raw_without_declaration() {
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -391,7 +391,7 @@ mod tests {
     #[test]
     fn test_dt_raw_with_declaration() {
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
                 : uses(dt.raw)
@@ -412,7 +412,7 @@ mod tests {
     fn test_no_dt_raw_usage() {
         // Using prev without dt_raw is fine
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -432,7 +432,7 @@ mod tests {
     fn test_unknown_method_call() {
         // Method calls should be validated against known functions
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -457,11 +457,11 @@ mod tests {
     fn test_known_method_call() {
         // User-defined functions should not error when called as methods
         let source = r#"
-            fn.math.double(val) {
+            fn math.double(val) {
                 val * 2.0
             }
 
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -481,7 +481,7 @@ mod tests {
     fn test_arity_mismatch_builtin() {
         // sin expects 1 argument
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -505,9 +505,9 @@ mod tests {
     #[test]
     fn test_arity_mismatch_user_fn() {
         let source = r#"
-            fn.math.double(x) { x * 2.0 }
+            fn math.double(x) { x * 2.0 }
 
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -528,9 +528,9 @@ mod tests {
     fn test_arity_mismatch_method() {
         // my_clamp expects 3 arguments (object + 2 args)
         let source = r#"
-            fn.maths.my_clamp(val, min, max) { val }
+            fn maths.my_clamp(val, min, max) { val }
 
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 

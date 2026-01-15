@@ -200,9 +200,9 @@ The reader must wait for the signal to resolve.
 When multiple sources write to a signal's input channel:
 
 ```
-operator.a <- signal.x
-operator.b <- signal.x
-fracture.c <- signal.x
+operator a <- signal.x
+operator b <- signal.x
+fracture c <- signal.x
 ```
 
 All writers must complete before signal.x resolves.
@@ -230,7 +230,7 @@ These are not explicit edges but structural barriers.
 When stratum A reads a signal from stratum B:
 
 ```
-signal.a (stratum: thermal) {
+signal a (stratum: thermal) {
     resolve {
         signal.b  // stratum: tectonics
     }
@@ -249,7 +249,7 @@ Dependencies are extracted from expression analysis.
 ### 5.1 Direct References
 
 ```
-signal.x
+signal x
 ```
 
 Creates read dependency on signal.x.
@@ -275,7 +275,7 @@ Creates dependencies on all entity instance signals referenced in expr.
 ### 5.4 Function Calls
 
 ```
-fn.physics.compute(signal.a, signal.b)
+fn physics.compute(signal.a, signal.b)
 ```
 
 Dependencies propagate through function bodies.
@@ -298,7 +298,7 @@ Entities are expanded during DAG construction.
 ### 6.1 Instance Expansion
 
 ```
-entity.stellar.moon {
+entity stellar.moon {
     : count(config.stellar.moon_count)
     ...
 }
@@ -315,7 +315,7 @@ SignalResolveNode(entity.stellar.moon[2])
 ### 6.2 Aggregate Dependencies
 
 ```
-signal.terra.tidal {
+signal terra.tidal {
     resolve {
         agg.sum(entity.stellar.moon, fn.tidal_force(self.mass))
     }
@@ -349,8 +349,8 @@ Stratum A reading stratum B (same tick):
 When strata have different strides:
 
 ```
-strata.fast { stride: 1 }
-strata.slow { stride: 10 }
+strata fast { stride: 1 }
+strata slow { stride: 10 }
 ```
 
 A signal in `fast` reading from `slow`:
@@ -377,8 +377,8 @@ After edge construction, the graph is checked for cycles.
 ### 8.1 Intra-Stratum Cycles
 
 ```
-signal.a reads signal.b
-signal.b reads signal.a
+signal a reads signal.b
+signal b reads signal.a
 ```
 
 **Error:** Circular dependency within stratum.
@@ -386,8 +386,8 @@ signal.b reads signal.a
 ### 8.2 Cross-Stratum Cycles
 
 ```
-signal.a (stratum: x) reads signal.b (stratum: y)
-signal.b (stratum: y) reads signal.a (stratum: x)
+signal a (stratum: x) reads signal.b (stratum: y)
+signal b (stratum: y) reads signal.a (stratum: x)
 ```
 
 **Error:** Cross-stratum circular dependency.
@@ -395,7 +395,7 @@ signal.b (stratum: y) reads signal.a (stratum: x)
 ### 8.3 Temporal Dependencies Are Not Cycles
 
 ```
-signal.a reads prev  // own previous value
+signal a reads prev  // own previous value
 ```
 
 Not a cycle - reads previous tick, not current.

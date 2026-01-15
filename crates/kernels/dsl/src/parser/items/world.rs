@@ -10,7 +10,6 @@ use super::config::config_entry;
 pub fn world_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, WorldDef, extra::Err<ParseError<'src>>> {
     just(Token::World)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             world_content()

@@ -23,7 +23,6 @@ use super::types::type_expr;
 pub fn signal_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, SignalDef, extra::Err<ParseError<'src>>> {
     tok(Token::Signal)
-        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             signal_content()
@@ -167,7 +166,6 @@ fn constraint_range<'src>()
 pub fn field_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, FieldDef, extra::Err<ParseError<'src>>> {
     tok(Token::Field)
-        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             field_content()
@@ -234,7 +232,6 @@ fn field_content<'src>()
 pub fn operator_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, OperatorDef, extra::Err<ParseError<'src>>> {
     tok(Token::Operator)
-        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             operator_content()

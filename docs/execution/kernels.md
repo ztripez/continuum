@@ -332,7 +332,7 @@ Each call is independent.
 ### 8.1 Basic Call
 
 ```
-signal.terra.surface.flux {
+signal terra.surface.flux {
     resolve {
         physics.stefan_boltzmann_flux(signal.terra.surface.temperature)
     }
@@ -342,7 +342,7 @@ signal.terra.surface.flux {
 ### 8.2 Chained Calls
 
 ```
-signal.terra.orbit.position {
+signal terra.orbit.position {
     resolve {
         let anomaly = physics.kepler_mean_to_true(
             signal.terra.orbit.mean_anomaly,
@@ -360,7 +360,7 @@ signal.terra.orbit.position {
 ### 8.3 With Entity Collections
 
 ```
-signal.stellar.total_luminosity {
+signal stellar.total_luminosity {
     resolve {
         maths.sum(
             map(entity.stellar.star, physics.blackbody_radiation(self.temperature, self.surface_area))

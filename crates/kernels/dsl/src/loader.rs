@@ -344,8 +344,8 @@ mod tests {
         let path = dir.path().join("test.cdsl");
 
         let mut file = File::create(&path).unwrap();
-        writeln!(file, "strata.test {{ }}").unwrap();
-        writeln!(file, "era.main {{ : initial }}").unwrap();
+        writeln!(file, "strata test {{ }}").unwrap();
+        writeln!(file, "era main {{ : initial }}").unwrap();
 
         let unit = load_file(&path).unwrap();
         assert_eq!(unit.items.len(), 2);
@@ -358,9 +358,9 @@ mod tests {
 
         // Create a .cdsl file with world definition
         let mut file = File::create(root.join("world.cdsl")).unwrap();
-        writeln!(file, "world.terra {{ : title(\"Test World\") }}").unwrap();
-        writeln!(file, "strata.test {{ }}").unwrap();
-        writeln!(file, "era.main {{ : initial }}").unwrap();
+        writeln!(file, "world terra {{ : title(\"Test World\") }}").unwrap();
+        writeln!(file, "strata test {{ }}").unwrap();
+        writeln!(file, "era main {{ : initial }}").unwrap();
 
         let result = load_world(root).unwrap();
         assert_eq!(result.files.len(), 1);
@@ -477,10 +477,10 @@ mod tests {
         let root = dir.path();
 
         let mut file1 = File::create(root.join("world1.cdsl")).unwrap();
-        writeln!(file1, "world.terra {{ : title(\"One\") }}").unwrap();
+        writeln!(file1, "world terra {{ : title(\"One\") }}").unwrap();
 
         let mut file2 = File::create(root.join("world2.cdsl")).unwrap();
-        writeln!(file2, "world.mars {{ : title(\"Two\") }}").unwrap();
+        writeln!(file2, "world mars {{ : title(\"Two\") }}").unwrap();
 
         let result = load_world(root);
         assert!(matches!(result, Err(LoadError::ValidationErrors { .. })));

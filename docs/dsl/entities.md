@@ -31,7 +31,7 @@ An `entity` defines *what exists* — a named collection of instances that can
 be indexed and iterated. Entities are pure identity providers:
 
 ```cdsl
-entity.stellar.moon {
+entity stellar.moon {
     : count(config.stellar.moon_count)
     : count(1..20)  // validation bounds
 }
@@ -43,19 +43,19 @@ A `member` signal defines *what state each instance has*. Each member signal
 is a top-level primitive with its own resolve expression and stratum:
 
 ```cdsl
-member.stellar.moon.mass {
+member stellar.moon.mass {
     : Scalar<kg>
     : strata(stellar.orbital)
     resolve { prev }
 }
 
-member.stellar.moon.orbit_radius {
+member stellar.moon.orbit_radius {
     : Scalar<m>
     : strata(stellar.orbital)
     resolve { prev }
 }
 
-member.stellar.moon.surface_temp {
+member stellar.moon.surface_temp {
     : Scalar<K>
     : strata(stellar.thermal)  // Different stratum!
     resolve {
@@ -77,16 +77,16 @@ update on a thermal stratum while orbital mechanics use an orbital stratum.
 Entities define identity and instance count:
 
 ```cdsl
-entity.stellar.moon {
+entity stellar.moon {
     : count(config.stellar.moon_count)  // count from config
     : count(1..20)                      // validation bounds
 }
 
-entity.terra.plate {
+entity terra.plate {
     : count(5..50)  // bounded count
 }
 
-entity.stellar.star {}  // no constraints
+entity stellar.star {}  // no constraints
 ```
 
 ### Entity Attributes
@@ -109,14 +109,14 @@ Entities do **not** have:
 Member signals define per-entity authoritative state:
 
 ```cdsl
-member.stellar.moon.mass {
+member stellar.moon.mass {
     : Scalar<kg, 1e18..1e24>
     : strata(stellar.orbital)
 
     resolve { prev }
 }
 
-member.stellar.moon.orbit_phase {
+member stellar.moon.orbit_phase {
     : Scalar<rad, 0..TAU>
     : strata(stellar.orbital)
 
@@ -141,7 +141,7 @@ Inside a member signal resolve block, `self.X` reads other member signals
 of the same entity instance:
 
 ```cdsl
-member.stellar.moon.velocity {
+member stellar.moon.velocity {
     : Scalar<m/s>
     : strata(stellar.orbital)
 
@@ -167,7 +167,7 @@ Member signals use **snapshot semantics** to enable parallel execution:
 This separation enables **full parallelism** across all member signal resolvers:
 
 ```cdsl
-member.stellar.moon.velocity {
+member stellar.moon.velocity {
     : Vec3<m/s>
     : strata(stellar.orbital)
 
@@ -176,7 +176,7 @@ member.stellar.moon.velocity {
     }
 }
 
-member.stellar.moon.position {
+member stellar.moon.position {
     : Vec3<m>
     : strata(stellar.orbital)
 
@@ -232,7 +232,7 @@ The scenario defines:
 No manual iteration — use built-in aggregators:
 
 ```cdsl
-signal.terra.tidal.total_force {
+signal terra.tidal.total_force {
     : Vec3<N>
     : strata(terra.orbital)
 
@@ -243,7 +243,7 @@ signal.terra.tidal.total_force {
     }
 }
 
-signal.stellar.moon_count {
+signal stellar.moon_count {
     : Scalar<1, 0..20>
     : strata(stellar.orbital)
 
@@ -256,7 +256,7 @@ signal.stellar.moon_count {
 ### Index Access
 
 ```cdsl
-signal.terra.primary_moon.distance {
+signal terra.primary_moon.distance {
     : Scalar<m>
     : strata(terra.orbital)
 
@@ -269,7 +269,7 @@ signal.terra.primary_moon.distance {
 ### Named Access
 
 ```cdsl
-signal.terra.luna.phase {
+signal terra.luna.phase {
     : Scalar<rad>
     : strata(terra.orbital)
 
@@ -325,7 +325,7 @@ signal.terra.luna.phase {
 For N-body interactions, exclude self:
 
 ```cdsl
-member.stellar.moon.perturbation {
+member stellar.moon.perturbation {
     : Vec3<m/s²>
     : strata(stellar.orbital)
 
@@ -342,7 +342,7 @@ member.stellar.moon.perturbation {
 For symmetric interactions:
 
 ```cdsl
-operator.stellar.orbital.gravity {
+operator stellar.orbital.gravity {
     : strata(stellar.orbital)
     : phase(collect)
 
@@ -366,19 +366,19 @@ operator.stellar.orbital.gravity {
 
 ```cdsl
 // Entity as pure index space
-entity.stellar.moon {
+entity stellar.moon {
     : count(config.stellar.moon_count)
     : count(0..20)
 }
 
 // Member signals define per-entity state
-member.stellar.moon.mass {
+member stellar.moon.mass {
     : Scalar<kg, 1e15..1e24>
     : strata(stellar.orbital)
     resolve { prev }
 }
 
-member.stellar.moon.position {
+member stellar.moon.position {
     : Vec3<m>
     : strata(stellar.orbital)
 
@@ -387,7 +387,7 @@ member.stellar.moon.position {
     }
 }
 
-member.stellar.moon.velocity {
+member stellar.moon.velocity {
     : Vec3<m/s>
     : strata(stellar.orbital)
 
@@ -408,7 +408,7 @@ member.stellar.moon.velocity {
     }
 }
 
-member.stellar.moon.surface_temp {
+member stellar.moon.surface_temp {
     : Scalar<K>
     : strata(stellar.thermal)  // Different stratum for thermal!
 
@@ -421,7 +421,7 @@ member.stellar.moon.surface_temp {
 }
 
 // Derived signal using entity
-signal.terra.tidal.amplitude {
+signal terra.tidal.amplitude {
     : Scalar<m, 0..100>
     : strata(terra.orbital)
 
@@ -449,9 +449,9 @@ signal.terra.tidal.amplitude {
 Different member signals can have different strata:
 
 ```cdsl
-member.terra.plate.position { : strata(terra.tectonics) }  // slow
-member.terra.plate.temperature { : strata(terra.thermal) }  // medium
-member.terra.plate.surface_stress { : strata(terra.seismic) }  // fast
+member terra.plate.position { : strata(terra.tectonics) }  // slow
+member terra.plate.temperature { : strata(terra.thermal) }  // medium
+member terra.plate.surface_stress { : strata(terra.seismic) }  // fast
 ```
 
 ### Clean DAG Construction

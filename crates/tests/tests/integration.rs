@@ -13,18 +13,18 @@ use continuum_tests::TestHarness;
 #[test]
 fn test_simple_world_executes() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
             }
         }
 
-        signal.terra.counter {
+        signal terra.counter {
             : Scalar<unit>
             : strata(terra)
             resolve { prev + 1.0 }
@@ -53,11 +53,11 @@ fn test_simple_world_executes() {
 #[test]
 fn test_signal_dependency_chain() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
@@ -65,21 +65,21 @@ fn test_signal_dependency_chain() {
         }
 
         # Base signal: constant 10
-        signal.terra.base {
+        signal terra.base {
             : Scalar<unit>
             : strata(terra)
             resolve { 10.0 }
         }
 
         # Derived: doubles base (reads base from previous tick)
-        signal.terra.doubled {
+        signal terra.doubled {
             : Scalar<unit>
             : strata(terra)
             resolve { signal.terra.base * 2.0 }
         }
 
         # Final: adds 5 to doubled (reads doubled from previous tick)
-        signal.terra.final {
+        signal terra.final {
             : Scalar<unit>
             : strata(terra)
             resolve { signal.terra.doubled + 5.0 }
@@ -118,18 +118,18 @@ fn test_signal_dependency_chain() {
 #[test]
 fn test_execution_is_deterministic() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
             }
         }
 
-        signal.terra.growth {
+        signal terra.growth {
             : Scalar<unit>
             : strata(terra)
             resolve { prev * 1.5 + 1.0 }
@@ -168,11 +168,11 @@ fn test_execution_is_deterministic() {
 #[test]
 fn test_era_transitions_work() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
-        strata.terra {}
+        strata terra {}
 
-        era.era_a {
+        era era_a {
             : initial
 
             strata {
@@ -187,13 +187,13 @@ fn test_era_transitions_work() {
             }
         }
 
-        era.era_b {
+        era era_b {
             strata {
                 terra: active
             }
         }
 
-        signal.terra.counter {
+        signal terra.counter {
             : Scalar<unit>
             : strata(terra)
             resolve { prev + 1.0 }
@@ -229,24 +229,24 @@ fn test_era_transitions_work() {
 #[test]
 fn test_parallel_independent_signals() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
             }
         }
 
-        signal.terra.alpha {
+        signal terra.alpha {
             : Scalar<unit>
             : strata(terra)
             resolve { prev + 1.0 }
         }
 
-        signal.terra.beta {
+        signal terra.beta {
             : Scalar<unit>
             : strata(terra)
             resolve { prev + 100.0 }
@@ -266,23 +266,23 @@ fn test_parallel_independent_signals() {
 #[test]
 fn test_constants_in_resolve() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
         const {
             physics.gravity: 9.81
             physics.time_scale: 2.0
         }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
             }
         }
 
-        signal.terra.velocity {
+        signal terra.velocity {
             : Scalar<m/s>
             : strata(terra)
             resolve { prev + const.physics.gravity * const.physics.time_scale }
@@ -302,23 +302,23 @@ fn test_constants_in_resolve() {
 #[test]
 fn test_config_in_resolve() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
         config {
             simulation.decay_rate: 0.5
             terra.initial_energy: 100.0
         }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
             }
         }
 
-        signal.terra.energy {
+        signal terra.energy {
             : Scalar<J>
             : strata(terra)
             resolve { prev * config.simulation.decay_rate }
@@ -345,22 +345,22 @@ fn test_config_in_resolve() {
 #[test]
 fn test_kernel_functions() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
         config {
             terra.initial_temp: 1000.0
         }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
             }
         }
 
-        signal.terra.temp {
+        signal terra.temp {
             : Scalar<K>
             : strata(terra)
             resolve { dt.decay(prev, 100.0) }
@@ -388,28 +388,28 @@ fn test_kernel_functions() {
 #[test]
 fn test_complex_expression() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
         const {
             scale: 2.0
         }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
             }
         }
 
-        signal.terra.base {
+        signal terra.base {
             : Scalar<unit>
             : strata(terra)
             resolve { 10.0 }
         }
 
-        signal.terra.complex {
+        signal terra.complex {
             : Scalar<unit>
             : strata(terra)
             resolve {
@@ -441,24 +441,24 @@ fn test_complex_expression() {
 #[test]
 fn test_conditional_expression() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
             }
         }
 
-        signal.terra.counter {
+        signal terra.counter {
             : Scalar<unit>
             : strata(terra)
             resolve { prev + 1.0 }
         }
 
-        signal.terra.threshold {
+        signal terra.threshold {
             : Scalar<unit>
             : strata(terra)
             resolve {
@@ -495,12 +495,12 @@ fn test_conditional_expression() {
 #[test]
 fn test_multiple_strata() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
-        strata.terra {}
-        strata.climate {}
+        strata terra {}
+        strata climate {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
@@ -508,13 +508,13 @@ fn test_multiple_strata() {
             }
         }
 
-        signal.terra.ground_temp {
+        signal terra.ground_temp {
             : Scalar<K>
             : strata(terra)
             resolve { prev + 1.0 }
         }
 
-        signal.climate.air_temp {
+        signal climate.air_temp {
             : Scalar<K>
             : strata(climate)
             resolve { prev + 10.0 }
@@ -534,18 +534,18 @@ fn test_multiple_strata() {
 #[test]
 fn test_tick_context() {
     let source = r#"
-        world.test { : title("Simple World") }
+        world test { : title("Simple World") }
 
-        strata.terra {}
+        strata terra {}
 
-        era.main {
+        era main {
             : initial
             strata {
                 terra: active
             }
         }
 
-        signal.terra.dummy {
+        signal terra.dummy {
             : Scalar<unit>
             : strata(terra)
             resolve { 0.0 }

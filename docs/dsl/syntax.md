@@ -33,13 +33,13 @@ There are no includes or conditional loading.
 All entities use namespaced paths with the pattern `[kind].[path]`:
 
 ```
-signal.terra.geophysics.core.temp_k
-field.terra.surface.temperature_map
-strata.terra.thermal
-era.hadean
-impulse.terra.impact.asteroid
-fracture.terra.climate.runaway_greenhouse
-chronicle.terra.events.supercontinent
+signal terra.geophysics.core.temp_k
+field terra.surface.temperature_map
+strata terra.thermal
+era hadean
+impulse terra.impact.asteroid
+fracture terra.climate.runaway_greenhouse
+chronicle terra.events.supercontinent
 ```
 
 Identifiers are:
@@ -112,14 +112,14 @@ config {
 Custom struct types:
 
 ```
-type.PlateState {
+type PlateState {
   position: Vec3<m>
   velocity: Vec3<m/s>
   strain: Tensor<3,3,Pa>
   age: Scalar<s>
 }
 
-type.ImpactEvent {
+type ImpactEvent {
   mass: Scalar<kg>
   velocity: Vec3<m/s>
   location: Vec2<rad>
@@ -161,13 +161,13 @@ type.ImpactEvent {
 Time strata define execution groupings:
 
 ```
-strata.terra.thermal {
+strata terra.thermal {
   : title("Thermal")
   : symbol("Q")
   : stride(5)
 }
 
-strata.terra.tectonics {
+strata terra.tectonics {
   : title("Tectonics")
   : symbol("T")
   : stride(10)
@@ -181,7 +181,7 @@ strata.terra.tectonics {
 Execution policy regimes:
 
 ```
-era.hadean {
+era hadean {
   : initial
   : title("Hadean")
   : dt(1 <Myr>)
@@ -206,7 +206,7 @@ era.hadean {
   }
 }
 
-era.phanerozoic {
+era phanerozoic {
   : terminal
   : title("Phanerozoic")
   : dt(10 <kyr>)
@@ -257,7 +257,7 @@ transition {
 Authoritative resolved values:
 
 ```
-signal.terra.geophysics.core.temp_k {
+signal terra.geophysics.core.temp_k {
   : Scalar<K, 100..10000>
   : strata(terra.thermal)
   : title("Core Temperature")
@@ -304,7 +304,7 @@ signal.terra.geophysics.core.temp_k {
 Signals may declare a warmup block for pre-causal equilibration:
 
 ```
-signal.terra.thermal.equilibrium {
+signal terra.thermal.equilibrium {
   : Scalar<K>
   : strata(terra.thermal)
 
@@ -346,16 +346,16 @@ See @execution/warmup.md for full semantics.
 Entities are pure index spaces that define what instances exist:
 
 ```
-entity.stellar.moon {
+entity stellar.moon {
     : count(config.stellar.moon_count)
     : count(1..20)
 }
 
-entity.terra.plate {
+entity terra.plate {
     : count(5..50)
 }
 
-entity.stellar.star {}
+entity stellar.star {}
 ```
 
 ### Entity Attributes
@@ -375,14 +375,14 @@ Per-entity state is defined via member signals.
 Per-entity authoritative state with own strata:
 
 ```
-member.stellar.moon.mass {
+member stellar.moon.mass {
     : Scalar<kg, 1e18..1e24>
     : strata(stellar.orbital)
 
     resolve { prev }
 }
 
-member.stellar.moon.orbit_phase {
+member stellar.moon.orbit_phase {
     : Scalar<rad, 0..TAU>
     : strata(stellar.orbital)
 
@@ -391,7 +391,7 @@ member.stellar.moon.orbit_phase {
     }
 }
 
-member.stellar.moon.surface_temp {
+member stellar.moon.surface_temp {
     : Scalar<K>
     : strata(stellar.thermal)
 
@@ -426,7 +426,7 @@ Different member signals can have different strata for multi-rate scheduling.
 Observable derived data:
 
 ```
-field.terra.surface.temperature_map {
+field terra.surface.temperature_map {
   : Grid<2048, 1024, Scalar<K>>
   : strata(terra.atmosphere)
   : topology(sphere_surface)
@@ -457,7 +457,7 @@ field.terra.surface.temperature_map {
 Phase-tagged logic blocks:
 
 ```
-operator.terra.thermal.budget {
+operator terra.thermal.budget {
   : strata(terra.thermal)
   : phase(collect)
 
@@ -469,7 +469,7 @@ operator.terra.thermal.budget {
   }
 }
 
-operator.terra.tectonics.boundary_capture {
+operator terra.tectonics.boundary_capture {
   : strata(terra.tectonics)
   : phase(measure)
 
@@ -502,7 +502,7 @@ See @execution/warmup.md for warmup semantics.
 External causal inputs:
 
 ```
-impulse.terra.impact.asteroid {
+impulse terra.impact.asteroid {
   : ImpactEvent
 
   config {
@@ -527,7 +527,7 @@ impulse.terra.impact.asteroid {
 Emergent tension detectors:
 
 ```
-fracture.terra.climate.runaway_greenhouse {
+fracture terra.climate.runaway_greenhouse {
   when {
     signal.terra.atmosphere.co2 > 1000 <ppm>
     signal.terra.surface.avg_temp > 350 <K>
@@ -538,7 +538,7 @@ fracture.terra.climate.runaway_greenhouse {
   }
 }
 
-fracture.terra.tectonics.subduction {
+fracture terra.tectonics.subduction {
   when {
     let age_diff = signal.terra.tectonics.plate_a.age - signal.terra.tectonics.plate_b.age in
     age_diff > 50e6 <s>
@@ -558,7 +558,7 @@ fracture.terra.tectonics.subduction {
 Observer-only pattern recognition:
 
 ```
-chronicle.terra.events.supercontinent {
+chronicle terra.events.supercontinent {
   observe {
     when signal.terra.tectonics.continental_fraction > 0.8 {
       emit event.supercontinent_formed {
@@ -569,7 +569,7 @@ chronicle.terra.events.supercontinent {
   }
 }
 
-chronicle.terra.events.mass_extinction {
+chronicle terra.events.mass_extinction {
   observe {
     when signal.terra.biosphere.diversity.delta < -0.5 {
       emit event.mass_extinction {
@@ -661,9 +661,9 @@ prev.w
 collected.x         // Component of accumulated inputs
 collected.y
 
-signal.path.x       // Component of another signal
-signal.path.y
-signal.path.z
+signal path.x       // Component of another signal
+signal path.y
+signal path.z
 ```
 
 These patterns work because `prev`, `collected`, and `signal.path` are statically known
@@ -702,9 +702,9 @@ let mag = sqrt(vx*vx + vy*vy + vz*vz) in
 vx / mag
 
 // For complex cases, split into separate scalar signals
-signal.velocity_x { resolve { ... } }
-signal.velocity_y { resolve { ... } }
-signal.velocity_z { resolve { ... } }
+signal velocity_x { resolve { ... } }
+signal velocity_y { resolve { ... } }
+signal velocity_z { resolve { ... } }
 ```
 
 The compiler expands vector signal resolve blocks into per-component scalar expressions
@@ -718,7 +718,7 @@ resolved statically without runtime overhead.
 The `<-` operator writes to signal input accumulators:
 
 ```
-signal.target <- value
+signal target <- value
 ```
 
 Multiple writes accumulate (must be commutative).
@@ -726,7 +726,7 @@ Multiple writes accumulate (must be commutative).
 For fields with position:
 
 ```
-field.target <- position, value
+field target <- position, value
 ```
 
 ---
@@ -785,17 +785,17 @@ config {
   terra.thermal.decay_rate: 1e-10 <1/s>
 }
 
-type.ThermalState {
+type ThermalState {
   temperature: Scalar<K>
   flux: Scalar<W/m²>
 }
 
-strata.terra.thermal {
+strata terra.thermal {
   : title("Thermal")
   : stride(5)
 }
 
-era.early {
+era early {
   : initial
   : dt(1 <Myr>)
 
@@ -811,7 +811,7 @@ era.early {
   }
 }
 
-era.stable {
+era stable {
   : terminal
   : dt(100 <kyr>)
 
@@ -820,7 +820,7 @@ era.stable {
   }
 }
 
-signal.terra.core.temp {
+signal terra.core.temp {
   : Scalar<K, 100..10000>
   : strata(terra.thermal)
 
@@ -830,7 +830,7 @@ signal.terra.core.temp {
   }
 }
 
-field.terra.core.temp_field {
+field terra.core.temp_field {
   : Scalar<K>
   : strata(terra.thermal)
   : topology(point_cloud)

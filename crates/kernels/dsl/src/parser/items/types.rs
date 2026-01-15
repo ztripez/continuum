@@ -17,7 +17,6 @@ use registry::primitive_type_parser;
 pub fn type_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, TypeDef, extra::Err<ParseError<'src>>> {
     just(Token::Type)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned(ident()))
         .then(
             type_field()
@@ -49,7 +48,6 @@ pub fn type_expr<'src>()
 
 pub fn fn_def<'src>() -> impl Parser<'src, ParserInput<'src>, FnDef, extra::Err<ParseError<'src>>> {
     just(Token::Fn)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             spanned(ident())

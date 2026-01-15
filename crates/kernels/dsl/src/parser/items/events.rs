@@ -19,7 +19,6 @@ use super::types::type_expr;
 pub fn impulse_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, ImpulseDef, extra::Err<ParseError<'src>>> {
     just(Token::Impulse)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             impulse_content()
@@ -104,7 +103,6 @@ fn impulse_content<'src>()
 pub fn fracture_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, FractureDef, extra::Err<ParseError<'src>>> {
     just(Token::Fracture)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             fracture_content()
@@ -194,7 +192,6 @@ fn fracture_content<'src>()
 pub fn chronicle_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, ChronicleDef, extra::Err<ParseError<'src>>> {
     just(Token::Chronicle)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             observe_block()

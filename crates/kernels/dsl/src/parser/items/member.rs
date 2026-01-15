@@ -17,7 +17,6 @@ use super::types::type_expr;
 pub fn member_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, MemberDef, extra::Err<ParseError<'src>>> {
     tok(Token::Member)
-        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             member_content()
@@ -124,7 +123,7 @@ mod tests {
 
     #[test]
     fn test_parse_simple_member() {
-        let src = r#"member.human.person.age {
+        let src = r#"member human.person.age {
             : Scalar
             : strata(human.physiology)
             resolve { prev + 1 }
@@ -147,7 +146,7 @@ mod tests {
 
     #[test]
     fn test_parse_member_with_config() {
-        let src = r#"member.stellar.moon.mass {
+        let src = r#"member stellar.moon.mass {
             : Scalar<kg>
             : strata(stellar.orbital)
             : title("Moon Mass")
@@ -175,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_parse_member_with_initial() {
-        let src = r#"member.stellar.star.rotation_period {
+        let src = r#"member stellar.star.rotation_period {
             : Scalar<day, 0.1..100>
             : strata(stellar.activity)
             initial { config.stellar.default_rotation_period_days }
