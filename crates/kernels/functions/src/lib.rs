@@ -5,6 +5,7 @@
 
 mod dt;
 mod math;
+mod matrix;
 mod quat;
 mod vector;
 
@@ -27,3 +28,6 @@ static VECTOR_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "vect
 
 #[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
 static QUAT_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "quat" };
+
+#[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
+static MATRIX_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "matrix" };
