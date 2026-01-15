@@ -297,11 +297,11 @@ member.stellar.star.variability_factor {
 
     resolve {
         # Rotational modulation (starspots)
-        let rot_phase = sim_time / (self.rotation_period * 86400.0) in
+        let rot_phase = sim.time / (self.rotation_period * 86400.0) in
         let spot_mod = 1.0 - self.spot_amplitude * maths.sin(TAU * rot_phase) in
 
         # Activity cycle modulation
-        let cycle_phase = sim_time / (self.activity_cycle_period * 3.1536e7) in
+        let cycle_phase = sim.time / (self.activity_cycle_period * 3.1536e7) in
         let cycle_mod = 1.0 - self.spot_amplitude * 0.5 * maths.sin(TAU * cycle_phase) in
 
         spot_mod * cycle_mod
@@ -320,7 +320,7 @@ member.stellar.star.luminosity {
 
     resolve {
         # Main sequence evolution: luminosity increases over time
-        let elapsed_myr = sim_time / 3.1536e13 in
+        let elapsed_myr = sim.time / 3.1536e13 in
         let evolution_factor = 1.0 + elapsed_myr * self.luminosity_evolution_rate in
         self.luminosity_base * evolution_factor * self.variability_factor
     }

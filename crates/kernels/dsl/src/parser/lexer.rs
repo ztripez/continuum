@@ -99,8 +99,6 @@ pub enum Token {
 
     #[token("prev", priority = 2)]
     Prev,
-    #[token("sim_time", priority = 2)]
-    SimTime,
     #[token("collected", priority = 2)]
     Collected,
     #[token("payload", priority = 2)]

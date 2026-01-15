@@ -2273,7 +2273,7 @@ fn test_parse_sim_time_expression() {
     let source = r#"
         signal.test.clock {
             : Scalar<1>
-            resolve { sim_time + 1.0 }
+            resolve { sim.time + 1.0 }
         }
     "#;
     let (result, errors) = parse(source);
@@ -2285,7 +2285,15 @@ fn test_parse_sim_time_expression() {
             match &resolve.body.node {
                 Expr::Binary { op, left, .. } => {
                     assert_eq!(*op, BinaryOp::Add);
-                    assert!(matches!(left.node, Expr::SimTime));
+                    // sim.time is parsed as Path(["sim", "time"])
+                    match &left.node {
+                        Expr::Path(path) => {
+                            assert_eq!(path.segments.len(), 2);
+                            assert_eq!(path.segments[0], "sim");
+                            assert_eq!(path.segments[1], "time");
+                        }
+                        _ => panic!("expected Path for sim.time, got {:?}", left.node),
+                    }
                 }
                 _ => panic!("expected binary expression"),
             }
