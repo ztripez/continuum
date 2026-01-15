@@ -283,12 +283,33 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
     }
 }
 
-fn eval_function(name: &str, args: &[InterpValue], _ctx: &MemberInterpContext) -> InterpValue {
+fn eval_function(name: &str, args: &[InterpValue], ctx: &MemberInterpContext) -> InterpValue {
+    // First try built-in constructors
     match name {
-        "vec2" => InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), 0.0]),
-        "vec3" => InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), args[2].as_f64()]),
-        _ => InterpValue::Scalar(0.0),
+        "vec2" => {
+            return InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), 0.0]);
+        }
+        "vec3" => {
+            return InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), args[2].as_f64()]);
+        }
+        _ => {}
     }
+
+    // Try to find function in kernel registry namespaces
+    let arg_values: Vec<Value> = args.iter().map(|a| a.into_value()).collect();
+    for namespace in continuum_kernel_registry::namespace_names() {
+        if let Some(result) =
+            continuum_kernel_registry::eval_in_namespace(namespace, name, &arg_values, ctx.dt)
+        {
+            return InterpValue::from_value(&result);
+        }
+    }
+
+    // Unknown function - panic with clear message
+    panic!(
+        "Unknown function '{}' in member expression - not found in any kernel namespace",
+        name
+    );
 }
 
 pub fn build_member_resolver(

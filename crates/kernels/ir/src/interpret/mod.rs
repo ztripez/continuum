@@ -876,9 +876,8 @@ fn eval_impulse_function(name: &str, args: &[InterpValue], dt: f64) -> InterpVal
     }
 
     // Try to find function in kernel registry namespaces
-    // Check common namespaces: maths, vector, quat, matrix, tensor, dt
     let arg_values: Vec<Value> = args.iter().map(|a| a.into_value()).collect();
-    for namespace in &["maths", "vector", "quat", "matrix", "tensor", "dt"] {
+    for namespace in continuum_kernel_registry::namespace_names() {
         if let Some(result) =
             continuum_kernel_registry::eval_in_namespace(namespace, name, &arg_values, dt)
         {
