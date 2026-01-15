@@ -863,12 +863,34 @@ impl ImpulseEvalContext<'_> {
     }
 }
 
-fn eval_impulse_function(name: &str, args: &[InterpValue]) -> InterpValue {
+fn eval_impulse_function(name: &str, args: &[InterpValue], dt: f64) -> InterpValue {
+    // First try built-in constructors
     match name {
-        "vec2" => InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), 0.0]),
-        "vec3" => InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), args[2].as_f64()]),
-        _ => InterpValue::Scalar(0.0),
+        "vec2" => {
+            return InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), 0.0]);
+        }
+        "vec3" => {
+            return InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), args[2].as_f64()]);
+        }
+        _ => {}
     }
+
+    // Try to find function in kernel registry namespaces
+    // Check common namespaces: maths, vector, quat, matrix, tensor, dt
+    let arg_values: Vec<Value> = args.iter().map(|a| a.into_value()).collect();
+    for namespace in &["maths", "vector", "quat", "matrix", "tensor", "dt"] {
+        if let Some(result) =
+            continuum_kernel_registry::eval_in_namespace(namespace, name, &arg_values, dt)
+        {
+            return InterpValue::from_value(&result);
+        }
+    }
+
+    // Unknown function - panic with clear message
+    panic!(
+        "Unknown function '{}' in impulse expression - not found in any kernel namespace",
+        name
+    );
 }
 
 fn eval_impulse_expr(expr: &CompiledExpr, ctx: &mut ImpulseEvalContext) -> InterpValue {
@@ -925,7 +947,7 @@ fn eval_impulse_expr(expr: &CompiledExpr, ctx: &mut ImpulseEvalContext) -> Inter
         }
         CompiledExpr::Call { function, args } => {
             let arg_values: Vec<_> = args.iter().map(|arg| eval_impulse_expr(arg, ctx)).collect();
-            eval_impulse_function(function, &arg_values)
+            eval_impulse_function(function, &arg_values, ctx.dt)
         }
         CompiledExpr::EmitSignal { target, value } => {
             let emitted = eval_impulse_expr(value, ctx);
