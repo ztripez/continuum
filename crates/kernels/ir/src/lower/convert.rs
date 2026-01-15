@@ -16,6 +16,39 @@ use crate::{
 
 use super::{LowerError, Lowerer};
 
+/// Time unit conversion table: maps unit strings to their multiplier (to convert to seconds).
+///
+/// Each entry is (aliases, multiplier) where aliases are all accepted spellings
+/// and multiplier converts the unit to seconds.
+///
+/// To add a new time unit, simply add an entry to this table.
+const TIME_UNITS: &[(&[&str], f64)] = &[
+    // Base unit
+    (&["s", "sec", "second", "seconds"], 1.0),
+    // Sub-second
+    (&["ms", "millisecond", "milliseconds"], 1e-3),
+    (&["us", "microsecond", "microseconds"], 1e-6),
+    (&["ns", "nanosecond", "nanoseconds"], 1e-9),
+    // Minutes, hours, days
+    (&["min", "minute", "minutes"], 60.0),
+    (&["h", "hr", "hour", "hours"], 3600.0),
+    (&["d", "day", "days"], 86_400.0),
+    // Years (Julian year = 365.25 days)
+    (&["yr", "year", "years"], 31_557_600.0),
+    (&["kyr"], 31_557_600_000.0),
+    (&["myr", "Myr", "Ma"], 31_557_600_000_000.0),
+    (&["byr", "Ga"], 31_557_600_000_000_000.0),
+];
+
+/// Convert a time unit string to its multiplier (to seconds).
+/// Returns None if the unit is not recognized.
+fn time_unit_to_seconds(unit: &str) -> Option<f64> {
+    TIME_UNITS
+        .iter()
+        .find(|(aliases, _)| aliases.contains(&unit))
+        .map(|(_, multiplier)| *multiplier)
+}
+
 impl Lowerer {
     // Operators are now unified - no conversion needed!
     // These methods remain for backward compatibility but are now simple identity functions.
@@ -365,20 +398,7 @@ impl Lowerer {
 
     pub(crate) fn value_with_unit_to_seconds(&self, vwu: &ast::ValueWithUnit) -> f64 {
         let base = self.literal_to_f64_unchecked(&vwu.value);
-        // Convert common time units to seconds
-        match vwu.unit.as_str() {
-            "s" | "sec" | "second" | "seconds" => base,
-            "ms" | "millisecond" | "milliseconds" => base / 1000.0,
-            "us" | "microsecond" | "microseconds" => base / 1_000_000.0,
-            "ns" | "nanosecond" | "nanoseconds" => base / 1_000_000_000.0,
-            "min" | "minute" | "minutes" => base * 60.0,
-            "h" | "hr" | "hour" | "hours" => base * 3600.0,
-            "d" | "day" | "days" => base * 86400.0,
-            "yr" | "year" | "years" => base * 31_557_600.0, // Julian year
-            "kyr" => base * 31_557_600_000.0,
-            "myr" | "Myr" | "Ma" => base * 31_557_600_000_000.0,
-            "byr" | "Ga" => base * 31_557_600_000_000_000.0,
-            _ => base, // assume seconds for unknown units
-        }
+        let multiplier = time_unit_to_seconds(&vwu.unit).unwrap_or(1.0); // assume seconds for unknown
+        base * multiplier
     }
 }
