@@ -696,8 +696,8 @@
       if (data.topology) html += `<div class="detail-label">Topology</div><div class="detail-value"><code>${data.topology}</code></div>`;
       if (data.unit) html += `<div class="detail-label">Unit</div><div class="detail-value"><code>${data.unit}</code></div>`;
       if (data.stratum) html += `<div class="detail-label">Stratum</div><div class="detail-value"><code>${data.stratum}</code></div>`;
-      if (data.range) html += `<div class="detail-label">Range</div><div class="detail-value">${data.range.min} … ${data.range.max}</div>`;
-      if (data.count_bounds) html += `<div class="detail-label">Count Bounds</div><div class="detail-value">${data.count_bounds.min} … ${data.count_bounds.max}</div>`;
+      if (data.range) html += `<div class="detail-label">Range</div><div class="detail-value">${data.range[0]} … ${data.range[1]}</div>`;
+      if (data.count_bounds) html += `<div class="detail-label">Count Bounds</div><div class="detail-value">${data.count_bounds[0]} … ${data.count_bounds[1]}</div>`;
       if (data.default_stride !== undefined) html += `<div class="detail-label">Default Stride</div><div class="detail-value">${data.default_stride}</div>`;
       if (data.dt_seconds !== undefined) html += `<div class="detail-label">Δt</div><div class="detail-value">${data.dt_seconds}s</div>`;
       if (data.is_initial !== undefined) html += `<div class="detail-label">Initial Era</div><div class="detail-value">${data.is_initial ? 'Yes' : 'No'}</div>`;
