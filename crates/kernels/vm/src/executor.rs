@@ -579,6 +579,73 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &mut dyn ExecutionContext) -> Value {
 
 // === Value Helpers ===
 
+// Matrix multiplication helpers (column-major storage)
+
+fn mat2_mul(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    // a and b are column-major: [col0_row0, col0_row1, col1_row0, col1_row1]
+    // Result is also column-major
+    [
+        a[0] * b[0] + a[2] * b[1], // result col0 row0
+        a[1] * b[0] + a[3] * b[1], // result col0 row1
+        a[0] * b[2] + a[2] * b[3], // result col1 row0
+        a[1] * b[2] + a[3] * b[3], // result col1 row1
+    ]
+}
+
+fn mat3_mul(a: [f64; 9], b: [f64; 9]) -> [f64; 9] {
+    let mut result = [0.0; 9];
+    for col in 0..3 {
+        for row in 0..3 {
+            let mut sum = 0.0;
+            for k in 0..3 {
+                sum += a[k * 3 + row] * b[col * 3 + k];
+            }
+            result[col * 3 + row] = sum;
+        }
+    }
+    result
+}
+
+fn mat4_mul(a: [f64; 16], b: [f64; 16]) -> [f64; 16] {
+    let mut result = [0.0; 16];
+    for col in 0..4 {
+        for row in 0..4 {
+            let mut sum = 0.0;
+            for k in 0..4 {
+                sum += a[k * 4 + row] * b[col * 4 + k];
+            }
+            result[col * 4 + row] = sum;
+        }
+    }
+    result
+}
+
+// Matrix * Vector transform helpers
+
+fn mat2_vec2_mul(m: [f64; 4], v: [f64; 2]) -> [f64; 2] {
+    [
+        m[0] * v[0] + m[2] * v[1], // row 0
+        m[1] * v[0] + m[3] * v[1], // row 1
+    ]
+}
+
+fn mat3_vec3_mul(m: [f64; 9], v: [f64; 3]) -> [f64; 3] {
+    [
+        m[0] * v[0] + m[3] * v[1] + m[6] * v[2], // row 0
+        m[1] * v[0] + m[4] * v[1] + m[7] * v[2], // row 1
+        m[2] * v[0] + m[5] * v[1] + m[8] * v[2], // row 2
+    ]
+}
+
+fn mat4_vec4_mul(m: [f64; 16], v: [f64; 4]) -> [f64; 4] {
+    [
+        m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3], // row 0
+        m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3], // row 1
+        m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3], // row 2
+        m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3], // row 3
+    ]
+}
+
 fn val_add(l: Value, r: Value) -> Value {
     match (l, r) {
         (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a + b),
@@ -586,6 +653,28 @@ fn val_add(l: Value, r: Value) -> Value {
         (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a + b as f64),
         (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(a as f64 + b),
         (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3([a[0] + b[0], a[1] + b[1], a[2] + b[2]]),
+        // Matrix element-wise addition
+        (Value::Mat2(a), Value::Mat2(b)) => {
+            let mut result = [0.0; 4];
+            for i in 0..4 {
+                result[i] = a[i] + b[i];
+            }
+            Value::Mat2(result)
+        }
+        (Value::Mat3(a), Value::Mat3(b)) => {
+            let mut result = [0.0; 9];
+            for i in 0..9 {
+                result[i] = a[i] + b[i];
+            }
+            Value::Mat3(result)
+        }
+        (Value::Mat4(a), Value::Mat4(b)) => {
+            let mut result = [0.0; 16];
+            for i in 0..16 {
+                result[i] = a[i] + b[i];
+            }
+            Value::Mat4(result)
+        }
         (Value::Map(a), Value::Map(b)) => {
             let mut res = a.clone();
             res.extend(b.clone());
@@ -604,6 +693,28 @@ fn val_sub(l: Value, r: Value) -> Value {
         (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a - b as f64),
         (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(a as f64 - b),
         (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3([a[0] - b[0], a[1] - b[1], a[2] - b[2]]),
+        // Matrix element-wise subtraction
+        (Value::Mat2(a), Value::Mat2(b)) => {
+            let mut result = [0.0; 4];
+            for i in 0..4 {
+                result[i] = a[i] - b[i];
+            }
+            Value::Mat2(result)
+        }
+        (Value::Mat3(a), Value::Mat3(b)) => {
+            let mut result = [0.0; 9];
+            for i in 0..9 {
+                result[i] = a[i] - b[i];
+            }
+            Value::Mat3(result)
+        }
+        (Value::Mat4(a), Value::Mat4(b)) => {
+            let mut result = [0.0; 16];
+            for i in 0..16 {
+                result[i] = a[i] - b[i];
+            }
+            Value::Mat4(result)
+        }
         _ => Value::Scalar(0.0),
     }
 }
@@ -614,8 +725,64 @@ fn val_mul(l: Value, r: Value) -> Value {
         (Value::Integer(a), Value::Integer(b)) => Value::Integer(a * b),
         (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a * b as f64),
         (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(a as f64 * b),
+        // Vector * Scalar
         (Value::Vec3(v), Value::Scalar(s)) => Value::Vec3([v[0] * s, v[1] * s, v[2] * s]),
         (Value::Scalar(s), Value::Vec3(v)) => Value::Vec3([v[0] * s, v[1] * s, v[2] * s]),
+
+        // Scalar * Matrix (broadcast)
+        (Value::Scalar(s), Value::Mat2(m)) => {
+            let mut result = m;
+            for i in 0..4 {
+                result[i] *= s;
+            }
+            Value::Mat2(result)
+        }
+        (Value::Mat2(m), Value::Scalar(s)) => {
+            let mut result = m;
+            for i in 0..4 {
+                result[i] *= s;
+            }
+            Value::Mat2(result)
+        }
+        (Value::Scalar(s), Value::Mat3(m)) => {
+            let mut result = m;
+            for i in 0..9 {
+                result[i] *= s;
+            }
+            Value::Mat3(result)
+        }
+        (Value::Mat3(m), Value::Scalar(s)) => {
+            let mut result = m;
+            for i in 0..9 {
+                result[i] *= s;
+            }
+            Value::Mat3(result)
+        }
+        (Value::Scalar(s), Value::Mat4(m)) => {
+            let mut result = m;
+            for i in 0..16 {
+                result[i] *= s;
+            }
+            Value::Mat4(result)
+        }
+        (Value::Mat4(m), Value::Scalar(s)) => {
+            let mut result = m;
+            for i in 0..16 {
+                result[i] *= s;
+            }
+            Value::Mat4(result)
+        }
+
+        // Matrix * Matrix (proper matrix multiplication)
+        (Value::Mat2(a), Value::Mat2(b)) => Value::Mat2(mat2_mul(a, b)),
+        (Value::Mat3(a), Value::Mat3(b)) => Value::Mat3(mat3_mul(a, b)),
+        (Value::Mat4(a), Value::Mat4(b)) => Value::Mat4(mat4_mul(a, b)),
+
+        // Matrix * Vector (transform)
+        (Value::Mat2(m), Value::Vec2(v)) => Value::Vec2(mat2_vec2_mul(m, v)),
+        (Value::Mat3(m), Value::Vec3(v)) => Value::Vec3(mat3_vec3_mul(m, v)),
+        (Value::Mat4(m), Value::Vec4(v)) => Value::Vec4(mat4_vec4_mul(m, v)),
+
         _ => Value::Scalar(0.0),
     }
 }
@@ -624,6 +791,28 @@ fn val_div(l: Value, r: Value) -> Value {
     match (l, r) {
         (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a / b),
         (Value::Vec3(v), Value::Scalar(s)) => Value::Vec3([v[0] / s, v[1] / s, v[2] / s]),
+        // Matrix / Scalar (element-wise division)
+        (Value::Mat2(m), Value::Scalar(s)) => {
+            let mut result = m;
+            for i in 0..4 {
+                result[i] /= s;
+            }
+            Value::Mat2(result)
+        }
+        (Value::Mat3(m), Value::Scalar(s)) => {
+            let mut result = m;
+            for i in 0..9 {
+                result[i] /= s;
+            }
+            Value::Mat3(result)
+        }
+        (Value::Mat4(m), Value::Scalar(s)) => {
+            let mut result = m;
+            for i in 0..16 {
+                result[i] /= s;
+            }
+            Value::Mat4(result)
+        }
         _ => Value::Scalar(0.0),
     }
 }
@@ -640,6 +829,28 @@ fn val_neg(v: Value) -> Value {
         Value::Scalar(a) => Value::Scalar(-a),
         Value::Integer(a) => Value::Integer(-a),
         Value::Vec3(a) => Value::Vec3([-a[0], -a[1], -a[2]]),
+        // Matrix negation (element-wise)
+        Value::Mat2(m) => {
+            let mut result = m;
+            for i in 0..4 {
+                result[i] = -result[i];
+            }
+            Value::Mat2(result)
+        }
+        Value::Mat3(m) => {
+            let mut result = m;
+            for i in 0..9 {
+                result[i] = -result[i];
+            }
+            Value::Mat3(result)
+        }
+        Value::Mat4(m) => {
+            let mut result = m;
+            for i in 0..16 {
+                result[i] = -result[i];
+            }
+            Value::Mat4(result)
+        }
         _ => v,
     }
 }
@@ -1082,5 +1293,92 @@ mod tests {
         let chunk = compile_expr(&expr);
         let result = execute(&chunk, &mut VectorTestContext);
         assert_eq!(result, Value::Scalar(6.0));
+    }
+
+    #[test]
+    fn test_matrix_addition() {
+        // Mat2 + Mat2
+        let a = Value::Mat2([1.0, 2.0, 3.0, 4.0]);
+        let b = Value::Mat2([5.0, 6.0, 7.0, 8.0]);
+        let result = val_add(a, b);
+        assert_eq!(result, Value::Mat2([6.0, 8.0, 10.0, 12.0]));
+    }
+
+    #[test]
+    fn test_matrix_subtraction() {
+        // Mat3 - Mat3
+        let a = Value::Mat3([9.0, 8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0]);
+        let b = Value::Mat3([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]);
+        let result = val_sub(a, b);
+        assert_eq!(
+            result,
+            Value::Mat3([8.0, 7.0, 6.0, 5.0, 4.0, 3.0, 2.0, 1.0, 0.0])
+        );
+    }
+
+    #[test]
+    fn test_matrix_scalar_multiplication() {
+        // Mat2 * Scalar
+        let m = Value::Mat2([1.0, 2.0, 3.0, 4.0]);
+        let s = Value::Scalar(2.0);
+        let result = val_mul(m.clone(), s.clone());
+        assert_eq!(result, Value::Mat2([2.0, 4.0, 6.0, 8.0]));
+
+        // Scalar * Mat2
+        let result2 = val_mul(s, m);
+        assert_eq!(result2, Value::Mat2([2.0, 4.0, 6.0, 8.0]));
+    }
+
+    #[test]
+    fn test_matrix_multiplication() {
+        // Mat2 * Mat2 (identity test)
+        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
+        let m = Value::Mat2([1.0, 2.0, 3.0, 4.0]);
+        let result = val_mul(identity, m.clone());
+        assert_eq!(result, m);
+
+        // Mat2 * Mat2 (actual multiplication)
+        let a = Value::Mat2([1.0, 2.0, 3.0, 4.0]); // [[1,3], [2,4]] in row-major
+        let b = Value::Mat2([5.0, 6.0, 7.0, 8.0]); // [[5,7], [6,8]] in row-major
+        let result = val_mul(a, b);
+        // Expected: [[1*5+3*6, 1*7+3*8], [2*5+4*6, 2*7+4*8]]
+        //         = [[23, 31], [34, 46]]
+        // In column-major: [23, 34, 31, 46]
+        assert_eq!(result, Value::Mat2([23.0, 34.0, 31.0, 46.0]));
+    }
+
+    #[test]
+    fn test_matrix_vector_multiplication() {
+        // Mat2 * Vec2
+        let m = Value::Mat2([1.0, 0.0, 0.0, 1.0]); // identity
+        let v = Value::Vec2([3.0, 4.0]);
+        let result = val_mul(m, v);
+        assert_eq!(result, Value::Vec2([3.0, 4.0]));
+
+        // Mat3 * Vec3 (scaling matrix)
+        let scale = Value::Mat3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]);
+        let v3 = Value::Vec3([1.0, 2.0, 3.0]);
+        let result3 = val_mul(scale, v3);
+        assert_eq!(result3, Value::Vec3([2.0, 4.0, 6.0]));
+    }
+
+    #[test]
+    fn test_matrix_division() {
+        // Mat2 / Scalar
+        let m = Value::Mat2([2.0, 4.0, 6.0, 8.0]);
+        let s = Value::Scalar(2.0);
+        let result = val_div(m, s);
+        assert_eq!(result, Value::Mat2([1.0, 2.0, 3.0, 4.0]));
+    }
+
+    #[test]
+    fn test_matrix_negation() {
+        // -Mat3
+        let m = Value::Mat3([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+        let result = val_neg(m);
+        assert_eq!(
+            result,
+            Value::Mat3([-1.0, -2.0, -3.0, -4.0, -5.0, -6.0, -7.0, -8.0, -9.0])
+        );
     }
 }
