@@ -188,6 +188,27 @@ pub fn log(x: f64, base: f64) -> f64 {
     x.ln() / base.ln()
 }
 
+/// Log base 2: `log2(x)` → log₂(x)
+#[kernel_fn(namespace = "maths")]
+pub fn log2(x: f64) -> f64 {
+    x.log2()
+}
+
+/// Cube root: `cbrt(x)` → ∛x
+#[kernel_fn(namespace = "maths")]
+pub fn cbrt(x: f64) -> f64 {
+    x.cbrt()
+}
+
+/// Fractional part: `fract(x)` → x - floor(x)
+///
+/// Returns the fractional component of a number.
+/// For example: fract(3.7) = 0.7
+#[kernel_fn(namespace = "maths")]
+pub fn fract(x: f64) -> f64 {
+    x.fract()
+}
+
 // === Rounding ===
 
 /// Floor: `floor(x)` → largest integer ≤ x
@@ -296,6 +317,9 @@ mod tests {
         assert!(is_known_in("maths", "ln"));
         assert!(is_known_in("maths", "log10"));
         assert!(is_known_in("maths", "log"));
+        assert!(is_known_in("maths", "log2"));
+        assert!(is_known_in("maths", "cbrt"));
+        assert!(is_known_in("maths", "fract"));
         assert!(is_known_in("maths", "pow"));
         assert!(is_known_in("maths", "clamp"));
         assert!(is_known_in("maths", "lerp"));
@@ -864,5 +888,77 @@ mod tests {
             eval_in_namespace("maths", "saturate", &[Value::Scalar(5.0)], 1.0),
             Some(Value::Scalar(1.0))
         );
+    }
+
+    #[test]
+    fn test_eval_fract() {
+        // fract(3.7) = 0.7
+        let result = eval_in_namespace("maths", "fract", &[Value::Scalar(3.7)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.7).abs() < 1e-10);
+
+        // fract(5.0) = 0.0
+        let result = eval_in_namespace("maths", "fract", &[Value::Scalar(5.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
+
+        // fract(-2.3) = -0.3 (Rust's fract returns negative for negative inputs)
+        let result = eval_in_namespace("maths", "fract", &[Value::Scalar(-2.3)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result + 0.3).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_cbrt() {
+        // cbrt(8) = 2
+        let result = eval_in_namespace("maths", "cbrt", &[Value::Scalar(8.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 2.0).abs() < 1e-10);
+
+        // cbrt(27) = 3
+        let result = eval_in_namespace("maths", "cbrt", &[Value::Scalar(27.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 3.0).abs() < 1e-10);
+
+        // cbrt(-8) = -2 (cube root of negative number is negative)
+        let result = eval_in_namespace("maths", "cbrt", &[Value::Scalar(-8.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result + 2.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_log2() {
+        // log2(8) = 3
+        let result = eval_in_namespace("maths", "log2", &[Value::Scalar(8.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 3.0).abs() < 1e-10);
+
+        // log2(1024) = 10
+        let result = eval_in_namespace("maths", "log2", &[Value::Scalar(1024.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 10.0).abs() < 1e-10);
+
+        // log2(1) = 0
+        let result = eval_in_namespace("maths", "log2", &[Value::Scalar(1.0)], 1.0)
+            .unwrap()
+            .as_scalar()
+            .unwrap();
+        assert!((result - 0.0).abs() < 1e-10);
     }
 }
