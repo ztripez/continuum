@@ -750,6 +750,8 @@ pub fn build_chronicle_handler(
     })
 }
 
+// Entity context fields are scaffolding for future entity impulse support
+#[allow(dead_code)]
 struct ImpulseEvalContext<'a> {
     payload: &'a Value,
     signals: &'a SignalStorage,
@@ -765,6 +767,8 @@ struct ImpulseEvalContext<'a> {
     other_instance: Option<InstanceId>,
 }
 
+// Entity helper methods are scaffolding for future entity impulse support
+#[allow(dead_code)]
 impl ImpulseEvalContext<'_> {
     fn constant(&self, name: &str) -> f64 {
         self.constants

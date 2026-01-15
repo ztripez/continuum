@@ -6,7 +6,7 @@
 use continuum_dsl::ast::{self, Span};
 use continuum_foundation::{FieldId, SignalId, StratumId};
 
-use crate::{CompiledExpr, CompiledField, CompiledSignal, CompiledWarmup, TopologyIr, ValueType};
+use crate::{CompiledField, CompiledSignal, CompiledWarmup, TopologyIr, ValueType};
 
 use super::{LowerError, Lowerer};
 

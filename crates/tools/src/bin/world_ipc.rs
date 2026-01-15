@@ -13,7 +13,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task::yield_now;
 use tokio::time::{Duration, sleep};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
 use continuum_lens::{FieldLens, FieldLensConfig, PlaybackClock};

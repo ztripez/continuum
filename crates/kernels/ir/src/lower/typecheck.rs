@@ -2,10 +2,16 @@
 //!
 //! This module provides type inference and validation for binary operations
 //! during IR lowering, catching type mismatches at compile time rather than runtime.
+//!
+//! NOTE: This infrastructure is implemented but not yet wired into the main lowering
+//! pipeline. It will be enabled when we want compile-time type errors for binary ops.
+
+// Type checking infrastructure - not yet wired into main lowering pipeline
+#![allow(dead_code)]
 
 use continuum_dsl::ast::{self, BinaryOp, Expr, Literal, Span};
 use continuum_foundation::{
-    PrimitiveShape, SignalId,
+    PrimitiveShape,
     coercion::{self, TypeCheckResult},
 };
 use std::collections::HashMap;
@@ -253,7 +259,7 @@ pub fn infer_expr_type(
         Expr::Call { .. } | Expr::MethodCall { .. } => Ok(InferredType::Unknown),
 
         // Field access - return unknown (would need struct type info)
-        Expr::FieldAccess { object, field } => {
+        Expr::FieldAccess { object: _, field } => {
             // Check for vector component access (x, y, z, w)
             if matches!(field.as_str(), "x" | "y" | "z" | "w") {
                 return Ok(InferredType::scalar());

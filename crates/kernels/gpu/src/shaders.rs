@@ -9,6 +9,9 @@
 //! - Generate optimized shaders for common patterns
 //! - Support topology-specific dispatch strategies
 
+// Shader templates and topology types are infrastructure for future GPU field compute
+#![allow(dead_code)]
+
 /// Shader templates for common field patterns.
 pub mod templates {
     /// Simple accumulator: sum all signal inputs.

@@ -196,6 +196,7 @@ impl SymbolIndex {
     }
 
     /// (Backward Compatibility) Build from AST only.
+    #[allow(dead_code)]
     pub fn from_ast(ast: &CompilationUnit) -> Self {
         // Lower to IR for indexing (individual file context)
         let world = continuum_compiler::ir::lower(ast).unwrap_or_else(|_| CompiledWorld {

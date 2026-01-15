@@ -10,9 +10,7 @@ use crate::ast::{
 
 use super::super::expr::spanned_expr;
 use super::super::lexer::Token;
-use super::super::primitives::{
-    attr_flag, attr_path, attr_string, float, spanned, spanned_path, tok,
-};
+use super::super::primitives::{attr_path, attr_string, float, spanned, spanned_path, tok};
 use super::super::{ParseError, ParserInput};
 use super::common::{assert_block, topology};
 use super::config::{config_entry, const_entry};
