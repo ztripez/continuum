@@ -329,6 +329,31 @@ fn check_undefined_symbols(world: &CompiledWorld, warnings: &mut Vec<CompileWarn
             );
         }
     }
+
+    // Check chronicles
+    let chronicles = world.chronicles();
+    for (chronicle_id, chronicle) in &chronicles {
+        for (i, handler) in chronicle.handlers.iter().enumerate() {
+            check_expr_symbols(
+                &handler.condition,
+                &format!("chronicle.{} handler[{}]", chronicle_id, i),
+                &defined_signals,
+                &defined_constants,
+                &defined_config,
+                warnings,
+            );
+            for field in &handler.event_fields {
+                check_expr_symbols(
+                    &field.value,
+                    &format!("chronicle.{} handler[{}].{}", chronicle_id, i, field.name),
+                    &defined_signals,
+                    &defined_constants,
+                    &defined_config,
+                    warnings,
+                );
+            }
+        }
+    }
 }
 
 /// Recursively checks an expression for undefined symbols.
@@ -813,6 +838,28 @@ fn check_type_compatibility(world: &CompiledWorld, warnings: &mut Vec<CompileWar
     for (impulse_id, impulse) in world.impulses() {
         if let Some(apply) = &impulse.apply {
             check_expr_types(apply, &format!("impulse.{}", impulse_id), &ctx, warnings);
+        }
+    }
+
+    // Check chronicles
+    for (chronicle_id, chronicle) in world.chronicles() {
+        for (i, handler) in chronicle.handlers.iter().enumerate() {
+            // Check condition expression
+            check_expr_types(
+                &handler.condition,
+                &format!("chronicle.{} handler[{}]", chronicle_id, i),
+                &ctx,
+                warnings,
+            );
+            // Check event field expressions
+            for field in &handler.event_fields {
+                check_expr_types(
+                    &field.value,
+                    &format!("chronicle.{} handler[{}].{}", chronicle_id, i, field.name),
+                    &ctx,
+                    warnings,
+                );
+            }
         }
     }
 }
@@ -1847,5 +1894,50 @@ fracture.test.tension {
             "expected TypeMismatch warning for fracture emit with Vec2 + Vec3"
         );
         assert!(type_warnings[0].entity.contains("fracture.test.tension"));
+    }
+
+    #[test]
+    fn test_chronicle_type_checking() {
+        // Chronicle handler conditions and event fields should be type-checked
+        let src = r#"
+strata.test {}
+era.main { : initial }
+
+signal.test.vec2 {
+    : Vec2<m>
+    : strata(test)
+    resolve { prev }
+}
+
+signal.test.vec3 {
+    : Vec3<m>
+    : strata(test)
+    resolve { prev }
+}
+
+chronicle.test.observer {
+    observe {
+        when signal.test.vec2.x > 0.0 {
+            emit event.update {
+                invalid_sum: signal.test.vec2 + signal.test.vec3
+            }
+        }
+    }
+}
+        "#;
+
+        let world = parse_and_lower(src);
+        let warnings = validate(&world);
+
+        let type_warnings: Vec<_> = warnings
+            .iter()
+            .filter(|w| w.code == WarningCode::TypeMismatch)
+            .collect();
+        assert_eq!(
+            type_warnings.len(),
+            1,
+            "expected TypeMismatch warning for chronicle event field with Vec2 + Vec3"
+        );
+        assert!(type_warnings[0].entity.contains("chronicle.test.observer"));
     }
 }
