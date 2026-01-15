@@ -76,6 +76,7 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
             is_initial: def.is_initial,
             is_terminal: def.is_terminal,
             title: def.title.as_ref().map(|s| s.node.clone()),

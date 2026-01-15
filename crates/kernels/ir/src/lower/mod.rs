@@ -391,6 +391,7 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
             fields,
         };
         self.types.insert(id, compiled_type);
@@ -415,6 +416,7 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
             title: def.title.as_ref().map(|s| s.node.clone()),
             symbol: def.symbol.as_ref().map(|s| s.node.clone()),
             default_stride: def.stride.as_ref().map(|s| s.node).unwrap_or(1),
@@ -436,6 +438,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Signal(
                     crate::unified_nodes::SignalProperties {
+                        doc: signal.doc.clone(),
                         title: signal.title.clone(),
                         symbol: signal.symbol.clone(),
                         value_type: signal.value_type.clone(),
@@ -459,7 +462,9 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Field(
                     crate::unified_nodes::FieldProperties {
+                        doc: field.doc.clone(),
                         title: field.title.clone(),
+                        symbol: field.symbol.clone(),
                         topology: field.topology,
                         value_type: field.value_type.clone(),
                         measure: field.measure.clone(),
@@ -479,6 +484,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Operator(
                     crate::unified_nodes::OperatorProperties {
+                        doc: operator.doc.clone(),
                         phase: operator.phase,
                         body: operator.body.clone(),
                         assertions: operator.assertions.clone(),
@@ -498,6 +504,9 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Impulse(
                     crate::unified_nodes::ImpulseProperties {
+                        doc: impulse.doc.clone(),
+                        title: impulse.title.clone(),
+                        symbol: impulse.symbol.clone(),
                         payload_type: impulse.payload_type.clone(),
                         apply: impulse.apply.clone(),
                     },
@@ -516,6 +525,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Fracture(
                     crate::unified_nodes::FractureProperties {
+                        doc: fracture.doc.clone(),
                         conditions: fracture.conditions.clone(),
                         emits: fracture.emits.clone(),
                     },
@@ -534,6 +544,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Entity(
                     crate::unified_nodes::EntityProperties {
+                        doc: entity.doc.clone(),
                         count_source: entity.count_source.clone(),
                         count_bounds: entity.count_bounds,
                     },
@@ -552,6 +563,7 @@ impl Lowerer {
                 member_reads: member.member_reads.clone(),
                 kind: crate::unified_nodes::NodeKind::Member(
                     crate::unified_nodes::MemberProperties {
+                        doc: member.doc.clone(),
                         entity_id: member.entity_id.clone(),
                         signal_name: member.signal_name.clone(),
                         title: member.title.clone(),
@@ -577,6 +589,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Chronicle(
                     crate::unified_nodes::ChronicleProperties {
+                        doc: chronicle.doc.clone(),
                         handlers: chronicle.handlers.clone(),
                     },
                 ),
@@ -594,6 +607,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Function(
                     crate::unified_nodes::FunctionProperties {
+                        doc: function.doc.clone(),
                         params: function.params.clone(),
                         body: function.body.clone(),
                     },
@@ -611,6 +625,7 @@ impl Lowerer {
                 reads: Vec::new(),
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Type(crate::unified_nodes::TypeProperties {
+                    doc: ty.doc.clone(),
                     fields: ty.fields.clone(),
                 }),
             };
@@ -627,6 +642,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Stratum(
                     crate::unified_nodes::StratumProperties {
+                        doc: stratum.doc.clone(),
                         title: stratum.title.clone(),
                         symbol: stratum.symbol.clone(),
                         default_stride: stratum.default_stride,
@@ -645,6 +661,7 @@ impl Lowerer {
                 reads: Vec::new(),
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Era(crate::unified_nodes::EraProperties {
+                    doc: era.doc.clone(),
                     is_initial: era.is_initial,
                     is_terminal: era.is_terminal,
                     title: era.title.clone(),

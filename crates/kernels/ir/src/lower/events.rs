@@ -39,6 +39,9 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
+            title: def.title.as_ref().map(|s| s.node.clone()),
+            symbol: def.symbol.as_ref().map(|s| s.node.clone()),
             payload_type: def
                 .payload_type
                 .as_ref()
@@ -123,6 +126,7 @@ impl Lowerer {
             span,
             id: id.clone(),
             stratum,
+            doc: def.doc.clone(),
             reads,
             conditions: def
                 .conditions

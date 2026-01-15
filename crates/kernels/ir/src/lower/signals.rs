@@ -145,6 +145,7 @@ impl Lowerer {
             span,
             id: id.clone(),
             stratum,
+            doc: def.doc.clone(),
             title: def.title.as_ref().map(|s| s.node.clone()),
             symbol: def.symbol.as_ref().map(|s| s.node.clone()),
             value_type,
@@ -200,7 +201,9 @@ impl Lowerer {
             span,
             id: id.clone(),
             stratum,
+            doc: def.doc.clone(),
             title: def.title.as_ref().map(|s| s.node.clone()),
+            symbol: def.symbol.as_ref().map(|s| s.node.clone()),
             topology: def
                 .topology
                 .as_ref()

@@ -138,6 +138,7 @@ pub struct CompiledStratum {
     pub file: Option<PathBuf>,
     pub span: Span,
     pub id: StratumId,
+    pub doc: Option<String>,
     pub title: Option<String>,
     pub symbol: Option<String>,
     pub default_stride: u32,
@@ -149,6 +150,7 @@ pub struct CompiledFn {
     pub file: Option<PathBuf>,
     pub span: Span,
     pub id: FnId,
+    pub doc: Option<String>,
     pub params: Vec<String>,
     pub body: CompiledExpr,
 }
@@ -159,6 +161,7 @@ pub struct CompiledEra {
     pub file: Option<PathBuf>,
     pub span: Span,
     pub id: EraId,
+    pub doc: Option<String>,
     pub is_initial: bool,
     pub is_terminal: bool,
     pub title: Option<String>,
@@ -181,6 +184,7 @@ pub struct CompiledSignal {
     pub span: Span,
     pub id: SignalId,
     pub stratum: StratumId,
+    pub doc: Option<String>,
     pub title: Option<String>,
     pub symbol: Option<String>,
     pub value_type: ValueType,
@@ -198,7 +202,9 @@ pub struct CompiledField {
     pub span: Span,
     pub id: FieldId,
     pub stratum: StratumId,
+    pub doc: Option<String>,
     pub title: Option<String>,
+    pub symbol: Option<String>,
     pub topology: TopologyIr,
     pub value_type: ValueType,
     pub reads: Vec<SignalId>,
@@ -212,6 +218,7 @@ pub struct CompiledOperator {
     pub span: Span,
     pub id: OperatorId,
     pub stratum: StratumId,
+    pub doc: Option<String>,
     pub phase: OperatorPhaseIr,
     pub reads: Vec<SignalId>,
     pub body: Option<CompiledExpr>,
@@ -224,6 +231,9 @@ pub struct CompiledImpulse {
     pub file: Option<PathBuf>,
     pub span: Span,
     pub id: ImpulseId,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub symbol: Option<String>,
     pub payload_type: ValueType,
     pub apply: Option<CompiledExpr>,
 }
@@ -235,6 +245,7 @@ pub struct CompiledFracture {
     pub span: Span,
     pub id: FractureId,
     pub stratum: StratumId,
+    pub doc: Option<String>,
     pub reads: Vec<SignalId>,
     pub conditions: Vec<CompiledExpr>,
     pub emits: Vec<CompiledEmit>,
@@ -253,6 +264,7 @@ pub struct CompiledEntity {
     pub file: Option<PathBuf>,
     pub span: Span,
     pub id: EntityId,
+    pub doc: Option<String>,
     pub count_source: Option<String>,
     pub count_bounds: Option<(u32, u32)>,
 }
@@ -266,6 +278,7 @@ pub struct CompiledMember {
     pub entity_id: EntityId,
     pub signal_name: String,
     pub stratum: StratumId,
+    pub doc: Option<String>,
     pub title: Option<String>,
     pub symbol: Option<String>,
     pub value_type: ValueType,
@@ -283,6 +296,7 @@ pub struct CompiledChronicle {
     pub file: Option<PathBuf>,
     pub span: Span,
     pub id: ChronicleId,
+    pub doc: Option<String>,
     pub reads: Vec<SignalId>,
     pub handlers: Vec<CompiledObserveHandler>,
 }
@@ -293,6 +307,7 @@ pub struct CompiledType {
     pub file: Option<PathBuf>,
     pub span: Span,
     pub id: TypeId,
+    pub doc: Option<String>,
     pub fields: Vec<CompiledTypeField>,
 }
 
@@ -846,6 +861,7 @@ impl ExtractFromNode for CompiledSignal {
                     .stratum
                     .clone()
                     .unwrap_or_else(|| StratumId::from("default")),
+                doc: props.doc.clone(),
                 title: props.title.clone(),
                 symbol: props.symbol.clone(),
                 value_type: props.value_type.clone(),
@@ -874,7 +890,9 @@ impl ExtractFromNode for CompiledField {
                     .stratum
                     .clone()
                     .unwrap_or_else(|| StratumId::from("default")),
+                doc: props.doc.clone(),
                 title: props.title.clone(),
+                symbol: props.symbol.clone(),
                 topology: props.topology,
                 value_type: props.value_type.clone(),
                 reads: node.reads.clone(),
@@ -899,6 +917,7 @@ impl ExtractFromNode for CompiledOperator {
                     .stratum
                     .clone()
                     .unwrap_or_else(|| StratumId::from("default")),
+                doc: props.doc.clone(),
                 phase: props.phase,
                 reads: node.reads.clone(),
                 body: props.body.clone(),
@@ -919,6 +938,9 @@ impl ExtractFromNode for CompiledImpulse {
                 file: node.file.clone(),
                 span: node.span.clone(),
                 id: ImpulseId::from(path.clone()),
+                doc: props.doc.clone(),
+                title: props.title.clone(),
+                symbol: props.symbol.clone(),
                 payload_type: props.payload_type.clone(),
                 apply: props.apply.clone(),
             })
@@ -937,6 +959,7 @@ impl ExtractFromNode for CompiledEra {
                 file: node.file.clone(),
                 span: node.span.clone(),
                 id: EraId::from(path.clone()),
+                doc: props.doc.clone(),
                 is_initial: props.is_initial,
                 is_terminal: props.is_terminal,
                 title: props.title.clone(),
@@ -959,6 +982,7 @@ impl ExtractFromNode for CompiledStratum {
                 file: node.file.clone(),
                 span: node.span.clone(),
                 id: StratumId::from(path.clone()),
+                doc: props.doc.clone(),
                 title: props.title.clone(),
                 symbol: props.symbol.clone(),
                 default_stride: props.default_stride,
@@ -984,6 +1008,7 @@ impl ExtractFromNode for CompiledMember {
                     .stratum
                     .clone()
                     .unwrap_or_else(|| StratumId::from("default")),
+                doc: props.doc.clone(),
                 title: props.title.clone(),
                 symbol: props.symbol.clone(),
                 value_type: props.value_type.clone(),
@@ -1013,6 +1038,7 @@ impl ExtractFromNode for CompiledFracture {
                     .stratum
                     .clone()
                     .unwrap_or_else(|| StratumId::from("default")),
+                doc: props.doc.clone(),
                 reads: node.reads.clone(),
                 conditions: props.conditions.clone(),
                 emits: props.emits.clone(),
@@ -1032,6 +1058,7 @@ impl ExtractFromNode for CompiledEntity {
                 file: node.file.clone(),
                 span: node.span.clone(),
                 id: EntityId::from(path.clone()),
+                doc: props.doc.clone(),
                 count_source: props.count_source.clone(),
                 count_bounds: props.count_bounds,
             })
@@ -1050,6 +1077,7 @@ impl ExtractFromNode for CompiledChronicle {
                 file: node.file.clone(),
                 span: node.span.clone(),
                 id: ChronicleId::from(path.clone()),
+                doc: props.doc.clone(),
                 reads: node.reads.clone(),
                 handlers: props.handlers.clone(),
             })
@@ -1068,6 +1096,7 @@ impl ExtractFromNode for CompiledFn {
                 file: node.file.clone(),
                 span: node.span.clone(),
                 id: FnId::from(path.clone()),
+                doc: props.doc.clone(),
                 params: props.params.clone(),
                 body: props.body.clone(),
             })
@@ -1086,6 +1115,7 @@ impl ExtractFromNode for CompiledType {
                 file: node.file.clone(),
                 span: node.span.clone(),
                 id: TypeId::from(path.clone()),
+                doc: props.doc.clone(),
                 fields: props.fields.clone(),
             })
         } else {

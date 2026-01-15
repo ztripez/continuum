@@ -81,6 +81,7 @@ impl Lowerer {
             span,
             id: id.clone(),
             stratum,
+            doc: def.doc.clone(),
             phase,
             reads,
             body: body_expr.map(|e| self.lower_expr(e)),
@@ -117,6 +118,7 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
             params,
             body,
         };
