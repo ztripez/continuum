@@ -47,10 +47,12 @@
         { "include": "#impulse-def" },
         { "include": "#chronicle-def" },
         { "include": "#entity-def" },
+        { "include": "#member-def" },
         { "include": "#strata-def" },
         { "include": "#era-def" },
         { "include": "#type-def" },
-        { "include": "#fn-def" }
+        { "include": "#fn-def" },
+        { "include": "#world-def" }
       ]
     },
     "const-block": {
@@ -92,11 +94,10 @@
       }
     },
     "signal-def": {
-      "begin": "\\b(signal)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(signal)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.signal.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.signal.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -105,11 +106,10 @@
       ]
     },
     "field-def": {
-      "begin": "\\b(field)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(field)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.field.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.field.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -118,11 +118,10 @@
       ]
     },
     "operator-def": {
-      "begin": "\\b(operator)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(operator)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.operator.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.operator.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -131,11 +130,10 @@
       ]
     },
     "fracture-def": {
-      "begin": "\\b(fracture)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(fracture)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.fracture.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.fracture.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -144,11 +142,10 @@
       ]
     },
     "impulse-def": {
-      "begin": "\\b(impulse)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(impulse)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.impulse.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.impulse.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -157,11 +154,10 @@
       ]
     },
     "chronicle-def": {
-      "begin": "\\b(chronicle)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(chronicle)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.chronicle.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.chronicle.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -170,11 +166,22 @@
       ]
     },
     "entity-def": {
-      "begin": "\\b(entity)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(entity)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.entity.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.entity.cdsl" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#definition-name" },
+        { "include": "#definition-body" }
+      ]
+    },
+    "member-def": {
+      "begin": "\\b(member)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.member.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -183,11 +190,10 @@
       ]
     },
     "strata-def": {
-      "begin": "\\b(strata)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(strata)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.strata.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.strata.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -196,11 +202,10 @@
       ]
     },
     "era-def": {
-      "begin": "\\b(era)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(era)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.era.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.era.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -209,11 +214,10 @@
       ]
     },
     "type-def": {
-      "begin": "\\b(type)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(type)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.type.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.type.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
@@ -222,15 +226,26 @@
       ]
     },
     "fn-def": {
-      "begin": "\\b(fn)(\\.)",
-      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|$(?!\\n))",
+      "begin": "\\b(fn)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
       "beginCaptures": {
-        "1": { "name": "keyword.declaration.function.cdsl" },
-        "2": { "name": "punctuation.accessor.cdsl" }
+        "1": { "name": "keyword.declaration.function.cdsl" }
       },
       "patterns": [
         { "include": "#comments" },
         { "include": "#fn-name-and-params" },
+        { "include": "#definition-body" }
+      ]
+    },
+    "world-def": {
+      "begin": "\\b(world)\\s+",
+      "end": "(?=\\bsignal\\b|\\bfield\\b|\\boperator\\b|\\bfracture\\b|\\bimpulse\\b|\\bchronicle\\b|\\bentity\\b|\\bstrata\\b|\\bera\\b|\\btype\\b|\\bfn\\b|\\bconst\\b|\\bconfig\\b|\\bmember\\b|\\bworld\\b|$(?!\\n))",
+      "beginCaptures": {
+        "1": { "name": "keyword.declaration.world.cdsl" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "include": "#definition-name" },
         { "include": "#definition-body" }
       ]
     },
