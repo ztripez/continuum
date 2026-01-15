@@ -128,30 +128,144 @@ type ImpactEvent {
 
 ### Built-in Types
 
-| Type | Description |
-|------|-------------|
-| `Scalar<unit>` | Single value |
-| `Scalar<unit, range>` | Bounded single value |
-| `Vec2<unit>` | 2D vector |
-| `Vec3<unit>` | 3D vector |
-| `Vec4<unit>` | 4D vector (quaternions, homogeneous coords) |
-| `Vec3<unit, magnitude: range>` | Vector with magnitude constraint |
-| `Tensor<N,M,unit>` | NxM tensor |
-| `Seq<T>` | Ordered sequence |
-| `Grid<W,H,T>` | 2D grid |
+#### Scalar Types
+
+| Type | Description | Parameters |
+|------|-------------|------------|
+| `Scalar<unit>` | Single floating-point value | unit (optional) |
+| `Scalar<unit, range>` | Bounded single value | unit, range |
+
+```
+: Scalar<K>                  # temperature in Kelvin
+: Scalar<m/s>                # velocity magnitude
+: Scalar<1>                  # dimensionless ratio
+: Scalar<K, 100..10000>      # bounded temperature
+: Scalar<1, 0..1>            # normalized fraction
+```
+
+#### Vector Types
+
+| Type | Description | Components | Parameters |
+|------|-------------|------------|------------|
+| `Vec2<unit>` | 2D vector | x, y | unit, magnitude |
+| `Vec3<unit>` | 3D vector | x, y, z | unit, magnitude |
+| `Vec4<unit>` | 4D vector | x, y, z, w | unit, magnitude |
+
+```
+: Vec2<m>                           # 2D position
+: Vec3<m/s>                         # 3D velocity
+: Vec4<1>                           # homogeneous coordinates
+: Vec3<m, magnitude: 1e10..1e12>    # bounded orbital radius
+```
+
+Component access:
+```
+signal.position.x    # x component
+signal.velocity.z    # z component
+```
+
+#### Quaternion Type
+
+| Type | Description | Components | Parameters |
+|------|-------------|------------|------------|
+| `Quat` | Unit quaternion for rotations | w, x, y, z | magnitude |
+
+```
+: Quat                       # rotation quaternion
+: Quat<magnitude: 1>         # enforced unit quaternion
+```
+
+Quaternions are stored as Vec4 but with w-first component order (w, x, y, z).
+They represent rotations and should typically have magnitude 1.
+
+#### Matrix Types
+
+| Type | Description | Components | Parameters |
+|------|-------------|------------|------------|
+| `Mat2<unit>` | 2x2 matrix | m00, m10, m01, m11 | unit |
+| `Mat3<unit>` | 3x3 matrix | m00..m22 (9 elements) | unit |
+| `Mat4<unit>` | 4x4 matrix | m00..m33 (16 elements) | unit |
+
+```
+: Mat3<1>                    # rotation matrix
+: Mat4<m>                    # transformation matrix
+```
+
+Matrices use column-major order for GPU compatibility.
+Component naming: `mRC` where R=row, C=column.
+
+#### Tensor Type
+
+| Type | Description | Parameters |
+|------|-------------|------------|
+| `Tensor<rows, cols, unit>` | General NxM tensor | rows, cols, unit |
+
+```
+: Tensor<3,3,Pa>             # 3x3 stress tensor
+: Tensor<6,6,Pa>             # elasticity tensor
+```
+
+Tensors support structural constraints:
+```
+: Tensor<3,3,Pa>
+  : symmetric                # Tij = Tji
+  : positive_definite        # all eigenvalues > 0
+```
+
+#### Collection Types
+
+| Type | Description | Parameters |
+|------|-------------|------------|
+| `Seq<T>` | Ordered sequence | element_type |
+| `Grid<W,H,T>` | 2D grid | width, height, element_type |
+
+```
+: Seq<Scalar<kg>>            # sequence of masses
+: Grid<360,180,Scalar<K>>    # temperature grid
+```
 
 ### Constraints
 
+Type constraints restrict valid values at compile time and generate runtime assertions.
+
+#### Range Constraints
+
+For scalar types, specify min..max bounds:
 ```
-: Scalar<K, 100..10000>              // range
-: Vec3<m, magnitude: 1e10..1e12>     // magnitude bound
-: Vec4<1, magnitude: 1>              // unit quaternion
-: Tensor<3,3,Pa>                     // structural
-  : symmetric
-  : positive_definite
+: Scalar<K, 100..10000>              # temperature 100-10000 K
+: Scalar<Pa, 0..1e12>                # pressure 0-1 TPa
+: Scalar<1, 0..1>                    # fraction 0-1
+: Scalar<1, -1..1>                   # normalized value
+```
+
+#### Magnitude Constraints
+
+For vector types, constrain the vector length:
+```
+: Vec3<m, magnitude: 1e10..1e12>     # orbital radius bounds
+: Vec3<m/s, magnitude: 0..3e8>       # sub-light velocity
+: Vec4<1, magnitude: 1>              # unit quaternion
+: Quat<magnitude: 1>                 # enforced unit rotation
+```
+
+#### Structural Constraints
+
+For tensors, enforce mathematical properties:
+```
+: Tensor<3,3,Pa>
+  : symmetric                        # Tij = Tji
+  : positive_definite                # all eigenvalues > 0
+  : trace_zero                       # sum of diagonal = 0
+```
+
+#### Collection Constraints
+
+For sequences, constrain elements and aggregates:
+```
 : Seq<Scalar<kg>>
-  : each(1e20..1e28)
-  : sum(1e25..1e30)
+  : each(1e20..1e28)                 # each element in range
+  : sum(1e25..1e30)                  # total mass bounds
+  : count(1..100)                    # element count bounds
 ```
 
 ### Unit Annotations
