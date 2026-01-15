@@ -276,6 +276,144 @@ pub fn inverse(args: &[Value]) -> Value {
     }
 }
 
+/// Matrix multiply: `mul(a, b)` -> Mat
+/// Explicit function for matrix multiplication (alternative to a * b operator)
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+pub fn mul(args: &[Value]) -> Value {
+    if args.len() != 2 {
+        panic!("matrix.mul expects exactly 2 arguments");
+    }
+    match (&args[0], &args[1]) {
+        (Value::Mat2(a), Value::Mat2(b)) => {
+            let mut result = [0.0; 4];
+            for col in 0..2 {
+                for row in 0..2 {
+                    let mut sum = 0.0;
+                    for k in 0..2 {
+                        sum += a[k * 2 + row] * b[col * 2 + k];
+                    }
+                    result[col * 2 + row] = sum;
+                }
+            }
+            Value::Mat2(result)
+        }
+        (Value::Mat3(a), Value::Mat3(b)) => {
+            let mut result = [0.0; 9];
+            for col in 0..3 {
+                for row in 0..3 {
+                    let mut sum = 0.0;
+                    for k in 0..3 {
+                        sum += a[k * 3 + row] * b[col * 3 + k];
+                    }
+                    result[col * 3 + row] = sum;
+                }
+            }
+            Value::Mat3(result)
+        }
+        (Value::Mat4(a), Value::Mat4(b)) => {
+            let mut result = [0.0; 16];
+            for col in 0..4 {
+                for row in 0..4 {
+                    let mut sum = 0.0;
+                    for k in 0..4 {
+                        sum += a[k * 4 + row] * b[col * 4 + k];
+                    }
+                    result[col * 4 + row] = sum;
+                }
+            }
+            Value::Mat4(result)
+        }
+        _ => panic!("matrix.mul expects two matrices of the same size"),
+    }
+}
+
+/// Transform vector by matrix: `transform(m, v)` -> Vec
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+pub fn transform(args: &[Value]) -> Value {
+    if args.len() != 2 {
+        panic!("matrix.transform expects exactly 2 arguments");
+    }
+    match (&args[0], &args[1]) {
+        (Value::Mat2(m), Value::Vec2(v)) => {
+            let x = m[0] * v[0] + m[2] * v[1];
+            let y = m[1] * v[0] + m[3] * v[1];
+            Value::Vec2([x, y])
+        }
+        (Value::Mat3(m), Value::Vec3(v)) => {
+            let x = m[0] * v[0] + m[3] * v[1] + m[6] * v[2];
+            let y = m[1] * v[0] + m[4] * v[1] + m[7] * v[2];
+            let z = m[2] * v[0] + m[5] * v[1] + m[8] * v[2];
+            Value::Vec3([x, y, z])
+        }
+        (Value::Mat4(m), Value::Vec4(v)) => {
+            let x = m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3];
+            let y = m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3];
+            let z = m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3];
+            let w = m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3];
+            Value::Vec4([x, y, z, w])
+        }
+        _ => panic!("matrix.transform expects (Mat2, Vec2), (Mat3, Vec3), or (Mat4, Vec4)"),
+    }
+}
+
+/// Build rotation matrix from quaternion: `from_quat(q)` -> Mat3
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn from_quat(q: [f64; 4]) -> Mat3 {
+    let (x, y, z, w) = (q[0], q[1], q[2], q[3]);
+
+    // Normalize quaternion
+    let norm = (x * x + y * y + z * z + w * w).sqrt();
+    let (x, y, z, w) = (x / norm, y / norm, z / norm, w / norm);
+
+    // Compute rotation matrix elements (column-major)
+    let xx = x * x;
+    let yy = y * y;
+    let zz = z * z;
+    let xy = x * y;
+    let xz = x * z;
+    let yz = y * z;
+    let wx = w * x;
+    let wy = w * y;
+    let wz = w * z;
+
+    Mat3([
+        1.0 - 2.0 * (yy + zz),
+        2.0 * (xy + wz),
+        2.0 * (xz - wy),
+        2.0 * (xy - wz),
+        1.0 - 2.0 * (xx + zz),
+        2.0 * (yz + wx),
+        2.0 * (xz + wy),
+        2.0 * (yz - wx),
+        1.0 - 2.0 * (xx + yy),
+    ])
+}
+
+/// Build rotation matrix from axis-angle: `from_axis_angle(axis, angle)` -> Mat3
+#[kernel_fn(namespace = "matrix", category = "matrix")]
+pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
+    // Normalize axis
+    let len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
+    let (x, y, z) = (axis[0] / len, axis[1] / len, axis[2] / len);
+
+    let c = angle.cos();
+    let s = angle.sin();
+    let t = 1.0 - c;
+
+    // Rodrigues' rotation formula (column-major)
+    Mat3([
+        t * x * x + c,
+        t * x * y + s * z,
+        t * x * z - s * y,
+        t * x * y - s * z,
+        t * y * y + c,
+        t * y * z + s * x,
+        t * x * z + s * y,
+        t * y * z - s * x,
+        t * z * z + c,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -390,5 +528,98 @@ mod tests {
     #[test]
     fn test_inverse_registered() {
         assert!(is_known_in("matrix", "inverse"));
+    }
+
+    #[test]
+    fn test_mul_mat2_identity() {
+        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
+        let m = Value::Mat2([1.0, 2.0, 3.0, 4.0]);
+        let result = mul(&[identity, m.clone()]);
+        assert_eq!(result, m);
+    }
+
+    #[test]
+    fn test_mul_mat3() {
+        let a = Value::Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]); // Identity
+        let b = Value::Mat3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]); // 2*Identity
+        let result = mul(&[a, b]);
+        assert_eq!(
+            result,
+            Value::Mat3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0])
+        );
+    }
+
+    #[test]
+    fn test_transform_vec2() {
+        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
+        let v = Value::Vec2([3.0, 4.0]);
+        let result = transform(&[identity, v]);
+        assert_eq!(result, Value::Vec2([3.0, 4.0]));
+    }
+
+    #[test]
+    fn test_transform_vec3_scale() {
+        let scale = Value::Mat3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]);
+        let v = Value::Vec3([1.0, 2.0, 3.0]);
+        let result = transform(&[scale, v]);
+        assert_eq!(result, Value::Vec3([2.0, 4.0, 6.0]));
+    }
+
+    #[test]
+    fn test_from_quat_identity() {
+        // Identity quaternion (w=1, x=y=z=0) produces identity rotation
+        let q = [0.0, 0.0, 0.0, 1.0];
+        let result = from_quat(q);
+        // Should be close to identity matrix
+        let expected = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        for i in 0..9 {
+            assert!((result.0[i] - expected[i]).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_from_axis_angle_identity() {
+        // Zero rotation produces identity
+        let axis = [0.0, 0.0, 1.0];
+        let angle = 0.0;
+        let result = from_axis_angle(axis, angle);
+        let expected = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
+        for i in 0..9 {
+            assert!((result.0[i] - expected[i]).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_from_axis_angle_90_deg_z() {
+        // 90 degree rotation around Z axis
+        let axis = [0.0, 0.0, 1.0];
+        let angle = std::f64::consts::FRAC_PI_2; // 90 degrees
+        let result = from_axis_angle(axis, angle);
+        // Should rotate (1,0,0) to (0,1,0)
+        // Expected matrix (column-major): [[0,-1,0], [1,0,0], [0,0,1]]
+        let expected = [0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
+        for i in 0..9 {
+            assert!((result.0[i] - expected[i]).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_mul_registered() {
+        assert!(is_known_in("matrix", "mul"));
+    }
+
+    #[test]
+    fn test_transform_registered() {
+        assert!(is_known_in("matrix", "transform"));
+    }
+
+    #[test]
+    fn test_from_quat_registered() {
+        assert!(is_known_in("matrix", "from_quat"));
+    }
+
+    #[test]
+    fn test_from_axis_angle_registered() {
+        assert!(is_known_in("matrix", "from_axis_angle"));
     }
 }
