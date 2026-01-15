@@ -2103,6 +2103,9 @@ type PlateCollisionPayload {
     energy: Scalar<J>            # Collision energy
 }
 
+/// External impulse representing a collision event between two tectonic plates.
+/// Collision energy drives orogeny (mountain building) and increases volcanic activity
+/// in convergent zones. Energy is distributed to crustal deformation and seismic release.
 impulse tectonics.plate_collision {
     : PlateCollisionPayload
     : title("Plate Collision")
@@ -2148,6 +2151,9 @@ type VolcanicImpulsePayload {
     ejecta_thickness_m: Scalar<m> # Local crustal thickening from deposits
 }
 
+/// External volcanic event impulse. Injects heat into crustal shells, releases volatiles
+/// into atmosphere (primarily CO2), and deposits ejecta to increase local crustal thickness.
+/// Triggered by magma chamber pressure buildup or tectonic fracturing.
 impulse tectonics.volcanic {
     : VolcanicImpulsePayload
     : title("Volcanic Impulse")

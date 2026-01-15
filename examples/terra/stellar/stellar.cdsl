@@ -638,6 +638,9 @@ type ImpactImpulsePayload {
     location_lon: Scalar<rad>          # Impact longitude (rad)
 }
 
+/// Asteroid or comet impact event. Deposits kinetic energy into crust and mantle,
+/// triggers volcanic activity, deposits ejecta, and can alter planetary rotation
+/// for very large impacts. Energy partitioned between thermal heating and mechanical deformation.
 impulse stellar.impact {
     : ImpactImpulsePayload
     : title("Impact Impulse")
@@ -703,6 +706,9 @@ type OrbitalChangePayload {
     delta_precession: Scalar<rad>      # Change in precession angle (rad)
 }
 
+/// External perturbation to planetary orbital elements. Models Milankovitch cycles
+/// (long-term orbital variations driving climate) or sudden events like planetary migration
+/// or close encounters. Changes eccentricity, obliquity, and precession of orbit.
 impulse stellar.orbital_change {
     : OrbitalChangePayload
     : title("Orbital Change")

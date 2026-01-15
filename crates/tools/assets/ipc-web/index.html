@@ -377,11 +377,92 @@
     .tab-content { display: none; }
     .tab-content.active { display: flex; flex-direction: column; height: 100%; }
     
-    /* Scrollbar */
+     /* Scrollbar */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: var(--panel); }
     ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
     ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+    
+    /* Modal */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal.open { display: flex; }
+    .modal-content {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+    .modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .modal-header h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+    }
+    .modal-close:hover { 
+      background: var(--panel-hover);
+      color: var(--text);
+    }
+    .modal-body {
+      padding: 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--code-bg);
+      color: var(--text);
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      resize: vertical;
+    }
   </style>
 </head>
 <body>
@@ -414,6 +495,15 @@
         
         <div class="panel">
           <div class="panel-header">
+            <h2>Impulses</h2>
+          </div>
+          <div class="controls">
+            <button id="cmd-emit-impulse" style="grid-column: 1 / -1;">Emit Impulse</button>
+          </div>
+        </div>
+        
+        <div class="panel">
+          <div class="panel-header">
             <h2>World Info</h2>
             <button id="cmd-refresh-world" class="small">Refresh</button>
           </div>
@@ -429,6 +519,7 @@
           <button class="tab active" data-tab="signals">Signals</button>
           <button class="tab" data-tab="fields">Fields</button>
           <button class="tab" data-tab="entities">Entities</button>
+          <button class="tab" data-tab="chronicles">Chronicles</button>
         </div>
         
         <div class="tab-content active" id="tab-signals">
@@ -466,6 +557,18 @@
             </div>
           </div>
         </div>
+        
+        <div class="tab-content" id="tab-chronicles">
+          <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+            <div class="panel-header">
+              <h2>Chronicles</h2>
+              <span class="badge" id="chronicle-count">0</span>
+            </div>
+            <div class="panel-content" style="flex: 1; max-height: none;" id="chronicle-list">
+              <div style="color: var(--muted); font-style: italic; font-size: 12px;">No chronicle events yet...</div>
+            </div>
+          </div>
+        </div>
       </div>
       
       <!-- Right panel: Detail view + Log -->
@@ -484,6 +587,22 @@
       </div>
     </div>
   </div>
+  
+  <!-- Impulse Modal -->
+  <div id="impulse-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modal-title">Select Impulse</h2>
+        <button class="modal-close" onclick="closeImpulseModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body">
+        <!-- Content dynamically generated -->
+      </div>
+      <div class="modal-footer" id="modal-footer">
+        <button onclick="closeImpulseModal()">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <script>
     const connStatus = document.getElementById('conn-status');
@@ -495,6 +614,9 @@
     let requestId = 1;
     let currentSelection = null;
     const MAX_LOG_ENTRIES = 500; // Prevent memory issues
+    const MAX_CHRONICLE_ENTRIES = 200; // Limit chronicle event storage
+    let chronicles = []; // Store chronicle events
+    let impulses = []; // Store available impulses
 
     function escapeHtml(str) {
       const div = document.createElement('div');
@@ -543,6 +665,7 @@
         sendRequest('signal.list');
         sendRequest('field.list');
         sendRequest('entity.list');
+        sendRequest('impulse.list');
       };
 
       socket.onmessage = event => {
@@ -555,6 +678,21 @@
           }
           
           if (msg.type === 'chronicle.event') {
+            // Store chronicle event with timestamp
+            chronicles.push({
+              ...msg.payload,
+              timestamp: new Date()
+            });
+            
+            // Limit stored events to prevent memory issues
+            while (chronicles.length > MAX_CHRONICLE_ENTRIES) {
+              chronicles.shift();
+            }
+            
+            // Update chronicle list
+            updateChronicleList();
+            
+            // Also log it
             log(msg.payload.name + ': ' + JSON.stringify(msg.payload.fields), 'event');
             return;
           }
@@ -569,10 +707,19 @@
             if (msg.payload.signals) updateSignalList(msg.payload.signals);
             if (msg.payload.fields) updateFieldList(msg.payload.fields);
             if (msg.payload.entities) updateEntityList(msg.payload.entities);
+            if (msg.payload.impulses) {
+              impulses = msg.payload.impulses;
+              log('Loaded ' + impulses.length + ' impulses');
+            }
             
             // Handle field.query response
             if (msg.payload.field_id && msg.payload.value !== undefined) {
               updateFieldValue(msg.payload.field_id, msg.payload.value);
+            }
+            
+            // Handle impulse.emit response
+            if (msg.payload.seq !== undefined && msg.payload.applied_tick !== undefined) {
+              log(`Impulse emitted: seq=${msg.payload.seq}, applied_tick=${msg.payload.applied_tick}`, 'event');
             }
             
             // Handle describe responses
@@ -655,6 +802,30 @@
       `).join('');
     }
 
+    function updateChronicleList() {
+      document.getElementById('chronicle-count').textContent = chronicles.length;
+      const list = document.getElementById('chronicle-list');
+      
+      if (chronicles.length === 0) {
+        list.innerHTML = '<div style="color: var(--muted); font-style: italic; font-size: 12px;">No chronicle events yet...</div>';
+        return;
+      }
+      
+      // Display newest first
+      const reversed = [...chronicles].reverse();
+      list.innerHTML = reversed.map((chron, idx) => {
+        const actualIdx = chronicles.length - 1 - idx;
+        const time = chron.timestamp.toLocaleTimeString();
+        return `
+          <div class="list-item" onclick="showChronicleDetail(${actualIdx})">
+            <div class="list-item-meta">${time} • Tick ${chron.tick}</div>
+            <div class="list-item-id">${chron.name}</div>
+            <div class="list-item-meta">Era: ${chron.era} • Time: ${chron.sim_time.toFixed(2)}s</div>
+          </div>
+        `;
+      }).join('');
+    }
+
     function showSignalDetail(id) {
       sendRequest('signal.describe', { signal_id: id });
       currentSelection = { type: 'signal', id };
@@ -679,6 +850,57 @@
     function showEraDetail(id) {
       sendRequest('era.describe', { era_id: id });
       currentSelection = { type: 'era', id };
+    }
+
+    function showChronicleDetail(idx) {
+      const chron = chronicles[idx];
+      if (!chron) return;
+      
+      currentSelection = { type: 'chronicle', idx };
+      
+      let html = `
+        <div class="detail-header">
+          <div class="detail-title">Chronicle Event</div>
+          <div class="detail-id" style="color: var(--success);">${chron.name}</div>
+        </div>
+        
+        <div class="detail-section">
+          <h3>Event Timing</h3>
+          <div class="detail-grid">
+            <div class="detail-label">Timestamp</div>
+            <div class="detail-value">${chron.timestamp.toLocaleString()}</div>
+            <div class="detail-label">Tick</div>
+            <div class="detail-value">${chron.tick}</div>
+            <div class="detail-label">Era</div>
+            <div class="detail-value"><code>${chron.era}</code></div>
+            <div class="detail-label">Sim Time</div>
+            <div class="detail-value">${chron.sim_time.toFixed(2)}s</div>
+          </div>
+        </div>
+      `;
+      
+      if (chron.fields && chron.fields.length > 0) {
+        html += `
+          <div class="detail-section">
+            <h3>Event Fields</h3>
+            <div class="detail-grid">
+        `;
+        
+        chron.fields.forEach(([key, value]) => {
+          const valueStr = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+          html += `
+            <div class="detail-label">${escapeHtml(key)}</div>
+            <div class="detail-value"><code>${escapeHtml(valueStr)}</code></div>
+          `;
+        });
+        
+        html += `
+            </div>
+          </div>
+        `;
+      }
+      
+      detailView.innerHTML = html;
     }
 
     function updateFieldValue(field_id, value) {
@@ -766,12 +988,130 @@
       });
     });
 
+    // Impulse modal functions
+    function openImpulseModal() {
+      if (impulses.length === 0) {
+        alert('No impulses available. Make sure the world is loaded.');
+        return;
+      }
+      
+      const modal = document.getElementById('impulse-modal');
+      const body = document.getElementById('modal-body');
+      const title = document.getElementById('modal-title');
+      const footer = document.getElementById('modal-footer');
+      
+      title.textContent = 'Select Impulse';
+      body.innerHTML = impulses.map(imp => `
+        <div class="list-item" onclick="showImpulseForm('${imp.id}')">
+          <div class="list-item-id">${imp.id}</div>
+          ${imp.title ? `<div class="list-item-title">${imp.title}</div>` : ''}
+          <div class="list-item-meta">${imp.payload_type}${imp.unit ? ' (' + imp.unit + ')' : ''}</div>
+          ${imp.doc ? `<div class="list-item-doc">${escapeHtml(imp.doc)}</div>` : ''}
+        </div>
+      `).join('');
+      footer.innerHTML = '<button onclick="closeImpulseModal()">Cancel</button>';
+      modal.classList.add('open');
+    }
+    
+    function closeImpulseModal() {
+      document.getElementById('impulse-modal').classList.remove('open');
+    }
+    
+    function showImpulseForm(impulseId) {
+      const impulse = impulses.find(i => i.id === impulseId);
+      if (!impulse) return;
+      
+      const body = document.getElementById('modal-body');
+      const title = document.getElementById('modal-title');
+      const footer = document.getElementById('modal-footer');
+      
+      title.textContent = impulse.title || impulse.id;
+      
+      // Generate form based on payload_type
+      let formHtml = '';
+      if (impulse.doc) {
+        formHtml += `<div style="margin-bottom: 16px; padding: 12px; background: var(--code-bg); border-radius: 6px; font-size: 13px; color: var(--muted);">${escapeHtml(impulse.doc)}</div>`;
+      }
+      
+      formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Impulse ID</label>';
+      formHtml += `<input type="text" value="${impulse.id}" disabled style="background: var(--panel); color: var(--muted);" /></div>`;
+      
+      const type = impulse.payload_type.toLowerCase();
+      
+      if (type === 'f64' || type === 'f32' || type === 'scalar') {
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Value</label>';
+        formHtml += `<input type="number" step="any" id="impulse-value" ${impulse.range ? `min="${impulse.range[0]}" max="${impulse.range[1]}"` : ''} />`;
+        if (impulse.unit) formHtml += `<div style="font-size: 11px; color: var(--muted); margin-top: 4px;">Unit: ${impulse.unit}</div>`;
+        if (impulse.range) formHtml += `<div style="font-size: 11px; color: var(--muted); margin-top: 4px;">Range: ${impulse.range[0]} … ${impulse.range[1]}</div>`;
+        formHtml += '</div>';
+      } else if (type.includes('vec3') || type === '[f64; 3]') {
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Vector (x, y, z)</label>';
+        formHtml += '<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">';
+        formHtml += '<input type="number" step="any" id="impulse-x" placeholder="x" />';
+        formHtml += '<input type="number" step="any" id="impulse-y" placeholder="y" />';
+        formHtml += '<input type="number" step="any" id="impulse-z" placeholder="z" />';
+        formHtml += '</div></div>';
+      } else if (type === 'string' || type === 'str') {
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Value</label>';
+        formHtml += '<input type="text" id="impulse-value" /></div>';
+      } else if (type === 'bool' || type === 'boolean') {
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500;">';
+        formHtml += '<input type="checkbox" id="impulse-value" /> Enable</label></div>';
+      } else {
+        // Generic JSON input for complex types
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Payload (JSON)</label>';
+        formHtml += `<textarea id="impulse-value" placeholder='{"key": "value"}'></textarea>`;
+        formHtml += `<div style="font-size: 11px; color: var(--muted); margin-top: 4px;">Type: ${impulse.payload_type}</div></div>`;
+      }
+      
+      body.innerHTML = formHtml;
+      footer.innerHTML = `
+        <button onclick="closeImpulseModal()">Cancel</button>
+        <button class="primary" onclick="emitImpulse('${impulseId}', '${type}')">Emit Impulse</button>
+      `;
+    }
+    
+    function emitImpulse(impulseId, type) {
+      let payload;
+      
+      try {
+        if (type === 'f64' || type === 'f32' || type === 'scalar') {
+          payload = parseFloat(document.getElementById('impulse-value').value);
+          if (isNaN(payload)) throw new Error('Invalid number');
+        } else if (type.includes('vec3') || type === '[f64; 3]') {
+          const x = parseFloat(document.getElementById('impulse-x').value);
+          const y = parseFloat(document.getElementById('impulse-y').value);
+          const z = parseFloat(document.getElementById('impulse-z').value);
+          if (isNaN(x) || isNaN(y) || isNaN(z)) throw new Error('Invalid vector components');
+          payload = [x, y, z];
+        } else if (type === 'string' || type === 'str') {
+          payload = document.getElementById('impulse-value').value;
+        } else if (type === 'bool' || type === 'boolean') {
+          payload = document.getElementById('impulse-value').checked;
+        } else {
+          // Try to parse as JSON
+          payload = JSON.parse(document.getElementById('impulse-value').value);
+        }
+        
+        sendRequest('impulse.emit', {
+          impulse_id: impulseId,
+          payload: payload
+        });
+        
+        closeImpulseModal();
+        log(`Emitting impulse: ${impulseId}`, 'out');
+      } catch (err) {
+        alert('Invalid input: ' + err.message);
+      }
+    }
+
     // Controls
     document.getElementById('cmd-status').onclick = () => sendRequest('status');
     document.getElementById('cmd-step').onclick = () => sendRequest('step', { count: 1 });
     document.getElementById('cmd-run').onclick = () => sendRequest('run');
     document.getElementById('cmd-stop').onclick = () => sendRequest('stop');
     document.getElementById('cmd-refresh-world').onclick = () => sendRequest('world.info');
+    document.getElementById('cmd-emit-impulse').onclick = () => openImpulseModal();
     document.getElementById('btn-clear-log').onclick = () => logEl.innerHTML = '';
     document.getElementById('btn-send-manual').onclick = () => {
       try {
