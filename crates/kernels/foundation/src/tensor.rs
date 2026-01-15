@@ -182,6 +182,11 @@ impl TensorData {
     pub fn shape(&self) -> (usize, usize) {
         (self.rows, self.cols)
     }
+
+    /// Get raw data slice (row-major order)
+    pub fn data(&self) -> &[f64] {
+        &self.data
+    }
 }
 
 impl PartialEq for TensorData {
