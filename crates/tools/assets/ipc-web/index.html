@@ -730,6 +730,14 @@
         html += '</div></div>';
       }
       
+      // Add note for signals explaining they're not observable
+      if (type === 'signal') {
+        html += '<div class="detail-section">';
+        html += '<div style="padding: 12px; background: var(--code-bg); border-radius: 6px; font-size: 12px; color: var(--muted); font-style: italic; border-left: 3px solid var(--muted);">';
+        html += '⚠ Signals are internal simulation state and cannot be queried directly. Use fields for observable values.';
+        html += '</div></div>';
+      }
+      
       html += '<div class="detail-section"><h3>Properties</h3><div class="detail-grid">';
       
       if (data.value_type) html += `<div class="detail-label">Type</div><div class="detail-value"><code>${data.value_type}</code></div>`;
