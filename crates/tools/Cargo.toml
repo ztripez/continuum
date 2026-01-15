@@ -31,6 +31,10 @@ path = "src/bin/world_ipc_web.rs"
 name = "compile"
 path = "src/bin/compile.rs"
 
+[[bin]]
+name = "gen-textmate"
+path = "src/bin/gen_textmate.rs"
+
 [dependencies]
 continuum-compiler = { version = "0.1.0", path = "../continuum-compiler" }
 continuum-foundation = { path = "../kernels/foundation" }

@@ -2,9 +2,22 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "gen-textmate",
+      "type": "shell",
+      "command": "cargo",
+      "args": ["run", "--bin", "gen-textmate"],
+      "options": {
+        "cwd": "${workspaceFolder}/../.."
+      },
+      "group": "build",
+      "problemMatcher": []
+    },
+    {
       "type": "npm",
       "script": "compile",
+      "label": "npm: compile",
       "group": "build",
+      "dependsOn": ["gen-textmate"],
       "problemMatcher": ["$tsc"]
     },
     {
