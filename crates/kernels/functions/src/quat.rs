@@ -156,6 +156,115 @@ pub fn slerp(a: Quat, b: Quat, t: f64) -> Quat {
     ])
 }
 
+/// Convert to 3x3 rotation matrix: `to_mat3(q)`
+#[kernel_fn(namespace = "quat", category = "quaternion")]
+pub fn to_mat3(q: Quat) -> Mat3 {
+    let [w, x, y, z] = q.0;
+
+    Mat3([
+        1.0 - 2.0 * (y * y + z * z),
+        2.0 * (x * y - w * z),
+        2.0 * (x * z + w * y),
+        2.0 * (x * y + w * z),
+        1.0 - 2.0 * (x * x + z * z),
+        2.0 * (y * z - w * x),
+        2.0 * (x * z - w * y),
+        2.0 * (y * z + w * x),
+        1.0 - 2.0 * (x * x + y * y),
+    ])
+}
+
+/// Convert to 4x4 rotation matrix: `to_mat4(q)`
+#[kernel_fn(namespace = "quat", category = "quaternion")]
+pub fn to_mat4(q: Quat) -> Mat4 {
+    let [w, x, y, z] = q.0;
+
+    Mat4([
+        1.0 - 2.0 * (y * y + z * z),
+        2.0 * (x * y - w * z),
+        2.0 * (x * z + w * y),
+        0.0,
+        2.0 * (x * y + w * z),
+        1.0 - 2.0 * (x * x + z * z),
+        2.0 * (y * z - w * x),
+        0.0,
+        2.0 * (x * z - w * y),
+        2.0 * (y * z + w * x),
+        1.0 - 2.0 * (x * x + y * y),
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+    ])
+}
+
+/// Extract rotation angle: `angle(q)` → radians
+#[kernel_fn(namespace = "quat", category = "quaternion")]
+pub fn angle(q: Quat) -> f64 {
+    2.0 * q.0[0].acos()
+}
+
+/// Extract rotation axis: `axis(q)` → Vec3
+#[kernel_fn(namespace = "quat", category = "quaternion")]
+pub fn axis(q: Quat) -> [f64; 3] {
+    let [w, x, y, z] = q.0;
+    let s = (1.0 - w * w).sqrt();
+
+    if s < 0.001 {
+        // Nearly zero rotation, return arbitrary axis
+        [1.0, 0.0, 0.0]
+    } else {
+        [x / s, y / s, z / s]
+    }
+}
+
+/// Convert quaternion to Euler angles (XYZ convention): `to_euler(q)` → [roll, pitch, yaw]
+#[kernel_fn(namespace = "quat", category = "quaternion")]
+pub fn to_euler(q: Quat) -> [f64; 3] {
+    let [w, x, y, z] = q.0;
+
+    // Roll (x-axis rotation)
+    let sinr_cosp = 2.0 * (w * x + y * z);
+    let cosr_cosp = 1.0 - 2.0 * (x * x + y * y);
+    let roll = sinr_cosp.atan2(cosr_cosp);
+
+    // Pitch (y-axis rotation)
+    let sinp = 2.0 * (w * y - z * x);
+    let pitch = if sinp.abs() >= 1.0 {
+        sinp.signum() * std::f64::consts::FRAC_PI_2 // Use 90 degrees if out of range
+    } else {
+        sinp.asin()
+    };
+
+    // Yaw (z-axis rotation)
+    let siny_cosp = 2.0 * (w * z + x * y);
+    let cosy_cosp = 1.0 - 2.0 * (y * y + z * z);
+    let yaw = siny_cosp.atan2(cosy_cosp);
+
+    [roll, pitch, yaw]
+}
+
+/// Convert Euler angles to quaternion (XYZ convention): `from_euler(v)` → quaternion
+#[kernel_fn(namespace = "quat", category = "quaternion")]
+pub fn from_euler(v: [f64; 3]) -> Quat {
+    let [roll, pitch, yaw] = v;
+
+    let cy = (yaw * 0.5).cos();
+    let sy = (yaw * 0.5).sin();
+    let cp = (pitch * 0.5).cos();
+    let sp = (pitch * 0.5).sin();
+    let cr = (roll * 0.5).cos();
+    let sr = (roll * 0.5).sin();
+
+    Quat([
+        cr * cp * cy + sr * sp * sy,
+        sr * cp * cy - cr * sp * sy,
+        cr * sp * cy + sr * cp * sy,
+        cr * cp * sy - sr * sp * cy,
+    ])
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -393,5 +502,100 @@ mod tests {
         // Should still be close to identity, not interpolate through large angle
         let d = dot(q1, result);
         assert!(d > 0.9); // Should be close to identity
+    }
+
+    // Euler conversion tests
+    #[test]
+    fn test_to_euler_registered() {
+        assert!(is_known_in("quat", "to_euler"));
+        let desc = get_in_namespace("quat", "to_euler").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_from_euler_registered() {
+        assert!(is_known_in("quat", "from_euler"));
+        let desc = get_in_namespace("quat", "from_euler").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_from_euler_identity() {
+        let euler = [0.0, 0.0, 0.0];
+        let q = from_euler(euler);
+        let [w, x, y, z] = q.0;
+        assert!((w - 1.0).abs() < 1e-10);
+        assert!(x.abs() < 1e-10);
+        assert!(y.abs() < 1e-10);
+        assert!(z.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_to_euler_identity() {
+        let q = identity();
+        let [roll, pitch, yaw] = to_euler(q);
+        assert!(roll.abs() < 1e-10);
+        assert!(pitch.abs() < 1e-10);
+        assert!(yaw.abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_euler_round_trip_simple() {
+        // Simple angles
+        let euler = [0.1, 0.2, 0.3];
+        let q = from_euler(euler);
+        let result = to_euler(q);
+        assert!((euler[0] - result[0]).abs() < 1e-10);
+        assert!((euler[1] - result[1]).abs() < 1e-10);
+        assert!((euler[2] - result[2]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_euler_round_trip_90deg_roll() {
+        let euler = [std::f64::consts::FRAC_PI_2, 0.0, 0.0];
+        let q = from_euler(euler);
+        let result = to_euler(q);
+        assert!((euler[0] - result[0]).abs() < 1e-10);
+        assert!((euler[1] - result[1]).abs() < 1e-10);
+        assert!((euler[2] - result[2]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_euler_round_trip_90deg_pitch() {
+        // Pitch at 90 degrees (gimbal lock case)
+        let euler = [0.0, std::f64::consts::FRAC_PI_2, 0.0];
+        let q = from_euler(euler);
+        let result = to_euler(q);
+        // Pitch should be preserved
+        assert!((euler[1] - result[1]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_euler_round_trip_90deg_yaw() {
+        let euler = [0.0, 0.0, std::f64::consts::FRAC_PI_2];
+        let q = from_euler(euler);
+        let result = to_euler(q);
+        assert!((euler[0] - result[0]).abs() < 1e-10);
+        assert!((euler[1] - result[1]).abs() < 1e-10);
+        assert!((euler[2] - result[2]).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_euler_conversion_preserves_rotation() {
+        // Create a quaternion from euler angles and verify it rotates vectors correctly
+        let euler = [0.5, 0.3, 0.7];
+        let q = from_euler(euler);
+        let v = [1.0, 0.0, 0.0];
+        let rotated = rotate(q, v);
+
+        // Convert back to euler and recreate quaternion
+        let euler2 = to_euler(q);
+        let q2 = from_euler(euler2);
+        let rotated2 = rotate(q2, v);
+
+        // Both should produce the same rotation
+        assert!((rotated[0] - rotated2[0]).abs() < 1e-10);
+        assert!((rotated[1] - rotated2[1]).abs() < 1e-10);
+        assert!((rotated[2] - rotated2[2]).abs() < 1e-10);
     }
 }
