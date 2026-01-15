@@ -45,15 +45,16 @@ fn test_build_transition_fn() {
     };
 
     let transition_fn = build_transition_fn(&era, &constants, &config).unwrap();
+    let entities = continuum_runtime::storage::EntityStorage::default();
 
     // Signal at 100, should not transition (100 < 50 is false)
-    assert!(transition_fn(&signals, 0.0).is_none());
+    assert!(transition_fn(&signals, &entities, 0.0).is_none());
 
     // Update signal to 30
     signals.set_current(SignalId::from("temp"), Value::Scalar(30.0));
 
     // Signal at 30, should transition (30 < 50 is true)
-    let result = transition_fn(&signals, 0.0);
+    let result = transition_fn(&signals, &entities, 0.0);
     assert!(result.is_some());
     assert_eq!(result.unwrap().to_string(), "next_era");
 }
@@ -95,9 +96,11 @@ fn test_build_fracture() {
 
     let mut signals = SignalStorage::default();
     signals.init(SignalId::from("temp"), Value::Scalar(50.0));
+    let entities = continuum_runtime::storage::EntityStorage::default();
 
     let ctx = FractureContext {
         signals: &signals,
+        entities: &entities,
         dt: Dt(1.0),
         sim_time: 0.0,
     };
@@ -109,6 +112,7 @@ fn test_build_fracture() {
     signals.set_current(SignalId::from("temp"), Value::Scalar(150.0));
     let ctx = FractureContext {
         signals: &signals,
+        entities: &entities,
         dt: Dt(1.0),
         sim_time: 0.0,
     };

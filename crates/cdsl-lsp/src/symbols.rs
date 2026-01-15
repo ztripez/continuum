@@ -957,8 +957,8 @@ mod tests {
 
     #[test]
     fn test_builtin_hover() {
-        assert!(get_builtin_hover("clamp").is_some());
-        let hover = get_builtin_hover("clamp").unwrap();
+        assert!(get_builtin_hover("maths.clamp").is_some());
+        let hover = get_builtin_hover("maths.clamp").unwrap();
         assert!(hover.contains("clamp"));
         assert!(hover.contains("(built-in)"));
     }

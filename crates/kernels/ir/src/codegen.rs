@@ -307,6 +307,7 @@ mod tests {
     struct TestContext;
 
     impl ExecutionContext for TestContext {
+        fn set_current_entity(&mut self, _entity: Option<String>) {}
         fn prev(&self) -> Value {
             Value::Scalar(100.0)
         }
