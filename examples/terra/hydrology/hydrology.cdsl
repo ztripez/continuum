@@ -1107,6 +1107,16 @@ signal hydrology.cells.liquid_count {
 # =============================================================================
 # Hydrology Fields
 # =============================================================================
+# 
+# Observer-only fields for visualization and analysis of hydrology state.
+# These fields sample from hydrology.cell entity members to provide
+# spatially-resolved observations of water distribution, temperature, phase,
+# sediment transport, and flow dynamics.
+
+# -----------------------------------------------------------------------------
+# Global Scalar Fields (Signal-based)
+# These sample from global hydrology signals
+# -----------------------------------------------------------------------------
 
 field hydrology.water_mass_map {
     : Scalar<kg>
@@ -1281,5 +1291,98 @@ field hydrology.stream_order_map {
 
     measure {
         signal.hydrology.stream_order
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Spatially-Resolved Cell Fields (Entity-based)
+# These sample from hydrology.cell entity members for per-location observations
+# -----------------------------------------------------------------------------
+
+# Per-cell water mass distribution
+field hydrology.cell_water_mass_field {
+    : Scalar<kg/m²>
+    : strata(hydrology)
+    : topology(point_cloud)
+    : title("Cell Water Mass Distribution")
+
+    measure {
+        entity.hydrology.cell.water_mass
+    }
+}
+
+# Per-cell water temperature distribution
+field hydrology.cell_water_temperature_field {
+    : Scalar<K>
+    : strata(hydrology)
+    : topology(point_cloud)
+    : title("Cell Water Temperature Distribution")
+
+    measure {
+        entity.hydrology.cell.temperature
+    }
+}
+
+# Per-cell sediment load distribution
+field hydrology.cell_sediment_field {
+    : Scalar<kg/m²>
+    : strata(hydrology)
+    : topology(point_cloud)
+    : title("Cell Sediment Load Distribution")
+
+    measure {
+        entity.hydrology.cell.sediment_mass
+    }
+}
+
+# Per-cell ice fraction (0-1)
+field hydrology.cell_ice_fraction_field {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(point_cloud)
+    : title("Cell Ice Fraction Map")
+
+    measure {
+        entity.hydrology.cell.ice_fraction
+    }
+}
+
+# Per-cell water phase (0=ice, 1=liquid, 2=vapor)
+field hydrology.cell_phase_field {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(point_cloud)
+    : title("Cell Water Phase Distribution")
+
+    measure {
+        entity.hydrology.cell.phase
+    }
+}
+
+# Flow velocity field
+# Note: Flow velocity requires spatial flow computation not yet implemented
+# in the hydrology.cell members. This field measures runoff accumulation
+# as a proxy for flow dynamics.
+field hydrology.flow_velocity_field {
+    : Scalar<kg/s>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Flow Velocity Proxy Field")
+
+    measure {
+        signal.hydrology.runoff_accumulation
+    }
+}
+
+# Drainage network field
+# Measures flow accumulation which traces drainage paths
+field hydrology.drainage_network_field {
+    : Scalar<1>
+    : strata(hydrology)
+    : topology(sphere_surface)
+    : title("Drainage Network Field")
+
+    measure {
+        signal.hydrology.flow_accumulation
     }
 }

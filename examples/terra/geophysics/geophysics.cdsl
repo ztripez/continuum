@@ -1915,6 +1915,17 @@ field plates.velocity_map {
     : title("Plate Velocity Field")
 
     measure {
+        signal.plates.mean_velocity
+    }
+}
+
+field plates.boundary_shear_map {
+    : Scalar<m/s>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Plate Boundary Shear Field")
+
+    measure {
         signal.plates.boundary_shear
     }
 }
@@ -1993,6 +2004,83 @@ field tectonics.spreading {
 
     measure {
         signal.tectonics.spreading_rate
+    }
+}
+
+field plates.count_map {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Plate Count Field")
+
+    measure {
+        signal.plates.count
+    }
+}
+
+field tectonics.activity_map {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Tectonic Activity Field")
+
+    measure {
+        signal.tectonics.activity
+    }
+}
+
+field plates.divergent_activity_map {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Divergent Boundary Activity Field")
+
+    measure {
+        signal.plates.divergent_activity
+    }
+}
+
+field plates.convergent_activity_map {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Convergent Boundary Activity Field")
+
+    measure {
+        signal.plates.convergent_activity
+    }
+}
+
+field plates.transform_activity_map {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Transform Boundary Activity Field")
+
+    measure {
+        signal.plates.transform_activity
+    }
+}
+
+field mantle.viscosity_map {
+    : Scalar<Pa*s>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Mantle Viscosity Field")
+
+    measure {
+        signal.mantle.viscosity
+    }
+}
+
+field mantle.convection_cells_map {
+    : Scalar<1>
+    : strata(tectonics)
+    : topology(point_cloud)
+    : title("Convection Cell Count Field")
+
+    measure {
+        signal.mantle.convection_cells
     }
 }
 

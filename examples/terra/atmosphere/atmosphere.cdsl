@@ -792,3 +792,14 @@ field atmosphere.absorbed_radiation_map {
         signal.atmosphere.absorbed_radiation
     }
 }
+
+field atmosphere.greenhouse_map {
+    : Scalar<1>
+    : strata(atmosphere)
+    : topology(point_cloud)
+    : title("Greenhouse Optical Depth Field")
+
+    measure {
+        signal.atmosphere.tau_greenhouse
+    }
+}
