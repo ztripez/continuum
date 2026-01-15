@@ -84,6 +84,8 @@ pub struct ImpulseContext<'a> {
     pub entities: &'a EntityStorage,
     /// Channel to write inputs
     pub channels: &'a mut InputChannels,
+    /// Time step
+    pub dt: Dt,
     /// Accumulated simulation time in seconds
     pub sim_time: f64,
 }
@@ -115,4 +117,6 @@ pub struct ChronicleContext<'a> {
     pub entities: &'a EntityStorage,
     /// Time step
     pub dt: Dt,
+    /// Accumulated simulation time in seconds
+    pub sim_time: f64,
 }

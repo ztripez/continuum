@@ -43,6 +43,7 @@
 //! let bytecode = compile(&expr);
 //! // Execute with: continuum_vm::execute(&bytecode, &context)
 //! ```
+//!
 
 use continuum_vm::BytecodeChunk;
 use continuum_vm::bytecode::ReductionOp;
@@ -300,9 +301,7 @@ pub fn compile(expr: &CompiledExpr) -> BytecodeChunk {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CompiledExpr;
-    use continuum_foundation::SignalId;
-    use continuum_kernel_registry::Value;
+    use continuum_foundation::{SignalId, Value};
     use continuum_vm::{ExecutionContext, execute};
 
     struct TestContext;
@@ -362,6 +361,7 @@ mod tests {
         fn entity_instances(&self, _entity: &str) -> Vec<String> {
             Vec::new()
         }
+        fn set_current_entity(&mut self, _entity: Option<String>) {}
         fn set_self_instance(&mut self, _instance: Option<String>) {}
         fn set_other_instance(&mut self, _instance: Option<String>) {}
         fn payload(&self) -> Value {
@@ -426,6 +426,22 @@ mod tests {
         let chunk = compile(&expr);
         let result = execute(&chunk, &mut TestContext);
         assert_eq!(result, Value::Scalar(100.0)); // temp (25) > 20, so 100
+    }
+
+    #[test]
+    fn test_compile_prev() {
+        let expr = CompiledExpr::Prev;
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(100.0));
+    }
+
+    #[test]
+    fn test_compile_dt() {
+        let expr = CompiledExpr::DtRaw;
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(0.1));
     }
 
     #[test]

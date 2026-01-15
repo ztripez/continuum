@@ -2,6 +2,7 @@
 //! This module builds runtime closures from compiled IR expressions. These
 //! closures capture the necessary context (constants, config, bytecode) and
 //! can be invoked during simulation execution.
+//!
 
 mod contexts;
 mod member_interp;
@@ -24,20 +25,22 @@ use std::collections::HashMap;
 use continuum_foundation::{EntityId, EraId, FieldId, InstanceId, PrimitiveStorageClass, SignalId};
 use continuum_runtime::MemberSignalBuffer;
 use continuum_runtime::executor::{
-    AggregateResolverFn, AssertionFn, EraConfig, FractureFn, MeasureFn, ResolverFn, Runtime,
-    TransitionFn, WarmupFn,
+    AggregateResolverFn, AssertionFn, ChronicleFn, EmittedEvent, EraConfig, FractureFn, ImpulseFn,
+    MeasureFn, ResolverFn, Runtime, TransitionFn, WarmupFn,
 };
 use continuum_runtime::soa_storage::ValueType as MemberValueType;
-use continuum_runtime::storage::{EntityInstances, EntityStorage, InstanceData, SignalStorage};
+use continuum_runtime::storage::{
+    EntityInstances, EntityStorage, InputChannels, InstanceData, SignalStorage,
+};
 use continuum_runtime::types::{Dt, Value, WarmupConfig};
 // Import functions crate to ensure kernels are registered
 
 use continuum_functions as _;
-use continuum_vm::execute;
+use continuum_vm::{BytecodeChunk, ExecutionContext, execute};
 
 use crate::{
-    AssertionSeverity as IrAssertionSeverity, CompilationResult, CompiledEra, CompiledExpr,
-    CompiledWorld, codegen, units::Unit,
+    AssertionSeverity as IrAssertionSeverity, CompilationResult, CompiledChronicle, CompiledEra,
+    CompiledExpr, CompiledImpulse, CompiledWorld, codegen, units::Unit,
 };
 
 use contexts::{
@@ -106,10 +109,14 @@ pub struct RuntimeBuildReport {
     pub field_count: usize,
     pub skipped_fields: usize,
     pub fracture_count: usize,
+    pub impulse_count: usize,
+    pub chronicle_count: usize,
     pub member_signal_count: usize,
     pub member_initial_count: usize,
     pub member_resolvers: MemberResolverStats,
     pub max_member_instances: usize,
+    pub impulse_indices: IndexMap<continuum_foundation::ImpulseId, usize>,
+    pub chronicle_indices: IndexMap<continuum_foundation::ChronicleId, usize>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -236,6 +243,22 @@ pub fn build_runtime(
     for (_, fracture) in &world.fractures() {
         runtime.register_fracture(build_fracture(fracture, world));
         report.fracture_count += 1;
+    }
+
+    // Register impulses.
+    for (impulse_id, impulse) in &world.impulses() {
+        if let Some(handler) = build_impulse_handler(impulse, world) {
+            let idx = runtime.register_impulse(handler);
+            report.impulse_count += 1;
+            report.impulse_indices.insert(impulse_id.clone(), idx);
+        }
+    }
+
+    // Register chronicles.
+    for (chronicle_id, chronicle) in &world.chronicles() {
+        let idx = runtime.register_chronicle(build_chronicle_handler(chronicle, world));
+        report.chronicle_count += 1;
+        report.chronicle_indices.insert(chronicle_id.clone(), idx);
     }
 
     // Initialize signals.
@@ -381,13 +404,14 @@ pub fn build_aggregate_resolver(expr: &CompiledExpr, world: &CompiledWorld) -> A
     let constants = world.constants.clone();
     let config = world.config.clone();
 
-    Box::new(move |signals, _entities, members, dt, sim_time| {
+    Box::new(move |signals, entities, members, dt, sim_time| {
         let mut ctx = MemberInterpContext {
             prev: InterpValue::Scalar(0.0),
             index: 0,
             dt: dt.seconds(),
             sim_time,
             signals,
+            entities,
             members,
             constants: &constants,
             config: &config,
@@ -562,6 +586,408 @@ pub fn build_fracture(fracture: &crate::CompiledFracture, world: &CompiledWorld)
     })
 }
 
+struct ChronicleEvalContext<'a> {
+    dt: f64,
+    sim_time: f64,
+    shared: SharedContextData<'a>,
+}
+
+impl ExecutionContext for ChronicleEvalContext<'_> {
+    fn prev(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+
+    fn dt_scalar(&self) -> f64 {
+        self.dt
+    }
+
+    fn sim_time(&self) -> Value {
+        Value::Scalar(self.sim_time)
+    }
+
+    fn inputs(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+
+    fn signal(&self, name: &str) -> Value {
+        self.shared.signal(name)
+    }
+
+    fn signal_component(&self, name: &str, component: &str) -> Value {
+        self.shared.signal_component(name, component)
+    }
+
+    fn constant(&self, name: &str) -> Value {
+        self.shared.constant(name)
+    }
+
+    fn config(&self, name: &str) -> Value {
+        self.shared.config(name)
+    }
+
+    fn call_kernel(&self, name: &str, args: &[Value]) -> Value {
+        let (namespace, function) = name
+            .split_once('.')
+            .unwrap_or_else(|| panic!("Kernel call '{}' is missing a namespace", name));
+        continuum_kernel_registry::eval_in_namespace(namespace, function, args, self.dt)
+            .unwrap_or_else(|| {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, function
+                )
+            })
+    }
+
+    fn self_field(&self, component: &str) -> Value {
+        self.shared.self_field(component)
+    }
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        self.shared.entity_field(entity, instance, component)
+    }
+    fn other_field(&self, component: &str) -> Value {
+        self.shared.other_field(component)
+    }
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        self.shared.entity_instances(entity)
+    }
+    fn set_current_entity(&mut self, entity: Option<String>) {
+        self.shared.current_entity = entity.map(EntityId::from);
+    }
+    fn set_self_instance(&mut self, instance: Option<String>) {
+        self.shared.self_instance = instance.map(InstanceId::from);
+    }
+    fn set_other_instance(&mut self, instance: Option<String>) {
+        self.shared.other_instance = instance.map(InstanceId::from);
+    }
+    fn payload(&self) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn payload_field(&self, _component: &str) -> Value {
+        Value::Scalar(0.0)
+    }
+    fn emit_signal(&self, _target: &str, _value: Value) {}
+}
+
+struct ChronicleHandlerSpec {
+    event_name: String,
+    condition: BytecodeChunk,
+    fields: Vec<(String, BytecodeChunk)>,
+}
+
+pub fn build_chronicle_handler(
+    chronicle: &CompiledChronicle,
+    world: &CompiledWorld,
+) -> ChronicleFn {
+    let constants = world.constants.clone();
+    let config = world.config.clone();
+    let chronicle_id = chronicle.id.to_string();
+    let handlers: Vec<ChronicleHandlerSpec> = chronicle
+        .handlers
+        .iter()
+        .map(|handler| ChronicleHandlerSpec {
+            event_name: handler.event_name.clone(),
+            condition: codegen::compile(&handler.condition),
+            fields: handler
+                .event_fields
+                .iter()
+                .map(|field| (field.name.clone(), codegen::compile(&field.value)))
+                .collect(),
+        })
+        .collect();
+
+    Box::new(move |ctx| {
+        let exec_ctx = ChronicleEvalContext {
+            dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
+            shared: SharedContextData {
+                constants: &constants,
+                config: &config,
+                signals: ctx.signals,
+                entities: ctx.entities,
+                current_entity: None,
+                self_instance: None,
+                other_instance: None,
+            },
+        };
+
+        let mut events = Vec::new();
+        for handler in &handlers {
+            let mut mut_exec_ctx = ChronicleEvalContext {
+                dt: exec_ctx.dt,
+                sim_time: exec_ctx.sim_time,
+                shared: SharedContextData {
+                    constants: exec_ctx.shared.constants,
+                    config: exec_ctx.shared.config,
+                    signals: exec_ctx.shared.signals,
+                    entities: exec_ctx.shared.entities,
+                    current_entity: exec_ctx.shared.current_entity.clone(),
+                    self_instance: exec_ctx.shared.self_instance.clone(),
+                    other_instance: exec_ctx.shared.other_instance.clone(),
+                },
+            };
+            let result = execute(&handler.condition, &mut mut_exec_ctx);
+            let triggered = result
+                .as_bool()
+                .unwrap_or(result.as_scalar().unwrap_or(0.0) != 0.0);
+            if !triggered {
+                continue;
+            }
+
+            let mut fields: Vec<(String, Value)> = Vec::new();
+            for (name, bytecode) in &handler.fields {
+                let value = execute(bytecode, &mut mut_exec_ctx);
+                fields.push((name.clone(), value));
+            }
+
+            events.push(EmittedEvent {
+                chronicle_id: chronicle_id.clone(),
+                name: handler.event_name.clone(),
+                fields,
+            });
+        }
+
+        events
+    })
+}
+
+struct ImpulseEvalContext<'a> {
+    payload: &'a Value,
+    signals: &'a SignalStorage,
+    entities: &'a EntityStorage,
+    channels: &'a mut InputChannels,
+    dt: f64,
+    sim_time: f64,
+    constants: &'a IndexMap<String, (f64, Option<Unit>)>,
+    config: &'a IndexMap<String, (f64, Option<Unit>)>,
+    locals: HashMap<String, InterpValue>,
+    current_entity: Option<EntityId>,
+    self_instance: Option<InstanceId>,
+    other_instance: Option<InstanceId>,
+}
+
+impl ImpulseEvalContext<'_> {
+    fn constant(&self, name: &str) -> f64 {
+        self.constants
+            .get(name)
+            .map(|(v, _)| *v)
+            .unwrap_or_else(|| panic!("Constant '{}' not defined", name))
+    }
+
+    fn config(&self, name: &str) -> f64 {
+        self.config
+            .get(name)
+            .map(|(v, _)| *v)
+            .unwrap_or_else(|| panic!("Config value '{}' not defined", name))
+    }
+
+    fn signal(&self, name: &str) -> InterpValue {
+        let id = SignalId::from(name);
+        match self.signals.get(&id) {
+            Some(value) => InterpValue::from_value(value),
+            None => panic!("Signal '{}' not found in storage", name),
+        }
+    }
+
+    fn payload_value(&self) -> InterpValue {
+        InterpValue::from_value(self.payload)
+    }
+
+    fn payload_field(&self, field: &str) -> InterpValue {
+        let value = match self.payload {
+            Value::Map(v) => v.iter().find(|(k, _)| k == field).map(|(_, v)| v),
+            _ => None,
+        };
+
+        match value {
+            Some(v) => InterpValue::from_value(v),
+            None => InterpValue::Scalar(0.0),
+        }
+    }
+
+    fn call_kernel(&self, namespace: &str, name: &str, args: &[Value]) -> Value {
+        continuum_kernel_registry::eval_in_namespace(namespace, name, args, self.dt).unwrap_or_else(
+            || {
+                panic!(
+                    "Unknown kernel function '{}.{}' - function not found in registry",
+                    namespace, name
+                )
+            },
+        )
+    }
+
+    fn self_field(&self, component: &str) -> Value {
+        let entity_id = self
+            .current_entity
+            .as_ref()
+            .expect("self_field called outside entity context");
+        let instance_id = self
+            .self_instance
+            .as_ref()
+            .expect("self_field called outside instance context");
+        self.entities
+            .get_field(entity_id, instance_id, component)
+            .cloned()
+            .unwrap_or(Value::Scalar(0.0))
+    }
+
+    fn other_field(&self, component: &str) -> Value {
+        let entity_id = self
+            .current_entity
+            .as_ref()
+            .expect("other_field called outside entity context");
+        let instance_id = self
+            .other_instance
+            .as_ref()
+            .expect("other_field called outside pairwise context");
+        self.entities
+            .get_field(entity_id, instance_id, component)
+            .cloned()
+            .unwrap_or(Value::Scalar(0.0))
+    }
+
+    fn entity_field(&self, entity: &str, instance: &str, component: &str) -> Value {
+        let entity_id = EntityId::from(entity);
+        let instance_id = InstanceId::from(instance);
+        self.entities
+            .get_field(&entity_id, &instance_id, component)
+            .cloned()
+            .unwrap_or(Value::Scalar(0.0))
+    }
+
+    fn entity_instances(&self, entity: &str) -> Vec<String> {
+        let entity_id = EntityId::from(entity);
+        self.entities
+            .instance_ids(&entity_id)
+            .map(|id| id.to_string())
+            .collect()
+    }
+}
+
+fn eval_impulse_function(name: &str, args: &[InterpValue]) -> InterpValue {
+    match name {
+        "vec2" => InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), 0.0]),
+        "vec3" => InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), args[2].as_f64()]),
+        _ => InterpValue::Scalar(0.0),
+    }
+}
+
+fn eval_impulse_expr(expr: &CompiledExpr, ctx: &mut ImpulseEvalContext) -> InterpValue {
+    match expr {
+        CompiledExpr::Literal(value, _) => InterpValue::Scalar(*value),
+        CompiledExpr::DtRaw => InterpValue::Scalar(ctx.dt),
+        CompiledExpr::SimTime => InterpValue::Scalar(ctx.sim_time),
+        CompiledExpr::Signal(id) => ctx.signal(&id.to_string()),
+        CompiledExpr::Const(name, _) => InterpValue::Scalar(ctx.config(name)), // Fix: added name parameter
+        CompiledExpr::Config(name, _) => InterpValue::Scalar(ctx.config(name)),
+        CompiledExpr::Payload => ctx.payload_value(),
+        CompiledExpr::PayloadField(field) => ctx.payload_field(field),
+        CompiledExpr::Binary { op, left, right } => {
+            let l = eval_impulse_expr(left, ctx);
+            let r = eval_impulse_expr(right, ctx);
+            l.binary_op(r, *op)
+        }
+        CompiledExpr::Unary { op, operand } => {
+            let value = eval_impulse_expr(operand, ctx);
+            value.unary_op(*op)
+        }
+        CompiledExpr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            if eval_impulse_expr(condition, ctx).as_f64() != 0.0 {
+                eval_impulse_expr(then_branch, ctx)
+            } else {
+                eval_impulse_expr(else_branch, ctx)
+            }
+        }
+        CompiledExpr::Let { name, value, body } => {
+            let evaluated = eval_impulse_expr(value, ctx);
+            ctx.locals.insert(name.clone(), evaluated);
+            let result = eval_impulse_expr(body, ctx);
+            ctx.locals.remove(name);
+            result
+        }
+        CompiledExpr::Local(name) => *ctx
+            .locals
+            .get(name)
+            .unwrap_or_else(|| panic!("Unknown local '{}'", name)),
+        CompiledExpr::KernelCall {
+            namespace,
+            function,
+            args,
+        } => {
+            let arg_values: Vec<Value> = args
+                .iter()
+                .map(|arg| eval_impulse_expr(arg, ctx).into_value())
+                .collect();
+            InterpValue::from_value(&ctx.call_kernel(namespace, function, &arg_values))
+        }
+        CompiledExpr::Call { function, args } => {
+            let arg_values: Vec<_> = args.iter().map(|arg| eval_impulse_expr(arg, ctx)).collect();
+            eval_impulse_function(function, &arg_values)
+        }
+        CompiledExpr::EmitSignal { target, value } => {
+            let emitted = eval_impulse_expr(value, ctx);
+            ctx.channels.accumulate(target, emitted.as_f64());
+            emitted
+        }
+        CompiledExpr::FieldAccess { object, field } => {
+            if let CompiledExpr::Payload = object.as_ref() {
+                ctx.payload_field(field)
+            } else {
+                // Handle component access on signals/prev/local if they are vectors
+                let val = eval_impulse_expr(object, ctx);
+                match val.into_value().component(field) {
+                    Some(c) => InterpValue::Scalar(c),
+                    None => InterpValue::Scalar(0.0),
+                }
+            }
+        }
+        CompiledExpr::Prev
+        | CompiledExpr::Collected
+        | CompiledExpr::SelfField(_)
+        | CompiledExpr::EntityAccess { .. }
+        | CompiledExpr::Aggregate { .. }
+        | CompiledExpr::Other { .. }
+        | CompiledExpr::Pairs { .. }
+        | CompiledExpr::Filter { .. }
+        | CompiledExpr::First { .. }
+        | CompiledExpr::Nearest { .. }
+        | CompiledExpr::Within { .. } => {
+            panic!("Unsupported expression in impulse apply: {:?}", expr)
+        }
+    }
+}
+
+pub fn build_impulse_handler(
+    impulse: &CompiledImpulse,
+    world: &CompiledWorld,
+) -> Option<ImpulseFn> {
+    let apply = impulse.apply.as_ref()?;
+    let apply = apply.clone();
+    let constants = world.constants.clone();
+    let config = world.config.clone();
+
+    Some(Box::new(move |ctx, payload| {
+        let mut eval_ctx = ImpulseEvalContext {
+            payload,
+            signals: ctx.signals,
+            entities: ctx.entities,
+            channels: ctx.channels,
+            dt: ctx.dt.seconds(),
+            sim_time: ctx.sim_time,
+            constants: &constants,
+            config: &config,
+            locals: HashMap::new(),
+            current_entity: None,
+            self_instance: None,
+            other_instance: None,
+        };
+        let _ = eval_impulse_expr(&apply, &mut eval_ctx);
+    }))
+}
+
 /// Builds an assertion function.
 pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionFn {
     let bytecode = codegen::compile(expr);
@@ -602,6 +1028,8 @@ pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> 
     }
 
     // 3. Check initial_name (legacy/test pattern, e.g. terra.initial_energy)
+    // We need to handle the case where initial is in the middle: terra.initial_energy
+    // If the signal is terra.energy, it might be terra.initial_energy.
     if let Some(pos) = name.rfind('.') {
         let prefix = &name[..pos];
         let last = &name[pos + 1..];
@@ -644,6 +1072,7 @@ pub fn eval_initial_expr(
     // This is used for member initials which are resolved before simulation starts
     // and can only read constants and config.
     let signals = SignalStorage::default();
+    let entities = EntityStorage::default();
     let members = MemberSignalBuffer::new();
 
     let mut ctx = MemberInterpContext {
@@ -652,6 +1081,7 @@ pub fn eval_initial_expr(
         dt: 0.0,
         sim_time: 0.0,
         signals: &signals,
+        entities: &entities,
         members: &members,
         constants,
         config,

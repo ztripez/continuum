@@ -104,7 +104,7 @@ era.formation {
     transition {
         to: era.active_tectonics
         when {
-            signal.crust.total_thickness > 30000
+            signal.crust.total_thickness > 40000
         }
     }
 }
@@ -130,7 +130,7 @@ era.active_tectonics {
     transition {
         to: era.cooling
         when {
-            signal.core.temp < 4000 <K>
+            signal.core.temp < 2000 <K>
         }
     }
 }

@@ -11,7 +11,7 @@ pub use continuum_runtime::executor::{
     ScalarResolverFn as MemberResolverFn, Vec3ResolverFn as Vec3MemberResolverFn,
 };
 use continuum_runtime::soa_storage::MemberSignalBuffer;
-use continuum_runtime::storage::SignalStorage;
+use continuum_runtime::storage::{EntityStorage, SignalStorage};
 use continuum_runtime::types::Value;
 use indexmap::IndexMap;
 
@@ -46,6 +46,7 @@ impl InterpValue {
             Value::Quat(v) => InterpValue::Quat(*v),
             Value::Boolean(b) => InterpValue::Bool(*b),
             Value::Integer(i) => InterpValue::Scalar(*i as f64),
+            Value::Map(_) => InterpValue::Scalar(0.0),
             _ => InterpValue::Scalar(0.0),
         }
     }
@@ -174,6 +175,7 @@ pub struct MemberInterpContext<'a> {
     pub dt: f64,
     pub sim_time: f64,
     pub signals: &'a SignalStorage,
+    pub entities: &'a EntityStorage,
     pub members: &'a MemberSignalBuffer,
     pub constants: &'a IndexMap<String, (f64, Option<crate::units::Unit>)>,
     pub config: &'a IndexMap<String, (f64, Option<crate::units::Unit>)>,
@@ -307,6 +309,7 @@ pub fn build_member_resolver(
             dt: ctx.dt.seconds(),
             sim_time: ctx.sim_time,
             signals: ctx.signals,
+            entities: ctx.entities,
             members: ctx.members,
             constants: &constants,
             config: &config,
@@ -337,6 +340,7 @@ pub fn build_vec3_member_resolver(
             dt: ctx.dt.seconds(),
             sim_time: ctx.sim_time,
             signals: ctx.signals,
+            entities: ctx.entities,
             members: ctx.members,
             constants: &constants,
             config: &config,

@@ -586,6 +586,13 @@ fn val_add(l: Value, r: Value) -> Value {
         (Value::Scalar(a), Value::Integer(b)) => Value::Scalar(a + b as f64),
         (Value::Integer(a), Value::Scalar(b)) => Value::Scalar(a as f64 + b),
         (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3([a[0] + b[0], a[1] + b[1], a[2] + b[2]]),
+        (Value::Map(a), Value::Map(b)) => {
+            let mut res = a.clone();
+            res.extend(b.clone());
+            Value::Map(res)
+        }
+        // Fallback to Scalar(0.0) or panic for type mismatch?
+        // Returning 0.0 is safer for now to avoid crashes during dev
         _ => Value::Scalar(0.0),
     }
 }
@@ -660,6 +667,7 @@ fn val_truthy(v: &Value) -> bool {
         Value::Boolean(b) => *b,
         Value::Scalar(s) => *s != 0.0,
         Value::Integer(i) => *i != 0,
+        Value::Map(v) => !v.is_empty(),
         _ => false,
     }
 }

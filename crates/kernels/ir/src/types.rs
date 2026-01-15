@@ -125,6 +125,24 @@ impl CompiledWorld {
         operators
     }
 
+    /// Get all impulse nodes from the unified node map.
+    pub fn impulses(&self) -> IndexMap<ImpulseId, CompiledImpulse> {
+        let mut impulses = IndexMap::new();
+        for (path, node) in &self.nodes {
+            if let crate::unified_nodes::NodeKind::Impulse(props) = &node.kind {
+                let impulse = CompiledImpulse {
+                    file: node.file.clone(),
+                    span: node.span.clone(),
+                    id: ImpulseId::from(path.clone()),
+                    payload_type: props.payload_type.clone(),
+                    apply: props.apply.clone(),
+                };
+                impulses.insert(ImpulseId::from(path.clone()), impulse);
+            }
+        }
+        impulses
+    }
+
     /// Get all era nodes from the unified node map.
     pub fn eras(&self) -> IndexMap<EraId, CompiledEra> {
         let mut eras = IndexMap::new();
