@@ -86,10 +86,8 @@ pub struct SignalProperties {
     pub value_type: ValueType,
     /// Whether `dt_raw` is explicitly used
     pub uses_dt_raw: bool,
-    /// The resolve expression (for scalar signals)
+    /// The resolve expression (all types, vectors handled via runtime dispatch)
     pub resolve: Option<CompiledExpr>,
-    /// Component-wise resolve expressions for vector signals
-    pub resolve_components: Option<Vec<CompiledExpr>>,
     /// Warmup configuration
     pub warmup: Option<CompiledWarmup>,
     /// Assertions to validate after resolution

@@ -66,7 +66,6 @@ impl CompiledWorld {
                     uses_dt_raw: props.uses_dt_raw,
                     reads: node.reads.clone(),
                     resolve: props.resolve.clone(),
-                    resolve_components: props.resolve_components.clone(),
                     warmup: props.warmup.clone(),
                     assertions: props.assertions.clone(),
                 };
@@ -365,7 +364,6 @@ pub struct CompiledSignal {
     pub uses_dt_raw: bool,
     pub reads: Vec<SignalId>,
     pub resolve: Option<CompiledExpr>,
-    pub resolve_components: Option<Vec<CompiledExpr>>,
     pub warmup: Option<CompiledWarmup>,
     pub assertions: Vec<CompiledAssertion>,
 }

@@ -427,7 +427,6 @@ impl Lowerer {
                         value_type: signal.value_type.clone(),
                         uses_dt_raw: signal.uses_dt_raw,
                         resolve: signal.resolve.clone(),
-                        resolve_components: signal.resolve_components.clone(),
                         warmup: signal.warmup.clone(),
                         assertions: signal.assertions.clone(),
                     },
