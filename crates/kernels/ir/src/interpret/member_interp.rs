@@ -284,17 +284,6 @@ pub fn interpret_expr(expr: &CompiledExpr, ctx: &mut MemberInterpContext) -> Int
 }
 
 fn eval_function(name: &str, args: &[InterpValue], ctx: &MemberInterpContext) -> InterpValue {
-    // First try built-in constructors
-    match name {
-        "vec2" => {
-            return InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), 0.0]);
-        }
-        "vec3" => {
-            return InterpValue::Vec3([args[0].as_f64(), args[1].as_f64(), args[2].as_f64()]);
-        }
-        _ => {}
-    }
-
     // Try to find function in kernel registry namespaces
     let arg_values: Vec<Value> = args.iter().map(|a| a.into_value()).collect();
     for namespace in continuum_kernel_registry::namespace_names() {
