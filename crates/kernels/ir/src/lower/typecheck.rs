@@ -118,10 +118,10 @@ pub fn check_binary_op(
 
     // Convert DSL BinaryOp to coercion BinaryOp for arithmetic operations
     let coercion_op = match op {
-        BinaryOp::Add => Some(coercion::BinaryOp::Add),
-        BinaryOp::Sub => Some(coercion::BinaryOp::Sub),
-        BinaryOp::Mul => Some(coercion::BinaryOp::Mul),
-        BinaryOp::Div => Some(coercion::BinaryOp::Div),
+        BinaryOp::Add => Some(coercion::TypeCheckOp::Add),
+        BinaryOp::Sub => Some(coercion::TypeCheckOp::Sub),
+        BinaryOp::Mul => Some(coercion::TypeCheckOp::Mul),
+        BinaryOp::Div => Some(coercion::TypeCheckOp::Div),
         // Comparison and logical operators are valid for any types
         BinaryOp::Eq
         | BinaryOp::Ne

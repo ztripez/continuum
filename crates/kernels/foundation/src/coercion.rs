@@ -4,9 +4,9 @@
 
 use crate::primitives::{PrimitiveShape, PrimitiveTypeId};
 
-/// Binary operations that can be type-checked
+/// Binary operations for type checking (subset of full BinaryOp)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BinaryOp {
+pub enum TypeCheckOp {
     Add,
     Sub,
     Mul,
@@ -57,7 +57,11 @@ pub enum TypeCheckResult {
 /// - Vec2 + Vec3 (dimension mismatch)
 /// - Mat2 * Mat3 (dimension mismatch)
 /// - Mat3 * Vec4 (dimension mismatch)
-pub fn can_operate(op: BinaryOp, left: &PrimitiveShape, right: &PrimitiveShape) -> TypeCheckResult {
+pub fn can_operate(
+    op: TypeCheckOp,
+    left: &PrimitiveShape,
+    right: &PrimitiveShape,
+) -> TypeCheckResult {
     use PrimitiveShape::*;
 
     match (op, left, right) {
@@ -65,26 +69,28 @@ pub fn can_operate(op: BinaryOp, left: &PrimitiveShape, right: &PrimitiveShape) 
         (_, Scalar, Scalar) => TypeCheckResult::Valid(Scalar),
 
         // Vector operations - same dimension
-        (BinaryOp::Add | BinaryOp::Sub, Vector { dim: d1 }, Vector { dim: d2 }) if d1 == d2 => {
+        (TypeCheckOp::Add | TypeCheckOp::Sub, Vector { dim: d1 }, Vector { dim: d2 })
+            if d1 == d2 =>
+        {
             TypeCheckResult::Valid(Vector { dim: *d1 })
         }
-        (BinaryOp::Mul, Vector { dim: d1 }, Vector { dim: d2 }) if d1 == d2 => {
+        (TypeCheckOp::Mul, Vector { dim: d1 }, Vector { dim: d2 }) if d1 == d2 => {
             // TODO: Should be dot product returning Scalar, but currently element-wise
             TypeCheckResult::Valid(Vector { dim: *d1 })
         }
 
         // Vector-Scalar broadcast
-        (BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul, Scalar, Vector { dim }) => {
+        (TypeCheckOp::Add | TypeCheckOp::Sub | TypeCheckOp::Mul, Scalar, Vector { dim }) => {
             TypeCheckResult::Valid(Vector { dim: *dim })
         }
-        (BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul, Vector { dim }, Scalar) => {
+        (TypeCheckOp::Add | TypeCheckOp::Sub | TypeCheckOp::Mul, Vector { dim }, Scalar) => {
             TypeCheckResult::Valid(Vector { dim: *dim })
         }
-        (BinaryOp::Div, Vector { dim }, Scalar) => TypeCheckResult::Valid(Vector { dim: *dim }),
+        (TypeCheckOp::Div, Vector { dim }, Scalar) => TypeCheckResult::Valid(Vector { dim: *dim }),
 
         // Matrix operations - same dimension
         (
-            BinaryOp::Add | BinaryOp::Sub,
+            TypeCheckOp::Add | TypeCheckOp::Sub,
             Matrix { rows: r1, cols: c1 },
             Matrix { rows: r2, cols: c2 },
         ) if r1 == r2 && c1 == c2 => TypeCheckResult::Valid(Matrix {
@@ -93,7 +99,7 @@ pub fn can_operate(op: BinaryOp, left: &PrimitiveShape, right: &PrimitiveShape) 
         }),
 
         // Matrix multiplication (rows1 × cols1) * (rows2 × cols2) → (rows1 × cols2) if cols1 == rows2
-        (BinaryOp::Mul, Matrix { rows: r1, cols: c1 }, Matrix { rows: r2, cols: c2 })
+        (TypeCheckOp::Mul, Matrix { rows: r1, cols: c1 }, Matrix { rows: r2, cols: c2 })
             if c1 == r2 =>
         {
             TypeCheckResult::Valid(Matrix {
@@ -103,44 +109,44 @@ pub fn can_operate(op: BinaryOp, left: &PrimitiveShape, right: &PrimitiveShape) 
         }
 
         // Matrix-Vector multiplication
-        (BinaryOp::Mul, Matrix { rows, cols }, Vector { dim }) if cols == dim => {
+        (TypeCheckOp::Mul, Matrix { rows, cols }, Vector { dim }) if cols == dim => {
             TypeCheckResult::Valid(Vector { dim: *rows })
         }
 
         // Matrix-Scalar operations
-        (BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul, Scalar, Matrix { rows, cols }) => {
+        (TypeCheckOp::Add | TypeCheckOp::Sub | TypeCheckOp::Mul, Scalar, Matrix { rows, cols }) => {
             TypeCheckResult::Valid(Matrix {
                 rows: *rows,
                 cols: *cols,
             })
         }
-        (BinaryOp::Add | BinaryOp::Sub | BinaryOp::Mul, Matrix { rows, cols }, Scalar) => {
+        (TypeCheckOp::Add | TypeCheckOp::Sub | TypeCheckOp::Mul, Matrix { rows, cols }, Scalar) => {
             TypeCheckResult::Valid(Matrix {
                 rows: *rows,
                 cols: *cols,
             })
         }
-        (BinaryOp::Div, Matrix { rows, cols }, Scalar) => TypeCheckResult::Valid(Matrix {
+        (TypeCheckOp::Div, Matrix { rows, cols }, Scalar) => TypeCheckResult::Valid(Matrix {
             rows: *rows,
             cols: *cols,
         }),
 
         // Invalid: dimension mismatch
-        (BinaryOp::Add | BinaryOp::Sub, Vector { .. }, Vector { .. }) => {
+        (TypeCheckOp::Add | TypeCheckOp::Sub, Vector { .. }, Vector { .. }) => {
             TypeCheckResult::Invalid("Vector dimension mismatch for addition/subtraction")
         }
-        (BinaryOp::Mul, Vector { .. }, Vector { .. }) => {
+        (TypeCheckOp::Mul, Vector { .. }, Vector { .. }) => {
             TypeCheckResult::Invalid("Vector dimension mismatch for multiplication")
         }
 
         // Invalid: Matrix dimension mismatch
-        (BinaryOp::Add | BinaryOp::Sub, Matrix { .. }, Matrix { .. }) => {
+        (TypeCheckOp::Add | TypeCheckOp::Sub, Matrix { .. }, Matrix { .. }) => {
             TypeCheckResult::Invalid("Matrix dimension mismatch for element-wise operation")
         }
-        (BinaryOp::Mul, Matrix { .. }, Matrix { .. }) => TypeCheckResult::Invalid(
+        (TypeCheckOp::Mul, Matrix { .. }, Matrix { .. }) => TypeCheckResult::Invalid(
             "Matrix multiplication dimension mismatch (left.cols must equal right.rows)",
         ),
-        (BinaryOp::Mul, Matrix { .. }, Vector { .. }) => TypeCheckResult::Invalid(
+        (TypeCheckOp::Mul, Matrix { .. }, Vector { .. }) => TypeCheckResult::Invalid(
             "Matrix-vector multiplication dimension mismatch (mat.cols must equal vec.dim)",
         ),
 
@@ -165,7 +171,7 @@ mod tests {
     #[test]
     fn test_scalar_ops() {
         let result = can_operate(
-            BinaryOp::Add,
+            TypeCheckOp::Add,
             &PrimitiveShape::Scalar,
             &PrimitiveShape::Scalar,
         );
@@ -175,7 +181,7 @@ mod tests {
     #[test]
     fn test_vec3_add_vec3() {
         let v3 = PrimitiveShape::Vector { dim: 3 };
-        let result = can_operate(BinaryOp::Add, &v3, &v3);
+        let result = can_operate(TypeCheckOp::Add, &v3, &v3);
         assert_eq!(
             result,
             TypeCheckResult::Valid(PrimitiveShape::Vector { dim: 3 })
@@ -186,14 +192,14 @@ mod tests {
     fn test_vec2_add_vec3_invalid() {
         let v2 = PrimitiveShape::Vector { dim: 2 };
         let v3 = PrimitiveShape::Vector { dim: 3 };
-        let result = can_operate(BinaryOp::Add, &v2, &v3);
+        let result = can_operate(TypeCheckOp::Add, &v2, &v3);
         assert!(matches!(result, TypeCheckResult::Invalid(_)));
     }
 
     #[test]
     fn test_scalar_mul_vec() {
         let v3 = PrimitiveShape::Vector { dim: 3 };
-        let result = can_operate(BinaryOp::Mul, &PrimitiveShape::Scalar, &v3);
+        let result = can_operate(TypeCheckOp::Mul, &PrimitiveShape::Scalar, &v3);
         assert_eq!(
             result,
             TypeCheckResult::Valid(PrimitiveShape::Vector { dim: 3 })
@@ -204,7 +210,7 @@ mod tests {
     fn test_mat_mul_mat() {
         let m23 = PrimitiveShape::Matrix { rows: 2, cols: 3 };
         let m34 = PrimitiveShape::Matrix { rows: 3, cols: 4 };
-        let result = can_operate(BinaryOp::Mul, &m23, &m34);
+        let result = can_operate(TypeCheckOp::Mul, &m23, &m34);
         assert_eq!(
             result,
             TypeCheckResult::Valid(PrimitiveShape::Matrix { rows: 2, cols: 4 })
@@ -215,7 +221,7 @@ mod tests {
     fn test_mat_mul_vec() {
         let m33 = PrimitiveShape::Matrix { rows: 3, cols: 3 };
         let v3 = PrimitiveShape::Vector { dim: 3 };
-        let result = can_operate(BinaryOp::Mul, &m33, &v3);
+        let result = can_operate(TypeCheckOp::Mul, &m33, &v3);
         assert_eq!(
             result,
             TypeCheckResult::Valid(PrimitiveShape::Vector { dim: 3 })
@@ -226,14 +232,14 @@ mod tests {
     fn test_mat3_mul_vec4_invalid() {
         let m33 = PrimitiveShape::Matrix { rows: 3, cols: 3 };
         let v4 = PrimitiveShape::Vector { dim: 4 };
-        let result = can_operate(BinaryOp::Mul, &m33, &v4);
+        let result = can_operate(TypeCheckOp::Mul, &m33, &v4);
         assert!(matches!(result, TypeCheckResult::Invalid(_)));
     }
 
     #[test]
     fn test_vec_div_scalar() {
         let v3 = PrimitiveShape::Vector { dim: 3 };
-        let result = can_operate(BinaryOp::Div, &v3, &PrimitiveShape::Scalar);
+        let result = can_operate(TypeCheckOp::Div, &v3, &PrimitiveShape::Scalar);
         assert_eq!(
             result,
             TypeCheckResult::Valid(PrimitiveShape::Vector { dim: 3 })

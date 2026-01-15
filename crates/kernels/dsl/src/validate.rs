@@ -372,7 +372,7 @@ mod tests {
                 : strata(thermal)
 
                 resolve {
-                    prev + dt_raw
+                    prev + dt.raw
                 }
             }
         "#;
@@ -394,10 +394,10 @@ mod tests {
             signal.core.temp {
                 : Scalar<K>
                 : strata(thermal)
-                : dt_raw
+                : uses(dt.raw)
 
                 resolve {
-                    prev + dt_raw
+                    prev + dt.raw
                 }
             }
         "#;

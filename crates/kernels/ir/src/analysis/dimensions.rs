@@ -1,5 +1,5 @@
 use crate::units::{DimensionError, Unit};
-use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, UnaryOpIr, ValueType};
+use crate::{BinaryOp, CompiledExpr, CompiledWorld, UnaryOp, ValueType};
 use continuum_foundation::Path;
 use std::collections::HashMap;
 
@@ -104,7 +104,7 @@ fn infer_unit(
             let u_right = infer_unit(right, world, symbol_units, current_signal.clone())?;
 
             match op {
-                BinaryOpIr::Add | BinaryOpIr::Sub => {
+                BinaryOp::Add | BinaryOp::Sub => {
                     // Polymorphic Literals: If one side is a unitless literal, it adopts the other side's unit.
                     if u_left.is_dimensionless() && !u_right.is_dimensionless() {
                         return Ok(u_right);
@@ -123,9 +123,9 @@ fn infer_unit(
                         })
                     }
                 }
-                BinaryOpIr::Mul => Ok(u_left.multiply(&u_right)),
-                BinaryOpIr::Div => Ok(u_left.divide(&u_right)),
-                BinaryOpIr::Pow => {
+                BinaryOp::Mul => Ok(u_left.multiply(&u_right)),
+                BinaryOp::Div => Ok(u_left.divide(&u_right)),
+                BinaryOp::Pow => {
                     // Only support integer powers for dimensional analysis for now
                     if let CompiledExpr::Literal(val, _) = &**right {
                         if val.fract() == 0.0 {
@@ -144,8 +144,8 @@ fn infer_unit(
         CompiledExpr::Unary { op, operand } => {
             let u = infer_unit(operand, world, symbol_units, current_signal)?;
             match op {
-                UnaryOpIr::Neg => Ok(u),
-                UnaryOpIr::Not => Ok(Unit::dimensionless()),
+                UnaryOp::Neg => Ok(u),
+                UnaryOp::Not => Ok(Unit::dimensionless()),
             }
         }
 

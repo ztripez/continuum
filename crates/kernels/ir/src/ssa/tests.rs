@@ -2,7 +2,7 @@
 
 use continuum_foundation::SignalId;
 
-use crate::{BinaryOpIr, CompiledExpr, UnaryOpIr};
+use crate::{BinaryOp, CompiledExpr, UnaryOp};
 
 use super::{BlockId, SsaInstruction, Terminator, lower_to_ssa, validate_ssa};
 
@@ -74,7 +74,7 @@ fn test_lower_signal() {
 fn test_lower_binary_add() {
     // prev + 1.0
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Add,
+        op: BinaryOp::Add,
         left: Box::new(CompiledExpr::Prev),
         right: Box::new(CompiledExpr::Literal(1.0, None)),
     };
@@ -98,7 +98,7 @@ fn test_lower_binary_add() {
     assert!(matches!(
         &block.instructions[2],
         SsaInstruction::BinOp {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             ..
         }
     ));
@@ -109,7 +109,7 @@ fn test_lower_binary_add() {
 #[test]
 fn test_lower_unary_neg() {
     let expr = CompiledExpr::Unary {
-        op: UnaryOpIr::Neg,
+        op: UnaryOp::Neg,
         operand: Box::new(CompiledExpr::Literal(5.0, None)),
     };
     let ssa = lower_to_ssa(&expr);
@@ -121,7 +121,7 @@ fn test_lower_unary_neg() {
     assert!(matches!(
         &block.instructions[1],
         SsaInstruction::UnaryOp {
-            op: UnaryOpIr::Neg,
+            op: UnaryOp::Neg,
             ..
         }
     ));
@@ -133,9 +133,9 @@ fn test_lower_unary_neg() {
 fn test_lower_nested_binary() {
     // (prev + 1.0) * 2.0
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Mul,
+        op: BinaryOp::Mul,
         left: Box::new(CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Literal(1.0, None)),
         }),
@@ -153,14 +153,14 @@ fn test_lower_nested_binary() {
     assert!(matches!(
         &block.instructions[2],
         SsaInstruction::BinOp {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             ..
         }
     ));
     assert!(matches!(
         &block.instructions[4],
         SsaInstruction::BinOp {
-            op: BinaryOpIr::Mul,
+            op: BinaryOp::Mul,
             ..
         }
     ));
@@ -173,7 +173,7 @@ fn test_lower_if_expression() {
     // if prev > 0 then 1.0 else 0.0
     let expr = CompiledExpr::If {
         condition: Box::new(CompiledExpr::Binary {
-            op: BinaryOpIr::Gt,
+            op: BinaryOp::Gt,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Literal(0.0, None)),
         }),
@@ -218,7 +218,7 @@ fn test_lower_let_binding() {
         name: "x".to_string(),
         value: Box::new(CompiledExpr::Literal(1.0, None)),
         body: Box::new(CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Local("x".to_string())),
             right: Box::new(CompiledExpr::Local("x".to_string())),
         }),
@@ -293,10 +293,10 @@ fn test_lower_self_field() {
 fn test_pretty_print() {
     // prev + signal.heat * 0.5
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Add,
+        op: BinaryOp::Add,
         left: Box::new(CompiledExpr::Prev),
         right: Box::new(CompiledExpr::Binary {
-            op: BinaryOpIr::Mul,
+            op: BinaryOp::Mul,
             left: Box::new(CompiledExpr::Signal(SignalId::from("heat"))),
             right: Box::new(CompiledExpr::Literal(0.5, None)),
         }),
@@ -322,14 +322,14 @@ fn test_complex_expression() {
         function: "clamp".to_string(),
         args: vec![
             CompiledExpr::Binary {
-                op: BinaryOpIr::Sub,
+                op: BinaryOp::Sub,
                 left: Box::new(CompiledExpr::Binary {
-                    op: BinaryOpIr::Add,
+                    op: BinaryOp::Add,
                     left: Box::new(CompiledExpr::Prev),
                     right: Box::new(CompiledExpr::Collected),
                 }),
                 right: Box::new(CompiledExpr::Binary {
-                    op: BinaryOpIr::Mul,
+                    op: BinaryOp::Mul,
                     left: Box::new(CompiledExpr::Signal(SignalId::from("stress"))),
                     right: Box::new(CompiledExpr::DtRaw),
                 }),

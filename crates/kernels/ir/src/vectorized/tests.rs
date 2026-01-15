@@ -52,7 +52,7 @@ fn test_l2_dt() {
 fn test_l2_binary_add() {
     // prev + 1.0
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Add,
+        op: BinaryOp::Add,
         left: Box::new(CompiledExpr::Prev),
         right: Box::new(CompiledExpr::Literal(1.0, None)),
     };
@@ -66,7 +66,7 @@ fn test_l2_binary_add() {
 fn test_l2_binary_mul() {
     // prev * 2.0
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Mul,
+        op: BinaryOp::Mul,
         left: Box::new(CompiledExpr::Prev),
         right: Box::new(CompiledExpr::Literal(2.0, None)),
     };
@@ -80,9 +80,9 @@ fn test_l2_binary_mul() {
 fn test_l2_nested_expression() {
     // (prev + 1.0) * 2.0
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Mul,
+        op: BinaryOp::Mul,
         left: Box::new(CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Literal(1.0, None)),
         }),
@@ -98,7 +98,7 @@ fn test_l2_nested_expression() {
 #[test]
 fn test_l2_unary_neg() {
     let expr = CompiledExpr::Unary {
-        op: UnaryOpIr::Neg,
+        op: UnaryOp::Neg,
         operand: Box::new(CompiledExpr::Prev),
     };
     let prev = vec![1.0, -2.0, 3.0, -4.0];
@@ -195,7 +195,7 @@ fn test_l2_integrate_euler() {
 fn test_l2_comparison_ops() {
     // prev > 5.0
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Gt,
+        op: BinaryOp::Gt,
         left: Box::new(CompiledExpr::Prev),
         right: Box::new(CompiledExpr::Literal(5.0, None)),
     };
@@ -212,7 +212,7 @@ fn test_l2_let_binding() {
         name: "x".to_string(),
         value: Box::new(CompiledExpr::Literal(2.0, None)),
         body: Box::new(CompiledExpr::Binary {
-            op: BinaryOpIr::Mul,
+            op: BinaryOp::Mul,
             left: Box::new(CompiledExpr::Local("x".to_string())),
             right: Box::new(CompiledExpr::Prev),
         }),
@@ -227,7 +227,7 @@ fn test_l2_let_binding() {
 fn test_l2_large_population() {
     // Test with a larger population for SIMD benefits
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Add,
+        op: BinaryOp::Add,
         left: Box::new(CompiledExpr::Prev),
         right: Box::new(CompiledExpr::Literal(1.0, None)),
     };
@@ -247,7 +247,7 @@ fn test_l2_uniform_optimization() {
     // Expression that should remain uniform throughout
     // 2.0 * 3.0 (no prev or per-entity data)
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Mul,
+        op: BinaryOp::Mul,
         left: Box::new(CompiledExpr::Literal(2.0, None)),
         right: Box::new(CompiledExpr::Literal(3.0, None)),
     };
@@ -265,7 +265,7 @@ fn test_l2_scalar_kernel_implementation() {
     // Test the ScalarL2Kernel type
     // Use the L2VectorizedExecutor directly since ScalarL2Kernel requires full PopulationStorage
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Add,
+        op: BinaryOp::Add,
         left: Box::new(CompiledExpr::Prev),
         right: Box::new(CompiledExpr::Literal(1.0, None)),
     };
@@ -445,10 +445,10 @@ fn test_l2_self_field_expression_with_snapshot() {
     // Test snapshot semantics in a larger expression:
     // prev + self.velocity * 0.5 (prev is our signal, self.velocity is snapshot)
     let expr = CompiledExpr::Binary {
-        op: BinaryOpIr::Add,
+        op: BinaryOp::Add,
         left: Box::new(CompiledExpr::Prev),
         right: Box::new(CompiledExpr::Binary {
-            op: BinaryOpIr::Mul,
+            op: BinaryOp::Mul,
             left: Box::new(CompiledExpr::SelfField("velocity".to_string())),
             right: Box::new(CompiledExpr::Literal(0.5, None)),
         }),

@@ -11,50 +11,24 @@ use continuum_dsl::ast::{
 use continuum_foundation::{PrimitiveParamKind, primitive_type_by_name};
 
 use crate::{
-    AggregateOpIr, AssertionSeverity, BinaryOpIr, CompiledAssertion, OperatorPhaseIr, TopologyIr,
-    UnaryOpIr, ValueRange, ValueType,
+    AssertionSeverity, CompiledAssertion, OperatorPhaseIr, TopologyIr, ValueRange, ValueType,
 };
 
 use super::{LowerError, Lowerer};
 
 impl Lowerer {
-    pub(crate) fn lower_binary_op(&self, op: BinaryOp) -> BinaryOpIr {
-        match op {
-            BinaryOp::Add => BinaryOpIr::Add,
-            BinaryOp::Sub => BinaryOpIr::Sub,
-            BinaryOp::Mul => BinaryOpIr::Mul,
-            BinaryOp::Div => BinaryOpIr::Div,
-            BinaryOp::Pow => BinaryOpIr::Pow,
-            BinaryOp::Eq => BinaryOpIr::Eq,
-            BinaryOp::Ne => BinaryOpIr::Ne,
-            BinaryOp::Lt => BinaryOpIr::Lt,
-            BinaryOp::Le => BinaryOpIr::Le,
-            BinaryOp::Gt => BinaryOpIr::Gt,
-            BinaryOp::Ge => BinaryOpIr::Ge,
-            BinaryOp::And => BinaryOpIr::And,
-            BinaryOp::Or => BinaryOpIr::Or,
-        }
+    // Operators are now unified - no conversion needed!
+    // These methods remain for backward compatibility but are now simple identity functions.
+    pub(crate) fn lower_binary_op(&self, op: BinaryOp) -> BinaryOp {
+        op
     }
 
-    pub(crate) fn lower_unary_op(&self, op: UnaryOp) -> UnaryOpIr {
-        match op {
-            UnaryOp::Neg => UnaryOpIr::Neg,
-            UnaryOp::Not => UnaryOpIr::Not,
-        }
+    pub(crate) fn lower_unary_op(&self, op: UnaryOp) -> UnaryOp {
+        op
     }
 
-    pub(crate) fn lower_aggregate_op(&self, op: AggregateOp) -> AggregateOpIr {
-        match op {
-            AggregateOp::Sum => AggregateOpIr::Sum,
-            AggregateOp::Product => AggregateOpIr::Product,
-            AggregateOp::Min => AggregateOpIr::Min,
-            AggregateOp::Max => AggregateOpIr::Max,
-            AggregateOp::Mean => AggregateOpIr::Mean,
-            AggregateOp::Count => AggregateOpIr::Count,
-            AggregateOp::Any => AggregateOpIr::Any,
-            AggregateOp::All => AggregateOpIr::All,
-            AggregateOp::None => AggregateOpIr::None,
-        }
+    pub(crate) fn lower_aggregate_op(&self, op: AggregateOp) -> AggregateOp {
+        op
     }
 
     pub(crate) fn lower_type_expr(&self, ty: &TypeExpr) -> ValueType {

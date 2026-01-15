@@ -77,8 +77,8 @@ impl InterpValue {
         }
     }
 
-    pub fn binary_op(&self, other: InterpValue, op: crate::BinaryOpIr) -> InterpValue {
-        use crate::BinaryOpIr::*;
+    pub fn binary_op(&self, other: InterpValue, op: crate::BinaryOp) -> InterpValue {
+        use crate::BinaryOp::*;
         match op {
             Add => match (self, other) {
                 (InterpValue::Scalar(a), InterpValue::Scalar(b)) => InterpValue::Scalar(a + b),
@@ -153,8 +153,8 @@ impl InterpValue {
         }
     }
 
-    pub fn unary_op(&self, op: crate::UnaryOpIr) -> InterpValue {
-        use crate::UnaryOpIr::*;
+    pub fn unary_op(&self, op: crate::UnaryOp) -> InterpValue {
+        use crate::UnaryOp::*;
         match op {
             Neg => match self {
                 InterpValue::Scalar(v) => InterpValue::Scalar(-v),

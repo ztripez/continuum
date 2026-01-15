@@ -6,7 +6,7 @@ use std::fmt;
 
 use continuum_foundation::SignalId;
 
-use crate::{AggregateOpIr, BinaryOpIr, UnaryOpIr};
+use crate::{AggregateOp, BinaryOp, UnaryOp};
 
 /// Virtual register identifier.
 ///
@@ -179,7 +179,7 @@ pub enum SsaInstruction {
     /// Binary operation.
     BinOp {
         dst: VReg,
-        op: BinaryOpIr,
+        op: BinaryOp,
         lhs: VReg,
         rhs: VReg,
     },
@@ -187,7 +187,7 @@ pub enum SsaInstruction {
     /// Unary operation.
     UnaryOp {
         dst: VReg,
-        op: UnaryOpIr,
+        op: UnaryOp,
         operand: VReg,
     },
 
@@ -231,7 +231,7 @@ pub enum SsaInstruction {
     /// Aggregate operation over entity instances.
     Aggregate {
         dst: VReg,
-        op: AggregateOpIr,
+        op: AggregateOp,
         entity: String,
         /// Block ID containing the body expression for each instance.
         body_block: BlockId,

@@ -48,7 +48,7 @@ use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Dt;
 
 use crate::ssa::{BlockId, SsaFunction, SsaInstruction, Terminator, VReg};
-use crate::{BinaryOpIr, UnaryOpIr};
+use crate::{BinaryOp, UnaryOp};
 
 /// Error types for L2 vectorized execution.
 #[derive(Debug, Clone)]
@@ -420,7 +420,7 @@ impl L2VectorizedExecutor {
         &self,
         lhs: &VRegBuffer,
         rhs: &VRegBuffer,
-        op: BinaryOpIr,
+        op: BinaryOp,
         population: usize,
     ) -> Result<VRegBuffer, L2ExecutionError> {
         match (lhs.as_uniform(), rhs.as_uniform()) {
@@ -480,7 +480,7 @@ impl L2VectorizedExecutor {
     fn vectorized_unaryop(
         &self,
         operand: &VRegBuffer,
-        op: UnaryOpIr,
+        op: UnaryOp,
         population: usize,
     ) -> Result<VRegBuffer, L2ExecutionError> {
         if let Some(v) = operand.as_uniform() {
@@ -686,63 +686,63 @@ impl LaneKernel for ScalarL2Kernel {
 
 /// Apply a binary operation to two scalars.
 #[inline(always)]
-fn apply_binop(lhs: f64, rhs: f64, op: BinaryOpIr) -> f64 {
+fn apply_binop(lhs: f64, rhs: f64, op: BinaryOp) -> f64 {
     match op {
-        BinaryOpIr::Add => lhs + rhs,
-        BinaryOpIr::Sub => lhs - rhs,
-        BinaryOpIr::Mul => lhs * rhs,
-        BinaryOpIr::Div => lhs / rhs,
-        BinaryOpIr::Pow => lhs.powf(rhs),
-        BinaryOpIr::Eq => {
+        BinaryOp::Add => lhs + rhs,
+        BinaryOp::Sub => lhs - rhs,
+        BinaryOp::Mul => lhs * rhs,
+        BinaryOp::Div => lhs / rhs,
+        BinaryOp::Pow => lhs.powf(rhs),
+        BinaryOp::Eq => {
             if (lhs - rhs).abs() < f64::EPSILON {
                 1.0
             } else {
                 0.0
             }
         }
-        BinaryOpIr::Ne => {
+        BinaryOp::Ne => {
             if (lhs - rhs).abs() >= f64::EPSILON {
                 1.0
             } else {
                 0.0
             }
         }
-        BinaryOpIr::Lt => {
+        BinaryOp::Lt => {
             if lhs < rhs {
                 1.0
             } else {
                 0.0
             }
         }
-        BinaryOpIr::Le => {
+        BinaryOp::Le => {
             if lhs <= rhs {
                 1.0
             } else {
                 0.0
             }
         }
-        BinaryOpIr::Gt => {
+        BinaryOp::Gt => {
             if lhs > rhs {
                 1.0
             } else {
                 0.0
             }
         }
-        BinaryOpIr::Ge => {
+        BinaryOp::Ge => {
             if lhs >= rhs {
                 1.0
             } else {
                 0.0
             }
         }
-        BinaryOpIr::And => {
+        BinaryOp::And => {
             if lhs != 0.0 && rhs != 0.0 {
                 1.0
             } else {
                 0.0
             }
         }
-        BinaryOpIr::Or => {
+        BinaryOp::Or => {
             if lhs != 0.0 || rhs != 0.0 {
                 1.0
             } else {
@@ -754,10 +754,10 @@ fn apply_binop(lhs: f64, rhs: f64, op: BinaryOpIr) -> f64 {
 
 /// Apply a unary operation to a scalar.
 #[inline(always)]
-fn apply_unaryop(x: f64, op: UnaryOpIr) -> f64 {
+fn apply_unaryop(x: f64, op: UnaryOp) -> f64 {
     match op {
-        UnaryOpIr::Neg => -x,
-        UnaryOpIr::Not => {
+        UnaryOp::Neg => -x,
+        UnaryOp::Not => {
             if x == 0.0 {
                 1.0
             } else {
@@ -769,24 +769,24 @@ fn apply_unaryop(x: f64, op: UnaryOpIr) -> f64 {
 
 /// SIMD-friendly vectorized binary operation (both operands are arrays).
 #[inline]
-fn vectorized_binop(lhs: &[f64], rhs: &[f64], result: &mut Vec<f64>, op: BinaryOpIr) {
+fn vectorized_binop(lhs: &[f64], rhs: &[f64], result: &mut Vec<f64>, op: BinaryOp) {
     match op {
-        BinaryOpIr::Add => {
+        BinaryOp::Add => {
             for (&l, &r) in lhs.iter().zip(rhs.iter()) {
                 result.push(l + r);
             }
         }
-        BinaryOpIr::Sub => {
+        BinaryOp::Sub => {
             for (&l, &r) in lhs.iter().zip(rhs.iter()) {
                 result.push(l - r);
             }
         }
-        BinaryOpIr::Mul => {
+        BinaryOp::Mul => {
             for (&l, &r) in lhs.iter().zip(rhs.iter()) {
                 result.push(l * r);
             }
         }
-        BinaryOpIr::Div => {
+        BinaryOp::Div => {
             for (&l, &r) in lhs.iter().zip(rhs.iter()) {
                 result.push(l / r);
             }
@@ -802,24 +802,24 @@ fn vectorized_binop(lhs: &[f64], rhs: &[f64], result: &mut Vec<f64>, op: BinaryO
 
 /// SIMD-friendly vectorized binary operation with broadcast RHS.
 #[inline]
-fn vectorized_binop_broadcast_rhs(lhs: &[f64], rhs: f64, result: &mut Vec<f64>, op: BinaryOpIr) {
+fn vectorized_binop_broadcast_rhs(lhs: &[f64], rhs: f64, result: &mut Vec<f64>, op: BinaryOp) {
     match op {
-        BinaryOpIr::Add => {
+        BinaryOp::Add => {
             for &l in lhs {
                 result.push(l + rhs);
             }
         }
-        BinaryOpIr::Sub => {
+        BinaryOp::Sub => {
             for &l in lhs {
                 result.push(l - rhs);
             }
         }
-        BinaryOpIr::Mul => {
+        BinaryOp::Mul => {
             for &l in lhs {
                 result.push(l * rhs);
             }
         }
-        BinaryOpIr::Div => {
+        BinaryOp::Div => {
             for &l in lhs {
                 result.push(l / rhs);
             }
@@ -834,24 +834,24 @@ fn vectorized_binop_broadcast_rhs(lhs: &[f64], rhs: f64, result: &mut Vec<f64>, 
 
 /// SIMD-friendly vectorized binary operation with broadcast LHS.
 #[inline]
-fn vectorized_binop_broadcast_lhs(lhs: f64, rhs: &[f64], result: &mut Vec<f64>, op: BinaryOpIr) {
+fn vectorized_binop_broadcast_lhs(lhs: f64, rhs: &[f64], result: &mut Vec<f64>, op: BinaryOp) {
     match op {
-        BinaryOpIr::Add => {
+        BinaryOp::Add => {
             for &r in rhs {
                 result.push(lhs + r);
             }
         }
-        BinaryOpIr::Sub => {
+        BinaryOp::Sub => {
             for &r in rhs {
                 result.push(lhs - r);
             }
         }
-        BinaryOpIr::Mul => {
+        BinaryOp::Mul => {
             for &r in rhs {
                 result.push(lhs * r);
             }
         }
-        BinaryOpIr::Div => {
+        BinaryOp::Div => {
             for &r in rhs {
                 result.push(lhs / r);
             }

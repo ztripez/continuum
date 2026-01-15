@@ -473,18 +473,49 @@ pub trait SpannedExprVisitor {
 
 /// Check if an expression tree uses the `dt_raw` keyword.
 pub fn uses_dt_raw(expr: &Expr) -> bool {
-    struct DtRawVisitor {
-        found: bool,
-    }
-    impl ExprVisitor for DtRawVisitor {
-        fn visit_dt_raw(&mut self) -> bool {
-            self.found = true;
-            false // Stop walking
+    // Check this expression
+    match expr {
+        Expr::DtRaw => return true,
+        Expr::Path(path) => {
+            // Check for Path(["dt", "raw"])
+            if path.segments.len() == 2 && path.segments[0] == "dt" && path.segments[1] == "raw" {
+                return true;
+            }
         }
+        Expr::FieldAccess { object, field } => {
+            // Check for FieldAccess { Path("dt"), "raw" }
+            if let Expr::Path(path) = &object.node {
+                if path.segments.len() == 1 && path.segments[0] == "dt" && field == "raw" {
+                    return true;
+                }
+            }
+        }
+        _ => {}
     }
-    let mut visitor = DtRawVisitor { found: false };
-    visitor.walk(expr);
-    visitor.found
+
+    // Recursively check children
+    match expr {
+        Expr::Binary { left, right, .. } => uses_dt_raw(&left.node) || uses_dt_raw(&right.node),
+        Expr::Unary { operand, .. } => uses_dt_raw(&operand.node),
+        Expr::Call { args, .. } => args.iter().any(|arg| uses_dt_raw(&arg.value.node)),
+        Expr::MethodCall { object, args, .. } => {
+            uses_dt_raw(&object.node) || args.iter().any(|arg| uses_dt_raw(&arg.value.node))
+        }
+        Expr::FieldAccess { object, .. } => uses_dt_raw(&object.node),
+        Expr::Let { value, body, .. } => uses_dt_raw(&value.node) || uses_dt_raw(&body.node),
+        Expr::Aggregate { body, .. } => uses_dt_raw(&body.node),
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            uses_dt_raw(&condition.node)
+                || uses_dt_raw(&then_branch.node)
+                || else_branch.as_ref().map_or(false, |e| uses_dt_raw(&e.node))
+        }
+        Expr::For { iter, body, .. } => uses_dt_raw(&iter.node) || uses_dt_raw(&body.node),
+        _ => false,
+    }
 }
 
 /// Walk an expression tree, calling visitor methods.

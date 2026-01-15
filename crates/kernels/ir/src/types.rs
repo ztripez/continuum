@@ -830,12 +830,12 @@ pub enum CompiledExpr {
     Const(String, Option<crate::units::Unit>),
     Config(String, Option<crate::units::Unit>),
     Binary {
-        op: BinaryOpIr,
+        op: BinaryOp,
         left: Box<CompiledExpr>,
         right: Box<CompiledExpr>,
     },
     Unary {
-        op: UnaryOpIr,
+        op: UnaryOp,
         operand: Box<CompiledExpr>,
     },
     Call {
@@ -875,7 +875,7 @@ pub enum CompiledExpr {
         field: String,
     },
     Aggregate {
-        op: AggregateOpIr,
+        op: AggregateOp,
         entity: EntityId,
         body: Box<CompiledExpr>,
     },
@@ -974,44 +974,8 @@ impl CompiledExpr {
     }
 }
 
-/// Aggregate operations over collections of entity instances.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AggregateOpIr {
-    Sum,
-    Product,
-    Min,
-    Max,
-    Mean,
-    Count,
-    Any,
-    All,
-    None,
-}
-
-/// Binary operators for two-operand expressions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum BinaryOpIr {
-    Add,
-    Sub,
-    Mul,
-    Div,
-    Pow,
-    Eq,
-    Ne,
-    Lt,
-    Le,
-    Gt,
-    Ge,
-    And,
-    Or,
-}
-
-/// Unary operators for single-operand expressions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum UnaryOpIr {
-    Neg,
-    Not,
-}
+// Re-export operator types from foundation (they're already serializable)
+pub use continuum_foundation::{AggregateOp, BinaryOp, UnaryOp};
 
 /// A binary bundle containing a compiled world and its execution DAGs.
 #[derive(Debug, Serialize, Deserialize)]

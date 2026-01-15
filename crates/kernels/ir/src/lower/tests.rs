@@ -3,7 +3,7 @@
 use continuum_dsl::parse;
 use continuum_foundation::{FnId, SignalId, StratumId};
 
-use crate::{BinaryOpIr, CompiledExpr, LowerError, ValueType, lower};
+use crate::{BinaryOp, CompiledExpr, LowerError, ValueType, lower};
 
 #[test]
 fn test_lower_empty() {

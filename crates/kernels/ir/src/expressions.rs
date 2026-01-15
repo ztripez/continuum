@@ -9,7 +9,7 @@
 //! - Better analysis (spatial ops only in Measure phase)
 //! - Cleaner interpretation and optimization
 
-use super::{AggregateOpIr, BinaryOpIr, UnaryOpIr};
+use super::{AggregateOp, BinaryOp, UnaryOp};
 use continuum_foundation::{EntityId, InstanceId, SignalId};
 
 /// A layered expression that combines scalar math with stream operations
@@ -62,13 +62,13 @@ pub enum ScalarExpr {
     // ===== ARITHMETIC & LOGIC =====
     /// Binary operation (math or comparison)
     Binary {
-        op: BinaryOpIr,
+        op: BinaryOp,
         left: Box<ScalarExpr>,
         right: Box<ScalarExpr>,
     },
     /// Unary operation (negation, logical not)
     Unary {
-        op: UnaryOpIr,
+        op: UnaryOp,
         operand: Box<ScalarExpr>,
     },
 
@@ -131,7 +131,7 @@ pub enum StreamOp {
     // ===== COLLECTION OPERATIONS =====
     /// Aggregate operation over entity collection
     Aggregate {
-        op: AggregateOpIr,
+        op: AggregateOp,
         entity: EntityId,
         body: Box<ScalarExpr>,
     },

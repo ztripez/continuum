@@ -7,45 +7,8 @@ use std::collections::HashMap;
 use crate::bytecode::{BytecodeChunk, Op, ReductionOp, SlotId};
 use continuum_kernel_registry::Value;
 
-/// Binary operator from IR
-#[derive(Debug, Clone, Copy)]
-pub enum BinaryOp {
-    /// Addition (+)
-    Add,
-    /// Subtraction (-)
-    Sub,
-    /// Multiplication (*)
-    Mul,
-    /// Division (/)
-    Div,
-    /// Power (^)
-    Pow,
-    /// Equality (==)
-    Eq,
-    /// Inequality (!=)
-    Ne,
-    /// Less than (<)
-    Lt,
-    /// Less than or equal (<=)
-    Le,
-    /// Greater than (>)
-    Gt,
-    /// Greater than or equal (>=)
-    Ge,
-    /// Logical AND
-    And,
-    /// Logical OR
-    Or,
-}
-
-/// Unary operator from IR
-#[derive(Debug, Clone, Copy)]
-pub enum UnaryOp {
-    /// Negation (-)
-    Neg,
-    /// Logical NOT (!)
-    Not,
-}
+// Re-export unified operators from foundation
+pub use continuum_foundation::{BinaryOp, UnaryOp};
 
 /// Expression node for compilation
 ///

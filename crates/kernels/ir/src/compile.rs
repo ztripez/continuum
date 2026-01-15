@@ -38,7 +38,7 @@ use continuum_runtime::dag::{
 use continuum_runtime::reductions::ReductionOp;
 use continuum_runtime::types::Phase;
 
-use crate::{AggregateOpIr, CompiledExpr, CompiledWorld, OperatorPhaseIr};
+use crate::{AggregateOp, CompiledExpr, CompiledWorld, OperatorPhaseIr};
 
 use serde::{Deserialize, Serialize};
 
@@ -192,7 +192,7 @@ struct AggregateInfo {
     /// The entity being aggregated over.
     entity_id: FoundationEntityId,
     /// The reduction operation.
-    op: AggregateOpIr,
+    op: AggregateOp,
     /// The body expression to evaluate per instance.
     body: CompiledExpr,
 }
@@ -284,16 +284,16 @@ impl<'a> Compiler<'a> {
     /// the runtime's ReductionOp. They would need special handling (e.g., mapping
     /// Any -> Max after converting to 0/1, All -> Min, None -> complement of Any).
     /// For now, these panic as they require runtime support.
-    fn aggregate_op_to_reduction_op(op: &AggregateOpIr) -> ReductionOp {
+    fn aggregate_op_to_reduction_op(op: &AggregateOp) -> ReductionOp {
         match op {
-            AggregateOpIr::Sum => ReductionOp::Sum,
-            AggregateOpIr::Product => ReductionOp::Product,
-            AggregateOpIr::Min => ReductionOp::Min,
-            AggregateOpIr::Max => ReductionOp::Max,
-            AggregateOpIr::Mean => ReductionOp::Mean,
-            AggregateOpIr::Count => ReductionOp::Count,
+            AggregateOp::Sum => ReductionOp::Sum,
+            AggregateOp::Product => ReductionOp::Product,
+            AggregateOp::Min => ReductionOp::Min,
+            AggregateOp::Max => ReductionOp::Max,
+            AggregateOp::Mean => ReductionOp::Mean,
+            AggregateOp::Count => ReductionOp::Count,
             // Boolean aggregates need special runtime support
-            AggregateOpIr::Any | AggregateOpIr::All | AggregateOpIr::None => {
+            AggregateOp::Any | AggregateOp::All | AggregateOp::None => {
                 panic!(
                     "Boolean aggregate {:?} not yet supported in DAG compilation",
                     op
@@ -643,7 +643,7 @@ impl<'a> Compiler<'a> {
                 // For count with literal body, find any member signal of the entity
                 // For other aggregates, expect a self.X reference
                 let member_name = match (&agg_info.op, &agg_info.body) {
-                    (AggregateOpIr::Count, CompiledExpr::Literal(..)) => {
+                    (AggregateOp::Count, CompiledExpr::Literal(..)) => {
                         // Count with literal body - find any member of this entity
                         self.find_any_member_of_entity(&agg_info.entity_id)
                             .unwrap_or_else(|| {

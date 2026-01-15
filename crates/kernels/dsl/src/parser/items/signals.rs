@@ -94,7 +94,7 @@ fn signal_content<'src>()
             .ignore_then(tok(Token::Uses))
             .ignore_then(
                 tok(Token::LParen)
-                    .ignore_then(select! { Token::Ident(s) if s == "dt" => s })
+                    .ignore_then(tok(Token::Dt))
                     .then_ignore(tok(Token::Dot))
                     .then_ignore(select! { Token::Ident(s) if s == "raw" => s })
                     .then_ignore(tok(Token::RParen)),

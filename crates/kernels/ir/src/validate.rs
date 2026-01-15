@@ -46,7 +46,7 @@ use tracing::warn;
 use continuum_functions as _;
 use continuum_kernel_registry::{get_in_namespace, namespace_exists};
 
-use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, ValueType};
+use crate::{BinaryOp, CompiledExpr, CompiledWorld, ValueType};
 use continuum_foundation::{PrimitiveParamKind, PrimitiveShape, coercion};
 
 /// A compilation warning indicating a potential issue in the IR.
@@ -1013,8 +1013,8 @@ fn infer_type(expr: &CompiledExpr, ctx: &TypeCheckContext) -> InferredShape {
 
         // Unary operations
         CompiledExpr::Unary { op, operand } => match op {
-            crate::UnaryOpIr::Neg => infer_type(operand, ctx),
-            crate::UnaryOpIr::Not => InferredShape::scalar(),
+            crate::UnaryOp::Neg => infer_type(operand, ctx),
+            crate::UnaryOp::Not => InferredShape::scalar(),
         },
 
         // Conditionals - try to unify branch types
@@ -1046,7 +1046,7 @@ fn infer_type(expr: &CompiledExpr, ctx: &TypeCheckContext) -> InferredShape {
 
 /// Checks if a binary operation is type-compatible.
 fn check_binary_op_types(
-    op: BinaryOpIr,
+    op: BinaryOp,
     left: &InferredShape,
     right: &InferredShape,
 ) -> Result<(), &'static str> {
@@ -1058,20 +1058,20 @@ fn check_binary_op_types(
 
     // Convert IR op to coercion op
     let coercion_op = match op {
-        BinaryOpIr::Add => coercion::BinaryOp::Add,
-        BinaryOpIr::Sub => coercion::BinaryOp::Sub,
-        BinaryOpIr::Mul => coercion::BinaryOp::Mul,
-        BinaryOpIr::Div => coercion::BinaryOp::Div,
+        BinaryOp::Add => coercion::TypeCheckOp::Add,
+        BinaryOp::Sub => coercion::TypeCheckOp::Sub,
+        BinaryOp::Mul => coercion::TypeCheckOp::Mul,
+        BinaryOp::Div => coercion::TypeCheckOp::Div,
         // Comparison and logical ops are valid for any numeric types
-        BinaryOpIr::Eq
-        | BinaryOpIr::Ne
-        | BinaryOpIr::Lt
-        | BinaryOpIr::Le
-        | BinaryOpIr::Gt
-        | BinaryOpIr::Ge
-        | BinaryOpIr::And
-        | BinaryOpIr::Or
-        | BinaryOpIr::Pow => return Ok(()),
+        BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Le
+        | BinaryOp::Gt
+        | BinaryOp::Ge
+        | BinaryOp::And
+        | BinaryOp::Or
+        | BinaryOp::Pow => return Ok(()),
     };
 
     match coercion::can_operate(coercion_op, left_shape, right_shape) {
@@ -1081,11 +1081,7 @@ fn check_binary_op_types(
 }
 
 /// Infers the result type of a binary operation.
-fn infer_binary_result(
-    op: BinaryOpIr,
-    left: &InferredShape,
-    right: &InferredShape,
-) -> InferredShape {
+fn infer_binary_result(op: BinaryOp, left: &InferredShape, right: &InferredShape) -> InferredShape {
     // If either type is unknown, result is unknown
     let (left_shape, right_shape) = match (left, right) {
         (InferredShape::Known(l), InferredShape::Known(r)) => (l, r),
@@ -1094,24 +1090,24 @@ fn infer_binary_result(
 
     // Comparison ops always return scalar
     match op {
-        BinaryOpIr::Eq
-        | BinaryOpIr::Ne
-        | BinaryOpIr::Lt
-        | BinaryOpIr::Le
-        | BinaryOpIr::Gt
-        | BinaryOpIr::Ge
-        | BinaryOpIr::And
-        | BinaryOpIr::Or => return InferredShape::scalar(),
+        BinaryOp::Eq
+        | BinaryOp::Ne
+        | BinaryOp::Lt
+        | BinaryOp::Le
+        | BinaryOp::Gt
+        | BinaryOp::Ge
+        | BinaryOp::And
+        | BinaryOp::Or => return InferredShape::scalar(),
         _ => {}
     }
 
     // Convert IR op to coercion op for arithmetic
     let coercion_op = match op {
-        BinaryOpIr::Add => coercion::BinaryOp::Add,
-        BinaryOpIr::Sub => coercion::BinaryOp::Sub,
-        BinaryOpIr::Mul => coercion::BinaryOp::Mul,
-        BinaryOpIr::Div => coercion::BinaryOp::Div,
-        BinaryOpIr::Pow => return InferredShape::scalar(), // pow returns scalar
+        BinaryOp::Add => coercion::TypeCheckOp::Add,
+        BinaryOp::Sub => coercion::TypeCheckOp::Sub,
+        BinaryOp::Mul => coercion::TypeCheckOp::Mul,
+        BinaryOp::Div => coercion::TypeCheckOp::Div,
+        BinaryOp::Pow => return InferredShape::scalar(), // pow returns scalar
         _ => return InferredShape::Unknown,
     };
 
