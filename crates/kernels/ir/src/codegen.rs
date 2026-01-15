@@ -490,3 +490,115 @@ mod tests {
         assert_eq!(result, Value::Scalar(30.0));
     }
 }
+
+
+    #[test]
+    fn test_compile_binary() {
+        let expr = CompiledExpr::Binary {
+            op: BinaryOpIr::Add,
+            left: Box::new(CompiledExpr::Literal(10.0, None)),
+            right: Box::new(CompiledExpr::Literal(32.0, None)),
+        };
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(42.0));
+    }
+
+    #[test]
+    fn test_compile_signal() {
+        let expr = CompiledExpr::Signal(SignalId::from("temp"));
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(25.0));
+    }
+
+    #[test]
+    fn test_compile_call() {
+        let expr = CompiledExpr::Call {
+            function: "abs".to_string(),
+            args: vec![CompiledExpr::Literal(-5.0, None)],
+        };
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(5.0));
+    }
+
+    #[test]
+    fn test_compile_if() {
+        let expr = CompiledExpr::If {
+            condition: Box::new(CompiledExpr::Binary {
+                op: BinaryOpIr::Gt,
+                left: Box::new(CompiledExpr::Signal(SignalId::from("temp"))),
+                right: Box::new(CompiledExpr::Literal(20.0, None)),
+            }),
+            then_branch: Box::new(CompiledExpr::Literal(100.0, None)),
+            else_branch: Box::new(CompiledExpr::Literal(0.0, None)),
+        };
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(100.0)); // temp (25) > 20, so 100
+    }
+
+    #[test]
+    fn test_compile_prev() {
+        let expr = CompiledExpr::Prev;
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(100.0));
+    }
+
+    #[test]
+    fn test_compile_dt() {
+        let expr = CompiledExpr::DtRaw;
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(0.1));
+    }
+
+    #[test]
+    fn test_compile_complex() {
+        // prev + abs(temp - 30) * scale = 100 + abs(25-30) * 2 = 100 + 5*2 = 110
+        let expr = CompiledExpr::Binary {
+            op: BinaryOpIr::Add,
+            left: Box::new(CompiledExpr::Prev),
+            right: Box::new(CompiledExpr::Binary {
+                op: BinaryOpIr::Mul,
+                left: Box::new(CompiledExpr::Call {
+                    function: "abs".to_string(),
+                    args: vec![CompiledExpr::Binary {
+                        op: BinaryOpIr::Sub,
+                        left: Box::new(CompiledExpr::Signal(SignalId::from("temp"))),
+                        right: Box::new(CompiledExpr::Literal(30.0, None)),
+                    }],
+                }),
+                right: Box::new(CompiledExpr::Config("scale".to_string(), None)),
+            }),
+        };
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(110.0));
+    }
+
+    #[test]
+    fn test_compile_let() {
+        // let a = 10.0
+        // let b = 20.0
+        // a + b = 30.0
+        let expr = CompiledExpr::Let {
+            name: "a".to_string(),
+            value: Box::new(CompiledExpr::Literal(10.0, None)),
+            body: Box::new(CompiledExpr::Let {
+                name: "b".to_string(),
+                value: Box::new(CompiledExpr::Literal(20.0, None)),
+                body: Box::new(CompiledExpr::Binary {
+                    op: BinaryOpIr::Add,
+                    left: Box::new(CompiledExpr::Local("a".to_string())),
+                    right: Box::new(CompiledExpr::Local("b".to_string())),
+                }),
+            }),
+        };
+        let chunk = compile(&expr);
+        let result = execute(&chunk, &mut TestContext);
+        assert_eq!(result, Value::Scalar(30.0));
+    }
+}
