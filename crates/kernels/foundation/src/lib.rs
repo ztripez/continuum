@@ -7,6 +7,7 @@
 pub mod coercion;
 pub mod field;
 pub mod ids;
+pub mod matrix_ops;
 pub mod primitives;
 pub mod stable_hash;
 pub mod tensor;

@@ -595,72 +595,10 @@ pub fn execute(chunk: &BytecodeChunk, ctx: &mut dyn ExecutionContext) -> Value {
 
 // === Value Helpers ===
 
-// Matrix multiplication helpers (column-major storage)
-
-fn mat2_mul(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
-    // a and b are column-major: [col0_row0, col0_row1, col1_row0, col1_row1]
-    // Result is also column-major
-    [
-        a[0] * b[0] + a[2] * b[1], // result col0 row0
-        a[1] * b[0] + a[3] * b[1], // result col0 row1
-        a[0] * b[2] + a[2] * b[3], // result col1 row0
-        a[1] * b[2] + a[3] * b[3], // result col1 row1
-    ]
-}
-
-fn mat3_mul(a: [f64; 9], b: [f64; 9]) -> [f64; 9] {
-    let mut result = [0.0; 9];
-    for col in 0..3 {
-        for row in 0..3 {
-            let mut sum = 0.0;
-            for k in 0..3 {
-                sum += a[k * 3 + row] * b[col * 3 + k];
-            }
-            result[col * 3 + row] = sum;
-        }
-    }
-    result
-}
-
-fn mat4_mul(a: [f64; 16], b: [f64; 16]) -> [f64; 16] {
-    let mut result = [0.0; 16];
-    for col in 0..4 {
-        for row in 0..4 {
-            let mut sum = 0.0;
-            for k in 0..4 {
-                sum += a[k * 4 + row] * b[col * 4 + k];
-            }
-            result[col * 4 + row] = sum;
-        }
-    }
-    result
-}
-
-// Matrix * Vector transform helpers
-
-fn mat2_vec2_mul(m: [f64; 4], v: [f64; 2]) -> [f64; 2] {
-    [
-        m[0] * v[0] + m[2] * v[1], // row 0
-        m[1] * v[0] + m[3] * v[1], // row 1
-    ]
-}
-
-fn mat3_vec3_mul(m: [f64; 9], v: [f64; 3]) -> [f64; 3] {
-    [
-        m[0] * v[0] + m[3] * v[1] + m[6] * v[2], // row 0
-        m[1] * v[0] + m[4] * v[1] + m[7] * v[2], // row 1
-        m[2] * v[0] + m[5] * v[1] + m[8] * v[2], // row 2
-    ]
-}
-
-fn mat4_vec4_mul(m: [f64; 16], v: [f64; 4]) -> [f64; 4] {
-    [
-        m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3], // row 0
-        m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3], // row 1
-        m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3], // row 2
-        m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3], // row 3
-    ]
-}
+// Matrix operations use shared implementations from foundation crate
+use continuum_foundation::matrix_ops::{
+    mat2_mul, mat2_transform, mat3_mul, mat3_transform, mat4_mul, mat4_transform,
+};
 
 fn val_add(l: Value, r: Value) -> Value {
     match (&l, &r) {
@@ -833,9 +771,9 @@ fn val_mul(l: Value, r: Value) -> Value {
         (Value::Mat4(a), Value::Mat4(b)) => Value::Mat4(mat4_mul(*a, *b)),
 
         // Matrix * Vector (transform)
-        (Value::Mat2(m), Value::Vec2(v)) => Value::Vec2(mat2_vec2_mul(*m, *v)),
-        (Value::Mat3(m), Value::Vec3(v)) => Value::Vec3(mat3_vec3_mul(*m, *v)),
-        (Value::Mat4(m), Value::Vec4(v)) => Value::Vec4(mat4_vec4_mul(*m, *v)),
+        (Value::Mat2(m), Value::Vec2(v)) => Value::Vec2(mat2_transform(*m, *v)),
+        (Value::Mat3(m), Value::Vec3(v)) => Value::Vec3(mat3_transform(*m, *v)),
+        (Value::Mat4(m), Value::Vec4(v)) => Value::Vec4(mat4_transform(*m, *v)),
 
         _ => panic!("val_mul: cannot multiply {:?} and {:?}", l, r),
     }

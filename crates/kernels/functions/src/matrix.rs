@@ -281,49 +281,14 @@ pub fn inverse(args: &[Value]) -> Value {
 /// Explicit function for matrix multiplication (alternative to a * b operator)
 #[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn mul(args: &[Value]) -> Value {
+    use continuum_foundation::matrix_ops::{mat2_mul, mat3_mul, mat4_mul};
     if args.len() != 2 {
         panic!("matrix.mul expects exactly 2 arguments");
     }
     match (&args[0], &args[1]) {
-        (Value::Mat2(a), Value::Mat2(b)) => {
-            let mut result = [0.0; 4];
-            for col in 0..2 {
-                for row in 0..2 {
-                    let mut sum = 0.0;
-                    for k in 0..2 {
-                        sum += a[k * 2 + row] * b[col * 2 + k];
-                    }
-                    result[col * 2 + row] = sum;
-                }
-            }
-            Value::Mat2(result)
-        }
-        (Value::Mat3(a), Value::Mat3(b)) => {
-            let mut result = [0.0; 9];
-            for col in 0..3 {
-                for row in 0..3 {
-                    let mut sum = 0.0;
-                    for k in 0..3 {
-                        sum += a[k * 3 + row] * b[col * 3 + k];
-                    }
-                    result[col * 3 + row] = sum;
-                }
-            }
-            Value::Mat3(result)
-        }
-        (Value::Mat4(a), Value::Mat4(b)) => {
-            let mut result = [0.0; 16];
-            for col in 0..4 {
-                for row in 0..4 {
-                    let mut sum = 0.0;
-                    for k in 0..4 {
-                        sum += a[k * 4 + row] * b[col * 4 + k];
-                    }
-                    result[col * 4 + row] = sum;
-                }
-            }
-            Value::Mat4(result)
-        }
+        (Value::Mat2(a), Value::Mat2(b)) => Value::Mat2(mat2_mul(*a, *b)),
+        (Value::Mat3(a), Value::Mat3(b)) => Value::Mat3(mat3_mul(*a, *b)),
+        (Value::Mat4(a), Value::Mat4(b)) => Value::Mat4(mat4_mul(*a, *b)),
         _ => panic!("matrix.mul expects two matrices of the same size"),
     }
 }
@@ -331,28 +296,14 @@ pub fn mul(args: &[Value]) -> Value {
 /// Transform vector by matrix: `transform(m, v)` -> Vec
 #[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn transform(args: &[Value]) -> Value {
+    use continuum_foundation::matrix_ops::{mat2_transform, mat3_transform, mat4_transform};
     if args.len() != 2 {
         panic!("matrix.transform expects exactly 2 arguments");
     }
     match (&args[0], &args[1]) {
-        (Value::Mat2(m), Value::Vec2(v)) => {
-            let x = m[0] * v[0] + m[2] * v[1];
-            let y = m[1] * v[0] + m[3] * v[1];
-            Value::Vec2([x, y])
-        }
-        (Value::Mat3(m), Value::Vec3(v)) => {
-            let x = m[0] * v[0] + m[3] * v[1] + m[6] * v[2];
-            let y = m[1] * v[0] + m[4] * v[1] + m[7] * v[2];
-            let z = m[2] * v[0] + m[5] * v[1] + m[8] * v[2];
-            Value::Vec3([x, y, z])
-        }
-        (Value::Mat4(m), Value::Vec4(v)) => {
-            let x = m[0] * v[0] + m[4] * v[1] + m[8] * v[2] + m[12] * v[3];
-            let y = m[1] * v[0] + m[5] * v[1] + m[9] * v[2] + m[13] * v[3];
-            let z = m[2] * v[0] + m[6] * v[1] + m[10] * v[2] + m[14] * v[3];
-            let w = m[3] * v[0] + m[7] * v[1] + m[11] * v[2] + m[15] * v[3];
-            Value::Vec4([x, y, z, w])
-        }
+        (Value::Mat2(m), Value::Vec2(v)) => Value::Vec2(mat2_transform(*m, *v)),
+        (Value::Mat3(m), Value::Vec3(v)) => Value::Vec3(mat3_transform(*m, *v)),
+        (Value::Mat4(m), Value::Vec4(v)) => Value::Vec4(mat4_transform(*m, *v)),
         _ => panic!("matrix.transform expects (Mat2, Vec2), (Mat3, Vec3), or (Mat4, Vec4)"),
     }
 }
