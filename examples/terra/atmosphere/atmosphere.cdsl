@@ -465,6 +465,52 @@ signal atmosphere.absorbed_radiation {
 }
 
 # =============================================================================
+# Cross-Domain Coupling Fractures
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stellar → Atmosphere Coupling
+# -----------------------------------------------------------------------------
+
+# Stellar insolation coupling: transfers stellar flux to atmosphere
+# This fracture connects the stellar domain's computed insolation to the
+# atmosphere's radiative budget, enabling star variability, orbital changes,
+# and binary/trinary star systems to affect planetary climate.
+fracture atmosphere.stellar_insolation_coupling {
+    : strata(atmosphere)
+
+    config {
+        # Planet cross-section to surface area ratio (1/4 for sphere)
+        geometric_factor: 0.25
+    }
+
+    when {
+        # Always active when stellar domain provides insolation
+        signal.stellar.total_insolation > 0.0
+    }
+
+    emit {
+        # Transfer stellar flux to atmosphere solar constant
+        # This replaces the default reference value with actual stellar input
+        let flux = signal.stellar.total_insolation in
+        signal.atmosphere.solar_constant <- flux;
+
+        # Calculate absorbed power accounting for albedo
+        # P_absorbed = S * (1 - α) * π * R² (disk area)
+        # = S * (1 - α) / 4 * 4 * π * R² (full surface)
+        let albedo = signal.atmosphere.albedo in
+        let absorbed_flux = flux * (1.0 - albedo) * config.fracture.atmosphere.stellar_insolation_coupling.geometric_factor in
+
+        # Convert to total power: P = F * A = F * 4πR²
+        let planet_radius = signal.planet.radius in
+        let surface_area = 4.0 * PI * planet_radius * planet_radius in
+        let absorbed_power = absorbed_flux * surface_area in
+
+        signal.atmosphere.external_power <- absorbed_power
+    }
+}
+
+# =============================================================================
 # Atmosphere Fractures
 # =============================================================================
 

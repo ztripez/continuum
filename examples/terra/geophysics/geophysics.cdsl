@@ -1760,6 +1760,40 @@ fracture tectonics.derive_motion {
     }
 }
 
+# -----------------------------------------------------------------------------
+# Cross-Domain Coupling: Stellar → Geophysics
+# -----------------------------------------------------------------------------
+
+# Stellar tidal heating coupling: transfers tidal power to mantle heat
+# This fracture connects the stellar domain's computed tidal heating
+# (from moons and companion stars) to the planetary thermal budget.
+# Enables moons like Io to drive extreme volcanism, or tidal locking
+# dynamics to affect planetary heat flow.
+fracture geophysics.stellar_tidal_coupling {
+    : strata(thermal)
+
+    config {
+        # Efficiency of tidal dissipation (fraction of work converted to heat)
+        # Default 1.0: all tidal work dissipates as heat in the mantle
+        tidal_efficiency: 1.0
+    }
+
+    when {
+        # Always active when stellar domain provides tidal power
+        signal.stellar.total_tidal_power > 0.0
+    }
+
+    emit {
+        # Add tidal heating power to mantle heat content
+        # P_tidal = dE/dt, so energy added = P * dt
+        let tidal_power = signal.stellar.total_tidal_power in
+        let efficiency = config.fracture.geophysics.stellar_tidal_coupling.tidal_efficiency in
+        let heat_added = tidal_power * efficiency * dt.raw in
+
+        signal.mantle.heat_content <- heat_added
+    }
+}
+
 # =============================================================================
 # Geophysics Fields (Observer Data)
 # =============================================================================
