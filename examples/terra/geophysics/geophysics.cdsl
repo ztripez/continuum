@@ -2190,7 +2190,7 @@ impulse tectonics.volcanic {
 # Supercontinent formation: plates merge into unified landmass
 chronicle geophysics.events.supercontinent_formation {
     observe {
-        when signal.plates.continental_count < 3
+        when signal.plates.continental_count < 3 &&
              signal.plates.total_buoyancy > 0.6 * signal.plates.count {
             emit event.supercontinent_formation {
                 plate_count: signal.plates.count
@@ -2207,8 +2207,8 @@ chronicle geophysics.events.supercontinent_formation {
 # Supercontinent breakup: rapid plate fragmentation
 chronicle geophysics.events.supercontinent_breakup {
     observe {
-        when signal.plates.count > 20
-             signal.tectonics.boundary_stress > 5.0e8
+        when signal.plates.count > 20 &&
+             signal.tectonics.boundary_stress > 5.0e8 &&
              signal.mantle.flow_strength > 7.0 {
             emit event.supercontinent_breakup {
                 plate_count: signal.plates.count
@@ -2225,7 +2225,7 @@ chronicle geophysics.events.supercontinent_breakup {
 # Major volcanic eruption: extreme volcanism event
 chronicle geophysics.events.major_volcanic_eruption {
     observe {
-        when signal.tectonics.volcanism > 50.0
+        when signal.tectonics.volcanism > 50.0 &&
              signal.mantle.temp > 1800.0 <K> {
             emit event.major_volcanic_eruption {
                 volcanism_index: signal.tectonics.volcanism
@@ -2258,7 +2258,7 @@ chronicle geophysics.events.planetary_cooling {
 # Tectonic stagnation: plate motion ceases
 chronicle geophysics.events.tectonic_stagnation {
     observe {
-        when signal.tectonics.activity < 0.1
+        when signal.tectonics.activity < 0.1 &&
              signal.plates.mean_velocity < 0.001 {
             emit event.tectonic_stagnation {
                 activity: signal.tectonics.activity
@@ -2275,7 +2275,7 @@ chronicle geophysics.events.tectonic_stagnation {
 # Mountain building event: extreme orogeny
 chronicle geophysics.events.mountain_building {
     observe {
-        when signal.crust.elevation > 7000.0
+        when signal.crust.elevation > 7000.0 &&
              signal.tectonics.orogeny_rate > 5000.0 {
             emit event.mountain_building {
                 elevation: signal.crust.elevation

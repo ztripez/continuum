@@ -879,7 +879,6 @@ fracture hydrology.sediment_lithification {
 # temperature, phase transitions, and sediment load.
 
 entity hydrology.cell {
-    : count(1000)
     : count(100..10000)
 }
 
@@ -1300,67 +1299,6 @@ field hydrology.stream_order_map {
 # -----------------------------------------------------------------------------
 
 # Per-cell water mass distribution
-field hydrology.cell_water_mass_field {
-    : Scalar<kg/m²>
-    : strata(hydrology)
-    : topology(point_cloud)
-    : title("Cell Water Mass Distribution")
-
-    measure {
-        entity.hydrology.cell.water_mass
-    }
-}
-
-# Per-cell water temperature distribution
-field hydrology.cell_water_temperature_field {
-    : Scalar<K>
-    : strata(hydrology)
-    : topology(point_cloud)
-    : title("Cell Water Temperature Distribution")
-
-    measure {
-        entity.hydrology.cell.temperature
-    }
-}
-
-# Per-cell sediment load distribution
-field hydrology.cell_sediment_field {
-    : Scalar<kg/m²>
-    : strata(hydrology)
-    : topology(point_cloud)
-    : title("Cell Sediment Load Distribution")
-
-    measure {
-        entity.hydrology.cell.sediment_mass
-    }
-}
-
-# Per-cell ice fraction (0-1)
-field hydrology.cell_ice_fraction_field {
-    : Scalar<1>
-    : strata(hydrology)
-    : topology(point_cloud)
-    : title("Cell Ice Fraction Map")
-
-    measure {
-        entity.hydrology.cell.ice_fraction
-    }
-}
-
-# Per-cell water phase (0=ice, 1=liquid, 2=vapor)
-field hydrology.cell_phase_field {
-    : Scalar<1>
-    : strata(hydrology)
-    : topology(point_cloud)
-    : title("Cell Water Phase Distribution")
-
-    measure {
-        entity.hydrology.cell.phase
-    }
-}
-
-# Flow velocity field
-# Note: Flow velocity requires spatial flow computation not yet implemented
 # in the hydrology.cell members. This field measures runoff accumulation
 # as a proxy for flow dynamics.
 field hydrology.flow_velocity_field {
