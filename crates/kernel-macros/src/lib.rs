@@ -42,6 +42,7 @@ struct KernelFnArgs {
     variadic: bool,
     vectorized: bool,
     unit_inference: Option<String>,
+    pattern_hints: Vec<String>,
 }
 
 /// Arguments to the vectorized_kernel_fn attribute
@@ -58,6 +59,7 @@ impl Parse for KernelFnArgs {
         let mut variadic = false;
         let mut vectorized = false;
         let mut unit_inference = None;
+        let mut pattern_hints = Vec::new();
 
         let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
         for arg in args {
@@ -68,6 +70,7 @@ impl Parse for KernelFnArgs {
                 KernelArg::Variadic => variadic = true,
                 KernelArg::Vectorized => vectorized = true,
                 KernelArg::UnitInference(u) => unit_inference = Some(u),
+                KernelArg::PatternHint(h) => pattern_hints.push(h),
             }
         }
 
@@ -80,6 +83,7 @@ impl Parse for KernelFnArgs {
             variadic,
             vectorized,
             unit_inference,
+            pattern_hints,
         })
     }
 }
@@ -97,7 +101,8 @@ impl Parse for VectorizedKernelArgs {
                 KernelArg::Category(_)
                 | KernelArg::Variadic
                 | KernelArg::Vectorized
-                | KernelArg::UnitInference(_) => {}
+                | KernelArg::UnitInference(_)
+                | KernelArg::PatternHint(_) => {}
             }
         }
 
@@ -114,6 +119,7 @@ enum KernelArg {
     Variadic,
     Vectorized,
     UnitInference(String),
+    PatternHint(String),
 }
 
 impl Parse for KernelArg {
@@ -139,6 +145,11 @@ impl Parse for KernelArg {
                 input.parse::<Token![=]>()?;
                 let lit: LitStr = input.parse()?;
                 Ok(KernelArg::UnitInference(lit.value()))
+            }
+            "pattern_hint" => {
+                input.parse::<Token![=]>()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::PatternHint(lit.value()))
             }
             "variadic" => Ok(KernelArg::Variadic),
             "vectorized" => Ok(KernelArg::Vectorized),
@@ -189,6 +200,7 @@ fn generate_kernel_registration(
     let variadic = args.variadic;
     let vectorized = args.vectorized;
     let unit_inference = &args.unit_inference;
+    let pattern_hints = &args.pattern_hints;
 
     // Extract doc comments
     let doc = func
@@ -399,6 +411,26 @@ fn generate_kernel_registration(
         quote! { ::continuum_kernel_registry::UnitInference::None }
     };
 
+    // Parse pattern hints
+    let mut clamping = false;
+    let mut decay = false;
+    let mut integration = false;
+    for hint in pattern_hints {
+        match hint.as_str() {
+            "clamping" => clamping = true,
+            "decay" => decay = true,
+            "integration" => integration = true,
+            _ => {}
+        }
+    }
+    let pattern_hints_value = quote! {
+        ::continuum_kernel_registry::PatternHints {
+            clamping: #clamping,
+            decay: #decay,
+            integration: #integration,
+        }
+    };
+
     Ok(quote! {
         #func
 
@@ -416,6 +448,7 @@ fn generate_kernel_registration(
                 implementation: #impl_variant,
                 vectorized_impl: #vectorized_impl,
                 unit_inference: #unit_inference_value,
+                pattern_hints: #pattern_hints_value,
             }
         };
     })

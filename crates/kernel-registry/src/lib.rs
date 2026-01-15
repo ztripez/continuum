@@ -254,6 +254,52 @@ pub enum UnitInference {
     None,
 }
 
+/// Pattern hints for the optimizer.
+///
+/// These flags indicate that a function commonly appears in specific
+/// expression patterns and may benefit from specialized code generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PatternHints {
+    /// Function is commonly used for clamping/bounding (e.g., clamp, min, max)
+    pub clamping: bool,
+
+    /// Function performs exponential decay (e.g., decay, relax)
+    pub decay: bool,
+
+    /// Function performs integration/accumulation (e.g., integrate)
+    pub integration: bool,
+}
+
+impl PatternHints {
+    /// No pattern hints
+    pub const NONE: PatternHints = PatternHints {
+        clamping: false,
+        decay: false,
+        integration: false,
+    };
+
+    /// Clamping hint
+    pub const CLAMPING: PatternHints = PatternHints {
+        clamping: true,
+        decay: false,
+        integration: false,
+    };
+
+    /// Decay hint
+    pub const DECAY: PatternHints = PatternHints {
+        clamping: false,
+        decay: true,
+        integration: false,
+    };
+
+    /// Integration hint
+    pub const INTEGRATION: PatternHints = PatternHints {
+        clamping: false,
+        decay: false,
+        integration: true,
+    };
+}
+
 impl Arity {
     /// Get as `Option<usize>` for compatibility
     pub fn as_option(&self) -> Option<usize> {
@@ -284,6 +330,8 @@ pub struct KernelDescriptor {
     pub vectorized_impl: Option<VectorizedImpl>,
     /// Unit inference strategy for dimensional analysis
     pub unit_inference: UnitInference,
+    /// Pattern hints for optimizer
+    pub pattern_hints: PatternHints,
 }
 
 impl KernelDescriptor {
@@ -419,6 +467,7 @@ mod tests {
         }),
         vectorized_impl: None,
         unit_inference: UnitInference::PreserveFirst,
+        pattern_hints: PatternHints::NONE,
     };
 
     #[test]

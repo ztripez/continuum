@@ -25,7 +25,11 @@ pub fn pow(base: f64, exp: f64) -> f64 {
 }
 
 /// Clamp: `clamp(value, min, max)`
-#[kernel_fn(namespace = "maths", unit_inference = "preserve_first")]
+#[kernel_fn(
+    namespace = "maths",
+    unit_inference = "preserve_first",
+    pattern_hint = "clamping"
+)]
 pub fn clamp(value: f64, min: f64, max: f64) -> f64 {
     value.clamp(min, max)
 }

@@ -13,7 +13,8 @@ use continuum_kernel_registry::{VRegBuffer, VectorizedResult, eval_in_namespace}
     namespace = "dt",
     category = "simulation",
     vectorized,
-    unit_inference = "integrate"
+    unit_inference = "integrate",
+    pattern_hint = "integration"
 )]
 pub fn integrate(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
@@ -25,7 +26,8 @@ pub fn integrate(prev: f64, rate: f64, dt: Dt) -> f64 {
     namespace = "dt",
     category = "simulation",
     vectorized,
-    unit_inference = "integrate"
+    unit_inference = "integrate",
+    pattern_hint = "integration"
 )]
 pub fn integrate_euler(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
@@ -37,7 +39,8 @@ pub fn integrate_euler(prev: f64, rate: f64, dt: Dt) -> f64 {
     namespace = "dt",
     category = "simulation",
     vectorized,
-    unit_inference = "integrate"
+    unit_inference = "integrate",
+    pattern_hint = "integration"
 )]
 pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified RK4 for constant rate case
@@ -51,7 +54,8 @@ pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
     namespace = "dt",
     category = "simulation",
     vectorized,
-    unit_inference = "integrate"
+    unit_inference = "integrate",
+    pattern_hint = "integration"
 )]
 pub fn integrate_verlet(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified Verlet integration
@@ -63,7 +67,8 @@ pub fn integrate_verlet(prev: f64, rate: f64, dt: Dt) -> f64 {
     namespace = "dt",
     category = "simulation",
     vectorized,
-    unit_inference = "decay"
+    unit_inference = "decay",
+    pattern_hint = "decay"
 )]
 pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
     value * 0.5_f64.powf(dt / halflife)
