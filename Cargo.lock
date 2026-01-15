@@ -686,6 +686,7 @@ name = "continuum-vm"
 version = "0.1.0"
 dependencies = [
  "continuum-foundation",
+ "continuum-functions",
  "continuum-kernel-registry",
  "serde",
  "serde_json",

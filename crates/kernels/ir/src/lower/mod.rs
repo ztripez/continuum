@@ -13,6 +13,7 @@ mod expr;
 mod members;
 mod operators;
 mod signals;
+mod typecheck;
 
 #[cfg(test)]
 mod tests;
@@ -82,6 +83,15 @@ pub enum LowerError {
         file: Option<std::path::PathBuf>,
         span: Span,
     },
+    #[error("type error: {message}")]
+    TypeError {
+        message: String,
+        left_type: String,
+        right_type: String,
+        op: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
     #[error("{message}")]
     Generic {
         message: String,
@@ -100,6 +110,7 @@ impl LowerError {
             LowerError::UndeclaredDtRawUsage { span, .. } => span.clone(),
             LowerError::InvalidExpression { span, .. } => span.clone(),
             LowerError::MismatchedConstraint { span, .. } => span.clone(),
+            LowerError::TypeError { span, .. } => span.clone(),
             LowerError::Generic { span, .. } => span.clone(),
         }
     }
@@ -113,6 +124,7 @@ impl LowerError {
             LowerError::UndeclaredDtRawUsage { file, .. } => file.clone(),
             LowerError::InvalidExpression { file, .. } => file.clone(),
             LowerError::MismatchedConstraint { file, .. } => file.clone(),
+            LowerError::TypeError { file, .. } => file.clone(),
             LowerError::Generic { file, .. } => file.clone(),
         }
     }

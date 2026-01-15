@@ -627,6 +627,47 @@ impl ValueType {
         }
     }
 
+    /// Create a matrix value type (Mat2, Mat3, Mat4).
+    pub fn matrix(
+        rows: u8,
+        cols: u8,
+        unit: Option<String>,
+        dimension: Option<crate::units::Unit>,
+    ) -> Self {
+        let name = match (rows, cols) {
+            (2, 2) => "Mat2",
+            (3, 3) => "Mat3",
+            (4, 4) => "Mat4",
+            _ => "Mat4", // Default to Mat4 for non-standard sizes
+        };
+        let mut params = Vec::new();
+        if let Some(unit) = unit {
+            params.push(ValueTypeParamValue::Unit(unit));
+        }
+        Self {
+            primitive_id: PrimitiveTypeId::new(name),
+            params,
+            dimension,
+            tensor_constraints: Vec::new(),
+            seq_constraints: Vec::new(),
+        }
+    }
+
+    /// Create an untyped Mat2.
+    pub fn mat2_untyped() -> Self {
+        Self::matrix(2, 2, None, None)
+    }
+
+    /// Create an untyped Mat3.
+    pub fn mat3_untyped() -> Self {
+        Self::matrix(3, 3, None, None)
+    }
+
+    /// Create an untyped Mat4.
+    pub fn mat4_untyped() -> Self {
+        Self::matrix(4, 4, None, None)
+    }
+
     pub fn tensor(
         rows: u8,
         cols: u8,

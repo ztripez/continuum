@@ -600,6 +600,9 @@ use continuum_foundation::matrix_ops::{
     mat2_mul, mat2_transform, mat3_mul, mat3_transform, mat4_mul, mat4_transform,
 };
 
+// Tensor operations from functions crate
+use continuum_functions::tensor_ops;
+
 fn val_add(l: Value, r: Value) -> Value {
     match (&l, &r) {
         (Value::Scalar(a), Value::Scalar(b)) => Value::Scalar(a + b),
@@ -643,6 +646,10 @@ fn val_add(l: Value, r: Value) -> Value {
             res.extend(b.clone());
             Value::Map(res)
         }
+        // Tensor element-wise addition
+        (Value::Tensor(a), Value::Tensor(b)) => {
+            Value::Tensor(tensor_ops::add(a.clone(), b.clone()))
+        }
         _ => panic!("val_add: cannot add {:?} and {:?}", l, r),
     }
 }
@@ -684,6 +691,10 @@ fn val_sub(l: Value, r: Value) -> Value {
                 result[i] = a[i] - b[i];
             }
             Value::Mat4(result)
+        }
+        // Tensor element-wise subtraction
+        (Value::Tensor(a), Value::Tensor(b)) => {
+            Value::Tensor(tensor_ops::sub(a.clone(), b.clone()))
         }
         _ => panic!("val_sub: cannot subtract {:?} from {:?}", r, l),
     }
@@ -775,6 +786,14 @@ fn val_mul(l: Value, r: Value) -> Value {
         (Value::Mat3(m), Value::Vec3(v)) => Value::Vec3(mat3_transform(*m, *v)),
         (Value::Mat4(m), Value::Vec4(v)) => Value::Vec4(mat4_transform(*m, *v)),
 
+        // Tensor * Tensor (matrix multiplication)
+        (Value::Tensor(a), Value::Tensor(b)) => {
+            Value::Tensor(tensor_ops::mul(a.clone(), b.clone()))
+        }
+        // Tensor * Scalar and Scalar * Tensor (scalar multiplication)
+        (Value::Tensor(t), Value::Scalar(s)) => Value::Tensor(tensor_ops::scale(t.clone(), *s)),
+        (Value::Scalar(s), Value::Tensor(t)) => Value::Tensor(tensor_ops::scale(t.clone(), *s)),
+
         _ => panic!("val_mul: cannot multiply {:?} and {:?}", l, r),
     }
 }
@@ -812,6 +831,10 @@ fn val_div(l: Value, r: Value) -> Value {
                 result[i] /= s;
             }
             Value::Mat4(result)
+        }
+        // Tensor / Scalar
+        (Value::Tensor(t), Value::Scalar(s)) => {
+            Value::Tensor(tensor_ops::scale(t.clone(), 1.0 / s))
         }
         _ => panic!("val_div: cannot divide {:?} by {:?}", l, r),
     }
@@ -861,6 +884,8 @@ fn val_neg(v: Value) -> Value {
             }
             Value::Mat4(result)
         }
+        // Tensor negation
+        Value::Tensor(t) => Value::Tensor(tensor_ops::scale(t.clone(), -1.0)),
         _ => panic!("val_neg: cannot negate {:?}", v),
     }
 }
@@ -1591,5 +1616,121 @@ mod tests {
 
         // Count of entity_a + entity_b = 2
         assert_eq!(result, Value::Integer(2));
+    }
+
+    // ============================================================================
+    // Tensor Arithmetic Tests
+    // ============================================================================
+
+    #[test]
+    fn test_tensor_addition() {
+        use continuum_foundation::tensor::TensorData;
+        let a = Value::Tensor(TensorData::from_slice(2, 2, &[1.0, 2.0, 3.0, 4.0]));
+        let b = Value::Tensor(TensorData::from_slice(2, 2, &[5.0, 6.0, 7.0, 8.0]));
+        let result = val_add(a, b);
+        if let Value::Tensor(t) = result {
+            assert_eq!(t.get(0, 0), 6.0);
+            assert_eq!(t.get(0, 1), 8.0);
+            assert_eq!(t.get(1, 0), 10.0);
+            assert_eq!(t.get(1, 1), 12.0);
+        } else {
+            panic!("Expected Tensor");
+        }
+    }
+
+    #[test]
+    fn test_tensor_subtraction() {
+        use continuum_foundation::tensor::TensorData;
+        let a = Value::Tensor(TensorData::from_slice(2, 2, &[5.0, 6.0, 7.0, 8.0]));
+        let b = Value::Tensor(TensorData::from_slice(2, 2, &[1.0, 2.0, 3.0, 4.0]));
+        let result = val_sub(a, b);
+        if let Value::Tensor(t) = result {
+            assert_eq!(t.get(0, 0), 4.0);
+            assert_eq!(t.get(0, 1), 4.0);
+            assert_eq!(t.get(1, 0), 4.0);
+            assert_eq!(t.get(1, 1), 4.0);
+        } else {
+            panic!("Expected Tensor");
+        }
+    }
+
+    #[test]
+    fn test_tensor_scalar_multiplication() {
+        use continuum_foundation::tensor::TensorData;
+        let t = Value::Tensor(TensorData::from_slice(2, 2, &[1.0, 2.0, 3.0, 4.0]));
+        let s = Value::Scalar(2.0);
+        let result = val_mul(t, s);
+        if let Value::Tensor(r) = result {
+            assert_eq!(r.get(0, 0), 2.0);
+            assert_eq!(r.get(0, 1), 4.0);
+            assert_eq!(r.get(1, 0), 6.0);
+            assert_eq!(r.get(1, 1), 8.0);
+        } else {
+            panic!("Expected Tensor");
+        }
+    }
+
+    #[test]
+    fn test_tensor_scalar_multiplication_commutative() {
+        use continuum_foundation::tensor::TensorData;
+        let t = Value::Tensor(TensorData::from_slice(2, 2, &[1.0, 2.0, 3.0, 4.0]));
+        let s = Value::Scalar(2.0);
+        let result = val_mul(s, t);
+        if let Value::Tensor(r) = result {
+            assert_eq!(r.get(0, 0), 2.0);
+            assert_eq!(r.get(0, 1), 4.0);
+            assert_eq!(r.get(1, 0), 6.0);
+            assert_eq!(r.get(1, 1), 8.0);
+        } else {
+            panic!("Expected Tensor");
+        }
+    }
+
+    #[test]
+    fn test_tensor_matrix_multiplication() {
+        use continuum_foundation::tensor::TensorData;
+        // Identity * Matrix = Matrix
+        let id = Value::Tensor(TensorData::from_slice(2, 2, &[1.0, 0.0, 0.0, 1.0]));
+        let m = Value::Tensor(TensorData::from_slice(2, 2, &[1.0, 2.0, 3.0, 4.0]));
+        let result = val_mul(id, m);
+        if let Value::Tensor(r) = result {
+            assert_eq!(r.get(0, 0), 1.0);
+            assert_eq!(r.get(0, 1), 2.0);
+            assert_eq!(r.get(1, 0), 3.0);
+            assert_eq!(r.get(1, 1), 4.0);
+        } else {
+            panic!("Expected Tensor");
+        }
+    }
+
+    #[test]
+    fn test_tensor_division() {
+        use continuum_foundation::tensor::TensorData;
+        let t = Value::Tensor(TensorData::from_slice(2, 2, &[2.0, 4.0, 6.0, 8.0]));
+        let s = Value::Scalar(2.0);
+        let result = val_div(t, s);
+        if let Value::Tensor(r) = result {
+            assert_eq!(r.get(0, 0), 1.0);
+            assert_eq!(r.get(0, 1), 2.0);
+            assert_eq!(r.get(1, 0), 3.0);
+            assert_eq!(r.get(1, 1), 4.0);
+        } else {
+            panic!("Expected Tensor");
+        }
+    }
+
+    #[test]
+    fn test_tensor_negation() {
+        use continuum_foundation::tensor::TensorData;
+        let t = Value::Tensor(TensorData::from_slice(2, 2, &[1.0, -2.0, 3.0, -4.0]));
+        let result = val_neg(t);
+        if let Value::Tensor(r) = result {
+            assert_eq!(r.get(0, 0), -1.0);
+            assert_eq!(r.get(0, 1), 2.0);
+            assert_eq!(r.get(1, 0), -3.0);
+            assert_eq!(r.get(1, 1), 4.0);
+        } else {
+            panic!("Expected Tensor");
+        }
     }
 }

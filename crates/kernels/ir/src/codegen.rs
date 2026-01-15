@@ -194,6 +194,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
                 CompiledExpr::Nearest { entity, position } => Expr::Nearest {
                     entity: entity.to_string(),
                     position: Box::new(convert_expr(position)),
+                    position_field: "position".to_string(),
                     field: field.clone(),
                 },
                 CompiledExpr::Payload => Expr::PayloadField(field.clone()),
@@ -246,6 +247,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         CompiledExpr::Nearest { entity, position } => Expr::Nearest {
             entity: entity.to_string(),
             position: Box::new(convert_expr(position)),
+            position_field: "position".to_string(), // Default position field
             field: String::new(),
         },
         CompiledExpr::Within {
@@ -256,6 +258,7 @@ fn convert_expr(expr: &CompiledExpr) -> Expr {
         } => Expr::Within {
             entity: entity.to_string(),
             position: Box::new(convert_expr(position)),
+            position_field: "position".to_string(), // Default position field
             radius: Box::new(convert_expr(radius)),
             op: ReductionOp::Sum, // Default to sum for within(..), DSL might refine this
             body: Box::new(convert_expr(body)),

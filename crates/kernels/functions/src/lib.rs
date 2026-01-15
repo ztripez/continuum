@@ -7,7 +7,8 @@ mod dt;
 mod math;
 mod matrix;
 mod quat;
-mod tensor_ops;
+/// Tensor operations - exposed for VM executor arithmetic support
+pub mod tensor_ops;
 mod vector;
 
 // Re-export for convenience
