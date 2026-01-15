@@ -181,6 +181,88 @@ pub fn project(a: [f64; 3], onto: [f64; 3]) -> [f64; 3] {
     [onto[0] * scale, onto[1] * scale, onto[2] * scale]
 }
 
+/// Distance between two 2D vectors: `distance(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn distance_vec2(a: [f64; 2], b: [f64; 2]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    (dx * dx + dy * dy).sqrt()
+}
+
+/// Distance between two 3D vectors: `distance(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn distance_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    let dz = a[2] - b[2];
+    (dx * dx + dy * dy + dz * dz).sqrt()
+}
+
+/// Distance between two 4D vectors: `distance(a, b)`
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn distance_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    let dz = a[2] - b[2];
+    let dw = a[3] - b[3];
+    (dx * dx + dy * dy + dz * dz + dw * dw).sqrt()
+}
+
+/// Squared distance between two 2D vectors: `distance_sq(a, b)` - cheaper than distance
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn distance_sq_vec2(a: [f64; 2], b: [f64; 2]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    dx * dx + dy * dy
+}
+
+/// Squared distance between two 3D vectors: `distance_sq(a, b)` - cheaper than distance
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn distance_sq_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    let dz = a[2] - b[2];
+    dx * dx + dy * dy + dz * dz
+}
+
+/// Squared distance between two 4D vectors: `distance_sq(a, b)` - cheaper than distance
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn distance_sq_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
+    let dx = a[0] - b[0];
+    let dy = a[1] - b[1];
+    let dz = a[2] - b[2];
+    let dw = a[3] - b[3];
+    dx * dx + dy * dy + dz * dz + dw * dw
+}
+
+/// Distance between two vectors: `distance(a, b)` (variadic)
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn distance(args: &[Value]) -> f64 {
+    if args.len() != 2 {
+        panic!("vector.distance expects exactly 2 arguments");
+    }
+    match (&args[0], &args[1]) {
+        (Value::Vec2(a), Value::Vec2(b)) => distance_vec2(*a, *b),
+        (Value::Vec3(a), Value::Vec3(b)) => distance_vec3(*a, *b),
+        (Value::Vec4(a), Value::Vec4(b)) => distance_vec4(*a, *b),
+        _ => panic!("vector.distance requires two vectors of same dimension"),
+    }
+}
+
+/// Squared distance between two vectors: `distance_sq(a, b)` (variadic) - cheaper than distance
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn distance_sq(args: &[Value]) -> f64 {
+    if args.len() != 2 {
+        panic!("vector.distance_sq expects exactly 2 arguments");
+    }
+    match (&args[0], &args[1]) {
+        (Value::Vec2(a), Value::Vec2(b)) => distance_sq_vec2(*a, *b),
+        (Value::Vec3(a), Value::Vec3(b)) => distance_sq_vec3(*a, *b),
+        (Value::Vec4(a), Value::Vec4(b)) => distance_sq_vec4(*a, *b),
+        _ => panic!("vector.distance_sq requires two vectors of same dimension"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,5 +474,157 @@ mod tests {
     #[test]
     fn test_project_registered() {
         assert!(is_known_in("vector", "project"));
+    }
+
+    #[test]
+    fn test_distance_vec2() {
+        let a = [0.0, 0.0];
+        let b = [3.0, 4.0];
+        let result = distance_vec2(a, b);
+        assert_eq!(result, 5.0); // 3-4-5 triangle
+    }
+
+    #[test]
+    fn test_distance_vec3() {
+        let a = [0.0, 0.0, 0.0];
+        let b = [1.0, 2.0, 2.0];
+        let result = distance_vec3(a, b);
+        assert_eq!(result, 3.0); // sqrt(1 + 4 + 4)
+    }
+
+    #[test]
+    fn test_distance_vec4() {
+        let a = [0.0, 0.0, 0.0, 0.0];
+        let b = [2.0, 2.0, 1.0, 0.0];
+        let result = distance_vec4(a, b);
+        assert_eq!(result, 3.0); // sqrt(4 + 4 + 1)
+    }
+
+    #[test]
+    fn test_distance_sq_vec2() {
+        let a = [0.0, 0.0];
+        let b = [3.0, 4.0];
+        let result = distance_sq_vec2(a, b);
+        assert_eq!(result, 25.0); // 9 + 16
+    }
+
+    #[test]
+    fn test_distance_sq_vec3() {
+        let a = [1.0, 2.0, 3.0];
+        let b = [4.0, 6.0, 3.0];
+        let result = distance_sq_vec3(a, b);
+        assert_eq!(result, 25.0); // (3^2 + 4^2 + 0^2) = 9 + 16
+    }
+
+    #[test]
+    fn test_distance_sq_vec4() {
+        let a = [1.0, 1.0, 1.0, 1.0];
+        let b = [2.0, 2.0, 2.0, 2.0];
+        let result = distance_sq_vec4(a, b);
+        assert_eq!(result, 4.0); // 4 * 1^2
+    }
+
+    #[test]
+    fn test_distance_variadic_vec2() {
+        let a = Value::Vec2([0.0, 0.0]);
+        let b = Value::Vec2([3.0, 4.0]);
+        let result = distance(&[a, b]);
+        assert_eq!(result, 5.0);
+    }
+
+    #[test]
+    fn test_distance_variadic_vec3() {
+        let a = Value::Vec3([0.0, 0.0, 0.0]);
+        let b = Value::Vec3([1.0, 2.0, 2.0]);
+        let result = distance(&[a, b]);
+        assert_eq!(result, 3.0);
+    }
+
+    #[test]
+    fn test_distance_variadic_vec4() {
+        let a = Value::Vec4([0.0, 0.0, 0.0, 0.0]);
+        let b = Value::Vec4([2.0, 2.0, 1.0, 0.0]);
+        let result = distance(&[a, b]);
+        assert_eq!(result, 3.0);
+    }
+
+    #[test]
+    fn test_distance_sq_variadic_vec2() {
+        let a = Value::Vec2([0.0, 0.0]);
+        let b = Value::Vec2([3.0, 4.0]);
+        let result = distance_sq(&[a, b]);
+        assert_eq!(result, 25.0);
+    }
+
+    #[test]
+    fn test_distance_sq_variadic_vec3() {
+        let a = Value::Vec3([1.0, 2.0, 3.0]);
+        let b = Value::Vec3([4.0, 6.0, 3.0]);
+        let result = distance_sq(&[a, b]);
+        assert_eq!(result, 25.0);
+    }
+
+    #[test]
+    fn test_distance_sq_variadic_vec4() {
+        let a = Value::Vec4([1.0, 1.0, 1.0, 1.0]);
+        let b = Value::Vec4([2.0, 2.0, 2.0, 2.0]);
+        let result = distance_sq(&[a, b]);
+        assert_eq!(result, 4.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "same dimension")]
+    fn test_distance_dimension_mismatch() {
+        let a = Value::Vec2([1.0, 2.0]);
+        let b = Value::Vec3([1.0, 2.0, 3.0]);
+        let _ = distance(&[a, b]);
+    }
+
+    #[test]
+    #[should_panic(expected = "same dimension")]
+    fn test_distance_sq_dimension_mismatch() {
+        let a = Value::Vec2([1.0, 2.0]);
+        let b = Value::Vec3([1.0, 2.0, 3.0]);
+        let _ = distance_sq(&[a, b]);
+    }
+
+    #[test]
+    fn test_distance_registered() {
+        assert!(is_known_in("vector", "distance"));
+    }
+
+    #[test]
+    fn test_distance_sq_registered() {
+        assert!(is_known_in("vector", "distance_sq"));
+    }
+
+    #[test]
+    fn test_distance_vec2_registered() {
+        assert!(is_known_in("vector", "distance_vec2"));
+    }
+
+    #[test]
+    fn test_distance_vec3_registered() {
+        assert!(is_known_in("vector", "distance_vec3"));
+    }
+
+    #[test]
+    fn test_distance_vec4_registered() {
+        assert!(is_known_in("vector", "distance_vec4"));
+    }
+
+    #[test]
+    fn test_distance_sq_vec2_registered() {
+        assert!(is_known_in("vector", "distance_sq_vec2"));
+    }
+
+    #[test]
+    fn test_distance_sq_vec3_registered() {
+        assert!(is_known_in("vector", "distance_sq_vec3"));
+    }
+
+    #[test]
+    fn test_distance_sq_vec4_registered() {
+        assert!(is_known_in("vector", "distance_sq_vec4"));
     }
 }
