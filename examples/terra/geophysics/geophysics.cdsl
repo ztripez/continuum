@@ -63,8 +63,8 @@ fn.thermal.geothermal_temp(surface_temp, gradient, depth_km) {
 
 const {
     # Fundamental physics
-    physics.gravitational: 6.67430e-11 <m^3/(kg*s^2)>
-    physics.stefan_boltzmann: 5.67e-8 <W/(m^2*K^4)>
+    physics.gravitational: 6.67430e-11 <m³·kg⁻¹·s⁻²>
+    physics.stefan_boltzmann: 5.67e-8 <W·m⁻²·K⁻⁴>
 
     # Earth reference values
     earth.mass: 5.972e24 <kg>
