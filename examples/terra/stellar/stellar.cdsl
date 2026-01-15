@@ -621,6 +621,146 @@ signal stellar.primary_variability_factor {
 }
 
 # =============================================================================
+# Stellar Impulses
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Impact Impulse (Asteroid/Comet)
+# -----------------------------------------------------------------------------
+# External bolide impact: injects energy into crust/mantle, creates ejecta,
+# may modify rotation/orbit. Payload specifies impactor properties and geometry.
+
+type ImpactImpulsePayload {
+    impactor_mass: Scalar<kg>          # Mass of impactor (kg)
+    velocity: Scalar<m/s>              # Impact velocity (m/s)
+    impact_angle: Scalar<rad>          # Impact angle from vertical (rad)
+    location_lat: Scalar<rad>          # Impact latitude (rad)
+    location_lon: Scalar<rad>          # Impact longitude (rad)
+}
+
+impulse stellar.impact {
+    : ImpactImpulsePayload
+    : title("Impact Impulse")
+    : symbol("💥")
+
+    config {
+        # Energy partition coefficients
+        crust_partition: 0.3              # Fraction of energy to crust heating
+        mantle_partition: 0.4             # Fraction of energy to mantle heating
+        ejecta_partition: 0.3             # Fraction of energy to ejecta/vapor
+
+        # Ejecta and crater scaling
+        crater_scaling_factor: 1.2e-4     # Crater diameter per unit energy^1/3
+        ejecta_thickness_factor: 1e-8     # Ejecta thickness scaling
+
+        # Minimum energy for significant effects
+        min_significant_energy_j: 1.0e20
+
+        # Rotation change scaling (for very large impacts)
+        rotation_coupling_factor: 1e-30   # Angular momentum transfer efficiency
+    }
+
+    apply {
+        # Compute impact energy: KE = 0.5 * m * v²
+        let energy_j = 0.5 * payload.impactor_mass * payload.velocity * payload.velocity in
+
+        if energy_j > config.impulse.stellar.impact.min_significant_energy_j {
+            # Partition energy into crust, mantle, and ejecta
+            let crust_energy = energy_j * config.impulse.stellar.impact.crust_partition in
+            let mantle_energy = energy_j * config.impulse.stellar.impact.mantle_partition in
+
+            # Heat deposition into geophysics thermal budget
+            signal.mantle.heat_content <- mantle_energy;
+            signal.surface.temp <- crust_energy / 1.0e20;  # Normalize to temperature increment
+
+            # Crustal thickening from ejecta/melt redistribution
+            let ejecta_thickness = maths.pow(energy_j, 0.333) * config.impulse.stellar.impact.ejecta_thickness_factor in
+            signal.crust.thickness <- ejecta_thickness;
+
+            # Large impacts can trigger volcanic activity
+            signal.tectonics.volcanism <- energy_j / 1.0e24;
+
+            # Very large impacts can alter rotation (angular momentum transfer)
+            # Delta_omega ~ (m * v * R_impact) / (I_planet) where I ~ M_planet * R²
+            let angular_momentum = payload.impactor_mass * payload.velocity * signal.planet.radius in
+            let moment_of_inertia = signal.planet.mass * signal.planet.radius * signal.planet.radius in
+            let delta_omega = angular_momentum / moment_of_inertia * config.impulse.stellar.impact.rotation_coupling_factor in
+            signal.rotation.state <- vector.vec2(0.0, delta_omega)
+        }
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Orbital Change Impulse (Milankovitch Forcing)
+# -----------------------------------------------------------------------------
+# External perturbation to planetary orbital elements: eccentricity, obliquity, precession.
+# Used to model long-term orbital variations (Milankovitch cycles) or sudden events
+# (e.g., planetary migration, close encounters).
+
+type OrbitalChangePayload {
+    delta_eccentricity: Scalar<1>      # Change in orbital eccentricity (dimensionless)
+    delta_obliquity: Scalar<rad>       # Change in axial obliquity (rad)
+    delta_precession: Scalar<rad>      # Change in precession angle (rad)
+}
+
+impulse stellar.orbital_change {
+    : OrbitalChangePayload
+    : title("Orbital Change")
+    : symbol("🌍")
+
+    config {
+        # Maximum allowed changes per impulse (safety bounds)
+        max_delta_eccentricity: 0.05
+        max_delta_obliquity: 0.1          # ~5.7 degrees
+        max_delta_precession: 0.5         # ~28.6 degrees
+
+        # Minimum changes for significant climate effects
+        min_significant_eccentricity: 0.001
+        min_significant_obliquity: 0.01   # ~0.57 degrees
+        min_significant_precession: 0.05  # ~2.9 degrees
+    }
+
+    apply {
+        # Clamp changes to safety bounds
+        let clamped_de = maths.clamp(
+            payload.delta_eccentricity,
+            -config.impulse.stellar.orbital_change.max_delta_eccentricity,
+            config.impulse.stellar.orbital_change.max_delta_eccentricity
+        ) in
+        let clamped_dobl = maths.clamp(
+            payload.delta_obliquity,
+            -config.impulse.stellar.orbital_change.max_delta_obliquity,
+            config.impulse.stellar.orbital_change.max_delta_obliquity
+        ) in
+        let clamped_dprec = maths.clamp(
+            payload.delta_precession,
+            -config.impulse.stellar.orbital_change.max_delta_precession,
+            config.impulse.stellar.orbital_change.max_delta_precession
+        ) in
+
+        # Apply obliquity change (affects seasonal forcing)
+        if maths.abs(clamped_dobl) > config.impulse.stellar.orbital_change.min_significant_obliquity {
+            signal.rotation.obliquity <- clamped_dobl
+        };
+
+        # Apply precession change (affects seasonal timing relative to perihelion)
+        if maths.abs(clamped_dprec) > config.impulse.stellar.orbital_change.min_significant_precession {
+            signal.rotation.precession <- clamped_dprec
+        };
+
+        # Eccentricity change affects mean insolation
+        # This requires modifying the star orbit eccentricity for planet-star systems
+        # For now, emit to a proxy signal that atmosphere can read
+        if maths.abs(clamped_de) > config.impulse.stellar.orbital_change.min_significant_eccentricity {
+            # Eccentricity affects effective solar constant via distance variation
+            # Delta_F ~ 2 * F * delta_e (linear approximation)
+            let insolation_change = 2.0 * signal.stellar.total_insolation * clamped_de in
+            signal.atmosphere.external_power <- insolation_change * 4.0 * PI * signal.planet.radius * signal.planet.radius
+        }
+    }
+}
+
+# =============================================================================
 # Stellar Fields
 # =============================================================================
 
