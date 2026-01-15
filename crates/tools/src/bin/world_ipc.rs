@@ -136,9 +136,32 @@ async fn main() {
     let impulses = world
         .impulses()
         .iter()
-        .map(|(id, impulse)| ImpulseInfo {
-            id: id.to_string(),
-            payload_type: impulse.payload_type.primitive_id().name().to_string(),
+        .map(|(id, impulse)| {
+            let unit = impulse
+                .payload_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Unit)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Unit(u) => Some(u.clone()),
+                    _ => None,
+                });
+
+            let range = impulse
+                .payload_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Range)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Range(r) => Some((r.min, r.max)),
+                    _ => None,
+                });
+
+            ImpulseInfo {
+                id: id.to_string(),
+                doc: impulse.doc.clone(),
+                title: impulse.title.clone(),
+                symbol: impulse.symbol.clone(),
+                payload_type: impulse.payload_type.primitive_id().name().to_string(),
+                unit,
+                range,
+            }
         })
         .collect::<Vec<_>>();
 

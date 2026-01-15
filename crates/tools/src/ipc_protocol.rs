@@ -356,7 +356,12 @@ pub struct SignalInfo {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImpulseInfo {
     pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub symbol: Option<String>,
     pub payload_type: String,
+    pub unit: Option<String>,
+    pub range: Option<(f64, f64)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
