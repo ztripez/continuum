@@ -1,3 +1,4 @@
+use crate::tensor::TensorData;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -24,9 +25,11 @@ pub enum Value {
     Mat3([f64; 9]),
     /// 4x4 matrix (column-major: 4 columns × 4 rows = 16 elements).
     Mat4([f64; 16]),
+    /// Dynamic tensor (row-major storage with Arc for cheap cloning).
+    Tensor(TensorData),
     /// Structured payload with named fields.
     Map(Vec<(String, Value)>),
-    // TODO: Tensor, Grid, Seq
+    // TODO: Grid, Seq
 }
 
 impl Value {
@@ -107,6 +110,14 @@ impl Value {
     pub fn as_mat4(&self) -> Option<[f64; 16]> {
         match self {
             Value::Mat4(v) => Some(*v),
+            _ => None,
+        }
+    }
+
+    /// Attempt to get the value as a tensor.
+    pub fn as_tensor(&self) -> Option<&TensorData> {
+        match self {
+            Value::Tensor(v) => Some(v),
             _ => None,
         }
     }
@@ -233,6 +244,7 @@ impl fmt::Display for Value {
                     v[15]
                 ) // row 3
             }
+            Value::Tensor(t) => write!(f, "{}", t),
             Value::Map(v) => {
                 let items: Vec<_> = v.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", items.join(", "))
@@ -381,6 +393,18 @@ impl IntoValue for Mat4 {
     }
 }
 
+impl FromValue for TensorData {
+    fn from_value(value: &Value) -> Option<Self> {
+        value.as_tensor().cloned()
+    }
+}
+
+impl IntoValue for TensorData {
+    fn into_value(self) -> Value {
+        Value::Tensor(self)
+    }
+}
+
 impl IntoValue for Value {
     fn into_value(self) -> Value {
         self
@@ -495,5 +519,25 @@ mod tests {
         let v4 = m4.into_value();
         assert!(matches!(v4, Value::Mat4(_)));
         assert_eq!(Mat4::from_value(&v4).map(|m| m.0), Some([1.0; 16]));
+    }
+
+    #[test]
+    fn test_tensor_conversions() {
+        let t = TensorData::from_slice(2, 3, &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0]);
+        let v = t.clone().into_value();
+        assert!(matches!(v, Value::Tensor(_)));
+
+        let t2 = TensorData::from_value(&v).unwrap();
+        assert_eq!(t2.shape(), (2, 3));
+        assert_eq!(t2.get(0, 0), 1.0);
+        assert_eq!(t2.get(1, 2), 6.0);
+    }
+
+    #[test]
+    fn test_tensor_display() {
+        let t = TensorData::from_slice(2, 2, &[1.0, 2.0, 3.0, 4.0]);
+        let v = Value::Tensor(t);
+        let display = format!("{}", v);
+        assert!(display.contains("Tensor(2×2)"));
     }
 }

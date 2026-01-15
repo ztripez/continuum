@@ -2,6 +2,7 @@
 //!
 //! Dynamic tensors using Arc<[f64]> for cheap cloning and GPU compatibility.
 
+use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
@@ -10,7 +11,94 @@ use std::sync::Arc;
 pub struct TensorData {
     pub rows: usize,
     pub cols: usize,
-    pub data: Arc<[f64]>, // Row-major storage
+    #[allow(dead_code)]
+    pub(crate) data: Arc<[f64]>, // Row-major storage
+}
+
+// Custom Serialize implementation
+impl Serialize for TensorData {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        let mut state = serializer.serialize_struct("TensorData", 3)?;
+        state.serialize_field("rows", &self.rows)?;
+        state.serialize_field("cols", &self.cols)?;
+        state.serialize_field("data", self.data.as_ref())?;
+        state.end()
+    }
+}
+
+// Custom Deserialize implementation
+impl<'de> Deserialize<'de> for TensorData {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        #[serde(field_identifier, rename_all = "lowercase")]
+        enum Field {
+            Rows,
+            Cols,
+            Data,
+        }
+
+        struct TensorDataVisitor;
+
+        impl<'de> serde::de::Visitor<'de> for TensorDataVisitor {
+            type Value = TensorData;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                formatter.write_str("struct TensorData")
+            }
+
+            fn visit_map<V>(self, mut map: V) -> Result<TensorData, V::Error>
+            where
+                V: serde::de::MapAccess<'de>,
+            {
+                let mut rows = None;
+                let mut cols = None;
+                let mut data: Option<Vec<f64>> = None;
+
+                while let Some(key) = map.next_key()? {
+                    match key {
+                        Field::Rows => {
+                            if rows.is_some() {
+                                return Err(serde::de::Error::duplicate_field("rows"));
+                            }
+                            rows = Some(map.next_value()?);
+                        }
+                        Field::Cols => {
+                            if cols.is_some() {
+                                return Err(serde::de::Error::duplicate_field("cols"));
+                            }
+                            cols = Some(map.next_value()?);
+                        }
+                        Field::Data => {
+                            if data.is_some() {
+                                return Err(serde::de::Error::duplicate_field("data"));
+                            }
+                            data = Some(map.next_value()?);
+                        }
+                    }
+                }
+
+                let rows = rows.ok_or_else(|| serde::de::Error::missing_field("rows"))?;
+                let cols = cols.ok_or_else(|| serde::de::Error::missing_field("cols"))?;
+                let data = data.ok_or_else(|| serde::de::Error::missing_field("data"))?;
+
+                Ok(TensorData {
+                    rows,
+                    cols,
+                    data: data.into(),
+                })
+            }
+        }
+
+        const FIELDS: &[&str] = &["rows", "cols", "data"];
+        deserializer.deserialize_struct("TensorData", FIELDS, TensorDataVisitor)
+    }
 }
 
 impl TensorData {
