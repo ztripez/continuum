@@ -337,6 +337,7 @@ impl IntoValue for [f64; 4] {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Quat(pub [f64; 4]);
 
 impl FromValue for Quat {
