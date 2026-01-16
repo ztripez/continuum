@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::process;
 
 use clap::Parser;
-use tracing::{error, info, warn};
+use tracing::{error, info};
 
 use continuum_compiler::ir::{BinaryBundle, RuntimeBuildOptions, build_runtime, compile};
 use continuum_runtime::executor::{RunOptions, SnapshotOptions, run_simulation};
@@ -71,13 +71,11 @@ fn main() {
 
             let compile_result = continuum_compiler::compile_from_dir_result(&args.path);
 
-            if compile_result.has_errors() {
-                error!("{}", compile_result.format_diagnostics().trim_end());
-                process::exit(1);
-            }
+            // Log diagnostics using proper logging
+            compile_result.log_diagnostics();
 
-            if !compile_result.diagnostics.is_empty() {
-                warn!("{}", compile_result.format_diagnostics().trim_end());
+            if compile_result.has_errors() {
+                process::exit(1);
             }
 
             let world = compile_result.world.expect("no world despite no errors");

@@ -43,6 +43,8 @@ struct KernelFnArgs {
     vectorized: bool,
     unit_inference: Option<String>,
     pattern_hints: Vec<String>,
+    requires_uses: Option<String>,
+    requires_uses_hint: Option<String>,
 }
 
 /// Arguments to the vectorized_kernel_fn attribute
@@ -60,6 +62,8 @@ impl Parse for KernelFnArgs {
         let mut vectorized = false;
         let mut unit_inference = None;
         let mut pattern_hints = Vec::new();
+        let mut requires_uses = None;
+        let mut requires_uses_hint = None;
 
         let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
         for arg in args {
@@ -71,6 +75,8 @@ impl Parse for KernelFnArgs {
                 KernelArg::Vectorized => vectorized = true,
                 KernelArg::UnitInference(u) => unit_inference = Some(u),
                 KernelArg::PatternHint(h) => pattern_hints.push(h),
+                KernelArg::RequiresUses(r) => requires_uses = Some(r),
+                KernelArg::RequiresUsesHint(h) => requires_uses_hint = Some(h),
             }
         }
 
@@ -84,6 +90,8 @@ impl Parse for KernelFnArgs {
             vectorized,
             unit_inference,
             pattern_hints,
+            requires_uses,
+            requires_uses_hint,
         })
     }
 }
@@ -102,7 +110,9 @@ impl Parse for VectorizedKernelArgs {
                 | KernelArg::Variadic
                 | KernelArg::Vectorized
                 | KernelArg::UnitInference(_)
-                | KernelArg::PatternHint(_) => {}
+                | KernelArg::PatternHint(_)
+                | KernelArg::RequiresUses(_)
+                | KernelArg::RequiresUsesHint(_) => {}
             }
         }
 
@@ -120,6 +130,8 @@ enum KernelArg {
     Vectorized,
     UnitInference(String),
     PatternHint(String),
+    RequiresUses(String),
+    RequiresUsesHint(String),
 }
 
 impl Parse for KernelArg {
@@ -150,6 +162,16 @@ impl Parse for KernelArg {
                 input.parse::<Token![=]>()?;
                 let lit: LitStr = input.parse()?;
                 Ok(KernelArg::PatternHint(lit.value()))
+            }
+            "requires_uses" => {
+                input.parse::<Token![=]>()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::RequiresUses(lit.value()))
+            }
+            "requires_uses_hint" => {
+                input.parse::<Token![=]>()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::RequiresUsesHint(lit.value()))
             }
             "variadic" => Ok(KernelArg::Variadic),
             "vectorized" => Ok(KernelArg::Vectorized),
@@ -201,6 +223,8 @@ fn generate_kernel_registration(
     let vectorized = args.vectorized;
     let unit_inference = &args.unit_inference;
     let pattern_hints = &args.pattern_hints;
+    let requires_uses = &args.requires_uses;
+    let requires_uses_hint = &args.requires_uses_hint;
 
     // Extract doc comments
     let doc = func
@@ -431,6 +455,18 @@ fn generate_kernel_registration(
         }
     };
 
+    // Build requires_uses field
+    let requires_uses_value = if let (Some(key), Some(hint)) = (requires_uses, requires_uses_hint) {
+        quote! {
+            Some(::continuum_kernel_registry::RequiresUses {
+                key: #key,
+                hint: #hint,
+            })
+        }
+    } else {
+        quote! { None }
+    };
+
     Ok(quote! {
         #func
 
@@ -449,6 +485,7 @@ fn generate_kernel_registration(
                 vectorized_impl: #vectorized_impl,
                 unit_inference: #unit_inference_value,
                 pattern_hints: #pattern_hints_value,
+                requires_uses: #requires_uses_value,
             }
         };
     })

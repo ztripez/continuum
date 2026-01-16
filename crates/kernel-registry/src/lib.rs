@@ -310,6 +310,18 @@ impl Arity {
     }
 }
 
+/// Requirement for explicit `: uses(...)` declaration in DSL.
+///
+/// Functions marked with this requirement cannot be used unless the signal
+/// or member declares the appropriate uses clause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequiresUses {
+    /// The uses key that must be declared (e.g., "clamping" → `: uses(maths.clamping)`)
+    pub key: &'static str,
+    /// Hint message explaining why this function requires explicit opt-in
+    pub hint: &'static str,
+}
+
 /// Descriptor for a registered kernel function
 pub struct KernelDescriptor {
     /// Namespace name (e.g., "maths", "vector", "dt")
@@ -332,6 +344,8 @@ pub struct KernelDescriptor {
     pub unit_inference: UnitInference,
     /// Pattern hints for optimizer
     pub pattern_hints: PatternHints,
+    /// If Some, using this function requires `: uses(namespace.key)` declaration
+    pub requires_uses: Option<RequiresUses>,
 }
 
 impl KernelDescriptor {

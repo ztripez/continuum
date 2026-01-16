@@ -328,6 +328,9 @@ pub struct SignalDef {
     pub symbol: Option<Spanned<String>>,
     /// Whether `dt_raw` is explicitly declared via `: uses(dt_raw)`.
     pub dt_raw: bool,
+    /// Uses declarations (e.g., ["dt.raw", "maths.clamping"]).
+    /// Generic uses() declarations beyond the legacy dt_raw flag.
+    pub uses: Vec<String>,
     /// Signal-local constants.
     pub local_consts: Vec<ConstEntry>,
     /// Signal-local config with defaults.
@@ -696,6 +699,9 @@ pub struct MemberDef {
     pub symbol: Option<Spanned<String>>,
     /// Whether member uses raw dt (`: uses(dt.raw)`).
     pub dt_raw: bool,
+    /// Uses declarations (e.g., ["dt.raw", "maths.clamping"]).
+    /// Generic uses() declarations beyond the legacy dt_raw flag.
+    pub uses: Vec<String>,
     /// Member-local config with defaults.
     pub local_config: Vec<ConfigEntry>,
     /// Initial value expression (evaluated once at entity creation).

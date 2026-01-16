@@ -37,6 +37,7 @@ pub fn signal_def<'src>()
                 title: None,
                 symbol: None,
                 dt_raw: false,
+                uses: vec![],
                 local_consts: vec![],
                 local_config: vec![],
                 warmup: None,
@@ -52,6 +53,7 @@ pub fn signal_def<'src>()
                     SignalContent::Title(t) => def.title = Some(t),
                     SignalContent::Symbol(s) => def.symbol = Some(s),
                     SignalContent::DtRaw => def.dt_raw = true,
+                    SignalContent::Uses(u) => def.uses.push(u),
                     SignalContent::LocalConst(c) => def.local_consts.extend(c),
                     SignalContent::LocalConfig(c) => def.local_config.extend(c),
                     SignalContent::Resolve(r) => def.resolve = Some(r),
@@ -71,6 +73,7 @@ enum SignalContent {
     Title(Spanned<String>),
     Symbol(Spanned<String>),
     DtRaw,
+    Uses(String),
     LocalConst(Vec<ConstEntry>),
     LocalConfig(Vec<ConfigEntry>),
     Resolve(ResolveBlock),
@@ -87,6 +90,7 @@ fn signal_content<'src>()
         attr_path(Token::Strata).map(SignalContent::Strata),
         attr_string(Token::Title).map(SignalContent::Title),
         attr_string(Token::Symbol).map(SignalContent::Symbol),
+        // : uses(dt.raw) - legacy specific handling for dt_raw
         tok(Token::Colon)
             .ignore_then(tok(Token::Uses))
             .ignore_then(
@@ -97,6 +101,15 @@ fn signal_content<'src>()
                     .then_ignore(tok(Token::RParen)),
             )
             .to(SignalContent::DtRaw),
+        // : uses(namespace.key) - generic uses declaration
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
+            .ignore_then(
+                tok(Token::LParen)
+                    .ignore_then(spanned_path())
+                    .then_ignore(tok(Token::RParen)),
+            )
+            .map(|path| SignalContent::Uses(path.node.to_string())),
         // Tensor constraints: `: symmetric`, `: positive_definite`
         tok(Token::Colon)
             .ignore_then(tok(Token::Symmetric))

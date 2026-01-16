@@ -172,11 +172,15 @@ fn infer_unit(
                         }
                     }
                     UnitInference::PreserveFirst => {
-                        // All args should match
+                        // Get unit of first argument
                         let u0 = infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
+
+                        // Check remaining args - allow dimensionless literals to adopt first arg's unit
+                        // (Polymorphic Literals: same as Add/Sub operations)
                         for arg in args.iter().skip(1) {
                             let ui = infer_unit(arg, world, symbol_units, current_signal.clone())?;
-                            if ui != u0 {
+                            // Allow dimensionless args to match any unit (they adopt the first arg's unit)
+                            if ui != u0 && !ui.is_dimensionless() {
                                 return Err(DimensionError::IncompatibleUnits {
                                     expected: u0,
                                     found: ui,

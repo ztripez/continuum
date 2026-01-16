@@ -79,34 +79,37 @@ impl CompileResult {
         }
     }
 
-    /// Format all diagnostics into a human-readable string with line/column info.
-    pub fn format_diagnostics(&self) -> String {
-        let mut output = String::new();
-        for diag in &self.diagnostics {
-            let severity = match diag.severity {
-                Severity::Error => "error",
-                Severity::Warning => "warning",
-                Severity::Hint => "hint",
-            };
-
-            let loc = if let (Some(file), Some(span)) = (&diag.file, &diag.span) {
-                if let Some(source) = self.sources.get(file) {
-                    let (line, col) = offset_to_line_col(source, span.start);
-                    format!("{}:{}:{}", file.display(), line + 1, col + 1)
-                } else {
-                    format!("{}:at {:?}", file.display(), span)
-                }
+    /// Format a single diagnostic with location info
+    pub fn format_diagnostic(&self, diag: &Diagnostic) -> String {
+        let loc = if let (Some(file), Some(span)) = (&diag.file, &diag.span) {
+            if let Some(source) = self.sources.get(file) {
+                let (line, col) = offset_to_line_col(source, span.start);
+                format!("{}:{}:{}", file.display(), line + 1, col + 1)
             } else {
-                "unknown".to_string()
-            };
+                format!("{}:at {:?}", file.display(), span)
+            }
+        } else {
+            "unknown".to_string()
+        };
+        format!("{}: {}", loc, diag.message)
+    }
 
-            output.push_str(&format!("{}: {}: {}\n", loc, severity, diag.message));
+    /// Log all diagnostics using tracing macros
+    pub fn log_diagnostics(&self) {
+        use tracing::{error, info, warn};
+
+        for diag in &self.diagnostics {
+            let formatted = self.format_diagnostic(diag);
+            match diag.severity {
+                Severity::Error => error!("{}", formatted),
+                Severity::Warning => warn!("{}", formatted),
+                Severity::Hint => info!("{}", formatted),
+            }
         }
-        output
     }
 }
 
-fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
+pub fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {
     let mut line = 0;
     let mut col = 0;
     let mut current_byte = 0;
@@ -215,7 +218,28 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
         };
     }
 
-    // 2. Lower to IR (this also performs validation)
+    // 2. DSL Validation
+    for (_path, unit) in &units {
+        let validation_errors = continuum_dsl::validate(unit);
+        for err in validation_errors {
+            diagnostics.push(Diagnostic {
+                message: err.message,
+                span: Some(err.span),
+                file: Some(_path.clone()),
+                severity: Severity::Error,
+            });
+        }
+    }
+
+    if diagnostics.iter().any(|d| d.severity == Severity::Error) {
+        return CompileResult {
+            world: None,
+            diagnostics,
+            sources,
+        };
+    }
+
+    // 3. Lower to IR
     let world = match continuum_ir::lower_multi(units.iter().map(|(p, u)| (p.clone(), u)).collect())
     {
         Ok(world) => world,
@@ -234,7 +258,7 @@ pub fn compile(source_map: &HashMap<PathBuf, &str>) -> CompileResult {
         }
     };
 
-    // 3. Advanced Analysis
+    // 4. Advanced Analysis
     // Cycle Detection (Error)
     let cycles = continuum_ir::analysis::cycles::find_cycles(&world);
     for cycle in cycles {

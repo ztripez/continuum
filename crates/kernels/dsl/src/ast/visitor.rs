@@ -2287,6 +2287,7 @@ pub fn walk_signal_def_transform<T: AstTransformer + ?Sized>(
             .symbol
             .map(|symbol| transformer.transform_spanned_string(symbol)),
         dt_raw: def.dt_raw,
+        uses: def.uses,
         local_consts: def
             .local_consts
             .into_iter()
@@ -2561,6 +2562,7 @@ pub fn walk_member_def_transform<T: AstTransformer + ?Sized>(
             .symbol
             .map(|symbol| transformer.transform_spanned_string(symbol)),
         dt_raw: def.dt_raw,
+        uses: def.uses,
         local_config: def
             .local_config
             .into_iter()

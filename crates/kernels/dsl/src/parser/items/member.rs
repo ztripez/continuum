@@ -34,6 +34,7 @@ pub fn member_def<'src>()
                 title: None,
                 symbol: None,
                 dt_raw: false,
+                uses: vec![],
                 local_config: vec![],
                 initial: None,
                 resolve: None,
@@ -46,6 +47,7 @@ pub fn member_def<'src>()
                     MemberContent::Title(t) => def.title = Some(t),
                     MemberContent::Symbol(s) => def.symbol = Some(s),
                     MemberContent::DtRaw => def.dt_raw = true,
+                    MemberContent::Uses(u) => def.uses.push(u),
                     MemberContent::Config(c) => def.local_config = c,
                     MemberContent::Initial(i) => def.initial = Some(i),
                     MemberContent::Resolve(r) => def.resolve = Some(r),
@@ -63,6 +65,7 @@ enum MemberContent {
     Title(Spanned<String>),
     Symbol(Spanned<String>),
     DtRaw,
+    Uses(String),
     Config(Vec<ConfigEntry>),
     Initial(ResolveBlock),
     Resolve(ResolveBlock),
@@ -78,7 +81,7 @@ fn member_content<'src>()
         attr_string(Token::Title).map(MemberContent::Title),
         // : symbol("...")
         attr_string(Token::Symbol).map(MemberContent::Symbol),
-        // : uses(dt.raw) - mark member as using raw dt
+        // : uses(dt.raw) - legacy specific handling for dt_raw
         tok(Token::Colon)
             .ignore_then(tok(Token::Uses))
             .ignore_then(
@@ -89,6 +92,15 @@ fn member_content<'src>()
                     .then_ignore(tok(Token::RParen)),
             )
             .to(MemberContent::DtRaw),
+        // : uses(namespace.key) - generic uses declaration
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
+            .ignore_then(
+                tok(Token::LParen)
+                    .ignore_then(spanned_path())
+                    .then_ignore(tok(Token::RParen)),
+            )
+            .map(|path| MemberContent::Uses(path.node.to_string())),
         // : Type - comes after specific attributes
         tok(Token::Colon)
             .ignore_then(spanned(type_expr()))
