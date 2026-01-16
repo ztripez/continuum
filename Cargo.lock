@@ -632,6 +632,7 @@ name = "continuum-runtime"
 version = "0.1.0"
 dependencies = [
  "bincode",
+ "chrono",
  "continuum-foundation",
  "continuum-vm",
  "criterion",

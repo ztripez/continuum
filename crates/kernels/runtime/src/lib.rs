@@ -44,6 +44,7 @@ pub mod checkpoint;
 pub mod dag;
 pub mod error;
 pub mod executor;
+pub mod lens_sink;
 pub mod reductions;
 pub mod soa_storage;
 pub mod storage;
