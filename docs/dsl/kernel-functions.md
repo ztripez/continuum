@@ -17,6 +17,7 @@ For architecture and execution details, see `@docs/execution/kernels.md`.
 | `matrix.*` | Matrix operations |
 | `tensor.*` | Tensor operations |
 | `dt.*` | Time-step robust operators |
+| `rng.*` | Deterministic random number generation |
 
 ---
 
@@ -1093,6 +1094,200 @@ Outer product.
 
 ---
 
+## 7. Random Number Generation (`rng.*`)
+
+Deterministic pseudo-random number generation derived from the world seed.
+
+Every signal, field, and member has an **implicit backing stream** derived from the world seed and the primitive's path. For members, the entity ID is also incorporated. Streams advance with each `rng.*` call and never reset.
+
+All functions have two forms:
+- Without stream parameter: uses the implicit backing stream
+- With stream parameter: uses the specified stream
+
+### 7.1 Stream Derivation
+
+```
+rng.derive(label: String) -> RngStream
+```
+Create a substream by mixing the label hash into the current backing stream state.
+
+Use this when you need multiple independent random sequences within a single primitive.
+
+**Example:**
+```
+signal terra.plate.initial_state {
+  : PlateState
+  resolve {
+    let pos_stream = rng.derive("position") in
+    let vel_stream = rng.derive("velocity") in
+    PlateState {
+      position: rng.in_sphere(pos_stream) * 1000 <km>,
+      velocity: rng.unit_vec3(vel_stream) * 0.01 <m/s>
+    }
+  }
+}
+```
+
+---
+
+### 7.2 Uniform Distribution
+
+```
+rng.uniform() -> Scalar<1>
+rng.uniform(stream: RngStream) -> Scalar<1>
+```
+Uniform random value in [0, 1).
+
+```
+rng.uniform_range(min: Scalar<T>, max: Scalar<T>) -> Scalar<T>
+rng.uniform_range(stream: RngStream, min: Scalar<T>, max: Scalar<T>) -> Scalar<T>
+```
+Uniform random value in [min, max). Result has same unit as inputs.
+
+**Example:**
+```
+member terra.plate.thickness {
+  : Scalar<km>
+  resolve {
+    rng.uniform_range(30 <km>, 100 <km>)
+  }
+}
+```
+
+---
+
+### 7.3 Normal Distribution
+
+```
+rng.normal() -> Scalar<1>
+rng.normal(stream: RngStream) -> Scalar<1>
+```
+Standard normal distribution N(0, 1).
+
+```
+rng.normal(mean: Scalar<T>, stddev: Scalar<T>) -> Scalar<T>
+rng.normal(stream: RngStream, mean: Scalar<T>, stddev: Scalar<T>) -> Scalar<T>
+```
+Normal distribution N(mean, stddev). Result has same unit as inputs.
+
+**Example:**
+```
+member terra.plate.density {
+  : Scalar<kg/m³>
+  resolve {
+    rng.normal(2800 <kg/m³>, 200 <kg/m³>)
+  }
+}
+```
+
+---
+
+### 7.4 Geometric Sampling
+
+```
+rng.unit_vec2() -> Vec2<1>
+rng.unit_vec2(stream: RngStream) -> Vec2<1>
+```
+Uniform random direction on the unit circle.
+
+```
+rng.unit_vec3() -> Vec3<1>
+rng.unit_vec3(stream: RngStream) -> Vec3<1>
+```
+Uniform random direction on the unit sphere.
+
+```
+rng.unit_quat() -> Quat
+rng.unit_quat(stream: RngStream) -> Quat
+```
+Uniform random rotation (uniformly distributed over SO(3)).
+
+```
+rng.in_disk() -> Vec2<1>
+rng.in_disk(stream: RngStream) -> Vec2<1>
+```
+Uniform random point inside the unit disk.
+
+```
+rng.in_sphere() -> Vec3<1>
+rng.in_sphere(stream: RngStream) -> Vec3<1>
+```
+Uniform random point inside the unit sphere.
+
+**Example:**
+```
+signal terra.plate.seed_direction {
+  : Vec3<1>
+  phase: configure
+  resolve {
+    rng.unit_vec3()
+  }
+}
+
+member terra.plate.angular_velocity {
+  : Vec3<rad/s>
+  resolve {
+    rng.unit_vec3() * rng.normal(0.001 <rad/s>, 0.0002 <rad/s>)
+  }
+}
+```
+
+---
+
+### 7.5 Discrete Sampling
+
+```
+rng.bool(probability: Scalar<1>) -> Bool
+rng.bool(stream: RngStream, probability: Scalar<1>) -> Bool
+```
+Bernoulli trial. Returns true with given probability.
+
+```
+rng.int_range(min: Int, max: Int) -> Int
+rng.int_range(stream: RngStream, min: Int, max: Int) -> Int
+```
+Uniform random integer in [min, max] (inclusive).
+
+```
+rng.weighted_choice(weights: Seq<Scalar<1>>) -> Int
+rng.weighted_choice(stream: RngStream, weights: Seq<Scalar<1>>) -> Int
+```
+Random index selected with probability proportional to weights. Weights do not need to sum to 1.
+
+**Example:**
+```
+member terra.plate.type {
+  : PlateType
+  resolve {
+    let idx = rng.weighted_choice([0.7, 0.3]) in  # 70% oceanic, 30% continental
+    if idx == 0 then PlateType.Oceanic else PlateType.Continental
+  }
+}
+```
+
+---
+
+### 7.6 Backing Stream Model
+
+The implicit backing stream for each primitive is derived as:
+
+```
+world_seed
+  └─> primitive_path ("terra.plate.velocity")
+        └─> entity_id (for members)
+              └─> advances with each rng.* call, never resets
+                    └─> rng.derive("label") creates substream via state mixing
+```
+
+**Key properties:**
+- Streams never reset (no arbitrary reset boundaries)
+- Each `rng.*` call advances the stream automatically
+- Substreams are derived by mixing label hash into parent state
+- Determinism preserved because call sequence is deterministic
+- Members automatically get per-entity streams (same code, different results per entity)
+
+---
+
 ## Quick Reference
 
 ### Most Common Functions
@@ -1110,6 +1305,9 @@ Outer product.
 | Exponential decay | `dt.decay(value, halflife)` |
 | Relaxation | `dt.relax(current, target, tau)` |
 | Phase wrap | `dt.advance_phase(phase, omega)` |
+| Random value | `rng.uniform()` |
+| Random direction | `rng.unit_vec3()` |
+| Normal distribution | `rng.normal(mean, stddev)` |
 
 ### dt.* Summary
 
@@ -1121,6 +1319,20 @@ Outer product.
 | `dt.accumulate` | Bounded accumulators (resources, populations) |
 | `dt.advance_phase` | Orbital anomaly, oscillator phase |
 | `dt.damp` | Friction, viscous damping |
+
+### rng.* Summary
+
+| Function | Use Case |
+|----------|----------|
+| `rng.uniform` | Random value in [0, 1) |
+| `rng.uniform_range` | Random value in [min, max) with units |
+| `rng.normal` | Gaussian-distributed values |
+| `rng.unit_vec3` | Random direction on sphere |
+| `rng.unit_quat` | Random rotation |
+| `rng.in_sphere` | Random point in unit sphere |
+| `rng.bool` | Bernoulli trial |
+| `rng.weighted_choice` | Select from weighted options |
+| `rng.derive` | Create independent substream |
 
 ---
 
