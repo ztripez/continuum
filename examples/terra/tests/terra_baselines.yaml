@@ -1,0 +1,247 @@
+# =============================================================================
+# Terra Simulation Baselines
+# =============================================================================
+#
+# This file defines expected values and validation thresholds for the terra
+# simulation. These baselines are used to verify the simulation produces
+# Earth-like planetary characteristics.
+#
+# Validation severity levels:
+#   - error: Must pass (fails CI)
+#   - warning: Should pass (logged but doesn't fail CI)
+#   - info: Informational only
+#
+# Expression syntax:
+#   - "0.2..0.4" - value must be in range [0.2, 0.4]
+#   - "> 0.5" - value must be greater than 0.5
+#   - "< -0.5" - value must be less than -0.5
+#   - "~0.29 +/- 0.1" - value must be within tolerance of target
+#   - "== true" - boolean check
+#
+# =============================================================================
+
+schema: "continuum.baselines/v1"
+description: "Terra domain simulation baselines (Earth-like planet)"
+
+# =============================================================================
+# Validation Checks
+# =============================================================================
+# These checks must pass for a simulation to be considered valid.
+
+validations:
+  # ---------------------------------------------------------------------------
+  # 1. Hypsometric Integral (Land/Ocean Ratio)
+  # ---------------------------------------------------------------------------
+  # Earth's hypsometric integral is ~0.29 (29% land, 71% ocean)
+  # A reasonable Earth-like simulation should have 20-40% land.
+  
+  - name: terra.hypsometric_integral
+    field: elevation.map
+    check: land_fraction
+    expected: "0.2..0.4"
+    severity: warning
+    description: "Land should be 20-40% of surface (Earth-like: 29%)"
+    reference: |
+      Earth's actual value is 0.29 (29% land).
+      Values outside 0.2-0.4 indicate unrealistic land/ocean distribution.
+      
+  # ---------------------------------------------------------------------------
+  # 2. Water-Elevation Correlation
+  # ---------------------------------------------------------------------------
+  # On Earth, water strongly correlates with low elevation.
+  # The correlation should be strongly negative (water in low areas).
+  
+  - name: terra.water_elevation_check
+    fields: [elevation.map, hydrology.water_presence]
+    check: correlation
+    expected: "< -0.5"
+    severity: error
+    description: "Water should strongly correlate with low elevation"
+    reference: |
+      A negative correlation means water accumulates in lower areas.
+      Values >= -0.5 indicate water distribution is unrealistic.
+      This is a fundamental physics check - water flows downhill.
+      
+  # ---------------------------------------------------------------------------
+  # 3. Isostasy Balance
+  # ---------------------------------------------------------------------------
+  # Crust elevation should correlate with thickness (isostatic equilibrium).
+  # Thicker crust = higher elevation (buoyancy).
+  
+  - name: terra.isostasy_balance
+    fields: [elevation.map, thickness.map]
+    check: isostasy_correlation
+    expected: "> 0.5"
+    severity: warning
+    description: "Elevation should correlate with crust thickness"
+    reference: |
+      Isostasy: thicker crust floats higher (like icebergs).
+      Strong positive correlation (> 0.5) indicates proper isostatic balance.
+      Values < 0.5 suggest decoupled crust/elevation.
+
+# =============================================================================
+# Field Baselines
+# =============================================================================
+# Expected statistics for key simulation fields.
+
+field_baselines:
+  
+  # ---------------------------------------------------------------------------
+  # Elevation Field
+  # ---------------------------------------------------------------------------
+  elevation.map:
+    description: "Crustal elevation in meters"
+    statistics:
+      # Earth's elevation distribution
+      min: "-12000..-8000"    # Deep ocean trenches
+      max: "6000..10000"      # Major mountain peaks
+      mean: "-2500..500"      # Slightly negative (more ocean)
+      median: "-3000..0"      # Most surface is ocean floor
+      std_dev: "1000..4000"   # Significant variation
+    distribution:
+      # Earth-like bimodal distribution
+      ocean_fraction: "0.6..0.8"  # 60-80% below sea level
+      continental_shelf_fraction: "0.05..0.15"  # 5-15% shallow ocean
+      
+  # ---------------------------------------------------------------------------
+  # Thickness Field
+  # ---------------------------------------------------------------------------
+  thickness.map:
+    description: "Crustal thickness in meters"
+    statistics:
+      min: "4000..8000"       # Oceanic crust minimum
+      max: "50000..80000"     # Mountain root maximum
+      mean: "20000..35000"    # Average crustal thickness
+      std_dev: "5000..20000"  # Variation between ocean/continent
+    distribution:
+      # Bimodal: oceanic (~7km) and continental (~35km)
+      oceanic_mean: "5000..12000"
+      continental_mean: "30000..45000"
+      
+  # ---------------------------------------------------------------------------
+  # Plate Age Field  
+  # ---------------------------------------------------------------------------
+  plates.age_map:
+    description: "Plate age in years"
+    statistics:
+      min: "0..1e6"           # Fresh crust at mid-ocean ridges
+      max: "150e6..300e6"     # Oldest ocean crust before subduction
+      mean: "50e6..100e6"     # Average ocean floor age
+    distribution:
+      # Most ocean floor is relatively young
+      "0-50Ma": "0.3..0.5"     # 30-50% young crust
+      "50-100Ma": "0.2..0.4"   # 20-40% middle-aged
+      ">200Ma": "0.0..0.1"     # <10% very old (gets subducted)
+      
+  # ---------------------------------------------------------------------------
+  # Water Presence Field
+  # ---------------------------------------------------------------------------
+  hydrology.water_presence:
+    description: "Water presence indicator (0-1)"
+    statistics:
+      min: "0.0"
+      max: "1.0"
+      mean: "0.6..0.8"        # ~70% water coverage like Earth
+    distribution:
+      # Water should be in ocean basins
+      below_sea_level_coverage: "> 0.9"  # 90%+ of water in basins
+
+# =============================================================================
+# Ocean Analysis Baselines
+# =============================================================================
+# Earth-like ocean depth zone distribution.
+
+ocean_analysis:
+  depth_zones:
+    # Earth ocean depth zones
+    continental_shelf:  # 0 to -200m
+      fraction: "0.05..0.12"
+      description: "Shallow continental margins"
+      
+    slope:  # -200m to -2000m
+      fraction: "0.05..0.15"
+      description: "Continental slope"
+      
+    abyssal_plain:  # -2000m to -6000m
+      fraction: "0.50..0.75"
+      description: "Deep ocean floor (majority)"
+      
+    ocean_trench:  # < -6000m
+      fraction: "0.01..0.05"
+      description: "Subduction zones and trenches"
+      
+  bathymetry:
+    mean_depth: "3000..4500"  # Earth average: ~3,688m
+    max_depth: "8000..12000"  # Deepest trenches
+
+# =============================================================================
+# Latitude Distribution Baselines
+# =============================================================================
+# Expected patterns by latitude band.
+
+latitude_distribution:
+  # 18 bands of 10 degrees each
+  band_count: 18
+  
+  regional_expectations:
+    tropical:  # -30 to +30 degrees
+      elevation_mean: "-500..1000"
+      description: "Mixed ocean/low land"
+      
+    mid_latitude:  # 30-60 degrees N and S
+      elevation_mean: "-1000..1500"
+      description: "Continental masses and ocean"
+      
+    polar:  # > 60 degrees
+      elevation_mean: "-2000..500"
+      description: "Ocean basins and ice sheets"
+      
+  patterns:
+    # Some latitude-elevation correlations on Earth
+    tropical_polar_ratio: "0.5..2.0"
+    description: |
+      On Earth, elevation varies by latitude due to plate distribution.
+      No strong required pattern - depends on continental configuration.
+
+# =============================================================================
+# Run Configuration
+# =============================================================================
+# Recommended simulation parameters for stable results.
+
+run_config:
+  recommended:
+    steps: 1000          # Minimum ticks for statistical stability
+    dt: "1Myr"           # 1 million year timestep
+    samples: 10000       # Field sample count
+    capture_stride: 100  # Capture every 100 ticks
+    
+  minimal:
+    steps: 100           # Quick smoke test
+    dt: "10Myr"          # Faster for testing
+    samples: 1000
+    capture_stride: 10
+    
+  full:
+    steps: 10000         # Long-term evolution
+    dt: "1Myr"
+    samples: 50000
+    capture_stride: 500
+
+# =============================================================================
+# CI Integration
+# =============================================================================
+# Exit codes and CI behavior.
+
+ci:
+  exit_codes:
+    success: 0           # All validations passed
+    validation_failed: 1 # Error-level validations failed
+    warnings_only: 0     # Warnings don't fail CI
+    missing_field: 2     # Required field not captured
+    
+  required_checks:
+    - terra.water_elevation_check  # Must pass (error)
+    
+  recommended_checks:
+    - terra.hypsometric_integral   # Should pass (warning)
+    - terra.isostasy_balance       # Should pass (warning)
