@@ -10,6 +10,7 @@ pub mod ids;
 pub mod matrix_ops;
 pub mod operators;
 pub mod primitives;
+pub mod rng;
 pub mod stable_hash;
 pub mod tensor;
 pub mod value;
@@ -34,6 +35,9 @@ pub use value::{FromValue, IntoValue, Mat2, Mat3, Mat4, Quat, Value};
 pub use stable_hash::{
     FNV1A_OFFSET_BASIS_64, FNV1A_PRIME_64, fnv1a64, fnv1a64_mix, fnv1a64_path, fnv1a64_str,
 };
+
+// Re-export RNG at crate root
+pub use rng::RngStream;
 
 /// Simulation timestep in seconds.
 ///
