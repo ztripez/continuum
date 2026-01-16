@@ -42,17 +42,45 @@ pub struct SignalAssertion {
 /// Function that evaluates an assertion condition
 pub type AssertionFn = Box<dyn Fn(&AssertContext) -> bool + Send + Sync>;
 
+/// Record of an assertion failure
+#[derive(Debug, Clone)]
+pub struct AssertionFailure {
+    pub signal: SignalId,
+    pub severity: AssertionSeverity,
+    pub message: String,
+    pub tick: u64,
+    pub era: String,
+    pub sim_time: f64,
+}
+
 /// Assertion checker for the runtime
 #[derive(Default)]
 pub struct AssertionChecker {
     /// Registered assertions
     assertions: Vec<SignalAssertion>,
+    /// Recent assertion failures (circular buffer)
+    failures: Vec<AssertionFailure>,
+    /// Maximum number of failures to retain
+    max_failures: usize,
 }
 
 impl AssertionChecker {
     /// Create a new assertion checker
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            assertions: Vec::new(),
+            failures: Vec::new(),
+            max_failures: 1000,
+        }
+    }
+
+    /// Create a new assertion checker with a specific failure buffer size
+    pub fn with_capacity(max_failures: usize) -> Self {
+        Self {
+            assertions: Vec::new(),
+            failures: Vec::new(),
+            max_failures,
+        }
     }
 
     /// Register an assertion for a signal
@@ -77,7 +105,7 @@ impl AssertionChecker {
     /// Returns Ok(()) if all assertions pass or only warnings were emitted.
     /// Returns Err if any Error or Fatal assertion failed.
     pub fn check_signal(
-        &self,
+        &mut self,
         signal: &SignalId,
         current: &Value,
         prev: &Value,
@@ -85,6 +113,8 @@ impl AssertionChecker {
         entities: &EntityStorage,
         dt: Dt,
         sim_time: f64,
+        tick: u64,
+        era: &str,
     ) -> Result<()> {
         let ctx = AssertContext {
             current,
@@ -103,6 +133,21 @@ impl AssertionChecker {
                     .message
                     .clone()
                     .unwrap_or_else(|| format!("assertion failed for signal {}", signal));
+
+                // Record the failure
+                let failure = AssertionFailure {
+                    signal: signal.clone(),
+                    severity: assertion.severity,
+                    message: message.clone(),
+                    tick,
+                    era: era.to_string(),
+                    sim_time,
+                };
+
+                self.failures.push(failure);
+                if self.failures.len() > self.max_failures {
+                    self.failures.remove(0);
+                }
 
                 match assertion.severity {
                     AssertionSeverity::Warn => {
@@ -131,16 +176,20 @@ impl AssertionChecker {
 
     /// Check all assertions for all signals that were resolved
     pub fn check_all(
-        &self,
+        &mut self,
         resolved_signals: &[(SignalId, Value)],
         signals: &SignalStorage,
         entities: &EntityStorage,
         dt: Dt,
         sim_time: f64,
+        tick: u64,
+        era: &str,
     ) -> Result<()> {
         for (signal, current) in resolved_signals {
             let prev = signals.get_prev(signal).unwrap_or(current);
-            self.check_signal(signal, current, prev, signals, entities, dt, sim_time)?;
+            self.check_signal(
+                signal, current, prev, signals, entities, dt, sim_time, tick, era,
+            )?;
         }
         Ok(())
     }
@@ -153,6 +202,29 @@ impl AssertionChecker {
     /// Get number of registered assertions
     pub fn len(&self) -> usize {
         self.assertions.len()
+    }
+
+    /// Get all registered assertions
+    pub fn assertions(&self) -> &[SignalAssertion] {
+        &self.assertions
+    }
+
+    /// Get all recent failures
+    pub fn failures(&self) -> &[AssertionFailure] {
+        &self.failures
+    }
+
+    /// Get failures for a specific signal
+    pub fn failures_for_signal(&self, signal: &SignalId) -> Vec<&AssertionFailure> {
+        self.failures
+            .iter()
+            .filter(|f| &f.signal == signal)
+            .collect()
+    }
+
+    /// Clear all recorded failures
+    pub fn clear_failures(&mut self) {
+        self.failures.clear();
     }
 }
 
@@ -178,8 +250,17 @@ mod tests {
         let current = Value::Scalar(10.0);
         let prev = Value::Scalar(5.0);
 
-        let result =
-            checker.check_signal(&signal, &current, &prev, &signals, &entities, Dt(1.0), 0.0);
+        let result = checker.check_signal(
+            &signal,
+            &current,
+            &prev,
+            &signals,
+            &entities,
+            Dt(1.0),
+            0.0,
+            0,
+            "test",
+        );
         assert!(result.is_ok());
     }
 
@@ -201,8 +282,17 @@ mod tests {
         let current = Value::Scalar(-5.0);
         let prev = Value::Scalar(5.0);
 
-        let result =
-            checker.check_signal(&signal, &current, &prev, &signals, &entities, Dt(1.0), 0.0);
+        let result = checker.check_signal(
+            &signal,
+            &current,
+            &prev,
+            &signals,
+            &entities,
+            Dt(1.0),
+            0.0,
+            0,
+            "test",
+        );
         assert!(matches!(result, Err(Error::AssertionFailed { .. })));
     }
 
@@ -225,8 +315,17 @@ mod tests {
         let prev = Value::Scalar(50.0);
 
         // Should succeed despite warning
-        let result =
-            checker.check_signal(&signal, &current, &prev, &signals, &entities, Dt(1.0), 0.0);
+        let result = checker.check_signal(
+            &signal,
+            &current,
+            &prev,
+            &signals,
+            &entities,
+            Dt(1.0),
+            0.0,
+            0,
+            "test",
+        );
         assert!(result.is_ok());
     }
 }

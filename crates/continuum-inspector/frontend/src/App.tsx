@@ -8,7 +8,7 @@ import type { TickEvent } from './types/ipc';
 
 export function App() {
   const ws = useWebSocket(`ws://${location.host}/ws`);
-  const [currentTab, setCurrentTab] = useState<'signals' | 'fields' | 'entities' | 'chronicles'>('signals');
+  const [currentTab, setCurrentTab] = useState<'signals' | 'fields' | 'entities' | 'chronicles' | 'assertions'>('signals');
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [tickInfo, setTickInfo] = useState<TickEvent | null>(null);
 

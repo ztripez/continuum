@@ -98,3 +98,27 @@ export interface TickEvent {
   event_count: number;
   phase: string;
 }
+
+export interface AssertionEvent {
+  signal_id: string;
+  severity: 'warn' | 'error' | 'fatal';
+  message: string;
+  tick: number;
+  era: string;
+  sim_time: number;
+}
+
+export interface AssertionInfo {
+  signal_id: string;
+  severity: 'warn' | 'error' | 'fatal';
+  message?: string;
+}
+
+export interface AssertionFailure {
+  signal_id: string;
+  severity: 'warn' | 'error' | 'fatal';
+  message: string;
+  tick: number;
+  era: string;
+  sim_time: number;
+}

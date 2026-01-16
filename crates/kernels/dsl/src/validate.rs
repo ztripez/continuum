@@ -808,7 +808,6 @@ mod tests {
     }
 }
 
-
 #[test]
 fn test_fracture_clamp_without_uses() {
     let source = r#"
@@ -823,9 +822,18 @@ fn test_fracture_clamp_without_uses() {
     let (unit, parse_errors) = crate::parse(source);
     assert!(parse_errors.is_empty());
     let errors = validate(&unit.unwrap());
-    assert!(errors.len() == 1, "Expected 1 error, got {}: {:?}", errors.len(), errors);
+    assert!(
+        errors.len() == 1,
+        "Expected 1 error, got {}: {:?}",
+        errors.len(),
+        errors
+    );
     assert!(errors[0].message.contains("uses maths.clamp"));
-    assert!(errors[0].message.contains("requires : uses(maths.clamping)"));
+    assert!(
+        errors[0]
+            .message
+            .contains("requires : uses(maths.clamping)")
+    );
 }
 
 #[test]
@@ -860,9 +868,18 @@ fn test_operator_clamp_without_uses() {
     let (unit, parse_errors) = crate::parse(source);
     assert!(parse_errors.is_empty());
     let errors = validate(&unit.unwrap());
-    assert!(errors.len() == 1, "Expected 1 error, got {}: {:?}", errors.len(), errors);
+    assert!(
+        errors.len() == 1,
+        "Expected 1 error, got {}: {:?}",
+        errors.len(),
+        errors
+    );
     assert!(errors[0].message.contains("uses maths.clamp"));
-    assert!(errors[0].message.contains("requires : uses(maths.clamping)"));
+    assert!(
+        errors[0]
+            .message
+            .contains("requires : uses(maths.clamping)")
+    );
 }
 
 #[test]
@@ -897,9 +914,18 @@ fn test_impulse_clamp_without_uses() {
     let (unit, parse_errors) = crate::parse(source);
     assert!(parse_errors.is_empty());
     let errors = validate(&unit.unwrap());
-    assert!(errors.len() == 1, "Expected 1 error, got {}: {:?}", errors.len(), errors);
+    assert!(
+        errors.len() == 1,
+        "Expected 1 error, got {}: {:?}",
+        errors.len(),
+        errors
+    );
     assert!(errors[0].message.contains("uses maths.clamp"));
-    assert!(errors[0].message.contains("requires : uses(maths.clamping)"));
+    assert!(
+        errors[0]
+            .message
+            .contains("requires : uses(maths.clamping)")
+    );
 }
 
 #[test]

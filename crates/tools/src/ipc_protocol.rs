@@ -189,6 +189,11 @@ pub struct ImpulseEmitRequest {
     pub payload: JsonValue,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct AssertionFailuresRequest {
+    pub signal_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcRequest {
     pub id: u64,
@@ -266,6 +271,10 @@ pub enum IpcCommand {
     EntityDescribe {
         entity_id: String,
     },
+    AssertionList,
+    AssertionFailures {
+        signal_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -305,12 +314,15 @@ pub enum IpcResponsePayload {
     EraDescribe(EraInfo),
     EntityList(EntityListPayload),
     EntityDescribe(EntityInfo),
+    AssertionList(AssertionListPayload),
+    AssertionFailures(AssertionFailuresPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcEvent {
     Tick(TickEvent),
     Chronicle(ChronicleEvent),
+    Assertion(AssertionEvent),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -482,6 +494,43 @@ pub struct ChronicleEvent {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionEvent {
+    pub signal_id: String,
+    pub severity: String,
+    pub message: String,
+    pub tick: u64,
+    pub era: String,
+    pub sim_time: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionInfo {
+    pub signal_id: String,
+    pub severity: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionListPayload {
+    pub assertions: Vec<AssertionInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionFailure {
+    pub signal_id: String,
+    pub severity: String,
+    pub message: String,
+    pub tick: u64,
+    pub era: String,
+    pub sim_time: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionFailuresPayload {
+    pub failures: Vec<AssertionFailure>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcFrame {
     Response(IpcResponse),
     Event(IpcEvent),
@@ -639,6 +688,8 @@ pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
         Some(IpcResponsePayload::EraDescribe(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::EntityList(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::EntityDescribe(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::AssertionList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::AssertionFailures(p)) => serde_json::to_value(p).ok(),
         None => None,
     };
     JsonResponse {
@@ -762,6 +813,13 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
                 entity_id: req.entity_id,
             }
         }
+        "assertion.list" => IpcCommand::AssertionList,
+        "assertion.failures" => {
+            let req: AssertionFailuresRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::AssertionFailures {
+                signal_id: req.signal_id,
+            }
+        }
         _ => anyhow::bail!("unknown request type: {}", request.kind),
     };
 
@@ -816,6 +874,26 @@ pub fn ipc_event_to_json(event: &IpcEvent) -> JsonEvent {
             );
             JsonEvent {
                 kind: "chronicle.event".to_string(),
+                payload: serde_json::Value::Object(map),
+            }
+        }
+        IpcEvent::Assertion(p) => {
+            let mut map = serde_json::Map::new();
+            map.insert("signal_id".to_string(), serde_json::json!(p.signal_id));
+            map.insert("severity".to_string(), serde_json::json!(p.severity));
+            map.insert("message".to_string(), serde_json::json!(p.message));
+            map.insert("tick".to_string(), serde_json::json!(p.tick));
+            map.insert("era".to_string(), serde_json::json!(p.era));
+            map.insert(
+                "sim_time".to_string(),
+                serde_json::json!(if p.sim_time.is_finite() {
+                    p.sim_time
+                } else {
+                    0.0
+                }),
+            );
+            JsonEvent {
+                kind: "assertion".to_string(),
                 payload: serde_json::Value::Object(map),
             }
         }

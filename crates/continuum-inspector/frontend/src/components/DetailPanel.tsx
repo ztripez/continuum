@@ -71,6 +71,18 @@ export function DetailPanel({ selectedItem }: DetailPanelProps) {
             )}
           </>
         )}
+        {type === 'assertion' && (
+          <>
+            <div class="detail-grid">
+              <span class="label">Signal:</span><span>{data.signal_id}</span>
+              <span class="label">Severity:</span><span class={`severity-${data.severity}`}>{data.severity.toUpperCase()}</span>
+              <span class="label">Message:</span><span>{data.message}</span>
+              <span class="label">Tick:</span><span>{data.tick}</span>
+              <span class="label">Era:</span><span>{data.era}</span>
+              <span class="label">Sim Time:</span><span>{data.sim_time.toFixed(2)}s</span>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

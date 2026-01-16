@@ -14,7 +14,9 @@ mod phases;
 mod warmup;
 
 // Re-export public types
-pub use assertions::{AssertionChecker, AssertionFn, AssertionSeverity, SignalAssertion};
+pub use assertions::{
+    AssertionChecker, AssertionFailure, AssertionFn, AssertionSeverity, SignalAssertion,
+};
 pub use context::{
     AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext,
     MeasureContext, ResolveContext, WarmupContext,
@@ -540,6 +542,16 @@ impl Runtime {
         &self.member_signals
     }
 
+    /// Get access to the assertion checker
+    pub fn assertion_checker(&self) -> &AssertionChecker {
+        &self.assertion_checker
+    }
+
+    /// Get mutable access to the assertion checker
+    pub fn assertion_checker_mut(&mut self) -> &mut AssertionChecker {
+        &mut self.assertion_checker
+    }
+
     /// Execute warmup phase
     #[instrument(skip_all, name = "warmup")]
     pub fn execute_warmup(&mut self) -> Result<WarmupResult> {
@@ -601,7 +613,7 @@ impl Runtime {
                     &self.entities,
                     &mut self.member_signals,
                     &mut self.input_channels,
-                    &self.assertion_checker,
+                    &mut self.assertion_checker,
                     &self.breakpoints,
                 )? {
                     return Ok(crate::types::StepResult::Breakpoint { signal });

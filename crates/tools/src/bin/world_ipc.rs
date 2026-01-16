@@ -79,12 +79,16 @@ async fn main() {
     let compile_result = continuum_compiler::compile_from_dir_result(&cli.world_dir);
 
     if compile_result.has_errors() {
-        error!("{}", compile_result.format_diagnostics().trim_end());
+        for diag in &compile_result.diagnostics {
+            error!("{}", compile_result.format_diagnostic(diag));
+        }
         std::process::exit(1);
     }
 
     if !compile_result.diagnostics.is_empty() {
-        warn!("{}", compile_result.format_diagnostics().trim_end());
+        for diag in &compile_result.diagnostics {
+            warn!("{}", compile_result.format_diagnostic(diag));
+        }
     }
 
     let world = compile_result.world.expect("no world despite no errors");
@@ -802,6 +806,78 @@ async fn handle_command(
                 id,
                 ok: true,
                 payload: Some(IpcResponsePayload::EntityDescribe(info)),
+                error: None,
+            })
+        }
+        IpcCommand::AssertionList => {
+            let state = state.lock().await;
+            let assertions = state
+                .runtime
+                .assertion_checker()
+                .assertions()
+                .iter()
+                .map(|a| {
+                    use continuum_tools::ipc_protocol::AssertionInfo;
+                    AssertionInfo {
+                        signal_id: a.signal.to_string(),
+                        severity: match a.severity {
+                            continuum_runtime::executor::AssertionSeverity::Warn => "warn",
+                            continuum_runtime::executor::AssertionSeverity::Error => "error",
+                            continuum_runtime::executor::AssertionSeverity::Fatal => "fatal",
+                        }
+                        .to_string(),
+                        message: a.message.clone(),
+                    }
+                })
+                .collect();
+
+            use continuum_tools::ipc_protocol::AssertionListPayload;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::AssertionList(AssertionListPayload {
+                    assertions,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::AssertionFailures { signal_id } => {
+            let state = state.lock().await;
+            let all_failures = state.runtime.assertion_checker().failures();
+            let filtered_failures: Vec<_> = if let Some(ref sig_id) = signal_id {
+                let target = continuum_runtime::types::SignalId::from(sig_id.as_str());
+                all_failures.iter().filter(|f| f.signal == target).collect()
+            } else {
+                all_failures.iter().collect()
+            };
+
+            let failures = filtered_failures
+                .iter()
+                .map(|f| {
+                    use continuum_tools::ipc_protocol::AssertionFailure;
+                    AssertionFailure {
+                        signal_id: f.signal.to_string(),
+                        severity: match f.severity {
+                            continuum_runtime::executor::AssertionSeverity::Warn => "warn",
+                            continuum_runtime::executor::AssertionSeverity::Error => "error",
+                            continuum_runtime::executor::AssertionSeverity::Fatal => "fatal",
+                        }
+                        .to_string(),
+                        message: f.message.clone(),
+                        tick: f.tick,
+                        era: f.era.clone(),
+                        sim_time: f.sim_time,
+                    }
+                })
+                .collect();
+
+            use continuum_tools::ipc_protocol::AssertionFailuresPayload;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::AssertionFailures(
+                    AssertionFailuresPayload { failures },
+                )),
                 error: None,
             })
         }
