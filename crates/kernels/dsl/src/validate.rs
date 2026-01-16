@@ -431,7 +431,7 @@ fn check_requires_uses(
                             if !uses_declarations.contains(&full_key) {
                                 errors.push(ValidationError {
                                     message: format!(
-                                        "{} uses {}.{} which requires : uses({})\n  hint: {}",
+                                        "{} uses {}.{} which requires : uses({}). {}",
                                         context_name, namespace, func_name, full_key, requires.hint
                                     ),
                                     span: expr.span.clone(),
