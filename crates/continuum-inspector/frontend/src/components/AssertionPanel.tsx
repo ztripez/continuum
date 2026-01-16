@@ -23,7 +23,8 @@ export function AssertionPanel({ ws, onSelectAssertion }: AssertionPanelProps) {
 
     // Subscribe to assertion events
     const unsubscribe = ws.subscribe('assertion', (msg: any) => {
-      if ('type' in msg && msg.type === 'assertion') {
+      // msg is { type: 'assertion', payload: {...} }
+      if (msg.payload) {
         setAssertions(prev => {
           const updated = [msg.payload, ...prev];
           return updated.slice(0, 200); // Keep last 200

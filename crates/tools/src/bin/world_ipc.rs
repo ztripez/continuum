@@ -20,12 +20,12 @@ use continuum_ir::CompiledWorld;
 use continuum_lens::{FieldLens, FieldLensConfig, PlaybackClock};
 use continuum_runtime::executor::Runtime;
 use continuum_tools::ipc_protocol::{
-    ChronicleEvent, ChroniclePollPayload, EntityInfo, EntityListPayload, EraInfo, EraListPayload,
-    FieldHistoryPayload, FieldInfo, FieldLatestPayload, FieldListPayload, FieldQueryBatchPayload,
-    FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo, ImpulseListPayload, IpcCommand, IpcEvent,
-    IpcFrame, IpcRequest, IpcResponse, IpcResponsePayload, JsonValue, PlaybackPayload, SignalInfo,
-    SignalListPayload, StatusPayload, StratumInfo, StratumListPayload, TickEvent, WorldInfo,
-    read_frame, write_frame,
+    AssertionEvent, ChronicleEvent, ChroniclePollPayload, EntityInfo, EntityListPayload, EraInfo,
+    EraListPayload, FieldHistoryPayload, FieldInfo, FieldLatestPayload, FieldListPayload,
+    FieldQueryBatchPayload, FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo, ImpulseListPayload,
+    IpcCommand, IpcEvent, IpcFrame, IpcRequest, IpcResponse, IpcResponsePayload, JsonValue,
+    PlaybackPayload, SignalInfo, SignalListPayload, StatusPayload, StratumInfo, StratumListPayload,
+    TickEvent, WorldInfo, read_frame, write_frame,
 };
 
 #[derive(Parser, Debug)]
@@ -884,6 +884,26 @@ async fn handle_command(
     }
 }
 
+/// Helper to broadcast any assertion failures that have been recorded
+fn broadcast_assertion_failures(state: &mut ServerState) {
+    let assertion_failures = state.runtime.assertion_checker_mut().drain_failures();
+    for failure in &assertion_failures {
+        let event = AssertionEvent {
+            signal_id: failure.signal.to_string(),
+            severity: match failure.severity {
+                continuum_runtime::executor::AssertionSeverity::Warn => "warn".to_string(),
+                continuum_runtime::executor::AssertionSeverity::Error => "error".to_string(),
+                continuum_runtime::executor::AssertionSeverity::Fatal => "fatal".to_string(),
+            },
+            message: failure.message.clone(),
+            tick: failure.tick,
+            era: failure.era.clone(),
+            sim_time: failure.sim_time,
+        };
+        let _ = state.events.send(IpcEvent::Assertion(event));
+    }
+}
+
 fn execute_tick(state: &mut ServerState) -> anyhow::Result<()> {
     // Run warmup if not complete
     if !state.runtime.is_warmup_complete() {
@@ -892,7 +912,14 @@ fn execute_tick(state: &mut ServerState) -> anyhow::Result<()> {
         info!("Warmup complete");
     }
 
-    let ctx = state.runtime.execute_tick()?;
+    // Execute tick - may fail due to assertion errors
+    let tick_result = state.runtime.execute_tick();
+
+    // Always broadcast assertion failures, even if tick failed
+    broadcast_assertion_failures(state);
+
+    // Now handle the tick result
+    let ctx = tick_result?;
     state.sim_time += ctx.dt.seconds();
     state.playback.advance(state.runtime.tick());
 

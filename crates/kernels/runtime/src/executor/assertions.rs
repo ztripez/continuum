@@ -226,6 +226,11 @@ impl AssertionChecker {
     pub fn clear_failures(&mut self) {
         self.failures.clear();
     }
+
+    /// Drain all recorded failures, returning them and clearing the buffer
+    pub fn drain_failures(&mut self) -> Vec<AssertionFailure> {
+        std::mem::take(&mut self.failures)
+    }
 }
 
 #[cfg(test)]
