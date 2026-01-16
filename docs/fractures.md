@@ -134,7 +134,56 @@ signal heat {
 
 If this isn't an emergent tension condition but regular coupling, don't use a fracture at all. Use a signal that reads from another signal, or reorganize the signal dependencies.
 
-### 7.2 Dangerous Functions
+### 7.2 Rates vs Instantaneous Deltas
+
+Fractures can emit two types of contributions:
+
+1. **Rates** — continuous processes (e.g., volcanic outgassing in kg/s)
+2. **Instantaneous deltas** — discrete events (e.g., meteor impact adds X mass)
+
+**For continuous processes, emit rates:**
+```cdsl
+fracture atmosphere.volcanic_co2 {
+    emit {
+        # Emit ppmv/s rate - signal integrates
+        let emission_rate_ppmv_s = activity * base_rate * 1e-15 in
+        signal.atmosphere.co2_ppmv <- emission_rate_ppmv_s
+    }
+}
+
+signal atmosphere.co2_ppmv {
+    resolve {
+        # collected contains rates - integrate over dt
+        dt.integrate(prev, collected)
+    }
+}
+```
+
+**For discrete events, emit the actual delta:**
+```cdsl
+fracture impact.mass_delivery {
+    when { signal.impact.detected }
+    emit {
+        # Emit actual mass delivered (not a rate)
+        signal.atmosphere.dust_mass <- signal.impact.ejecta_kg
+    }
+}
+
+signal atmosphere.dust_mass {
+    resolve {
+        # collected contains actual deltas - just add
+        prev + collected
+    }
+}
+```
+
+**The key distinction:**
+- If the process is **continuous** and the emission scales with time → emit a **rate**, signal uses `dt.integrate()`
+- If the process is **discrete** and happens instantaneously → emit the **delta**, signal uses `prev + collected`
+
+Never use `dt.s()` or `dt.raw` in fracture emit blocks. The signal's resolve block is responsible for dt-correct integration.
+
+### 7.3 Dangerous Functions
 
 Fractures that use dangerous functions (like `maths.clamp`) must declare them explicitly using `: uses()` declarations.
 
