@@ -1,67 +1,54 @@
 //! Core types for the analyze tool.
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use continuum_runtime::storage::FieldSample;
-use continuum_runtime::types::Value;
-
-// ============================================================================
-// Run Manifest Types
-// ============================================================================
-
-/// Run manifest structure (matches run output).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunManifest {
-    pub run_id: String,
-    pub created_at: String,
-    pub seed: u64,
-    pub steps: u64,
-    pub stride: u64,
-    pub signals: Vec<String>,
-    pub fields: Vec<String>,
-}
-
-// ============================================================================
-// Snapshot Types
-// ============================================================================
-
-/// Tick snapshot from JSON file.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TickSnapshot {
-    pub tick: u64,
-    pub time_seconds: f64,
-    pub signals: HashMap<String, Value>,
-    pub fields: HashMap<String, Vec<FieldSample>>,
-}
+// Re-export lens snapshot types from runtime
+pub use continuum_runtime::lens_sink::file::{LensManifest, TickData};
 
 // ============================================================================
 // Snapshot Run
 // ============================================================================
 
-/// Loaded snapshot run with all field snapshots.
+/// Loaded snapshot run with all field snapshots (lens format).
 pub struct SnapshotRun {
-    pub manifest: RunManifest,
+    pub manifest: LensManifest,
     /// Path to the run directory
     pub run_dir: PathBuf,
-    /// Tick -> snapshot
-    pub snapshots: HashMap<u64, TickSnapshot>,
+    /// Tick -> tick data
+    pub snapshots: HashMap<u64, TickData>,
 }
 
 impl SnapshotRun {
-    /// Load a snapshot run from a directory.
+    /// Load a snapshot run from a directory (lens format).
     pub fn load(run_dir: PathBuf) -> Result<Self, String> {
-        // Load manifest
-        let manifest_path = run_dir.join("run.json");
+        // Load manifest (new lens format uses manifest.json)
+        let manifest_path = run_dir.join("manifest.json");
+
+        // Check if manifest exists, provide helpful error for old format
+        if !manifest_path.exists() {
+            let old_manifest = run_dir.join("run.json");
+            if old_manifest.exists() {
+                return Err(format!(
+                    "Found old snapshot format (run.json). Please regenerate snapshots using:\n  \
+                    continuum run <world> --save <dir> --stride <n>"
+                ));
+            }
+            return Err(format!(
+                "No manifest.json found in {}. Is this a lens snapshot directory?",
+                run_dir.display()
+            ));
+        }
+
         let manifest_str = fs::read_to_string(&manifest_path)
             .map_err(|e| format!("Failed to read {}: {}", manifest_path.display(), e))?;
-        let manifest: RunManifest = serde_json::from_str(&manifest_str)
+        let manifest: LensManifest = serde_json::from_str(&manifest_str)
             .map_err(|e| format!("Failed to parse manifest: {}", e))?;
 
         // Load tick snapshots
-        let mut snapshots: HashMap<u64, TickSnapshot> = HashMap::new();
+        let mut snapshots: HashMap<u64, TickData> = HashMap::new();
 
         if run_dir.exists() {
             for entry in fs::read_dir(&run_dir)
@@ -80,10 +67,10 @@ impl SnapshotRun {
                 {
                     let content = fs::read_to_string(&path)
                         .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
-                    let snapshot: TickSnapshot = serde_json::from_str(&content)
+                    let tick_data: TickData = serde_json::from_str(&content)
                         .map_err(|e| format!("Failed to parse {}: {}", path.display(), e))?;
 
-                    snapshots.insert(snapshot.tick, snapshot);
+                    snapshots.insert(tick_data.tick, tick_data);
                 }
             }
         }
@@ -102,8 +89,8 @@ impl SnapshotRun {
         ticks
     }
 
-    /// Get snapshot at a specific tick.
-    pub fn get_snapshot(&self, tick: u64) -> Option<&TickSnapshot> {
+    /// Get tick data at a specific tick.
+    pub fn get_snapshot(&self, tick: u64) -> Option<&TickData> {
         self.snapshots.get(&tick)
     }
 
