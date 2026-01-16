@@ -132,6 +132,13 @@ pub enum Error {
         message: String,
     },
 
+    /// Checkpoint operation failed.
+    ///
+    /// This includes failures during checkpoint serialization, deserialization,
+    /// compression, or validation (e.g., world IR hash mismatch).
+    #[error("checkpoint error: {0}")]
+    Checkpoint(String),
+
     /// Generic error message.
     #[error("{0}")]
     Generic(String),

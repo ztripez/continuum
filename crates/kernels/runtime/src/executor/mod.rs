@@ -269,6 +269,12 @@ pub struct Runtime {
     active_tick_ctx: Option<TickContext>,
     /// Pending impulses to apply in next Collect phase (handler_idx, payload)
     pending_impulses: Vec<(usize, Value)>,
+    /// Background checkpoint writer (optional)
+    checkpoint_writer: Option<crate::checkpoint::CheckpointWriter>,
+    /// World IR hash for checkpoint validation (set once at initialization)
+    world_ir_hash: Option<[u8; 32]>,
+    /// Initial seed for determinism
+    initial_seed: u64,
 }
 
 impl Runtime {
@@ -295,6 +301,9 @@ impl Runtime {
             breakpoints: std::collections::HashSet::new(),
             active_tick_ctx: None,
             pending_impulses: Vec::new(),
+            checkpoint_writer: None,
+            world_ir_hash: None,
+            initial_seed: 0,
         }
     }
 
@@ -729,6 +738,132 @@ impl Runtime {
             debug!(from = %self.current_era, to = %next_era, "era transition");
             self.current_era = next_era;
         }
+        Ok(())
+    }
+
+    // ========================================================================
+    // Checkpoint Methods
+    // ========================================================================
+
+    /// Enable checkpoint writer with specified queue depth.
+    pub fn enable_checkpointing(&mut self, queue_depth: usize) {
+        info!(queue_depth, "enabling checkpoint writer");
+        self.checkpoint_writer = Some(crate::checkpoint::CheckpointWriter::new(queue_depth));
+    }
+
+    /// Set the world IR hash for checkpoint validation.
+    pub fn set_world_ir_hash(&mut self, hash: [u8; 32]) {
+        self.world_ir_hash = Some(hash);
+    }
+
+    /// Set the initial seed for determinism.
+    pub fn set_initial_seed(&mut self, seed: u64) {
+        self.initial_seed = seed;
+    }
+
+    /// Request a checkpoint write (non-blocking).
+    ///
+    /// If checkpointing is not enabled, returns an error.
+    /// If the queue is full, drops the checkpoint and returns an error.
+    pub fn request_checkpoint(&self, path: &std::path::Path) -> Result<()> {
+        let writer = self
+            .checkpoint_writer
+            .as_ref()
+            .ok_or_else(|| Error::Checkpoint("checkpointing not enabled".to_string()))?;
+
+        // Extract member signal data
+        let member_signals = crate::checkpoint::MemberSignalData::from_buffer(&self.member_signals)
+            .map_err(|e| Error::Checkpoint(e.to_string()))?;
+
+        // Build era configs for validation
+        let era_configs = self
+            .eras
+            .iter()
+            .map(|(id, cfg)| {
+                (
+                    id.clone(),
+                    crate::checkpoint::EraConfigSnapshot {
+                        dt: cfg.dt.0,
+                        strata_count: cfg.strata.len(),
+                    },
+                )
+            })
+            .collect();
+
+        // Build checkpoint
+        let checkpoint = crate::checkpoint::Checkpoint {
+            header: crate::checkpoint::CheckpointHeader {
+                version: crate::checkpoint::CHECKPOINT_VERSION,
+                world_ir_hash: self.world_ir_hash.unwrap_or([0u8; 32]),
+                tick: self.tick,
+                sim_time: self.sim_time,
+                seed: self.initial_seed,
+                current_era: self.current_era.clone(),
+                created_at: std::time::SystemTime::now(),
+                world_git_hash: None,
+            },
+            state: crate::checkpoint::CheckpointState {
+                signals: self.signals.clone(),
+                entities: self.entities.clone(),
+                member_signals,
+                era_configs,
+                stratum_states: std::collections::HashMap::new(), // TODO: capture stratum states
+            },
+        };
+
+        writer
+            .request_checkpoint(
+                path.to_owned(),
+                checkpoint,
+                crate::checkpoint::DEFAULT_COMPRESSION_LEVEL,
+            )
+            .map_err(|e| Error::Checkpoint(e.to_string()))
+    }
+
+    /// Load a checkpoint and replace runtime state (validation optional).
+    ///
+    /// If `force` is false, validates world IR hash.
+    /// Returns error if validation fails or deserialization fails.
+    pub fn load_checkpoint(&mut self, path: &std::path::Path, force: bool) -> Result<()> {
+        info!(path = %path.display(), "loading checkpoint");
+
+        let checkpoint = crate::checkpoint::load_checkpoint(path)
+            .map_err(|e| Error::Checkpoint(e.to_string()))?;
+
+        // Validate world IR hash
+        if !force {
+            if let Some(current_hash) = self.world_ir_hash {
+                if checkpoint.header.world_ir_hash != current_hash {
+                    return Err(Error::Checkpoint(
+                        "World IR mismatch: checkpoint hash does not match current world"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+
+        // Restore state
+        self.signals = checkpoint.state.signals;
+        self.entities = checkpoint.state.entities;
+
+        // Restore member signals
+        checkpoint
+            .state
+            .member_signals
+            .restore_into_buffer(&mut self.member_signals)
+            .map_err(|e| Error::Checkpoint(e.to_string()))?;
+
+        self.tick = checkpoint.header.tick;
+        self.sim_time = checkpoint.header.sim_time;
+        self.current_era = checkpoint.header.current_era;
+        self.initial_seed = checkpoint.header.seed;
+
+        info!(
+            tick = checkpoint.header.tick,
+            sim_time = checkpoint.header.sim_time,
+            "checkpoint loaded successfully"
+        );
+
         Ok(())
     }
 }

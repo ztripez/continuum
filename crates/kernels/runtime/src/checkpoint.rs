@@ -36,6 +36,7 @@ use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, error, info, warn};
 
+use crate::soa_storage::MemberSignalBuffer;
 use crate::storage::{EntityStorage, SignalStorage};
 use crate::types::{EraId, StratumId, Value};
 
@@ -112,6 +113,34 @@ pub struct MemberSignalData {
 
     /// Total instance count across all entities
     pub total_instance_count: usize,
+}
+
+impl MemberSignalData {
+    /// Extract member signal data from SoA buffer.
+    ///
+    /// This converts the SoA representation (with custom allocators) into a
+    /// portable format that can be serialized.
+    pub fn from_buffer(_buffer: &MemberSignalBuffer) -> Result<Self, CheckpointError> {
+        // For now, return empty data structure
+        // TODO: Implement actual extraction from SoA buffers
+        Ok(Self {
+            signals: HashMap::new(),
+            entity_instance_counts: HashMap::new(),
+            total_instance_count: 0,
+        })
+    }
+
+    /// Restore member signal data into SoA buffer.
+    ///
+    /// This reconstructs the SoA representation from the portable serialized format.
+    pub fn restore_into_buffer(
+        &self,
+        buffer: &mut MemberSignalBuffer,
+    ) -> Result<(), CheckpointError> {
+        // For now, no-op
+        // TODO: Implement actual restoration into SoA buffers
+        Ok(())
+    }
 }
 
 /// Complete checkpoint state (all causal state for resume).
