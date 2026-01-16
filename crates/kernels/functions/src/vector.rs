@@ -314,6 +314,104 @@ pub fn mix(args: &[Value]) -> Value {
     lerp(args)
 }
 
+// ============================================================================
+// NORMALIZED AND SPHERICAL INTERPOLATION
+// ============================================================================
+
+/// Normalized linear interpolation for Vec2: `nlerp(a, b, t)` → normalize(lerp(a, b, t))
+///
+/// Useful for interpolating directions. Result is always a unit vector.
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn nlerp_vec2(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
+    let lerped = lerp_vec2(a, b, t);
+    let len = (lerped[0] * lerped[0] + lerped[1] * lerped[1]).sqrt();
+    if len > 1e-10 {
+        [lerped[0] / len, lerped[1] / len]
+    } else {
+        a // Fallback to first input if result is degenerate
+    }
+}
+
+/// Normalized linear interpolation for Vec3: `nlerp(a, b, t)` → normalize(lerp(a, b, t))
+///
+/// Useful for interpolating directions. Result is always a unit vector.
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn nlerp_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
+    let lerped = lerp_vec3(a, b, t);
+    let len = (lerped[0] * lerped[0] + lerped[1] * lerped[1] + lerped[2] * lerped[2]).sqrt();
+    if len > 1e-10 {
+        [lerped[0] / len, lerped[1] / len, lerped[2] / len]
+    } else {
+        a // Fallback to first input if result is degenerate
+    }
+}
+
+/// Normalized linear interpolation (variadic): `nlerp(a, b, t)` → normalize(lerp(a, b, t))
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn nlerp(args: &[Value]) -> Value {
+    if args.len() != 3 {
+        panic!("vector.nlerp expects exactly 3 arguments");
+    }
+    let t = match &args[2] {
+        Value::Scalar(v) => *v,
+        _ => panic!("vector.nlerp: third argument must be a scalar"),
+    };
+    match (&args[0], &args[1]) {
+        (Value::Vec2(a), Value::Vec2(b)) => Value::Vec2(nlerp_vec2(*a, *b, t)),
+        (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3(nlerp_vec3(*a, *b, t)),
+        _ => panic!("vector.nlerp requires two vectors of same dimension (Vec2 or Vec3)"),
+    }
+}
+
+/// Spherical linear interpolation for Vec3: `slerp(a, b, t)`
+///
+/// Interpolates along the great circle arc between two unit vectors.
+/// Both inputs should be unit vectors. Provides constant angular velocity.
+#[kernel_fn(namespace = "vector", category = "vector")]
+pub fn slerp_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
+    // Compute dot product (cosine of angle between vectors)
+    let dot = a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+
+    // Clamp to handle numerical errors
+    let dot = dot.clamp(-1.0, 1.0);
+
+    // If vectors are nearly parallel, use nlerp to avoid division by zero
+    if dot.abs() > 0.9995 {
+        return nlerp_vec3(a, b, t);
+    }
+
+    // Calculate the angle and its sine
+    let theta = dot.acos();
+    let sin_theta = theta.sin();
+
+    // Calculate interpolation coefficients
+    let s0 = ((1.0 - t) * theta).sin() / sin_theta;
+    let s1 = (t * theta).sin() / sin_theta;
+
+    // Interpolate
+    [
+        s0 * a[0] + s1 * b[0],
+        s0 * a[1] + s1 * b[1],
+        s0 * a[2] + s1 * b[2],
+    ]
+}
+
+/// Spherical linear interpolation (variadic): `slerp(a, b, t)`
+#[kernel_fn(namespace = "vector", category = "vector", variadic)]
+pub fn slerp(args: &[Value]) -> Value {
+    if args.len() != 3 {
+        panic!("vector.slerp expects exactly 3 arguments");
+    }
+    let t = match &args[2] {
+        Value::Scalar(v) => *v,
+        _ => panic!("vector.slerp: third argument must be a scalar"),
+    };
+    match (&args[0], &args[1]) {
+        (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3(slerp_vec3(*a, *b, t)),
+        _ => panic!("vector.slerp requires two Vec3 unit vectors"),
+    }
+}
+
 /// Component-wise clamp for Vec2: `clamp(v, min, max)`
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn clamp_vec2(v: [f64; 2], min: f64, max: f64) -> [f64; 2] {
@@ -1258,5 +1356,237 @@ mod tests {
         let nref = [0.0, 1.0, 0.0];
         let result = faceforward(n, i, nref);
         assert_eq!(result, [-1.0, 0.0, 0.0]); // dot is 0, so >= 0, flip normal
+    }
+
+    // Tests for nlerp (normalized linear interpolation)
+
+    #[test]
+    fn test_nlerp_vec2_registered() {
+        assert!(is_known_in("vector", "nlerp_vec2"));
+    }
+
+    #[test]
+    fn test_nlerp_vec3_registered() {
+        assert!(is_known_in("vector", "nlerp_vec3"));
+    }
+
+    #[test]
+    fn test_nlerp_variadic_registered() {
+        assert!(is_known_in("vector", "nlerp"));
+    }
+
+    #[test]
+    fn test_nlerp_vec2_at_endpoints() {
+        // At t=0, should return normalized a
+        let a = [3.0, 4.0]; // Length 5
+        let b = [0.0, 1.0]; // Already unit
+        let result = nlerp_vec2(a, b, 0.0);
+        assert!((result[0] - 0.6).abs() < 1e-10); // 3/5
+        assert!((result[1] - 0.8).abs() < 1e-10); // 4/5
+
+        // At t=1, should return b (already unit)
+        let result = nlerp_vec2(a, b, 1.0);
+        assert!((result[0] - 0.0).abs() < 1e-10);
+        assert!((result[1] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_nlerp_vec2_is_unit() {
+        // Result should always be unit length
+        let a = [1.0, 0.0];
+        let b = [0.0, 1.0];
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let result = nlerp_vec2(a, b, t);
+            let len = (result[0] * result[0] + result[1] * result[1]).sqrt();
+            assert!(
+                (len - 1.0).abs() < 1e-10,
+                "nlerp result should be unit at t={}",
+                t
+            );
+        }
+    }
+
+    #[test]
+    fn test_nlerp_vec3_at_endpoints() {
+        // At t=0, should return normalized a
+        let a = [1.0, 2.0, 2.0]; // Length 3
+        let b = [0.0, 0.0, 1.0]; // Already unit
+        let result = nlerp_vec3(a, b, 0.0);
+        assert!((result[0] - 1.0 / 3.0).abs() < 1e-10);
+        assert!((result[1] - 2.0 / 3.0).abs() < 1e-10);
+        assert!((result[2] - 2.0 / 3.0).abs() < 1e-10);
+
+        // At t=1, should return b
+        let result = nlerp_vec3(a, b, 1.0);
+        assert!((result[0] - 0.0).abs() < 1e-10);
+        assert!((result[1] - 0.0).abs() < 1e-10);
+        assert!((result[2] - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_nlerp_vec3_is_unit() {
+        // Result should always be unit length
+        let a = [1.0, 0.0, 0.0];
+        let b = [0.0, 1.0, 0.0];
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let result = nlerp_vec3(a, b, t);
+            let len =
+                (result[0] * result[0] + result[1] * result[1] + result[2] * result[2]).sqrt();
+            assert!(
+                (len - 1.0).abs() < 1e-10,
+                "nlerp result should be unit at t={}",
+                t
+            );
+        }
+    }
+
+    #[test]
+    fn test_nlerp_variadic_vec2() {
+        let a = Value::Vec2([1.0, 0.0]);
+        let b = Value::Vec2([0.0, 1.0]);
+        let t = Value::Scalar(0.5);
+        let result = nlerp(&[a, b, t]);
+        if let Value::Vec2(v) = result {
+            let len = (v[0] * v[0] + v[1] * v[1]).sqrt();
+            assert!((len - 1.0).abs() < 1e-10);
+        } else {
+            panic!("Expected Vec2 result");
+        }
+    }
+
+    #[test]
+    fn test_nlerp_variadic_vec3() {
+        let a = Value::Vec3([1.0, 0.0, 0.0]);
+        let b = Value::Vec3([0.0, 1.0, 0.0]);
+        let t = Value::Scalar(0.5);
+        let result = nlerp(&[a, b, t]);
+        if let Value::Vec3(v) = result {
+            let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            assert!((len - 1.0).abs() < 1e-10);
+        } else {
+            panic!("Expected Vec3 result");
+        }
+    }
+
+    // Tests for slerp (spherical linear interpolation)
+
+    #[test]
+    fn test_slerp_vec3_registered() {
+        assert!(is_known_in("vector", "slerp_vec3"));
+    }
+
+    #[test]
+    fn test_slerp_variadic_registered() {
+        assert!(is_known_in("vector", "slerp"));
+    }
+
+    #[test]
+    fn test_slerp_vec3_at_endpoints() {
+        let a = [1.0, 0.0, 0.0];
+        let b = [0.0, 1.0, 0.0];
+
+        // At t=0, should return a
+        let result = slerp_vec3(a, b, 0.0);
+        assert!((result[0] - 1.0).abs() < 1e-10);
+        assert!((result[1] - 0.0).abs() < 1e-10);
+        assert!((result[2] - 0.0).abs() < 1e-10);
+
+        // At t=1, should return b
+        let result = slerp_vec3(a, b, 1.0);
+        assert!((result[0] - 0.0).abs() < 1e-10);
+        assert!((result[1] - 1.0).abs() < 1e-10);
+        assert!((result[2] - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_slerp_vec3_midpoint() {
+        // Slerp between X and Y axis should give point at 45 degrees
+        let a = [1.0, 0.0, 0.0];
+        let b = [0.0, 1.0, 0.0];
+        let result = slerp_vec3(a, b, 0.5);
+
+        // At 45 degrees: (cos(45), sin(45), 0) = (sqrt(2)/2, sqrt(2)/2, 0)
+        let sqrt2_2 = std::f64::consts::FRAC_1_SQRT_2;
+        assert!((result[0] - sqrt2_2).abs() < 1e-10);
+        assert!((result[1] - sqrt2_2).abs() < 1e-10);
+        assert!((result[2] - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_slerp_vec3_is_unit() {
+        // Result should always be unit length
+        let a = [1.0, 0.0, 0.0];
+        let b = [0.0, 1.0, 0.0];
+        for t in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            let result = slerp_vec3(a, b, t);
+            let len =
+                (result[0] * result[0] + result[1] * result[1] + result[2] * result[2]).sqrt();
+            assert!(
+                (len - 1.0).abs() < 1e-10,
+                "slerp result should be unit at t={}",
+                t
+            );
+        }
+    }
+
+    #[test]
+    fn test_slerp_vec3_nearly_parallel() {
+        // When vectors are nearly parallel, slerp should fall back to nlerp
+        let a = [1.0, 0.0, 0.0];
+        let b: [f64; 3] = [0.9999, 0.01, 0.0]; // Nearly parallel
+        let b_len = (b[0] * b[0] + b[1] * b[1] + b[2] * b[2]).sqrt();
+        let b_norm = [b[0] / b_len, b[1] / b_len, b[2] / b_len];
+        let result = slerp_vec3(a, b_norm, 0.5);
+
+        // Should still produce unit result
+        let len = (result[0] * result[0] + result[1] * result[1] + result[2] * result[2]).sqrt();
+        assert!((len - 1.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_slerp_vec3_constant_angular_velocity() {
+        // Slerp maintains constant angular velocity
+        // The angle from a to slerp(a,b,t) should be t * angle(a,b)
+        let a = [1.0, 0.0, 0.0];
+        let b = [0.0, 1.0, 0.0];
+        let full_angle = std::f64::consts::FRAC_PI_2; // 90 degrees
+
+        for &t in &[0.25, 0.5, 0.75] {
+            let result = slerp_vec3(a, b, t);
+            // Angle from a to result
+            let cos_angle = a[0] * result[0] + a[1] * result[1] + a[2] * result[2];
+            let actual_angle = cos_angle.acos();
+            let expected_angle = t * full_angle;
+            assert!(
+                (actual_angle - expected_angle).abs() < 1e-10,
+                "slerp should have constant angular velocity at t={}",
+                t
+            );
+        }
+    }
+
+    #[test]
+    fn test_slerp_variadic_vec3() {
+        let a = Value::Vec3([1.0, 0.0, 0.0]);
+        let b = Value::Vec3([0.0, 1.0, 0.0]);
+        let t = Value::Scalar(0.5);
+        let result = slerp(&[a, b, t]);
+        if let Value::Vec3(v) = result {
+            let sqrt2_2 = std::f64::consts::FRAC_1_SQRT_2;
+            assert!((v[0] - sqrt2_2).abs() < 1e-10);
+            assert!((v[1] - sqrt2_2).abs() < 1e-10);
+            assert!((v[2] - 0.0).abs() < 1e-10);
+        } else {
+            panic!("Expected Vec3 result");
+        }
+    }
+
+    #[test]
+    #[should_panic(expected = "Vec3")]
+    fn test_slerp_rejects_vec2() {
+        let a = Value::Vec2([1.0, 0.0]);
+        let b = Value::Vec2([0.0, 1.0]);
+        let t = Value::Scalar(0.5);
+        let _ = slerp(&[a, b, t]);
     }
 }

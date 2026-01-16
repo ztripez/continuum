@@ -30,6 +30,7 @@ fn test_build_transition_fn() {
         is_initial: true,
         is_terminal: false,
         title: None,
+        doc: None,
         dt_seconds: 1.0,
         strata_states: IndexMap::new(),
         transitions: vec![CompiledTransition {
@@ -77,6 +78,7 @@ fn test_build_fracture() {
         file: None,
         span: 0..0,
         id: continuum_foundation::FractureId::from("test_fracture"),
+        doc: None,
         stratum: continuum_foundation::StratumId::from("default"),
         reads: vec![continuum_foundation::SignalId::from("temp")],
         conditions: vec![CompiledExpr::Binary {

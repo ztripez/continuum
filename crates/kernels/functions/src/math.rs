@@ -40,6 +40,14 @@ pub fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + t * (b - a)
 }
 
+/// Linear interpolation (alias): `mix(a, b, t)` → `a + t * (b - a)`
+///
+/// Same as `lerp`, provided for GLSL/shader compatibility.
+#[kernel_fn(namespace = "maths")]
+pub fn mix(a: f64, b: f64, t: f64) -> f64 {
+    a + t * (b - a)
+}
+
 /// Step function: `step(edge, x)` → 0.0 if x < edge, else 1.0
 ///
 /// Sharp transition at edge. Common in shader programming.
@@ -327,6 +335,7 @@ mod tests {
         assert!(is_known_in("maths", "pow"));
         assert!(is_known_in("maths", "clamp"));
         assert!(is_known_in("maths", "lerp"));
+        assert!(is_known_in("maths", "mix"));
         assert!(is_known_in("maths", "step"));
         assert!(is_known_in("maths", "smoothstep"));
         assert!(is_known_in("maths", "saturate"));
@@ -964,5 +973,56 @@ mod tests {
             .as_scalar()
             .unwrap();
         assert!((result - 0.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_eval_lerp_and_mix() {
+        // lerp(0, 10, 0.5) = 5
+        let result = eval_in_namespace(
+            "maths",
+            "lerp",
+            &[Value::Scalar(0.0), Value::Scalar(10.0), Value::Scalar(0.5)],
+            1.0,
+        )
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+        assert!((result - 5.0).abs() < 1e-10);
+
+        // mix should produce the same result as lerp
+        let result_mix = eval_in_namespace(
+            "maths",
+            "mix",
+            &[Value::Scalar(0.0), Value::Scalar(10.0), Value::Scalar(0.5)],
+            1.0,
+        )
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+        assert!((result_mix - 5.0).abs() < 1e-10);
+
+        // lerp at t=0 returns a
+        let result = eval_in_namespace(
+            "maths",
+            "lerp",
+            &[Value::Scalar(3.0), Value::Scalar(7.0), Value::Scalar(0.0)],
+            1.0,
+        )
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+        assert!((result - 3.0).abs() < 1e-10);
+
+        // lerp at t=1 returns b
+        let result = eval_in_namespace(
+            "maths",
+            "lerp",
+            &[Value::Scalar(3.0), Value::Scalar(7.0), Value::Scalar(1.0)],
+            1.0,
+        )
+        .unwrap()
+        .as_scalar()
+        .unwrap();
+        assert!((result - 7.0).abs() < 1e-10);
     }
 }
