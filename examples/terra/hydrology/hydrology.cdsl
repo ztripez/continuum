@@ -712,6 +712,7 @@ fracture hydrology.sediment_transport {
 # Water temperature relaxes toward surface temperature with latitude adjustment
 fracture hydrology.water_thermal_relaxation {
     : strata(hydrology)
+    : uses(maths.clamping)
 
     config {
         relaxation_timescale_s: 3.1536e7    # ~1 year relaxation
@@ -795,6 +796,7 @@ fracture hydrology.evaporation_coupling {
 # Cold water dissolves more gas, warm water releases gas
 fracture hydrology.gas_exchange {
     : strata(hydrology)
+    : uses(maths.clamping)
 
     config {
         solubility_cold: 0.7                # Equilibrium at cold water (~270K)
