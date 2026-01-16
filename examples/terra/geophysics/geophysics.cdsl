@@ -530,6 +530,8 @@ signal crust.thickness {
     }
 
     resolve {
+        # collected contains deltas from fractures (both continuous and discrete)
+        # Note: continuous processes assume dt ~1 Myr for rate configs
         maths.clamp(prev + collected, config.crust.thickness.min, config.crust.thickness.max)
     }
 
@@ -653,6 +655,8 @@ signal crust.elevation {
     }
 
     resolve {
+        # Base elevation from isostasy + dynamic topography + fracture contributions
+        # Note: continuous processes assume dt ~1 Myr for rate configs
         maths.clamp(
             signal.isostasy.elevation + signal.topography.dynamic_offset + collected,
             -config.crust.elevation.max_depth,
@@ -1623,8 +1627,8 @@ fracture tectonics.convergent_uplift {
     : strata(tectonics)
 
     config {
-        uplift_m_per_myr: 500.0           # Uplift rate at full convergence
-        thicken_m_per_myr: 200.0          # Thickening rate
+        thicken_m_per_myr: 200.0          # Thickening rate (m/Myr)
+        uplift_m_per_myr: 500.0           # Uplift rate at full convergence (m/Myr)
         convergence_threshold: 0.01       # Boundary shear threshold for activation
     }
 
@@ -1636,10 +1640,12 @@ fracture tectonics.convergent_uplift {
     emit {
         # Normalized convergence factor
         let conv_factor = signal.plates.boundary_shear / 0.1 in
-        let dt_myr = 0.001 in  # Approximate dt in Myr
 
-        signal.crust.thickness <- conv_factor * config.fracture.tectonics.convergent_uplift.thicken_m_per_myr * dt_myr
-        signal.crust.elevation <- conv_factor * config.fracture.tectonics.convergent_uplift.uplift_m_per_myr * dt_myr * 0.001
+        # Emit deltas assuming ~1 Myr timestep (rate configs are per Myr)
+        # TODO: These should be true rates with signal dt.integrate() once
+        # the DSL supports separate rate/delta channels
+        signal.crust.thickness <- conv_factor * config.fracture.tectonics.convergent_uplift.thicken_m_per_myr
+        signal.crust.elevation <- conv_factor * config.fracture.tectonics.convergent_uplift.uplift_m_per_myr * 0.001
     }
 }
 
@@ -1648,8 +1654,7 @@ fracture tectonics.divergent_subsidence {
     : strata(tectonics)
 
     config {
-        subside_m_per_myr: 300.0          # Subsidence rate at full divergence
-        thin_m_per_myr: 150.0             # Thinning rate
+        thin_m_per_myr: 150.0             # Thinning rate (m/Myr)
         divergence_threshold: 0.005       # Minimum activity for divergence
     }
 
@@ -1661,9 +1666,10 @@ fracture tectonics.divergent_subsidence {
     emit {
         # Divergence driven by mantle upwelling
         let div_factor = signal.mantle.flow_strength / 10.0 in
-        let dt_myr = 0.001 in
 
-        signal.crust.thickness <- -div_factor * config.fracture.tectonics.divergent_subsidence.thin_m_per_myr * dt_myr
+        # Emit delta assuming ~1 Myr timestep
+        signal.crust.thickness <- -div_factor * config.fracture.tectonics.divergent_subsidence.thin_m_per_myr
+        # Instantaneous delta for dynamic offset
         signal.topography.dynamic_offset <- div_factor * 50.0
     }
 }
@@ -2128,10 +2134,11 @@ impulse tectonics.plate_collision {
     apply {
         # Only process collisions above threshold
         if payload.energy > config.impulse.tectonics.plate_collision.min_significant_energy_j {
-            # Collision energy contributes to mountain building
+            # Collision energy contributes to mountain building rate (m/Myr)
+            # Scale: 1e21 J collision -> ~300 m/Myr orogeny boost
             let orogeny_contribution =
                 payload.energy * config.impulse.tectonics.plate_collision.orogeny_efficiency
-                / (1.0e21 * dt_myr) in
+                / 1.0e18 in
 
             signal.tectonics.orogeny_rate <- orogeny_contribution;
 
