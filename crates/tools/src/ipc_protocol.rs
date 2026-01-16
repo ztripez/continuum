@@ -189,7 +189,8 @@ pub struct ImpulseEmitRequest {
     pub payload: JsonValue,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
 pub struct AssertionFailuresRequest {
     pub signal_id: Option<String>,
 }
