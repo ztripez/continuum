@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'preact/hooks';
 import { useWebSocket } from './hooks/useWebSocket';
 import { Header } from './components/Header';
-import { Sidebar } from './components/Sidebar';
 import { TabPanel } from './components/TabPanel';
 import { DetailPanel } from './components/DetailPanel';
 import { LogPanel } from './components/LogPanel';
@@ -13,7 +12,7 @@ export function App() {
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [tickInfo, setTickInfo] = useState<TickEvent | null>(null);
 
-  // Subscribe to tick events
+  // Subscribe to tick events and fetch initial status
   useEffect(() => {
     if (ws.status !== 'connected') return;
 
@@ -24,7 +23,11 @@ export function App() {
     });
 
     // Request initial status
-    ws.sendRequest('status').catch(console.error);
+    ws.sendRequest('status').then((payload: any) => {
+      if (payload) {
+        setTickInfo(payload as TickEvent);
+      }
+    }).catch(console.error);
 
     return unsubscribe;
   }, [ws.status]);
@@ -33,7 +36,6 @@ export function App() {
     <div class="app">
       <Header status={ws.status} tickInfo={tickInfo} ws={ws} />
       <div class="main-layout">
-        <Sidebar ws={ws} />
         <TabPanel 
           currentTab={currentTab}
           onTabChange={setCurrentTab}
