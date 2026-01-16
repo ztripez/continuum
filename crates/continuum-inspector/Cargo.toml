@@ -24,5 +24,8 @@ futures = "0.3"
 # Internal deps
 continuum-tools = { path = "../tools" }
 
+# CLI
+clap = { version = "4", features = ["derive"] }
+
 [dev-dependencies]
 anyhow = "1"
