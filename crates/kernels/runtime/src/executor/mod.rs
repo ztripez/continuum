@@ -45,6 +45,7 @@ use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
+use crate::lens_sink::{LensData, LensSink};
 use crate::soa_storage::{MemberSignalBuffer, ValueType as MemberValueType};
 use crate::storage::{
     EmittedEventRecord, EntityInstances, EntityStorage, EventBuffer, FieldBuffer, FieldSample,
@@ -54,36 +55,11 @@ use crate::types::{
     Dt, EntityId, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value,
     WarmupConfig, WarmupResult,
 };
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunManifest {
-    pub run_id: String,
-    pub created_at: String,
-    pub seed: u64,
-    pub steps: u64,
-    pub stride: u64,
-    pub signals: Vec<String>,
-    pub fields: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TickSnapshot {
-    pub tick: u64,
-    pub time_seconds: f64,
-    pub signals: std::collections::HashMap<String, Value>,
-    pub fields: std::collections::HashMap<String, Vec<FieldSample>>,
-}
-
-#[derive(Debug, Clone)]
-pub struct SnapshotOptions {
-    pub output_dir: PathBuf,
-    pub stride: u64,
-    pub signals: Vec<SignalId>,
-    pub fields: Vec<FieldId>,
-    pub seed: u64,
-}
+// Note: RunManifest and TickSnapshot removed
+// Use LensSink for observer data output (fields only, no signals)
+// Signals belong in checkpoints, not observer snapshots
 
 #[derive(Debug, Clone)]
 pub struct CheckpointOptions {
@@ -93,12 +69,11 @@ pub struct CheckpointOptions {
     pub keep_last_n: Option<usize>,
 }
 
-#[derive(Debug, Clone)]
 pub struct RunOptions {
     pub steps: u64,
     pub print_signals: bool,
     pub signals: Vec<SignalId>,
-    pub snapshot: Option<SnapshotOptions>,
+    pub lens_sink: Option<Box<dyn LensSink>>,
     pub checkpoint: Option<CheckpointOptions>,
 }
 
@@ -117,82 +92,18 @@ pub enum RunError {
 
 pub fn run_simulation(
     runtime: &mut Runtime,
-    options: RunOptions,
+    mut options: RunOptions,
 ) -> std::result::Result<RunReport, RunError> {
-    let mut run_dir: Option<PathBuf> = None;
+    let run_dir: Option<PathBuf> = None;
 
-    if let Some(snapshot) = &options.snapshot {
-        let run_id = format!(
-            "{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|t| t.as_secs())
-                .unwrap_or(0)
-        );
-        let dir = snapshot.output_dir.join(&run_id);
-        std::fs::create_dir_all(&dir).map_err(|e| RunError::Snapshot(e.to_string()))?;
-
-        let created_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|t| t.as_secs().to_string())
-            .unwrap_or_else(|_| "0".to_string());
-        let manifest = RunManifest {
-            run_id: run_id.clone(),
-            created_at,
-            seed: snapshot.seed,
-            steps: options.steps,
-            stride: snapshot.stride,
-            signals: snapshot.signals.iter().map(|id| id.to_string()).collect(),
-            fields: snapshot.fields.iter().map(|id| id.to_string()).collect(),
-        };
-        let manifest_json = serde_json::to_string_pretty(&manifest)
-            .map_err(|e| RunError::Snapshot(e.to_string()))?;
-        std::fs::write(dir.join("run.json"), manifest_json)
-            .map_err(|e| RunError::Snapshot(e.to_string()))?;
-        run_dir = Some(dir);
-    }
+    // Lens sink is handled separately now - no manifest created here
+    // The sink handles its own manifest/metadata
 
     if !runtime.is_warmup_complete() {
         runtime
             .execute_warmup()
             .map_err(|e| RunError::Execution(e.to_string()))?;
     }
-
-    let write_snapshot = |step: u64, runtime: &mut Runtime| -> std::result::Result<(), RunError> {
-        let Some(snapshot) = &options.snapshot else {
-            return Ok(());
-        };
-        let mut signal_values = std::collections::HashMap::new();
-        for id in &snapshot.signals {
-            if let Some(val) = runtime.get_signal(id) {
-                signal_values.insert(id.to_string(), val.clone());
-            }
-        }
-
-        let mut field_samples = std::collections::HashMap::new();
-        for id in &snapshot.fields {
-            if let Some(samples) = runtime.field_buffer().get_samples(id) {
-                if !samples.is_empty() {
-                    field_samples.insert(id.to_string(), samples.to_vec());
-                }
-            }
-        }
-
-        let tick_snapshot = TickSnapshot {
-            tick: runtime.tick(),
-            time_seconds: runtime.sim_time(),
-            signals: signal_values,
-            fields: field_samples,
-        };
-
-        let encoded =
-            bincode::serialize(&tick_snapshot).map_err(|e| RunError::Snapshot(e.to_string()))?;
-        let filename = format!("tick_{:010}.bin", step);
-        let path = run_dir.as_ref().unwrap().join(filename);
-        std::fs::write(path, encoded).map_err(|e| RunError::Snapshot(e.to_string()))?;
-
-        Ok(())
-    };
 
     let mut last_checkpoint_time = std::time::Instant::now();
     let mut checkpoint_run_dir: Option<PathBuf> = None;
@@ -227,7 +138,7 @@ pub fn run_simulation(
         checkpoint_run_dir = Some(dir);
     }
 
-    for i in 0..options.steps {
+    for _i in 0..options.steps {
         runtime
             .execute_tick()
             .map_err(|e| RunError::Execution(e.to_string()))?;
@@ -242,10 +153,12 @@ pub fn run_simulation(
             println!("{}", line);
         }
 
-        if let Some(snapshot) = &options.snapshot {
-            if i % snapshot.stride == 0 {
-                write_snapshot(i, runtime)?;
-            }
+        // Emit field data to lens sink
+        if let Some(ref mut sink) = options.lens_sink {
+            let fields = runtime.drain_fields();
+            let lens_data = LensData { fields };
+            sink.emit_tick(runtime.tick(), runtime.sim_time(), lens_data)
+                .map_err(|e| RunError::Snapshot(e.to_string()))?;
         }
 
         // Checkpoint logic
@@ -290,6 +203,12 @@ pub fn run_simulation(
                 }
             }
         }
+    }
+
+    // Close lens sink (writes manifest, finalizes output)
+    if let Some(ref mut sink) = options.lens_sink {
+        sink.close()
+            .map_err(|e| RunError::Snapshot(e.to_string()))?;
     }
 
     Ok(RunReport { run_dir })
