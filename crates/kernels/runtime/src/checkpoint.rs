@@ -135,7 +135,7 @@ impl MemberSignalData {
     /// This reconstructs the SoA representation from the portable serialized format.
     pub fn restore_into_buffer(
         &self,
-        buffer: &mut MemberSignalBuffer,
+        _buffer: &mut MemberSignalBuffer,
     ) -> Result<(), CheckpointError> {
         // For now, no-op
         // TODO: Implement actual restoration into SoA buffers

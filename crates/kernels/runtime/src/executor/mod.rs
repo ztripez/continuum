@@ -41,7 +41,7 @@ pub use warmup::{WarmupExecutor, WarmupFn};
 
 use indexmap::IndexMap;
 
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
@@ -297,10 +297,12 @@ pub fn run_simulation(
 
 /// Prune old checkpoints, keeping only the last N.
 fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) {
-    let mut checkpoints: Vec<_> = std::fs::read_dir(checkpoint_dir)
-        .ok()
-        .into_iter()
-        .flat_map(|entries| entries.filter_map(Result::ok))
+    let Ok(entries) = std::fs::read_dir(checkpoint_dir) else {
+        return;
+    };
+
+    let mut checkpoints: Vec<_> = entries
+        .filter_map(|entry| entry.ok())
         .filter(|entry| {
             entry
                 .path()
@@ -325,6 +327,10 @@ fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) {
         debug!("Pruned old checkpoint: {}", entry.path().display());
     }
 }
+
+// ============================================================================
+// Era and Stratum Configuration
+// ============================================================================
 
 /// Era configuration
 pub struct EraConfig {
