@@ -1,48 +1,50 @@
 import { useEffect, useState } from 'preact/hooks';
+import { useWebSocket } from './hooks/useWebSocket';
+import { Header } from './components/Header';
+import { Sidebar } from './components/Sidebar';
+import { TabPanel } from './components/TabPanel';
+import { DetailPanel } from './components/DetailPanel';
+import { LogPanel } from './components/LogPanel';
+import type { TickEvent } from './types/ipc';
 
 export function App() {
-  const [wsStatus, setWsStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const ws = useWebSocket(`ws://${location.host}/ws`);
+  const [currentTab, setCurrentTab] = useState<'signals' | 'fields' | 'entities' | 'chronicles'>('signals');
+  const [selectedItem, setSelectedItem] = useState<any>(null);
+  const [tickInfo, setTickInfo] = useState<TickEvent | null>(null);
 
+  // Subscribe to tick events
   useEffect(() => {
-    const ws = new WebSocket(`ws://${location.host}/ws`);
+    if (ws.status !== 'connected') return;
 
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setWsStatus('connected');
-    };
+    const unsubscribe = ws.subscribe('tick', (msg) => {
+      if ('type' in msg && msg.type === 'tick') {
+        setTickInfo(msg.payload as TickEvent);
+      }
+    });
 
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setWsStatus('disconnected');
-    };
+    // Request initial status
+    ws.sendRequest('status').catch(console.error);
 
-    ws.onerror = (err) => {
-      console.error('WebSocket error:', err);
-      setWsStatus('disconnected');
-    };
-
-    ws.onmessage = (event) => {
-      console.log('Message from server:', event.data);
-    };
-
-    return () => ws.close();
-  }, []);
+    return unsubscribe;
+  }, [ws.status]);
 
   return (
     <div class="app">
-      <header class="header">
-        <h1>Continuum Inspector</h1>
-        <div class="status">
-          <span class={`status-indicator status-${wsStatus}`}></span>
-          <span>{wsStatus === 'connected' ? 'Connected' : wsStatus === 'connecting' ? 'Connecting...' : 'Disconnected'}</span>
+      <Header status={ws.status} tickInfo={tickInfo} ws={ws} />
+      <div class="main-layout">
+        <Sidebar ws={ws} />
+        <TabPanel 
+          currentTab={currentTab}
+          onTabChange={setCurrentTab}
+          onSelectItem={setSelectedItem}
+          ws={ws}
+        />
+        <div class="right-panel">
+          <DetailPanel selectedItem={selectedItem} ws={ws} />
+          <LogPanel ws={ws} />
         </div>
-      </header>
-      <main class="main">
-        <div class="placeholder">
-          <p>Continuum Inspector</p>
-          <p class="version">TypeScript + Preact + Vite</p>
-        </div>
-      </main>
+      </div>
     </div>
   );
 }
