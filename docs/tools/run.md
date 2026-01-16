@@ -24,6 +24,14 @@ cargo run --bin run -- [OPTIONS] <WORLD_DIR>
 - `--save <DIR>` (or `--snapshot-dir <DIR>`): Directory to write snapshot artifacts (manifest and JSON states).
 - `--stride <N>` (or `--snapshot-stride <N>`): Interval for capturing snapshots (default: 10).
 
+### Checkpoint & Resume
+- `--checkpoint-dir <PATH>`: Enable checkpointing and set storage directory. Creates `{run_id}/` subdirectories.
+- `--checkpoint-stride <N>`: Save checkpoint every N ticks (default: 1000).
+- `--checkpoint-interval <SECONDS>`: Wall-clock throttle - max one checkpoint per T seconds.
+- `--keep-checkpoints <N>`: Prune old checkpoints, keep only last N.
+- `--resume`: Resume from latest checkpoint in `--checkpoint-dir`.
+- `--force-resume`: Skip world IR validation on resume (dangerous - may crash or produce incorrect results).
+
 ## Execution Flow
 
 The tool performs the following steps:
@@ -57,3 +65,36 @@ Run with a custom timestep:
 ```bash
 cargo run --bin run -- examples/terra --dt 3.15e7
 ```
+
+Run with checkpoints every 1000 ticks:
+
+```bash
+cargo run --bin run -- examples/terra --steps 100000 \
+  --checkpoint-dir ./checkpoints \
+  --checkpoint-stride 1000 \
+  --keep-checkpoints 10
+```
+
+Resume from latest checkpoint:
+
+```bash
+cargo run --bin run -- examples/terra --resume \
+  --checkpoint-dir ./checkpoints \
+  --steps 50000
+```
+
+## Checkpoint vs Snapshot
+
+**Checkpoints** (`--checkpoint-dir`):
+- Store **causal state** (signals, entities, member signals)
+- Enable crash recovery and resume
+- Binary format (bincode + zstd compression)
+- Tied to world IR version
+
+**Snapshots** (`--save`):
+- Store **observer data** (fields, measurements)
+- For analysis and visualization
+- JSON format (human-readable)
+- Not resumable
+
+See `@docs/persistence.md` for detailed comparison.
