@@ -169,3 +169,8 @@ define_id!(
     /// Format: entity_path.signal_name (e.g., "human.person.age")
     MemberId
 );
+
+define_id!(
+    /// Unique identifier for an analyzer (observer-only analysis query)
+    AnalyzerId
+);

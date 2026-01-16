@@ -8,7 +8,7 @@ use std::ops::Range;
 
 use std::path::PathBuf;
 
-use continuum_foundation::{EntityId, MemberId, Path, SignalId, StratumId};
+use continuum_foundation::{EntityId, FieldId, MemberId, Path, SignalId, StratumId};
 
 use super::{
     CompiledAssertion, CompiledEmit, CompiledExpr, CompiledObserveHandler, CompiledTransition,
@@ -65,6 +65,8 @@ pub enum NodeKind {
     Member(MemberProperties),
     /// Chronicle: observer-only event recording
     Chronicle(ChronicleProperties),
+    /// Analyzer: observer-only analysis query
+    Analyzer(AnalyzerProperties),
     /// Function: user-defined pure function
     Function(FunctionProperties),
     /// Type: custom type definition
@@ -195,6 +197,21 @@ pub struct ChronicleProperties {
     pub doc: Option<String>,
     /// Observation handlers that emit events when conditions are met
     pub handlers: Vec<CompiledObserveHandler>,
+}
+
+/// Properties specific to analyzer nodes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyzerProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
+    /// Required fields this analyzer depends on
+    pub required_fields: Vec<FieldId>,
+    /// Compute expression that produces the analysis result
+    pub compute: CompiledExpr,
+    /// Output schema describing the result structure
+    pub output_schema: super::OutputSchema,
+    /// Validation checks to run on results
+    pub validations: Vec<super::CompiledValidation>,
 }
 
 /// Properties specific to function nodes
