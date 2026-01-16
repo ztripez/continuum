@@ -10,11 +10,12 @@
 
 use super::expr::{AggregateOp, BinaryOp, CallArg, Literal, MathConst, UnaryOp};
 use super::items::{
-    ApplyBlock, AssertBlock, AssertSeverity, Assertion, ChronicleDef, ConfigBlock, ConfigEntry,
-    ConstBlock, ConstEntry, CountBounds, EntityDef, EraDef, FieldDef, FnDef, FnParam, FractureDef,
-    ImpulseDef, MeasureBlock, MemberDef, ObserveBlock, ObserveHandler, OperatorBody, OperatorDef,
-    OperatorPhase, PolicyBlock, ResolveBlock, SignalDef, StrataDef, StrataState, StrataStateKind,
-    Topology, Transition, TypeDef, TypeField, ValueWithUnit, WarmupBlock, WorldDef,
+    AnalyzerDef, ApplyBlock, AssertBlock, AssertSeverity, Assertion, ChronicleDef, ConfigBlock,
+    ConfigEntry, ConstBlock, ConstEntry, CountBounds, EntityDef, EraDef, FieldDef, FnDef, FnParam,
+    FractureDef, ImpulseDef, MeasureBlock, MemberDef, ObserveBlock, ObserveHandler, OperatorBody,
+    OperatorDef, OperatorPhase, PolicyBlock, ResolveBlock, SignalDef, StrataDef, StrataState,
+    StrataStateKind, Topology, Transition, TypeDef, TypeField, ValidationCheck, ValueWithUnit,
+    WarmupBlock, WorldDef,
 };
 use super::{
     CompilationUnit, Expr, Item, Path, PrimitiveParamValue, PrimitiveTypeExpr, Range,
@@ -1086,6 +1087,10 @@ pub trait AstVisitor {
         walk_entity_def(self, def);
     }
 
+    fn visit_analyzer_def(&mut self, def: &AnalyzerDef) {
+        walk_analyzer_def(self, def);
+    }
+
     fn visit_count_bounds(&mut self, bounds: &CountBounds) {
         walk_count_bounds(self, bounds);
     }
@@ -1206,6 +1211,7 @@ pub fn walk_item<V: AstVisitor + ?Sized>(visitor: &mut V, item: &Spanned<Item>) 
         Item::ChronicleDef(def) => visitor.visit_chronicle_def(def),
         Item::EntityDef(def) => visitor.visit_entity_def(def),
         Item::MemberDef(def) => visitor.visit_member_def(def),
+        Item::AnalyzerDef(def) => visitor.visit_analyzer_def(def),
     }
 }
 
@@ -1555,6 +1561,22 @@ pub fn walk_count_bounds<V: AstVisitor + ?Sized>(visitor: &mut V, bounds: &Count
     visitor.visit_u32(bounds.max);
 }
 
+pub fn walk_analyzer_def<V: AstVisitor + ?Sized>(visitor: &mut V, def: &AnalyzerDef) {
+    visitor.visit_spanned_path(&def.path);
+    for field in &def.required_fields {
+        visitor.visit_spanned_path(field);
+    }
+    if let Some(compute) = &def.compute {
+        visitor.visit_expr(compute);
+    }
+    for validation in &def.validations {
+        visitor.visit_expr(&validation.condition);
+        if let Some(message) = &validation.message {
+            visitor.visit_spanned_string(message);
+        }
+    }
+}
+
 pub fn walk_call_arg<V: AstVisitor + ?Sized>(visitor: &mut V, arg: &CallArg) {
     visitor.visit_expr(&arg.value);
     if let Some(name) = &arg.name {
@@ -1864,6 +1886,10 @@ pub trait AstTransformer {
         walk_entity_def_transform(self, def)
     }
 
+    fn transform_analyzer_def(&mut self, def: AnalyzerDef) -> AnalyzerDef {
+        walk_analyzer_def_transform(self, def)
+    }
+
     fn transform_count_bounds(&mut self, bounds: CountBounds) -> CountBounds {
         CountBounds {
             min: self.transform_u32(bounds.min),
@@ -2034,6 +2060,7 @@ pub fn walk_item_transform<T: AstTransformer + ?Sized>(
         Item::ChronicleDef(def) => Item::ChronicleDef(transformer.transform_chronicle_def(def)),
         Item::EntityDef(def) => Item::EntityDef(transformer.transform_entity_def(def)),
         Item::MemberDef(def) => Item::MemberDef(transformer.transform_member_def(def)),
+        Item::AnalyzerDef(def) => Item::AnalyzerDef(transformer.transform_analyzer_def(def)),
     };
 
     Spanned { node, span }
@@ -2596,6 +2623,35 @@ pub fn walk_entity_def_transform<T: AstTransformer + ?Sized>(
         count_bounds: def
             .count_bounds
             .map(|bounds| transformer.transform_count_bounds(bounds)),
+    }
+}
+
+pub fn walk_analyzer_def_transform<T: AstTransformer + ?Sized>(
+    transformer: &mut T,
+    def: AnalyzerDef,
+) -> AnalyzerDef {
+    AnalyzerDef {
+        doc: def.doc,
+        path: transformer.transform_spanned_path(def.path),
+        required_fields: def
+            .required_fields
+            .into_iter()
+            .map(|field| transformer.transform_spanned_path(field))
+            .collect(),
+        compute: def
+            .compute
+            .map(|compute| transformer.transform_expr(compute)),
+        validations: def
+            .validations
+            .into_iter()
+            .map(|validation| ValidationCheck {
+                condition: transformer.transform_expr(validation.condition),
+                severity: validation.severity,
+                message: validation
+                    .message
+                    .map(|msg| transformer.transform_spanned_string(msg)),
+            })
+            .collect(),
     }
 }
 

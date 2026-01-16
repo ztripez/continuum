@@ -32,6 +32,8 @@ pub enum Token {
     Fracture,
     #[token("chronicle", priority = 2)]
     Chronicle,
+    #[token("analyzer", priority = 2)]
+    Analyzer,
     #[token("entity", priority = 2)]
     Entity,
     #[token("count", priority = 2)]

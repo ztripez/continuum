@@ -770,3 +770,75 @@ pub struct CountBounds {
     /// Maximum allowed instances.
     pub max: u32,
 }
+
+// === Analyzer ===
+
+/// Analyzer definition for post-hoc field analysis.
+///
+/// Analyzers are pure observers that compute derived analysis results from field
+/// snapshots captured during simulation. They run post-hoc (after simulation ends)
+/// on field data and produce structured JSON results with optional validation checks.
+///
+/// # DSL Syntax
+///
+/// ```cdsl
+/// analyzer terra.hypsometric_integral {
+///     : doc "Land/ocean ratio and elevation distribution"
+///     : requires(fields: [geophysics.elevation])
+///     
+///     : compute {
+///         let samples = field.samples(geophysics.elevation)
+///         let above_sea = samples.filter(|s| s.value > 0.0).count()
+///         let total = samples.count()
+///         let integral = above_sea / total
+///         
+///         emit {
+///             integral: integral,
+///             land_fraction: integral,
+///             ocean_fraction: 1.0 - integral,
+///             sample_count: total
+///         }
+///     }
+///     
+///     : validate {
+///         check integral in 0.2..0.4
+///             : severity(warning)
+///             : message("Land fraction {integral*100:.1}%")
+///     }
+/// }
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnalyzerDef {
+    /// Documentation comment from `///` lines.
+    pub doc: Option<String>,
+    /// Analyzer path (e.g., `terra.hypsometric_integral`).
+    pub path: Spanned<Path>,
+    /// Field dependencies (fields required for this analyzer).
+    pub required_fields: Vec<Spanned<Path>>,
+    /// Compute expression that produces the result.
+    pub compute: Option<Spanned<Expr>>,
+    /// Validation checks (optional).
+    pub validations: Vec<ValidationCheck>,
+}
+
+/// A single validation check in an analyzer.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ValidationCheck {
+    /// The condition to check.
+    pub condition: Spanned<Expr>,
+    /// Severity level (error, warning, or info).
+    pub severity: Severity,
+    /// Optional message template for the check.
+    pub message: Option<Spanned<String>>,
+}
+
+/// Severity level for validation checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    /// Critical failure.
+    Error,
+    /// Potential issue worth investigating.
+    Warning,
+    /// Informational note.
+    Info,
+}

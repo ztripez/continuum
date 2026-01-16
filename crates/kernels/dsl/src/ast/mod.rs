@@ -153,6 +153,8 @@ pub enum Item {
     EntityDef(EntityDef),
     /// Member signal (per-entity state): `member.stellar.moon.mass { resolve { ... } }`.
     MemberDef(MemberDef),
+    /// Analyzer (post-hoc analysis): `analyzer.terra.hypsometric { compute { ... } }`.
+    AnalyzerDef(AnalyzerDef),
 }
 
 pub use continuum_foundation::Path;
