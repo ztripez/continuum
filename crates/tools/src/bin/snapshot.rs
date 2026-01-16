@@ -97,6 +97,7 @@ fn main() {
         compilation,
         RuntimeBuildOptions {
             dt_override: args.dt,
+            scenario: None,
         },
     ) {
         Ok(result) => result,

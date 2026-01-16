@@ -12,6 +12,7 @@ pub mod fusion;
 mod interpret;
 mod lower;
 pub mod patterns;
+pub mod scenario;
 pub mod ssa;
 pub mod types;
 pub mod unified_nodes;
@@ -35,6 +36,10 @@ pub use interpret::{
 };
 
 pub use lower::{LowerError, lower, lower_multi, lower_with_file};
+pub use scenario::{
+    Scenario, ScenarioError, ScenarioMetadata, ScenarioResult, ScenarioValue, find_scenarios,
+    load_scenarios,
+};
 pub use types::*;
 pub use unified_nodes::*;
 pub use validate::{CompileWarning, WarningCode, validate};

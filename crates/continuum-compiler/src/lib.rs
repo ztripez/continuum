@@ -107,6 +107,15 @@ impl CompileResult {
             }
         }
     }
+
+    /// Format all diagnostics as a single string.
+    pub fn format_diagnostics(&self) -> String {
+        self.diagnostics
+            .iter()
+            .map(|diag| self.format_diagnostic(diag))
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
 }
 
 pub fn offset_to_line_col(text: &str, offset: usize) -> (u32, u32) {

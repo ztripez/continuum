@@ -1,0 +1,25 @@
+apiVersion: continuum/v1
+kind: Scenario
+
+metadata:
+  name: cold_start
+  title: "Cold Start Configuration"
+  description: |
+    A hypothetical Earth with cooler initial conditions.
+    Useful for testing thermal equilibration dynamics.
+
+# Override configuration values
+config:
+  # Cooler initial temperatures
+  core.initial_temp: 4000.0
+  mantle.initial_temp: 1200.0
+  surface.initial_temp: 250.0
+  
+  # Thicker early crust (more differentiation)
+  crust.initial_thickness: 50000.0
+  
+  # Less active tectonics due to cooler mantle
+  tectonics.initial_activity: 0.5
+  tectonics.initial_plate_count: 8
+
+seed: 123

@@ -482,6 +482,7 @@ mod tests {
         vectorized_impl: None,
         unit_inference: UnitInference::PreserveFirst,
         pattern_hints: PatternHints::NONE,
+        requires_uses: None,
     };
 
     #[test]

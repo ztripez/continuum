@@ -1,0 +1,26 @@
+apiVersion: continuum/v1
+kind: Scenario
+
+metadata:
+  name: early_earth
+  title: "Early Earth Configuration"
+  description: |
+    Earth parameters for approximately 4.5 billion years ago during
+    the Hadean Eon. Hotter core, thinner crust, more active tectonics.
+
+# Override configuration values
+config:
+  # Hotter initial conditions
+  core.initial_temp: 6000.0
+  mantle.initial_temp: 2000.0
+  surface.initial_temp: 500.0
+  
+  # Thinner early crust
+  crust.initial_thickness: 10000.0
+  crust.initial_elevation: -1000.0
+  
+  # More active tectonics
+  tectonics.initial_activity: 2.0
+  tectonics.initial_plate_count: 20
+
+seed: 42

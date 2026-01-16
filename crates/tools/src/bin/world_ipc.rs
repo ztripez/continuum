@@ -108,6 +108,7 @@ async fn main() {
         compilation,
         RuntimeBuildOptions {
             dt_override: cli.dt,
+            scenario: None,
         },
     ) {
         Ok(result) => result,

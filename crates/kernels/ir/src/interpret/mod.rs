@@ -96,9 +96,13 @@ pub struct MemberResolverStats {
     pub vec3_count: usize,
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+/// Options for building a runtime from a compiled world.
+#[derive(Debug, Clone, Default)]
 pub struct RuntimeBuildOptions {
+    /// Override dt (seconds per tick) for all eras.
     pub dt_override: Option<f64>,
+    /// Scenario to apply (config overrides and initial values).
+    pub scenario: Option<crate::scenario::Scenario>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -176,6 +180,22 @@ pub fn build_runtime(
     options: RuntimeBuildOptions,
 ) -> Result<(Runtime, RuntimeBuildReport), RuntimeBuildError> {
     let mut report = RuntimeBuildReport::default();
+
+    // Apply scenario config overrides if present.
+    // We need to clone the world if we have a scenario because we modify config values.
+    let world_owned: Option<CompiledWorld>;
+    let world = if let Some(ref scenario) = options.scenario {
+        let mut world_clone = CompiledWorld {
+            constants: world.constants.clone(),
+            config: world.config.clone(),
+            nodes: world.nodes.clone(),
+        };
+        scenario.apply_config(&mut world_clone);
+        world_owned = Some(world_clone);
+        world_owned.as_ref().unwrap()
+    } else {
+        world
+    };
 
     let initial_era = world
         .eras()
@@ -262,9 +282,21 @@ pub fn build_runtime(
     }
 
     // Initialize signals.
+    // First apply world defaults, then override with scenario initial values.
     for (signal_id, _) in &world.signals() {
         let value = get_initial_signal_value(world, signal_id);
         runtime.init_signal(signal_id.clone(), value);
+    }
+
+    // Apply scenario initial signal values (overrides world defaults).
+    if let Some(ref scenario) = options.scenario {
+        for (signal_name, scenario_value) in scenario.initial_values() {
+            let signal_id = SignalId::from(signal_name.as_str());
+            if world.signals().contains_key(&signal_id) {
+                let value = scenario_value.to_value();
+                runtime.init_signal(signal_id, value);
+            }
+        }
     }
 
     // Initialize entities + member signals.
