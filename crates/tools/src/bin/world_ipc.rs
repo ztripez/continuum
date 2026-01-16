@@ -15,7 +15,7 @@ use tokio::task::yield_now;
 use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
 
-use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
+use continuum_compiler::ir::{RuntimeBuildOptions, Scenario, build_runtime, compile};
 use continuum_ir::CompiledWorld;
 use continuum_lens::{FieldLens, FieldLensConfig, PlaybackClock};
 use continuum_runtime::executor::Runtime;
@@ -38,6 +38,10 @@ struct Cli {
     /// Unix socket path to listen on.
     #[arg(long)]
     socket: PathBuf,
+
+    /// Scenario name to load from world/scenarios/
+    #[arg(long)]
+    scenario: Option<String>,
 
     /// Override dt for all eras.
     #[arg(long)]
@@ -102,13 +106,37 @@ async fn main() {
         }
     };
 
+    // Load scenario if specified
+    let scenario = if let Some(ref scenario_name) = cli.scenario {
+        let scenario_path = cli
+            .world_dir
+            .join("scenarios")
+            .join(format!("{}.yaml", scenario_name));
+        if !scenario_path.exists() {
+            error!("Scenario file not found: {}", scenario_path.display());
+            std::process::exit(1);
+        }
+        match Scenario::load(&scenario_path) {
+            Ok(s) => {
+                info!("Loaded scenario: {}", scenario_name);
+                Some(s)
+            }
+            Err(err) => {
+                error!("Failed to load scenario: {}", err);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+
     debug!("Building runtime...");
     let (runtime, report) = match build_runtime(
         &world,
         compilation,
         RuntimeBuildOptions {
             dt_override: cli.dt,
-            scenario: None,
+            scenario,
         },
     ) {
         Ok(result) => result,

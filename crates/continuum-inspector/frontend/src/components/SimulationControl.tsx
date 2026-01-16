@@ -6,6 +6,7 @@ interface SimulationControlProps {
 
 export function SimulationControl({ onSimulationChange }: SimulationControlProps) {
   const [worldPath, setWorldPath] = useState('');
+  const [scenario, setScenario] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
@@ -22,10 +23,15 @@ export function SimulationControl({ onSimulationChange }: SimulationControlProps
 
     setLoading(true);
     try {
+      const payload: { world_path: string; scenario?: string } = { world_path: worldPath };
+      if (scenario.trim()) {
+        payload.scenario = scenario.trim();
+      }
+
       const response = await fetch('/api/sim/load', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ world_path: worldPath }),
+        body: JSON.stringify(payload),
       });
 
       const data = await response.json();
@@ -94,8 +100,16 @@ export function SimulationControl({ onSimulationChange }: SimulationControlProps
           type="text"
           value={worldPath}
           onInput={(e) => setWorldPath((e.target as HTMLInputElement).value)}
-          placeholder="Path to world directory (e.g., worlds/my-world)"
+          placeholder="Path to world directory (e.g., examples/terra)"
           class="world-path-input"
+          disabled={loading}
+        />
+        <input
+          type="text"
+          value={scenario}
+          onInput={(e) => setScenario((e.target as HTMLInputElement).value)}
+          placeholder="Scenario (optional, e.g., default)"
+          class="scenario-input"
           disabled={loading}
         />
         <button

@@ -712,8 +712,8 @@ button.small {
   align-items: center;
 }
 
-.world-path-input {
-  flex: 1;
+.world-path-input,
+.scenario-input {
   padding: 0.5rem 0.75rem;
   background: var(--bg);
   border: 1px solid var(--border);
@@ -724,16 +724,27 @@ button.small {
   transition: border-color 0.15s;
 }
 
-.world-path-input:focus {
+.world-path-input {
+  flex: 2;
+}
+
+.scenario-input {
+  flex: 1;
+}
+
+.world-path-input:focus,
+.scenario-input:focus {
   outline: none;
   border-color: var(--primary);
 }
 
-.world-path-input::placeholder {
+.world-path-input::placeholder,
+.scenario-input::placeholder {
   color: var(--text-muted);
 }
 
-.world-path-input:disabled {
+.world-path-input:disabled,
+.scenario-input:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }

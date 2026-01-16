@@ -59,6 +59,7 @@ struct IpcServerGuard {
     child: Child,
     socket: PathBuf,
     world_path: PathBuf,
+    scenario: Option<String>,
 }
 
 impl Drop for IpcServerGuard {
@@ -94,7 +95,11 @@ fn find_world_ipc_binary() -> Option<PathBuf> {
     None
 }
 
-fn launch_ipc_server(world: &PathBuf, socket: &PathBuf) -> Result<IpcServerGuard, String> {
+fn launch_ipc_server(
+    world: &PathBuf,
+    socket: &PathBuf,
+    scenario: Option<&str>,
+) -> Result<IpcServerGuard, String> {
     let binary = find_world_ipc_binary().ok_or_else(|| {
         "world-ipc binary not found. Run: cargo build --bin world-ipc".to_string()
     })?;
@@ -104,17 +109,30 @@ fn launch_ipc_server(world: &PathBuf, socket: &PathBuf) -> Result<IpcServerGuard
         std::fs::remove_file(socket).ok();
     }
 
-    info!(
-        "Launching IPC server: {} --socket {} {}",
-        binary.display(),
-        socket.display(),
-        world.display()
-    );
+    let mut cmd = Command::new(&binary);
+    cmd.arg("--socket").arg(socket);
 
-    let child = Command::new(&binary)
-        .arg("--socket")
-        .arg(socket)
-        .arg(world)
+    if let Some(scenario_name) = scenario {
+        info!(
+            "Launching IPC server: {} --socket {} --scenario {} {}",
+            binary.display(),
+            socket.display(),
+            scenario_name,
+            world.display()
+        );
+        cmd.arg("--scenario").arg(scenario_name);
+    } else {
+        info!(
+            "Launching IPC server: {} --socket {} {}",
+            binary.display(),
+            socket.display(),
+            world.display()
+        );
+    }
+
+    cmd.arg(world);
+
+    let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn world-ipc: {e}"))?;
 
@@ -122,6 +140,7 @@ fn launch_ipc_server(world: &PathBuf, socket: &PathBuf) -> Result<IpcServerGuard
         child,
         socket: socket.clone(),
         world_path: world.clone(),
+        scenario: scenario.map(|s| s.to_string()),
     })
 }
 
@@ -139,7 +158,7 @@ async fn main() {
 
     // Launch IPC server if world path provided
     let _ipc_guard = if let Some(ref world) = cli.world {
-        match launch_ipc_server(world, &cli.socket) {
+        match launch_ipc_server(world, &cli.socket, None) {
             Ok(guard) => {
                 // Wait for socket to be ready
                 for i in 0..20 {
@@ -344,6 +363,7 @@ async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
 #[derive(Debug, Deserialize)]
 struct LoadSimulationRequest {
     world_path: String,
+    scenario: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -356,6 +376,7 @@ struct ApiResponse {
 struct SimulationStatusResponse {
     running: bool,
     world_path: Option<String>,
+    scenario: Option<String>,
 }
 
 async fn load_simulation(
@@ -393,7 +414,7 @@ async fn load_simulation(
     }
 
     // Launch new simulation
-    match launch_ipc_server(&world_path, &state.socket) {
+    match launch_ipc_server(&world_path, &state.socket, req.scenario.as_deref()) {
         Ok(guard) => {
             // Wait for socket to be ready
             for i in 0..20 {
@@ -431,8 +452,8 @@ async fn restart_simulation(State(state): State<AppState>) -> Json<ApiResponse> 
 
     let mut manager = state.sim_manager.lock().await;
 
-    let world_path = if let Some(ref guard) = manager.current_guard {
-        guard.world_path.clone()
+    let (world_path, scenario) = if let Some(ref guard) = manager.current_guard {
+        (guard.world_path.clone(), guard.scenario.clone())
     } else {
         return Json(ApiResponse {
             success: false,
@@ -458,8 +479,8 @@ async fn restart_simulation(State(state): State<AppState>) -> Json<ApiResponse> 
         }
     }
 
-    // Launch new simulation with same world path
-    match launch_ipc_server(&world_path, &state.socket) {
+    // Launch new simulation with same world path and scenario
+    match launch_ipc_server(&world_path, &state.socket, scenario.as_deref()) {
         Ok(guard) => {
             // Wait for socket to be ready
             for i in 0..20 {
@@ -525,5 +546,9 @@ async fn simulation_status(State(state): State<AppState>) -> Json<SimulationStat
             .current_guard
             .as_ref()
             .map(|g| g.world_path.display().to_string()),
+        scenario: manager
+            .current_guard
+            .as_ref()
+            .and_then(|g| g.scenario.clone()),
     })
 }
