@@ -13,7 +13,8 @@ use tracing::{error, info, warn};
 use continuum_compiler::ir::{
     BinaryBundle, RuntimeBuildOptions, Scenario, build_runtime, compile, find_scenarios,
 };
-use continuum_runtime::executor::{CheckpointOptions, RunOptions, SnapshotOptions, run_simulation};
+use continuum_runtime::executor::{CheckpointOptions, RunOptions, run_simulation};
+use continuum_runtime::lens_sink::{FileSink, FileSinkConfig, FilteredSink, LensSinkConfig};
 
 #[derive(Parser, Debug)]
 #[command(name = "run")]
@@ -279,13 +280,26 @@ fn main() {
         }
     }
 
-    // Prepare snapshot directory if requested
-    let snapshot = args.save_dir.as_ref().map(|dir| SnapshotOptions {
-        output_dir: dir.clone(),
-        stride: args.stride,
-        signals: signals.keys().cloned().collect(),
-        fields: fields.keys().cloned().collect(),
-        seed: 0,
+    // Prepare lens sink if save directory requested
+    let lens_sink = args.save_dir.as_ref().map(|dir| {
+        let config = FileSinkConfig {
+            output_dir: dir.clone(),
+            seed: 0, // TODO: Get actual seed from scenario or args
+            steps: args.steps,
+            stride: args.stride,
+            field_filter: fields.keys().cloned().collect(),
+        };
+
+        let file_sink = FileSink::new(config).expect("Failed to create file sink");
+
+        // Wrap with FilteredSink to apply stride
+        let sink_config = LensSinkConfig {
+            stride: args.stride,
+            field_filter: fields.keys().cloned().collect(),
+        };
+
+        Box::new(FilteredSink::new(file_sink, sink_config))
+            as Box<dyn continuum_runtime::lens_sink::LensSink>
     });
 
     info!("Running {} steps...", args.steps);
@@ -304,7 +318,7 @@ fn main() {
             steps: args.steps,
             print_signals: true,
             signals: signals.keys().cloned().collect(),
-            snapshot,
+            lens_sink,
             checkpoint,
         },
     ) {
