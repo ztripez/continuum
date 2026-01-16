@@ -55,6 +55,7 @@ fn main() {
                     continuum_dsl::ast::Item::WorldDef(_) => world += 1,
                     continuum_dsl::ast::Item::ChronicleDef(_) => {}
                     continuum_dsl::ast::Item::OperatorDef(_) => {}
+                    continuum_dsl::ast::Item::AnalyzerDef(_) => {}
                 }
             }
 

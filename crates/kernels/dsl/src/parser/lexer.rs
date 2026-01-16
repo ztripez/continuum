@@ -128,6 +128,26 @@ pub enum Token {
     #[token("iterate", priority = 2)]
     Iterate,
 
+    // --- Analyzer Keywords ---
+    #[token("doc", priority = 2)]
+    Doc,
+    #[token("requires", priority = 2)]
+    Requires,
+    #[token("compute", priority = 2)]
+    Compute,
+    #[token("validate", priority = 2)]
+    Validate,
+    #[token("check", priority = 2)]
+    Check,
+    // NOTE: 'severity' conflicts with struct field names in chronicles
+    // Use 'level' for analyzer validation severity instead
+    #[token("level", priority = 2)]
+    Level,
+    #[token("message", priority = 2)]
+    Message,
+    #[token("fields", priority = 2)]
+    Fields,
+
     // --- Built-in Types ---
     #[token("symmetric", priority = 2)]
     Symmetric,
