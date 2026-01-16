@@ -32,10 +32,6 @@ struct Args {
     /// Web server bind address
     #[arg(long, default_value = "0.0.0.0:8080")]
     bind: String,
-
-    /// Static assets directory
-    #[arg(long, default_value = "crates/tools/assets/ipc-web")]
-    static_dir: PathBuf,
 }
 
 #[tokio::main]
@@ -78,7 +74,7 @@ async fn main() -> Result<()> {
     let exe_dir = exe_path.parent().unwrap();
 
     let world_ipc_bin = exe_dir.join("world-ipc");
-    let world_ipc_web_bin = exe_dir.join("world-ipc-web");
+    let inspector_bin = exe_dir.join("continuum_inspector");
 
     // Check if binaries exist
     if !world_ipc_bin.exists() {
@@ -88,10 +84,10 @@ async fn main() -> Result<()> {
         );
     }
 
-    if !world_ipc_web_bin.exists() {
+    if !inspector_bin.exists() {
         anyhow::bail!(
-            "world-ipc-web binary not found at {}\nPlease build it first: cargo build --bin world-ipc-web",
-            world_ipc_web_bin.display()
+            "continuum_inspector binary not found at {}\nPlease build it first: cargo build --bin continuum_inspector",
+            inspector_bin.display()
         );
     }
 
@@ -116,15 +112,13 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Start web proxy
-    info!("Starting web proxy...");
-    let mut web_server = Command::new(&world_ipc_web_bin)
+    // Start web inspector
+    info!("Starting web inspector...");
+    let mut web_server = Command::new(&inspector_bin)
         .arg("--socket")
         .arg(&args.socket)
         .arg("--bind")
         .arg(&args.bind)
-        .arg("--static-dir")
-        .arg(&args.static_dir)
         .spawn()?;
 
     // Wait a moment for web server to start
@@ -132,7 +126,7 @@ async fn main() -> Result<()> {
 
     info!("");
     info!("✓ IPC Debug Server Ready");
-    info!("✓ Open your browser to: http://{}", args.bind);
+    info!("✓ Continuum Inspector: http://{}", args.bind);
     info!("");
 
     // Monitor both processes
@@ -156,7 +150,7 @@ async fn main() -> Result<()> {
     ipc_server.kill().ok();
     ipc_server.wait().ok();
 
-    info!("Stopping web server...");
+    info!("Stopping web inspector...");
     web_server.kill().ok();
     web_server.wait().ok();
 
