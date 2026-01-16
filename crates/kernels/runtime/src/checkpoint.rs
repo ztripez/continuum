@@ -208,7 +208,7 @@ struct CheckpointJob {
 /// Uses a background thread to handle serialization and I/O,
 /// ensuring the main simulation thread never blocks on checkpoint writes.
 pub struct CheckpointWriter {
-    tx: SyncSender<CheckpointJob>,
+    tx: Option<SyncSender<CheckpointJob>>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -217,7 +217,10 @@ impl CheckpointWriter {
     pub fn new(queue_depth: usize) -> Self {
         let (tx, rx) = sync_channel(queue_depth);
         let handle = Some(spawn_writer_thread(rx));
-        Self { tx, handle }
+        Self {
+            tx: Some(tx),
+            handle,
+        }
     }
 
     /// Request a checkpoint write (non-blocking).
@@ -230,13 +233,15 @@ impl CheckpointWriter {
         checkpoint: Checkpoint,
         compression_level: i32,
     ) -> Result<(), CheckpointError> {
+        let tx = self.tx.as_ref().ok_or(CheckpointError::WriterDied)?;
+
         let job = CheckpointJob {
             path,
             checkpoint,
             compression_level,
         };
 
-        match self.tx.try_send(job) {
+        match tx.try_send(job) {
             Ok(()) => {
                 debug!("Checkpoint job queued successfully");
                 Ok(())
@@ -255,13 +260,16 @@ impl CheckpointWriter {
 
 impl Drop for CheckpointWriter {
     fn drop(&mut self) {
-        // Drop sender to signal shutdown
-        drop(self.tx.clone());
+        // Drop sender to signal shutdown (consuming the Option)
+        self.tx.take();
 
         // Wait for writer thread to finish pending jobs
         if let Some(handle) = self.handle.take() {
+            debug!("Waiting for checkpoint writer thread to finish");
             if let Err(e) = handle.join() {
                 error!("Checkpoint writer thread panicked: {:?}", e);
+            } else {
+                debug!("Checkpoint writer thread joined successfully");
             }
         }
     }
