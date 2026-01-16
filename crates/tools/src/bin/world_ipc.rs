@@ -13,7 +13,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task::yield_now;
 use tokio::time::{Duration, sleep};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, warn};
 
 use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
 use continuum_ir::CompiledWorld;
@@ -907,9 +907,9 @@ fn broadcast_assertion_failures(state: &mut ServerState) {
 fn execute_tick(state: &mut ServerState) -> anyhow::Result<()> {
     // Run warmup if not complete
     if !state.runtime.is_warmup_complete() {
-        info!("Executing warmup...");
+        warn!("Executing warmup...");
         state.runtime.execute_warmup()?;
-        info!("Warmup complete");
+        warn!("Warmup complete");
     }
 
     // Execute tick - may fail due to assertion errors
