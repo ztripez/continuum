@@ -14,55 +14,57 @@ Every world should have a test suite. Use it to validate simulations.
 
 ## Test Suite Convention
 
-Each world follows this structure:
 ```
 examples/<world>/
-  analyzers.cdsl              # Analyzer definitions
+  analyzers.cdsl              # CDSL analyzer definitions
   tests/
     <world>_baselines.yaml    # Expected values and thresholds
 ```
 
-## How to Validate
+## CLI Tools
 
-### 1. Find the Test Suite
-
+Build the tools:
 ```bash
-# Check what analyzers exist
-continuum analyze list examples/<world>
-
-# Find the baselines file
-ls examples/<world>/tests/
+cargo build -p continuum-tools
 ```
 
-### 2. Run Validation
+Available binaries in `target/debug/`:
+- `analyze` - Run analyzers and baseline comparisons
+- `compile` - Compile CDSL to IR
+- `run` - Run simulations
+
+## Baseline Validation
 
 ```bash
-# Run all validations against baselines
-continuum analyze validate <snapshot_dir> --baselines examples/<world>/tests/<world>_baselines.yaml
+# Record baseline from known-good run
+./target/debug/analyze baseline record <snapshot_dir> -o baseline.json
+
+# Compare new run against baseline (5% tolerance)
+./target/debug/analyze baseline compare <snapshot_dir> -b baseline.json -t 0.05
 ```
 
-### 3. Check Results
+## CDSL Analyzer Validation
 
-- Exit code 0 = all passed
-- Exit code 1 = error-level checks failed
-- Read output for specific failures
+```bash
+# List analyzers in compiled world
+./target/debug/analyze analyzer list <world.json>
+
+# Run specific analyzer
+./target/debug/analyze analyzer run <name> <world.json> <snapshot_dir>
+```
 
 ## When Validation Fails
 
-1. **Read the error** - which analyzer failed?
-2. **Check the baseline** - what was expected?
-3. **Check the analyzer** - what does it compute?
-4. **Fix the simulation** - correct the physics/logic
+1. Read the error message
+2. Check baseline YAML for expected values
+3. Check analyzer CDSL for computation logic
+4. Fix simulation code
 
 ## World-Specific Skills
 
 - Terra: Use `validate-terra` skill
-- Other worlds: Follow same pattern
+- Other worlds: Create `validate-<world>` following same pattern
 
-## Creating Test Suites for New Worlds
+## Reference
 
-1. Define analyzers in `<world>/analyzers.cdsl`
-2. Create `<world>/tests/<world>_baselines.yaml`
-3. Document expected values and why
-
-See `examples/terra/` for reference implementation.
+See `examples/terra/` for complete example.

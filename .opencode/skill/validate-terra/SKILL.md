@@ -14,30 +14,40 @@ Use the existing test suite to validate terra simulation output.
 
 ## Test Suite Location
 
-All validation definitions are in:
 - **Analyzers**: `examples/terra/analyzers.cdsl`
 - **Baselines**: `examples/terra/tests/terra_baselines.yaml`
 
 ## How to Validate
 
-### 1. Run the Test Suite
+### Step 1: Build the analyze tool
 
 ```bash
-# Run all terra validations against a snapshot
-continuum analyze validate <snapshot_dir> --baselines examples/terra/tests/terra_baselines.yaml
+cargo build -p continuum-tools --bin analyze
 ```
 
-### 2. Or Run Individual Analyzers
+### Step 2: Run baseline comparison
 
 ```bash
-continuum analyze run terra.hypsometric_integral <snapshot_dir>
-continuum analyze run terra.water_elevation_check <snapshot_dir>
-continuum analyze run terra.isostasy_balance <snapshot_dir>
+# Record a baseline from a known-good run
+./target/debug/analyze baseline record <snapshot_dir> -o baseline.json
+
+# Compare new run against baseline
+./target/debug/analyze baseline compare <snapshot_dir> -b baseline.json -t 0.05
+```
+
+### Step 3: Run CDSL analyzers
+
+```bash
+# List available analyzers
+./target/debug/analyze analyzer list <world.json>
+
+# Run specific analyzer
+./target/debug/analyze analyzer run terra.hypsometric_integral <world.json> <snapshot_dir>
 ```
 
 ## What the Test Suite Checks
 
-Read `examples/terra/tests/terra_baselines.yaml` for full details. Key checks:
+Read `examples/terra/tests/terra_baselines.yaml` for expected values:
 
 | Check | Expected | Severity |
 |-------|----------|----------|
@@ -47,12 +57,12 @@ Read `examples/terra/tests/terra_baselines.yaml` for full details. Key checks:
 
 ## When Validation Fails
 
-1. Read the error message from the analyzer
+1. Read the error message
 2. Check `terra_baselines.yaml` for the expected value
-3. Look at the analyzer definition in `analyzers.cdsl`
-4. Fix the simulation code that produces the failing metric
+3. Look at the analyzer in `analyzers.cdsl`
+4. Fix the simulation code
 
 ## Reference
 
-- Old implementation: `/home/ztripez/Documents/code/sides/continuum-alpha/continuum-prime/crates/tools/src/analyze/domain/terra.rs`
-- Field mappings in `examples/terra/AGENTS.md`
+- Old Rust implementation: `continuum-alpha/continuum-prime/crates/tools/src/analyze/domain/terra.rs`
+- Field mappings: `examples/terra/AGENTS.md`
