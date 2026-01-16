@@ -703,17 +703,28 @@ pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
     }
 }
 
+/// Helper to deserialize a payload that may be null
+fn deserialize_or_default<T: Default + serde::de::DeserializeOwned>(
+    payload: serde_json::Value,
+) -> anyhow::Result<T> {
+    if payload.is_null() {
+        Ok(T::default())
+    } else {
+        Ok(serde_json::from_value(payload)?)
+    }
+}
+
 pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
     let command = match request.kind.as_str() {
         "status" => IpcCommand::Status,
         "step" => {
-            let req: StepRequest = serde_json::from_value(request.payload)?;
+            let req: StepRequest = deserialize_or_default(request.payload)?;
             IpcCommand::Step {
                 count: req.count.unwrap_or(1),
             }
         }
         "run" => {
-            let req: RunRequest = serde_json::from_value(request.payload)?;
+            let req: RunRequest = deserialize_or_default(request.payload)?;
             IpcCommand::Run { count: req.count }
         }
         "stop" => IpcCommand::Stop,
@@ -818,7 +829,7 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
         }
         "assertion.list" => IpcCommand::AssertionList,
         "assertion.failures" => {
-            let req: AssertionFailuresRequest = serde_json::from_value(request.payload)?;
+            let req: AssertionFailuresRequest = deserialize_or_default(request.payload)?;
             IpcCommand::AssertionFailures {
                 signal_id: req.signal_id,
             }
