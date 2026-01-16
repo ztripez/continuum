@@ -89,7 +89,11 @@ fn infer_unit(
             }
         }
         CompiledExpr::DtRaw | CompiledExpr::SimTime => Ok(Unit::parse("s").unwrap()),
-        CompiledExpr::Collected => Ok(Unit::dimensionless()), // depends on impulses
+        // Collected is polymorphic: its unit depends on context.
+        // - In `prev + collected`: adopts signal's unit (deltas)
+        // - In `dt.integrate(prev, collected)`: adopts signal's unit/s (rates)
+        // Return dimensionless here; context-specific inference handles adoption.
+        CompiledExpr::Collected => Ok(Unit::dimensionless()),
 
         CompiledExpr::Signal(id) => Ok(symbol_units
             .get(&id.to_string())
@@ -196,6 +200,7 @@ fn infer_unit(
                     }
                     UnitInference::Integrate => {
                         // integrate(prev, rate) -> prev + rate * dt
+                        // Expected: rate * dt == prev, so rate should be prev/s
                         let u_prev =
                             infer_unit(&args[0], world, symbol_units, current_signal.clone())?;
                         let u_rate = infer_unit(&args[1], world, symbol_units, current_signal)?;
@@ -203,6 +208,12 @@ fn infer_unit(
                         let u_integrated = u_rate.multiply(&u_dt);
 
                         if u_prev == u_integrated {
+                            Ok(u_prev)
+                        } else if u_rate.is_dimensionless() {
+                            // Polymorphic: if rate is dimensionless (e.g., `collected`),
+                            // allow it to adopt the required unit (prev/s).
+                            // This enables patterns like dt.integrate(prev, collected)
+                            // where collected gathers rates from fractures.
                             Ok(u_prev)
                         } else {
                             Err(DimensionError::IncompatibleUnits {
