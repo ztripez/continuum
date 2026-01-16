@@ -93,7 +93,56 @@ If fracture outcomes differ, determinism is broken.
 
 ---
 
-## 7. What Fractures Are Not
+## 7. Fracture Restrictions
+
+Fractures have specific restrictions to maintain causality and determinism:
+
+### 7.1 No dt.raw in Emit Blocks
+
+Fractures **cannot use `dt.raw`** in their `emit` blocks.
+
+**Why?** Fractures detect emergent conditions and emit signal inputs. The magnitude of these inputs should be condition-dependent, not time-step dependent. Using `dt.raw` would make fracture responses vary with simulation timestep, violating the principle that fractures respond to **state**, not **time**.
+
+**Wrong:**
+```cdsl
+fracture thermal.coupling {
+    when { signal.temp > 1000 <K> }
+    emit {
+        let energy = signal.power * dt.raw in  # ❌ NOT ALLOWED
+        signal.heat <- energy
+    }
+}
+```
+
+**Right approach #1 - Let signal handle dt:**
+```cdsl
+fracture thermal.coupling {
+    when { signal.temp > 1000 <K> }
+    emit {
+        signal.heat_power <- signal.power  # Emit power, signal integrates
+    }
+}
+
+signal heat {
+    resolve {
+        dt.integrate(prev, collected)  # Signal handles dt.raw
+    }
+}
+```
+
+**Right approach #2 - Use regular cross-domain coupling:**
+
+If this isn't an emergent tension condition but regular coupling, don't use a fracture at all. Use a signal that reads from another signal, or reorganize the signal dependencies.
+
+### 7.2 Dangerous Functions
+
+Fractures that use dangerous functions (like `maths.clamp`) should declare them explicitly once the feature is implemented for fractures.
+
+Currently, `: uses()` declarations are only supported on signals and members. Support for fractures, operators, and impulses is planned.
+
+---
+
+## 8. What Fractures Are Not
 
 Fractures are **not**:
 - conditional logic
