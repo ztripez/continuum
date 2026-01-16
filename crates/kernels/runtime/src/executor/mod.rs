@@ -106,36 +106,10 @@ pub fn run_simulation(
     }
 
     let mut last_checkpoint_time = std::time::Instant::now();
-    let mut checkpoint_run_dir: Option<PathBuf> = None;
-
     // Setup checkpoint directory if enabled
     if let Some(checkpoint) = &options.checkpoint {
-        let run_id = format!(
-            "{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|t| t.as_secs())
-                .unwrap_or(0)
-        );
-        let dir = checkpoint.checkpoint_dir.join(&run_id);
-        std::fs::create_dir_all(&dir).map_err(|e| RunError::Execution(e.to_string()))?;
-
-        // Create manifest.json
-        let manifest = serde_json::json!({
-            "run_id": run_id,
-            "created_at": std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|t| t.as_secs())
-                .unwrap_or(0),
-            "checkpoint_stride": checkpoint.stride,
-        });
-        std::fs::write(
-            dir.join("manifest.json"),
-            serde_json::to_string_pretty(&manifest).unwrap(),
-        )
-        .map_err(|e| RunError::Execution(e.to_string()))?;
-
-        checkpoint_run_dir = Some(dir);
+        std::fs::create_dir_all(&checkpoint.checkpoint_dir)
+            .map_err(|e| RunError::Execution(e.to_string()))?;
     }
 
     for _i in 0..options.steps {
@@ -173,9 +147,8 @@ pub fn run_simulation(
             };
 
             if should_checkpoint {
-                let checkpoint_path = checkpoint_run_dir
-                    .as_ref()
-                    .unwrap()
+                let checkpoint_path = checkpoint
+                    .checkpoint_dir
                     .join(format!("checkpoint_{:010}.ckpt", runtime.tick()));
 
                 if let Err(e) = runtime.request_checkpoint(&checkpoint_path) {
@@ -185,7 +158,7 @@ pub fn run_simulation(
                     last_checkpoint_time = std::time::Instant::now();
 
                     // Update 'latest' symlink
-                    let latest_link = checkpoint_run_dir.as_ref().unwrap().join("latest");
+                    let latest_link = checkpoint.checkpoint_dir.join("latest");
                     let _ = std::fs::remove_file(&latest_link); // Ignore errors
                     #[cfg(unix)]
                     {
@@ -199,7 +172,7 @@ pub fn run_simulation(
 
                 // Prune old checkpoints if configured
                 if let Some(keep_n) = checkpoint.keep_last_n {
-                    prune_old_checkpoints(checkpoint_run_dir.as_ref().unwrap(), keep_n);
+                    prune_old_checkpoints(&checkpoint.checkpoint_dir, keep_n);
                 }
             }
         }
