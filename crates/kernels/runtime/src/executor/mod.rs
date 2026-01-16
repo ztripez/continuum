@@ -86,11 +86,20 @@ pub struct SnapshotOptions {
 }
 
 #[derive(Debug, Clone)]
+pub struct CheckpointOptions {
+    pub checkpoint_dir: PathBuf,
+    pub stride: u64,
+    pub wall_clock_interval: Option<std::time::Duration>,
+    pub keep_last_n: Option<usize>,
+}
+
+#[derive(Debug, Clone)]
 pub struct RunOptions {
     pub steps: u64,
     pub print_signals: bool,
     pub signals: Vec<SignalId>,
     pub snapshot: Option<SnapshotOptions>,
+    pub checkpoint: Option<CheckpointOptions>,
 }
 
 #[derive(Debug, Clone)]
@@ -185,6 +194,39 @@ pub fn run_simulation(
         Ok(())
     };
 
+    let mut last_checkpoint_time = std::time::Instant::now();
+    let mut checkpoint_run_dir: Option<PathBuf> = None;
+
+    // Setup checkpoint directory if enabled
+    if let Some(checkpoint) = &options.checkpoint {
+        let run_id = format!(
+            "{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|t| t.as_secs())
+                .unwrap_or(0)
+        );
+        let dir = checkpoint.checkpoint_dir.join(&run_id);
+        std::fs::create_dir_all(&dir).map_err(|e| RunError::Execution(e.to_string()))?;
+
+        // Create manifest.json
+        let manifest = serde_json::json!({
+            "run_id": run_id,
+            "created_at": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|t| t.as_secs())
+                .unwrap_or(0),
+            "checkpoint_stride": checkpoint.stride,
+        });
+        std::fs::write(
+            dir.join("manifest.json"),
+            serde_json::to_string_pretty(&manifest).unwrap(),
+        )
+        .map_err(|e| RunError::Execution(e.to_string()))?;
+
+        checkpoint_run_dir = Some(dir);
+    }
+
     for i in 0..options.steps {
         runtime
             .execute_tick()
@@ -205,9 +247,83 @@ pub fn run_simulation(
                 write_snapshot(i, runtime)?;
             }
         }
+
+        // Checkpoint logic
+        if let Some(checkpoint) = &options.checkpoint {
+            let should_checkpoint = {
+                let stride_met = runtime.tick() % checkpoint.stride == 0;
+                let wall_clock_met = checkpoint
+                    .wall_clock_interval
+                    .map(|interval| last_checkpoint_time.elapsed() >= interval)
+                    .unwrap_or(false);
+                stride_met || wall_clock_met
+            };
+
+            if should_checkpoint {
+                let checkpoint_path = checkpoint_run_dir
+                    .as_ref()
+                    .unwrap()
+                    .join(format!("checkpoint_{:010}.ckpt", runtime.tick()));
+
+                if let Err(e) = runtime.request_checkpoint(&checkpoint_path) {
+                    warn!("Checkpoint request failed: {}", e);
+                } else {
+                    debug!("Checkpoint requested for tick {}", runtime.tick());
+                    last_checkpoint_time = std::time::Instant::now();
+
+                    // Update 'latest' symlink
+                    let latest_link = checkpoint_run_dir.as_ref().unwrap().join("latest");
+                    let _ = std::fs::remove_file(&latest_link); // Ignore errors
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::symlink;
+                        let _ = symlink(
+                            format!("checkpoint_{:010}.ckpt", runtime.tick()),
+                            &latest_link,
+                        );
+                    }
+                }
+
+                // Prune old checkpoints if configured
+                if let Some(keep_n) = checkpoint.keep_last_n {
+                    prune_old_checkpoints(checkpoint_run_dir.as_ref().unwrap(), keep_n);
+                }
+            }
+        }
     }
 
     Ok(RunReport { run_dir })
+}
+
+/// Prune old checkpoints, keeping only the last N.
+fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) {
+    let mut checkpoints: Vec<_> = std::fs::read_dir(checkpoint_dir)
+        .ok()
+        .into_iter()
+        .flat_map(|entries| entries.filter_map(Result::ok))
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext == "ckpt")
+                .unwrap_or(false)
+        })
+        .collect();
+
+    if checkpoints.len() <= keep_n {
+        return;
+    }
+
+    // Sort by filename (which includes tick number)
+    checkpoints.sort_by_key(|entry| entry.file_name());
+
+    // Remove oldest checkpoints
+    let to_remove = checkpoints.len() - keep_n;
+    for entry in checkpoints.iter().take(to_remove) {
+        let _ = std::fs::remove_file(entry.path());
+        debug!("Pruned old checkpoint: {}", entry.path().display());
+    }
 }
 
 /// Era configuration
