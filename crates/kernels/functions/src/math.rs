@@ -30,7 +30,7 @@ pub fn pow(base: f64, exp: f64) -> f64 {
     unit_inference = "preserve_first",
     pattern_hint = "clamping",
     requires_uses = "clamping",
-    requires_uses_hint = "Silently constrains values to bounds, masking out-of-range conditions that may indicate bugs"
+    requires_uses_hint = "Silently constrains values to bounds, masking out-of-range conditions that may indicate bugs. Use assertions to validate bounds instead"
 )]
 pub fn clamp(value: f64, min: f64, max: f64) -> f64 {
     value.clamp(min, max)
@@ -74,7 +74,7 @@ pub fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
 #[kernel_fn(
     namespace = "maths",
     requires_uses = "clamping",
-    requires_uses_hint = "Silently clamps to [0, 1], masking out-of-range conditions that may indicate bugs"
+    requires_uses_hint = "Silently clamps to [0, 1], masking out-of-range conditions that may indicate bugs. Use assertions to validate bounds instead"
 )]
 pub fn saturate(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
