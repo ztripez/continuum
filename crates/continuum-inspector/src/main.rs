@@ -58,12 +58,9 @@ async fn main() {
     let state = AppState { socket: cli.socket };
 
     // Determine static directory
-    let static_dir = cli.static_dir.unwrap_or_else(|| {
-        std::env::current_exe()
-            .ok()
-            .and_then(|p| p.parent().map(|p| p.join("static")))
-            .unwrap_or_else(|| PathBuf::from("static"))
-    });
+    let static_dir = cli
+        .static_dir
+        .unwrap_or_else(|| PathBuf::from("crates/continuum-inspector/static"));
 
     info!("Serving static files from: {}", static_dir.display());
 
