@@ -1,0 +1,254 @@
+# =============================================================================
+# Terra Domain Analyzers
+# =============================================================================
+#
+# Post-hoc analysis queries for evaluating simulated planetary systems.
+# These analyzers are pure observers - they read field data and produce
+# structured analysis results with optional validation checks.
+#
+# Field references:
+# - elevation.map (elevation data)
+# - thickness.map (crustal thickness)
+# - plates.age_map (plate age data)
+# - hydrology.water_presence (water presence indicator)
+#
+# =============================================================================
+
+# ============================================================================= 
+# 1. Hypsometric Integral
+# =============================================================================
+# 
+# Analyzes the distribution of land and ocean based on elevation.
+# The hypsometric integral is a measure used in geomorphology to quantify
+# the distribution of elevations in a terrain.
+#
+analyzer terra.hypsometric_integral {
+    : doc "Land/ocean ratio and elevation distribution (hypsometric integral)"
+    : requires(fields: [elevation.map])
+    
+    : compute {
+        let samples = field.samples(elevation.map)
+        let above_sea = samples.filter(|s| s.value > 0.0).count()
+        let total = samples.count()
+        let integral = above_sea / total
+        
+        emit {
+            integral: integral,
+            land_fraction: integral,
+            ocean_fraction: 1.0 - integral,
+            sample_count: total,
+            statistics: stats.compute(samples)
+        }
+    }
+    
+    : validate {
+        check integral >= 0.2 && integral <= 0.4
+            : severity(warning)
+            : message("Land fraction {integral*100:.1}% (Earth-like: 29%)")
+    }
+}
+
+# =============================================================================
+# 2. Ocean Analysis
+# =============================================================================
+#
+# Analyzes ocean depth zones and bathymetry statistics.
+# Classifies ocean depths into zones (abyssal, bathyal, continental shelf).
+#
+analyzer terra.ocean_analysis {
+    : doc "Ocean depth zones and bathymetry statistics"
+    : requires(fields: [elevation.map])
+    
+    : compute {
+        let samples = field.samples(elevation.map)
+        let ocean = samples.filter(|s| s.value <= 0.0)
+        
+        # Ocean depth zones (simplified for CDSL)
+        # Shelf: 0 to -200m
+        # Slope: -200m to -2000m
+        # Abyssal: < -2000m
+        
+        let shelf = ocean.filter(|s| s.value > -200.0).count()
+        let slope = ocean.filter(|s| s.value > -2000.0 && s.value <= -200.0).count()
+        let abyssal = ocean.filter(|s| s.value <= -2000.0).count()
+        let total_ocean = ocean.count()
+        
+        emit {
+            total_ocean_samples: total_ocean,
+            ocean_fraction: total_ocean / samples.count(),
+            mean_depth: if total_ocean > 0 { stats.mean(ocean) } else { 0.0 },
+            min_depth: if total_ocean > 0 { stats.min(ocean) } else { 0.0 },
+            max_depth: if total_ocean > 0 { stats.max(ocean) } else { 0.0 },
+            zones: emit {
+                continental_shelf_fraction: shelf / total_ocean,
+                slope_fraction: slope / total_ocean,
+                abyssal_fraction: abyssal / total_ocean
+            }
+        }
+    }
+}
+
+# =============================================================================
+# 3. Isostasy Balance
+# =============================================================================
+#
+# Analyzes isostatic equilibrium by comparing crustal thickness with elevation.
+# Isostasy is the principle that Earth's crust floats in gravitational balance.
+# Well-balanced crust shows strong positive correlation between thickness and elevation.
+#
+analyzer terra.isostasy_balance {
+    : doc "Isostatic equilibrium metrics (crust thickness vs elevation)"
+    : requires(fields: [elevation.map, thickness.map])
+    
+    : compute {
+        let elevation_samples = field.samples(elevation.map)
+        let thickness_samples = field.samples(thickness.map)
+        
+        let correlation = stats.correlation(elevation_samples, thickness_samples)
+        
+        emit {
+            isostasy_correlation: correlation,
+            sample_count: elevation_samples.count(),
+            elevation_stats: emit {
+                mean: stats.mean(elevation_samples),
+                min: stats.min(elevation_samples),
+                max: stats.max(elevation_samples),
+                std_dev: stats.std_dev(elevation_samples)
+            },
+            thickness_stats: emit {
+                mean: stats.mean(thickness_samples),
+                min: stats.min(thickness_samples),
+                max: stats.max(thickness_samples),
+                std_dev: stats.std_dev(thickness_samples)
+            }
+        }
+    }
+    
+    : validate {
+        check correlation > 0.5
+            : severity(warning)
+            : message("Isostasy correlation: {correlation:.3} (expected > 0.5 for Earth-like balance)")
+    }
+}
+
+# =============================================================================
+# 4. Plate Age Analysis
+# =============================================================================
+#
+# Analyzes the age distribution of tectonic plates across the surface.
+# Younger plates (at mid-ocean ridges) have lower ages; older plates
+# (at subduction zones) have higher ages.
+#
+analyzer terra.plate_age_analysis {
+    : doc "Plate age distribution by age bins"
+    : requires(fields: [plates.age_map])
+    
+    : compute {
+        let samples = field.samples(plates.age_map)
+        
+        # Convert age to millions of years (Ma)
+        let age_ma = samples.map(|s| s.value / 1e6)
+        
+        # Define age bins (Ma): 0-50, 50-100, 100-150, 150-200, 200-300, 300+
+        let bins = stats.histogram(age_ma, [
+            0.0, 50.0, 100.0, 150.0, 200.0, 300.0, 1e10
+        ])
+        
+        let total = age_ma.count()
+        
+        emit {
+            total_samples: total,
+            age_distribution: emit {
+                "0-50Ma": bins[0] / total,
+                "50-100Ma": bins[1] / total,
+                "100-150Ma": bins[2] / total,
+                "150-200Ma": bins[3] / total,
+                "200-300Ma": bins[4] / total,
+                ">300Ma": bins[5] / total
+            },
+            statistics: stats.compute(age_ma)
+        }
+    }
+}
+
+# =============================================================================
+# 5. Water-Elevation Correlation
+# =============================================================================
+#
+# Analyzes the correlation between water presence and elevation.
+# On Earth, water is strongly negatively correlated with elevation:
+# low-lying areas have water; high-lying areas are dry.
+#
+analyzer terra.water_elevation_check {
+    : doc "Correlation between water presence and elevation"
+    : requires(fields: [elevation.map, hydrology.water_presence])
+    
+    : compute {
+        let elev = field.samples(elevation.map)
+        let water = field.samples(hydrology.water_presence)
+        
+        let r = stats.correlation(elev, water)
+        
+        emit {
+            correlation: r,
+            sample_count: elev.count(),
+            elevation_mean: stats.mean(elev),
+            water_coverage: stats.mean(water)
+        }
+    }
+    
+    : validate {
+        check r < -0.5
+            : severity(error)
+            : message("Water-elevation correlation: {r:.3} (expected strongly negative, r < -0.5)")
+    }
+}
+
+# =============================================================================
+# 6. Latitude Distribution
+# =============================================================================
+#
+# Analyzes elevation distribution by latitude bands.
+# Reveals latitudinal patterns: tropics vs poles, equator vs mid-latitudes.
+#
+analyzer terra.latitude_distribution {
+    : doc "Elevation distribution by latitude bands"
+    : requires(fields: [elevation.map])
+    
+    : compute {
+        let samples = field.samples(elevation.map)
+        
+        # Divide into 10-degree latitude bands (18 total)
+        let band_count = 18
+        let band_size = 180.0 / band_count
+        
+        # Compute mean elevation per band
+        let band_means = []
+        for band in 0..band_count {
+            let band_min = -90.0 + band * band_size
+            let band_max = band_min + band_size
+            
+            let band_samples = samples.filter(|s|
+                let lat = util.latitude(s.position)
+                lat >= band_min && lat < band_max
+            )
+            
+            let mean = if band_samples.count() > 0 {
+                stats.mean(band_samples)
+            } else {
+                0.0
+            }
+            
+            band_means = push(band_means, mean)
+        }
+        
+        emit {
+            band_count: band_count,
+            band_means: band_means,
+            tropical_mean: (band_means[7] + band_means[8] + band_means[9] + band_means[10]) / 4.0,
+            polar_mean: (band_means[0] + band_means[1] + band_means[2] + band_means[15] + band_means[16] + band_means[17]) / 6.0,
+            overall_mean: stats.mean(samples),
+            overall_std_dev: stats.std_dev(samples)
+        }
+    }
+}
