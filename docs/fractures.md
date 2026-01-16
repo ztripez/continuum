@@ -136,9 +136,22 @@ If this isn't an emergent tension condition but regular coupling, don't use a fr
 
 ### 7.2 Dangerous Functions
 
-Fractures that use dangerous functions (like `maths.clamp`) should declare them explicitly once the feature is implemented for fractures.
+Fractures that use dangerous functions (like `maths.clamp`) must declare them explicitly using `: uses()` declarations.
 
-Currently, `: uses()` declarations are only supported on signals and members. Support for fractures, operators, and impulses is planned.
+```cdsl
+fracture thermal.safety_limit {
+    : strata(thermal)
+    : uses(maths.clamping)  // Required for maths.clamp
+    
+    when { signal.temp > 1000 <K> }
+    emit {
+        // Clamp is legitimate here - physical safety limit
+        signal.temp_adjustment <- maths.clamp(signal.delta, -10 <K>, 10 <K>)
+    }
+}
+```
+
+The `: uses()` declaration system is now fully implemented for all executable primitives: signals, members, fractures, operators, and impulses.
 
 ---
 

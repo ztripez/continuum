@@ -144,14 +144,12 @@ They resolve from inputs.
 
 Some kernel functions are considered dangerous because they silently mask errors or hide problems (violating principle 7: "Fail Hard, Never Mask Errors"). These functions require explicit opt-in via `: uses()` declarations.
 
-**Currently supported on:**
+**Supported on all executable primitives:**
 - Signals (`: uses(maths.clamping)`)
 - Members (`: uses(maths.clamping)`)
-
-**Planned support:**
-- Fractures
-- Operators
-- Impulses
+- Fractures (`: uses(maths.clamping)`)
+- Operators (`: uses(maths.clamping)`)
+- Impulses (`: uses(maths.clamping)`)
 
 **Example:**
 
