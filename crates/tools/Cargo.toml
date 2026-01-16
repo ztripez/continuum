@@ -35,6 +35,10 @@ path = "src/bin/compile.rs"
 name = "gen-textmate"
 path = "src/bin/gen_textmate.rs"
 
+[[bin]]
+name = "test-ipc-client"
+path = "src/bin/test_ipc_client.rs"
+
 [dependencies]
 continuum-compiler = { version = "0.1.0", path = "../continuum-compiler" }
 continuum-foundation = { path = "../kernels/foundation" }
