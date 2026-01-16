@@ -81,6 +81,7 @@ Supported declaration kinds:
 - `impulse` — external causal inputs
 - `fracture` — emergent tension detectors
 - `chronicle` — observer-only interpretation rules
+- `analyzer` — post-hoc analysis queries on field snapshots
 
 Declarations are **order-independent**.
 Dependencies are inferred, not declared manually.
@@ -264,7 +265,25 @@ Chronicles exist outside causality.
 
 ---
 
-## 13. Expressions
+## 13. Analyzers
+
+An `analyzer` declares a **post-hoc analysis query on field snapshots**.
+
+Analyzers:
+- read field data after simulation completes
+- compute derived analysis results
+- produce structured JSON output
+- optionally include validation checks with severity levels
+- never influence causality
+- are invoked via CLI: `continuum analyze run <name>`
+
+Analyzers are pure observers that run outside the simulation loop on captured field data.
+
+(See `analyzers.md`.)
+
+---
+
+## 14. Expressions
 
 DSL expressions are:
 - pure
@@ -283,9 +302,9 @@ Expressions must not:
 
 ---
 
-## 14. Kernel Functions
+## 15. Kernel Functions
 
-The DSL may call namespaced kernel functions (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`).
+The DSL may call namespaced kernel functions (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`, `stats.*`).
 
 Kernel functions:
 - are engine-provided primitives
@@ -298,15 +317,21 @@ The DSL does not specify:
 - memory layout
 - dispatch mechanics
 
+Analyzer-specific kernels (available only in analyzer compute blocks):
+- `stats.*` — statistical functions (mean, median, correlation, histogram)
+- `field.samples()` — field data access
+- `util.*` — spatial utilities (latitude, longitude, distance)
+
 ---
 
-## 15. Type System
+## 16. Type System
 
 The DSL is statically typed.
 
 - All values have known types at compile time
 - No implicit type coercion
 - Units are part of the type system
+- JSON output from analyzers is dynamically typed (matches JSON schema)
 
 If a value cannot be typed, compilation fails.
 
@@ -314,7 +339,7 @@ If a value cannot be typed, compilation fails.
 
 ---
 
-## 16. Dependency Inference
+## 17. Dependency Inference
 
 Dependencies are inferred by analyzing reads and writes.
 
@@ -328,9 +353,11 @@ From the DSL, the compiler derives:
 
 Manual dependency declaration is forbidden.
 
+Analyzers declare field requirements explicitly via `: requires(fields: [...])`.
+
 ---
 
-## 17. Errors and Assertions
+## 18. Errors and Assertions
 
 The DSL supports explicit assertions.
 
@@ -345,13 +372,13 @@ Silent correction is forbidden by default.
 
 ---
 
-## 18. What the DSL Must Never Do
+## 19. What the DSL Must Never Do
 
 The DSL must never:
 - mutate state outside declared outputs
 - depend on wall-clock time
 - depend on execution order
-- access observer data
+- access observer data (except in analyzers, which read field data post-hoc)
 - hide nondeterminism
 
 If a construct cannot be reasoned about statically,
@@ -359,7 +386,7 @@ it does not belong in the DSL.
 
 ---
 
-## Summary
+## 20. Summary
 
 - The DSL declares causal structure
 - It is declarative and analyzable
