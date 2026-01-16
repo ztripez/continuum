@@ -170,6 +170,14 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                             span: expr.span.clone(),
                         });
                     }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        expr,
+                        &operator.uses,
+                        &operator.path.node.to_string(),
+                        &mut errors,
+                    );
                 }
             }
             Item::ImpulseDef(impulse) => {
@@ -184,6 +192,14 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                             span: apply.body.span.clone(),
                         });
                     }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        &apply.body,
+                        &impulse.uses,
+                        &impulse.path.node.to_string(),
+                        &mut errors,
+                    );
                 }
             }
             Item::FractureDef(fracture) => {
@@ -198,6 +214,14 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                             span: condition.span.clone(),
                         });
                     }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        condition,
+                        &fracture.uses,
+                        &fracture.path.node.to_string(),
+                        &mut errors,
+                    );
                 }
                 if let Some(emit) = &fracture.emit {
                     if uses_dt_raw(&emit.node) {
@@ -209,6 +233,14 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                             span: emit.span.clone(),
                         });
                     }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        emit,
+                        &fracture.uses,
+                        &fracture.path.node.to_string(),
+                        &mut errors,
+                    );
                 }
             }
             _ => {}
@@ -774,4 +806,116 @@ mod tests {
             errors
         );
     }
+}
+
+
+#[test]
+fn test_fracture_clamp_without_uses() {
+    let source = r#"
+        fracture test.fracture {
+            : strata(test)
+            when { maths.clamp(signal.stress, 0.0, 100.0) > 50.0 }
+            emit {
+                signal.output <- 1.0
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(errors.len() == 1, "Expected 1 error, got {}: {:?}", errors.len(), errors);
+    assert!(errors[0].message.contains("uses maths.clamp"));
+    assert!(errors[0].message.contains("requires : uses(maths.clamping)"));
+}
+
+#[test]
+fn test_fracture_clamp_with_uses() {
+    let source = r#"
+        fracture test.fracture {
+            : strata(test)
+            : uses(maths.clamping)
+            when { maths.clamp(signal.stress, 0.0, 100.0) > 50.0 }
+            emit {
+                signal.output <- 1.0
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+}
+
+#[test]
+fn test_operator_clamp_without_uses() {
+    let source = r#"
+        operator test.operator {
+            : strata(test)
+            : phase(collect)
+            collect {
+                maths.clamp(signal.value, 0.0, 1.0)
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(errors.len() == 1, "Expected 1 error, got {}: {:?}", errors.len(), errors);
+    assert!(errors[0].message.contains("uses maths.clamp"));
+    assert!(errors[0].message.contains("requires : uses(maths.clamping)"));
+}
+
+#[test]
+fn test_operator_clamp_with_uses() {
+    let source = r#"
+        operator test.operator {
+            : strata(test)
+            : phase(collect)
+            : uses(maths.clamping)
+            collect {
+                maths.clamp(signal.value, 0.0, 1.0)
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+}
+
+#[test]
+fn test_impulse_clamp_without_uses() {
+    let source = r#"
+        impulse test.impulse {
+            : Scalar<1>
+            apply {
+                let x = maths.clamp(payload, 0.0, 1.0) in
+                signal.output <- x
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(errors.len() == 1, "Expected 1 error, got {}: {:?}", errors.len(), errors);
+    assert!(errors[0].message.contains("uses maths.clamp"));
+    assert!(errors[0].message.contains("requires : uses(maths.clamping)"));
+}
+
+#[test]
+fn test_impulse_clamp_with_uses() {
+    let source = r#"
+        impulse test.impulse {
+            : Scalar<1>
+            : uses(maths.clamping)
+            apply {
+                let x = maths.clamp(payload, 0.0, 1.0) in
+                signal.output <- x
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
 }

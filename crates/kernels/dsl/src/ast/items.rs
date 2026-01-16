@@ -494,6 +494,8 @@ pub struct OperatorDef {
     pub body: Option<OperatorBody>,
     /// Operator assertions.
     pub assertions: Option<AssertBlock>,
+    /// Dangerous function uses declarations (e.g., "dt.raw", "maths.clamping").
+    pub uses: Vec<String>,
 }
 
 /// Execution phase for operators.
@@ -552,6 +554,8 @@ pub struct ImpulseDef {
     pub local_config: Vec<ConfigEntry>,
     /// Application logic when impulse fires.
     pub apply: Option<ApplyBlock>,
+    /// Dangerous function uses declarations (e.g., "dt.raw", "maths.clamping").
+    pub uses: Vec<String>,
 }
 
 /// Apply block containing impulse application logic.
@@ -594,6 +598,8 @@ pub struct FractureDef {
     pub conditions: Vec<Spanned<Expr>>,
     /// Emit expression when triggered. Contains signal emit expressions.
     pub emit: Option<Spanned<Expr>>,
+    /// Dangerous function uses declarations (e.g., "dt.raw", "maths.clamping").
+    pub uses: Vec<String>,
 }
 
 // === Chronicle ===

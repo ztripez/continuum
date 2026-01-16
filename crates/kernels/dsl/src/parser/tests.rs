@@ -2330,3 +2330,96 @@ fn test_parse_impulse_with_metadata() {
         _ => panic!("expected ImpulseDef"),
     }
 }
+
+#[test]
+fn test_parse_operator_with_uses() {
+    let source = r#"
+        operator test.op {
+            : strata(test.thermal)
+            : uses(maths.clamping)
+            : phase(collect)
+            collect { 1 + 1 }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::OperatorDef(def) => {
+            assert_eq!(def.uses.len(), 1);
+            assert_eq!(def.uses[0], "maths.clamping");
+        }
+        _ => panic!("expected OperatorDef"),
+    }
+}
+
+#[test]
+fn test_parse_impulse_with_uses() {
+    let source = r#"
+        impulse test.imp {
+            : Scalar<W/m²>
+            : uses(maths.clamping)
+            apply { signal.test.value <- payload }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::ImpulseDef(def) => {
+            assert_eq!(def.uses.len(), 1);
+            assert_eq!(def.uses[0], "maths.clamping");
+        }
+        _ => panic!("expected ImpulseDef"),
+    }
+}
+
+#[test]
+fn test_parse_fracture_with_uses() {
+    let source = r#"
+        fracture test.frac {
+            : strata(test.thermal)
+            : uses(maths.clamping)
+            when { signal.test.stress > 100.0 }
+            emit { impulse.test.imp(42.0) }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::FractureDef(def) => {
+            assert_eq!(def.uses.len(), 1);
+            assert_eq!(def.uses[0], "maths.clamping");
+        }
+        _ => panic!("expected FractureDef"),
+    }
+}
+
+#[test]
+fn test_parse_multiple_uses_declarations() {
+    let source = r#"
+        operator test.op {
+            : uses(maths.clamping)
+            : uses(dt.raw)
+            : strata(test.thermal)
+            : phase(collect)
+            collect { 1 + 1 }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::OperatorDef(def) => {
+            assert_eq!(def.uses.len(), 2);
+            assert_eq!(def.uses[0], "maths.clamping");
+            assert_eq!(def.uses[1], "dt.raw");
+        }
+        _ => panic!("expected OperatorDef"),
+    }
+}

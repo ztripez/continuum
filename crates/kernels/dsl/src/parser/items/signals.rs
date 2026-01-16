@@ -258,11 +258,13 @@ pub fn operator_def<'src>()
                 phase: None,
                 body: None,
                 assertions: None,
+                uses: vec![],
             };
             for content in contents {
                 match content {
                     OperatorContent::Strata(s) => def.strata = Some(s),
                     OperatorContent::Phase(p) => def.phase = Some(p),
+                    OperatorContent::Uses(u) => def.uses.push(u),
                     OperatorContent::Body(b) => def.body = Some(b),
                     OperatorContent::Assert(a) => def.assertions = Some(a),
                 }
@@ -275,6 +277,7 @@ pub fn operator_def<'src>()
 enum OperatorContent {
     Strata(Spanned<Path>),
     Phase(Spanned<OperatorPhase>),
+    Uses(String),
     Body(OperatorBody),
     Assert(crate::ast::AssertBlock),
 }
@@ -283,6 +286,11 @@ fn operator_content<'src>()
 -> impl Parser<'src, ParserInput<'src>, OperatorContent, extra::Err<ParseError<'src>>> {
     choice((
         attr_path(Token::Strata).map(OperatorContent::Strata),
+        // : uses(namespace.key) - generic uses declaration
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
+            .ignore_then(spanned_path().delimited_by(tok(Token::LParen), tok(Token::RParen)))
+            .map(|path| OperatorContent::Uses(path.node.join("."))),
         tok(Token::Colon)
             .ignore_then(tok(Token::Phase))
             .ignore_then(

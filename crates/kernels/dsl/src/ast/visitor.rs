@@ -2424,6 +2424,7 @@ pub fn walk_operator_def_transform<T: AstTransformer + ?Sized>(
         assertions: def
             .assertions
             .map(|assertions| transformer.transform_assert_block(assertions)),
+        uses: def.uses,
     }
 }
 
@@ -2462,6 +2463,7 @@ pub fn walk_impulse_def_transform<T: AstTransformer + ?Sized>(
         apply: def
             .apply
             .map(|apply| transformer.transform_apply_block(apply)),
+        uses: def.uses,
     }
 }
 
@@ -2495,6 +2497,7 @@ pub fn walk_fracture_def_transform<T: AstTransformer + ?Sized>(
             .map(|condition| transformer.transform_expr(condition))
             .collect(),
         emit: def.emit.map(|emit| transformer.transform_expr(emit)),
+        uses: def.uses,
     }
 }
 
