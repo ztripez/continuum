@@ -1,11 +1,31 @@
 //! Analyzer subcommands: list and run
 
 use clap::Subcommand;
+use continuum_compiler::ir::BinaryBundle;
 use continuum_ir::CompiledWorld;
 use continuum_lens::FieldSnapshot;
 use std::path::PathBuf;
 
 use crate::analyze::types::SnapshotRun;
+
+/// Load a compiled world from either a .cvm binary bundle or JSON file.
+fn load_compiled_world(path: &PathBuf) -> Result<CompiledWorld, String> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+    if ext == "cvm" {
+        // Load binary bundle
+        let data =
+            std::fs::read(path).map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+        let bundle: BinaryBundle = bincode::deserialize(&data)
+            .map_err(|e| format!("Failed to decode binary bundle: {}", e))?;
+        Ok(bundle.world)
+    } else {
+        // Assume JSON
+        let world_str = std::fs::read_to_string(path)
+            .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+        serde_json::from_str(&world_str).map_err(|e| format!("Failed to parse world file: {}", e))
+    }
+}
 
 #[derive(Subcommand, Debug)]
 pub enum AnalyzerCommand {
@@ -50,12 +70,7 @@ pub fn run(cmd: AnalyzerCommand) -> Result<(), String> {
 
 /// List all analyzers in a world
 fn run_list(world_path: PathBuf) -> Result<(), String> {
-    // Load the world file
-    let world_str = std::fs::read_to_string(&world_path)
-        .map_err(|e| format!("Failed to read world file {}: {}", world_path.display(), e))?;
-
-    let compiled_world: CompiledWorld = serde_json::from_str(&world_str)
-        .map_err(|e| format!("Failed to parse world file: {}", e))?;
+    let compiled_world = load_compiled_world(&world_path)?;
 
     let analyzers = compiled_world.analyzers();
 
