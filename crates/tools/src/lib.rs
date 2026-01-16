@@ -19,7 +19,6 @@ pub fn init_logging() {
     fmt()
         .with_env_filter(filter)
         .with_target(false)
-        .without_time() // Remove timestamps as requested
         .with_level(true)
         .init();
 }
