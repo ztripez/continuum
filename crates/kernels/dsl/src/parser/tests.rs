@@ -32,7 +32,7 @@ fn expect_unit<'a>(expr: &'a TypeExpr, expected_type: &str) -> &'a str {
 #[test]
 fn test_parse_comparison_with_unit_repro() {
     let source = r#"
-        fracture.test {
+        fracture test {
             when {
                 signal.temp > 350.0 <K>
             }
@@ -56,13 +56,13 @@ fn test_parse_comparison_with_unit_repro() {
 #[test]
 fn test_parse_member_followed_by_fracture_repro() {
     let source = r#"
-        member.test.signal {
+        member test.signal {
             : Scalar
             : strata(test)
             resolve { prev }
         }
 
-        fracture.atmosphere.runaway_greenhouse {
+        fracture atmosphere.runaway_greenhouse {
             when {
                 signal.atmosphere.surface_temp.x > 350.0
             }
@@ -109,7 +109,7 @@ fn test_parse_const_block() {
 #[test]
 fn test_parse_strata_def() {
     let source = r#"
-        strata.terra.thermal {
+        strata terra.thermal {
             : title("Thermal")
             : symbol("Q")
             : stride(5)
@@ -133,7 +133,7 @@ fn test_parse_strata_def() {
 #[test]
 fn test_parse_signal_def() {
     let source = r#"
-        signal.terra.core.temp {
+        signal terra.core.temp {
             : Scalar<K, 100..10000>
             : strata(terra.thermal)
 
@@ -160,7 +160,7 @@ fn test_parse_signal_def() {
 #[test]
 fn test_parse_signal_with_tensor_constraints() {
     let source = r#"
-        signal.terra.stress_tensor {
+        signal terra.stress_tensor {
             : Tensor<3,3,Pa>
             : symmetric
             : positive_definite
@@ -197,7 +197,7 @@ fn test_parse_signal_with_tensor_constraints() {
 #[test]
 fn test_parse_signal_with_seq_constraints() {
     let source = r#"
-        signal.terra.particle_masses {
+        signal terra.particle_masses {
             : Seq<Scalar<kg>>
             : each(1e20..1e28)
             : sum(1e25..1e30)
@@ -239,7 +239,7 @@ fn test_parse_signal_with_seq_constraints() {
 
 #[test]
 fn test_parse_expression() {
-    let source = "signal.terra.temp { resolve { prev + 1.0 } }";
+    let source = "signal terra.temp { resolve { prev + 1.0 } }";
     let (result, errors) = parse(source);
     assert!(errors.is_empty(), "errors: {:?}", errors);
     let unit = result.unwrap();
@@ -249,7 +249,7 @@ fn test_parse_expression() {
 #[test]
 fn test_parse_era_def() {
     let source = r#"
-        era.hadean {
+        era hadean {
             : initial
             : title("Hadean")
             : dt(1 <Myr>)
@@ -288,7 +288,7 @@ fn test_parse_era_def() {
 #[test]
 fn test_parse_field_def() {
     let source = r#"
-        field.terra.surface.temperature_map {
+        field terra.surface.temperature_map {
             : Scalar<K>
             : strata(terra.atmosphere)
             : topology(sphere_surface)
@@ -318,7 +318,7 @@ fn test_parse_field_def() {
 #[test]
 fn test_parse_fracture_def() {
     let source = r#"
-        fracture.terra.climate.runaway_greenhouse {
+        fracture terra.climate.runaway_greenhouse {
             when {
                 signal.terra.atmosphere.co2 > 1000
                 signal.terra.surface.avg_temp > 350
@@ -346,7 +346,7 @@ fn test_parse_fracture_def() {
 #[test]
 fn test_parse_fracture_with_strata_and_config() {
     let source = r#"
-        fracture.thermal.mechanical_coupling {
+        fracture thermal.mechanical_coupling {
             : strata(thermal)
 
             config {
@@ -384,7 +384,7 @@ fn test_parse_fracture_with_strata_and_config() {
 #[test]
 fn test_parse_complex_expression() {
     let source = r#"
-        signal.terra.thermal.loss {
+        signal terra.thermal.loss {
             : Scalar<W>
             : strata(terra.thermal)
 
@@ -408,7 +408,7 @@ fn test_parse_complex_expression() {
 #[test]
 fn test_parse_type_def() {
     let source = r#"
-        type.ThermalState {
+        type ThermalState {
             temperature: Scalar<K>
             flux: Scalar<W>
         }
@@ -429,7 +429,7 @@ fn test_parse_type_def() {
 #[test]
 fn test_parse_vector_with_magnitude_range() {
     let source = r#"
-        type.OrbitalState {
+        type OrbitalState {
             position: Vec3<m, magnitude: 1e10..1e12>
         }
     "#;
@@ -460,7 +460,7 @@ fn test_parse_vector_with_magnitude_range() {
 fn test_parse_vec4_unit_quaternion() {
     // Vec4<1, magnitude: 1> is a unit quaternion (magnitude exactly 1)
     let source = r#"
-        type.Orientation {
+        type Orientation {
             rotation: Vec4<1, magnitude: 1>
         }
     "#;
@@ -490,7 +490,7 @@ fn test_parse_vec4_unit_quaternion() {
 #[test]
 fn test_parse_operator_def() {
     let source = r#"
-        operator.terra.thermal.budget {
+        operator terra.thermal.budget {
             : strata(terra.thermal)
             : phase(collect)
 
@@ -517,7 +517,7 @@ fn test_parse_operator_def() {
 #[test]
 fn test_parse_impulse_def() {
     let source = r#"
-        impulse.terra.impact.asteroid {
+        impulse terra.impact.asteroid {
             : ImpactEvent
 
             apply {
@@ -542,7 +542,7 @@ fn test_parse_impulse_def() {
 #[test]
 fn test_parse_unit_qualified_literals() {
     let source = r#"
-        era.hadean {
+        era hadean {
             : initial
             : dt(1 <Myr>)
         }
@@ -565,7 +565,7 @@ fn test_parse_unit_qualified_literals() {
 #[test]
 fn test_parse_comparison_with_unit() {
     let source = r#"
-        era.hadean {
+        era hadean {
             : initial
             : dt(1 <Myr>)
 
@@ -610,7 +610,7 @@ fn test_parse_comparison_with_unit() {
 #[test]
 fn test_parse_function_call_simple() {
     let source = r#"
-        signal.core.temp {
+        signal core.temp {
             : Scalar<K>
             : strata(thermal)
 
@@ -645,7 +645,7 @@ fn test_parse_function_call_simple() {
 #[test]
 fn test_parse_function_call_nested() {
     let source = r#"
-        signal.core.temp {
+        signal core.temp {
             : Scalar<K>
             resolve {
                 max(min(prev, 1000), 100)
@@ -690,7 +690,7 @@ fn test_parse_function_call_nested() {
 #[test]
 fn test_parse_function_call_in_expression() {
     let source = r#"
-        signal.core.temp {
+        signal core.temp {
             : Scalar<K>
             resolve {
                 prev * exp(-config.thermal.decay_rate)
@@ -731,7 +731,7 @@ fn test_parse_function_call_in_expression() {
 #[test]
 fn test_parse_namespaced_function_call() {
     let source = r#"
-        signal.core.temp {
+        signal core.temp {
             : Scalar<K>
             resolve {
                 math.clamp(prev, 100, 10000)
@@ -762,7 +762,7 @@ fn test_parse_namespaced_function_call() {
 #[test]
 fn test_parse_let_expression() {
     let source = r#"
-        signal.core.temp {
+        signal core.temp {
             : Scalar<K>
             resolve {
                 let a = 1.0 in
@@ -821,7 +821,7 @@ fn test_parse_let_expression() {
 #[test]
 fn test_parse_fn_def() {
     let source = r#"
-        fn.physics.stefan_boltzmann_loss(temp: Scalar<K>) -> Scalar<K> {
+        fn physics.stefan_boltzmann_loss(temp: Scalar<K>) -> Scalar<K> {
             temp * 4.0
         }
     "#;
@@ -851,7 +851,7 @@ fn test_parse_fn_def() {
 #[test]
 fn test_parse_fn_def_no_return_type() {
     let source = r#"
-        fn.math.add(a, b) {
+        fn math.add(a, b) {
             a + b
         }
     "#;
@@ -875,7 +875,7 @@ fn test_parse_fn_def_no_return_type() {
 #[test]
 fn test_parse_fn_def_with_const_config() {
     let source = r#"
-        fn.isostasy.factor() {
+        fn isostasy.factor() {
             1.0 - config.isostasy.crustal_density / config.isostasy.mantle_density
         }
     "#;
@@ -895,19 +895,19 @@ fn test_parse_fn_def_with_const_config() {
 fn test_parse_unicode_unit_superscripts() {
     // Test various Unicode superscript units
     let source = r#"
-        signal.test.density {
+        signal test.density {
             : Scalar<kg/m³>
             resolve { 2700.0 }
         }
-        signal.test.flux {
+        signal test.flux {
             : Scalar<W/m²>
             resolve { 100.0 }
         }
-        signal.test.accel {
+        signal test.accel {
             : Scalar<m/s²>
             resolve { 9.81 }
         }
-        signal.test.stefan {
+        signal test.stefan {
             : Scalar<W/m²/K⁴>
             resolve { 5.67e-8 }
         }
@@ -959,7 +959,7 @@ fn test_parse_unicode_unit_superscripts() {
 fn test_parse_unicode_unit_with_range() {
     // Test Unicode units combined with ranges
     let source = r#"
-        signal.test.density {
+        signal test.density {
             : Scalar<kg/m³, 1000..10000>
             resolve { 2700.0 }
         }
@@ -989,7 +989,7 @@ fn test_parse_unicode_unit_with_range() {
 fn test_parse_unit_with_multiplication() {
     // Test units with multiplication like Pa*s (Pascal-seconds for viscosity)
     let source = r#"
-        signal.test.viscosity {
+        signal test.viscosity {
             : Scalar<Pa*s, 0..1e24>
             resolve { 1e21 }
         }
@@ -1019,7 +1019,7 @@ fn test_parse_unit_with_multiplication() {
 fn test_parse_unit_with_multiple_slashes() {
     // Test compound units with multiple slashes like kg/m²/yr
     let source = r#"
-        signal.test.weathering {
+        signal test.weathering {
             : Scalar<kg/m²/yr, 0..1>
             resolve { 0.01 }
         }
@@ -1049,7 +1049,7 @@ fn test_parse_unit_with_multiple_slashes() {
 fn test_parse_geophysics_viscosity_signal() {
     // Full signal test matching geophysics.cdsl signal.mantle.viscosity
     let source = r#"
-signal.mantle.viscosity {
+signal mantle.viscosity {
     : Scalar<Pa*s, 0..1e24>
     : strata(tectonics)
     : title("Mantle Viscosity")
@@ -1089,7 +1089,7 @@ signal.mantle.viscosity {
 fn test_parse_complete_geophysics_file() {
     // Test a simplified version of the geophysics structure
     let source = r#"
-fn.isostasy.buoyancy_factor(crustal_density, mantle_density) {
+fn isostasy.buoyancy_factor(crustal_density, mantle_density) {
     1.0 - crustal_density / mantle_density
 }
 
@@ -1103,7 +1103,7 @@ config {
     planet.radius: 6.371e6
 }
 
-signal.mantle.viscosity {
+signal mantle.viscosity {
     : Scalar<Pa*s, 0..1e24>
     : strata(tectonics)
 
@@ -1136,12 +1136,12 @@ config {
 fn test_parse_vec2_and_mod_calls() {
     // Test vec2 constructor and mod function from geophysics
     let source = r#"
-signal.rotation.state {
+signal rotation.state {
     : Vec2<rad>
     : strata(rotation)
 
     resolve {
-        let phase = prev.x + prev.y * dt_raw in
+        let phase = prev.x + prev.y * dt.raw in
         let omega = prev.y + collected in
         vec2(mod(phase, 6.283185307), omega)
     }
@@ -1157,7 +1157,7 @@ signal.rotation.state {
 fn test_parse_if_else_expression() {
     // Test if-else expression parsing
     let source = r#"
-signal.test.conditional {
+signal test.conditional {
     : Scalar<1>
     resolve {
         if prev > 0.0 {
@@ -1210,7 +1210,7 @@ signal.test.conditional {
 fn test_parse_nested_if_else() {
     // Test nested if-else from geophysics
     let source = r#"
-signal.test.nested_if {
+signal test.nested_if {
     : Scalar<1>
     resolve {
         let raw_shear = collected in
@@ -1232,7 +1232,7 @@ signal.test.nested_if {
 fn test_parse_else_if_chain() {
     // Test else-if chain parsing
     let source = r#"
-signal.test.else_if {
+signal test.else_if {
     : Scalar<1>
     resolve {
         if prev > 100.0 {
@@ -1310,7 +1310,7 @@ fn test_comparison_chaining_disallowed() {
     // Comparison operators should NOT chain: a < b < c is disallowed
     // This prevents confusing behavior where a < b < c would parse as (a < b) < c
     let source = r#"
-signal.test.chained {
+signal test.chained {
     : Scalar<1>
     resolve {
         if 1 < 2 < 3 {
@@ -1333,7 +1333,7 @@ signal.test.chained {
 fn test_single_comparison_allowed() {
     // Single comparisons should still work
     let source = r#"
-signal.test.single_compare {
+signal test.single_compare {
     : Scalar<1>
     resolve {
         if prev > 0.0 {
@@ -1353,7 +1353,7 @@ signal.test.single_compare {
 fn test_parse_logical_not_operator() {
     // Test logical not (!) operator
     let source = r#"
-signal.test.not_op {
+signal test.not_op {
     : Scalar<1>
     resolve {
         if !condition {
@@ -1391,7 +1391,7 @@ signal.test.not_op {
 fn test_parse_double_negation() {
     // Test double negation (--)
     let source = r#"
-signal.test.double_neg {
+signal test.double_neg {
     : Scalar<1>
     resolve {
         --prev
@@ -1433,7 +1433,7 @@ signal.test.double_neg {
 #[test]
 fn test_parse_entity_empty() {
     let source = r#"
-entity.stellar.moon {}
+entity stellar.moon {}
     "#;
     let (result, errors) = parse(source);
     assert!(errors.is_empty(), "errors: {:?}", errors);
@@ -1452,7 +1452,7 @@ entity.stellar.moon {}
 #[test]
 fn test_parse_entity_with_count_source() {
     let source = r#"
-entity.stellar.moon {
+entity stellar.moon {
     : count(config.stellar.moon_count)
 }
     "#;
@@ -1474,7 +1474,7 @@ entity.stellar.moon {
 #[test]
 fn test_parse_entity_with_count_bounds() {
     let source = r#"
-entity.stellar.moon {
+entity stellar.moon {
     : count(1..20)
 }
     "#;
@@ -1496,7 +1496,7 @@ entity.stellar.moon {
 fn test_parse_entity_with_both_count_options() {
     // Can have both count source and bounds for validation
     let source = r#"
-entity.stellar.planet {
+entity stellar.planet {
     : count(config.stellar.planet_count)
     : count(1..10)
 }
@@ -1520,7 +1520,7 @@ entity.stellar.planet {
 fn test_parse_and_keyword() {
     // Tests that 'and' keyword is accepted as alternative to '&&'
     let source = r#"
-        signal.test {
+        signal test {
             : Scalar
             resolve {
                 let a = 1 in
@@ -1554,7 +1554,7 @@ fn test_parse_and_keyword() {
 fn test_parse_or_keyword() {
     // Tests that 'or' keyword is accepted as alternative to '||'
     let source = r#"
-        signal.test {
+        signal test {
             : Scalar
             resolve {
                 let x = 0 in
@@ -1586,7 +1586,7 @@ fn test_parse_or_keyword() {
 fn test_parse_not_keyword() {
     // Tests that 'not' keyword is accepted as alternative to '!'
     let source = r#"
-        signal.test {
+        signal test {
             : Scalar
             resolve {
                 let flag = 1 in
@@ -1618,7 +1618,7 @@ fn test_parse_not_keyword() {
 fn test_parse_mixed_logical_operators() {
     // Tests mixing symbol and keyword forms in the same expression
     let source = r#"
-        signal.test {
+        signal test {
             : Scalar
             resolve {
                 let a = 1 in
@@ -1653,7 +1653,7 @@ fn test_parse_mixed_logical_operators() {
 fn test_parse_not_does_not_match_notation() {
     // Ensures 'not' doesn't accidentally match the start of 'notation' or similar words
     let source = r#"
-        signal.test {
+        signal test {
             : Scalar
             resolve {
                 notation
@@ -1685,7 +1685,7 @@ fn test_parse_not_does_not_match_notation() {
 fn test_parse_named_argument_basic() {
     // Test single named argument: func(a, method: rk4)
     let source = r#"
-        signal.test {
+        signal test {
             : Scalar<1>
             resolve {
                 integrate(prev, rate, method: rk4)
@@ -1722,7 +1722,7 @@ fn test_parse_named_argument_basic() {
 fn test_parse_multiple_named_arguments() {
     // Test multiple named arguments
     let source = r#"
-        signal.test {
+        signal test {
             : Scalar
             resolve {
                 relax(current, target, tau: 0.5, method: exp)
@@ -1756,7 +1756,7 @@ fn test_parse_multiple_named_arguments() {
 fn test_parse_only_named_arguments() {
     // Test function call with only named arguments
     let source = r#"
-        signal.test {
+        signal test {
             : Scalar
             resolve {
                 configure(x: 1.0, y: 2.0, z: 3.0)
@@ -1787,7 +1787,7 @@ fn test_parse_only_named_arguments() {
 fn test_parse_named_argument_with_expression_value() {
     // Test named argument with complex expression as value
     let source = r#"
-        signal.test {
+        signal test {
             : Scalar
             resolve {
                 decay(prev, rate: config.physics.tau * 2.0)
@@ -1827,7 +1827,7 @@ fn test_parse_doc_comment_signal() {
     let source = r#"
 /// This signal tracks temperature in Kelvin.
 /// It is resolved by adding collected thermal energy.
-signal.test.temperature {
+signal test.temperature {
     : Scalar<K>
     resolve { prev + collected }
 }
@@ -1852,7 +1852,7 @@ fn test_parse_doc_comment_function() {
     let source = r#"
 /// Linear interpolation between two values.
 /// Returns a + (b - a) * t
-fn.math.lerp(a, b, t) {
+fn math.lerp(a, b, t) {
     a + (b - a) * t
 }
     "#;
@@ -1876,7 +1876,7 @@ fn test_parse_module_doc() {
 //! Module for thermal physics simulation.
 //! This file defines temperature signals.
 
-signal.test.temp {
+signal test.temp {
     : Scalar<K>
     resolve { prev }
 }
@@ -1894,7 +1894,7 @@ signal.test.temp {
 fn test_parse_no_doc_comment() {
     // Items without doc comments should have doc: None
     let source = r#"
-signal.test.nodoc {
+signal test.nodoc {
     : Scalar<1>
     resolve { prev }
 }
@@ -1915,7 +1915,7 @@ fn test_parse_regular_comment_not_doc() {
     // Regular comments (// without third /) should not be captured as doc
     let source = r#"
 // This is a regular comment, not a doc comment
-signal.test.regular {
+signal test.regular {
     : Scalar<1>
     resolve { prev }
 }
@@ -2162,7 +2162,7 @@ fn test_atmosphere_file_parses() {
 #[test]
 fn test_parse_world_def() {
     let source = r#"
-        world.terra {
+        world terra {
             : title("Earth Planetary Simulation")
             : version("1.0.0")
 
@@ -2201,7 +2201,7 @@ fn test_parse_world_def() {
 #[test]
 fn test_parse_math_constant_with_digit() {
     let source = r#"
-        signal.test.const {
+        signal test.const {
             : Scalar
             resolve {
                 SQRT2 * FRAC_1_PI
@@ -2243,7 +2243,7 @@ fn test_parse_math_constant_with_digit() {
 #[test]
 fn test_parse_fracture_emit_semicolons() {
     let source = r#"
-        fracture.test {
+        fracture test {
             when { true }
             emit {
                 signal.a <- 1.0;
@@ -2271,9 +2271,9 @@ fn test_parse_fracture_emit_semicolons() {
 #[test]
 fn test_parse_sim_time_expression() {
     let source = r#"
-        signal.test.clock {
+        signal test.clock {
             : Scalar<1>
-            resolve { sim_time + 1.0 }
+            resolve { sim.time + 1.0 }
         }
     "#;
     let (result, errors) = parse(source);
@@ -2285,7 +2285,15 @@ fn test_parse_sim_time_expression() {
             match &resolve.body.node {
                 Expr::Binary { op, left, .. } => {
                     assert_eq!(*op, BinaryOp::Add);
-                    assert!(matches!(left.node, Expr::SimTime));
+                    // sim.time is parsed as Path(["sim", "time"])
+                    match &left.node {
+                        Expr::Path(path) => {
+                            assert_eq!(path.segments.len(), 2);
+                            assert_eq!(path.segments[0], "sim");
+                            assert_eq!(path.segments[1], "time");
+                        }
+                        _ => panic!("expected Path for sim.time, got {:?}", left.node),
+                    }
                 }
                 _ => panic!("expected binary expression"),
             }
@@ -2297,7 +2305,7 @@ fn test_parse_sim_time_expression() {
 #[test]
 fn test_parse_impulse_with_metadata() {
     let source = r#"
-        impulse.test.quake {
+        impulse test.quake {
             : title("Earthquake")
             : symbol("Q")
             config {
@@ -2320,5 +2328,98 @@ fn test_parse_impulse_with_metadata() {
             assert!(def.apply.is_some());
         }
         _ => panic!("expected ImpulseDef"),
+    }
+}
+
+#[test]
+fn test_parse_operator_with_uses() {
+    let source = r#"
+        operator test.op {
+            : strata(test.thermal)
+            : uses(maths.clamping)
+            : phase(collect)
+            collect { 1 + 1 }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::OperatorDef(def) => {
+            assert_eq!(def.uses.len(), 1);
+            assert_eq!(def.uses[0], "maths.clamping");
+        }
+        _ => panic!("expected OperatorDef"),
+    }
+}
+
+#[test]
+fn test_parse_impulse_with_uses() {
+    let source = r#"
+        impulse test.imp {
+            : Scalar<W/m²>
+            : uses(maths.clamping)
+            apply { signal.test.value <- payload }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::ImpulseDef(def) => {
+            assert_eq!(def.uses.len(), 1);
+            assert_eq!(def.uses[0], "maths.clamping");
+        }
+        _ => panic!("expected ImpulseDef"),
+    }
+}
+
+#[test]
+fn test_parse_fracture_with_uses() {
+    let source = r#"
+        fracture test.frac {
+            : strata(test.thermal)
+            : uses(maths.clamping)
+            when { signal.test.stress > 100.0 }
+            emit { impulse.test.imp(42.0) }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::FractureDef(def) => {
+            assert_eq!(def.uses.len(), 1);
+            assert_eq!(def.uses[0], "maths.clamping");
+        }
+        _ => panic!("expected FractureDef"),
+    }
+}
+
+#[test]
+fn test_parse_multiple_uses_declarations() {
+    let source = r#"
+        operator test.op {
+            : uses(maths.clamping)
+            : uses(dt.raw)
+            : strata(test.thermal)
+            : phase(collect)
+            collect { 1 + 1 }
+        }
+    "#;
+    let (result, errors) = parse(source);
+    assert!(errors.is_empty(), "errors: {:?}", errors);
+    let unit = result.unwrap();
+    assert_eq!(unit.items.len(), 1);
+    match &unit.items[0].node {
+        Item::OperatorDef(def) => {
+            assert_eq!(def.uses.len(), 2);
+            assert_eq!(def.uses[0], "maths.clamping");
+            assert_eq!(def.uses[1], "dt.raw");
+        }
+        _ => panic!("expected OperatorDef"),
     }
 }

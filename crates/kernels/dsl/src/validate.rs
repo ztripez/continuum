@@ -102,6 +102,55 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                             span: resolve.body.span.clone(),
                         });
                     }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        &resolve.body,
+                        &signal.uses,
+                        &signal.path.node.to_string(),
+                        &mut errors,
+                    );
+                }
+            }
+            Item::MemberDef(member) => {
+                // Check if dt_raw is used in resolve block without : dt_raw declaration
+                if let Some(resolve) = &member.resolve {
+                    if uses_dt_raw(&resolve.body.node) && !member.dt_raw {
+                        errors.push(ValidationError {
+                            message: format!(
+                                "member '{}' uses dt_raw but does not declare : dt_raw",
+                                member.path.node
+                            ),
+                            span: resolve.body.span.clone(),
+                        });
+                    }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        &resolve.body,
+                        &member.uses,
+                        &member.path.node.to_string(),
+                        &mut errors,
+                    );
+                }
+                // Also check initial block
+                if let Some(initial) = &member.initial {
+                    if uses_dt_raw(&initial.body.node) && !member.dt_raw {
+                        errors.push(ValidationError {
+                            message: format!(
+                                "member '{}' uses dt_raw in initial block but does not declare : dt_raw",
+                                member.path.node
+                            ),
+                            span: initial.body.span.clone(),
+                        });
+                    }
+
+                    check_requires_uses(
+                        &initial.body,
+                        &member.uses,
+                        &member.path.node.to_string(),
+                        &mut errors,
+                    );
                 }
             }
             Item::OperatorDef(operator) => {
@@ -121,6 +170,14 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                             span: expr.span.clone(),
                         });
                     }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        expr,
+                        &operator.uses,
+                        &operator.path.node.to_string(),
+                        &mut errors,
+                    );
                 }
             }
             Item::ImpulseDef(impulse) => {
@@ -135,6 +192,14 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                             span: apply.body.span.clone(),
                         });
                     }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        &apply.body,
+                        &impulse.uses,
+                        &impulse.path.node.to_string(),
+                        &mut errors,
+                    );
                 }
             }
             Item::FractureDef(fracture) => {
@@ -149,6 +214,14 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                             span: condition.span.clone(),
                         });
                     }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        condition,
+                        &fracture.uses,
+                        &fracture.path.node.to_string(),
+                        &mut errors,
+                    );
                 }
                 if let Some(emit) = &fracture.emit {
                     if uses_dt_raw(&emit.node) {
@@ -160,6 +233,14 @@ pub fn validate(unit: &CompilationUnit) -> Vec<ValidationError> {
                             span: emit.span.clone(),
                         });
                     }
+
+                    // Check if kernel functions requiring uses() are called without declaration
+                    check_requires_uses(
+                        emit,
+                        &fracture.uses,
+                        &fracture.path.node.to_string(),
+                        &mut errors,
+                    );
                 }
             }
             _ => {}
@@ -355,6 +436,91 @@ impl AstVisitor for UnknownFunctionVisitor<'_> {
     }
 }
 
+/// Check if expression calls kernel functions that require uses() declarations
+fn check_requires_uses(
+    expr: &Spanned<Expr>,
+    uses_declarations: &[String],
+    context_name: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    match &expr.node {
+        Expr::Call { function, args, .. } => {
+            // Check if this is a namespaced function call (e.g., maths.clamp)
+            if let Expr::Path(path) = &function.node {
+                if path.segments.len() >= 2 {
+                    let namespace = &path.segments[0];
+                    let func_name = path.segments.last().unwrap();
+
+                    // Look up kernel descriptor
+                    if let Some(descriptor) =
+                        continuum_kernel_registry::get_in_namespace(namespace, func_name)
+                    {
+                        if let Some(requires) = descriptor.requires_uses {
+                            // Build full uses key: namespace.key
+                            let full_key = format!("{}.{}", namespace, requires.key);
+
+                            // Check if signal/member has this uses declaration
+                            if !uses_declarations.contains(&full_key) {
+                                errors.push(ValidationError {
+                                    message: format!(
+                                        "{} uses {}.{} which requires : uses({}). {}",
+                                        context_name, namespace, func_name, full_key, requires.hint
+                                    ),
+                                    span: expr.span.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Recursively check arguments
+            for arg in args {
+                check_requires_uses(&arg.value, uses_declarations, context_name, errors);
+            }
+        }
+        Expr::Binary { left, right, .. } => {
+            check_requires_uses(left, uses_declarations, context_name, errors);
+            check_requires_uses(right, uses_declarations, context_name, errors);
+        }
+        Expr::Unary { operand, .. } => {
+            check_requires_uses(operand, uses_declarations, context_name, errors);
+        }
+        Expr::FieldAccess { object, .. } => {
+            check_requires_uses(object, uses_declarations, context_name, errors);
+        }
+        Expr::Let { value, body, .. } => {
+            check_requires_uses(value, uses_declarations, context_name, errors);
+            check_requires_uses(body, uses_declarations, context_name, errors);
+        }
+        Expr::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            check_requires_uses(condition, uses_declarations, context_name, errors);
+            check_requires_uses(then_branch, uses_declarations, context_name, errors);
+            if let Some(else_b) = else_branch {
+                check_requires_uses(else_b, uses_declarations, context_name, errors);
+            }
+        }
+        Expr::For { iter, body, .. } => {
+            check_requires_uses(iter, uses_declarations, context_name, errors);
+            check_requires_uses(body, uses_declarations, context_name, errors);
+        }
+        Expr::MethodCall { object, args, .. } => {
+            check_requires_uses(object, uses_declarations, context_name, errors);
+            for arg in args {
+                check_requires_uses(&arg.value, uses_declarations, context_name, errors);
+            }
+        }
+        Expr::Aggregate { body, .. } => {
+            check_requires_uses(body, uses_declarations, context_name, errors);
+        }
+        _ => {}
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,12 +533,12 @@ mod tests {
     #[test]
     fn test_dt_raw_without_declaration() {
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
                 resolve {
-                    prev + dt_raw
+                    prev + dt.raw
                 }
             }
         "#;
@@ -391,13 +557,13 @@ mod tests {
     #[test]
     fn test_dt_raw_with_declaration() {
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
-                : dt_raw
+                : uses(dt.raw)
 
                 resolve {
-                    prev + dt_raw
+                    prev + dt.raw
                 }
             }
         "#;
@@ -412,7 +578,7 @@ mod tests {
     fn test_no_dt_raw_usage() {
         // Using prev without dt_raw is fine
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -432,7 +598,7 @@ mod tests {
     fn test_unknown_method_call() {
         // Method calls should be validated against known functions
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -457,11 +623,11 @@ mod tests {
     fn test_known_method_call() {
         // User-defined functions should not error when called as methods
         let source = r#"
-            fn.math.double(val) {
+            fn math.double(val) {
                 val * 2.0
             }
 
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -481,7 +647,7 @@ mod tests {
     fn test_arity_mismatch_builtin() {
         // sin expects 1 argument
         let source = r#"
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -505,9 +671,9 @@ mod tests {
     #[test]
     fn test_arity_mismatch_user_fn() {
         let source = r#"
-            fn.math.double(x) { x * 2.0 }
+            fn math.double(x) { x * 2.0 }
 
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -528,9 +694,9 @@ mod tests {
     fn test_arity_mismatch_method() {
         // my_clamp expects 3 arguments (object + 2 args)
         let source = r#"
-            fn.maths.my_clamp(val, min, max) { val }
+            fn maths.my_clamp(val, min, max) { val }
 
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
 
@@ -550,4 +716,232 @@ mod tests {
                 .contains("method 'my_clamp' expects 3 arguments, got 2")
         );
     }
+
+    #[test]
+    fn test_clamp_without_uses_declaration() {
+        let source = r#"
+            signal test.value {
+                : Scalar<K>
+                resolve {
+                    maths.clamp(prev, 0.0, 100.0)
+                }
+            }
+        "#;
+        let (result, parse_errors) = parse(source);
+        assert!(parse_errors.is_empty(), "parse errors: {:?}", parse_errors);
+        let unit = result.unwrap();
+        let errors = validate(&unit);
+        assert_eq!(errors.len(), 1, "Expected 1 validation error");
+        assert!(
+            errors[0].message.contains("uses maths.clamp"),
+            "Error should mention maths.clamp usage"
+        );
+        assert!(
+            errors[0].message.contains("uses(maths.clamping)"),
+            "Error should mention required declaration"
+        );
+    }
+
+    #[test]
+    fn test_clamp_with_uses_declaration() {
+        let source = r#"
+            signal test.value {
+                : Scalar<K>
+                : uses(maths.clamping)
+                resolve {
+                    maths.clamp(prev, 0.0, 100.0)
+                }
+            }
+        "#;
+        let (result, parse_errors) = parse(source);
+        assert!(parse_errors.is_empty(), "parse errors: {:?}", parse_errors);
+        let unit = result.unwrap();
+        let errors = validate(&unit);
+        assert!(
+            errors.is_empty(),
+            "Should have no validation errors: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_saturate_without_uses_declaration() {
+        let source = r#"
+            signal test.value {
+                : Scalar<1>
+                resolve {
+                    maths.saturate(prev + 0.1)
+                }
+            }
+        "#;
+        let (result, parse_errors) = parse(source);
+        assert!(parse_errors.is_empty(), "parse errors: {:?}", parse_errors);
+        let unit = result.unwrap();
+        let errors = validate(&unit);
+        assert_eq!(errors.len(), 1, "Expected 1 validation error");
+        assert!(
+            errors[0].message.contains("uses maths.saturate"),
+            "Error should mention maths.saturate usage"
+        );
+    }
+
+    #[test]
+    fn test_saturate_with_uses_declaration() {
+        let source = r#"
+            signal test.value {
+                : Scalar<1>
+                : uses(maths.clamping)
+                resolve {
+                    maths.saturate(prev + 0.1)
+                }
+            }
+        "#;
+        let (result, parse_errors) = parse(source);
+        assert!(parse_errors.is_empty(), "parse errors: {:?}", parse_errors);
+        let unit = result.unwrap();
+        let errors = validate(&unit);
+        assert!(
+            errors.is_empty(),
+            "Should have no validation errors: {:?}",
+            errors
+        );
+    }
+}
+
+#[test]
+fn test_fracture_clamp_without_uses() {
+    let source = r#"
+        fracture test.fracture {
+            : strata(test)
+            when { maths.clamp(signal.stress, 0.0, 100.0) > 50.0 }
+            emit {
+                signal.output <- 1.0
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(
+        errors.len() == 1,
+        "Expected 1 error, got {}: {:?}",
+        errors.len(),
+        errors
+    );
+    assert!(errors[0].message.contains("uses maths.clamp"));
+    assert!(
+        errors[0]
+            .message
+            .contains("requires : uses(maths.clamping)")
+    );
+}
+
+#[test]
+fn test_fracture_clamp_with_uses() {
+    let source = r#"
+        fracture test.fracture {
+            : strata(test)
+            : uses(maths.clamping)
+            when { maths.clamp(signal.stress, 0.0, 100.0) > 50.0 }
+            emit {
+                signal.output <- 1.0
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+}
+
+#[test]
+fn test_operator_clamp_without_uses() {
+    let source = r#"
+        operator test.operator {
+            : strata(test)
+            : phase(collect)
+            collect {
+                maths.clamp(signal.value, 0.0, 1.0)
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(
+        errors.len() == 1,
+        "Expected 1 error, got {}: {:?}",
+        errors.len(),
+        errors
+    );
+    assert!(errors[0].message.contains("uses maths.clamp"));
+    assert!(
+        errors[0]
+            .message
+            .contains("requires : uses(maths.clamping)")
+    );
+}
+
+#[test]
+fn test_operator_clamp_with_uses() {
+    let source = r#"
+        operator test.operator {
+            : strata(test)
+            : phase(collect)
+            : uses(maths.clamping)
+            collect {
+                maths.clamp(signal.value, 0.0, 1.0)
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
+}
+
+#[test]
+fn test_impulse_clamp_without_uses() {
+    let source = r#"
+        impulse test.impulse {
+            : Scalar<1>
+            apply {
+                let x = maths.clamp(payload, 0.0, 1.0) in
+                signal.output <- x
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(
+        errors.len() == 1,
+        "Expected 1 error, got {}: {:?}",
+        errors.len(),
+        errors
+    );
+    assert!(errors[0].message.contains("uses maths.clamp"));
+    assert!(
+        errors[0]
+            .message
+            .contains("requires : uses(maths.clamping)")
+    );
+}
+
+#[test]
+fn test_impulse_clamp_with_uses() {
+    let source = r#"
+        impulse test.impulse {
+            : Scalar<1>
+            : uses(maths.clamping)
+            apply {
+                let x = maths.clamp(payload, 0.0, 1.0) in
+                signal.output <- x
+            }
+        }
+    "#;
+    let (unit, parse_errors) = crate::parse(source);
+    assert!(parse_errors.is_empty());
+    let errors = validate(&unit.unwrap());
+    assert!(errors.is_empty(), "Expected no errors, got: {:?}", errors);
 }

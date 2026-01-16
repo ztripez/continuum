@@ -70,6 +70,7 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
             reads,
             handlers,
         };

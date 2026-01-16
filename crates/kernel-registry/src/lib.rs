@@ -225,6 +225,81 @@ pub enum Arity {
     Variadic,
 }
 
+/// Unit inference strategy for dimensional analysis.
+///
+/// Since Unit types live in continuum-ir and we can't create a circular dependency,
+/// we use string-based descriptors that the dimension analyzer interprets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnitInference {
+    /// Output is dimensionless (e.g., sin, cos, tan)
+    /// If requires_angle is true, input must be angle or dimensionless
+    Dimensionless { requires_angle: bool },
+
+    /// Output has same unit as first argument (e.g., abs, min, max, clamp)
+    /// All arguments must have matching units
+    PreserveFirst,
+
+    /// Output is square root of input unit (e.g., sqrt)
+    Sqrt,
+
+    /// Integration: prev + rate * dt
+    /// Validates that prev.unit == rate.unit * time
+    Integrate,
+
+    /// Decay: preserves value unit, validates halflife is time
+    /// decay(value, halflife) -> value * 0.5^(dt/halflife)
+    Decay,
+
+    /// No dimensional analysis (defaults to dimensionless)
+    None,
+}
+
+/// Pattern hints for the optimizer.
+///
+/// These flags indicate that a function commonly appears in specific
+/// expression patterns and may benefit from specialized code generation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PatternHints {
+    /// Function is commonly used for clamping/bounding (e.g., clamp, min, max)
+    pub clamping: bool,
+
+    /// Function performs exponential decay (e.g., decay, relax)
+    pub decay: bool,
+
+    /// Function performs integration/accumulation (e.g., integrate)
+    pub integration: bool,
+}
+
+impl PatternHints {
+    /// No pattern hints
+    pub const NONE: PatternHints = PatternHints {
+        clamping: false,
+        decay: false,
+        integration: false,
+    };
+
+    /// Clamping hint
+    pub const CLAMPING: PatternHints = PatternHints {
+        clamping: true,
+        decay: false,
+        integration: false,
+    };
+
+    /// Decay hint
+    pub const DECAY: PatternHints = PatternHints {
+        clamping: false,
+        decay: true,
+        integration: false,
+    };
+
+    /// Integration hint
+    pub const INTEGRATION: PatternHints = PatternHints {
+        clamping: false,
+        decay: false,
+        integration: true,
+    };
+}
+
 impl Arity {
     /// Get as `Option<usize>` for compatibility
     pub fn as_option(&self) -> Option<usize> {
@@ -233,6 +308,18 @@ impl Arity {
             Arity::Variadic => None,
         }
     }
+}
+
+/// Requirement for explicit `: uses(...)` declaration in DSL.
+///
+/// Functions marked with this requirement cannot be used unless the signal
+/// or member declares the appropriate uses clause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequiresUses {
+    /// The uses key that must be declared (e.g., "clamping" → `: uses(maths.clamping)`)
+    pub key: &'static str,
+    /// Hint message explaining why this function requires explicit opt-in
+    pub hint: &'static str,
 }
 
 /// Descriptor for a registered kernel function
@@ -253,6 +340,12 @@ pub struct KernelDescriptor {
     pub implementation: KernelImpl,
     /// Optional vectorized implementation for high-performance entity processing
     pub vectorized_impl: Option<VectorizedImpl>,
+    /// Unit inference strategy for dimensional analysis
+    pub unit_inference: UnitInference,
+    /// Pattern hints for optimizer
+    pub pattern_hints: PatternHints,
+    /// If Some, using this function requires `: uses(namespace.key)` declaration
+    pub requires_uses: Option<RequiresUses>,
 }
 
 impl KernelDescriptor {
@@ -387,6 +480,9 @@ mod tests {
             Value::Scalar(val.abs())
         }),
         vectorized_impl: None,
+        unit_inference: UnitInference::PreserveFirst,
+        pattern_hints: PatternHints::NONE,
+        requires_uses: None,
     };
 
     #[test]

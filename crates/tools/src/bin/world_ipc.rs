@@ -16,14 +16,16 @@ use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
 
 use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
+use continuum_ir::CompiledWorld;
 use continuum_lens::{FieldLens, FieldLensConfig, PlaybackClock};
 use continuum_runtime::executor::Runtime;
 use continuum_tools::ipc_protocol::{
-    ChronicleEvent, ChroniclePollPayload, FieldHistoryPayload, FieldLatestPayload,
-    FieldListPayload, FieldQueryBatchPayload, FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo,
-    ImpulseListPayload, IpcCommand, IpcEvent, IpcFrame, IpcRequest, IpcResponse,
-    IpcResponsePayload, JsonValue, PlaybackPayload, StatusPayload, TickEvent, read_frame,
-    write_frame,
+    AssertionEvent, ChronicleEvent, ChroniclePollPayload, EntityInfo, EntityListPayload, EraInfo,
+    EraListPayload, FieldHistoryPayload, FieldInfo, FieldLatestPayload, FieldListPayload,
+    FieldQueryBatchPayload, FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo, ImpulseListPayload,
+    IpcCommand, IpcEvent, IpcFrame, IpcRequest, IpcResponse, IpcResponsePayload, JsonValue,
+    PlaybackPayload, SignalInfo, SignalListPayload, StatusPayload, StratumInfo, StratumListPayload,
+    TickEvent, WorldInfo, read_frame, write_frame,
 };
 
 #[derive(Parser, Debug)]
@@ -47,6 +49,7 @@ struct Cli {
 }
 
 struct ServerState {
+    world: Arc<CompiledWorld>,
     runtime: Runtime,
     lens: FieldLens,
     playback: PlaybackClock,
@@ -54,6 +57,7 @@ struct ServerState {
     running: bool,
     tick_delay: Duration,
     events: broadcast::Sender<IpcEvent>,
+    signals: Vec<String>,
     fields: Vec<String>,
     impulse_handlers: HashMap<String, usize>,
     impulses: Vec<ImpulseInfo>,
@@ -75,12 +79,16 @@ async fn main() {
     let compile_result = continuum_compiler::compile_from_dir_result(&cli.world_dir);
 
     if compile_result.has_errors() {
-        error!("{}", compile_result.format_diagnostics().trim_end());
+        for diag in &compile_result.diagnostics {
+            error!("{}", compile_result.format_diagnostic(diag));
+        }
         std::process::exit(1);
     }
 
     if !compile_result.diagnostics.is_empty() {
-        warn!("{}", compile_result.format_diagnostics().trim_end());
+        for diag in &compile_result.diagnostics {
+            warn!("{}", compile_result.format_diagnostic(diag));
+        }
     }
 
     let world = compile_result.world.expect("no world despite no errors");
@@ -100,6 +108,7 @@ async fn main() {
         compilation,
         RuntimeBuildOptions {
             dt_override: cli.dt,
+            scenario: None,
         },
     ) {
         Ok(result) => result,
@@ -118,6 +127,12 @@ async fn main() {
     };
     let playback = PlaybackClock::new(0.0);
 
+    let signals = world
+        .signals()
+        .keys()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>();
+
     let fields = world
         .fields()
         .keys()
@@ -127,9 +142,32 @@ async fn main() {
     let impulses = world
         .impulses()
         .iter()
-        .map(|(id, impulse)| ImpulseInfo {
-            id: id.to_string(),
-            payload_type: impulse.payload_type.primitive_id().name().to_string(),
+        .map(|(id, impulse)| {
+            let unit = impulse
+                .payload_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Unit)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Unit(u) => Some(u.clone()),
+                    _ => None,
+                });
+
+            let range = impulse
+                .payload_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Range)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Range(r) => Some((r.min, r.max)),
+                    _ => None,
+                });
+
+            ImpulseInfo {
+                id: id.to_string(),
+                doc: impulse.doc.clone(),
+                title: impulse.title.clone(),
+                symbol: impulse.symbol.clone(),
+                payload_type: impulse.payload_type.primitive_id().name().to_string(),
+                unit,
+                range,
+            }
         })
         .collect::<Vec<_>>();
 
@@ -142,6 +180,7 @@ async fn main() {
     let (events, _rx) = broadcast::channel(1024);
 
     let state = Arc::new(Mutex::new(ServerState {
+        world: Arc::new(world),
         runtime,
         lens,
         playback,
@@ -149,6 +188,7 @@ async fn main() {
         running: false,
         tick_delay: Duration::from_millis(cli.tick_delay_ms),
         events,
+        signals,
         fields,
         impulse_handlers,
         impulses,
@@ -337,6 +377,99 @@ async fn handle_command(
                 error: None,
             })
         }
+        IpcCommand::WorldInfo => {
+            let state = state.lock().await;
+
+            let strata = state
+                .world
+                .strata()
+                .values()
+                .map(|s| StratumInfo {
+                    id: s.id.to_string(),
+                    doc: s.doc.clone(),
+                    title: s.title.clone(),
+                    symbol: s.symbol.clone(),
+                    default_stride: s.default_stride,
+                })
+                .collect();
+
+            let eras = state
+                .world
+                .eras()
+                .values()
+                .map(|e| EraInfo {
+                    id: e.id.to_string(),
+                    doc: e.doc.clone(),
+                    title: e.title.clone(),
+                    is_initial: e.is_initial,
+                    is_terminal: e.is_terminal,
+                    dt_seconds: e.dt_seconds,
+                })
+                .collect();
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::WorldInfo(WorldInfo { strata, eras })),
+                error: None,
+            })
+        }
+        IpcCommand::SignalList => {
+            let state = state.lock().await;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::SignalList(SignalListPayload {
+                    signals: state.signals.clone(),
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::SignalDescribe { signal_id } => {
+            let state = state.lock().await;
+            let sid = continuum_foundation::SignalId::from(signal_id.as_str());
+
+            // Get signal from compiled world
+            let signals = state.world.signals();
+            let signal = signals
+                .get(&sid)
+                .ok_or_else(|| anyhow::anyhow!("signal '{}' not found", signal_id))?;
+
+            // Extract unit and range from value_type
+            let unit = signal
+                .value_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Unit)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Unit(u) => Some(u.clone()),
+                    _ => None,
+                });
+
+            let range = signal
+                .value_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Range)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Range(r) => Some((r.min, r.max)),
+                    _ => None,
+                });
+
+            let signal_info = SignalInfo {
+                id: signal_id.clone(),
+                doc: signal.doc.clone(),
+                title: signal.title.clone(),
+                symbol: signal.symbol.clone(),
+                value_type: signal.value_type.primitive_id().name().to_string(),
+                unit,
+                range,
+                stratum: signal.stratum.to_string(),
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::SignalDescribe(signal_info)),
+                error: None,
+            })
+        }
         IpcCommand::FieldList => {
             let state = state.lock().await;
             Ok(IpcResponse {
@@ -345,6 +478,52 @@ async fn handle_command(
                 payload: Some(IpcResponsePayload::FieldList(FieldListPayload {
                     fields: state.fields.clone(),
                 })),
+                error: None,
+            })
+        }
+        IpcCommand::FieldDescribe { field_id } => {
+            let state = state.lock().await;
+            let fid = continuum_foundation::FieldId::from(field_id.as_str());
+
+            // Get field from compiled world
+            let fields = state.world.fields();
+            let field = fields
+                .get(&fid)
+                .ok_or_else(|| anyhow::anyhow!("field '{}' not found", field_id))?;
+
+            // Extract unit and range from value_type
+            let unit = field
+                .value_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Unit)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Unit(u) => Some(u.clone()),
+                    _ => None,
+                });
+
+            let range = field
+                .value_type
+                .param_value(continuum_foundation::PrimitiveParamKind::Range)
+                .and_then(|p| match p {
+                    continuum_ir::ValueTypeParamValue::Range(r) => Some((r.min, r.max)),
+                    _ => None,
+                });
+
+            let field_info = FieldInfo {
+                id: field_id.clone(),
+                doc: field.doc.clone(),
+                title: field.title.clone(),
+                symbol: field.symbol.clone(),
+                value_type: field.value_type.primitive_id().name().to_string(),
+                unit,
+                range,
+                topology: format!("{:?}", field.topology),
+                stratum: field.stratum.to_string(),
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::FieldDescribe(field_info)),
                 error: None,
             })
         }
@@ -519,11 +698,229 @@ async fn handle_command(
                 error: None,
             })
         }
+        IpcCommand::StratumList => {
+            let state = state.lock().await;
+            let strata = state
+                .world
+                .strata()
+                .keys()
+                .map(|id| id.to_string())
+                .collect();
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::StratumList(StratumListPayload {
+                    strata,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::StratumDescribe { stratum_id } => {
+            let state = state.lock().await;
+            let sid = continuum_foundation::StratumId::from(stratum_id.as_str());
+            let strata = state.world.strata();
+            let stratum = strata
+                .get(&sid)
+                .ok_or_else(|| anyhow::anyhow!("stratum '{}' not found", stratum_id))?;
+
+            let info = StratumInfo {
+                id: stratum_id,
+                doc: stratum.doc.clone(),
+                title: stratum.title.clone(),
+                symbol: stratum.symbol.clone(),
+                default_stride: stratum.default_stride,
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::StratumDescribe(info)),
+                error: None,
+            })
+        }
+        IpcCommand::EraList => {
+            let state = state.lock().await;
+            let eras = state.world.eras().keys().map(|id| id.to_string()).collect();
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::EraList(EraListPayload { eras })),
+                error: None,
+            })
+        }
+        IpcCommand::EraDescribe { era_id } => {
+            let state = state.lock().await;
+            let eid = continuum_foundation::EraId::from(era_id.as_str());
+            let eras = state.world.eras();
+            let era = eras
+                .get(&eid)
+                .ok_or_else(|| anyhow::anyhow!("era '{}' not found", era_id))?;
+
+            let info = EraInfo {
+                id: era_id,
+                doc: era.doc.clone(),
+                title: era.title.clone(),
+                is_initial: era.is_initial,
+                is_terminal: era.is_terminal,
+                dt_seconds: era.dt_seconds,
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::EraDescribe(info)),
+                error: None,
+            })
+        }
+        IpcCommand::EntityList => {
+            let state = state.lock().await;
+            let entities = state
+                .world
+                .entities()
+                .keys()
+                .map(|id| id.to_string())
+                .collect();
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::EntityList(EntityListPayload {
+                    entities,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::EntityDescribe { entity_id } => {
+            let state = state.lock().await;
+            let eid = continuum_foundation::EntityId::from(entity_id.as_str());
+            let entities = state.world.entities();
+            let entity = entities
+                .get(&eid)
+                .ok_or_else(|| anyhow::anyhow!("entity '{}' not found", entity_id))?;
+
+            let info = EntityInfo {
+                id: entity_id,
+                doc: entity.doc.clone(),
+                count_bounds: entity.count_bounds,
+            };
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::EntityDescribe(info)),
+                error: None,
+            })
+        }
+        IpcCommand::AssertionList => {
+            let state = state.lock().await;
+            let assertions = state
+                .runtime
+                .assertion_checker()
+                .assertions()
+                .iter()
+                .map(|a| {
+                    use continuum_tools::ipc_protocol::AssertionInfo;
+                    AssertionInfo {
+                        signal_id: a.signal.to_string(),
+                        severity: match a.severity {
+                            continuum_runtime::executor::AssertionSeverity::Warn => "warn",
+                            continuum_runtime::executor::AssertionSeverity::Error => "error",
+                            continuum_runtime::executor::AssertionSeverity::Fatal => "fatal",
+                        }
+                        .to_string(),
+                        message: a.message.clone(),
+                    }
+                })
+                .collect();
+
+            use continuum_tools::ipc_protocol::AssertionListPayload;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::AssertionList(AssertionListPayload {
+                    assertions,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::AssertionFailures { signal_id } => {
+            let state = state.lock().await;
+            let all_failures = state.runtime.assertion_checker().failures();
+            let filtered_failures: Vec<_> = if let Some(ref sig_id) = signal_id {
+                let target = continuum_runtime::types::SignalId::from(sig_id.as_str());
+                all_failures.iter().filter(|f| f.signal == target).collect()
+            } else {
+                all_failures.iter().collect()
+            };
+
+            let failures = filtered_failures
+                .iter()
+                .map(|f| {
+                    use continuum_tools::ipc_protocol::AssertionFailure;
+                    AssertionFailure {
+                        signal_id: f.signal.to_string(),
+                        severity: match f.severity {
+                            continuum_runtime::executor::AssertionSeverity::Warn => "warn",
+                            continuum_runtime::executor::AssertionSeverity::Error => "error",
+                            continuum_runtime::executor::AssertionSeverity::Fatal => "fatal",
+                        }
+                        .to_string(),
+                        message: f.message.clone(),
+                        tick: f.tick,
+                        era: f.era.clone(),
+                        sim_time: f.sim_time,
+                    }
+                })
+                .collect();
+
+            use continuum_tools::ipc_protocol::AssertionFailuresPayload;
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::AssertionFailures(
+                    AssertionFailuresPayload { failures },
+                )),
+                error: None,
+            })
+        }
+    }
+}
+
+/// Helper to broadcast any assertion failures that have been recorded
+fn broadcast_assertion_failures(state: &mut ServerState) {
+    let assertion_failures = state.runtime.assertion_checker_mut().drain_failures();
+    for failure in &assertion_failures {
+        let event = AssertionEvent {
+            signal_id: failure.signal.to_string(),
+            severity: match failure.severity {
+                continuum_runtime::executor::AssertionSeverity::Warn => "warn".to_string(),
+                continuum_runtime::executor::AssertionSeverity::Error => "error".to_string(),
+                continuum_runtime::executor::AssertionSeverity::Fatal => "fatal".to_string(),
+            },
+            message: failure.message.clone(),
+            tick: failure.tick,
+            era: failure.era.clone(),
+            sim_time: failure.sim_time,
+        };
+        let _ = state.events.send(IpcEvent::Assertion(event));
     }
 }
 
 fn execute_tick(state: &mut ServerState) -> anyhow::Result<()> {
-    let ctx = state.runtime.execute_tick()?;
+    // Run warmup if not complete
+    if !state.runtime.is_warmup_complete() {
+        info!("Executing warmup...");
+        state.runtime.execute_warmup()?;
+        info!("Warmup complete");
+    }
+
+    // Execute tick - may fail due to assertion errors
+    let tick_result = state.runtime.execute_tick();
+
+    // Always broadcast assertion failures, even if tick failed
+    broadcast_assertion_failures(state);
+
+    // Now handle the tick result
+    let ctx = tick_result?;
     state.sim_time += ctx.dt.seconds();
     state.playback.advance(state.runtime.tick());
 
@@ -599,6 +996,7 @@ fn status_payload(state: &ServerState) -> StatusPayload {
         dt: ctx.dt.seconds(),
         phase: format!("{:?}", state.runtime.phase()),
         running: state.running,
+        warmup_complete: state.runtime.is_warmup_complete(),
     }
 }
 

@@ -7,7 +7,7 @@ use continuum_runtime::storage::SignalStorage;
 use continuum_runtime::types::Value;
 
 use crate::{
-    BinaryOpIr, CompiledEmit, CompiledEra, CompiledExpr, CompiledFracture, CompiledTransition,
+    BinaryOp, CompiledEmit, CompiledEra, CompiledExpr, CompiledFracture, CompiledTransition,
     CompiledWorld,
 };
 
@@ -30,12 +30,13 @@ fn test_build_transition_fn() {
         is_initial: true,
         is_terminal: false,
         title: None,
+        doc: None,
         dt_seconds: 1.0,
         strata_states: IndexMap::new(),
         transitions: vec![CompiledTransition {
             target_era: continuum_foundation::EraId::from("next_era"),
             condition: CompiledExpr::Binary {
-                op: BinaryOpIr::Lt,
+                op: BinaryOp::Lt,
                 left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from(
                     "temp",
                 ))),
@@ -77,10 +78,11 @@ fn test_build_fracture() {
         file: None,
         span: 0..0,
         id: continuum_foundation::FractureId::from("test_fracture"),
+        doc: None,
         stratum: continuum_foundation::StratumId::from("default"),
         reads: vec![continuum_foundation::SignalId::from("temp")],
         conditions: vec![CompiledExpr::Binary {
-            op: BinaryOpIr::Gt,
+            op: BinaryOp::Gt,
             left: Box::new(CompiledExpr::Signal(continuum_foundation::SignalId::from(
                 "temp",
             ))),

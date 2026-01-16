@@ -37,6 +37,7 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
             count_source,
             count_bounds,
         };

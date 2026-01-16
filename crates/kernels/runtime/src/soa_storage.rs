@@ -178,9 +178,13 @@ impl ValueType {
             Value::Vec3(_) => ValueType::vec3(),
             Value::Vec4(_) => ValueType::vec4(),
             Value::Quat(_) => ValueType::quat(),
+            Value::Mat2(_) => ValueType::scalar(), // TODO: proper matrix value type
+            Value::Mat3(_) => ValueType::scalar(), // TODO: proper matrix value type
+            Value::Mat4(_) => ValueType::scalar(), // TODO: proper matrix value type
             Value::Boolean(_) => ValueType::boolean(),
             Value::Integer(_) => ValueType::integer(),
             Value::Map(_) => panic!("Map values are not supported in member signals"),
+            Value::Tensor(_) => panic!("Tensor values are not yet supported in member signals"),
         }
     }
 
@@ -191,6 +195,9 @@ impl ValueType {
             PrimitiveStorageClass::Vec2 => ValueType::vec2(),
             PrimitiveStorageClass::Vec3 => ValueType::vec3(),
             PrimitiveStorageClass::Vec4 => ValueType::vec4(),
+            PrimitiveStorageClass::Mat2 => ValueType::scalar(), // TODO: implement matrix types
+            PrimitiveStorageClass::Mat3 => ValueType::scalar(), // TODO: implement matrix types
+            PrimitiveStorageClass::Mat4 => ValueType::scalar(), // TODO: implement matrix types
             PrimitiveStorageClass::Tensor => ValueType::scalar(),
             PrimitiveStorageClass::Grid => ValueType::scalar(),
             PrimitiveStorageClass::Seq => ValueType::scalar(),
@@ -209,6 +216,9 @@ impl ValueType {
                 PrimitiveStorageClass::Vec2 => MemberBufferClass::Vec2,
                 PrimitiveStorageClass::Vec3 => MemberBufferClass::Vec3,
                 PrimitiveStorageClass::Vec4 => MemberBufferClass::Vec4,
+                PrimitiveStorageClass::Mat2 => MemberBufferClass::Scalar, // TODO: matrix buffer class
+                PrimitiveStorageClass::Mat3 => MemberBufferClass::Scalar, // TODO: matrix buffer class
+                PrimitiveStorageClass::Mat4 => MemberBufferClass::Scalar, // TODO: matrix buffer class
                 PrimitiveStorageClass::Tensor => MemberBufferClass::Scalar,
                 PrimitiveStorageClass::Grid => MemberBufferClass::Scalar,
                 PrimitiveStorageClass::Seq => MemberBufferClass::Scalar,

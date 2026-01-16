@@ -78,6 +78,8 @@ pub enum NodeKind {
 /// Properties specific to signal nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SignalProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Human-readable title
     pub title: Option<String>,
     /// Unicode symbol for display
@@ -86,10 +88,8 @@ pub struct SignalProperties {
     pub value_type: ValueType,
     /// Whether `dt_raw` is explicitly used
     pub uses_dt_raw: bool,
-    /// The resolve expression (for scalar signals)
+    /// The resolve expression (all types, vectors handled via runtime dispatch)
     pub resolve: Option<CompiledExpr>,
-    /// Component-wise resolve expressions for vector signals
-    pub resolve_components: Option<Vec<CompiledExpr>>,
     /// Warmup configuration
     pub warmup: Option<CompiledWarmup>,
     /// Assertions to validate after resolution
@@ -99,8 +99,12 @@ pub struct SignalProperties {
 /// Properties specific to field nodes  
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Human-readable title
     pub title: Option<String>,
+    /// Unicode symbol for display
+    pub symbol: Option<String>,
     /// Spatial topology for reconstruction
     pub topology: TopologyIr,
     /// Value type at each sample point
@@ -112,6 +116,8 @@ pub struct FieldProperties {
 /// Properties specific to operator nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OperatorProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Execution phase
     pub phase: OperatorPhaseIr,
     /// The operator body
@@ -123,6 +129,12 @@ pub struct OperatorProperties {
 /// Properties specific to impulse nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImpulseProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
+    /// Human-readable title
+    pub title: Option<String>,
+    /// Unicode symbol for display
+    pub symbol: Option<String>,
     /// Type of data carried by the impulse
     pub payload_type: ValueType,
     /// The apply expression
@@ -132,6 +144,8 @@ pub struct ImpulseProperties {
 /// Properties specific to fracture nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FractureProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Condition expressions (all must be true)
     pub conditions: Vec<CompiledExpr>,
     /// Emit statements
@@ -141,6 +155,8 @@ pub struct FractureProperties {
 /// Properties specific to entity nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EntityProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Count source from config (e.g., "stellar.moon_count")
     pub count_source: Option<String>,
     /// Count validation bounds
@@ -150,6 +166,8 @@ pub struct EntityProperties {
 /// Properties specific to member nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemberProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// The entity this member belongs to
     pub entity_id: EntityId,
     /// The signal name within the entity (e.g., "age" from "human.person.age")
@@ -173,6 +191,8 @@ pub struct MemberProperties {
 /// Properties specific to chronicle nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChronicleProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Observation handlers that emit events when conditions are met
     pub handlers: Vec<CompiledObserveHandler>,
 }
@@ -180,6 +200,8 @@ pub struct ChronicleProperties {
 /// Properties specific to function nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Parameter names in order
     pub params: Vec<String>,
     /// Function body expression
@@ -189,6 +211,8 @@ pub struct FunctionProperties {
 /// Properties specific to type nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TypeProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Named fields with their value types
     pub fields: Vec<CompiledTypeField>,
 }
@@ -196,6 +220,8 @@ pub struct TypeProperties {
 /// Properties specific to stratum nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StratumProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Human-readable title for display
     pub title: Option<String>,
     /// Unicode symbol for visualization
@@ -207,6 +233,8 @@ pub struct StratumProperties {
 /// Properties specific to era nodes
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EraProperties {
+    /// Documentation comment from CDSL source
+    pub doc: Option<String>,
     /// Whether this is the starting era
     pub is_initial: bool,
     /// Whether this era ends simulation

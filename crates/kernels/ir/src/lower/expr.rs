@@ -105,6 +105,16 @@ impl Lowerer {
                 if path.segments.len() == 1 && ctx.locals.contains(&path.segments[0]) {
                     return CompiledExpr::Local(path.segments[0].clone());
                 }
+
+                // Check for special namespace paths (sim.time, dt.raw via Path syntax)
+                if path.segments.len() == 2 {
+                    match (path.segments[0].as_str(), path.segments[1].as_str()) {
+                        ("sim", "time") => return CompiledExpr::SimTime,
+                        ("dt", "raw") => return CompiledExpr::DtRaw,
+                        _ => {}
+                    }
+                }
+
                 // Could be signal, const, or config reference
                 let joined = path.to_string();
                 if let Some((_, unit)) = self.constants.get(&joined) {
@@ -253,6 +263,37 @@ impl Lowerer {
                 }
             }
             Expr::FieldAccess { object, field } => {
+                // Special case: namespace fields (dt.raw, sim.time)
+                if let Expr::Path(path) = &object.node {
+                    if path.segments.len() == 1 {
+                        match path.segments[0].as_str() {
+                            "dt" => {
+                                if field == "raw" {
+                                    return CompiledExpr::DtRaw;
+                                } else {
+                                    // Future: handle dt.scaled, etc.
+                                    panic!(
+                                        "Unknown dt field: '{}'. Only dt.raw is currently supported.",
+                                        field
+                                    );
+                                }
+                            }
+                            "sim" => {
+                                if field == "time" {
+                                    return CompiledExpr::SimTime;
+                                } else {
+                                    // Future: handle sim.tick, sim.elapsed, etc.
+                                    panic!(
+                                        "Unknown sim field: '{}'. Only sim.time is currently supported.",
+                                        field
+                                    );
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+
                 let lowered_object = self.lower_expr_with_context(&object.node, ctx);
                 if let CompiledExpr::Payload = lowered_object {
                     CompiledExpr::PayloadField(field.clone())

@@ -3,124 +3,339 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Continuum Sim Control</title>
+  <title>Continuum Inspector</title>
   <style>
     :root {
-      --bg: #f8fafc;
-      --text: #0f172a;
-      --panel: #ffffff;
-      --border: #e2e8f0;
-      --primary: #2563eb;
+      --bg: #0f172a;
+      --text: #e2e8f0;
+      --panel: #1e293b;
+      --panel-hover: #334155;
+      --border: #334155;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
       --danger: #ef4444;
       --success: #22c55e;
-      --log-bg: #0f172a;
-      --log-text: #e2e8f0;
+      --warning: #f59e0b;
+      --accent: #8b5cf6;
+      --log-bg: #020617;
+      --code-bg: #0f172a;
+      --muted: #64748b;
     }
+    * { box-sizing: border-box; }
     body {
       font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
       margin: 0;
-      padding: 24px;
+      padding: 0;
       color: var(--text);
       background: var(--bg);
-      display: grid;
-      grid-template-columns: 320px 1fr;
-      grid-template-rows: auto 1fr;
-      gap: 24px;
       height: 100vh;
-      box-sizing: border-box;
+      overflow: hidden;
     }
+    
+    /* Layout */
+    .app-container {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+    }
+    
+    /* Header */
     header {
-      grid-column: 1 / -1;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
-    h1 { margin: 0; font-size: 20px; }
+    h1 { 
+      margin: 0; 
+      font-size: 18px; 
+      font-weight: 600;
+      color: var(--primary);
+      letter-spacing: -0.025em;
+    }
     .status-badge {
-      padding: 4px 12px;
+      padding: 6px 14px;
       border-radius: 999px;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
       text-transform: uppercase;
-      background: #94a3b8;
+      letter-spacing: 0.05em;
+      background: var(--muted);
       color: white;
     }
     .status-badge.connected { background: var(--success); }
     .status-badge.disconnected { background: var(--danger); }
-
+    
+    /* Main content */
+    .main-content {
+      display: grid;
+      grid-template-columns: 280px 320px 1fr;
+      gap: 0;
+      overflow: hidden;
+      height: 100%;
+    }
+    
+    /* Sidebar panels */
     .sidebar {
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 16px;
       display: flex;
       flex-direction: column;
-      gap: 20px;
+      gap: 16px;
     }
+    
     .panel {
-      background: var(--panel);
+      background: var(--code-bg);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+      border-radius: 8px;
+      overflow: hidden;
     }
-    .panel h2 {
-      margin: 0 0 12px 0;
-      font-size: 14px;
+    .panel-header {
+      padding: 10px 12px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .panel-header h2 {
+      margin: 0;
+      font-size: 12px;
       text-transform: uppercase;
-      color: #64748b;
+      color: var(--muted);
       letter-spacing: 0.05em;
+      font-weight: 600;
     }
+    .panel-header .badge {
+      font-size: 10px;
+      background: var(--primary);
+      color: white;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-weight: 600;
+    }
+    .panel-content {
+      padding: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    /* Stats panel */
     .stat-grid {
       display: grid;
       grid-template-columns: auto 1fr;
       gap: 8px 16px;
-      font-size: 14px;
+      font-size: 13px;
+      padding: 12px;
     }
-    .stat-label { color: #64748b; }
-    .stat-value { font-weight: 600; font-family: ui-monospace, monospace; text-align: right; }
-
+    .stat-label { color: var(--muted); }
+    .stat-value { 
+      font-weight: 600; 
+      font-family: ui-monospace, monospace; 
+      text-align: right;
+      color: var(--primary);
+    }
+    
+    /* Controls */
     .controls {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 8px;
+      padding: 12px;
     }
     button {
       padding: 8px 12px;
       border: 1px solid var(--border);
-      background: white;
+      background: var(--panel);
+      color: var(--text);
       border-radius: 6px;
       font-weight: 500;
+      font-size: 12px;
       cursor: pointer;
-      transition: all 0.1s;
+      transition: all 0.15s;
     }
-    button:hover { background: #f1f5f9; }
-    button.primary { background: var(--primary); color: white; border-color: var(--primary); }
-    button.primary:hover { background: #1d4ed8; }
-    button.danger { background: white; color: var(--danger); border-color: var(--danger); }
-    button.danger:hover { background: #fef2f2; }
-
-    .main {
+    button:hover { background: var(--panel-hover); }
+    button.primary { 
+      background: var(--primary); 
+      color: white; 
+      border-color: var(--primary); 
+    }
+    button.primary:hover { background: var(--primary-hover); }
+    button.danger { 
+      background: var(--panel);
+      color: var(--danger); 
+      border-color: var(--danger); 
+    }
+    button.danger:hover { background: rgba(239, 68, 68, 0.1); }
+    button.small {
+      padding: 4px 8px;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    
+    /* List items */
+    .list-item {
+      padding: 8px 10px;
+      margin: 4px 0;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      border: 1px solid transparent;
+      transition: all 0.1s;
       display: flex;
       flex-direction: column;
-      gap: 20px;
-      overflow: hidden;
+      gap: 4px;
     }
+    .list-item:hover { 
+      background: var(--panel-hover); 
+      border-color: var(--border);
+    }
+    .list-item.selected {
+      background: rgba(59, 130, 246, 0.15);
+      border-color: var(--primary);
+    }
+    .list-item-id {
+      font-family: ui-monospace, monospace;
+      color: var(--primary);
+      font-weight: 500;
+      font-size: 11px;
+    }
+    .list-item-title {
+      color: var(--text);
+      font-size: 12px;
+    }
+    .list-item-meta {
+      color: var(--muted);
+      font-size: 10px;
+      font-family: ui-monospace, monospace;
+    }
+    .list-item-doc {
+      color: var(--muted);
+      font-size: 11px;
+      font-style: italic;
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+    
+    /* Detail view */
+    .detail-view {
+      background: var(--panel);
+      overflow-y: auto;
+      padding: 24px;
+    }
+    .detail-empty {
+      color: var(--muted);
+      font-style: italic;
+      text-align: center;
+      margin-top: 100px;
+      font-size: 14px;
+    }
+    .detail-header {
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .detail-title {
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text);
+      margin: 0 0 8px 0;
+    }
+    .detail-id {
+      font-family: ui-monospace, monospace;
+      color: var(--primary);
+      font-size: 13px;
+      margin-bottom: 12px;
+    }
+    .detail-symbol {
+      font-family: 'Times New Roman', serif;
+      font-size: 16px;
+      color: var(--accent);
+      font-style: italic;
+      margin-left: 12px;
+    }
+    .detail-doc {
+      color: var(--muted);
+      line-height: 1.6;
+      font-size: 14px;
+      margin: 16px 0;
+      padding: 12px;
+      background: var(--code-bg);
+      border-left: 3px solid var(--primary);
+      border-radius: 4px;
+    }
+    .detail-section {
+      margin: 20px 0;
+    }
+    .detail-section h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      color: var(--muted);
+      letter-spacing: 0.05em;
+      margin: 0 0 12px 0;
+      font-weight: 600;
+    }
+    .detail-grid {
+      display: grid;
+      grid-template-columns: 140px 1fr;
+      gap: 10px 20px;
+      font-size: 13px;
+      background: var(--code-bg);
+      padding: 12px;
+      border-radius: 6px;
+    }
+    .detail-label { color: var(--muted); }
+    .detail-value { 
+      font-family: ui-monospace, monospace; 
+      color: var(--text);
+    }
+    .detail-value code {
+      background: rgba(59, 130, 246, 0.15);
+      padding: 2px 6px;
+      border-radius: 3px;
+      color: var(--primary);
+    }
+    
+    /* Log */
     #log {
       background: var(--log-bg);
-      color: var(--log-text);
-      padding: 12px;
-      border-radius: 8px;
+      color: var(--text);
+      padding: 16px;
       flex: 1;
       overflow: auto;
       font-family: ui-monospace, monospace;
-      font-size: 12px;
-      white-space: pre-wrap;
+      font-size: 11px;
     }
-    .log-entry { margin-bottom: 4px; border-bottom: 1px solid #1e293b; padding-bottom: 4px; }
-    .log-entry.event { color: #38bdf8; }
-    .log-entry.error { color: #f87171; }
-    .log-entry.out { color: #94a3b8; }
-
+    .log-entry { 
+      margin-bottom: 6px; 
+      padding: 6px 8px;
+      border-radius: 4px;
+      border-left: 2px solid transparent;
+    }
+    .log-entry.event { 
+      color: var(--success); 
+      background: rgba(34, 197, 94, 0.05);
+      border-left-color: var(--success);
+    }
+    .log-entry.error { 
+      color: var(--danger); 
+      background: rgba(239, 68, 68, 0.05);
+      border-left-color: var(--danger);
+    }
+    .log-entry.out { color: var(--primary); }
+    
+    /* Input */
     .input-row {
       display: flex;
       gap: 8px;
+      padding: 16px;
+      background: var(--panel);
+      border-top: 1px solid var(--border);
     }
     input {
       flex: 1;
@@ -128,65 +343,264 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       font-family: ui-monospace, monospace;
+      background: var(--code-bg);
+      color: var(--text);
+      font-size: 12px;
     }
-
-    .list-item {
-      padding: 6px 8px;
-      border-radius: 4px;
+    
+    /* Tabs */
+    .tabs {
+      display: flex;
+      gap: 4px;
+      padding: 8px 8px 0 8px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+    }
+    .tab {
+      padding: 8px 16px;
+      border: none;
+      background: transparent;
+      color: var(--muted);
       cursor: pointer;
-      font-size: 13px;
+      border-radius: 6px 6px 0 0;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .tab:hover { background: var(--panel-hover); color: var(--text); }
+    .tab.active { 
+      background: var(--bg);
+      color: var(--primary);
+      border-bottom: 2px solid var(--primary);
+    }
+    
+    .tab-content { display: none; }
+    .tab-content.active { display: flex; flex-direction: column; height: 100%; }
+    
+     /* Scrollbar */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: var(--panel); }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+    
+    /* Modal */
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(0, 0, 0, 0.8);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal.open { display: flex; }
+    .modal-content {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      max-width: 600px;
+      width: 90%;
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+    .modal-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
+      align-items: center;
     }
-    .list-item:hover { background: #f1f5f9; }
-    .list-item code { color: var(--primary); }
+    .modal-header h2 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 24px;
+      cursor: pointer;
+      padding: 0;
+      width: 32px;
+      height: 32px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 6px;
+    }
+    .modal-close:hover { 
+      background: var(--panel-hover);
+      color: var(--text);
+    }
+    .modal-body {
+      padding: 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .modal-footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+    textarea {
+      width: 100%;
+      min-height: 150px;
+      padding: 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--code-bg);
+      color: var(--text);
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      resize: vertical;
+    }
   </style>
 </head>
 <body>
-  <header>
-    <h1>Continuum Sim Control</h1>
-    <div id="conn-status" class="status-badge disconnected">Disconnected</div>
-  </header>
-
-  <div class="sidebar">
-    <div class="panel">
-      <h2>Simulation</h2>
-      <div class="stat-grid">
-        <span class="stat-label">Tick</span><span class="stat-value" id="val-tick">-</span>
-        <span class="stat-label">Era</span><span class="stat-value" id="val-era">-</span>
-        <span class="stat-label">Time</span><span class="stat-value" id="val-time">-</span>
-        <span class="stat-label">Phase</span><span class="stat-value" id="val-phase">-</span>
+  <div class="app-container">
+    <header>
+      <h1>Continuum Inspector</h1>
+      <div id="conn-status" class="status-badge disconnected">Disconnected</div>
+    </header>
+    
+    <div class="main-content">
+      <!-- Left sidebar: Controls -->
+      <div class="sidebar">
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Simulation</h2>
+          </div>
+          <div class="stat-grid">
+            <span class="stat-label">Tick</span><span class="stat-value" id="val-tick">-</span>
+            <span class="stat-label">Era</span><span class="stat-value" id="val-era">-</span>
+            <span class="stat-label">Time</span><span class="stat-value" id="val-time">-</span>
+            <span class="stat-label">Phase</span><span class="stat-value" id="val-phase">-</span>
+          </div>
+          <div class="controls">
+            <button id="cmd-status">Status</button>
+            <button id="cmd-step">Step</button>
+            <button id="cmd-run" class="primary">Run</button>
+            <button id="cmd-stop" class="danger">Stop</button>
+          </div>
+        </div>
+        
+        <div class="panel">
+          <div class="panel-header">
+            <h2>Impulses</h2>
+          </div>
+          <div class="controls">
+            <button id="cmd-emit-impulse" style="grid-column: 1 / -1;">Emit Impulse</button>
+          </div>
+        </div>
+        
+        <div class="panel">
+          <div class="panel-header">
+            <h2>World Info</h2>
+            <button id="cmd-refresh-world" class="small">Refresh</button>
+          </div>
+          <div class="panel-content" id="world-info">
+            <div style="color: var(--muted); font-style: italic; font-size: 12px;">Loading...</div>
+          </div>
+        </div>
       </div>
-      <div class="controls" style="margin-top: 16px;">
-        <button id="cmd-status">Status</button>
-        <button id="cmd-step">Step</button>
-        <button id="cmd-run" class="primary">Run</button>
-        <button id="cmd-stop" class="danger">Stop</button>
+      
+      <!-- Middle sidebar: Lists -->
+      <div class="sidebar">
+        <div class="tabs">
+          <button class="tab active" data-tab="signals">Signals</button>
+          <button class="tab" data-tab="fields">Fields</button>
+          <button class="tab" data-tab="entities">Entities</button>
+          <button class="tab" data-tab="chronicles">Chronicles</button>
+        </div>
+        
+        <div class="tab-content active" id="tab-signals">
+          <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+            <div class="panel-header">
+              <h2>Signals</h2>
+              <span class="badge" id="signal-count">0</span>
+            </div>
+            <div class="panel-content" style="flex: 1; max-height: none;" id="signal-list">
+              <div style="color: var(--muted); font-style: italic; font-size: 12px;">Loading...</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="tab-content" id="tab-fields">
+          <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+            <div class="panel-header">
+              <h2>Fields</h2>
+              <span class="badge" id="field-count">0</span>
+            </div>
+            <div class="panel-content" style="flex: 1; max-height: none;" id="field-list">
+              <div style="color: var(--muted); font-style: italic; font-size: 12px;">Loading...</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="tab-content" id="tab-entities">
+          <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+            <div class="panel-header">
+              <h2>Entities</h2>
+              <span class="badge" id="entity-count">0</span>
+            </div>
+            <div class="panel-content" style="flex: 1; max-height: none;" id="entity-list">
+              <div style="color: var(--muted); font-style: italic; font-size: 12px;">Loading...</div>
+            </div>
+          </div>
+        </div>
+        
+        <div class="tab-content" id="tab-chronicles">
+          <div class="panel" style="flex: 1; display: flex; flex-direction: column;">
+            <div class="panel-header">
+              <h2>Chronicles</h2>
+              <span class="badge" id="chronicle-count">0</span>
+            </div>
+            <div class="panel-content" style="flex: 1; max-height: none;" id="chronicle-list">
+              <div style="color: var(--muted); font-style: italic; font-size: 12px;">No chronicle events yet...</div>
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-
-    <div class="panel">
-      <h2>Fields</h2>
-      <div id="field-list" style="max-height: 200px; overflow: auto;">
-        <div style="color: #94a3b8; font-style: italic; font-size: 13px;">Fetch list...</div>
-      </div>
-      <button id="cmd-refresh-fields" style="width: 100%; margin-top: 8px; font-size: 12px;">Refresh List</button>
-    </div>
-
-    <div class="panel">
-      <h2>Impulses</h2>
-      <div id="impulse-list" style="max-height: 200px; overflow: auto;">
-        <div style="color: #94a3b8; font-style: italic; font-size: 13px;">Fetch list...</div>
+      
+      <!-- Right panel: Detail view + Log -->
+      <div style="display: flex; flex-direction: column; height: 100%;">
+        <div class="detail-view" id="detail-view" style="flex: 1; overflow-y: auto;">
+          <div class="detail-empty">Select an item to view details</div>
+        </div>
+        <div style="height: 300px; display: flex; flex-direction: column; border-top: 1px solid var(--border);">
+          <div id="log"></div>
+          <div class="input-row">
+            <input id="manual-payload" type="text" placeholder='{"type": "status"}' />
+            <button id="btn-send-manual">Send</button>
+            <button id="btn-clear-log">Clear</button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
-
-  <div class="main">
-    <div id="log"></div>
-    <div class="input-row">
-      <input id="manual-payload" type="text" placeholder='{"type": "status"}' />
-      <button id="btn-send-manual">Send Raw</button>
-      <button id="btn-clear-log" class="secondary">Clear</button>
+  
+  <!-- Impulse Modal -->
+  <div id="impulse-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2 id="modal-title">Select Impulse</h2>
+        <button class="modal-close" onclick="closeImpulseModal()">&times;</button>
+      </div>
+      <div class="modal-body" id="modal-body">
+        <!-- Content dynamically generated -->
+      </div>
+      <div class="modal-footer" id="modal-footer">
+        <button onclick="closeImpulseModal()">Cancel</button>
+      </div>
     </div>
   </div>
 
@@ -194,9 +608,21 @@
     const connStatus = document.getElementById('conn-status');
     const logEl = document.getElementById('log');
     const manualInput = document.getElementById('manual-payload');
+    const detailView = document.getElementById('detail-view');
     
     let socket = null;
     let requestId = 1;
+    let currentSelection = null;
+    const MAX_LOG_ENTRIES = 500; // Prevent memory issues
+    const MAX_CHRONICLE_ENTRIES = 200; // Limit chronicle event storage
+    let chronicles = []; // Store chronicle events
+    let impulses = []; // Store available impulses
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
 
     function log(msg, type = '') {
       const entry = document.createElement('div');
@@ -207,6 +633,12 @@
       const content = typeof msg === 'string' ? msg : JSON.stringify(msg, null, 2);
       entry.textContent = `[${time}] ${prefix}${content}`;
       logEl.appendChild(entry);
+      
+      // Limit log entries to prevent memory bloat
+      while (logEl.children.length > MAX_LOG_ENTRIES) {
+        logEl.removeChild(logEl.firstChild);
+      }
+      
       logEl.scrollTop = logEl.scrollHeight;
     }
 
@@ -226,8 +658,13 @@
         connStatus.textContent = 'Connected';
         connStatus.className = 'status-badge connected';
         log('Connected to ' + url);
+        
+        // Initial data fetch
         sendRequest('status');
+        sendRequest('world.info');
+        sendRequest('signal.list');
         sendRequest('field.list');
+        sendRequest('entity.list');
         sendRequest('impulse.list');
       };
 
@@ -237,27 +674,61 @@
           
           if (msg.type === 'tick') {
             updateStats(msg.payload);
-            return; // Don't log every tick to keep UI responsive
+            return;
           }
           
           if (msg.type === 'chronicle.event') {
+            // Store chronicle event with timestamp
+            chronicles.push({
+              ...msg.payload,
+              timestamp: new Date()
+            });
+            
+            // Limit stored events to prevent memory issues
+            while (chronicles.length > MAX_CHRONICLE_ENTRIES) {
+              chronicles.shift();
+            }
+            
+            // Update chronicle list
+            updateChronicleList();
+            
+            // Also log it
             log(msg.payload.name + ': ' + JSON.stringify(msg.payload.fields), 'event');
             return;
           }
 
           if (msg.error) {
             log('Error: ' + msg.error, 'error');
-          } else {
-            log(msg);
           }
 
           if (msg.ok && msg.payload) {
             if (msg.payload.tick !== undefined) updateStats(msg.payload);
+            if (msg.payload.strata) updateWorldInfo(msg.payload);
+            if (msg.payload.signals) updateSignalList(msg.payload.signals);
             if (msg.payload.fields) updateFieldList(msg.payload.fields);
-            if (msg.payload.impulses) updateImpulseList(msg.payload.impulses);
+            if (msg.payload.entities) updateEntityList(msg.payload.entities);
+            if (msg.payload.impulses) {
+              impulses = msg.payload.impulses;
+              log('Loaded ' + impulses.length + ' impulses');
+            }
+            
+            // Handle field.query response
+            if (msg.payload.field_id && msg.payload.value !== undefined) {
+              updateFieldValue(msg.payload.field_id, msg.payload.value);
+            }
+            
+            // Handle impulse.emit response
+            if (msg.payload.seq !== undefined && msg.payload.applied_tick !== undefined) {
+              log(`Impulse emitted: seq=${msg.payload.seq}, applied_tick=${msg.payload.applied_tick}`, 'event');
+            }
+            
+            // Handle describe responses
+            if (msg.payload.id) {
+              handleDescribeResponse(msg.payload);
+            }
           }
         } catch (err) {
-          log('raw: ' + event.data);
+          log('Parse error: ' + err.message, 'error');
         }
       };
 
@@ -273,45 +744,374 @@
       if (!socket || socket.readyState !== WebSocket.OPEN) return;
       const req = { id: requestId++, type, payload };
       socket.send(JSON.stringify(req));
-      // log(req, 'out');
+    }
+
+    function updateWorldInfo(info) {
+      const container = document.getElementById('world-info');
+      container.innerHTML = `
+        <div style="font-size: 12px; margin-bottom: 12px;">
+          <div style="color: var(--muted); margin-bottom: 8px;">Strata: <strong style="color: var(--text);">${info.strata.length}</strong></div>
+          ${info.strata.map(s => `
+            <div style="padding: 6px; margin: 4px 0; background: var(--panel); border-radius: 4px; cursor: pointer;" 
+                 onclick="showStratumDetail('${s.id}')">
+              <div style="font-family: monospace; color: var(--primary); font-size: 11px;">${s.id}</div>
+              ${s.title ? `<div style="font-size: 11px; color: var(--text);">${s.title}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+        <div style="font-size: 12px;">
+          <div style="color: var(--muted); margin-bottom: 8px;">Eras: <strong style="color: var(--text);">${info.eras.length}</strong></div>
+          ${info.eras.map(e => `
+            <div style="padding: 6px; margin: 4px 0; background: var(--panel); border-radius: 4px; cursor: pointer;"
+                 onclick="showEraDetail('${e.id}')">
+              <div style="font-family: monospace; color: var(--accent); font-size: 11px;">${e.id}</div>
+              ${e.title ? `<div style="font-size: 11px; color: var(--text);">${e.title}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      `;
+    }
+
+    function updateSignalList(signals) {
+      document.getElementById('signal-count').textContent = signals.length;
+      const list = document.getElementById('signal-list');
+      list.innerHTML = signals.map(id => `
+        <div class="list-item" onclick="showSignalDetail('${id}')">
+          <div class="list-item-id">${id}</div>
+        </div>
+      `).join('');
     }
 
     function updateFieldList(fields) {
+      document.getElementById('field-count').textContent = fields.length;
       const list = document.getElementById('field-list');
-      list.innerHTML = '';
-      fields.forEach(id => {
-        const item = document.createElement('div');
-        item.className = 'list-item';
-        item.innerHTML = `<code>${id}</code> <span>Query</span>`;
-        item.onclick = () => sendRequest('field.query', { field_id: id, position: [1,0,0] });
-        list.appendChild(item);
-      });
+      list.innerHTML = fields.map(id => `
+        <div class="list-item" onclick="showFieldDetail('${id}')">
+          <div class="list-item-id">${id}</div>
+        </div>
+      `).join('');
     }
 
-    function updateImpulseList(impulses) {
-      const list = document.getElementById('impulse-list');
-      list.innerHTML = '';
-      impulses.forEach(imp => {
-        const item = document.createElement('div');
-        item.className = 'list-item';
-        item.innerHTML = `<code>${imp.id}</code> <span>${imp.payload_type}</span>`;
-        item.onclick = () => {
-          const val = prompt(`Enter payload for ${imp.id} (${imp.payload_type}):`, '{"type": "Scalar", "value": 1.0}');
-          if (val) {
-            try {
-              sendRequest('impulse.emit', { impulse_id: imp.id, payload: JSON.parse(val) });
-            } catch(e) { alert('Invalid JSON'); }
-          }
-        };
-        list.appendChild(item);
-      });
+    function updateEntityList(entities) {
+      document.getElementById('entity-count').textContent = entities.length;
+      const list = document.getElementById('entity-list');
+      list.innerHTML = entities.map(id => `
+        <div class="list-item" onclick="showEntityDetail('${id}')">
+          <div class="list-item-id">${id}</div>
+        </div>
+      `).join('');
     }
 
+    function updateChronicleList() {
+      document.getElementById('chronicle-count').textContent = chronicles.length;
+      const list = document.getElementById('chronicle-list');
+      
+      if (chronicles.length === 0) {
+        list.innerHTML = '<div style="color: var(--muted); font-style: italic; font-size: 12px;">No chronicle events yet...</div>';
+        return;
+      }
+      
+      // Display newest first
+      const reversed = [...chronicles].reverse();
+      list.innerHTML = reversed.map((chron, idx) => {
+        const actualIdx = chronicles.length - 1 - idx;
+        const time = chron.timestamp.toLocaleTimeString();
+        return `
+          <div class="list-item" onclick="showChronicleDetail(${actualIdx})">
+            <div class="list-item-meta">${time} • Tick ${chron.tick}</div>
+            <div class="list-item-id">${chron.name}</div>
+            <div class="list-item-meta">Era: ${chron.era} • Time: ${chron.sim_time.toFixed(2)}s</div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function showSignalDetail(id) {
+      sendRequest('signal.describe', { signal_id: id });
+      currentSelection = { type: 'signal', id };
+    }
+
+    function showFieldDetail(id) {
+      sendRequest('field.describe', { field_id: id });
+      sendRequest('field.query', { field_id: id, position: [0, 0, 0] }); // Query value at origin
+      currentSelection = { type: 'field', id };
+    }
+
+    function showEntityDetail(id) {
+      sendRequest('entity.describe', { entity_id: id });
+      currentSelection = { type: 'entity', id };
+    }
+
+    function showStratumDetail(id) {
+      sendRequest('stratum.describe', { stratum_id: id });
+      currentSelection = { type: 'stratum', id };
+    }
+
+    function showEraDetail(id) {
+      sendRequest('era.describe', { era_id: id });
+      currentSelection = { type: 'era', id };
+    }
+
+    function showChronicleDetail(idx) {
+      const chron = chronicles[idx];
+      if (!chron) return;
+      
+      currentSelection = { type: 'chronicle', idx };
+      
+      let html = `
+        <div class="detail-header">
+          <div class="detail-title">Chronicle Event</div>
+          <div class="detail-id" style="color: var(--success);">${chron.name}</div>
+        </div>
+        
+        <div class="detail-section">
+          <h3>Event Timing</h3>
+          <div class="detail-grid">
+            <div class="detail-label">Timestamp</div>
+            <div class="detail-value">${chron.timestamp.toLocaleString()}</div>
+            <div class="detail-label">Tick</div>
+            <div class="detail-value">${chron.tick}</div>
+            <div class="detail-label">Era</div>
+            <div class="detail-value"><code>${chron.era}</code></div>
+            <div class="detail-label">Sim Time</div>
+            <div class="detail-value">${chron.sim_time.toFixed(2)}s</div>
+          </div>
+        </div>
+      `;
+      
+      if (chron.fields && chron.fields.length > 0) {
+        html += `
+          <div class="detail-section">
+            <h3>Event Fields</h3>
+            <div class="detail-grid">
+        `;
+        
+        chron.fields.forEach(([key, value]) => {
+          const valueStr = typeof value === 'object' ? JSON.stringify(value, null, 2) : String(value);
+          html += `
+            <div class="detail-label">${escapeHtml(key)}</div>
+            <div class="detail-value"><code>${escapeHtml(valueStr)}</code></div>
+          `;
+        });
+        
+        html += `
+            </div>
+          </div>
+        `;
+      }
+      
+      detailView.innerHTML = html;
+    }
+
+    function updateFieldValue(field_id, value) {
+      // Update the detail view if this field is currently selected
+      if (currentSelection && currentSelection.type === 'field' && currentSelection.id === field_id) {
+        const valueEl = document.getElementById('current-value');
+        if (valueEl) {
+          valueEl.textContent = JSON.stringify(value);
+        }
+      }
+    }
+
+    function handleDescribeResponse(data) {
+      console.log('handleDescribeResponse called with:', data);
+      let html = '';
+      
+      const typeColors = {
+        signal: 'var(--primary)',
+        field: 'var(--success)',
+        entity: 'var(--warning)',
+        stratum: 'var(--primary)',
+        era: 'var(--accent)'
+      };
+      
+      const type = data.topology ? 'field' : data.value_type ? 'signal' : data.count_bounds ? 'entity' : 
+                   data.default_stride !== undefined ? 'stratum' : data.dt_seconds !== undefined ? 'era' : 'unknown';
+      
+      html += `
+        <div class="detail-header">
+          <div style="display: flex; align-items: baseline; gap: 8px;">
+            <div class="detail-title">${data.title || data.id}</div>
+            ${data.symbol ? `<div class="detail-symbol">${data.symbol}</div>` : ''}
+          </div>
+          <div class="detail-id" style="color: ${typeColors[type]};">${data.id}</div>
+        </div>
+      `;
+      
+      if (data.doc) {
+        html += `<div class="detail-doc">${escapeHtml(data.doc)}</div>`;
+      } else {
+        console.log('No doc field in data');
+      }
+      
+      // Add current value section for fields
+      if (type === 'field') {
+        html += '<div class="detail-section"><h3>Current Value</h3>';
+        html += '<div style="padding: 12px; background: var(--code-bg); border-radius: 6px; font-family: monospace; font-size: 12px;">';
+        html += '<span id="current-value" style="color: var(--primary);">Querying...</span>';
+        html += '</div></div>';
+      }
+      
+      // Add note for signals explaining they're not observable
+      if (type === 'signal') {
+        html += '<div class="detail-section">';
+        html += '<div style="padding: 12px; background: var(--code-bg); border-radius: 6px; font-size: 12px; color: var(--muted); font-style: italic; border-left: 3px solid var(--muted);">';
+        html += '⚠ Signals are internal simulation state and cannot be queried directly. Use fields for observable values.';
+        html += '</div></div>';
+      }
+      
+      html += '<div class="detail-section"><h3>Properties</h3><div class="detail-grid">';
+      
+      if (data.value_type) html += `<div class="detail-label">Type</div><div class="detail-value"><code>${data.value_type}</code></div>`;
+      if (data.topology) html += `<div class="detail-label">Topology</div><div class="detail-value"><code>${data.topology}</code></div>`;
+      if (data.unit) html += `<div class="detail-label">Unit</div><div class="detail-value"><code>${data.unit}</code></div>`;
+      if (data.stratum) html += `<div class="detail-label">Stratum</div><div class="detail-value"><code>${data.stratum}</code></div>`;
+      if (data.range) html += `<div class="detail-label">Range</div><div class="detail-value">${data.range[0]} … ${data.range[1]}</div>`;
+      if (data.count_bounds) html += `<div class="detail-label">Count Bounds</div><div class="detail-value">${data.count_bounds[0]} … ${data.count_bounds[1]}</div>`;
+      if (data.default_stride !== undefined) html += `<div class="detail-label">Default Stride</div><div class="detail-value">${data.default_stride}</div>`;
+      if (data.dt_seconds !== undefined) html += `<div class="detail-label">Δt</div><div class="detail-value">${data.dt_seconds}s</div>`;
+      if (data.is_initial !== undefined) html += `<div class="detail-label">Initial Era</div><div class="detail-value">${data.is_initial ? 'Yes' : 'No'}</div>`;
+      if (data.is_terminal !== undefined) html += `<div class="detail-label">Terminal Era</div><div class="detail-value">${data.is_terminal ? 'Yes' : 'No'}</div>`;
+      
+      html += '</div></div>';
+      
+      detailView.innerHTML = html;
+    }
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById('tab-' + tab.dataset.tab).classList.add('active');
+      });
+    });
+
+    // Impulse modal functions
+    function openImpulseModal() {
+      if (impulses.length === 0) {
+        alert('No impulses available. Make sure the world is loaded.');
+        return;
+      }
+      
+      const modal = document.getElementById('impulse-modal');
+      const body = document.getElementById('modal-body');
+      const title = document.getElementById('modal-title');
+      const footer = document.getElementById('modal-footer');
+      
+      title.textContent = 'Select Impulse';
+      body.innerHTML = impulses.map(imp => `
+        <div class="list-item" onclick="showImpulseForm('${imp.id}')">
+          <div class="list-item-id">${imp.id}</div>
+          ${imp.title ? `<div class="list-item-title">${imp.title}</div>` : ''}
+          <div class="list-item-meta">${imp.payload_type}${imp.unit ? ' (' + imp.unit + ')' : ''}</div>
+          ${imp.doc ? `<div class="list-item-doc">${escapeHtml(imp.doc)}</div>` : ''}
+        </div>
+      `).join('');
+      footer.innerHTML = '<button onclick="closeImpulseModal()">Cancel</button>';
+      modal.classList.add('open');
+    }
+    
+    function closeImpulseModal() {
+      document.getElementById('impulse-modal').classList.remove('open');
+    }
+    
+    function showImpulseForm(impulseId) {
+      const impulse = impulses.find(i => i.id === impulseId);
+      if (!impulse) return;
+      
+      const body = document.getElementById('modal-body');
+      const title = document.getElementById('modal-title');
+      const footer = document.getElementById('modal-footer');
+      
+      title.textContent = impulse.title || impulse.id;
+      
+      // Generate form based on payload_type
+      let formHtml = '';
+      if (impulse.doc) {
+        formHtml += `<div style="margin-bottom: 16px; padding: 12px; background: var(--code-bg); border-radius: 6px; font-size: 13px; color: var(--muted);">${escapeHtml(impulse.doc)}</div>`;
+      }
+      
+      formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Impulse ID</label>';
+      formHtml += `<input type="text" value="${impulse.id}" disabled style="background: var(--panel); color: var(--muted);" /></div>`;
+      
+      const type = impulse.payload_type.toLowerCase();
+      
+      if (type === 'f64' || type === 'f32' || type === 'scalar') {
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Value</label>';
+        formHtml += `<input type="number" step="any" id="impulse-value" ${impulse.range ? `min="${impulse.range[0]}" max="${impulse.range[1]}"` : ''} />`;
+        if (impulse.unit) formHtml += `<div style="font-size: 11px; color: var(--muted); margin-top: 4px;">Unit: ${impulse.unit}</div>`;
+        if (impulse.range) formHtml += `<div style="font-size: 11px; color: var(--muted); margin-top: 4px;">Range: ${impulse.range[0]} … ${impulse.range[1]}</div>`;
+        formHtml += '</div>';
+      } else if (type.includes('vec3') || type === '[f64; 3]') {
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Vector (x, y, z)</label>';
+        formHtml += '<div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;">';
+        formHtml += '<input type="number" step="any" id="impulse-x" placeholder="x" />';
+        formHtml += '<input type="number" step="any" id="impulse-y" placeholder="y" />';
+        formHtml += '<input type="number" step="any" id="impulse-z" placeholder="z" />';
+        formHtml += '</div></div>';
+      } else if (type === 'string' || type === 'str') {
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Value</label>';
+        formHtml += '<input type="text" id="impulse-value" /></div>';
+      } else if (type === 'bool' || type === 'boolean') {
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500;">';
+        formHtml += '<input type="checkbox" id="impulse-value" /> Enable</label></div>';
+      } else {
+        // Generic JSON input for complex types
+        formHtml += '<div style="margin-bottom: 16px;"><label style="display: block; margin-bottom: 8px; font-size: 13px; font-weight: 500;">Payload (JSON)</label>';
+        formHtml += `<textarea id="impulse-value" placeholder='{"key": "value"}'></textarea>`;
+        formHtml += `<div style="font-size: 11px; color: var(--muted); margin-top: 4px;">Type: ${impulse.payload_type}</div></div>`;
+      }
+      
+      body.innerHTML = formHtml;
+      footer.innerHTML = `
+        <button onclick="closeImpulseModal()">Cancel</button>
+        <button class="primary" onclick="emitImpulse('${impulseId}', '${type}')">Emit Impulse</button>
+      `;
+    }
+    
+    function emitImpulse(impulseId, type) {
+      let payload;
+      
+      try {
+        if (type === 'f64' || type === 'f32' || type === 'scalar') {
+          payload = parseFloat(document.getElementById('impulse-value').value);
+          if (isNaN(payload)) throw new Error('Invalid number');
+        } else if (type.includes('vec3') || type === '[f64; 3]') {
+          const x = parseFloat(document.getElementById('impulse-x').value);
+          const y = parseFloat(document.getElementById('impulse-y').value);
+          const z = parseFloat(document.getElementById('impulse-z').value);
+          if (isNaN(x) || isNaN(y) || isNaN(z)) throw new Error('Invalid vector components');
+          payload = [x, y, z];
+        } else if (type === 'string' || type === 'str') {
+          payload = document.getElementById('impulse-value').value;
+        } else if (type === 'bool' || type === 'boolean') {
+          payload = document.getElementById('impulse-value').checked;
+        } else {
+          // Try to parse as JSON
+          payload = JSON.parse(document.getElementById('impulse-value').value);
+        }
+        
+        sendRequest('impulse.emit', {
+          impulse_id: impulseId,
+          payload: payload
+        });
+        
+        closeImpulseModal();
+        log(`Emitting impulse: ${impulseId}`, 'out');
+      } catch (err) {
+        alert('Invalid input: ' + err.message);
+      }
+    }
+
+    // Controls
     document.getElementById('cmd-status').onclick = () => sendRequest('status');
     document.getElementById('cmd-step').onclick = () => sendRequest('step', { count: 1 });
     document.getElementById('cmd-run').onclick = () => sendRequest('run');
     document.getElementById('cmd-stop').onclick = () => sendRequest('stop');
-    document.getElementById('cmd-refresh-fields').onclick = () => sendRequest('field.list');
+    document.getElementById('cmd-refresh-world').onclick = () => sendRequest('world.info');
+    document.getElementById('cmd-emit-impulse').onclick = () => openImpulseModal();
     document.getElementById('btn-clear-log').onclick = () => logEl.innerHTML = '';
     document.getElementById('btn-send-manual').onclick = () => {
       try {

@@ -68,19 +68,19 @@ config {
 # Stellar Strata
 # =============================================================================
 
-strata.stellar.orbit {
+strata stellar.orbit {
     : title("Stellar Orbit")
     : symbol("SO")
     : stride(1)
 }
 
-strata.stellar.activity {
+strata stellar.activity {
     : title("Stellar Activity")
     : symbol("SA")
     : stride(100)
 }
 
-strata.stellar.tides {
+strata stellar.tides {
     : title("Stellar Tides")
     : symbol("ST")
     : stride(1)
@@ -90,7 +90,7 @@ strata.stellar.tides {
 # Star Entity
 # =============================================================================
 
-entity.stellar.star {
+entity stellar.star {
     : count(config.stellar.star_count)
     : count(1..4)
 }
@@ -99,7 +99,7 @@ entity.stellar.star {
 # Star Physical Properties
 # -----------------------------------------------------------------------------
 
-member.stellar.star.mass {
+member stellar.star.mass {
     : Scalar<kg, 1e28..1e32>
     : strata(stellar.orbit)
     : title("Star Mass")
@@ -109,7 +109,7 @@ member.stellar.star.mass {
     resolve { prev }
 }
 
-member.stellar.star.radius {
+member stellar.star.radius {
     : Scalar<m, 1e8..1e10>
     : strata(stellar.orbit)
     : title("Star Radius")
@@ -119,7 +119,7 @@ member.stellar.star.radius {
     resolve { prev }
 }
 
-member.stellar.star.luminosity_base {
+member stellar.star.luminosity_base {
     : Scalar<W, 1e24..1e30>
     : strata(stellar.orbit)
     : title("Base Luminosity")
@@ -129,7 +129,7 @@ member.stellar.star.luminosity_base {
     resolve { prev }
 }
 
-member.stellar.star.teff {
+member stellar.star.teff {
     : Scalar<K, 2000..50000>
     : strata(stellar.orbit)
     : title("Effective Temperature")
@@ -139,7 +139,7 @@ member.stellar.star.teff {
     resolve { prev }
 }
 
-member.stellar.star.luminosity_evolution_rate {
+member stellar.star.luminosity_evolution_rate {
     : Scalar<1/Myr, 0..1e-3>
     : strata(stellar.orbit)
     : title("Luminosity Evolution Rate")
@@ -153,7 +153,7 @@ member.stellar.star.luminosity_evolution_rate {
 # Star Orbital Elements (for binary/trinary systems)
 # -----------------------------------------------------------------------------
 
-member.stellar.star.orbit_radius {
+member stellar.star.orbit_radius {
     : Scalar<m, 0..1e14>
     : strata(stellar.orbit)
     : title("Orbit Semi-major Axis")
@@ -163,7 +163,7 @@ member.stellar.star.orbit_radius {
     resolve { prev }
 }
 
-member.stellar.star.orbit_eccentricity {
+member stellar.star.orbit_eccentricity {
     : Scalar<1, 0..0.99>
     : strata(stellar.orbit)
     : title("Orbit Eccentricity")
@@ -173,22 +173,23 @@ member.stellar.star.orbit_eccentricity {
     resolve { prev }
 }
 
-member.stellar.star.orbit_phase {
+member stellar.star.orbit_phase {
     : Scalar<rad, 0..TAU>
     : strata(stellar.orbit)
     : title("Orbit Phase")
     : symbol("phi_star")
+    : uses(dt.raw)
 
     resolve {
         # Advance phase based on orbital period
         let mu = const.stellar.gravitational_constant * self.mass in
         let period = TAU * maths.sqrt(maths.pow(self.orbit_radius, 3) / mu) in
         let omega = TAU / maths.max(period, 1.0) in
-        maths.wrap(prev + omega * dt_raw, 0.0, TAU)
+        maths.wrap(prev + omega * dt.raw, 0.0, TAU)
     }
 }
 
-member.stellar.star.orbit_inclination {
+member stellar.star.orbit_inclination {
     : Scalar<rad, 0..PI>
     : strata(stellar.orbit)
     : title("Orbit Inclination")
@@ -202,7 +203,7 @@ member.stellar.star.orbit_inclination {
 # Star Position (derived from orbital elements)
 # -----------------------------------------------------------------------------
 
-member.stellar.star.position {
+member stellar.star.position {
     : Vec3<m>
     : strata(stellar.orbit)
     : title("Star Position")
@@ -218,25 +219,25 @@ member.stellar.star.position {
     }
 }
 
-member.stellar.star.direction {
+member stellar.star.direction {
     : Vec3<1>
     : strata(stellar.orbit)
     : title("Star Direction from Planet")
     : symbol("d_star")
 
     resolve {
-        normalize(self.position)
+        vector.normalize(self.position)
     }
 }
 
-member.stellar.star.distance {
+member stellar.star.distance {
     : Scalar<m, 0..1e15>
     : strata(stellar.orbit)
     : title("Distance to Star")
     : symbol("r_star")
 
     resolve {
-        magnitude(self.position)
+        vector.length(self.position)
     }
 }
 
@@ -244,7 +245,7 @@ member.stellar.star.distance {
 # Star Variability
 # -----------------------------------------------------------------------------
 
-member.stellar.star.rotation_period {
+member stellar.star.rotation_period {
     : Scalar<day, 0.1..100>
     : strata(stellar.activity)
     : title("Rotation Period")
@@ -254,7 +255,7 @@ member.stellar.star.rotation_period {
     resolve { prev }
 }
 
-member.stellar.star.spot_amplitude {
+member stellar.star.spot_amplitude {
     : Scalar<1, 0..0.1>
     : strata(stellar.activity)
     : title("Starspot Amplitude")
@@ -264,7 +265,7 @@ member.stellar.star.spot_amplitude {
     resolve { prev }
 }
 
-member.stellar.star.activity_cycle_period {
+member stellar.star.activity_cycle_period {
     : Scalar<yr, 1..100>
     : strata(stellar.activity)
     : title("Activity Cycle Period")
@@ -274,7 +275,7 @@ member.stellar.star.activity_cycle_period {
     resolve { prev }
 }
 
-member.stellar.star.flare_rate {
+member stellar.star.flare_rate {
     : Scalar<1/day, 0..10>
     : strata(stellar.activity)
     : title("Flare Rate")
@@ -288,7 +289,7 @@ member.stellar.star.flare_rate {
 # Star Variability Factor (combined effect)
 # -----------------------------------------------------------------------------
 
-member.stellar.star.variability_factor {
+member stellar.star.variability_factor {
     : Scalar<1, 0.5..2.0>
     : strata(stellar.activity)
     : title("Luminosity Variability Factor")
@@ -296,11 +297,11 @@ member.stellar.star.variability_factor {
 
     resolve {
         # Rotational modulation (starspots)
-        let rot_phase = sim_time / (self.rotation_period * 86400.0) in
+        let rot_phase = sim.time / (self.rotation_period * 86400.0) in
         let spot_mod = 1.0 - self.spot_amplitude * maths.sin(TAU * rot_phase) in
 
         # Activity cycle modulation
-        let cycle_phase = sim_time / (self.activity_cycle_period * 3.1536e7) in
+        let cycle_phase = sim.time / (self.activity_cycle_period * 3.1536e7) in
         let cycle_mod = 1.0 - self.spot_amplitude * 0.5 * maths.sin(TAU * cycle_phase) in
 
         spot_mod * cycle_mod
@@ -311,7 +312,7 @@ member.stellar.star.variability_factor {
 # Star Evolved Luminosity
 # -----------------------------------------------------------------------------
 
-member.stellar.star.luminosity {
+member stellar.star.luminosity {
     : Scalar<W, 1e24..1e30>
     : strata(stellar.orbit)
     : title("Current Luminosity")
@@ -319,7 +320,7 @@ member.stellar.star.luminosity {
 
     resolve {
         # Main sequence evolution: luminosity increases over time
-        let elapsed_myr = sim_time / 3.1536e13 in
+        let elapsed_myr = sim.time / 3.1536e13 in
         let evolution_factor = 1.0 + elapsed_myr * self.luminosity_evolution_rate in
         self.luminosity_base * evolution_factor * self.variability_factor
     }
@@ -329,7 +330,7 @@ member.stellar.star.luminosity {
 # Star Angular Radius (for eclipse calculations)
 # -----------------------------------------------------------------------------
 
-member.stellar.star.angular_radius {
+member stellar.star.angular_radius {
     : Scalar<rad, 0..0.1>
     : strata(stellar.orbit)
     : title("Angular Radius")
@@ -344,7 +345,7 @@ member.stellar.star.angular_radius {
 # Star Flux at Planet
 # -----------------------------------------------------------------------------
 
-member.stellar.star.flux {
+member stellar.star.flux {
     : Scalar<W/m², 0..1e6>
     : strata(stellar.orbit)
     : title("Stellar Flux at Planet")
@@ -361,7 +362,7 @@ member.stellar.star.flux {
 # Moon Entity
 # =============================================================================
 
-entity.stellar.moon {
+entity stellar.moon {
     : count(config.stellar.moon_count)
     : count(0..20)
 }
@@ -370,7 +371,7 @@ entity.stellar.moon {
 # Moon Physical Properties
 # -----------------------------------------------------------------------------
 
-member.stellar.moon.mass {
+member stellar.moon.mass {
     : Scalar<kg, 1e15..1e24>
     : strata(stellar.orbit)
     : title("Moon Mass")
@@ -380,7 +381,7 @@ member.stellar.moon.mass {
     resolve { prev }
 }
 
-member.stellar.moon.radius {
+member stellar.moon.radius {
     : Scalar<m, 1e3..1e7>
     : strata(stellar.orbit)
     : title("Moon Radius")
@@ -394,7 +395,7 @@ member.stellar.moon.radius {
 # Moon Orbital Elements
 # -----------------------------------------------------------------------------
 
-member.stellar.moon.orbit_radius {
+member stellar.moon.orbit_radius {
     : Scalar<m, 1e6..1e10>
     : strata(stellar.orbit)
     : title("Orbit Semi-major Axis")
@@ -407,7 +408,7 @@ member.stellar.moon.orbit_radius {
     }
 }
 
-member.stellar.moon.orbit_eccentricity {
+member stellar.moon.orbit_eccentricity {
     : Scalar<1, 0..0.5>
     : strata(stellar.orbit)
     : title("Orbit Eccentricity")
@@ -417,22 +418,23 @@ member.stellar.moon.orbit_eccentricity {
     resolve { prev }
 }
 
-member.stellar.moon.orbit_phase {
+member stellar.moon.orbit_phase {
     : Scalar<rad, 0..TAU>
     : strata(stellar.orbit)
     : title("Orbit Phase")
     : symbol("phi_moon")
+    : uses(dt.raw)
 
     resolve {
         # Kepler's third law for orbital period
         let mu = const.stellar.gravitational_constant * signal.planet.mass in
         let period = TAU * maths.sqrt(maths.pow(self.orbit_radius, 3) / mu) in
         let omega = TAU / maths.max(period, 1.0) in
-        maths.wrap(prev + omega * dt_raw, 0.0, TAU)
+        maths.wrap(prev + omega * dt.raw, 0.0, TAU)
     }
 }
 
-member.stellar.moon.orbit_inclination {
+member stellar.moon.orbit_inclination {
     : Scalar<rad, 0..PI>
     : strata(stellar.orbit)
     : title("Orbit Inclination")
@@ -442,7 +444,7 @@ member.stellar.moon.orbit_inclination {
     resolve { prev }
 }
 
-member.stellar.moon.tidal_recession_rate {
+member stellar.moon.tidal_recession_rate {
     : Scalar<m/s, 0..1e-6>
     : strata(stellar.orbit)
     : title("Tidal Recession Rate")
@@ -456,7 +458,7 @@ member.stellar.moon.tidal_recession_rate {
 # Moon Position (derived from orbital elements)
 # -----------------------------------------------------------------------------
 
-member.stellar.moon.position {
+member stellar.moon.position {
     : Vec3<m>
     : strata(stellar.orbit)
     : title("Moon Position")
@@ -471,25 +473,25 @@ member.stellar.moon.position {
     }
 }
 
-member.stellar.moon.direction {
+member stellar.moon.direction {
     : Vec3<1>
     : strata(stellar.orbit)
     : title("Moon Direction from Planet")
     : symbol("d_moon")
 
     resolve {
-        normalize(self.position)
+        vector.normalize(self.position)
     }
 }
 
-member.stellar.moon.distance {
+member stellar.moon.distance {
     : Scalar<m, 0..1e10>
     : strata(stellar.orbit)
     : title("Distance to Moon")
     : symbol("r_moon")
 
     resolve {
-        magnitude(self.position)
+        vector.length(self.position)
     }
 }
 
@@ -497,7 +499,7 @@ member.stellar.moon.distance {
 # Moon Angular Radius (for eclipse calculations)
 # -----------------------------------------------------------------------------
 
-member.stellar.moon.angular_radius {
+member stellar.moon.angular_radius {
     : Scalar<rad, 0..0.1>
     : strata(stellar.orbit)
     : title("Angular Radius")
@@ -512,7 +514,7 @@ member.stellar.moon.angular_radius {
 # Moon Tidal Effect
 # -----------------------------------------------------------------------------
 
-member.stellar.moon.tidal_force {
+member stellar.moon.tidal_force {
     : Scalar<N/kg, 0..1e-5>
     : strata(stellar.tides)
     : title("Tidal Force per Unit Mass")
@@ -525,7 +527,7 @@ member.stellar.moon.tidal_force {
     }
 }
 
-member.stellar.moon.tidal_heating {
+member stellar.moon.tidal_heating {
     : Scalar<W, 0..1e15>
     : strata(stellar.tides)
     : title("Tidal Heating Power")
@@ -546,7 +548,7 @@ member.stellar.moon.tidal_heating {
 # =============================================================================
 
 # Total insolation from all stars
-signal.stellar.total_insolation {
+signal stellar.total_insolation {
     : Scalar<W/m², 0..1e6>
     : strata(stellar.orbit)
     : title("Total Stellar Insolation")
@@ -558,7 +560,7 @@ signal.stellar.total_insolation {
 }
 
 # Total tidal heating power from all moons
-signal.stellar.total_tidal_power {
+signal stellar.total_tidal_power {
     : Scalar<W, 0..1e16>
     : strata(stellar.tides)
     : title("Total Tidal Heating Power")
@@ -571,7 +573,7 @@ signal.stellar.total_tidal_power {
 
 # Total tidal amplitude from all moons
 # Used for field visualization - aggregates tidal force contribution
-signal.stellar.total_tidal_amplitude {
+signal stellar.total_tidal_amplitude {
     : Scalar<m, 0..1e6>
     : strata(stellar.tides)
     : title("Total Tidal Amplitude")
@@ -583,7 +585,7 @@ signal.stellar.total_tidal_amplitude {
 }
 
 # Star count
-signal.stellar.star_count {
+signal stellar.star_count {
     : Scalar<1, 0..4>
     : strata(stellar.orbit)
     : title("Number of Stars")
@@ -595,7 +597,7 @@ signal.stellar.star_count {
 }
 
 # Moon count
-signal.stellar.moon_count {
+signal stellar.moon_count {
     : Scalar<1, 0..20>
     : strata(stellar.orbit)
     : title("Number of Moons")
@@ -607,7 +609,7 @@ signal.stellar.moon_count {
 }
 
 # Primary star variability (convenience signal for atmosphere coupling)
-signal.stellar.primary_variability_factor {
+signal stellar.primary_variability_factor {
     : Scalar<1, 0.5..2.0>
     : strata(stellar.activity)
     : title("Primary Star Variability")
@@ -619,10 +621,153 @@ signal.stellar.primary_variability_factor {
 }
 
 # =============================================================================
+# Stellar Impulses
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Impact Impulse (Asteroid/Comet)
+# -----------------------------------------------------------------------------
+# External bolide impact: injects energy into crust/mantle, creates ejecta,
+# may modify rotation/orbit. Payload specifies impactor properties and geometry.
+
+type ImpactImpulsePayload {
+    impactor_mass: Scalar<kg>          # Mass of impactor (kg)
+    velocity: Scalar<m/s>              # Impact velocity (m/s)
+    impact_angle: Scalar<rad>          # Impact angle from vertical (rad)
+    location_lat: Scalar<rad>          # Impact latitude (rad)
+    location_lon: Scalar<rad>          # Impact longitude (rad)
+}
+
+/// Asteroid or comet impact event. Deposits kinetic energy into crust and mantle,
+/// triggers volcanic activity, deposits ejecta, and can alter planetary rotation
+/// for very large impacts. Energy partitioned between thermal heating and mechanical deformation.
+impulse stellar.impact {
+    : ImpactImpulsePayload
+    : title("Impact Impulse")
+    : symbol("💥")
+
+    config {
+        # Energy partition coefficients
+        crust_partition: 0.3              # Fraction of energy to crust heating
+        mantle_partition: 0.4             # Fraction of energy to mantle heating
+        ejecta_partition: 0.3             # Fraction of energy to ejecta/vapor
+
+        # Ejecta and crater scaling
+        crater_scaling_factor: 1.2e-4     # Crater diameter per unit energy^1/3
+        ejecta_thickness_factor: 1e-8     # Ejecta thickness scaling
+
+        # Minimum energy for significant effects
+        min_significant_energy_j: 1.0e20
+
+        # Rotation change scaling (for very large impacts)
+        rotation_coupling_factor: 1e-30   # Angular momentum transfer efficiency
+    }
+
+    apply {
+        # Compute impact energy: KE = 0.5 * m * v²
+        let energy_j = 0.5 * payload.impactor_mass * payload.velocity * payload.velocity in
+
+        if energy_j > config.impulse.stellar.impact.min_significant_energy_j {
+            # Partition energy into crust, mantle, and ejecta
+            let crust_energy = energy_j * config.impulse.stellar.impact.crust_partition in
+            let mantle_energy = energy_j * config.impulse.stellar.impact.mantle_partition in
+
+            # Heat deposition into geophysics thermal budget
+            signal.mantle.heat_content <- mantle_energy;
+            signal.surface.temp <- crust_energy / 1.0e20;  # Normalize to temperature increment
+
+            # Crustal thickening from ejecta/melt redistribution
+            let ejecta_thickness = maths.pow(energy_j, 0.333) * config.impulse.stellar.impact.ejecta_thickness_factor in
+            signal.crust.thickness <- ejecta_thickness;
+
+            # Large impacts can trigger volcanic activity
+            signal.tectonics.volcanism <- energy_j / 1.0e24;
+
+            # Very large impacts can alter rotation (angular momentum transfer)
+            # Delta_omega ~ (m * v * R_impact) / (I_planet) where I ~ M_planet * R²
+            let angular_momentum = payload.impactor_mass * payload.velocity * signal.planet.radius in
+            let moment_of_inertia = signal.planet.mass * signal.planet.radius * signal.planet.radius in
+            let delta_omega = angular_momentum / moment_of_inertia * config.impulse.stellar.impact.rotation_coupling_factor in
+            signal.rotation.state <- vector.vec2(0.0, delta_omega)
+        }
+    }
+}
+
+# -----------------------------------------------------------------------------
+# Orbital Change Impulse (Milankovitch Forcing)
+# -----------------------------------------------------------------------------
+# External perturbation to planetary orbital elements: eccentricity, obliquity, precession.
+# Used to model long-term orbital variations (Milankovitch cycles) or sudden events
+# (e.g., planetary migration, close encounters).
+
+type OrbitalChangePayload {
+    delta_eccentricity: Scalar<1>      # Change in orbital eccentricity (dimensionless)
+    delta_obliquity: Scalar<rad>       # Change in axial obliquity (rad)
+    delta_precession: Scalar<rad>      # Change in precession angle (rad)
+}
+
+/// External perturbation to planetary orbital elements. Models Milankovitch cycles
+/// (long-term orbital variations driving climate) or sudden events like planetary migration
+/// or close encounters. Changes eccentricity, obliquity, and precession of orbit.
+impulse stellar.orbital_change {
+    : OrbitalChangePayload
+    : title("Orbital Change")
+    : symbol("🌍")
+
+    config {
+        # Maximum allowed changes per impulse (safety bounds)
+        max_delta_eccentricity: 0.05
+        max_delta_obliquity: 0.1          # ~5.7 degrees
+        max_delta_precession: 0.5         # ~28.6 degrees
+
+        # Minimum changes for significant climate effects
+        min_significant_eccentricity: 0.001
+        min_significant_obliquity: 0.01   # ~0.57 degrees
+        min_significant_precession: 0.05  # ~2.9 degrees
+    }
+
+    apply {
+        # Clamp external impulse inputs to safety bounds to prevent simulation instability.
+        # These are external inputs (not internal simulation state), so clamping is legitimate
+        # to protect the simulation from bad external data.
+        let clamped_de = maths.clamp(
+            payload.delta_eccentricity,
+            -config.impulse.stellar.orbital_change.max_delta_eccentricity,
+            config.impulse.stellar.orbital_change.max_delta_eccentricity
+        ) in
+        let clamped_dobl = maths.clamp(
+            payload.delta_obliquity,
+            -config.impulse.stellar.orbital_change.max_delta_obliquity,
+            config.impulse.stellar.orbital_change.max_delta_obliquity
+        ) in
+        let clamped_dprec = maths.clamp(
+            payload.delta_precession,
+            -config.impulse.stellar.orbital_change.max_delta_precession,
+            config.impulse.stellar.orbital_change.max_delta_precession
+        ) in
+
+        # Apply obliquity change (affects seasonal forcing)
+        if maths.abs(clamped_dobl) > config.impulse.stellar.orbital_change.min_significant_obliquity {
+            signal.rotation.obliquity <- clamped_dobl
+        };
+
+        # Apply precession change (affects seasonal timing relative to perihelion)
+        if maths.abs(clamped_dprec) > config.impulse.stellar.orbital_change.min_significant_precession {
+            signal.rotation.precession <- clamped_dprec
+        };
+
+        # Apply eccentricity change (affects seasonal strength)
+        if maths.abs(clamped_de) > config.impulse.stellar.orbital_change.min_significant_eccentricity {
+            signal.orbit.eccentricity <- clamped_de
+        }
+    }
+}
+
+# =============================================================================
 # Stellar Fields
 # =============================================================================
 
-field.stellar.insolation_map {
+field stellar.insolation_map {
     : Scalar<W/m²>
     : strata(stellar.orbit)
     : topology(sphere_surface)
@@ -633,7 +778,7 @@ field.stellar.insolation_map {
     }
 }
 
-field.stellar.tidal_amplitude_map {
+field stellar.tidal_amplitude_map {
     : Scalar<m>
     : strata(stellar.tides)
     : topology(sphere_surface)

@@ -125,6 +125,7 @@ impl Lowerer {
             entity_id,
             signal_name,
             stratum,
+            doc: def.doc.clone(),
             title: def.title.as_ref().map(|s| s.node.clone()),
             symbol: def.symbol.as_ref().map(|s| s.node.clone()),
             value_type,

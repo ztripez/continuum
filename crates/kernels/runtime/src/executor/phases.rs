@@ -301,7 +301,7 @@ impl PhaseExecutor {
         entities: &EntityStorage,
         member_signals: &mut MemberSignalBuffer,
         input_channels: &mut InputChannels,
-        assertion_checker: &AssertionChecker,
+        assertion_checker: &mut AssertionChecker,
         breakpoints: &std::collections::HashSet<SignalId>,
     ) -> Result<Option<SignalId>> {
         let era_dags = dags.get_era(era).unwrap();
@@ -450,7 +450,15 @@ impl PhaseExecutor {
                         if let Ok((signal, value)) = res {
                             let prev = signals.get_prev(&signal).unwrap_or(&value);
                             assertion_checker.check_signal(
-                                &signal, &value, prev, signals, entities, dt, sim_time,
+                                &signal,
+                                &value,
+                                prev,
+                                signals,
+                                entities,
+                                dt,
+                                sim_time,
+                                tick,
+                                &era.to_string(),
                             )?;
                             signals.set_current(signal, value);
                         }

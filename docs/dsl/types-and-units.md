@@ -387,9 +387,114 @@ Units are part of the type system.
 
 - No implicit coercions
 - No implicit unit conversions
-- No untyped “magic numbers” in unit contexts
+- No untyped "magic numbers" in unit contexts
 
-(See `dsl/types-and-units.md`.)
+### SI Base Dimensions
+
+All physical units are represented as combinations of 7 SI base dimensions:
+
+| Dimension | Symbol | Base Unit |
+|-----------|--------|-----------|
+| Length | L | meter (m) |
+| Mass | M | kilogram (kg) |
+| Time | T | second (s) |
+| Electric current | I | ampere (A) |
+| Temperature | Θ | kelvin (K) |
+| Amount of substance | N | mole (mol) |
+| Luminous intensity | J | candela (cd) |
+
+Plus an additional tracked dimension for angles (radians).
+
+### Derived Units
+
+Derived units are automatically decomposed to base dimensions:
+
+| Unit | Decomposition | Dimensions |
+|------|---------------|------------|
+| `N` (Newton) | kg·m/s² | M¹·L¹·T⁻² |
+| `Pa` (Pascal) | kg/(m·s²) | M¹·L⁻¹·T⁻² |
+| `J` (Joule) | kg·m²/s² | M¹·L²·T⁻² |
+| `W` (Watt) | kg·m²/s³ | M¹·L²·T⁻³ |
+| `Hz` (Hertz) | 1/s | T⁻¹ |
+| `V` (Volt) | kg·m²/(A·s³) | M¹·L²·T⁻³·I⁻¹ |
+
+### Dimensional Equivalence
+
+Units with the same base dimensions are **automatically equivalent**:
+
+```
+J = W·s = N·m = kg·m²/s²
+```
+
+The compiler normalizes all units to base dimensions.
+If two expressions have the same dimensional signature,
+they are type-compatible.
+
+Examples:
+- `<J>` and `<W·s>` are interchangeable (both are M¹·L²·T⁻²)
+- `<Pa>` and `<N/m²>` are interchangeable (both are M¹·L⁻¹·T⁻²)
+- `<W/m²>` is M¹·T⁻³ (power flux / irradiance)
+
+### Dimensional Algebra
+
+Units follow algebraic rules during operations:
+
+| Operation | Rule | Example |
+|-----------|------|---------|
+| Multiply | dimensions add | m × m = m² |
+| Divide | dimensions subtract | m / s = m·s⁻¹ |
+| Power | dimensions scale | (m/s)² = m²/s² |
+| Add/Subtract | dimensions must match | m + m ✓, m + s ✗ |
+| sqrt | dimensions halve (must be even) | √(m²) = m |
+
+### Unit Annotations
+
+Units are annotated with angle brackets:
+
+```
+config {
+    max_depth: 11000.0 <m>
+    max_power: 1e15 <W>
+    density: 2700.0 <kg/m³>
+}
+
+resolve {
+    maths.clamp(prev + collected, 0.0 <W>, config.max_power)
+}
+```
+
+Supported annotation formats:
+- Base units: `<m>`, `<kg>`, `<s>`, `<K>`, `<A>`, `<mol>`, `<cd>`
+- Derived units: `<N>`, `<Pa>`, `<J>`, `<W>`, `<Hz>`, `<V>`, `<Ω>`
+- Compound units: `<m/s>`, `<kg/m³>`, `<W/m²>`, `<N·m>`
+- Exponents: `<m²>`, `<s⁻¹>`, `<m^2>`, `<s^-1>`
+
+### Compile-Time Enforcement
+
+Invalid dimensional operations fail at compile time:
+
+```
+# ERROR: cannot add m and s
+signal.distance + signal.time
+
+# ERROR: sqrt requires even exponents
+maths.sqrt(signal.velocity)  # velocity is m/s, cannot sqrt
+
+# ERROR: exp requires dimensionless input
+maths.exp(signal.temperature)  # must divide by reference temp first
+```
+
+### Dimensionless Quantities
+
+Some quantities are intentionally dimensionless:
+
+```
+: Scalar<1>                    # pure number
+: Scalar<1, 0..1>              # fraction/ratio
+: Vec4<1, magnitude: 1>        # unit quaternion
+```
+
+Transcendental functions (exp, log, sin, cos) require dimensionless inputs
 
 ---
 

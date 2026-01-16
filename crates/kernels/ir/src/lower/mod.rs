@@ -13,6 +13,7 @@ mod expr;
 mod members;
 mod operators;
 mod signals;
+mod typecheck;
 
 #[cfg(test)]
 mod tests;
@@ -59,7 +60,9 @@ pub enum LowerError {
         file: Option<std::path::PathBuf>,
         span: Span,
     },
-    #[error("undeclared dt_raw usage in signal '{name}'")]
+    #[error(
+        "undeclared dt.raw usage in signal '{name}'\n\n  Raw dt usage requires explicit declaration.\n  help: add `: uses(dt.raw)` to signal definition\n  help: or prefer dt-robust operators:\n        - dt.integrate(prev, rate) for accumulation\n        - dt.advance_phase(prev, omega) for phase advancement\n        - dt.decay(value, halflife) for exponential decay\n  see: @docs/dsl/dt-robust.md"
+    )]
     UndeclaredDtRawUsage {
         name: String,
         file: Option<std::path::PathBuf>,
@@ -82,6 +85,15 @@ pub enum LowerError {
         file: Option<std::path::PathBuf>,
         span: Span,
     },
+    #[error("type error: {message}")]
+    TypeError {
+        message: String,
+        left_type: String,
+        right_type: String,
+        op: String,
+        file: Option<std::path::PathBuf>,
+        span: Span,
+    },
     #[error("{message}")]
     Generic {
         message: String,
@@ -100,6 +112,7 @@ impl LowerError {
             LowerError::UndeclaredDtRawUsage { span, .. } => span.clone(),
             LowerError::InvalidExpression { span, .. } => span.clone(),
             LowerError::MismatchedConstraint { span, .. } => span.clone(),
+            LowerError::TypeError { span, .. } => span.clone(),
             LowerError::Generic { span, .. } => span.clone(),
         }
     }
@@ -113,6 +126,7 @@ impl LowerError {
             LowerError::UndeclaredDtRawUsage { file, .. } => file.clone(),
             LowerError::InvalidExpression { file, .. } => file.clone(),
             LowerError::MismatchedConstraint { file, .. } => file.clone(),
+            LowerError::TypeError { file, .. } => file.clone(),
             LowerError::Generic { file, .. } => file.clone(),
         }
     }
@@ -192,6 +206,25 @@ pub fn lower_multi(
         }
     }
 
+    // Pass 2.5: Collect signal and member names (for dependency resolution)
+    // This pre-pass allows us to resolve paths like `signal.atmosphere.surface_temp.x`
+    // to `atmosphere.surface_temp` even when signals are defined in any order.
+    for (_path, unit) in &units {
+        for item in &unit.items {
+            match &item.node {
+                Item::SignalDef(def) => {
+                    let name = def.path.node.to_string();
+                    lowerer.known_signal_names.insert(name);
+                }
+                Item::MemberDef(def) => {
+                    let name = def.path.node.to_string();
+                    lowerer.known_member_names.insert(name);
+                }
+                _ => {}
+            }
+        }
+    }
+
     // Pass 3: Signals, Fields, Operators, Impulses, Fractures, Entities, Members, Chronicles
     for (path, unit) in &units {
         lowerer.file = Some(path.clone());
@@ -238,6 +271,12 @@ pub(crate) struct Lowerer {
     pub(crate) members: IndexMap<MemberId, CompiledMember>,
     pub(crate) chronicles: IndexMap<ChronicleId, CompiledChronicle>,
     pub(crate) types: IndexMap<TypeId, CompiledType>,
+    /// Pre-collected signal names for dependency resolution.
+    /// Populated before lowering signals to handle forward references.
+    pub(crate) known_signal_names: std::collections::HashSet<String>,
+    /// Pre-collected member names for dependency resolution.
+    /// Populated before lowering members to handle forward references.
+    pub(crate) known_member_names: std::collections::HashSet<String>,
 }
 
 impl Lowerer {
@@ -258,6 +297,8 @@ impl Lowerer {
             members: IndexMap::new(),
             chronicles: IndexMap::new(),
             types: IndexMap::new(),
+            known_signal_names: std::collections::HashSet::new(),
+            known_member_names: std::collections::HashSet::new(),
         }
     }
 
@@ -337,6 +378,23 @@ impl Lowerer {
             }
         }
 
+        // Pre-collect signal and member names for dependency resolution
+        // This allows resolving paths like `signal.atmosphere.surface_temp.x`
+        // to `atmosphere.surface_temp` even with forward references.
+        for item in &unit.items {
+            match &item.node {
+                Item::SignalDef(def) => {
+                    let name = def.path.node.to_string();
+                    self.known_signal_names.insert(name);
+                }
+                Item::MemberDef(def) => {
+                    let name = def.path.node.to_string();
+                    self.known_member_names.insert(name);
+                }
+                _ => {}
+            }
+        }
+
         for item in &unit.items {
             match &item.node {
                 Item::SignalDef(def) => self.lower_signal(def, item.span.clone())?,
@@ -377,6 +435,7 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
             fields,
         };
         self.types.insert(id, compiled_type);
@@ -401,6 +460,7 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
             title: def.title.as_ref().map(|s| s.node.clone()),
             symbol: def.symbol.as_ref().map(|s| s.node.clone()),
             default_stride: def.stride.as_ref().map(|s| s.node).unwrap_or(1),
@@ -422,12 +482,12 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Signal(
                     crate::unified_nodes::SignalProperties {
+                        doc: signal.doc.clone(),
                         title: signal.title.clone(),
                         symbol: signal.symbol.clone(),
                         value_type: signal.value_type.clone(),
                         uses_dt_raw: signal.uses_dt_raw,
                         resolve: signal.resolve.clone(),
-                        resolve_components: signal.resolve_components.clone(),
                         warmup: signal.warmup.clone(),
                         assertions: signal.assertions.clone(),
                     },
@@ -446,7 +506,9 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Field(
                     crate::unified_nodes::FieldProperties {
+                        doc: field.doc.clone(),
                         title: field.title.clone(),
+                        symbol: field.symbol.clone(),
                         topology: field.topology,
                         value_type: field.value_type.clone(),
                         measure: field.measure.clone(),
@@ -466,6 +528,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Operator(
                     crate::unified_nodes::OperatorProperties {
+                        doc: operator.doc.clone(),
                         phase: operator.phase,
                         body: operator.body.clone(),
                         assertions: operator.assertions.clone(),
@@ -485,6 +548,9 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Impulse(
                     crate::unified_nodes::ImpulseProperties {
+                        doc: impulse.doc.clone(),
+                        title: impulse.title.clone(),
+                        symbol: impulse.symbol.clone(),
                         payload_type: impulse.payload_type.clone(),
                         apply: impulse.apply.clone(),
                     },
@@ -503,6 +569,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Fracture(
                     crate::unified_nodes::FractureProperties {
+                        doc: fracture.doc.clone(),
                         conditions: fracture.conditions.clone(),
                         emits: fracture.emits.clone(),
                     },
@@ -521,6 +588,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Entity(
                     crate::unified_nodes::EntityProperties {
+                        doc: entity.doc.clone(),
                         count_source: entity.count_source.clone(),
                         count_bounds: entity.count_bounds,
                     },
@@ -539,6 +607,7 @@ impl Lowerer {
                 member_reads: member.member_reads.clone(),
                 kind: crate::unified_nodes::NodeKind::Member(
                     crate::unified_nodes::MemberProperties {
+                        doc: member.doc.clone(),
                         entity_id: member.entity_id.clone(),
                         signal_name: member.signal_name.clone(),
                         title: member.title.clone(),
@@ -564,6 +633,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Chronicle(
                     crate::unified_nodes::ChronicleProperties {
+                        doc: chronicle.doc.clone(),
                         handlers: chronicle.handlers.clone(),
                     },
                 ),
@@ -581,6 +651,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Function(
                     crate::unified_nodes::FunctionProperties {
+                        doc: function.doc.clone(),
                         params: function.params.clone(),
                         body: function.body.clone(),
                     },
@@ -598,6 +669,7 @@ impl Lowerer {
                 reads: Vec::new(),
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Type(crate::unified_nodes::TypeProperties {
+                    doc: ty.doc.clone(),
                     fields: ty.fields.clone(),
                 }),
             };
@@ -614,6 +686,7 @@ impl Lowerer {
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Stratum(
                     crate::unified_nodes::StratumProperties {
+                        doc: stratum.doc.clone(),
                         title: stratum.title.clone(),
                         symbol: stratum.symbol.clone(),
                         default_stride: stratum.default_stride,
@@ -632,6 +705,7 @@ impl Lowerer {
                 reads: Vec::new(),
                 member_reads: Vec::new(),
                 kind: crate::unified_nodes::NodeKind::Era(crate::unified_nodes::EraProperties {
+                    doc: era.doc.clone(),
                     is_initial: era.is_initial,
                     is_terminal: era.is_terminal,
                     title: era.title.clone(),

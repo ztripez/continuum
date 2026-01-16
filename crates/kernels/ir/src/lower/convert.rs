@@ -11,50 +11,57 @@ use continuum_dsl::ast::{
 use continuum_foundation::{PrimitiveParamKind, primitive_type_by_name};
 
 use crate::{
-    AggregateOpIr, AssertionSeverity, BinaryOpIr, CompiledAssertion, OperatorPhaseIr, TopologyIr,
-    UnaryOpIr, ValueRange, ValueType,
+    AssertionSeverity, CompiledAssertion, OperatorPhaseIr, TopologyIr, ValueRange, ValueType,
 };
 
 use super::{LowerError, Lowerer};
 
+/// Time unit conversion table: maps unit strings to their multiplier (to convert to seconds).
+///
+/// Each entry is (aliases, multiplier) where aliases are all accepted spellings
+/// and multiplier converts the unit to seconds.
+///
+/// To add a new time unit, simply add an entry to this table.
+const TIME_UNITS: &[(&[&str], f64)] = &[
+    // Base unit
+    (&["s", "sec", "second", "seconds"], 1.0),
+    // Sub-second
+    (&["ms", "millisecond", "milliseconds"], 1e-3),
+    (&["us", "microsecond", "microseconds"], 1e-6),
+    (&["ns", "nanosecond", "nanoseconds"], 1e-9),
+    // Minutes, hours, days
+    (&["min", "minute", "minutes"], 60.0),
+    (&["h", "hr", "hour", "hours"], 3600.0),
+    (&["d", "day", "days"], 86_400.0),
+    // Years (Julian year = 365.25 days)
+    (&["yr", "year", "years"], 31_557_600.0),
+    (&["kyr"], 31_557_600_000.0),
+    (&["myr", "Myr", "Ma"], 31_557_600_000_000.0),
+    (&["byr", "Ga"], 31_557_600_000_000_000.0),
+];
+
+/// Convert a time unit string to its multiplier (to seconds).
+/// Returns None if the unit is not recognized.
+fn time_unit_to_seconds(unit: &str) -> Option<f64> {
+    TIME_UNITS
+        .iter()
+        .find(|(aliases, _)| aliases.contains(&unit))
+        .map(|(_, multiplier)| *multiplier)
+}
+
 impl Lowerer {
-    pub(crate) fn lower_binary_op(&self, op: BinaryOp) -> BinaryOpIr {
-        match op {
-            BinaryOp::Add => BinaryOpIr::Add,
-            BinaryOp::Sub => BinaryOpIr::Sub,
-            BinaryOp::Mul => BinaryOpIr::Mul,
-            BinaryOp::Div => BinaryOpIr::Div,
-            BinaryOp::Pow => BinaryOpIr::Pow,
-            BinaryOp::Eq => BinaryOpIr::Eq,
-            BinaryOp::Ne => BinaryOpIr::Ne,
-            BinaryOp::Lt => BinaryOpIr::Lt,
-            BinaryOp::Le => BinaryOpIr::Le,
-            BinaryOp::Gt => BinaryOpIr::Gt,
-            BinaryOp::Ge => BinaryOpIr::Ge,
-            BinaryOp::And => BinaryOpIr::And,
-            BinaryOp::Or => BinaryOpIr::Or,
-        }
+    // Operators are now unified - no conversion needed!
+    // These methods remain for backward compatibility but are now simple identity functions.
+    pub(crate) fn lower_binary_op(&self, op: BinaryOp) -> BinaryOp {
+        op
     }
 
-    pub(crate) fn lower_unary_op(&self, op: UnaryOp) -> UnaryOpIr {
-        match op {
-            UnaryOp::Neg => UnaryOpIr::Neg,
-            UnaryOp::Not => UnaryOpIr::Not,
-        }
+    pub(crate) fn lower_unary_op(&self, op: UnaryOp) -> UnaryOp {
+        op
     }
 
-    pub(crate) fn lower_aggregate_op(&self, op: AggregateOp) -> AggregateOpIr {
-        match op {
-            AggregateOp::Sum => AggregateOpIr::Sum,
-            AggregateOp::Product => AggregateOpIr::Product,
-            AggregateOp::Min => AggregateOpIr::Min,
-            AggregateOp::Max => AggregateOpIr::Max,
-            AggregateOp::Mean => AggregateOpIr::Mean,
-            AggregateOp::Count => AggregateOpIr::Count,
-            AggregateOp::Any => AggregateOpIr::Any,
-            AggregateOp::All => AggregateOpIr::All,
-            AggregateOp::None => AggregateOpIr::None,
-        }
+    pub(crate) fn lower_aggregate_op(&self, op: AggregateOp) -> AggregateOp {
+        op
     }
 
     pub(crate) fn lower_type_expr(&self, ty: &TypeExpr) -> ValueType {
@@ -88,6 +95,11 @@ impl Lowerer {
                     2 | 3 | 4 => ValueType::vector(dim, unit_str, dimension, magnitude),
                     _ => ValueType::scalar(unit_str, dimension, None),
                 }
+            }
+            continuum_foundation::PrimitiveShape::Matrix { rows, cols } => {
+                let unit = self.param_unit(primitive);
+                let (unit_str, dimension) = self.parse_unit_with_dimension(&unit);
+                ValueType::matrix(rows, cols, unit_str, dimension)
             }
             continuum_foundation::PrimitiveShape::Tensor => {
                 let rows = self.param_u8(primitive, PrimitiveParamKind::Rows);
@@ -296,7 +308,15 @@ impl Lowerer {
                         .map(|e| self.expr_uses_dt_raw(&e.node))
                         .unwrap_or(false)
             }
-            Expr::FieldAccess { object, .. } => self.expr_uses_dt_raw(&object.node),
+            Expr::FieldAccess { object, field } => {
+                // Detect dt.raw pattern
+                if let Expr::Path(path) = &object.node {
+                    if path.segments.len() == 1 && path.segments[0] == "dt" && field == "raw" {
+                        return true;
+                    }
+                }
+                self.expr_uses_dt_raw(&object.node)
+            }
             Expr::Block(exprs) => exprs.iter().any(|e| self.expr_uses_dt_raw(&e.node)),
             Expr::For { iter, body, .. } => {
                 self.expr_uses_dt_raw(&iter.node) || self.expr_uses_dt_raw(&body.node)
@@ -378,20 +398,7 @@ impl Lowerer {
 
     pub(crate) fn value_with_unit_to_seconds(&self, vwu: &ast::ValueWithUnit) -> f64 {
         let base = self.literal_to_f64_unchecked(&vwu.value);
-        // Convert common time units to seconds
-        match vwu.unit.as_str() {
-            "s" | "sec" | "second" | "seconds" => base,
-            "ms" | "millisecond" | "milliseconds" => base / 1000.0,
-            "us" | "microsecond" | "microseconds" => base / 1_000_000.0,
-            "ns" | "nanosecond" | "nanoseconds" => base / 1_000_000_000.0,
-            "min" | "minute" | "minutes" => base * 60.0,
-            "h" | "hr" | "hour" | "hours" => base * 3600.0,
-            "d" | "day" | "days" => base * 86400.0,
-            "yr" | "year" | "years" => base * 31_557_600.0, // Julian year
-            "kyr" => base * 31_557_600_000.0,
-            "myr" | "Myr" | "Ma" => base * 31_557_600_000_000.0,
-            "byr" | "Ga" => base * 31_557_600_000_000_000.0,
-            _ => base, // assume seconds for unknown units
-        }
+        let multiplier = time_unit_to_seconds(&vwu.unit).unwrap_or(1.0); // assume seconds for unknown
+        base * multiplier
     }
 }

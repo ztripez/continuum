@@ -33,13 +33,13 @@ There are no includes or conditional loading.
 All entities use namespaced paths with the pattern `[kind].[path]`:
 
 ```
-signal.terra.geophysics.core.temp_k
-field.terra.surface.temperature_map
-strata.terra.thermal
-era.hadean
-impulse.terra.impact.asteroid
-fracture.terra.climate.runaway_greenhouse
-chronicle.terra.events.supercontinent
+signal terra.geophysics.core.temp_k
+field terra.surface.temperature_map
+strata terra.thermal
+era hadean
+impulse terra.impact.asteroid
+fracture terra.climate.runaway_greenhouse
+chronicle terra.events.supercontinent
 ```
 
 Identifiers are:
@@ -112,14 +112,14 @@ config {
 Custom struct types:
 
 ```
-type.PlateState {
+type PlateState {
   position: Vec3<m>
   velocity: Vec3<m/s>
   strain: Tensor<3,3,Pa>
   age: Scalar<s>
 }
 
-type.ImpactEvent {
+type ImpactEvent {
   mass: Scalar<kg>
   velocity: Vec3<m/s>
   location: Vec2<rad>
@@ -128,31 +128,174 @@ type.ImpactEvent {
 
 ### Built-in Types
 
-| Type | Description |
-|------|-------------|
-| `Scalar<unit>` | Single value |
-| `Scalar<unit, range>` | Bounded single value |
-| `Vec2<unit>` | 2D vector |
-| `Vec3<unit>` | 3D vector |
-| `Vec4<unit>` | 4D vector (quaternions, homogeneous coords) |
-| `Vec3<unit, magnitude: range>` | Vector with magnitude constraint |
-| `Tensor<N,M,unit>` | NxM tensor |
-| `Seq<T>` | Ordered sequence |
-| `Grid<W,H,T>` | 2D grid |
+#### Scalar Types
+
+| Type | Description | Parameters |
+|------|-------------|------------|
+| `Scalar<unit>` | Single floating-point value | unit (optional) |
+| `Scalar<unit, range>` | Bounded single value | unit, range |
+
+```
+: Scalar<K>                  # temperature in Kelvin
+: Scalar<m/s>                # velocity magnitude
+: Scalar<1>                  # dimensionless ratio
+: Scalar<K, 100..10000>      # bounded temperature
+: Scalar<1, 0..1>            # normalized fraction
+```
+
+#### Vector Types
+
+| Type | Description | Components | Parameters |
+|------|-------------|------------|------------|
+| `Vec2<unit>` | 2D vector | x, y | unit, magnitude |
+| `Vec3<unit>` | 3D vector | x, y, z | unit, magnitude |
+| `Vec4<unit>` | 4D vector | x, y, z, w | unit, magnitude |
+
+```
+: Vec2<m>                           # 2D position
+: Vec3<m/s>                         # 3D velocity
+: Vec4<1>                           # homogeneous coordinates
+: Vec3<m, magnitude: 1e10..1e12>    # bounded orbital radius
+```
+
+Component access:
+```
+signal.position.x    # x component
+signal.velocity.z    # z component
+```
+
+#### Quaternion Type
+
+| Type | Description | Components | Parameters |
+|------|-------------|------------|------------|
+| `Quat` | Unit quaternion for rotations | w, x, y, z | magnitude |
+
+```
+: Quat                       # rotation quaternion
+: Quat<magnitude: 1>         # enforced unit quaternion
+```
+
+Quaternions are stored as Vec4 but with w-first component order (w, x, y, z).
+They represent rotations and should typically have magnitude 1.
+
+#### Matrix Types
+
+| Type | Description | Components | Parameters |
+|------|-------------|------------|------------|
+| `Mat2<unit>` | 2x2 matrix | m00, m10, m01, m11 | unit |
+| `Mat3<unit>` | 3x3 matrix | m00..m22 (9 elements) | unit |
+| `Mat4<unit>` | 4x4 matrix | m00..m33 (16 elements) | unit |
+
+```
+: Mat3<1>                    # rotation matrix
+: Mat4<m>                    # transformation matrix
+```
+
+Matrices use column-major order for GPU compatibility.
+Component naming: `mRC` where R=row, C=column.
+
+#### Tensor Type
+
+| Type | Description | Parameters |
+|------|-------------|------------|
+| `Tensor<rows, cols, unit>` | General NxM tensor | rows, cols, unit |
+
+```
+: Tensor<3,3,Pa>             # 3x3 stress tensor
+: Tensor<6,6,Pa>             # elasticity tensor
+```
+
+Tensors support structural constraints:
+```
+: Tensor<3,3,Pa>
+  : symmetric                # Tij = Tji
+  : positive_definite        # all eigenvalues > 0
+```
+
+#### Collection Types
+
+| Type | Description | Parameters |
+|------|-------------|------------|
+| `Seq<T>` | Ordered sequence | element_type |
+| `Grid<W,H,T>` | 2D grid | width, height, element_type |
+
+```
+: Seq<Scalar<kg>>            # sequence of masses
+: Grid<360,180,Scalar<K>>    # temperature grid
+```
 
 ### Constraints
 
+Type constraints restrict valid values at compile time and generate runtime assertions.
+
+#### Range Constraints
+
+For scalar types, specify min..max bounds:
 ```
-: Scalar<K, 100..10000>              // range
-: Vec3<m, magnitude: 1e10..1e12>     // magnitude bound
-: Vec4<1, magnitude: 1>              // unit quaternion
-: Tensor<3,3,Pa>                     // structural
-  : symmetric
-  : positive_definite
+: Scalar<K, 100..10000>              # temperature 100-10000 K
+: Scalar<Pa, 0..1e12>                # pressure 0-1 TPa
+: Scalar<1, 0..1>                    # fraction 0-1
+: Scalar<1, -1..1>                   # normalized value
+```
+
+#### Magnitude Constraints
+
+For vector types, constrain the vector length:
+```
+: Vec3<m, magnitude: 1e10..1e12>     # orbital radius bounds
+: Vec3<m/s, magnitude: 0..3e8>       # sub-light velocity
+: Vec4<1, magnitude: 1>              # unit quaternion
+: Quat<magnitude: 1>                 # enforced unit rotation
+```
+
+#### Structural Constraints
+
+For tensors, enforce mathematical properties:
+```
+: Tensor<3,3,Pa>
+  : symmetric                        # Tij = Tji
+  : positive_definite                # all eigenvalues > 0
+  : trace_zero                       # sum of diagonal = 0
+```
+
+#### Collection Constraints
+
+For sequences, constrain elements and aggregates:
+```
 : Seq<Scalar<kg>>
-  : each(1e20..1e28)
-  : sum(1e25..1e30)
+  : each(1e20..1e28)                 # each element in range
+  : sum(1e25..1e30)                  # total mass bounds
+  : count(1..100)                    # element count bounds
 ```
+
+### Unit Annotations
+
+Units use angle brackets and are normalized to SI base dimensions:
+
+```
+# Base units
+value: 100.0 <m>
+mass: 5.97e24 <kg>
+duration: 3600 <s>
+
+# Derived units (automatically decomposed)
+force: 9.8 <N>              # = kg·m/s²
+pressure: 101325 <Pa>       # = kg/(m·s²)
+energy: 4.2e9 <J>           # = kg·m²/s²
+power: 1e12 <W>             # = kg·m²/s³
+
+# Compound units
+velocity: 30000 <m/s>
+density: 5500 <kg/m³>
+flux: 1361 <W/m²>
+
+# Equivalent forms (same dimensions)
+work_a: 1000 <J>            # M¹·L²·T⁻²
+work_b: 1000 <N·m>          # M¹·L²·T⁻² (same)
+work_c: 1000 <W·s>          # M¹·L²·T⁻² (same)
+```
+
+See `types-and-units.md` for dimensional algebra rules.
 
 ---
 
@@ -161,13 +304,13 @@ type.ImpactEvent {
 Time strata define execution groupings:
 
 ```
-strata.terra.thermal {
+strata terra.thermal {
   : title("Thermal")
   : symbol("Q")
   : stride(5)
 }
 
-strata.terra.tectonics {
+strata terra.tectonics {
   : title("Tectonics")
   : symbol("T")
   : stride(10)
@@ -181,7 +324,7 @@ strata.terra.tectonics {
 Execution policy regimes:
 
 ```
-era.hadean {
+era hadean {
   : initial
   : title("Hadean")
   : dt(1 <Myr>)
@@ -206,7 +349,7 @@ era.hadean {
   }
 }
 
-era.phanerozoic {
+era phanerozoic {
   : terminal
   : title("Phanerozoic")
   : dt(10 <kyr>)
@@ -257,7 +400,7 @@ transition {
 Authoritative resolved values:
 
 ```
-signal.terra.geophysics.core.temp_k {
+signal terra.geophysics.core.temp_k {
   : Scalar<K, 100..10000>
   : strata(terra.thermal)
   : title("Core Temperature")
@@ -294,7 +437,7 @@ signal.terra.geophysics.core.temp_k {
 - `signal.path` — read other resolved signals
 - `const.path` — read constants
 - `config.path` — read configuration
-- `dt_raw` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
+- `dt.raw` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
 - `collected` — accumulated inputs from Collect phase
 - `namespace.fn(...)` — engine-provided functions (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`)
 - `let name = expr in body` — local bindings (ML-style)
@@ -304,7 +447,7 @@ signal.terra.geophysics.core.temp_k {
 Signals may declare a warmup block for pre-causal equilibration:
 
 ```
-signal.terra.thermal.equilibrium {
+signal terra.thermal.equilibrium {
   : Scalar<K>
   : strata(terra.thermal)
 
@@ -346,16 +489,16 @@ See @execution/warmup.md for full semantics.
 Entities are pure index spaces that define what instances exist:
 
 ```
-entity.stellar.moon {
+entity stellar.moon {
     : count(config.stellar.moon_count)
     : count(1..20)
 }
 
-entity.terra.plate {
+entity terra.plate {
     : count(5..50)
 }
 
-entity.stellar.star {}
+entity stellar.star {}
 ```
 
 ### Entity Attributes
@@ -375,14 +518,14 @@ Per-entity state is defined via member signals.
 Per-entity authoritative state with own strata:
 
 ```
-member.stellar.moon.mass {
+member stellar.moon.mass {
     : Scalar<kg, 1e18..1e24>
     : strata(stellar.orbital)
 
     resolve { prev }
 }
 
-member.stellar.moon.orbit_phase {
+member stellar.moon.orbit_phase {
     : Scalar<rad, 0..TAU>
     : strata(stellar.orbital)
 
@@ -391,7 +534,7 @@ member.stellar.moon.orbit_phase {
     }
 }
 
-member.stellar.moon.surface_temp {
+member stellar.moon.surface_temp {
     : Scalar<K>
     : strata(stellar.thermal)
 
@@ -426,7 +569,7 @@ Different member signals can have different strata for multi-rate scheduling.
 Observable derived data:
 
 ```
-field.terra.surface.temperature_map {
+field terra.surface.temperature_map {
   : Grid<2048, 1024, Scalar<K>>
   : strata(terra.atmosphere)
   : topology(sphere_surface)
@@ -457,7 +600,7 @@ field.terra.surface.temperature_map {
 Phase-tagged logic blocks:
 
 ```
-operator.terra.thermal.budget {
+operator terra.thermal.budget {
   : strata(terra.thermal)
   : phase(collect)
 
@@ -469,7 +612,7 @@ operator.terra.thermal.budget {
   }
 }
 
-operator.terra.tectonics.boundary_capture {
+operator terra.tectonics.boundary_capture {
   : strata(terra.tectonics)
   : phase(measure)
 
@@ -502,7 +645,7 @@ See @execution/warmup.md for warmup semantics.
 External causal inputs:
 
 ```
-impulse.terra.impact.asteroid {
+impulse terra.impact.asteroid {
   : ImpactEvent
 
   config {
@@ -527,7 +670,7 @@ impulse.terra.impact.asteroid {
 Emergent tension detectors:
 
 ```
-fracture.terra.climate.runaway_greenhouse {
+fracture terra.climate.runaway_greenhouse {
   when {
     signal.terra.atmosphere.co2 > 1000 <ppm>
     signal.terra.surface.avg_temp > 350 <K>
@@ -538,7 +681,7 @@ fracture.terra.climate.runaway_greenhouse {
   }
 }
 
-fracture.terra.tectonics.subduction {
+fracture terra.tectonics.subduction {
   when {
     let age_diff = signal.terra.tectonics.plate_a.age - signal.terra.tectonics.plate_b.age in
     age_diff > 50e6 <s>
@@ -558,7 +701,7 @@ fracture.terra.tectonics.subduction {
 Observer-only pattern recognition:
 
 ```
-chronicle.terra.events.supercontinent {
+chronicle terra.events.supercontinent {
   observe {
     when signal.terra.tectonics.continental_fraction > 0.8 {
       emit event.supercontinent_formed {
@@ -569,7 +712,7 @@ chronicle.terra.events.supercontinent {
   }
 }
 
-chronicle.terra.events.mass_extinction {
+chronicle terra.events.mass_extinction {
   observe {
     when signal.terra.biosphere.diversity.delta < -0.5 {
       emit event.mass_extinction {
@@ -661,9 +804,9 @@ prev.w
 collected.x         // Component of accumulated inputs
 collected.y
 
-signal.path.x       // Component of another signal
-signal.path.y
-signal.path.z
+signal path.x       // Component of another signal
+signal path.y
+signal path.z
 ```
 
 These patterns work because `prev`, `collected`, and `signal.path` are statically known
@@ -702,9 +845,9 @@ let mag = sqrt(vx*vx + vy*vy + vz*vz) in
 vx / mag
 
 // For complex cases, split into separate scalar signals
-signal.velocity_x { resolve { ... } }
-signal.velocity_y { resolve { ... } }
-signal.velocity_z { resolve { ... } }
+signal velocity_x { resolve { ... } }
+signal velocity_y { resolve { ... } }
+signal velocity_z { resolve { ... } }
 ```
 
 The compiler expands vector signal resolve blocks into per-component scalar expressions
@@ -718,7 +861,7 @@ resolved statically without runtime overhead.
 The `<-` operator writes to signal input accumulators:
 
 ```
-signal.target <- value
+signal target <- value
 ```
 
 Multiple writes accumulate (must be commutative).
@@ -726,7 +869,7 @@ Multiple writes accumulate (must be commutative).
 For fields with position:
 
 ```
-field.target <- position, value
+field target <- position, value
 ```
 
 ---
@@ -741,7 +884,7 @@ field.target <- position, value
 | `config.` | Configuration parameter |
 | `prev` | Previous signal value (in resolve blocks) |
 | `payload` | Impulse data (in apply blocks) |
-| `dt_raw` | Raw timestep (requires `: dt_raw` declaration, prefer dt-robust operators) |
+| `dt.raw` | Raw timestep (requires `: uses(dt.raw)` declaration, prefer dt-robust operators) |
 | `namespace.` | Engine-provided function (e.g. `maths.`, `vector.`, `dt.`, `physics.`) |
 | `dt.` | dt-robust integration operators |
 
@@ -785,17 +928,17 @@ config {
   terra.thermal.decay_rate: 1e-10 <1/s>
 }
 
-type.ThermalState {
+type ThermalState {
   temperature: Scalar<K>
   flux: Scalar<W/m²>
 }
 
-strata.terra.thermal {
+strata terra.thermal {
   : title("Thermal")
   : stride(5)
 }
 
-era.early {
+era early {
   : initial
   : dt(1 <Myr>)
 
@@ -811,7 +954,7 @@ era.early {
   }
 }
 
-era.stable {
+era stable {
   : terminal
   : dt(100 <kyr>)
 
@@ -820,7 +963,7 @@ era.stable {
   }
 }
 
-signal.terra.core.temp {
+signal terra.core.temp {
   : Scalar<K, 100..10000>
   : strata(terra.thermal)
 
@@ -830,7 +973,7 @@ signal.terra.core.temp {
   }
 }
 
-field.terra.core.temp_field {
+field terra.core.temp_field {
   : Scalar<K>
   : strata(terra.thermal)
   : topology(point_cloud)

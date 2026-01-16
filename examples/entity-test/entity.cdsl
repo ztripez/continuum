@@ -1,7 +1,7 @@
 # Entity Test World
 # Tests entity member signals and aggregate operations
 
-world.entity_test {
+world entity_test {
     : title("Entity Test")
     : version("0.1.0")
 }
@@ -17,13 +17,13 @@ config {
     test.decay_rate: 0.01
 }
 
-strata.simulation {
+strata simulation {
     : title("Simulation")
     : symbol("S")
     : stride(1)
 }
 
-era.main {
+era main {
     : initial
     : terminal
     : title("Main")
@@ -35,36 +35,38 @@ era.main {
 }
 
 # Define an entity with 5 particles
-entity.test.particle {
+entity test.particle {
     : count(5..5)
 }
 
 # Scalar member: mass (increases over time based on growth rate)
-member.test.particle.mass {
+member test.particle.mass {
     : Scalar<kg, 0..1000>
     : strata(simulation)
     : title("Particle Mass")
     : symbol("m")
+    : uses(dt.raw)
 
     resolve {
-        prev + const.physics.growth_rate * dt_raw
+        prev + const.physics.growth_rate * dt.raw
     }
 }
 
 # Scalar member: energy (decays over time)
-member.test.particle.energy {
+member test.particle.energy {
     : Scalar<J, 0..1000>
     : strata(simulation)
     : title("Particle Energy")
     : symbol("E")
+    : uses(dt.raw)
 
     resolve {
-        prev * (1.0 - config.test.decay_rate * dt_raw)
+        prev * (1.0 - config.test.decay_rate * dt.raw)
     }
 }
 
 # Scalar member: combined (demonstrates self-reference)
-member.test.particle.combined {
+member test.particle.combined {
     : Scalar<1, 0..10000>
     : strata(simulation)
     : title("Combined Value")
@@ -76,7 +78,7 @@ member.test.particle.combined {
 }
 
 # Global signal: total mass of all particles (uses aggregate)
-signal.test.total_mass {
+signal test.total_mass {
     : Scalar<kg, 0..5000>
     : strata(simulation)
     : title("Total Mass")
@@ -88,7 +90,7 @@ signal.test.total_mass {
 }
 
 # Global signal: mean energy of all particles
-signal.test.mean_energy {
+signal test.mean_energy {
     : Scalar<J, 0..1000>
     : strata(simulation)
     : title("Mean Energy")
@@ -100,7 +102,7 @@ signal.test.mean_energy {
 }
 
 # Global signal: particle count
-signal.test.particle_count {
+signal test.particle_count {
     : Scalar<1, 0..100>
     : strata(simulation)
     : title("Particle Count")
@@ -112,7 +114,7 @@ signal.test.particle_count {
 }
 
 # Field for observing total mass
-field.test.total_mass_field {
+field test.total_mass_field {
     : Scalar<kg>
     : strata(simulation)
     : topology(point_cloud)

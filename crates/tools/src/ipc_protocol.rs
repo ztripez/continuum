@@ -16,6 +16,9 @@ pub enum JsonValue {
     Vec3([f64; 3]),
     Vec4([f64; 4]),
     Quat([f64; 4]),
+    Mat2([f64; 4]),
+    Mat3([f64; 9]),
+    Mat4([f64; 16]),
     Struct(BTreeMap<String, JsonValue>),
 }
 
@@ -29,6 +32,9 @@ impl JsonValue {
             JsonValue::Vec3(value) => Value::Vec3(*value),
             JsonValue::Vec4(value) => Value::Vec4(*value),
             JsonValue::Quat(value) => Value::Quat(*value),
+            JsonValue::Mat2(value) => Value::Mat2(*value),
+            JsonValue::Mat3(value) => Value::Mat3(*value),
+            JsonValue::Mat4(value) => Value::Mat4(*value),
             JsonValue::Struct(fields) => {
                 let items = fields
                     .iter()
@@ -48,12 +54,19 @@ impl JsonValue {
             Value::Vec3(v) => JsonValue::Vec3(*v),
             Value::Vec4(v) => JsonValue::Vec4(*v),
             Value::Quat(v) => JsonValue::Quat(*v),
+            Value::Mat2(v) => JsonValue::Mat2(*v),
+            Value::Mat3(v) => JsonValue::Mat3(*v),
+            Value::Mat4(v) => JsonValue::Mat4(*v),
             Value::Map(v) => {
                 let mut fields = BTreeMap::new();
                 for (k, val) in v {
                     fields.insert(k.clone(), Self::from_value(val));
                 }
                 JsonValue::Struct(fields)
+            }
+            Value::Tensor(_) => {
+                // Tensors are not yet supported in JSON serialization
+                JsonValue::Struct(BTreeMap::new())
             }
         }
     }
@@ -85,12 +98,14 @@ pub struct JsonEvent {
     pub payload: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
 pub struct StepRequest {
     pub count: Option<u64>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
 pub struct RunRequest {
     pub count: Option<u64>,
 }
@@ -118,6 +133,31 @@ pub struct FieldQueryBatchRequest {
 pub struct FieldLatestRequest {
     pub field_id: String,
     pub position: Option<[f64; 3]>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct FieldDescribeRequest {
+    pub field_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct SignalDescribeRequest {
+    pub signal_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct StratumDescribeRequest {
+    pub stratum_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EraDescribeRequest {
+    pub era_id: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EntityDescribeRequest {
+    pub entity_id: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -151,6 +191,12 @@ pub struct ImpulseEmitRequest {
     pub payload: JsonValue,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct AssertionFailuresRequest {
+    pub signal_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcRequest {
     pub id: u64,
@@ -167,7 +213,15 @@ pub enum IpcCommand {
         count: Option<u64>,
     },
     Stop,
+    WorldInfo,
+    SignalList,
+    SignalDescribe {
+        signal_id: String,
+    },
     FieldList,
+    FieldDescribe {
+        field_id: String,
+    },
     FieldHistory {
         field_id: String,
     },
@@ -208,6 +262,22 @@ pub enum IpcCommand {
         impulse_id: String,
         payload: Value,
     },
+    StratumList,
+    StratumDescribe {
+        stratum_id: String,
+    },
+    EraList,
+    EraDescribe {
+        era_id: String,
+    },
+    EntityList,
+    EntityDescribe {
+        entity_id: String,
+    },
+    AssertionList,
+    AssertionFailures {
+        signal_id: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -228,7 +298,11 @@ pub struct IpcResponse {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcResponsePayload {
     Status(StatusPayload),
+    WorldInfo(WorldInfo),
+    SignalList(SignalListPayload),
+    SignalDescribe(SignalInfo),
     FieldList(FieldListPayload),
+    FieldDescribe(FieldInfo),
     FieldHistory(FieldHistoryPayload),
     FieldQuery(FieldQueryPayload),
     FieldQueryBatch(FieldQueryBatchPayload),
@@ -237,12 +311,21 @@ pub enum IpcResponsePayload {
     ImpulseList(ImpulseListPayload),
     ImpulseEmit(ImpulseEmitPayload),
     Playback(PlaybackPayload),
+    StratumList(StratumListPayload),
+    StratumDescribe(StratumInfo),
+    EraList(EraListPayload),
+    EraDescribe(EraInfo),
+    EntityList(EntityListPayload),
+    EntityDescribe(EntityInfo),
+    AssertionList(AssertionListPayload),
+    AssertionFailures(AssertionFailuresPayload),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcEvent {
     Tick(TickEvent),
     Chronicle(ChronicleEvent),
+    Assertion(AssertionEvent),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -253,6 +336,7 @@ pub struct StatusPayload {
     pub dt: f64,
     pub phase: String,
     pub running: bool,
+    pub warmup_complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -291,9 +375,91 @@ pub struct ChroniclePollPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FieldInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub symbol: Option<String>,
+    pub value_type: String,
+    pub unit: Option<String>,
+    pub range: Option<(f64, f64)>,
+    pub topology: String,
+    pub stratum: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalListPayload {
+    pub signals: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SignalInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub symbol: Option<String>,
+    pub value_type: String,
+    pub unit: Option<String>,
+    pub range: Option<(f64, f64)>,
+    pub stratum: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImpulseInfo {
     pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub symbol: Option<String>,
     pub payload_type: String,
+    pub unit: Option<String>,
+    pub range: Option<(f64, f64)>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorldInfo {
+    pub strata: Vec<StratumInfo>,
+    pub eras: Vec<EraInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StratumListPayload {
+    pub strata: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StratumInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub symbol: Option<String>,
+    pub default_stride: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EraListPayload {
+    pub eras: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EraInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub title: Option<String>,
+    pub is_initial: bool,
+    pub is_terminal: bool,
+    pub dt_seconds: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityListPayload {
+    pub entities: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EntityInfo {
+    pub id: String,
+    pub doc: Option<String>,
+    pub count_bounds: Option<(u32, u32)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -329,6 +495,43 @@ pub struct ChronicleEvent {
     pub tick: u64,
     pub era: String,
     pub sim_time: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionEvent {
+    pub signal_id: String,
+    pub severity: String,
+    pub message: String,
+    pub tick: u64,
+    pub era: String,
+    pub sim_time: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionInfo {
+    pub signal_id: String,
+    pub severity: String,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionListPayload {
+    pub assertions: Vec<AssertionInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionFailure {
+    pub signal_id: String,
+    pub severity: String,
+    pub message: String,
+    pub tick: u64,
+    pub era: String,
+    pub sim_time: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssertionFailuresPayload {
+    pub failures: Vec<AssertionFailure>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -382,6 +585,27 @@ impl JsonValue {
                 ];
                 serde_json::json!(v)
             }
+            JsonValue::Mat2(v) => {
+                let v: Vec<f64> = v
+                    .iter()
+                    .map(|&x| if x.is_finite() { x } else { 0.0 })
+                    .collect();
+                serde_json::json!(v)
+            }
+            JsonValue::Mat3(v) => {
+                let v: Vec<f64> = v
+                    .iter()
+                    .map(|&x| if x.is_finite() { x } else { 0.0 })
+                    .collect();
+                serde_json::json!(v)
+            }
+            JsonValue::Mat4(v) => {
+                let v: Vec<f64> = v
+                    .iter()
+                    .map(|&x| if x.is_finite() { x } else { 0.0 })
+                    .collect();
+                serde_json::json!(v)
+            }
             JsonValue::Struct(fields) => {
                 let mut map = serde_json::Map::new();
                 for (key, val) in fields {
@@ -395,6 +619,7 @@ impl JsonValue {
 
 pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
     let payload = match &response.payload {
+        Some(IpcResponsePayload::WorldInfo(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::Status(p)) => {
             let mut map = serde_json::Map::new();
             map.insert("tick".to_string(), serde_json::json!(p.tick));
@@ -415,7 +640,10 @@ pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
             map.insert("running".to_string(), serde_json::json!(p.running));
             Some(serde_json::Value::Object(map))
         }
+        Some(IpcResponsePayload::SignalList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::SignalDescribe(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::FieldList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::FieldDescribe(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::FieldHistory(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::FieldQuery(p)) => {
             let mut map = serde_json::Map::new();
@@ -458,6 +686,14 @@ pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
             );
             Some(serde_json::Value::Object(map))
         }
+        Some(IpcResponsePayload::StratumList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::StratumDescribe(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::EraList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::EraDescribe(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::EntityList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::EntityDescribe(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::AssertionList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::AssertionFailures(p)) => serde_json::to_value(p).ok(),
         None => None,
     };
     JsonResponse {
@@ -468,21 +704,46 @@ pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
     }
 }
 
+/// Helper to deserialize a payload that may be null
+fn deserialize_or_default<T: Default + serde::de::DeserializeOwned>(
+    payload: serde_json::Value,
+) -> anyhow::Result<T> {
+    if payload.is_null() {
+        Ok(T::default())
+    } else {
+        Ok(serde_json::from_value(payload)?)
+    }
+}
+
 pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
     let command = match request.kind.as_str() {
         "status" => IpcCommand::Status,
         "step" => {
-            let req: StepRequest = serde_json::from_value(request.payload)?;
+            let req: StepRequest = deserialize_or_default(request.payload)?;
             IpcCommand::Step {
                 count: req.count.unwrap_or(1),
             }
         }
         "run" => {
-            let req: RunRequest = serde_json::from_value(request.payload)?;
+            let req: RunRequest = deserialize_or_default(request.payload)?;
             IpcCommand::Run { count: req.count }
         }
         "stop" => IpcCommand::Stop,
+        "world.info" => IpcCommand::WorldInfo,
+        "signal.list" => IpcCommand::SignalList,
+        "signal.describe" => {
+            let req: SignalDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::SignalDescribe {
+                signal_id: req.signal_id,
+            }
+        }
         "field.list" => IpcCommand::FieldList,
+        "field.describe" => {
+            let req: FieldDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::FieldDescribe {
+                field_id: req.field_id,
+            }
+        }
         "field.history" => {
             let req: FieldHistoryRequest = serde_json::from_value(request.payload)?;
             IpcCommand::FieldHistory {
@@ -548,6 +809,32 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
                 payload: req.payload.to_value(),
             }
         }
+        "stratum.list" => IpcCommand::StratumList,
+        "stratum.describe" => {
+            let req: StratumDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::StratumDescribe {
+                stratum_id: req.stratum_id,
+            }
+        }
+        "era.list" => IpcCommand::EraList,
+        "era.describe" => {
+            let req: EraDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::EraDescribe { era_id: req.era_id }
+        }
+        "entity.list" => IpcCommand::EntityList,
+        "entity.describe" => {
+            let req: EntityDescribeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::EntityDescribe {
+                entity_id: req.entity_id,
+            }
+        }
+        "assertion.list" => IpcCommand::AssertionList,
+        "assertion.failures" => {
+            let req: AssertionFailuresRequest = deserialize_or_default(request.payload)?;
+            IpcCommand::AssertionFailures {
+                signal_id: req.signal_id,
+            }
+        }
         _ => anyhow::bail!("unknown request type: {}", request.kind),
     };
 
@@ -602,6 +889,26 @@ pub fn ipc_event_to_json(event: &IpcEvent) -> JsonEvent {
             );
             JsonEvent {
                 kind: "chronicle.event".to_string(),
+                payload: serde_json::Value::Object(map),
+            }
+        }
+        IpcEvent::Assertion(p) => {
+            let mut map = serde_json::Map::new();
+            map.insert("signal_id".to_string(), serde_json::json!(p.signal_id));
+            map.insert("severity".to_string(), serde_json::json!(p.severity));
+            map.insert("message".to_string(), serde_json::json!(p.message));
+            map.insert("tick".to_string(), serde_json::json!(p.tick));
+            map.insert("era".to_string(), serde_json::json!(p.era));
+            map.insert(
+                "sim_time".to_string(),
+                serde_json::json!(if p.sim_time.is_finite() {
+                    p.sim_time
+                } else {
+                    0.0
+                }),
+            );
+            JsonEvent {
+                kind: "assertion".to_string(),
                 payload: serde_json::Value::Object(map),
             }
         }

@@ -66,6 +66,18 @@ pub struct Unit {
 }
 
 impl Unit {
+    /// Dimensionless unit constant (all exponents zero).
+    pub const DIMENSIONLESS: Unit = Unit {
+        length: 0,
+        mass: 0,
+        time: 0,
+        current: 0,
+        temperature: 0,
+        amount: 0,
+        luminosity: 0,
+        angle: 0,
+    };
+
     /// Creates a dimensionless unit (all exponents zero).
     ///
     /// Dimensionless quantities include:
@@ -353,212 +365,278 @@ impl Unit {
         Some(if negative { -num } else { num })
     }
 
-    /// Looks up a base unit by name and returns its dimensional representation.
-    fn lookup_base_unit(name: &str) -> Option<Unit> {
-        // SI Base Units
-        let unit = match name {
-            // Length
-            "m" | "meter" | "meters" => Unit {
+    /// Static table of unit definitions.
+    /// Each entry: (aliases, unit)
+    const UNIT_TABLE: &'static [(&'static [&'static str], Unit)] = &[
+        // SI Base Units - Length
+        (
+            &["m", "meter", "meters"],
+            Unit {
                 length: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-            // Mass (note: kg is the SI base unit, but we also accept g)
-            "kg" | "kilogram" | "kilograms" => Unit {
+        ),
+        // SI Base Units - Mass
+        (
+            &["kg", "kilogram", "kilograms"],
+            Unit {
                 mass: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-            "g" | "gram" | "grams" => Unit {
+        ),
+        (
+            &["g", "gram", "grams"],
+            Unit {
                 mass: 1,
-                ..Unit::dimensionless()
-            }, // Same dimension, different scale
-            // Time
-            "s" | "sec" | "second" | "seconds" => Unit {
+                ..Unit::DIMENSIONLESS
+            },
+        ),
+        // SI Base Units - Time
+        (
+            &["s", "sec", "second", "seconds"],
+            Unit {
                 time: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-            // Electric current
-            "A" | "amp" | "ampere" | "amperes" => Unit {
+        ),
+        // SI Base Units - Electric current
+        (
+            &["A", "amp", "ampere", "amperes"],
+            Unit {
                 current: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-            // Temperature
-            "K" | "kelvin" => Unit {
+        ),
+        // SI Base Units - Temperature
+        (
+            &["K", "kelvin"],
+            Unit {
                 temperature: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-            // Amount of substance
-            "mol" | "mole" | "moles" => Unit {
+        ),
+        // SI Base Units - Amount of substance
+        (
+            &["mol", "mole", "moles"],
+            Unit {
                 amount: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-            // Luminous intensity
-            "cd" | "candela" | "candelas" => Unit {
+        ),
+        // SI Base Units - Luminous intensity
+        (
+            &["cd", "candela", "candelas"],
+            Unit {
                 luminosity: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Derived SI Units
-            // Angle
-            "rad" | "radian" | "radians" => Unit {
+        ),
+        // Angle
+        (
+            &["rad", "radian", "radians"],
+            Unit {
                 angle: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-            "sr" | "steradian" | "steradians" => Unit {
+        ),
+        (
+            &["sr", "steradian", "steradians"],
+            Unit {
                 angle: 2,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Frequency (Hz = s⁻¹)
-            "Hz" | "hertz" => Unit {
+        ),
+        // Frequency (Hz = s⁻¹)
+        (
+            &["Hz", "hertz"],
+            Unit {
                 time: -1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Force (N = kg·m/s²)
-            "N" | "newton" | "newtons" => Unit {
+        ),
+        // Force (N = kg·m/s²)
+        (
+            &["N", "newton", "newtons"],
+            Unit {
                 mass: 1,
                 length: 1,
                 time: -2,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Pressure/Stress (Pa = N/m² = kg/(m·s²))
-            "Pa" | "pascal" | "pascals" => Unit {
+        ),
+        // Pressure (Pa = N/m²)
+        (
+            &["Pa", "pascal", "pascals"],
+            Unit {
                 mass: 1,
                 length: -1,
                 time: -2,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Energy (J = N·m = kg·m²/s²)
-            "J" | "joule" | "joules" => Unit {
+        ),
+        // Energy (J = N·m)
+        (
+            &["J", "joule", "joules"],
+            Unit {
                 mass: 1,
                 length: 2,
                 time: -2,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Power (W = J/s = kg·m²/s³)
-            "W" | "watt" | "watts" => Unit {
+        ),
+        // Power (W = J/s)
+        (
+            &["W", "watt", "watts"],
+            Unit {
                 mass: 1,
                 length: 2,
                 time: -3,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Electric charge (C = A·s)
-            "C" | "coulomb" | "coulombs" => Unit {
+        ),
+        // Electric charge (C = A·s)
+        (
+            &["C", "coulomb", "coulombs"],
+            Unit {
                 current: 1,
                 time: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Electric potential (V = W/A = kg·m²/(A·s³))
-            "V" | "volt" | "volts" => Unit {
+        ),
+        // Electric potential (V = W/A)
+        (
+            &["V", "volt", "volts"],
+            Unit {
                 mass: 1,
                 length: 2,
                 time: -3,
                 current: -1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Capacitance (F = C/V = A²·s⁴/(kg·m²))
-            "F" | "farad" | "farads" => Unit {
+        ),
+        // Capacitance (F = C/V)
+        (
+            &["F", "farad", "farads"],
+            Unit {
                 mass: -1,
                 length: -2,
                 time: 4,
                 current: 2,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Resistance (Ω = V/A = kg·m²/(A²·s³))
-            "Ω" | "ohm" | "ohms" => Unit {
+        ),
+        // Resistance (Ω = V/A)
+        (
+            &["Ω", "ohm", "ohms"],
+            Unit {
                 mass: 1,
                 length: 2,
                 time: -3,
                 current: -2,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Magnetic flux (Wb = V·s = kg·m²/(A·s²))
-            "Wb" | "weber" | "webers" => Unit {
+        ),
+        // Magnetic flux (Wb = V·s)
+        (
+            &["Wb", "weber", "webers"],
+            Unit {
                 mass: 1,
                 length: 2,
                 time: -2,
                 current: -1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Magnetic flux density (T = Wb/m² = kg/(A·s²))
-            "T" | "tesla" | "teslas" => Unit {
+        ),
+        // Magnetic flux density (T = Wb/m²)
+        (
+            &["T", "tesla", "teslas"],
+            Unit {
                 mass: 1,
                 time: -2,
                 current: -1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Inductance (H = Wb/A = kg·m²/(A²·s²))
-            "H" | "henry" | "henries" => Unit {
+        ),
+        // Inductance (H = Wb/A)
+        (
+            &["H", "henry", "henries"],
+            Unit {
                 mass: 1,
                 length: 2,
                 time: -2,
                 current: -2,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Luminous flux (lm = cd·sr)
-            "lm" | "lumen" | "lumens" => Unit {
+        ),
+        // Luminous flux (lm = cd·sr)
+        (
+            &["lm", "lumen", "lumens"],
+            Unit {
                 luminosity: 1,
-                angle: 2, // steradian
-                ..Unit::dimensionless()
+                angle: 2,
+                ..Unit::DIMENSIONLESS
             },
-
-            // Illuminance (lx = lm/m² = cd·sr/m²)
-            "lx" | "lux" => Unit {
+        ),
+        // Illuminance (lx = lm/m²)
+        (
+            &["lx", "lux"],
+            Unit {
                 luminosity: 1,
                 length: -2,
                 angle: 2,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Degree (angle, dimensionless but tracked)
-            "deg" | "degree" | "degrees" | "°" => Unit {
+        ),
+        // Angle (degrees)
+        (
+            &["deg", "degree", "degrees", "°"],
+            Unit {
                 angle: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Year (time)
-            "yr" | "year" | "years" | "a" => Unit {
+        ),
+        // Time units
+        (
+            &["yr", "year", "years", "a"],
+            Unit {
                 time: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Day
-            "d" | "day" | "days" => Unit {
+        ),
+        (
+            &["d", "day", "days"],
+            Unit {
                 time: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Hour
-            "h" | "hr" | "hour" | "hours" => Unit {
+        ),
+        (
+            &["h", "hr", "hour", "hours"],
+            Unit {
                 time: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
-
-            // Minute
-            "min" | "minute" | "minutes" => Unit {
+        ),
+        (
+            &["min", "minute", "minutes"],
+            Unit {
                 time: 1,
-                ..Unit::dimensionless()
+                ..Unit::DIMENSIONLESS
             },
+        ),
+        // Dimensionless
+        (&["%", "percent"], Unit::DIMENSIONLESS),
+    ];
 
-            // Percent (dimensionless)
-            "%" | "percent" => Unit::dimensionless(),
-
-            // Unknown unit
-            _ => return None,
-        };
-
-        Some(unit)
+    /// Looks up a base unit by name and returns its dimensional representation.
+    fn lookup_base_unit(name: &str) -> Option<Unit> {
+        // Search the static table for matching alias
+        for (aliases, unit) in Self::UNIT_TABLE {
+            if aliases.contains(&name) {
+                return Some(*unit);
+            }
+        }
+        None
     }
 
     /// Converts the unit to its canonical string representation.

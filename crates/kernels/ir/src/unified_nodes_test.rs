@@ -6,15 +6,15 @@ use continuum_dsl::parse;
 #[test]
 fn test_unified_nodes_populated_from_signals() {
     let src = r#"
-        strata.test {}
+        strata test {}
         
-        signal.temperature {
+        signal temperature {
             : Scalar<K>
             : strata(test)
             resolve { 300.0 }
         }
         
-        signal.pressure {
+        signal pressure {
             : Scalar<Pa>
             : strata(test)
             resolve { signal.temperature * 10.0 }

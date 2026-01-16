@@ -13,7 +13,6 @@ use super::super::{ParseError, ParserInput};
 pub fn entity_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, EntityDef, extra::Err<ParseError<'src>>> {
     just(Token::Entity)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             entity_content()

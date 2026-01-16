@@ -15,7 +15,7 @@ members = [
     "crates/kernels/vm",
     "crates/kernels/gpu",
     "crates/tests",
-    "crates/tools",
+    "crates/tools", "crates/continuum-inspector",
 ]
 
 [workspace.package]

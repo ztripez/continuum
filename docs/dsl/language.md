@@ -140,6 +140,49 @@ Signals:
 Signals do not mutate directly.
 They resolve from inputs.
 
+### 7.1 Dangerous Function Declarations
+
+Some kernel functions are considered dangerous because they silently mask errors or hide problems (violating principle 7: "Fail Hard, Never Mask Errors"). These functions require explicit opt-in via `: uses()` declarations.
+
+**Supported on all executable primitives:**
+- Signals (`: uses(maths.clamping)`)
+- Members (`: uses(maths.clamping)`)
+- Fractures (`: uses(maths.clamping)`)
+- Operators (`: uses(maths.clamping)`)
+- Impulses (`: uses(maths.clamping)`)
+
+**Example:**
+
+```cdsl
+signal terra.surface.albedo {
+    : Scalar<1>
+    : uses(maths.clamping)  // Explicit opt-in required
+    
+    resolve {
+        maths.clamp(prev + delta, 0.0, 1.0)  // OK - declared
+    }
+}
+```
+
+If you use a dangerous function without declaring it, compilation will fail with an error explaining why the function is dangerous and what alternatives exist.
+
+**Recommended approach:** Use assertions instead of clamping:
+
+```cdsl
+signal terra.surface.albedo {
+    : Scalar<1, 0.0..1.0>
+    
+    resolve {
+        prev + delta  // No clamp - fail if out of bounds
+    }
+    
+    assert {
+        prev >= 0.0 : fatal, "albedo below physical minimum"
+        prev <= 1.0 : fatal, "albedo above physical maximum"
+    }
+}
+```
+
 (See `signals.md` for full semantics.)
 
 ---

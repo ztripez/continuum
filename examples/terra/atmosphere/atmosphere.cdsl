@@ -75,21 +75,22 @@ config {
 # =============================================================================
 
 /// Tetens formula for saturation vapor pressure
-fn.atmosphere.saturation_vapor_pressure(temperature_k) {
+fn atmosphere.saturation_vapor_pressure(temperature_k) {
     # e_sat(T) = 610.94 * maths.exp((17.625 * T_C) / (T_C + 243.04))
     let t_celsius = temperature_k - 273.15 in
     610.94 * maths.exp((17.625 * t_celsius) / (t_celsius + 243.04))
 }
 
 /// Equilibrium water vapor column mass
-fn.atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
+/// NOTE: Uses maths.clamp for RH (relative humidity is a physical fraction 0-1)
+fn atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
     let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k) in
     let rh = maths.clamp(relative_humidity, 0.0, 1.0) in
     (e_sat * rh * scale_height_m) / (461.0 * surface_temp_k)
 }
 
 # Effective greenhouse emissivity
-fn.atmosphere.effective_emissivity(base_emissivity, tau_greenhouse) {
+fn atmosphere.effective_emissivity(base_emissivity, tau_greenhouse) {
     base_emissivity / (1.0 + 0.75 * tau_greenhouse)
 }
 
@@ -97,7 +98,7 @@ fn.atmosphere.effective_emissivity(base_emissivity, tau_greenhouse) {
 # External Radiative Forcing
 # =============================================================================
 
-signal.atmosphere.external_power {
+signal atmosphere.external_power {
     : Scalar<W, 0..1e20>
     : strata(atmosphere)
     : title("External Radiative Power")
@@ -118,7 +119,7 @@ signal.atmosphere.external_power {
 # =============================================================================
 
 # Mean surface temperature
-signal.atmosphere.surface_temp {
+signal atmosphere.surface_temp {
     : Vec3<K>
     : strata(atmosphere)
     : title("Surface Temperature")
@@ -145,7 +146,7 @@ signal.atmosphere.surface_temp {
         let dt_temp = net_power / config.atmosphere.surface_temp.heat_capacity_j_k in
 
         vector.vec3(
-            maths.clamp(dt.integrate(t_mean, dt_temp), 50.0, 500.0),
+            dt.integrate(t_mean, dt_temp),
             prev.y + collected,
             prev.z + collected
         )
@@ -161,7 +162,7 @@ signal.atmosphere.surface_temp {
 # Water Vapor Feedback (Clausius-Clapeyron)
 # =============================================================================
 
-signal.atmosphere.water_vapor {
+signal atmosphere.water_vapor {
     : Scalar<kg/m², 0.1..200>
     : strata(atmosphere)
     : title("Water Vapor Column")
@@ -193,34 +194,38 @@ signal.atmosphere.water_vapor {
 # Atmospheric Composition
 # =============================================================================
 
-signal.atmosphere.co2_ppmv {
+signal atmosphere.co2_ppmv {
     : Scalar<ppmv, 100..10000>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("CO2 Concentration")
     : symbol("CO2")
 
     config {
         initial: 280.0
-        min: 100.0
+        min: 0.0
         max: 10000.0
     }
 
     resolve {
         # CO2 changes through weathering sinks, volcanic sources, biological processes
-        maths.clamp(prev + collected, config.atmosphere.co2_ppmv.min, config.atmosphere.co2_ppmv.max)
+        # collected contains rates (ppmv/s) from fractures - integrate over dt
+        # Clamp to prevent negative concentrations (physical constraint)
+        maths.max(dt.integrate(prev, collected), config.atmosphere.co2_ppmv.min)
     }
 
     assert {
-        prev >= config.atmosphere.co2_ppmv.min : warn, "CO2 below minimum"
-        prev <= config.atmosphere.co2_ppmv.max : warn, "CO2 above maximum"
+        prev >= config.atmosphere.co2_ppmv.min : fatal, "CO2 concentration cannot be negative"
+        prev <= config.atmosphere.co2_ppmv.max : error, "CO2 concentration exceeds expected maximum - check sources"
     }
 }
 
 # Methane concentration in atmosphere
 # Important greenhouse gas with ~12 year lifetime
-signal.atmosphere.ch4_ppmv {
+signal atmosphere.ch4_ppmv {
     : Scalar<ppmv, 0..50>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("CH4 Concentration")
     : symbol("CH4")
 
@@ -232,12 +237,14 @@ signal.atmosphere.ch4_ppmv {
 
     resolve {
         # Methane changes through oxidation decay and biogenic/volcanic sources
-        maths.clamp(prev + collected, config.atmosphere.ch4_ppmv.min, config.atmosphere.ch4_ppmv.max)
+        # collected contains rates (ppmv/s) from fractures - integrate over dt
+        # Clamp to prevent negative concentrations (physical constraint)
+        maths.max(dt.integrate(prev, collected), config.atmosphere.ch4_ppmv.min)
     }
 
     assert {
-        prev >= config.atmosphere.ch4_ppmv.min : warn, "CH4 below minimum"
-        prev <= config.atmosphere.ch4_ppmv.max : warn, "CH4 above maximum"
+        prev >= config.atmosphere.ch4_ppmv.min : fatal, "CH4 concentration cannot be negative"
+        prev <= config.atmosphere.ch4_ppmv.max : error, "CH4 concentration exceeds expected maximum - check sources"
     }
 }
 
@@ -245,9 +252,10 @@ signal.atmosphere.ch4_ppmv {
 # Cloud Cover
 # =============================================================================
 
-signal.atmosphere.cloud_cover {
+signal atmosphere.cloud_cover {
     : Scalar<1, 0..1>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("Cloud Cover Fraction")
     : symbol("C")
 
@@ -259,6 +267,7 @@ signal.atmosphere.cloud_cover {
 
     resolve {
         # Cloud cover depends on water vapor availability
+        # Physical constraint: fraction must be [0, 1]
         let water_vapor = signal.atmosphere.water_vapor in
         let cloud_potential = (water_vapor - config.atmosphere.cloud_cover.min_water_vapor) /
                              (config.atmosphere.cloud_cover.saturation_water_vapor - config.atmosphere.cloud_cover.min_water_vapor) in
@@ -266,8 +275,8 @@ signal.atmosphere.cloud_cover {
     }
 
     assert {
-        prev >= 0.0 : warn, "Cloud cover cannot be negative"
-        prev <= 1.0 : warn, "Cloud cover cannot exceed 1"
+        prev >= 0.0 : fatal, "Cloud cover cannot be negative"
+        prev <= 1.0 : fatal, "Cloud cover cannot exceed 1"
     }
 }
 
@@ -275,7 +284,7 @@ signal.atmosphere.cloud_cover {
 # Atmospheric Optical Depth (Greenhouse)
 # =============================================================================
 
-signal.atmosphere.tau_greenhouse {
+signal atmosphere.tau_greenhouse {
     : Scalar<1, 0..10>
     : strata(atmosphere)
     : title("Greenhouse Optical Depth")
@@ -305,7 +314,7 @@ signal.atmosphere.tau_greenhouse {
 # Atmospheric Pressure
 # =============================================================================
 
-signal.atmosphere.pressure {
+signal atmosphere.pressure {
     : Scalar<Pa, 0..1e8>
     : strata(atmosphere)
     : title("Surface Atmospheric Pressure")
@@ -333,9 +342,10 @@ signal.atmosphere.pressure {
 # =============================================================================
 
 # Ice/snow fraction of planetary surface
-signal.atmosphere.ice_fraction {
+signal atmosphere.ice_fraction {
     : Scalar<1, 0..1>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("Ice Fraction")
     : symbol("f_ice")
 
@@ -368,6 +378,7 @@ signal.atmosphere.ice_fraction {
             # Partial ice: linear interpolation
             # Ice edge at latitude where T = t_freeze
             # Approximate: ice_fraction ≈ (t_freeze - t_pole) / (t_equator - t_pole)
+            # Physical constraint: fraction must be [0, 1]
             let temp_range = maths.max(t_equator - t_pole, 1.0) in
             let ice_extent = (t_freeze - t_pole) / temp_range in
             maths.clamp(ice_extent, 0.0, 1.0)
@@ -375,15 +386,16 @@ signal.atmosphere.ice_fraction {
     }
 
     assert {
-        prev >= 0.0 : warn, "Ice fraction cannot be negative"
-        prev <= 1.0 : warn, "Ice fraction cannot exceed 1"
+        prev >= 0.0 : fatal, "Ice fraction cannot be negative"
+        prev <= 1.0 : fatal, "Ice fraction cannot exceed 1"
     }
 }
 
 # Effective planetary albedo with ice-albedo feedback
-signal.atmosphere.albedo {
+signal atmosphere.albedo {
     : Scalar<1, 0..1>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("Effective Planetary Albedo")
     : symbol("α")
 
@@ -409,12 +421,13 @@ signal.atmosphere.albedo {
         let planetary_albedo = cloud_frac * config.atmosphere.albedo.cloud_albedo
                              + clear_frac * surface_albedo in
 
+        # Physical constraint: reflectivity must be [0, 1]
         maths.clamp(planetary_albedo + collected, 0.0, 1.0)
     }
 
     assert {
-        prev >= 0.0 : warn, "Albedo cannot be negative"
-        prev <= 1.0 : warn, "Albedo cannot exceed 1"
+        prev >= 0.0 : fatal, "Albedo cannot be negative"
+        prev <= 1.0 : fatal, "Albedo cannot exceed 1"
     }
 }
 
@@ -422,7 +435,7 @@ signal.atmosphere.albedo {
 # Solar Insolation (from stellar domain coupling)
 # =============================================================================
 
-signal.atmosphere.solar_constant {
+signal atmosphere.solar_constant {
     : Scalar<W/m², 0..1e5>
     : strata(atmosphere)
     : title("Solar Constant")
@@ -445,7 +458,7 @@ signal.atmosphere.solar_constant {
 }
 
 # Absorbed solar radiation (after albedo reflection)
-signal.atmosphere.absorbed_radiation {
+signal atmosphere.absorbed_radiation {
     : Scalar<W/m², 0..1e5>
     : strata(atmosphere)
     : title("Absorbed Solar Radiation")
@@ -465,11 +478,57 @@ signal.atmosphere.absorbed_radiation {
 }
 
 # =============================================================================
+# Cross-Domain Coupling Fractures
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Stellar → Atmosphere Coupling
+# -----------------------------------------------------------------------------
+
+# Stellar insolation coupling: transfers stellar flux to atmosphere
+# This fracture connects the stellar domain's computed insolation to the
+# atmosphere's radiative budget, enabling star variability, orbital changes,
+# and binary/trinary star systems to affect planetary climate.
+fracture atmosphere.stellar_insolation_coupling {
+    : strata(atmosphere)
+
+    config {
+        # Planet cross-section to surface area ratio (1/4 for sphere)
+        geometric_factor: 0.25
+    }
+
+    when {
+        # Always active when stellar domain provides insolation
+        signal.stellar.total_insolation > 0.0
+    }
+
+    emit {
+        # Transfer stellar flux to atmosphere solar constant
+        # This replaces the default reference value with actual stellar input
+        let flux = signal.stellar.total_insolation in
+        signal.atmosphere.solar_constant <- flux;
+
+        # Calculate absorbed power accounting for albedo
+        # P_absorbed = S * (1 - α) * π * R² (disk area)
+        # = S * (1 - α) / 4 * 4 * π * R² (full surface)
+        let albedo = signal.atmosphere.albedo in
+        let absorbed_flux = flux * (1.0 - albedo) * config.fracture.atmosphere.stellar_insolation_coupling.geometric_factor in
+
+        # Convert to total power: P = F * A = F * 4πR²
+        let planet_radius = signal.planet.radius in
+        let surface_area = 4.0 * PI * planet_radius * planet_radius in
+        let absorbed_power = absorbed_flux * surface_area in
+
+        signal.atmosphere.external_power <- absorbed_power
+    }
+}
+
+# =============================================================================
 # Atmosphere Fractures
 # =============================================================================
 
 # Runaway greenhouse threshold
-fracture.atmosphere.runaway_greenhouse {
+fracture atmosphere.runaway_greenhouse {
     when {
         signal.atmosphere.surface_temp.x > 350.0 <K>
         signal.atmosphere.water_vapor > 150.0
@@ -482,7 +541,7 @@ fracture.atmosphere.runaway_greenhouse {
 }
 
 # Ice age trigger
-fracture.atmosphere.ice_age {
+fracture atmosphere.ice_age {
     when {
         signal.atmosphere.surface_temp.x < 270.0 <K>
         signal.atmosphere.co2_ppmv < 200.0
@@ -500,7 +559,7 @@ fracture.atmosphere.ice_age {
 
 # Volcanic CO2 coupling: tectonic activity -> atmospheric CO2 emissions
 # Represents background volcanic outgassing from ridges, subduction, hotspots
-fracture.atmosphere.volcanic_co2_coupling {
+fracture atmosphere.volcanic_co2_coupling {
     : strata(atmosphere)
 
     config {
@@ -520,21 +579,21 @@ fracture.atmosphere.volcanic_co2_coupling {
         # CO2 emission rate = base * activity^exponent
         let activity = maths.max(signal.tectonics.activity, 0.1) in
         let emission_factor = maths.pow(activity, config.fracture.atmosphere.volcanic_co2_coupling.activity_exponent) in
-        let emission_rate = maths.max(
+        let emission_rate_kg_s = maths.max(
             config.fracture.atmosphere.volcanic_co2_coupling.base_emission_kg_per_s * emission_factor,
             config.fracture.atmosphere.volcanic_co2_coupling.min_emission_kg_per_s
         ) in
 
-        # Convert emission rate to ppmv change
+        # Convert to ppmv/s rate - signal integrates with dt
         # ~2.2 kg CO2 per ppmv per km³ atmosphere
         let ppmv_per_kg = 1e-15 in
-        signal.atmosphere.co2_ppmv <- emission_rate * ppmv_per_kg
+        signal.atmosphere.co2_ppmv <- emission_rate_kg_s * ppmv_per_kg
     }
 }
 
 # Silicate weathering CO2 sink (carbonate-silicate cycle)
 # Long-term climate thermostat: warmer -> more weathering -> CO2 removal -> cooling
-fracture.atmosphere.silicate_weathering {
+fracture atmosphere.silicate_weathering {
     : strata(atmosphere)
 
     config {
@@ -549,8 +608,6 @@ fracture.atmosphere.silicate_weathering {
         reference_co2_ppmv: 280.0
         # Minimum temperature for weathering (frozen = no weathering)
         min_temp_k: 273.15
-        # Max removal fraction per timestep (stability)
-        max_removal_fraction: 0.1
     }
 
     when {
@@ -568,21 +625,18 @@ fracture.atmosphere.silicate_weathering {
         # CO2 factor: power law (more CO2 = more carbonic acid = more weathering)
         let co2_factor = maths.pow(co2 / config.fracture.atmosphere.silicate_weathering.reference_co2_ppmv, config.fracture.atmosphere.silicate_weathering.co2_exponent) in
 
-        # Combined weathering rate
-        let weathering_rate = config.fracture.atmosphere.silicate_weathering.base_weathering_kg_per_s * temp_factor * co2_factor in
+        # Combined weathering rate (kg/s)
+        let weathering_rate_kg_s = config.fracture.atmosphere.silicate_weathering.base_weathering_kg_per_s * temp_factor * co2_factor in
 
-        # Limit removal to prevent oscillations
-        let max_removal_ppmv = co2 * config.fracture.atmosphere.silicate_weathering.max_removal_fraction in
-        let removal_ppmv = maths.min(weathering_rate * 1e-15, max_removal_ppmv) in
-
-        # Weathering removes CO2 (negative delta)
-        signal.atmosphere.co2_ppmv <- -removal_ppmv
+        # Emit as ppmv/s rate - signal integrates with dt
+        # Weathering removes CO2 (negative rate)
+        signal.atmosphere.co2_ppmv <- -weathering_rate_kg_s * 1e-15
     }
 }
 
 # Ocean CO2 absorption: temperature-dependent CO2 solubility
 # Cold oceans absorb more CO2, warm oceans release CO2
-fracture.atmosphere.ocean_co2_exchange {
+fracture atmosphere.ocean_co2_exchange {
     : strata(atmosphere)
 
     config {
@@ -607,16 +661,17 @@ fracture.atmosphere.ocean_co2_exchange {
         # Solubility factor: colder = more soluble
         let solubility_factor = 1.0 + temp_anomaly * config.fracture.atmosphere.ocean_co2_exchange.solubility_temp_sensitivity in
 
-        # Net flux: negative anomaly (cold) = absorption, positive (warm) = release
-        let flux = -temp_anomaly * config.fracture.atmosphere.ocean_co2_exchange.exchange_coefficient * solubility_factor * 1e-15 in
+        # Emit ppmv/s rate - signal integrates with dt
+        # Negative anomaly (cold) = absorption, positive (warm) = release
+        let flux_rate_ppmv_s = -temp_anomaly * config.fracture.atmosphere.ocean_co2_exchange.exchange_coefficient * solubility_factor * 1e-15 in
 
-        signal.atmosphere.co2_ppmv <- flux
+        signal.atmosphere.co2_ppmv <- flux_rate_ppmv_s
     }
 }
 
 # Methane oxidation: CH4 -> CO2 conversion in atmosphere
 # Long-term methane sink, short-term CO2 source
-fracture.atmosphere.methane_oxidation {
+fracture atmosphere.methane_oxidation {
     : strata(atmosphere)
 
     config {
@@ -631,16 +686,16 @@ fracture.atmosphere.methane_oxidation {
     }
 
     emit {
-        # First-order decay of methane
+        # First-order decay of methane (ppmv/s)
         let ch4 = signal.atmosphere.ch4_ppmv in
-        let decay_rate = ch4 / config.fracture.atmosphere.methane_oxidation.methane_lifetime_s in
+        let decay_rate_ppmv_s = ch4 / config.fracture.atmosphere.methane_oxidation.methane_lifetime_s in
 
-        # Oxidation produces CO2
-        let co2_produced = decay_rate * config.fracture.atmosphere.methane_oxidation.co2_per_ch4 * 1e-6 in
+        # Emit rates - signals integrate with dt
+        # CH4 decays, CO2 produced proportionally
+        let co2_rate_ppmv_s = decay_rate_ppmv_s * config.fracture.atmosphere.methane_oxidation.co2_per_ch4 * 1e-6 in
 
-        # Update both species
-        signal.atmosphere.ch4_ppmv <- -decay_rate * 1e-6;
-        signal.atmosphere.co2_ppmv <- co2_produced
+        signal.atmosphere.ch4_ppmv <- -decay_rate_ppmv_s * 1e-6;
+        signal.atmosphere.co2_ppmv <- co2_rate_ppmv_s
     }
 }
 
@@ -648,7 +703,7 @@ fracture.atmosphere.methane_oxidation {
 # Atmosphere Fields
 # =============================================================================
 
-field.atmosphere.temperature {
+field atmosphere.temperature {
     : Scalar<K>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -659,7 +714,7 @@ field.atmosphere.temperature {
     }
 }
 
-field.atmosphere.water_vapor_map {
+field atmosphere.water_vapor_map {
     : Scalar<kg/m²>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -670,7 +725,7 @@ field.atmosphere.water_vapor_map {
     }
 }
 
-field.atmosphere.cloud_map {
+field atmosphere.cloud_map {
     : Scalar<1>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -681,7 +736,7 @@ field.atmosphere.cloud_map {
     }
 }
 
-field.atmosphere.co2_map {
+field atmosphere.co2_map {
     : Scalar<ppmv>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -692,7 +747,7 @@ field.atmosphere.co2_map {
     }
 }
 
-field.atmosphere.pressure_map {
+field atmosphere.pressure_map {
     : Scalar<Pa>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -703,7 +758,7 @@ field.atmosphere.pressure_map {
     }
 }
 
-field.atmosphere.ice_fraction_map {
+field atmosphere.ice_fraction_map {
     : Scalar<1>
     : strata(atmosphere)
     : topology(sphere_surface)
@@ -714,7 +769,7 @@ field.atmosphere.ice_fraction_map {
     }
 }
 
-field.atmosphere.albedo_map {
+field atmosphere.albedo_map {
     : Scalar<1>
     : strata(atmosphere)
     : topology(sphere_surface)
@@ -725,7 +780,7 @@ field.atmosphere.albedo_map {
     }
 }
 
-field.atmosphere.solar_constant_map {
+field atmosphere.solar_constant_map {
     : Scalar<W/m²>
     : strata(atmosphere)
     : topology(point_cloud)
@@ -736,7 +791,7 @@ field.atmosphere.solar_constant_map {
     }
 }
 
-field.atmosphere.absorbed_radiation_map {
+field atmosphere.absorbed_radiation_map {
     : Scalar<W/m²>
     : strata(atmosphere)
     : topology(sphere_surface)
@@ -744,5 +799,99 @@ field.atmosphere.absorbed_radiation_map {
 
     measure {
         signal.atmosphere.absorbed_radiation
+    }
+}
+
+field atmosphere.greenhouse_map {
+    : Scalar<1>
+    : strata(atmosphere)
+    : topology(point_cloud)
+    : title("Greenhouse Optical Depth Field")
+
+    measure {
+        signal.atmosphere.tau_greenhouse
+    }
+}
+
+# =============================================================================
+# Atmosphere Chronicles
+# =============================================================================
+
+# Snowball Earth event: global glaciation
+chronicle atmosphere.events.snowball_earth {
+    observe {
+        when signal.atmosphere.ice_fraction > 0.9 {
+            emit event.snowball_earth {
+                ice_fraction: signal.atmosphere.ice_fraction
+                surface_temp: signal.atmosphere.surface_temp.x
+                co2_ppmv: signal.atmosphere.co2_ppmv
+                albedo: signal.atmosphere.albedo
+                severity: "critical"
+                description: "Global glaciation - snowball Earth conditions"
+            }
+        }
+    }
+}
+
+# Runaway greenhouse event: Venus-like conditions
+chronicle atmosphere.events.runaway_greenhouse {
+    observe {
+        when signal.atmosphere.surface_temp.x > 350.0 <K> {
+            emit event.runaway_greenhouse {
+                surface_temp: signal.atmosphere.surface_temp.x
+                water_vapor: signal.atmosphere.water_vapor
+                co2_ppmv: signal.atmosphere.co2_ppmv
+                greenhouse_depth: signal.atmosphere.tau_greenhouse
+                severity: "critical"
+                description: "Runaway greenhouse - Venus-like atmospheric conditions"
+            }
+        }
+    }
+}
+
+# Oxygenation event: significant O2 buildup (when O2 tracking is enabled)
+# Currently placeholder since O2 signal not implemented yet
+# chronicle atmosphere.events.oxygenation {
+#     observe {
+#         when signal.atmosphere.o2_ppmv > 1000.0 {
+#             emit event.oxygenation {
+#                 o2_ppmv: signal.atmosphere.o2_ppmv
+#                 co2_ppmv: signal.atmosphere.co2_ppmv
+#                 surface_temp: signal.atmosphere.surface_temp.x
+#                 severity: "major"
+#                 description: "Great oxygenation event - atmospheric O2 buildup"
+#             }
+#         }
+#     }
+# }
+
+# Ice age onset: significant cooling and glaciation
+chronicle atmosphere.events.ice_age_onset {
+    observe {
+        when signal.atmosphere.surface_temp.x < 270.0 <K> &&
+             signal.atmosphere.ice_fraction > 0.3 {
+            emit event.ice_age_onset {
+                surface_temp: signal.atmosphere.surface_temp.x
+                ice_fraction: signal.atmosphere.ice_fraction
+                co2_ppmv: signal.atmosphere.co2_ppmv
+                severity: "major"
+                description: "Ice age onset - significant glaciation"
+            }
+        }
+    }
+}
+
+# Atmospheric collapse: extreme pressure loss
+chronicle atmosphere.events.atmospheric_collapse {
+    observe {
+        when signal.atmosphere.pressure < 10000.0 {
+            emit event.atmospheric_collapse {
+                pressure: signal.atmosphere.pressure
+                surface_temp: signal.atmosphere.surface_temp.x
+                water_vapor: signal.atmosphere.water_vapor
+                severity: "critical"
+                description: "Atmospheric collapse - extreme pressure loss"
+            }
+        }
     }
 }

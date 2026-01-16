@@ -11,13 +11,13 @@ use super::super::{ParseError, ParserInput};
 use super::common::assert_block;
 use super::config::config_entry;
 use super::types::type_expr;
+use chumsky::prelude::select;
 
 // === Member Signal ===
 
 pub fn member_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, MemberDef, extra::Err<ParseError<'src>>> {
     tok(Token::Member)
-        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             member_content()
@@ -33,6 +33,8 @@ pub fn member_def<'src>()
                 strata: None,
                 title: None,
                 symbol: None,
+                dt_raw: false,
+                uses: vec![],
                 local_config: vec![],
                 initial: None,
                 resolve: None,
@@ -44,6 +46,8 @@ pub fn member_def<'src>()
                     MemberContent::Strata(s) => def.strata = Some(s),
                     MemberContent::Title(t) => def.title = Some(t),
                     MemberContent::Symbol(s) => def.symbol = Some(s),
+                    MemberContent::DtRaw => def.dt_raw = true,
+                    MemberContent::Uses(u) => def.uses.push(u),
                     MemberContent::Config(c) => def.local_config = c,
                     MemberContent::Initial(i) => def.initial = Some(i),
                     MemberContent::Resolve(r) => def.resolve = Some(r),
@@ -60,6 +64,8 @@ enum MemberContent {
     Strata(Spanned<crate::ast::Path>),
     Title(Spanned<String>),
     Symbol(Spanned<String>),
+    DtRaw,
+    Uses(String),
     Config(Vec<ConfigEntry>),
     Initial(ResolveBlock),
     Resolve(ResolveBlock),
@@ -75,6 +81,26 @@ fn member_content<'src>()
         attr_string(Token::Title).map(MemberContent::Title),
         // : symbol("...")
         attr_string(Token::Symbol).map(MemberContent::Symbol),
+        // : uses(dt.raw) - legacy specific handling for dt_raw
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
+            .ignore_then(
+                tok(Token::LParen)
+                    .ignore_then(tok(Token::Dt))
+                    .then_ignore(tok(Token::Dot))
+                    .then_ignore(select! { Token::Ident(s) if s == "raw" => s })
+                    .then_ignore(tok(Token::RParen)),
+            )
+            .to(MemberContent::DtRaw),
+        // : uses(namespace.key) - generic uses declaration
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
+            .ignore_then(
+                tok(Token::LParen)
+                    .ignore_then(spanned_path())
+                    .then_ignore(tok(Token::RParen)),
+            )
+            .map(|path| MemberContent::Uses(path.node.to_string())),
         // : Type - comes after specific attributes
         tok(Token::Colon)
             .ignore_then(spanned(type_expr()))
@@ -124,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_parse_simple_member() {
-        let src = r#"member.human.person.age {
+        let src = r#"member human.person.age {
             : Scalar
             : strata(human.physiology)
             resolve { prev + 1 }
@@ -147,7 +173,7 @@ mod tests {
 
     #[test]
     fn test_parse_member_with_config() {
-        let src = r#"member.stellar.moon.mass {
+        let src = r#"member stellar.moon.mass {
             : Scalar<kg>
             : strata(stellar.orbital)
             : title("Moon Mass")
@@ -175,7 +201,7 @@ mod tests {
 
     #[test]
     fn test_parse_member_with_initial() {
-        let src = r#"member.stellar.star.rotation_period {
+        let src = r#"member stellar.star.rotation_period {
             : Scalar<day, 0.1..100>
             : strata(stellar.activity)
             initial { config.stellar.default_rotation_period_days }

@@ -1,5 +1,4 @@
 use continuum_compiler::ir::{build_runtime, compile, CompiledWorld, RuntimeBuildOptions};
-use continuum_runtime::types::WarmupConfig;
 use continuum_runtime::Runtime;
 use dap::events::{Event, StoppedEventBody};
 use dap::prelude::*;

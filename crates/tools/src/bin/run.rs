@@ -1,7 +1,7 @@
 //!
 //! Loads, compiles, and executes a Continuum world.
 //!
-//! Usage: `run <world-dir> [--steps N] [--dt SECONDS]`
+//! Usage: `run <world-dir> [--steps N] [--dt SECONDS] [--scenario NAME]`
 
 use std::fs;
 use std::path::PathBuf;
@@ -10,7 +10,9 @@ use std::process;
 use clap::Parser;
 use tracing::{error, info, warn};
 
-use continuum_compiler::ir::{BinaryBundle, RuntimeBuildOptions, build_runtime, compile};
+use continuum_compiler::ir::{
+    BinaryBundle, RuntimeBuildOptions, Scenario, build_runtime, compile, find_scenarios,
+};
 use continuum_runtime::executor::{RunOptions, SnapshotOptions, run_simulation};
 
 #[derive(Parser, Debug)]
@@ -28,6 +30,16 @@ struct Args {
     #[arg(long)]
     dt: Option<f64>,
 
+    /// Scenario name or path to scenario YAML file.
+    /// If a name is provided, looks for `scenarios/<name>.yaml` in the world directory.
+    /// If a path is provided, loads the scenario from that file.
+    #[arg(long)]
+    scenario: Option<String>,
+
+    /// List available scenarios and exit
+    #[arg(long)]
+    list_scenarios: bool,
+
     /// Directory for snapshot outputs
     #[arg(long = "save", alias = "snapshot-dir")]
     save_dir: Option<PathBuf>,
@@ -41,6 +53,55 @@ fn main() {
     continuum_tools::init_logging();
 
     let args = Args::parse();
+
+    // Handle --list-scenarios
+    if args.list_scenarios {
+        let scenarios = find_scenarios(&args.path);
+        if scenarios.is_empty() {
+            info!("No scenarios found in {}/scenarios/", args.path.display());
+        } else {
+            info!("Available scenarios:");
+            for path in scenarios {
+                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                    info!("  {}", name);
+                }
+            }
+        }
+        return;
+    }
+
+    // Load scenario if specified
+    let scenario = if let Some(ref scenario_arg) = args.scenario {
+        let scenario_path = if scenario_arg.ends_with(".yaml") || scenario_arg.ends_with(".yml") {
+            PathBuf::from(scenario_arg)
+        } else {
+            // Look for scenario in world's scenarios directory
+            args.path
+                .join("scenarios")
+                .join(format!("{}.yaml", scenario_arg))
+        };
+
+        match Scenario::load(&scenario_path) {
+            Ok(s) => {
+                info!(
+                    "Loaded scenario: {} ({})",
+                    s.metadata.name,
+                    scenario_path.display()
+                );
+                Some(s)
+            }
+            Err(e) => {
+                error!(
+                    "Failed to load scenario '{}': {}",
+                    scenario_path.display(),
+                    e
+                );
+                process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
 
     let (world, compilation) =
         if args.path.is_file() && args.path.extension().map_or(false, |ext| ext == "cvm") {
@@ -71,13 +132,11 @@ fn main() {
 
             let compile_result = continuum_compiler::compile_from_dir_result(&args.path);
 
-            if compile_result.has_errors() {
-                error!("{}", compile_result.format_diagnostics().trim_end());
-                process::exit(1);
-            }
+            // Log diagnostics using proper logging
+            compile_result.log_diagnostics();
 
-            if !compile_result.diagnostics.is_empty() {
-                warn!("{}", compile_result.format_diagnostics().trim_end());
+            if compile_result.has_errors() {
+                process::exit(1);
             }
 
             let world = compile_result.world.expect("no world despite no errors");
@@ -105,12 +164,20 @@ fn main() {
     info!("  Constants: {}", world.constants.len());
     info!("  Config: {}", world.config.len());
 
+    // Validate scenario against world if present
+    if let Some(ref s) = scenario {
+        if let Err(e) = s.validate_against_world(&world) {
+            warn!("Scenario validation warning: {}", e);
+        }
+    }
+
     info!("Building runtime...");
     let (mut runtime, report) = match build_runtime(
         &world,
         compilation,
         RuntimeBuildOptions {
             dt_override: args.dt,
+            scenario,
         },
     ) {
         Ok(result) => result,

@@ -49,6 +49,7 @@ impl<'de> Deserialize<'de> for PrimitiveTypeId {
 pub enum PrimitiveShape {
     Scalar,
     Vector { dim: u8 },
+    Matrix { rows: u8, cols: u8 },
     Tensor,
     Grid,
     Seq,
@@ -61,6 +62,9 @@ pub enum PrimitiveStorageClass {
     Vec2,
     Vec3,
     Vec4,
+    Mat2,
+    Mat3,
+    Mat4,
     Tensor,
     Grid,
     Seq,
@@ -113,6 +117,20 @@ const COMPONENTS_VEC2: [&str; 2] = ["x", "y"];
 const COMPONENTS_VEC3: [&str; 3] = ["x", "y", "z"];
 const COMPONENTS_VEC4: [&str; 4] = ["x", "y", "z", "w"];
 const COMPONENTS_QUAT: [&str; 4] = ["w", "x", "y", "z"];
+
+// Matrix components (column-major order for GPU compatibility)
+const COMPONENTS_MAT2: [&str; 4] = ["m00", "m10", "m01", "m11"];
+const COMPONENTS_MAT3: [&str; 9] = [
+    "m00", "m10", "m20", // column 0
+    "m01", "m11", "m21", // column 1
+    "m02", "m12", "m22", // column 2
+];
+const COMPONENTS_MAT4: [&str; 16] = [
+    "m00", "m10", "m20", "m30", // column 0
+    "m01", "m11", "m21", "m31", // column 1
+    "m02", "m12", "m22", "m32", // column 2
+    "m03", "m13", "m23", "m33", // column 3
+];
 
 const PARAM_UNIT: PrimitiveParamSpec = PrimitiveParamSpec {
     name: "unit",
@@ -220,6 +238,30 @@ pub static PRIMITIVE_TYPES: &[PrimitiveTypeDef] = &[
         components: Some(&COMPONENTS_QUAT),
     },
     PrimitiveTypeDef {
+        id: PrimitiveTypeId::new("Mat2"),
+        name: "Mat2",
+        shape: PrimitiveShape::Matrix { rows: 2, cols: 2 },
+        storage: PrimitiveStorageClass::Mat2,
+        params: &[PARAM_UNIT],
+        components: Some(&COMPONENTS_MAT2),
+    },
+    PrimitiveTypeDef {
+        id: PrimitiveTypeId::new("Mat3"),
+        name: "Mat3",
+        shape: PrimitiveShape::Matrix { rows: 3, cols: 3 },
+        storage: PrimitiveStorageClass::Mat3,
+        params: &[PARAM_UNIT],
+        components: Some(&COMPONENTS_MAT3),
+    },
+    PrimitiveTypeDef {
+        id: PrimitiveTypeId::new("Mat4"),
+        name: "Mat4",
+        shape: PrimitiveShape::Matrix { rows: 4, cols: 4 },
+        storage: PrimitiveStorageClass::Mat4,
+        params: &[PARAM_UNIT],
+        components: Some(&COMPONENTS_MAT4),
+    },
+    PrimitiveTypeDef {
         id: PrimitiveTypeId::new("Tensor"),
         name: "Tensor",
         shape: PrimitiveShape::Tensor,
@@ -260,5 +302,30 @@ mod tests {
         assert_eq!(def.shape, PrimitiveShape::Vector { dim: 4 });
         assert_eq!(def.storage, PrimitiveStorageClass::Vec4);
         assert_eq!(def.components, Some(&["w", "x", "y", "z"][..]));
+    }
+
+    #[test]
+    fn lookup_mat3_definition() {
+        let def = primitive_type_by_name("Mat3").expect("Mat3 definition missing");
+        assert_eq!(def.shape, PrimitiveShape::Matrix { rows: 3, cols: 3 });
+        assert_eq!(def.storage, PrimitiveStorageClass::Mat3);
+        assert_eq!(def.components.unwrap().len(), 9);
+        // Verify column-major order: first 3 elements are column 0
+        assert_eq!(def.components.unwrap()[0], "m00");
+        assert_eq!(def.components.unwrap()[1], "m10");
+        assert_eq!(def.components.unwrap()[2], "m20");
+    }
+
+    #[test]
+    fn lookup_mat2_mat4_definitions() {
+        let mat2 = primitive_type_by_name("Mat2").expect("Mat2 definition missing");
+        assert_eq!(mat2.shape, PrimitiveShape::Matrix { rows: 2, cols: 2 });
+        assert_eq!(mat2.storage, PrimitiveStorageClass::Mat2);
+        assert_eq!(mat2.components.unwrap().len(), 4);
+
+        let mat4 = primitive_type_by_name("Mat4").expect("Mat4 definition missing");
+        assert_eq!(mat4.shape, PrimitiveShape::Matrix { rows: 4, cols: 4 });
+        assert_eq!(mat4.storage, PrimitiveStorageClass::Mat4);
+        assert_eq!(mat4.components.unwrap().len(), 16);
     }
 }

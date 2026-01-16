@@ -153,8 +153,8 @@ impl ComplexityScore {
                 | Op::Aggregate(_, _, _)
                 | Op::Filter(_, _, _)
                 | Op::FindFirstField(_, _, _)
-                | Op::LoadNearestField(_, _)
-                | Op::WithinAggregate(_, _, _)
+                | Op::LoadNearestField(_, _, _)
+                | Op::WithinAggregate(_, _, _, _)
                 | Op::Pairs(_, _)
                 | Op::LoadPayload
                 | Op::LoadPayloadField(_)

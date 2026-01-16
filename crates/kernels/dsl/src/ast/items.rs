@@ -328,6 +328,9 @@ pub struct SignalDef {
     pub symbol: Option<Spanned<String>>,
     /// Whether `dt_raw` is explicitly declared via `: uses(dt_raw)`.
     pub dt_raw: bool,
+    /// Uses declarations (e.g., ["dt.raw", "maths.clamping"]).
+    /// Generic uses() declarations beyond the legacy dt_raw flag.
+    pub uses: Vec<String>,
     /// Signal-local constants.
     pub local_consts: Vec<ConstEntry>,
     /// Signal-local config with defaults.
@@ -491,6 +494,8 @@ pub struct OperatorDef {
     pub body: Option<OperatorBody>,
     /// Operator assertions.
     pub assertions: Option<AssertBlock>,
+    /// Dangerous function uses declarations (e.g., "dt.raw", "maths.clamping").
+    pub uses: Vec<String>,
 }
 
 /// Execution phase for operators.
@@ -549,6 +554,8 @@ pub struct ImpulseDef {
     pub local_config: Vec<ConfigEntry>,
     /// Application logic when impulse fires.
     pub apply: Option<ApplyBlock>,
+    /// Dangerous function uses declarations (e.g., "dt.raw", "maths.clamping").
+    pub uses: Vec<String>,
 }
 
 /// Apply block containing impulse application logic.
@@ -591,6 +598,8 @@ pub struct FractureDef {
     pub conditions: Vec<Spanned<Expr>>,
     /// Emit expression when triggered. Contains signal emit expressions.
     pub emit: Option<Spanned<Expr>>,
+    /// Dangerous function uses declarations (e.g., "dt.raw", "maths.clamping").
+    pub uses: Vec<String>,
 }
 
 // === Chronicle ===
@@ -694,6 +703,11 @@ pub struct MemberDef {
     pub title: Option<Spanned<String>>,
     /// Unicode symbol for display.
     pub symbol: Option<Spanned<String>>,
+    /// Whether member uses raw dt (`: uses(dt.raw)`).
+    pub dt_raw: bool,
+    /// Uses declarations (e.g., ["dt.raw", "maths.clamping"]).
+    /// Generic uses() declarations beyond the legacy dt_raw flag.
+    pub uses: Vec<String>,
     /// Member-local config with defaults.
     pub local_config: Vec<ConfigEntry>,
     /// Initial value expression (evaluated once at entity creation).

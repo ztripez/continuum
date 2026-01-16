@@ -50,8 +50,6 @@ fn spanned_expr_inner<'src>(
 
         let core_atoms = choice((
             tok(Token::Prev).to(Expr::Prev),
-            tok(Token::DtRaw).to(Expr::DtRaw),
-            tok(Token::SimTime).to(Expr::SimTime),
             tok(Token::Payload).to(Expr::Payload),
             tok(Token::Collected).to(Expr::Collected),
             tok(Token::Signal)

@@ -38,7 +38,7 @@ use continuum_runtime::dag::{
 use continuum_runtime::reductions::ReductionOp;
 use continuum_runtime::types::Phase;
 
-use crate::{AggregateOpIr, CompiledExpr, CompiledWorld, OperatorPhaseIr};
+use crate::{AggregateOp, CompiledExpr, CompiledWorld, OperatorPhaseIr};
 
 use serde::{Deserialize, Serialize};
 
@@ -192,7 +192,7 @@ struct AggregateInfo {
     /// The entity being aggregated over.
     entity_id: FoundationEntityId,
     /// The reduction operation.
-    op: AggregateOpIr,
+    op: AggregateOp,
     /// The body expression to evaluate per instance.
     body: CompiledExpr,
 }
@@ -284,16 +284,16 @@ impl<'a> Compiler<'a> {
     /// the runtime's ReductionOp. They would need special handling (e.g., mapping
     /// Any -> Max after converting to 0/1, All -> Min, None -> complement of Any).
     /// For now, these panic as they require runtime support.
-    fn aggregate_op_to_reduction_op(op: &AggregateOpIr) -> ReductionOp {
+    fn aggregate_op_to_reduction_op(op: &AggregateOp) -> ReductionOp {
         match op {
-            AggregateOpIr::Sum => ReductionOp::Sum,
-            AggregateOpIr::Product => ReductionOp::Product,
-            AggregateOpIr::Min => ReductionOp::Min,
-            AggregateOpIr::Max => ReductionOp::Max,
-            AggregateOpIr::Mean => ReductionOp::Mean,
-            AggregateOpIr::Count => ReductionOp::Count,
+            AggregateOp::Sum => ReductionOp::Sum,
+            AggregateOp::Product => ReductionOp::Product,
+            AggregateOp::Min => ReductionOp::Min,
+            AggregateOp::Max => ReductionOp::Max,
+            AggregateOp::Mean => ReductionOp::Mean,
+            AggregateOp::Count => ReductionOp::Count,
             // Boolean aggregates need special runtime support
-            AggregateOpIr::Any | AggregateOpIr::All | AggregateOpIr::None => {
+            AggregateOp::Any | AggregateOp::All | AggregateOp::None => {
                 panic!(
                     "Boolean aggregate {:?} not yet supported in DAG compilation",
                     op
@@ -643,7 +643,7 @@ impl<'a> Compiler<'a> {
                 // For count with literal body, find any member signal of the entity
                 // For other aggregates, expect a self.X reference
                 let member_name = match (&agg_info.op, &agg_info.body) {
-                    (AggregateOpIr::Count, CompiledExpr::Literal(..)) => {
+                    (AggregateOp::Count, CompiledExpr::Literal(..)) => {
                         // Count with literal body - find any member of this entity
                         self.find_any_member_of_entity(&agg_info.entity_id)
                             .unwrap_or_else(|| {
@@ -932,15 +932,15 @@ mod tests {
     #[test]
     fn test_compile_simple_signal() {
         let src = r#"
-            strata.terra {
+            strata terra {
                 : title("Terra")
             }
 
-            era.hadean {
+            era hadean {
                 : initial
             }
 
-            signal.terra.temp {
+            signal terra.temp {
                 : strata(terra)
                 resolve { prev + 1.0 }
             }
@@ -960,23 +960,23 @@ mod tests {
     #[test]
     fn test_compile_signal_dependencies() {
         let src = r#"
-            strata.terra {}
+            strata terra {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            signal.terra.a {
+            signal terra.a {
                 : strata(terra)
                 resolve { 1.0 }
             }
 
-            signal.terra.b {
+            signal terra.b {
                 : strata(terra)
                 resolve { signal.terra.a * 2.0 }
             }
 
-            signal.terra.c {
+            signal terra.c {
                 : strata(terra)
                 resolve { signal.terra.b + signal.terra.a }
             }
@@ -992,19 +992,114 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_member_signal() {
+    fn test_compile_signal_dependencies_with_field_access() {
+        // This tests that `signal.terra.position.x` correctly creates a dependency
+        // on `terra.position` (not `terra.position.x` which doesn't exist).
+        // The parser greedily consumes the full path, so we need to resolve it
+        // to the actual signal name during dependency collection.
         let src = r#"
-            strata.human {}
+            strata terra {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.human.person {
+            signal terra.position {
+                : Vec3<m>
+                : strata(terra)
+                resolve { vector.vec3(1.0, 2.0, 3.0) }
+            }
+
+            signal terra.x_coord {
+                : Scalar<m>
+                : strata(terra)
+                resolve { signal.terra.position.x }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let _result = compile(&world).unwrap();
+
+        // Check that x_coord depends on position
+        let signals = world.signals();
+        let sig_x = signals.get(&SignalId::from("terra.x_coord")).unwrap();
+
+        // Should have exactly one dependency: terra.position
+        assert_eq!(
+            sig_x.reads.len(),
+            1,
+            "Expected 1 dependency, got: {:?}",
+            sig_x.reads
+        );
+        assert_eq!(
+            sig_x.reads[0].to_string(),
+            "terra.position",
+            "Expected dependency on 'terra.position', got: {:?}",
+            sig_x.reads
+        );
+    }
+
+    #[test]
+    fn test_compile_field_depends_on_signal_with_field_access() {
+        // This tests that a field reading `signal.terra.temp.x` correctly tracks
+        // the dependency on `terra.temp`, allowing dead code analysis to work.
+        let src = r#"
+            strata terra {}
+
+            era main {
+                : initial
+            }
+
+            signal terra.temp {
+                : Vec3<K>
+                : strata(terra)
+                resolve { vector.vec3(288.0, 300.0, 270.0) }
+            }
+
+            field terra.mean_temp {
+                : Scalar<K>
+                : strata(terra)
+                measure { signal.terra.temp.x }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let _result = compile(&world).unwrap();
+
+        // Check that the field depends on terra.temp
+        let fields = world.fields();
+        let field = fields
+            .get(&continuum_foundation::FieldId::from("terra.mean_temp"))
+            .unwrap();
+
+        assert_eq!(
+            field.reads.len(),
+            1,
+            "Expected 1 dependency, got: {:?}",
+            field.reads
+        );
+        assert_eq!(
+            field.reads[0].to_string(),
+            "terra.temp",
+            "Expected dependency on 'terra.temp', got: {:?}",
+            field.reads
+        );
+    }
+
+    #[test]
+    fn test_compile_member_signal() {
+        let src = r#"
+            strata human {}
+
+            era main {
+                : initial
+            }
+
+            entity human.person {
                 : count(1..100)
             }
 
-            member.human.person.age {
+            member human.person.age {
                 : Scalar
                 : strata(human)
                 resolve { prev + 1.0 }
@@ -1026,23 +1121,23 @@ mod tests {
     #[test]
     fn test_compile_multiple_member_signals_same_entity() {
         let src = r#"
-            strata.stellar {}
+            strata stellar {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.stellar.moon {
+            entity stellar.moon {
                 : count(1..10)
             }
 
-            member.stellar.moon.mass {
+            member stellar.moon.mass {
                 : Scalar<kg>
                 : strata(stellar)
                 resolve { prev }
             }
 
-            member.stellar.moon.radius {
+            member stellar.moon.radius {
                 : Scalar<m>
                 : strata(stellar)
                 resolve { prev * 1.01 }
@@ -1065,23 +1160,23 @@ mod tests {
     #[test]
     fn test_compile_aggregate_sum() {
         let src = r#"
-            strata.stellar {}
+            strata stellar {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.stellar.moon {
+            entity stellar.moon {
                 : count(1..10)
             }
 
-            member.stellar.moon.mass {
+            member stellar.moon.mass {
                 : Scalar<kg>
                 : strata(stellar)
                 resolve { prev }
             }
 
-            signal.stellar.total_mass {
+            signal stellar.total_mass {
                 : strata(stellar)
                 resolve { agg.sum(entity.stellar.moon, self.mass) }
             }
@@ -1112,23 +1207,23 @@ mod tests {
         // It doesn't take a body/predicate - the body is implicitly "1"
         // For count aggregates, we need at least one member signal to iterate over
         let src = r#"
-            strata.human {}
+            strata human {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.human.person {
+            entity human.person {
                 : count(1..100)
             }
 
-            member.human.person.age {
+            member human.person.age {
                 : Scalar<s>
                 : strata(human)
                 resolve { prev }
             }
 
-            signal.human.person_count {
+            signal human.person_count {
                 : strata(human)
                 resolve { agg.count(entity.human.person) }
             }
@@ -1149,34 +1244,34 @@ mod tests {
     #[test]
     fn test_compile_multiple_aggregates_in_stratum() {
         let src = r#"
-            strata.stellar {}
+            strata stellar {}
 
-            era.main {
+            era main {
                 : initial
             }
 
-            entity.stellar.planet {
+            entity stellar.planet {
                 : count(1..20)
             }
 
-            member.stellar.planet.mass {
+            member stellar.planet.mass {
                 : Scalar<kg>
                 : strata(stellar)
                 resolve { prev }
             }
 
-            member.stellar.planet.radius {
+            member stellar.planet.radius {
                 : Scalar<m>
                 : strata(stellar)
                 resolve { prev }
             }
 
-            signal.stellar.total_mass {
+            signal stellar.total_mass {
                 : strata(stellar)
                 resolve { agg.sum(entity.stellar.planet, self.mass) }
             }
 
-            signal.stellar.max_radius {
+            signal stellar.max_radius {
                 : strata(stellar)
                 resolve { agg.max(entity.stellar.planet, self.radius) }
             }
@@ -1205,18 +1300,18 @@ mod tests {
     #[test]
     fn test_compile_member_referencing_self_field() {
         let src = r#"
-            strata.bio {}
-            era.main { : initial }
+            strata bio {}
+            era main { : initial }
 
-            entity.bio.cell { : count(1..10) }
+            entity bio.cell { : count(1..10) }
 
-            member.bio.cell.energy {
+            member bio.cell.energy {
                 : Scalar
                 : strata(bio)
                 resolve { prev }
             }
 
-            member.bio.cell.health {
+            member bio.cell.health {
                 : Scalar
                 : strata(bio)
                 resolve { self.energy * 0.5 }

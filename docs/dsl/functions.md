@@ -22,19 +22,19 @@ Pure, inlined expression reuse.
 ### Declaration
 
 ```
-fn.physics.stefan_boltzmann_loss(temp: Scalar<K>) -> Scalar<W/m²> {
+fn physics.stefan_boltzmann_loss(temp: Scalar<K>) -> Scalar<W/m²> {
   const.physics.stefan_boltzmann * (temp ^ 4)
 }
 
-fn.physics.gravitational_acceleration(mass: Scalar<kg>, radius: Scalar<m>) -> Scalar<m/s²> {
+fn physics.gravitational_acceleration(mass: Scalar<kg>, radius: Scalar<m>) -> Scalar<m/s²> {
   const.physics.gravitational * mass / (radius ^ 2)
 }
 
-fn.orbital.mean_motion(central_mass: Scalar<kg>, semi_major: Scalar<m>) -> Scalar<rad/s> {
+fn orbital.mean_motion(central_mass: Scalar<kg>, semi_major: Scalar<m>) -> Scalar<rad/s> {
   sqrt(const.physics.gravitational * central_mass / (semi_major ^ 3))
 }
 
-fn.orbital.orbital_velocity(central_mass: Scalar<kg>, radius: Scalar<m>) -> Scalar<m/s> {
+fn orbital.orbital_velocity(central_mass: Scalar<kg>, radius: Scalar<m>) -> Scalar<m/s> {
   sqrt(const.physics.gravitational * central_mass / radius)
 }
 ```
@@ -42,7 +42,7 @@ fn.orbital.orbital_velocity(central_mass: Scalar<kg>, radius: Scalar<m>) -> Scal
 ### Usage
 
 ```
-signal.terra.surface.radiation {
+signal terra.surface.radiation {
   : Scalar<W/m²>
   : strata(terra.thermal)
 
@@ -51,7 +51,7 @@ signal.terra.surface.radiation {
   }
 }
 
-signal.terra.surface.gravity {
+signal terra.surface.gravity {
   : Scalar<m/s²>
   : strata(terra.genesis)
 
@@ -158,7 +158,7 @@ pattern.accumulator(
 Expands to:
 
 ```
-signal.terra.atmosphere.co2 {
+signal terra.atmosphere.co2 {
   : Scalar<ppm, 0..1000000>
   : strata(terra.atmosphere)
 
@@ -182,7 +182,7 @@ pattern.integrator(
 Expands to:
 
 ```
-signal.terra.orbit.position {
+signal terra.orbit.position {
   : Vec3<m>
   : strata(terra.orbital)
 
@@ -233,7 +233,7 @@ Functions, templates, and patterns compose:
 
 ```
 // Function for physics
-fn.thermal.equilibrium(flux: Scalar<W/m²>, albedo: Scalar<1>) -> Scalar<K> {
+fn thermal.equilibrium(flux: Scalar<W/m²>, albedo: Scalar<1>) -> Scalar<K> {
   pow(flux * (1 - albedo) / const.physics.stefan_boltzmann, 0.25)
 }
 
@@ -301,11 +301,11 @@ template.orbital_body("luna", false)  // no atmosphere signal generated
 Functions can be generic over types:
 
 ```
-fn.math.lerp<T>(a: T, b: T, t: Scalar<1>) -> T {
+fn math.lerp<T>(a: T, b: T, t: Scalar<1>) -> T {
   a + (b - a) * t
 }
 
-fn.math.clamp<T: Ordered>(value: T, min: T, max: T) -> T {
+fn math.clamp<T: Ordered>(value: T, min: T, max: T) -> T {
   if value < min { min }
   else if value > max { max }
   else { value }
@@ -326,43 +326,43 @@ The DSL includes a standard library of common functions:
 ### Math
 
 ```
-fn.math.lerp(a, b, t)
-fn.math.clamp(value, min, max)
-fn.math.smoothstep(edge0, edge1, x)
-fn.math.remap(value, in_min, in_max, out_min, out_max)
+fn math.lerp(a, b, t)
+fn math.clamp(value, min, max)
+fn math.smoothstep(edge0, edge1, x)
+fn math.remap(value, in_min, in_max, out_min, out_max)
 ```
 
 ### Vector
 
 ```
-fn.vec.dot(a, b)
-fn.vec.cross(a, b)
-fn.vec.magnitude(v)
-fn.vec.normalize(v)
-fn.vec.distance(a, b)
-fn.vec.angle_between(a, b)
+fn vec.dot(a, b)
+fn vec.cross(a, b)
+fn vec.magnitude(v)
+fn vec.normalize(v)
+fn vec.distance(a, b)
+fn vec.angle_between(a, b)
 ```
 
 ### Physics
 
 ```
-fn.physics.gravitational_force(m1, m2, r)
-fn.physics.gravitational_acceleration(m, r)
-fn.physics.orbital_velocity(m, r)
-fn.physics.escape_velocity(m, r)
-fn.physics.schwarzschild_radius(m)
-fn.physics.stefan_boltzmann_flux(t)
-fn.physics.planck_peak_wavelength(t)
+fn physics.gravitational_force(m1, m2, r)
+fn physics.gravitational_acceleration(m, r)
+fn physics.orbital_velocity(m, r)
+fn physics.escape_velocity(m, r)
+fn physics.schwarzschild_radius(m)
+fn physics.stefan_boltzmann_flux(t)
+fn physics.planck_peak_wavelength(t)
 ```
 
 ### Orbital
 
 ```
-fn.orbital.mean_motion(m, a)
-fn.orbital.period(m, a)
-fn.orbital.vis_viva(m, r, a)
-fn.orbital.eccentric_anomaly(mean_anomaly, eccentricity)
-fn.orbital.true_anomaly(eccentric_anomaly, eccentricity)
+fn orbital.mean_motion(m, a)
+fn orbital.period(m, a)
+fn orbital.vis_viva(m, r, a)
+fn orbital.eccentric_anomaly(mean_anomaly, eccentricity)
+fn orbital.true_anomaly(eccentric_anomaly, eccentricity)
 ```
 
 ---

@@ -10,9 +10,7 @@ use crate::ast::{
 
 use super::super::expr::spanned_expr;
 use super::super::lexer::Token;
-use super::super::primitives::{
-    attr_flag, attr_path, attr_string, float, spanned, spanned_path, tok,
-};
+use super::super::primitives::{attr_path, attr_string, float, spanned, spanned_path, tok};
 use super::super::{ParseError, ParserInput};
 use super::common::{assert_block, topology};
 use super::config::{config_entry, const_entry};
@@ -23,7 +21,6 @@ use super::types::type_expr;
 pub fn signal_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, SignalDef, extra::Err<ParseError<'src>>> {
     tok(Token::Signal)
-        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             signal_content()
@@ -40,6 +37,7 @@ pub fn signal_def<'src>()
                 title: None,
                 symbol: None,
                 dt_raw: false,
+                uses: vec![],
                 local_consts: vec![],
                 local_config: vec![],
                 warmup: None,
@@ -55,6 +53,7 @@ pub fn signal_def<'src>()
                     SignalContent::Title(t) => def.title = Some(t),
                     SignalContent::Symbol(s) => def.symbol = Some(s),
                     SignalContent::DtRaw => def.dt_raw = true,
+                    SignalContent::Uses(u) => def.uses.push(u),
                     SignalContent::LocalConst(c) => def.local_consts.extend(c),
                     SignalContent::LocalConfig(c) => def.local_config.extend(c),
                     SignalContent::Resolve(r) => def.resolve = Some(r),
@@ -74,6 +73,7 @@ enum SignalContent {
     Title(Spanned<String>),
     Symbol(Spanned<String>),
     DtRaw,
+    Uses(String),
     LocalConst(Vec<ConstEntry>),
     LocalConfig(Vec<ConfigEntry>),
     Resolve(ResolveBlock),
@@ -90,15 +90,26 @@ fn signal_content<'src>()
         attr_path(Token::Strata).map(SignalContent::Strata),
         attr_string(Token::Title).map(SignalContent::Title),
         attr_string(Token::Symbol).map(SignalContent::Symbol),
-        attr_flag(Token::DtRaw).to(SignalContent::DtRaw),
+        // : uses(dt.raw) - legacy specific handling for dt_raw
         tok(Token::Colon)
             .ignore_then(tok(Token::Uses))
             .ignore_then(
                 tok(Token::LParen)
-                    .ignore_then(tok(Token::DtRaw))
+                    .ignore_then(tok(Token::Dt))
+                    .then_ignore(tok(Token::Dot))
+                    .then_ignore(select! { Token::Ident(s) if s == "raw" => s })
                     .then_ignore(tok(Token::RParen)),
             )
             .to(SignalContent::DtRaw),
+        // : uses(namespace.key) - generic uses declaration
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
+            .ignore_then(
+                tok(Token::LParen)
+                    .ignore_then(spanned_path())
+                    .then_ignore(tok(Token::RParen)),
+            )
+            .map(|path| SignalContent::Uses(path.node.to_string())),
         // Tensor constraints: `: symmetric`, `: positive_definite`
         tok(Token::Colon)
             .ignore_then(tok(Token::Symmetric))
@@ -166,7 +177,6 @@ fn constraint_range<'src>()
 pub fn field_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, FieldDef, extra::Err<ParseError<'src>>> {
     tok(Token::Field)
-        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             field_content()
@@ -233,7 +243,6 @@ fn field_content<'src>()
 pub fn operator_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, OperatorDef, extra::Err<ParseError<'src>>> {
     tok(Token::Operator)
-        .ignore_then(tok(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             operator_content()
@@ -249,11 +258,13 @@ pub fn operator_def<'src>()
                 phase: None,
                 body: None,
                 assertions: None,
+                uses: vec![],
             };
             for content in contents {
                 match content {
                     OperatorContent::Strata(s) => def.strata = Some(s),
                     OperatorContent::Phase(p) => def.phase = Some(p),
+                    OperatorContent::Uses(u) => def.uses.push(u),
                     OperatorContent::Body(b) => def.body = Some(b),
                     OperatorContent::Assert(a) => def.assertions = Some(a),
                 }
@@ -266,6 +277,7 @@ pub fn operator_def<'src>()
 enum OperatorContent {
     Strata(Spanned<Path>),
     Phase(Spanned<OperatorPhase>),
+    Uses(String),
     Body(OperatorBody),
     Assert(crate::ast::AssertBlock),
 }
@@ -274,6 +286,11 @@ fn operator_content<'src>()
 -> impl Parser<'src, ParserInput<'src>, OperatorContent, extra::Err<ParseError<'src>>> {
     choice((
         attr_path(Token::Strata).map(OperatorContent::Strata),
+        // : uses(namespace.key) - generic uses declaration
+        tok(Token::Colon)
+            .ignore_then(tok(Token::Uses))
+            .ignore_then(spanned_path().delimited_by(tok(Token::LParen), tok(Token::RParen)))
+            .map(|path| OperatorContent::Uses(path.node.join("."))),
         tok(Token::Colon)
             .ignore_then(tok(Token::Phase))
             .ignore_then(

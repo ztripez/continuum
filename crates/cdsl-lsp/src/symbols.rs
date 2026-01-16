@@ -196,6 +196,7 @@ impl SymbolIndex {
     }
 
     /// (Backward Compatibility) Build from AST only.
+    #[allow(dead_code)]
     pub fn from_ast(ast: &CompilationUnit) -> Self {
         // Lower to IR for indexing (individual file context)
         let world = continuum_compiler::ir::lower(ast).unwrap_or_else(|_| CompiledWorld {
@@ -755,16 +756,16 @@ mod tests {
     #[test]
     fn test_signal_refs_are_indexed() {
         let src = r#"
-            world.test {}
-            era.main { : initial }
-            strata.test {}
-            signal.core.temp {
+            world test {}
+            era main { : initial }
+            strata test {}
+            signal core.temp {
                 : Scalar<K>
                 : strata(test)
                 resolve { prev }
             }
 
-            signal.thermal.gradient {
+            signal thermal.gradient {
                 : Scalar<K>
                 : strata(test)
                 resolve {
@@ -783,17 +784,17 @@ mod tests {
     #[test]
     fn test_hover_finds_referenced_signal() {
         let src = r#"
-            world.test {}
-            era.main { : initial }
-            strata.test {}
-            signal.core.temp {
+            world test {}
+            era main { : initial }
+            strata test {}
+            signal core.temp {
                 : Scalar<K>
                 : strata(test)
                 : title("Core Temperature")
                 resolve { prev }
             }
 
-            signal.thermal.gradient {
+            signal thermal.gradient {
                 : Scalar<K>
                 : strata(test)
                 resolve {
@@ -820,16 +821,16 @@ mod tests {
     #[test]
     fn test_goto_definition() {
         let src = r#"
-            world.test {}
-            era.main { : initial }
-            strata.test {}
-            signal.core.temp {
+            world test {}
+            era main { : initial }
+            strata test {}
+            signal core.temp {
                 : Scalar<K>
                 : strata(test)
                 resolve { prev }
             }
 
-            signal.thermal.gradient {
+            signal thermal.gradient {
                 : Scalar<K>
                 : strata(test)
                 resolve {
@@ -850,22 +851,22 @@ mod tests {
 
         let def_span = def_span.unwrap();
         let def_text = &src[def_span.clone()];
-        assert!(def_text.starts_with("signal.core.temp"));
+        assert!(def_text.starts_with("signal core.temp"));
     }
 
     #[test]
     fn test_find_references() {
         let src = r#"
-            world.test {}
-            era.main { : initial }
-            strata.test {}
-            signal.core.temp {
+            world test {}
+            era main { : initial }
+            strata test {}
+            signal core.temp {
                 : Scalar<K>
                 : strata(test)
                 resolve { prev }
             }
 
-            signal.thermal.gradient {
+            signal thermal.gradient {
                 : Scalar<K>
                 : strata(test)
                 resolve {
@@ -874,7 +875,7 @@ mod tests {
                 }
             }
 
-            fracture.test {
+            fracture test {
                 : strata(test)
                 when { signal.core.temp < 100.0 }
                 emit { signal.core.temp <- 5.0 }
@@ -885,7 +886,7 @@ mod tests {
 
         let index = SymbolIndex::from_ast(&ast.unwrap());
 
-        let def_pos = src.find("signal.core.temp {").unwrap() + 7;
+        let def_pos = src.find("signal core.temp {").unwrap() + 7;
         let refs = index.find_references(def_pos);
 
         assert_eq!(refs.len(), 3);
@@ -894,16 +895,16 @@ mod tests {
     #[test]
     fn test_document_symbols() {
         let src = r#"
-            world.test {}
-            era.main { : initial }
-            strata.thermal { : stride(1) }
-            signal.core.temp {
+            world test {}
+            era main { : initial }
+            strata thermal { : stride(1) }
+            signal core.temp {
                 : Scalar<K>
                 : strata(thermal)
                 resolve { prev }
             }
 
-            field.thermal.display {
+            field thermal.display {
                 : Scalar<K>
                 : strata(thermal)
                 measure { signal.core.temp }
@@ -925,11 +926,11 @@ mod tests {
     #[test]
     fn test_get_completions() {
         let src = r#"
-            world.test {}
-            era.main { : initial }
-            strata.test {}
+            world test {}
+            era main { : initial }
+            strata test {}
             /// Temperature of the core.
-            signal.core.temp {
+            signal core.temp {
                 : Scalar<K>
                 : strata(test)
                 : title("Core Temperature")
@@ -937,7 +938,7 @@ mod tests {
             }
 
             /// Surface temperature display.
-            field.thermal.display {
+            field thermal.display {
                 : Scalar<K>
                 : strata(test)
                 measure { signal.core.temp }

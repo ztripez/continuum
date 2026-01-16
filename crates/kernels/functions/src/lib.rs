@@ -5,7 +5,11 @@
 
 mod dt;
 mod math;
+mod matrix;
 mod quat;
+mod rng;
+/// Tensor operations - exposed for VM executor arithmetic support
+pub mod tensor_ops;
 mod vector;
 
 // Re-export for convenience
@@ -27,3 +31,12 @@ static VECTOR_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "vect
 
 #[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
 static QUAT_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "quat" };
+
+#[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
+static MATRIX_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "matrix" };
+
+#[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
+static TENSOR_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "tensor" };
+
+#[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
+static RNG_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "rng" };

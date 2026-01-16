@@ -19,7 +19,6 @@ use super::types::type_expr;
 pub fn impulse_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, ImpulseDef, extra::Err<ParseError<'src>>> {
     just(Token::Impulse)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             impulse_content()
@@ -36,12 +35,14 @@ pub fn impulse_def<'src>()
                 symbol: None,
                 local_config: vec![],
                 apply: None,
+                uses: vec![],
             };
             for content in contents {
                 match content {
                     ImpulseContent::Type(t) => def.payload_type = Some(t),
                     ImpulseContent::Title(t) => def.title = Some(t),
                     ImpulseContent::Symbol(s) => def.symbol = Some(s),
+                    ImpulseContent::Uses(u) => def.uses.push(u),
                     ImpulseContent::Config(c) => def.local_config = c,
                     ImpulseContent::Apply(a) => def.apply = Some(a),
                 }
@@ -55,6 +56,7 @@ enum ImpulseContent {
     Type(Spanned<TypeExpr>),
     Title(Spanned<String>),
     Symbol(Spanned<String>),
+    Uses(String),
     Config(Vec<ConfigEntry>),
     Apply(ApplyBlock),
 }
@@ -64,6 +66,11 @@ fn impulse_content<'src>()
     choice((
         attr_string(Token::Title).map(ImpulseContent::Title),
         attr_string(Token::Symbol).map(ImpulseContent::Symbol),
+        // : uses(namespace.key) - generic uses declaration
+        just(Token::Colon)
+            .ignore_then(just(Token::Uses))
+            .ignore_then(spanned_path().delimited_by(just(Token::LParen), just(Token::RParen)))
+            .map(|path| ImpulseContent::Uses(path.node.join("."))),
         // Type expression: `: TypeExpr`
         just(Token::Colon)
             .ignore_then(spanned(type_expr()))
@@ -104,7 +111,6 @@ fn impulse_content<'src>()
 pub fn fracture_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, FractureDef, extra::Err<ParseError<'src>>> {
     just(Token::Fracture)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             fracture_content()
@@ -117,9 +123,11 @@ pub fn fracture_def<'src>()
             let mut local_config = vec![];
             let mut conditions = vec![];
             let mut emit = None;
+            let mut uses = vec![];
             for content in contents {
                 match content {
                     FractureContent::Strata(s) => strata = Some(s),
+                    FractureContent::Uses(u) => uses.push(u),
                     FractureContent::Config(c) => local_config = c,
                     FractureContent::When(w) => conditions = w,
                     FractureContent::Emit(e) => emit = Some(e),
@@ -132,6 +140,7 @@ pub fn fracture_def<'src>()
                 local_config,
                 conditions,
                 emit,
+                uses,
             }
         })
 }
@@ -139,6 +148,7 @@ pub fn fracture_def<'src>()
 #[derive(Clone)]
 enum FractureContent {
     Strata(Spanned<Path>),
+    Uses(String),
     Config(Vec<ConfigEntry>),
     When(Vec<Spanned<Expr>>),
     Emit(Spanned<Expr>),
@@ -148,6 +158,11 @@ fn fracture_content<'src>()
 -> impl Parser<'src, ParserInput<'src>, FractureContent, extra::Err<ParseError<'src>>> {
     choice((
         attr_path(Token::Strata).map(FractureContent::Strata),
+        // : uses(namespace.key) - generic uses declaration
+        just(Token::Colon)
+            .ignore_then(just(Token::Uses))
+            .ignore_then(spanned_path().delimited_by(just(Token::LParen), just(Token::RParen)))
+            .map(|path| FractureContent::Uses(path.node.join("."))),
         // config { ... } - local config block
         just(Token::Config)
             .ignore_then(
@@ -194,7 +209,6 @@ fn fracture_content<'src>()
 pub fn chronicle_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, ChronicleDef, extra::Err<ParseError<'src>>> {
     just(Token::Chronicle)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             observe_block()

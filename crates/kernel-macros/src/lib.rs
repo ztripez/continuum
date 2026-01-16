@@ -41,6 +41,10 @@ struct KernelFnArgs {
     category: String,
     variadic: bool,
     vectorized: bool,
+    unit_inference: Option<String>,
+    pattern_hints: Vec<String>,
+    requires_uses: Option<String>,
+    requires_uses_hint: Option<String>,
 }
 
 /// Arguments to the vectorized_kernel_fn attribute
@@ -56,6 +60,10 @@ impl Parse for KernelFnArgs {
         let mut category = String::from("math");
         let mut variadic = false;
         let mut vectorized = false;
+        let mut unit_inference = None;
+        let mut pattern_hints = Vec::new();
+        let mut requires_uses = None;
+        let mut requires_uses_hint = None;
 
         let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
         for arg in args {
@@ -65,6 +73,10 @@ impl Parse for KernelFnArgs {
                 KernelArg::Category(c) => category = c,
                 KernelArg::Variadic => variadic = true,
                 KernelArg::Vectorized => vectorized = true,
+                KernelArg::UnitInference(u) => unit_inference = Some(u),
+                KernelArg::PatternHint(h) => pattern_hints.push(h),
+                KernelArg::RequiresUses(r) => requires_uses = Some(r),
+                KernelArg::RequiresUsesHint(h) => requires_uses_hint = Some(h),
             }
         }
 
@@ -76,6 +88,10 @@ impl Parse for KernelFnArgs {
             category,
             variadic,
             vectorized,
+            unit_inference,
+            pattern_hints,
+            requires_uses,
+            requires_uses_hint,
         })
     }
 }
@@ -90,7 +106,13 @@ impl Parse for VectorizedKernelArgs {
             match arg {
                 KernelArg::Name(n) => name = Some(n),
                 KernelArg::Namespace(n) => namespace = Some(n),
-                KernelArg::Category(_) | KernelArg::Variadic | KernelArg::Vectorized => {}
+                KernelArg::Category(_)
+                | KernelArg::Variadic
+                | KernelArg::Vectorized
+                | KernelArg::UnitInference(_)
+                | KernelArg::PatternHint(_)
+                | KernelArg::RequiresUses(_)
+                | KernelArg::RequiresUsesHint(_) => {}
             }
         }
 
@@ -106,6 +128,10 @@ enum KernelArg {
     Category(String),
     Variadic,
     Vectorized,
+    UnitInference(String),
+    PatternHint(String),
+    RequiresUses(String),
+    RequiresUsesHint(String),
 }
 
 impl Parse for KernelArg {
@@ -126,6 +152,26 @@ impl Parse for KernelArg {
                 input.parse::<Token![=]>()?;
                 let lit: LitStr = input.parse()?;
                 Ok(KernelArg::Category(lit.value()))
+            }
+            "unit_inference" => {
+                input.parse::<Token![=]>()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::UnitInference(lit.value()))
+            }
+            "pattern_hint" => {
+                input.parse::<Token![=]>()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::PatternHint(lit.value()))
+            }
+            "requires_uses" => {
+                input.parse::<Token![=]>()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::RequiresUses(lit.value()))
+            }
+            "requires_uses_hint" => {
+                input.parse::<Token![=]>()?;
+                let lit: LitStr = input.parse()?;
+                Ok(KernelArg::RequiresUsesHint(lit.value()))
             }
             "variadic" => Ok(KernelArg::Variadic),
             "vectorized" => Ok(KernelArg::Vectorized),
@@ -175,6 +221,10 @@ fn generate_kernel_registration(
     let category = &args.category;
     let variadic = args.variadic;
     let vectorized = args.vectorized;
+    let unit_inference = &args.unit_inference;
+    let pattern_hints = &args.pattern_hints;
+    let requires_uses = &args.requires_uses;
+    let requires_uses_hint = &args.requires_uses_hint;
 
     // Extract doc comments
     let doc = func
@@ -364,6 +414,59 @@ fn generate_kernel_registration(
         quote! { None }
     };
 
+    // Parse unit inference specification
+    let unit_inference_value = if let Some(ui_str) = unit_inference {
+        match ui_str.as_str() {
+            "dimensionless" => {
+                quote! { ::continuum_kernel_registry::UnitInference::Dimensionless { requires_angle: false } }
+            }
+            "dimensionless_angle" => {
+                quote! { ::continuum_kernel_registry::UnitInference::Dimensionless { requires_angle: true } }
+            }
+            "preserve_first" => {
+                quote! { ::continuum_kernel_registry::UnitInference::PreserveFirst }
+            }
+            "sqrt" => quote! { ::continuum_kernel_registry::UnitInference::Sqrt },
+            "integrate" => quote! { ::continuum_kernel_registry::UnitInference::Integrate },
+            "decay" => quote! { ::continuum_kernel_registry::UnitInference::Decay },
+            _ => quote! { ::continuum_kernel_registry::UnitInference::None },
+        }
+    } else {
+        quote! { ::continuum_kernel_registry::UnitInference::None }
+    };
+
+    // Parse pattern hints
+    let mut clamping = false;
+    let mut decay = false;
+    let mut integration = false;
+    for hint in pattern_hints {
+        match hint.as_str() {
+            "clamping" => clamping = true,
+            "decay" => decay = true,
+            "integration" => integration = true,
+            _ => {}
+        }
+    }
+    let pattern_hints_value = quote! {
+        ::continuum_kernel_registry::PatternHints {
+            clamping: #clamping,
+            decay: #decay,
+            integration: #integration,
+        }
+    };
+
+    // Build requires_uses field
+    let requires_uses_value = if let (Some(key), Some(hint)) = (requires_uses, requires_uses_hint) {
+        quote! {
+            Some(::continuum_kernel_registry::RequiresUses {
+                key: #key,
+                hint: #hint,
+            })
+        }
+    } else {
+        quote! { None }
+    };
+
     Ok(quote! {
         #func
 
@@ -380,6 +483,9 @@ fn generate_kernel_registration(
                 arity: #arity,
                 implementation: #impl_variant,
                 vectorized_impl: #vectorized_impl,
+                unit_inference: #unit_inference_value,
+                pattern_hints: #pattern_hints_value,
+                requires_uses: #requires_uses_value,
             }
         };
     })

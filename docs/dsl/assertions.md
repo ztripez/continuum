@@ -6,7 +6,7 @@ They emit structured faults on failure.
 ## Syntax
 
 ```cdsl
-signal.core.temp {
+signal core.temp {
     : Scalar<K, 100..10000>
     : strata(thermal)
 
@@ -46,7 +46,7 @@ If a signal declares a range constraint in its type but has no assertions,
 the compiler emits a warning:
 
 ```cdsl
-signal.core.temp {
+signal core.temp {
     : Scalar<K, 100..10000>  # Range declared here
     : strata(thermal)
 
@@ -58,7 +58,7 @@ signal.core.temp {
 To resolve this warning, add assertions that validate the range:
 
 ```cdsl
-signal.core.temp {
+signal core.temp {
     : Scalar<K, 100..10000>
     : strata(thermal)
 
@@ -74,7 +74,7 @@ signal.core.temp {
 Signals without range constraints do not trigger this warning:
 
 ```cdsl
-signal.core.counter {
+signal core.counter {
     : Scalar<count>  # No range, no warning
     resolve { prev + 1 }
 }
@@ -85,7 +85,7 @@ signal.core.counter {
 Operators can also have assertions:
 
 ```cdsl
-operator.validate_energy {
+operator validate_energy {
     : strata(physics)
     : phase(resolve)
 
@@ -99,6 +99,44 @@ operator.validate_energy {
     }
 }
 ```
+
+## Assertions vs. Clamping
+
+**Prefer assertions over clamping.** Clamping (`maths.clamp`, `maths.saturate`) silently constrains values to bounds, masking out-of-range conditions that may indicate bugs.
+
+### ❌ Avoid (Silent Masking)
+
+```cdsl
+signal terra.surface.albedo {
+    : Scalar<1>
+    : uses(maths.clamping)  // Required for dangerous functions
+    
+    resolve {
+        maths.clamp(prev + delta, 0.0, 1.0)  // Silently masks errors
+    }
+}
+```
+
+### ✅ Prefer (Fail Loudly)
+
+```cdsl
+signal terra.surface.albedo {
+    : Scalar<1, 0.0..1.0>
+    
+    resolve {
+        prev + delta  // Fail if out of bounds
+    }
+    
+    assert {
+        prev >= 0.0 : fatal, "albedo below physical minimum"
+        prev <= 1.0 : fatal, "albedo above physical maximum"
+    }
+}
+```
+
+**Why?** If `prev + delta` goes out of bounds, it indicates a bug in the simulation logic. Clamping hides this bug; assertions surface it immediately.
+
+**When clamping is legitimate:** Physical constraints like saturation (0-1 reflectance) where the value is genuinely limited by physics. In these cases, use `: uses(maths.clamping)` to explicitly opt in.
 
 ## Best Practices
 
@@ -115,3 +153,6 @@ operator.validate_energy {
 
 4. **Validate at boundaries**: Assert constraints on values that come from
    external sources or complex computations.
+
+5. **Prefer assertions over clamping**: Use assertions to validate bounds instead
+   of silently constraining values with `maths.clamp` or `maths.saturate`.

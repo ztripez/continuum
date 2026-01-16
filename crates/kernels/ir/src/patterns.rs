@@ -51,7 +51,7 @@ use continuum_runtime::types::EntityId;
 
 use crate::ssa::lower_to_ssa;
 use crate::vectorized::ScalarL2Kernel;
-use crate::{BinaryOpIr, CompiledExpr, CompiledWorld, ValueType};
+use crate::{BinaryOp, CompiledExpr, CompiledWorld, ValueType};
 
 /// Minimum batch size for SIMD vectorization (matches typical SIMD width).
 ///
@@ -224,6 +224,9 @@ impl From<&ValueType> for ValueTypeCategory {
             PrimitiveStorageClass::Vec2 => ValueTypeCategory::Vec2,
             PrimitiveStorageClass::Vec3 => ValueTypeCategory::Vec3,
             PrimitiveStorageClass::Vec4 => ValueTypeCategory::Vec4,
+            PrimitiveStorageClass::Mat2 => ValueTypeCategory::Scalar, // TODO: matrix category
+            PrimitiveStorageClass::Mat3 => ValueTypeCategory::Scalar, // TODO: matrix category
+            PrimitiveStorageClass::Mat4 => ValueTypeCategory::Scalar, // TODO: matrix category
             PrimitiveStorageClass::Tensor => ValueTypeCategory::Tensor,
             PrimitiveStorageClass::Grid => ValueTypeCategory::Grid,
             PrimitiveStorageClass::Seq => ValueTypeCategory::Seq,
@@ -289,7 +292,7 @@ pub fn extract_pattern(expr: &CompiledExpr) -> ExpressionPattern {
 fn try_match_simple_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
         CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left,
             right,
         } => {
@@ -342,7 +345,7 @@ fn try_match_clamped_accumulator(expr: &CompiledExpr) -> Option<ExpressionPatter
 fn try_match_decay_accumulator(expr: &CompiledExpr) -> Option<ExpressionPattern> {
     match expr {
         CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left,
             right,
         } => {
@@ -437,7 +440,7 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
         matches!(
                     e,
                     CompiledExpr::Binary {
-                        op: BinaryOpIr::Mul,
+                        op: BinaryOp::Mul,
                         left,
                         right
                     } if matches!(left.as_ref(), CompiledExpr::Prev |         CompiledExpr::Literal(..)
@@ -451,7 +454,7 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
         matches!(
                     e,
                     CompiledExpr::Binary {
-                        op: BinaryOpIr::Mul,
+                        op: BinaryOp::Mul,
                         left,
                         right
                     } if matches!(left.as_ref(), CompiledExpr::Collected |         CompiledExpr::Literal(..)
@@ -463,7 +466,7 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
 
     match expr {
         CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left,
             right,
         } => {
@@ -478,8 +481,7 @@ fn try_match_linear_transform(expr: &CompiledExpr) -> Option<ExpressionPattern> 
 
             // Check for nested add: (a * prev + b * collected) + c
             if let CompiledExpr::Binary {
-                op: BinaryOpIr::Add,
-                ..
+                op: BinaryOp::Add, ..
             } = left.as_ref()
             {
                 if try_match_linear_transform(left).is_some()
@@ -1411,7 +1413,7 @@ mod tests {
     fn test_extract_simple_accumulator() {
         // prev + collected
         let expr = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Collected),
         };
@@ -1420,7 +1422,7 @@ mod tests {
 
         // collected + prev (order shouldn't matter)
         let expr2 = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Collected),
             right: Box::new(CompiledExpr::Prev),
         };
@@ -1439,7 +1441,7 @@ mod tests {
             function: "clamp".to_string(),
             args: vec![
                 CompiledExpr::Binary {
-                    op: BinaryOpIr::Add,
+                    op: BinaryOp::Add,
                     left: Box::new(CompiledExpr::Prev),
                     right: Box::new(CompiledExpr::Collected),
                 },
@@ -1461,7 +1463,7 @@ mod tests {
     fn test_extract_decay_accumulator() {
         // decay(prev, 1000.0) + collected
         let expr = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::KernelCall {
                 namespace: "dt".to_string(),
                 function: "decay".to_string(),
@@ -1518,7 +1520,7 @@ mod tests {
 
         // Binary op on constants
         let expr2 = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Literal(1.0, None)),
             right: Box::new(CompiledExpr::Literal(2.0, None)),
         };
@@ -1529,7 +1531,7 @@ mod tests {
     fn test_extract_custom_pattern() {
         // Some complex expression that doesn't match known patterns
         let expr = CompiledExpr::Binary {
-            op: BinaryOpIr::Mul,
+            op: BinaryOp::Mul,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Signal(SignalId::from("multiplier"))),
         };
@@ -1556,13 +1558,13 @@ mod tests {
     fn test_expr_hash_same_structure() {
         // Two expressions with same structure but different values should have same hash
         let expr1 = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Literal(1.0, None)),
         };
 
         let expr2 = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Literal(999.0, None)),
         };
@@ -1573,13 +1575,13 @@ mod tests {
     #[test]
     fn test_expr_hash_different_structure() {
         let expr1 = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Literal(1.0, None)),
         };
 
         let expr2 = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Literal(1.0, crate::units::Unit::parse("m"))),
         };
@@ -1666,7 +1668,7 @@ mod tests {
     fn test_analyze_for_l2_simple_accumulator() {
         // Simple accumulator with large population should recommend L2
         let expr = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Collected),
         };
@@ -1682,7 +1684,7 @@ mod tests {
     fn test_analyze_for_l2_small_population() {
         // Same pattern but small population should not recommend L2
         let expr = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Collected),
         };
@@ -1698,7 +1700,7 @@ mod tests {
     fn test_analyze_for_l2_decay() {
         // Decay pattern with collected has Medium benefit (involves transcendentals)
         let expr = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::KernelCall {
                 namespace: "dt".to_string(),
                 function: "decay".to_string(),
@@ -1725,7 +1727,7 @@ mod tests {
 
         // Test that we can generate an L2 kernel from an expression
         let expr = CompiledExpr::Binary {
-            op: BinaryOpIr::Add,
+            op: BinaryOp::Add,
             left: Box::new(CompiledExpr::Prev),
             right: Box::new(CompiledExpr::Collected),
         };

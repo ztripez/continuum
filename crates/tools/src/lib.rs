@@ -13,13 +13,12 @@ use tracing_subscriber::{EnvFilter, fmt};
 /// Default is `info` for continuum crates and `warn` for others.
 pub fn init_logging() {
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
-        EnvFilter::new("warn,continuum_tools=warn,continuum_runtime=warn,continuum_compiler=warn,continuum_ir=warn,continuum_dsl=warn")
+        EnvFilter::new("warn,world_ipc=info,continuum_tools=warn,continuum_runtime=warn,continuum_compiler=warn,continuum_ir=warn,continuum_dsl=warn")
     });
 
     fmt()
         .with_env_filter(filter)
         .with_target(false)
-        .without_time() // Remove timestamps as requested
         .with_level(true)
         .init();
 }

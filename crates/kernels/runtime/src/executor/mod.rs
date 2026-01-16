@@ -14,7 +14,9 @@ mod phases;
 mod warmup;
 
 // Re-export public types
-pub use assertions::{AssertionChecker, AssertionFn, AssertionSeverity, SignalAssertion};
+pub use assertions::{
+    AssertionChecker, AssertionFailure, AssertionFn, AssertionSeverity, SignalAssertion,
+};
 pub use context::{
     AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext,
     MeasureContext, ResolveContext, WarmupContext,
@@ -505,11 +507,6 @@ impl Runtime {
         self.event_buffer.drain()
     }
 
-    /// Drain the field buffer (for observer consumption)
-    pub fn drain_fields(&mut self) -> indexmap::IndexMap<FieldId, Vec<FieldSample>> {
-        self.field_buffer.drain()
-    }
-
     /// Get context for the current tick state
     pub fn tick_context(&self) -> TickContext {
         let dt = self
@@ -543,6 +540,16 @@ impl Runtime {
     /// Get access to the member signals buffer
     pub fn member_signals(&self) -> &MemberSignalBuffer {
         &self.member_signals
+    }
+
+    /// Get access to the assertion checker
+    pub fn assertion_checker(&self) -> &AssertionChecker {
+        &self.assertion_checker
+    }
+
+    /// Get mutable access to the assertion checker
+    pub fn assertion_checker_mut(&mut self) -> &mut AssertionChecker {
+        &mut self.assertion_checker
     }
 
     /// Execute warmup phase
@@ -606,7 +613,7 @@ impl Runtime {
                     &self.entities,
                     &mut self.member_signals,
                     &mut self.input_channels,
-                    &self.assertion_checker,
+                    &mut self.assertion_checker,
                     &self.breakpoints,
                 )? {
                     return Ok(crate::types::StepResult::Breakpoint { signal });
@@ -1192,7 +1199,7 @@ mod tests {
         let era_a_config = EraConfig {
             dt: Dt(1.0),
             strata: strata_a.clone(),
-            transition: Some(Box::new(move |signals, _sim_time| {
+            transition: Some(Box::new(move |signals, _entities, _sim_time| {
                 if let Some(value) = signals.get(&signal_id_clone) {
                     if value.as_scalar().unwrap_or(0.0) >= 5.0 {
                         return Some(era_b_clone.clone());

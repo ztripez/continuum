@@ -4,13 +4,12 @@
 //! Usage: `compile <world-dir> [--out-dir DIR] [--output FILE]`
 
 use clap::Parser;
-use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use std::process;
 use tracing::{error, info, warn};
 
-use continuum_compiler::ir::{BinaryBundle, CompilationResult, CompiledWorld, compile};
+use continuum_compiler::ir::{BinaryBundle, compile};
 
 #[derive(Parser, Debug)]
 #[command(name = "compile")]

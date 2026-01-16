@@ -8,7 +8,7 @@ use indexmap::IndexMap;
 use continuum_dsl::ast::{self, Span, StrataStateKind};
 use continuum_foundation::{EraId, Path, StratumId};
 
-use crate::{BinaryOpIr, CompiledEra, CompiledExpr, CompiledTransition, StratumState};
+use crate::{BinaryOp, CompiledEra, CompiledExpr, CompiledTransition, StratumState};
 
 use super::{LowerError, Lowerer};
 
@@ -58,7 +58,7 @@ impl Lowerer {
                     t.conditions.iter().skip(1).fold(
                         self.lower_expr(&t.conditions[0].node),
                         |acc, cond| CompiledExpr::Binary {
-                            op: BinaryOpIr::And,
+                            op: BinaryOp::And,
                             left: Box::new(acc),
                             right: Box::new(self.lower_expr(&cond.node)),
                         },
@@ -76,6 +76,7 @@ impl Lowerer {
             file: self.file.clone(),
             span,
             id: id.clone(),
+            doc: def.doc.clone(),
             is_initial: def.is_initial,
             is_terminal: def.is_terminal,
             title: def.title.as_ref().map(|s| s.node.clone()),

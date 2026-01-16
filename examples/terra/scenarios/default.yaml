@@ -1,0 +1,13 @@
+apiVersion: continuum/v1
+kind: Scenario
+
+metadata:
+  name: default
+  title: "Default Configuration"
+  description: |
+    Standard Earth parameters representing present-day conditions.
+    Uses the world defaults without any overrides.
+
+# No overrides - uses world defaults
+
+seed: 0

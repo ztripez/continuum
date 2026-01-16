@@ -4,11 +4,17 @@
 //! Provides stable hashing, deterministic ID generation, and other
 //! primitives required across crates.
 
+pub mod coercion;
 pub mod field;
 pub mod ids;
+pub mod matrix_ops;
+pub mod operators;
 pub mod primitives;
+pub mod rng;
 pub mod stable_hash;
+pub mod tensor;
 pub mod value;
+pub mod vector_ops;
 
 // Re-export ID types at crate root
 pub use ids::{
@@ -16,17 +22,22 @@ pub use ids::{
     OperatorId, Path, SignalId, StratumId, TypeId,
 };
 
+pub use coercion::{TypeCheckOp, TypeCheckResult, can_operate, type_shape};
 pub use field::FieldSample;
+pub use operators::{AggregateOp, BinaryOp, UnaryOp};
 pub use primitives::{
     PRIMITIVE_TYPES, PrimitiveParamKind, PrimitiveParamSpec, PrimitiveShape, PrimitiveStorageClass,
     PrimitiveTypeDef, PrimitiveTypeId, primitive_type_by_name,
 };
-pub use value::{FromValue, IntoValue, Quat, Value};
+pub use value::{FromValue, IntoValue, Mat2, Mat3, Mat4, Quat, Value};
 
 // Re-export stable hash items at crate root
 pub use stable_hash::{
     FNV1A_OFFSET_BASIS_64, FNV1A_PRIME_64, fnv1a64, fnv1a64_mix, fnv1a64_path, fnv1a64_str,
 };
+
+// Re-export RNG at crate root
+pub use rng::RngStream;
 
 /// Simulation timestep in seconds.
 ///

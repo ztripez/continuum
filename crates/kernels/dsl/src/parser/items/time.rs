@@ -18,7 +18,6 @@ use super::super::{ParseError, ParserInput};
 pub fn strata_def<'src>()
 -> impl Parser<'src, ParserInput<'src>, StrataDef, extra::Err<ParseError<'src>>> {
     just(Token::Strata)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned_path())
         .then(
             strata_attr()
@@ -66,7 +65,6 @@ fn strata_attr<'src>()
 pub fn era_def<'src>() -> impl Parser<'src, ParserInput<'src>, EraDef, extra::Err<ParseError<'src>>>
 {
     just(Token::Era)
-        .ignore_then(just(Token::Dot))
         .ignore_then(spanned(ident()))
         .then(
             era_content()

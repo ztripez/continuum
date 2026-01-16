@@ -74,9 +74,10 @@ config {
 # Primary Productivity
 # =============================================================================
 
-signal.ecology.npp {
+signal ecology.npp {
     : Scalar<1, 0..5>
     : strata(ecology)
+    : uses(maths.clamping)
     : title("Net Primary Productivity")
     : symbol("NPP")
 
@@ -101,7 +102,7 @@ signal.ecology.npp {
 }
 
 # Limiting factor indicator (0=Temp, 1=Water, 2=Light, 3=CO2, 4=Ocean)
-signal.ecology.limiting_factor {
+signal ecology.limiting_factor {
     : Scalar<1, 0..4>
     : strata(ecology)
     : title("Limiting Factor")
@@ -117,7 +118,7 @@ signal.ecology.limiting_factor {
 # Biomass Stock
 # =============================================================================
 
-signal.ecology.biomass {
+signal ecology.biomass {
     : Scalar<kg/m², 0..100>
     : strata(ecology)
     : title("Biomass Stock")
@@ -147,7 +148,7 @@ signal.ecology.biomass {
 # Vegetation Cover
 # =============================================================================
 
-signal.ecology.vegetation_cover {
+signal ecology.vegetation_cover {
     : Scalar<1, 0..1>
     : strata(ecology)
     : title("Vegetation Cover Fraction")
@@ -169,7 +170,7 @@ signal.ecology.vegetation_cover {
 # Carbon Flux
 # =============================================================================
 
-signal.ecology.respiration_rate {
+signal ecology.respiration_rate {
     : Scalar<1, 0..5>
     : strata(ecology)
     : title("Ecosystem Respiration")
@@ -193,7 +194,7 @@ signal.ecology.respiration_rate {
 }
 
 # Net Ecosystem Exchange (NEE = R - NPP, negative = carbon sink)
-signal.ecology.nee {
+signal ecology.nee {
     : Scalar<1, -5..5>
     : strata(ecology)
     : title("Net Ecosystem Exchange")
@@ -209,7 +210,7 @@ signal.ecology.nee {
 # =============================================================================
 
 # Soil organic carbon reservoir
-signal.ecology.soil_carbon {
+signal ecology.soil_carbon {
     : Scalar<kg/m², 0..100>
     : strata(ecology)
     : title("Soil Carbon")
@@ -265,7 +266,7 @@ signal.ecology.soil_carbon {
 }
 
 # Decomposition rate (derived)
-signal.ecology.decomposition_rate {
+signal ecology.decomposition_rate {
     : Scalar<kg/m²/yr, 0..10>
     : strata(ecology)
     : title("Decomposition Rate")
@@ -295,7 +296,7 @@ signal.ecology.decomposition_rate {
 # =============================================================================
 
 # Mass extinction (temperature threshold)
-fracture.ecology.mass_extinction {
+fracture ecology.mass_extinction {
     when {
         signal.surface.temp > 320.0 <K>
         signal.ecology.biomass > 5.0
@@ -313,7 +314,7 @@ fracture.ecology.mass_extinction {
 # Biosphere CO2 coupling: NEE = NPP - decomposition
 # Couples terrestrial carbon cycle to atmospheric CO2
 # Sign convention: positive NEE = net carbon uptake (biosphere sink)
-fracture.ecology.biosphere_co2_coupling {
+fracture ecology.biosphere_co2_coupling {
     : strata(ecology)
 
     config {
@@ -342,7 +343,7 @@ fracture.ecology.biosphere_co2_coupling {
 
 # Carrying capacity exceeded: triggers dieback when biomass > sustainable
 # K = NPP * turnover_time / maintenance_cost
-fracture.ecology.carrying_capacity_exceeded {
+fracture ecology.carrying_capacity_exceeded {
     : strata(ecology)
 
     config {
@@ -375,7 +376,7 @@ fracture.ecology.carrying_capacity_exceeded {
 
 # Desertification risk: detects vegetation collapse conditions
 # Risk elevated when: low vegetation + drought + heat stress
-fracture.ecology.desertification_risk {
+fracture ecology.desertification_risk {
     : strata(ecology)
 
     config {
@@ -408,7 +409,7 @@ fracture.ecology.desertification_risk {
 
 # Fire disturbance: biomass loss and carbon release
 # Triggered by dry conditions and high biomass
-fracture.ecology.fire_disturbance {
+fracture ecology.fire_disturbance {
     : strata(ecology)
 
     config {
@@ -441,7 +442,7 @@ fracture.ecology.fire_disturbance {
 }
 
 # Pest/disease outbreak: biomass reduction under stress
-fracture.ecology.pest_outbreak {
+fracture ecology.pest_outbreak {
     : strata(ecology)
 
     config {
@@ -469,7 +470,7 @@ fracture.ecology.pest_outbreak {
 # Ecology Fields
 # =============================================================================
 
-field.ecology.npp_map {
+field ecology.npp_map {
     : Scalar<1>
     : strata(ecology)
     : topology(sphere_surface)
@@ -480,7 +481,7 @@ field.ecology.npp_map {
     }
 }
 
-field.ecology.biomass_map {
+field ecology.biomass_map {
     : Scalar<kg/m²>
     : strata(ecology)
     : topology(sphere_surface)
@@ -491,7 +492,7 @@ field.ecology.biomass_map {
     }
 }
 
-field.ecology.vegetation_map {
+field ecology.vegetation_map {
     : Scalar<1>
     : strata(ecology)
     : topology(sphere_surface)
@@ -502,7 +503,7 @@ field.ecology.vegetation_map {
     }
 }
 
-field.ecology.respiration_map {
+field ecology.respiration_map {
     : Scalar<1>
     : strata(ecology)
     : topology(sphere_surface)
@@ -513,7 +514,7 @@ field.ecology.respiration_map {
     }
 }
 
-field.ecology.nee_map {
+field ecology.nee_map {
     : Scalar<1>
     : strata(ecology)
     : topology(sphere_surface)
@@ -524,7 +525,7 @@ field.ecology.nee_map {
     }
 }
 
-field.ecology.soil_carbon_map {
+field ecology.soil_carbon_map {
     : Scalar<kg/m²>
     : strata(ecology)
     : topology(sphere_surface)
@@ -535,7 +536,7 @@ field.ecology.soil_carbon_map {
     }
 }
 
-field.ecology.decomposition_map {
+field ecology.decomposition_map {
     : Scalar<kg/m²/yr>
     : strata(ecology)
     : topology(sphere_surface)
@@ -543,5 +544,114 @@ field.ecology.decomposition_map {
 
     measure {
         signal.ecology.decomposition_rate
+    }
+}
+
+# =============================================================================
+# Ecology Chronicles
+# =============================================================================
+
+# Mass extinction event: catastrophic biomass loss
+chronicle ecology.events.mass_extinction {
+    observe {
+        when signal.ecology.biomass < 1.0 &&
+             signal.surface.temp > 315.0 <K> {
+            emit event.mass_extinction {
+                biomass: signal.ecology.biomass
+                npp: signal.ecology.npp
+                surface_temp: signal.surface.temp
+                vegetation_cover: signal.ecology.vegetation_cover
+                severity: "critical"
+                description: "Mass extinction - catastrophic biosphere collapse"
+            }
+        }
+    }
+}
+
+# Biodiversity bloom: rapid biomass expansion
+chronicle ecology.events.biodiversity_bloom {
+    observe {
+        when signal.ecology.biomass > 50.0 &&
+             signal.ecology.npp > 2.5 &&
+             signal.ecology.vegetation_cover > 0.8 {
+            emit event.biodiversity_bloom {
+                biomass: signal.ecology.biomass
+                npp: signal.ecology.npp
+                vegetation_cover: signal.ecology.vegetation_cover
+                soil_carbon: signal.ecology.soil_carbon
+                severity: "moderate"
+                description: "Biodiversity bloom - rapid biosphere expansion"
+            }
+        }
+    }
+}
+
+# Soil carbon depletion: major soil degradation
+chronicle ecology.events.soil_carbon_depletion {
+    observe {
+        when signal.ecology.soil_carbon < 2.0 &&
+             signal.ecology.decomposition_rate > 5.0 {
+            emit event.soil_carbon_depletion {
+                soil_carbon: signal.ecology.soil_carbon
+                decomposition_rate: signal.ecology.decomposition_rate
+                biomass: signal.ecology.biomass
+                surface_temp: signal.surface.temp
+                severity: "major"
+                description: "Soil carbon depletion - major soil degradation"
+            }
+        }
+    }
+}
+
+# Carbon cycle acceleration: extreme carbon turnover
+chronicle ecology.events.carbon_cycle_acceleration {
+    observe {
+        when signal.ecology.npp > 4.0 &&
+             signal.ecology.decomposition_rate > 8.0 {
+            emit event.carbon_cycle_acceleration {
+                npp: signal.ecology.npp
+                decomposition_rate: signal.ecology.decomposition_rate
+                nee: signal.ecology.nee
+                soil_carbon: signal.ecology.soil_carbon
+                severity: "moderate"
+                description: "Carbon cycle acceleration - extreme carbon turnover"
+            }
+        }
+    }
+}
+
+# Desertification event: vegetation collapse
+chronicle ecology.events.desertification {
+    observe {
+        when signal.ecology.vegetation_cover < 0.1 &&
+             signal.ecology.biomass < 5.0 &&
+             signal.surface.temp > 300.0 <K> {
+            emit event.desertification {
+                vegetation_cover: signal.ecology.vegetation_cover
+                biomass: signal.ecology.biomass
+                soil_carbon: signal.ecology.soil_carbon
+                surface_temp: signal.surface.temp
+                severity: "major"
+                description: "Desertification - vegetation collapse"
+            }
+        }
+    }
+}
+
+# Biosphere recovery: post-extinction recovery
+chronicle ecology.events.biosphere_recovery {
+    observe {
+        when signal.ecology.biomass > 20.0 &&
+             signal.ecology.npp > 1.5 &&
+             signal.ecology.vegetation_cover > 0.5 {
+            emit event.biosphere_recovery {
+                biomass: signal.ecology.biomass
+                npp: signal.ecology.npp
+                vegetation_cover: signal.ecology.vegetation_cover
+                soil_carbon: signal.ecology.soil_carbon
+                severity: "moderate"
+                description: "Biosphere recovery - ecosystem restoration"
+            }
+        }
     }
 }
