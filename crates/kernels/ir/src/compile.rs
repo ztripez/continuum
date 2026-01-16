@@ -992,6 +992,101 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_signal_dependencies_with_field_access() {
+        // This tests that `signal.terra.position.x` correctly creates a dependency
+        // on `terra.position` (not `terra.position.x` which doesn't exist).
+        // The parser greedily consumes the full path, so we need to resolve it
+        // to the actual signal name during dependency collection.
+        let src = r#"
+            strata terra {}
+
+            era main {
+                : initial
+            }
+
+            signal terra.position {
+                : Vec3<m>
+                : strata(terra)
+                resolve { vector.vec3(1.0, 2.0, 3.0) }
+            }
+
+            signal terra.x_coord {
+                : Scalar<m>
+                : strata(terra)
+                resolve { signal.terra.position.x }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let _result = compile(&world).unwrap();
+
+        // Check that x_coord depends on position
+        let signals = world.signals();
+        let sig_x = signals.get(&SignalId::from("terra.x_coord")).unwrap();
+
+        // Should have exactly one dependency: terra.position
+        assert_eq!(
+            sig_x.reads.len(),
+            1,
+            "Expected 1 dependency, got: {:?}",
+            sig_x.reads
+        );
+        assert_eq!(
+            sig_x.reads[0].to_string(),
+            "terra.position",
+            "Expected dependency on 'terra.position', got: {:?}",
+            sig_x.reads
+        );
+    }
+
+    #[test]
+    fn test_compile_field_depends_on_signal_with_field_access() {
+        // This tests that a field reading `signal.terra.temp.x` correctly tracks
+        // the dependency on `terra.temp`, allowing dead code analysis to work.
+        let src = r#"
+            strata terra {}
+
+            era main {
+                : initial
+            }
+
+            signal terra.temp {
+                : Vec3<K>
+                : strata(terra)
+                resolve { vector.vec3(288.0, 300.0, 270.0) }
+            }
+
+            field terra.mean_temp {
+                : Scalar<K>
+                : strata(terra)
+                measure { signal.terra.temp.x }
+            }
+        "#;
+
+        let world = parse_and_lower(src);
+        let _result = compile(&world).unwrap();
+
+        // Check that the field depends on terra.temp
+        let fields = world.fields();
+        let field = fields
+            .get(&continuum_foundation::FieldId::from("terra.mean_temp"))
+            .unwrap();
+
+        assert_eq!(
+            field.reads.len(),
+            1,
+            "Expected 1 dependency, got: {:?}",
+            field.reads
+        );
+        assert_eq!(
+            field.reads[0].to_string(),
+            "terra.temp",
+            "Expected dependency on 'terra.temp', got: {:?}",
+            field.reads
+        );
+    }
+
+    #[test]
     fn test_compile_member_signal() {
         let src = r#"
             strata human {}

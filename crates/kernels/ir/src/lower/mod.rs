@@ -206,6 +206,25 @@ pub fn lower_multi(
         }
     }
 
+    // Pass 2.5: Collect signal and member names (for dependency resolution)
+    // This pre-pass allows us to resolve paths like `signal.atmosphere.surface_temp.x`
+    // to `atmosphere.surface_temp` even when signals are defined in any order.
+    for (_path, unit) in &units {
+        for item in &unit.items {
+            match &item.node {
+                Item::SignalDef(def) => {
+                    let name = def.path.node.to_string();
+                    lowerer.known_signal_names.insert(name);
+                }
+                Item::MemberDef(def) => {
+                    let name = def.path.node.to_string();
+                    lowerer.known_member_names.insert(name);
+                }
+                _ => {}
+            }
+        }
+    }
+
     // Pass 3: Signals, Fields, Operators, Impulses, Fractures, Entities, Members, Chronicles
     for (path, unit) in &units {
         lowerer.file = Some(path.clone());
@@ -252,6 +271,12 @@ pub(crate) struct Lowerer {
     pub(crate) members: IndexMap<MemberId, CompiledMember>,
     pub(crate) chronicles: IndexMap<ChronicleId, CompiledChronicle>,
     pub(crate) types: IndexMap<TypeId, CompiledType>,
+    /// Pre-collected signal names for dependency resolution.
+    /// Populated before lowering signals to handle forward references.
+    pub(crate) known_signal_names: std::collections::HashSet<String>,
+    /// Pre-collected member names for dependency resolution.
+    /// Populated before lowering members to handle forward references.
+    pub(crate) known_member_names: std::collections::HashSet<String>,
 }
 
 impl Lowerer {
@@ -272,6 +297,8 @@ impl Lowerer {
             members: IndexMap::new(),
             chronicles: IndexMap::new(),
             types: IndexMap::new(),
+            known_signal_names: std::collections::HashSet::new(),
+            known_member_names: std::collections::HashSet::new(),
         }
     }
 
@@ -348,6 +375,23 @@ impl Lowerer {
         for item in &unit.items {
             if let Item::EraDef(def) = &item.node {
                 self.lower_era(def, item.span.clone())?;
+            }
+        }
+
+        // Pre-collect signal and member names for dependency resolution
+        // This allows resolving paths like `signal.atmosphere.surface_temp.x`
+        // to `atmosphere.surface_temp` even with forward references.
+        for item in &unit.items {
+            match &item.node {
+                Item::SignalDef(def) => {
+                    let name = def.path.node.to_string();
+                    self.known_signal_names.insert(name);
+                }
+                Item::MemberDef(def) => {
+                    let name = def.path.node.to_string();
+                    self.known_member_names.insert(name);
+                }
+                _ => {}
             }
         }
 
