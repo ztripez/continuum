@@ -77,6 +77,7 @@ config {
 signal ecology.npp {
     : Scalar<1, 0..5>
     : strata(ecology)
+    : uses(maths.clamping)
     : title("Net Primary Productivity")
     : symbol("NPP")
 

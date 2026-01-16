@@ -82,6 +82,7 @@ fn atmosphere.saturation_vapor_pressure(temperature_k) {
 }
 
 /// Equilibrium water vapor column mass
+/// NOTE: Uses maths.clamp for RH (relative humidity is a physical fraction 0-1)
 fn atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
     let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k) in
     let rh = maths.clamp(relative_humidity, 0.0, 1.0) in
@@ -145,7 +146,7 @@ signal atmosphere.surface_temp {
         let dt_temp = net_power / config.atmosphere.surface_temp.heat_capacity_j_k in
 
         vector.vec3(
-            maths.clamp(dt.integrate(t_mean, dt_temp), 50.0, 500.0),
+            dt.integrate(t_mean, dt_temp),
             prev.y + collected,
             prev.z + collected
         )
@@ -196,23 +197,25 @@ signal atmosphere.water_vapor {
 signal atmosphere.co2_ppmv {
     : Scalar<ppmv, 100..10000>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("CO2 Concentration")
     : symbol("CO2")
 
     config {
         initial: 280.0
-        min: 100.0
+        min: 0.0
         max: 10000.0
     }
 
     resolve {
         # CO2 changes through weathering sinks, volcanic sources, biological processes
-        maths.clamp(prev + collected, config.atmosphere.co2_ppmv.min, config.atmosphere.co2_ppmv.max)
+        # Clamp to prevent negative concentrations (physical constraint)
+        maths.max(prev + collected, config.atmosphere.co2_ppmv.min)
     }
 
     assert {
-        prev >= config.atmosphere.co2_ppmv.min : warn, "CO2 below minimum"
-        prev <= config.atmosphere.co2_ppmv.max : warn, "CO2 above maximum"
+        prev >= config.atmosphere.co2_ppmv.min : fatal, "CO2 concentration cannot be negative"
+        prev <= config.atmosphere.co2_ppmv.max : error, "CO2 concentration exceeds expected maximum - check sources"
     }
 }
 
@@ -221,6 +224,7 @@ signal atmosphere.co2_ppmv {
 signal atmosphere.ch4_ppmv {
     : Scalar<ppmv, 0..50>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("CH4 Concentration")
     : symbol("CH4")
 
@@ -232,12 +236,13 @@ signal atmosphere.ch4_ppmv {
 
     resolve {
         # Methane changes through oxidation decay and biogenic/volcanic sources
-        maths.clamp(prev + collected, config.atmosphere.ch4_ppmv.min, config.atmosphere.ch4_ppmv.max)
+        # Clamp to prevent negative concentrations (physical constraint)
+        maths.max(prev + collected, config.atmosphere.ch4_ppmv.min)
     }
 
     assert {
-        prev >= config.atmosphere.ch4_ppmv.min : warn, "CH4 below minimum"
-        prev <= config.atmosphere.ch4_ppmv.max : warn, "CH4 above maximum"
+        prev >= config.atmosphere.ch4_ppmv.min : fatal, "CH4 concentration cannot be negative"
+        prev <= config.atmosphere.ch4_ppmv.max : error, "CH4 concentration exceeds expected maximum - check sources"
     }
 }
 
@@ -248,6 +253,7 @@ signal atmosphere.ch4_ppmv {
 signal atmosphere.cloud_cover {
     : Scalar<1, 0..1>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("Cloud Cover Fraction")
     : symbol("C")
 
@@ -259,6 +265,7 @@ signal atmosphere.cloud_cover {
 
     resolve {
         # Cloud cover depends on water vapor availability
+        # Physical constraint: fraction must be [0, 1]
         let water_vapor = signal.atmosphere.water_vapor in
         let cloud_potential = (water_vapor - config.atmosphere.cloud_cover.min_water_vapor) /
                              (config.atmosphere.cloud_cover.saturation_water_vapor - config.atmosphere.cloud_cover.min_water_vapor) in
@@ -266,8 +273,8 @@ signal atmosphere.cloud_cover {
     }
 
     assert {
-        prev >= 0.0 : warn, "Cloud cover cannot be negative"
-        prev <= 1.0 : warn, "Cloud cover cannot exceed 1"
+        prev >= 0.0 : fatal, "Cloud cover cannot be negative"
+        prev <= 1.0 : fatal, "Cloud cover cannot exceed 1"
     }
 }
 
@@ -336,6 +343,7 @@ signal atmosphere.pressure {
 signal atmosphere.ice_fraction {
     : Scalar<1, 0..1>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("Ice Fraction")
     : symbol("f_ice")
 
@@ -368,6 +376,7 @@ signal atmosphere.ice_fraction {
             # Partial ice: linear interpolation
             # Ice edge at latitude where T = t_freeze
             # Approximate: ice_fraction ≈ (t_freeze - t_pole) / (t_equator - t_pole)
+            # Physical constraint: fraction must be [0, 1]
             let temp_range = maths.max(t_equator - t_pole, 1.0) in
             let ice_extent = (t_freeze - t_pole) / temp_range in
             maths.clamp(ice_extent, 0.0, 1.0)
@@ -375,8 +384,8 @@ signal atmosphere.ice_fraction {
     }
 
     assert {
-        prev >= 0.0 : warn, "Ice fraction cannot be negative"
-        prev <= 1.0 : warn, "Ice fraction cannot exceed 1"
+        prev >= 0.0 : fatal, "Ice fraction cannot be negative"
+        prev <= 1.0 : fatal, "Ice fraction cannot exceed 1"
     }
 }
 
@@ -384,6 +393,7 @@ signal atmosphere.ice_fraction {
 signal atmosphere.albedo {
     : Scalar<1, 0..1>
     : strata(atmosphere)
+    : uses(maths.clamping)
     : title("Effective Planetary Albedo")
     : symbol("α")
 
@@ -409,12 +419,13 @@ signal atmosphere.albedo {
         let planetary_albedo = cloud_frac * config.atmosphere.albedo.cloud_albedo
                              + clear_frac * surface_albedo in
 
+        # Physical constraint: reflectivity must be [0, 1]
         maths.clamp(planetary_albedo + collected, 0.0, 1.0)
     }
 
     assert {
-        prev >= 0.0 : warn, "Albedo cannot be negative"
-        prev <= 1.0 : warn, "Albedo cannot exceed 1"
+        prev >= 0.0 : fatal, "Albedo cannot be negative"
+        prev <= 1.0 : fatal, "Albedo cannot exceed 1"
     }
 }
 

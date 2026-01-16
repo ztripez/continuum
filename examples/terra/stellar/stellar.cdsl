@@ -727,7 +727,9 @@ impulse stellar.orbital_change {
     }
 
     apply {
-        # Clamp changes to safety bounds
+        # Clamp external impulse inputs to safety bounds to prevent simulation instability.
+        # These are external inputs (not internal simulation state), so clamping is legitimate
+        # to protect the simulation from bad external data.
         let clamped_de = maths.clamp(
             payload.delta_eccentricity,
             -config.impulse.stellar.orbital_change.max_delta_eccentricity,
@@ -754,14 +756,9 @@ impulse stellar.orbital_change {
             signal.rotation.precession <- clamped_dprec
         };
 
-        # Eccentricity change affects mean insolation
-        # This requires modifying the star orbit eccentricity for planet-star systems
-        # For now, emit to a proxy signal that atmosphere can read
+        # Apply eccentricity change (affects seasonal strength)
         if maths.abs(clamped_de) > config.impulse.stellar.orbital_change.min_significant_eccentricity {
-            # Eccentricity affects effective solar constant via distance variation
-            # Delta_F ~ 2 * F * delta_e (linear approximation)
-            let insolation_change = 2.0 * signal.stellar.total_insolation * clamped_de in
-            signal.atmosphere.external_power <- insolation_change * 4.0 * PI * signal.planet.radius * signal.planet.radius
+            signal.orbit.eccentricity <- clamped_de
         }
     }
 }

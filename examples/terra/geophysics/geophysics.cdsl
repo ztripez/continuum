@@ -427,6 +427,7 @@ signal mantle.heat_content {
 signal mantle.temp {
     : Scalar<K, 500..5000>
     : strata(thermal)
+    : uses(maths.clamping)
     : title("Mantle Temperature")
 
     config {
@@ -468,6 +469,7 @@ signal surface.temp {
 signal surface.heat_flow {
     : Scalar<W/m², 0.01..0.5>
     : strata(thermal)
+    : uses(maths.clamping)
     : title("Surface Heat Flow")
     : symbol("q")
 
@@ -494,6 +496,7 @@ signal surface.heat_flow {
 signal crust.density {
     : Scalar<kg/m³, 2000..3500>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Crustal Density")
     : symbol("rho_crust")
 
@@ -517,6 +520,7 @@ signal crust.density {
 signal crust.thickness {
     : Scalar<m, 3000..80000>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Crustal Thickness")
     : symbol("h_crust")
 
@@ -608,6 +612,7 @@ signal isostasy.elevation {
 signal topography.dynamic_offset {
     : Scalar<m, -1200..2400>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Dynamic Topography Offset")
 
     config {
@@ -638,6 +643,7 @@ signal topography.dynamic_offset {
 signal crust.elevation {
     : Scalar<m, -11000..9000>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Surface Elevation")
     : symbol("h_elev")
 
@@ -723,6 +729,7 @@ signal crust.moho_depth {
 signal tectonics.boundary_stress {
     : Scalar<N/m², 0..1e9>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Plate Boundary Stress")
 
     config {
@@ -851,6 +858,7 @@ signal mantle.rayleigh_number {
 signal mantle.convection_cells {
     : Scalar<1, 2..12>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Convection Cell Count")
     : symbol("N_cells")
 
@@ -935,6 +943,7 @@ signal tectonics.orogeny_rate {
 signal tectonics.volcanism {
     : Scalar<1, 0..100>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Volcanism Index")
     : symbol("V_idx")
 
@@ -1070,6 +1079,7 @@ member terra.plate.age {
 member terra.plate.thickness {
     : Scalar<m, 5000..70000>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Plate Thickness")
     : symbol("h_plate")
 
@@ -1094,6 +1104,7 @@ member terra.plate.thickness {
 member terra.plate.buoyancy {
     : Scalar<1, 0..1>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Plate Buoyancy")
     : symbol("b_plate")
 
@@ -1402,6 +1413,7 @@ signal plates.velocity_variance {
 signal plates.divergent_activity {
     : Scalar<1, 0..10>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Divergent Boundary Activity")
     : symbol("A_div")
 
@@ -1423,6 +1435,7 @@ signal plates.divergent_activity {
 signal plates.convergent_activity {
     : Scalar<1, 0..10>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Convergent Boundary Activity")
     : symbol("A_conv")
 
@@ -1444,6 +1457,7 @@ signal plates.convergent_activity {
 signal plates.transform_activity {
     : Scalar<1, 0..10>
     : strata(tectonics)
+    : uses(maths.clamping)
     : title("Transform Boundary Activity")
     : symbol("A_trans")
 

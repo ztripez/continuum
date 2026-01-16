@@ -102,6 +102,7 @@ fn hydrology.water_presence(water_mass_kg, reference_mass_kg) {
 # Global water mass budget
 signal hydrology.water_mass {
     : Scalar<kg, 0..1e20>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Total Surface Water Mass")
     : symbol("M_water")
@@ -162,6 +163,7 @@ signal hydrology.ice_mass {
 
 signal hydrology.evaporation_rate {
     : Scalar<kg/m²/s, 0..1e-3>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Evaporation Rate")
     : symbol("E")
@@ -202,6 +204,7 @@ signal hydrology.evaporation_rate {
 
 signal hydrology.precipitation_rate {
     : Scalar<kg/m²/s, 0..1e-2>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Precipitation Rate")
     : symbol("P")
@@ -231,6 +234,7 @@ signal hydrology.precipitation_rate {
 
 signal hydrology.runoff_accumulation {
     : Scalar<kg/s, 0..1e15>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Runoff Accumulation")
     : symbol("Q")
@@ -262,6 +266,7 @@ signal hydrology.runoff_accumulation {
 
 signal hydrology.sediment_load {
     : Scalar<kg/m², 0..10>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Sediment Load")
     : symbol("S")
@@ -294,6 +299,7 @@ signal hydrology.sediment_load {
 
 signal hydrology.chemical_weathering {
     : Scalar<kg/m²/yr, 0..1>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Chemical Weathering Rate")
     : symbol("W_chem")
@@ -329,6 +335,7 @@ signal hydrology.chemical_weathering {
 
 signal hydrology.water_temperature {
     : Scalar<K, 271..313>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Surface Water Temperature")
     : symbol("T_w")
@@ -360,6 +367,7 @@ signal hydrology.water_temperature {
 # Groundwater saturation fraction
 signal hydrology.groundwater_saturation {
     : Scalar<1, 0..1>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Groundwater Saturation")
     : symbol("S_gw")
@@ -387,6 +395,7 @@ signal hydrology.groundwater_saturation {
 # Infiltration rate from surface to groundwater
 signal hydrology.infiltration_rate {
     : Scalar<kg/m²/s, 0..1e-2>
+    : uses(maths.clamping)
     : strata(atmosphere)
     : title("Infiltration Rate")
     : symbol("I")
@@ -415,6 +424,7 @@ signal hydrology.infiltration_rate {
 # Baseflow rate from groundwater to surface streams
 signal hydrology.baseflow_rate {
     : Scalar<kg/m²/s, 0..1e-3>
+    : uses(maths.clamping)
     : strata(atmosphere)
     : title("Baseflow Rate")
     : symbol("Q_base")
@@ -498,6 +508,7 @@ signal hydrology.flow_accumulation {
 # Stream order (Strahler)
 signal hydrology.stream_order {
     : Scalar<1, 0..10>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Stream Order")
     : symbol("ω")
@@ -890,6 +901,7 @@ entity hydrology.cell {
 # Represents the total mass of water (liquid + ice) at this cell
 member hydrology.cell.water_mass {
     : Scalar<kg/m², 0..1e6>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Cell Water Mass")
     : symbol("m_w")
@@ -916,6 +928,7 @@ member hydrology.cell.water_mass {
 # Local water body temperature - can differ from surface temp
 member hydrology.cell.temperature {
     : Scalar<K, 271..313>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Cell Water Temperature")
     : symbol("T_w")
@@ -944,6 +957,7 @@ member hydrology.cell.temperature {
 # Particulate matter suspended in the water column
 member hydrology.cell.sediment_mass {
     : Scalar<kg/m², 0..10>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Cell Sediment Mass")
     : symbol("m_s")
@@ -970,6 +984,7 @@ member hydrology.cell.sediment_mass {
 # Fraction of water mass that is frozen
 member hydrology.cell.ice_fraction {
     : Scalar<1, 0..1>
+    : uses(maths.clamping)
     : strata(hydrology)
     : title("Cell Ice Fraction")
     : symbol("f_ice")
