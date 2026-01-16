@@ -213,6 +213,7 @@ pub enum IpcCommand {
         count: Option<u64>,
     },
     Stop,
+    Shutdown,
     WorldInfo,
     SignalList,
     SignalDescribe {
@@ -729,6 +730,7 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
             IpcCommand::Run { count: req.count }
         }
         "stop" => IpcCommand::Stop,
+        "shutdown" => IpcCommand::Shutdown,
         "world.info" => IpcCommand::WorldInfo,
         "signal.list" => IpcCommand::SignalList,
         "signal.describe" => {

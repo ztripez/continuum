@@ -679,3 +679,90 @@ button.small {
   color: #dc2626;
   font-weight: 600;
 }
+
+/* Simulation Control Panel */
+.sim-control-panel {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--border);
+  padding: 1rem 2rem;
+  animation: slideDown 0.2s ease-out;
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.simulation-control {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 900px;
+}
+
+.control-row {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.world-path-input {
+  flex: 1;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 0.875rem;
+  font-family: ui-monospace, monospace;
+  transition: border-color 0.15s;
+}
+
+.world-path-input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.world-path-input::placeholder {
+  color: var(--text-muted);
+}
+
+.world-path-input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.message {
+  padding: 0.625rem 0.875rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.message-success {
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid var(--success);
+  color: var(--success);
+}
+
+.message-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+}

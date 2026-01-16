@@ -377,6 +377,10 @@ async fn handle_command(
                 error: None,
             })
         }
+        IpcCommand::Shutdown => {
+            info!("Shutdown command received, exiting gracefully");
+            std::process::exit(0);
+        }
         IpcCommand::WorldInfo => {
             let state = state.lock().await;
 

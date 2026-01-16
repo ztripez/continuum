@@ -14,6 +14,11 @@ export function App() {
   const [tickInfo, setTickInfo] = useState<TickEvent | null>(null);
   const [assertionCount, setAssertionCount] = useState(0);
 
+  const handleSimulationChange = () => {
+    // Reconnect WebSocket if needed
+    window.location.reload();
+  };
+
   // Subscribe to tick events and fetch initial status
   useEffect(() => {
     if (ws.status !== 'connected') return;
@@ -60,6 +65,7 @@ export function App() {
         tickInfo={tickInfo} 
         ws={ws} 
         hasErrors={assertionCount > 0}
+        onSimulationChange={handleSimulationChange}
       />
       <div class="main-layout">
         <TabPanel 
