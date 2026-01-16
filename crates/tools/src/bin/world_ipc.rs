@@ -13,7 +13,7 @@ use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{Mutex, broadcast};
 use tokio::task::yield_now;
 use tokio::time::{Duration, sleep};
-use tracing::{debug, error, warn};
+use tracing::{debug, error, info, warn};
 
 use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
 use continuum_ir::CompiledWorld;
@@ -885,6 +885,13 @@ async fn handle_command(
 }
 
 fn execute_tick(state: &mut ServerState) -> anyhow::Result<()> {
+    // Run warmup if not complete
+    if !state.runtime.is_warmup_complete() {
+        info!("Executing warmup...");
+        state.runtime.execute_warmup()?;
+        info!("Warmup complete");
+    }
+
     let ctx = state.runtime.execute_tick()?;
     state.sim_time += ctx.dt.seconds();
     state.playback.advance(state.runtime.tick());
@@ -961,6 +968,7 @@ fn status_payload(state: &ServerState) -> StatusPayload {
         dt: ctx.dt.seconds(),
         phase: format!("{:?}", state.runtime.phase()),
         running: state.running,
+        warmup_complete: state.runtime.is_warmup_complete(),
     }
 }
 

@@ -336,6 +336,7 @@ pub struct StatusPayload {
     pub dt: f64,
     pub phase: String,
     pub running: bool,
+    pub warmup_complete: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
