@@ -891,6 +891,11 @@ impl MemberSignalBuffer {
             .unwrap_or(self.instance_count)
     }
 
+    /// Get all entity instance counts (for checkpoint serialization).
+    pub fn entity_instance_counts(&self) -> &std::collections::HashMap<String, usize> {
+        &self.entity_instance_counts
+    }
+
     /// Extract entity ID from a member signal name.
     ///
     /// Member signal names follow the pattern "entity.id.signal_name".

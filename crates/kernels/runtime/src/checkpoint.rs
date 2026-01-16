@@ -120,13 +120,29 @@ impl MemberSignalData {
     ///
     /// This converts the SoA representation (with custom allocators) into a
     /// portable format that can be serialized.
-    pub fn from_buffer(_buffer: &MemberSignalBuffer) -> Result<Self, CheckpointError> {
-        // For now, return empty data structure
-        // TODO: Implement actual extraction from SoA buffers
+    pub fn from_buffer(buffer: &MemberSignalBuffer) -> Result<Self, CheckpointError> {
+        let mut signals = HashMap::new();
+        let registry = buffer.registry();
+
+        // Extract all registered signals
+        for (signal_name, _meta) in registry.iter() {
+            let instance_count = buffer.instance_count_for_signal(signal_name);
+            let mut values = Vec::with_capacity(instance_count);
+
+            // Extract each instance value
+            for instance_idx in 0..instance_count {
+                if let Some(value) = buffer.get_current(signal_name, instance_idx) {
+                    values.push((instance_idx, value));
+                }
+            }
+
+            signals.insert(signal_name.clone(), values);
+        }
+
         Ok(Self {
-            signals: HashMap::new(),
-            entity_instance_counts: HashMap::new(),
-            total_instance_count: 0,
+            signals,
+            entity_instance_counts: buffer.entity_instance_counts().clone(),
+            total_instance_count: buffer.instance_count(),
         })
     }
 
@@ -135,10 +151,17 @@ impl MemberSignalData {
     /// This reconstructs the SoA representation from the portable serialized format.
     pub fn restore_into_buffer(
         &self,
-        _buffer: &mut MemberSignalBuffer,
+        buffer: &mut MemberSignalBuffer,
     ) -> Result<(), CheckpointError> {
-        // For now, no-op
-        // TODO: Implement actual restoration into SoA buffers
+        // Restore all signal values
+        for (signal_name, values) in &self.signals {
+            for (instance_idx, value) in values {
+                buffer
+                    .set_current(signal_name, *instance_idx, value.clone())
+                    .map_err(|e| CheckpointError::Serialization(e))?;
+            }
+        }
+
         Ok(())
     }
 }
@@ -475,5 +498,96 @@ mod tests {
 
         // Cleanup
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn test_member_signal_extraction_and_restoration() {
+        use crate::soa_storage::{MemberSignalBuffer, ValueType};
+        use crate::types::Value;
+
+        // Create a buffer and register some signals
+        let mut buffer = MemberSignalBuffer::new();
+        buffer.register_signal("terra.plate.age".to_string(), ValueType::scalar());
+        buffer.register_signal("terra.plate.velocity".to_string(), ValueType::vec3());
+        buffer.register_entity_count("terra.plate", 3);
+        buffer.init_instances(3);
+
+        // Set some values
+        buffer
+            .set_current("terra.plate.age", 0, Value::Scalar(100.0))
+            .unwrap();
+        buffer
+            .set_current("terra.plate.age", 1, Value::Scalar(200.0))
+            .unwrap();
+        buffer
+            .set_current("terra.plate.age", 2, Value::Scalar(300.0))
+            .unwrap();
+        buffer
+            .set_current("terra.plate.velocity", 0, Value::Vec3([1.0, 2.0, 3.0]))
+            .unwrap();
+        buffer
+            .set_current("terra.plate.velocity", 1, Value::Vec3([4.0, 5.0, 6.0]))
+            .unwrap();
+        buffer
+            .set_current("terra.plate.velocity", 2, Value::Vec3([7.0, 8.0, 9.0]))
+            .unwrap();
+
+        // Extract
+        let data = MemberSignalData::from_buffer(&buffer).expect("extraction failed");
+
+        // Verify extraction
+        assert_eq!(data.total_instance_count, 3);
+        assert_eq!(data.entity_instance_counts.get("terra.plate"), Some(&3));
+        assert_eq!(data.signals.len(), 2);
+
+        // Verify scalar signal
+        let age_values = data.signals.get("terra.plate.age").unwrap();
+        assert_eq!(age_values.len(), 3);
+        assert_eq!(age_values[0], (0, Value::Scalar(100.0)));
+        assert_eq!(age_values[1], (1, Value::Scalar(200.0)));
+        assert_eq!(age_values[2], (2, Value::Scalar(300.0)));
+
+        // Verify vec3 signal
+        let velocity_values = data.signals.get("terra.plate.velocity").unwrap();
+        assert_eq!(velocity_values.len(), 3);
+        assert_eq!(velocity_values[0], (0, Value::Vec3([1.0, 2.0, 3.0])));
+        assert_eq!(velocity_values[1], (1, Value::Vec3([4.0, 5.0, 6.0])));
+        assert_eq!(velocity_values[2], (2, Value::Vec3([7.0, 8.0, 9.0])));
+
+        // Create a new buffer and restore
+        let mut restored_buffer = MemberSignalBuffer::new();
+        restored_buffer.register_signal("terra.plate.age".to_string(), ValueType::scalar());
+        restored_buffer.register_signal("terra.plate.velocity".to_string(), ValueType::vec3());
+        restored_buffer.register_entity_count("terra.plate", 3);
+        restored_buffer.init_instances(3);
+
+        data.restore_into_buffer(&mut restored_buffer)
+            .expect("restoration failed");
+
+        // Verify restored values match original
+        assert_eq!(
+            restored_buffer.get_current("terra.plate.age", 0),
+            Some(Value::Scalar(100.0))
+        );
+        assert_eq!(
+            restored_buffer.get_current("terra.plate.age", 1),
+            Some(Value::Scalar(200.0))
+        );
+        assert_eq!(
+            restored_buffer.get_current("terra.plate.age", 2),
+            Some(Value::Scalar(300.0))
+        );
+        assert_eq!(
+            restored_buffer.get_current("terra.plate.velocity", 0),
+            Some(Value::Vec3([1.0, 2.0, 3.0]))
+        );
+        assert_eq!(
+            restored_buffer.get_current("terra.plate.velocity", 1),
+            Some(Value::Vec3([4.0, 5.0, 6.0]))
+        );
+        assert_eq!(
+            restored_buffer.get_current("terra.plate.velocity", 2),
+            Some(Value::Vec3([7.0, 8.0, 9.0]))
+        );
     }
 }
