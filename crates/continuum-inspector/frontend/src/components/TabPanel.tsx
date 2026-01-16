@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'preact/hooks';
-import type { SignalInfo, FieldInfo, EntityInfo, ChronicleEvent, AssertionFailure } from '../types/ipc';
+import type { SignalInfo, FieldInfo, EntityInfo, ChronicleEvent } from '../types/ipc';
 
 interface TabPanelProps {
-  currentTab: 'signals' | 'fields' | 'entities' | 'chronicles' | 'assertions';
-  onTabChange: (tab: 'signals' | 'fields' | 'entities' | 'chronicles' | 'assertions') => void;
+  currentTab: 'signals' | 'fields' | 'entities' | 'chronicles';
+  onTabChange: (tab: 'signals' | 'fields' | 'entities' | 'chronicles') => void;
   onSelectItem: (item: any) => void;
   ws: any;
 }
@@ -13,7 +13,6 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, ws }: TabPanel
   const [fields, setFields] = useState<string[]>([]);
   const [entities, setEntities] = useState<string[]>([]);
   const [chronicles, setChronicles] = useState<ChronicleEvent[]>([]);
-  const [assertions, setAssertions] = useState<AssertionFailure[]>([]);
 
   useEffect(() => {
     if (ws.status !== 'connected') return;
@@ -29,10 +28,6 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, ws }: TabPanel
 
     ws.sendRequest('entity.list').then((data: any) => {
       setEntities(data.entities || []);
-    }).catch(console.error);
-
-    ws.sendRequest('assertion.failures').then((data: any) => {
-      setAssertions(data.failures || []);
     }).catch(console.error);
 
     // Subscribe to chronicle events
@@ -85,9 +80,6 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, ws }: TabPanel
         <button class={currentTab === 'chronicles' ? 'active' : ''} onClick={() => onTabChange('chronicles')}>
           Chronicles ({chronicles.length})
         </button>
-        <button class={currentTab === 'assertions' ? 'active' : ''} onClick={() => onTabChange('assertions')}>
-          Assertions ({assertions.length})
-        </button>
       </div>
       <div class="tab-content">
         {currentTab === 'signals' && (
@@ -127,28 +119,6 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, ws }: TabPanel
                   <div class="chronicle-name">{chron.name}</div>
                   <div class="chronicle-meta">
                     Tick {chron.tick} • Era: {chron.era} • {chron.sim_time.toFixed(2)}s
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-        {currentTab === 'assertions' && (
-          <div class="item-list">
-            {assertions.length === 0 ? (
-              <div class="empty">No assertion failures</div>
-            ) : (
-              [...assertions].reverse().map((assertion, idx) => (
-                <div 
-                  key={idx} 
-                  class={`item assertion-item severity-${assertion.severity}`}
-                  onClick={() => onSelectItem({ type: 'assertion', data: assertion })}
-                >
-                  <div class="assertion-signal">{assertion.signal_id}</div>
-                  <div class="assertion-severity">{assertion.severity.toUpperCase()}</div>
-                  <div class="assertion-message">{assertion.message}</div>
-                  <div class="assertion-meta">
-                    Tick {assertion.tick} • Era: {assertion.era} • {assertion.sim_time.toFixed(2)}s
                   </div>
                 </div>
               ))
