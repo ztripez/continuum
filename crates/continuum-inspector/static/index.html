@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Continuum Inspector</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #0a0a0a;
+      color: #e0e0e0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      background: #1a1a1a;
+      padding: 1rem 2rem;
+      border-bottom: 1px solid #333;
+    }
+    h1 {
+      font-size: 1.5rem;
+      color: #60a5fa;
+    }
+    main {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .status {
+      text-align: center;
+    }
+    .status-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+    .status-indicator.connected { background: #22c55e; }
+    .status-indicator.disconnected { background: #ef4444; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Continuum Inspector</h1>
+  </header>
+  <main>
+    <div class="status">
+      <p>
+        <span class="status-indicator disconnected" id="status"></span>
+        <span id="status-text">Connecting to WebSocket...</span>
+      </p>
+    </div>
+  </main>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const statusText = document.getElementById('status-text');
+    
+    const ws = new WebSocket(`ws://${location.host}/ws`);
+    
+    ws.onopen = () => {
+      statusEl.classList.remove('disconnected');
+      statusEl.classList.add('connected');
+      statusText.textContent = 'Connected';
+      console.log('WebSocket connected');
+    };
+    
+    ws.onclose = () => {
+      statusEl.classList.remove('connected');
+      statusEl.classList.add('disconnected');
+      statusText.textContent = 'Disconnected';
+      console.log('WebSocket disconnected');
+    };
+    
+    ws.onerror = (err) => {
+      console.error('WebSocket error:', err);
+      statusText.textContent = 'Connection error';
+    };
+    
+    ws.onmessage = (event) => {
+      console.log('Message from server:', event.data);
+    };
+  </script>
+</body>
+</html>
