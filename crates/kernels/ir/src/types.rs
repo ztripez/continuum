@@ -349,6 +349,16 @@ pub enum ValidationSeverity {
     Info,
 }
 
+impl std::fmt::Display for ValidationSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValidationSeverity::Error => write!(f, "error"),
+            ValidationSeverity::Warning => write!(f, "warning"),
+            ValidationSeverity::Info => write!(f, "info"),
+        }
+    }
+}
+
 /// A compiled custom type definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CompiledType {

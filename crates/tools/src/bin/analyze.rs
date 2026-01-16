@@ -5,6 +5,7 @@
 use clap::{Parser, Subcommand};
 use std::process;
 
+use continuum_tools::analyze::commands::analyzer::{AnalyzerCommand, run as run_analyzer};
 use continuum_tools::analyze::commands::baseline::{BaselineCommand, run as run_baseline};
 
 #[derive(Parser, Debug)]
@@ -17,6 +18,8 @@ struct Cli {
 #[derive(Subcommand, Debug)]
 enum Commands {
     #[command(subcommand)]
+    Analyzer(AnalyzerCommand),
+    #[command(subcommand)]
     Baseline(BaselineCommand),
 }
 
@@ -26,6 +29,7 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
+        Commands::Analyzer(cmd) => run_analyzer(cmd),
         Commands::Baseline(cmd) => run_baseline(cmd),
     };
 
