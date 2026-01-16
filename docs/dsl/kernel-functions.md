@@ -224,7 +224,30 @@ Maximum of two values.
 ```
 maths.clamp(x: Scalar<T>, lo: Scalar<T>, hi: Scalar<T>) -> Scalar<T>
 ```
+⚠️ **Dangerous Function** - Requires `: uses(maths.clamping)`
+
 Clamp value to range [lo, hi]. All arguments must have same unit.
+
+Silently constrains values to bounds, masking out-of-range conditions that may indicate bugs. **Prefer using assertions** to validate bounds instead (see `@docs/dsl/assertions.md`).
+
+```cdsl
+signal example {
+    : Scalar<K>
+    : uses(maths.clamping)  // Required explicit opt-in
+    resolve {
+        maths.clamp(prev, 0 <K>, 100 <K>)
+    }
+}
+```
+
+```
+maths.saturate(x: Scalar<1>) -> Scalar<1>
+```
+⚠️ **Dangerous Function** - Requires `: uses(maths.clamping)`
+
+Clamp value to range [0, 1]. Equivalent to `clamp(x, 0.0, 1.0)`.
+
+Silently constrains values to bounds, masking out-of-range conditions that may indicate bugs. **Prefer using assertions** to validate bounds instead (see `@docs/dsl/assertions.md`).
 
 ```
 maths.step(edge: Scalar<T>, x: Scalar<T>) -> Scalar<1>
@@ -1295,7 +1318,7 @@ world_seed
 | Operation | Function |
 |-----------|----------|
 | Square root | `maths.sqrt(x)` |
-| Clamp | `maths.clamp(x, lo, hi)` |
+| Clamp ⚠️ | `maths.clamp(x, lo, hi)` (requires `: uses(maths.clamping)`) |
 | Linear interpolation | `maths.lerp(a, b, t)` |
 | Dot product | `vector.dot(a, b)` |
 | Cross product | `vector.cross(a, b)` |

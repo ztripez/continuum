@@ -92,11 +92,13 @@ If removing an observer changes results, the boundary has been violated.
 
 Silent error masking is forbidden.
 
-- Do not silently clamp, wrap, or “fix” invalid values.
+- Do not silently clamp, wrap, or "fix" invalid values.
 - Invalid states must be detected and surfaced explicitly.
 - A visible failure is always preferable to silent corruption.
 
 Correctness is more important than continuity.
+
+**Enforcement:** Functions that silently mask errors (e.g., `maths.clamp`, `maths.saturate`) require explicit `: uses()` declarations in DSL. This forces conscious decision-making when using dangerous patterns. See `@docs/dsl/assertions.md` for alternatives.
 
 ---
 

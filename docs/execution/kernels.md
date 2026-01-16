@@ -400,6 +400,50 @@ Custom kernels must:
 - Pass unit-consistency checks
 - Provide CPU fallback if GPU implementation exists
 
+### 9.4 Dangerous Functions
+
+Some functions violate the "fail loudly" principle by silently masking errors. These must be marked as dangerous using `requires_uses`:
+
+```rust
+#[kernel_fn(
+    namespace = "maths",
+    requires_uses = "clamping",
+    requires_uses_hint = "Silently constrains values to bounds, masking out-of-range conditions that may indicate bugs. Use assertions to validate bounds instead"
+)]
+pub fn clamp(value: Scalar<T>, lo: Scalar<T>, hi: Scalar<T>) -> Scalar<T> {
+    value.max(lo).min(hi)
+}
+```
+
+**When to mark a function as dangerous:**
+- It silently constrains values (clamping, saturation, wrapping)
+- It provides fallback behavior that masks problems (default values, silent error recovery)
+- It hides information that could indicate bugs
+
+**DSL usage requires explicit opt-in:**
+
+```cdsl
+signal example {
+    : Scalar<K>
+    : uses(maths.clamping)  // Explicit declaration required
+    
+    resolve {
+        maths.clamp(prev, 0 <K>, 100 <K>)  // OK - declared
+    }
+}
+```
+
+Without the `: uses(maths.clamping)` declaration, compilation fails with the hint explaining why the function is dangerous and suggesting alternatives.
+
+**Hint format:** Should explain:
+1. **Why it's dangerous** - What problem does it mask?
+2. **What to use instead** - Point to safer alternatives (e.g., assertions)
+
+**Common dangerous patterns:**
+- `requires_uses = "clamping"` - For `clamp`, `saturate`, etc.
+- `requires_uses = "wrapping"` - For angle wrapping, modulo with silent overflow
+- `requires_uses = "fallback"` - For functions with default/fallback values
+
 ---
 
 ## 10. Kernel Batching
