@@ -56,16 +56,7 @@ pub fn identity4() -> Mat4 {
 
 /// Transpose a matrix: `transpose(m)`
 /// Converts column-major to row-major order (or vice versa)
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix],
-    unit_in = [UnitAny],
-    shape_out = ShapeSameAs(0),
-    unit_out = UnitDerivSameAs(0)
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn transpose(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.transpose expects exactly 1 argument");
@@ -94,16 +85,7 @@ pub fn transpose(args: &[Value]) -> Value {
 }
 
 /// Determinant of a matrix: `determinant(m)` -> Scalar
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix],
-    unit_in = [UnitAny],
-    shape_out = Scalar,
-    unit_out = UnitDerivSameAs(0)
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn determinant(args: &[Value]) -> f64 {
     if args.len() != 1 {
         panic!("matrix.determinant expects exactly 1 argument");
@@ -168,16 +150,7 @@ pub fn determinant(args: &[Value]) -> f64 {
 
 /// Inverse of a matrix: `inverse(m)` -> Mat
 /// Panics if matrix is singular (determinant = 0)
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix],
-    unit_in = [UnitAny],
-    shape_out = ShapeSameAs(0),
-    unit_out = Inverse(0)
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn inverse(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.inverse expects exactly 1 argument");
@@ -437,16 +410,7 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
 /// Eigenvalues of a symmetric matrix: `eigenvalues(m)` -> Vec
 /// Returns eigenvalues sorted in descending order
 /// Note: Only works for symmetric matrices. Non-symmetric matrices will give incorrect results.
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix],
-    unit_in = [UnitAny],
-    shape_out = ShapeVectorDim(DimVar(0)),
-    unit_out = UnitDerivSameAs(0)
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn eigenvalues(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.eigenvalues expects exactly 1 argument");
@@ -485,16 +449,7 @@ pub fn eigenvalues(args: &[Value]) -> Value {
 
 /// Eigenvectors of a symmetric matrix: `eigenvectors(m)` -> Mat
 /// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues)
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix],
-    unit_in = [UnitDimensionless],
-    shape_out = ShapeSameAs(0),
-    unit_out = Dimensionless
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn eigenvectors(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.eigenvectors expects exactly 1 argument");
@@ -558,16 +513,7 @@ pub fn eigenvectors(args: &[Value]) -> Value {
 
 /// SVD - U matrix: `svd_u(m)` -> Mat
 /// Returns the left singular vectors (U in A = UΣV^T)
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix],
-    unit_in = [UnitDimensionless],
-    shape_out = ShapeSameAs(0),
-    unit_out = Dimensionless
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn svd_u(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.svd_u expects exactly 1 argument");
@@ -597,16 +543,7 @@ pub fn svd_u(args: &[Value]) -> Value {
 
 /// SVD - singular values: `svd_s(m)` -> Vec
 /// Returns the singular values (diagonal of Σ in A = UΣV^T)
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix],
-    unit_in = [UnitAny],
-    shape_out = ShapeVectorDim(DimVar(0)),
-    unit_out = UnitDerivSameAs(0)
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn svd_s(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.svd_s expects exactly 1 argument");
@@ -642,16 +579,7 @@ pub fn svd_s(args: &[Value]) -> Value {
 
 /// SVD - V^T matrix: `svd_vt(m)` -> Mat
 /// Returns the transposed right singular vectors (V^T in A = UΣV^T)
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix],
-    unit_in = [UnitDimensionless],
-    shape_out = ShapeSameAs(0),
-    unit_out = Dimensionless
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn svd_vt(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.svd_vt expects exactly 1 argument");
@@ -684,16 +612,7 @@ pub fn svd_vt(args: &[Value]) -> Value {
 // ============================================================================
 
 /// Trace of a matrix (sum of diagonal elements): `trace(m)` -> Scalar
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix],
-    unit_in = [UnitAny],
-    shape_out = Scalar,
-    unit_out = UnitDerivSameAs(0)
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn trace(args: &[Value]) -> f64 {
     if args.len() != 1 {
         panic!("matrix.trace expects exactly 1 argument");

@@ -597,43 +597,19 @@ pub fn wrap(value: f64, min: f64, max: f64) -> f64 {
 // === Variadic ===
 
 /// Minimum: `min(a, b, ...)`
-#[kernel_fn(
-    namespace = "maths",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyScalar],
-    unit_in = [UnitAny],
-    shape_out = Scalar,
-    unit_out = UnitDerivSameAs(0)
-)]
+#[kernel_fn(namespace = "maths", variadic)]
 pub fn min(args: &[f64]) -> f64 {
     args.iter().cloned().fold(f64::INFINITY, f64::min)
 }
 
 /// Maximum: `max(a, b, ...)`
-#[kernel_fn(
-    namespace = "maths",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyScalar],
-    unit_in = [UnitAny],
-    shape_out = Scalar,
-    unit_out = UnitDerivSameAs(0)
-)]
+#[kernel_fn(namespace = "maths", variadic)]
 pub fn max(args: &[f64]) -> f64 {
     args.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
 }
 
 /// Sum: `sum(a, b, ...)`
-#[kernel_fn(
-    namespace = "maths",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyScalar],
-    unit_in = [UnitAny],
-    shape_out = Scalar,
-    unit_out = UnitDerivSameAs(0)
-)]
+#[kernel_fn(namespace = "maths", variadic)]
 pub fn sum(args: &[f64]) -> f64 {
     args.iter().sum()
 }

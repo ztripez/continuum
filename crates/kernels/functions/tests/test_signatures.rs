@@ -1,6 +1,7 @@
 // Test KERNEL_SIGNATURES distributed slice population
 
 // Import the library to trigger kernel registration
+#[allow(unused_imports)]
 use continuum_functions;
 use continuum_kernel_types::KERNEL_SIGNATURES;
 
@@ -9,47 +10,113 @@ fn test_kernel_signatures_populated() {
     println!("Testing KERNEL_SIGNATURES distributed slice...");
     println!("Total signatures registered: {}", KERNEL_SIGNATURES.len());
 
-    // Should have at least the logic and compare functions we migrated
-    assert!(
-        KERNEL_SIGNATURES.len() >= 10,
-        "Expected at least 10 signatures (4 logic + 6 compare), found {}",
+    // Assert exact count of all migrated kernels with type constraints
+    // Note: Variadic functions (12 total) don't have compile-time signatures
+    assert_eq!(
+        KERNEL_SIGNATURES.len(),
+        148,
+        "Expected exactly 148 signatures (160 total - 12 variadic), found {}",
         KERNEL_SIGNATURES.len()
     );
 
-    // Find logic.and signature
-    let and_sig = KERNEL_SIGNATURES
-        .iter()
-        .find(|sig| sig.id.namespace == "logic" && sig.id.name == "and");
-
-    assert!(and_sig.is_some(), "logic.and signature not found!");
-
-    let sig = and_sig.unwrap();
-    println!("\nFound logic.and signature:");
-    println!("  Namespace: {}", sig.id.namespace);
-    println!("  Name: {}", sig.id.name);
-    println!("  Purity: {:?}", sig.purity);
-    println!("  Params: {}", sig.params.len());
-
-    assert_eq!(sig.params.len(), 2, "logic.and should have 2 parameters");
-
-    for (i, param) in sig.params.iter().enumerate() {
-        println!(
-            "    Param {}: {} (shape: {:?}, unit: {:?})",
-            i, param.name, param.shape, param.unit
-        );
-    }
-    println!(
-        "  Returns: shape={:?}, unit={:?}",
-        sig.returns.shape, sig.returns.unit
+    // Group signatures by namespace
+    let namespaces: std::collections::HashMap<&str, Vec<&str>> =
+        KERNEL_SIGNATURES
+            .iter()
+            .fold(std::collections::HashMap::new(), |mut acc, sig| {
+                acc.entry(sig.id.namespace.as_ref())
+                    .or_insert_with(Vec::new)
+                    .push(sig.id.name.as_ref());
+                acc
+            });
+    assert!(
+        namespaces.contains_key("matrix"),
+        "Missing matrix namespace"
+    );
+    assert!(namespaces.contains_key("logic"), "Missing logic namespace");
+    assert!(
+        namespaces.contains_key("compare"),
+        "Missing compare namespace"
+    );
+    assert!(namespaces.contains_key("dt"), "Missing dt namespace");
+    assert!(namespaces.contains_key("rng"), "Missing rng namespace");
+    assert!(namespaces.contains_key("quat"), "Missing quat namespace");
+    assert!(
+        namespaces.contains_key("tensor"),
+        "Missing tensor namespace"
+    );
+    assert!(
+        namespaces.contains_key(""),
+        "Missing bare-name effect operations"
     );
 
-    println!("\nAll signatures:");
-    for sig in KERNEL_SIGNATURES.iter() {
-        println!(
-            "  {}.{} ({} params)",
-            sig.id.namespace,
-            sig.id.name,
-            sig.params.len()
-        );
-    }
+    // Verify bare-name effect operations (empty namespace)
+    let effect_ops = namespaces.get("").unwrap();
+    assert!(effect_ops.contains(&"emit"), "emit not found");
+    assert!(effect_ops.contains(&"spawn"), "spawn not found");
+    assert!(effect_ops.contains(&"destroy"), "destroy not found");
+    assert!(effect_ops.contains(&"log"), "log not found");
+}
+
+#[test]
+fn test_representative_signatures() {
+    use continuum_kernel_types::{KernelPurity, ShapeConstraint, UnitConstraint};
+
+    // Test maths.add - should have shape/unit constraints
+    let add_sig = KERNEL_SIGNATURES
+        .iter()
+        .find(|sig| sig.id.namespace == "maths" && sig.id.name == "add")
+        .expect("maths.add not found");
+
+    assert_eq!(add_sig.purity, KernelPurity::Pure);
+    assert_eq!(add_sig.params.len(), 2);
+    assert!(matches!(
+        add_sig.params[0].shape,
+        ShapeConstraint::Any { .. }
+    ));
+    assert!(matches!(
+        add_sig.params[1].shape,
+        ShapeConstraint::SameAs(0)
+    ));
+
+    // Test logic.and - boolean operations
+    let and_sig = KERNEL_SIGNATURES
+        .iter()
+        .find(|sig| sig.id.namespace == "logic" && sig.id.name == "and")
+        .expect("logic.and not found");
+
+    assert_eq!(and_sig.purity, KernelPurity::Pure);
+    assert_eq!(and_sig.params.len(), 2);
+
+    // Test dt.integrate - simulation category
+    let integrate_sig = KERNEL_SIGNATURES
+        .iter()
+        .find(|sig| sig.id.namespace == "dt" && sig.id.name == "integrate")
+        .expect("dt.integrate not found");
+
+    assert_eq!(integrate_sig.purity, KernelPurity::Pure);
+    assert_eq!(integrate_sig.params.len(), 2); // prev, rate (dt is implicit)
+    assert!(matches!(integrate_sig.params[0].unit, UnitConstraint::Any));
+
+    // Test effect operation (bare name)
+    let emit_sig = KERNEL_SIGNATURES
+        .iter()
+        .find(|sig| sig.id.namespace == "" && sig.id.name == "emit")
+        .expect("emit not found");
+
+    assert_eq!(emit_sig.purity, KernelPurity::Effect);
+    assert!(
+        emit_sig.id.namespace.is_empty(),
+        "emit should have empty namespace"
+    );
+
+    // Test vector.dot - should have specific shape constraints
+    let dot_sig = KERNEL_SIGNATURES
+        .iter()
+        .find(|sig| sig.id.namespace == "vector" && sig.id.name == "dot")
+        .expect("vector.dot not found");
+
+    assert_eq!(dot_sig.purity, KernelPurity::Pure);
+    // Should have vector constraints (implementation may vary)
+    assert!(dot_sig.params.len() >= 2);
 }
