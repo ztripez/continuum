@@ -267,6 +267,11 @@ pub trait CanEmit {
     /// * `target` - Hierarchical path to the signal receiving the value
     /// * `value` - Value to emit (owned, will be accumulated)
     ///
+    /// # Returns
+    ///
+    /// Nothing. Emission is a write-only operation that accumulates the value
+    /// into the target signal's pending state.
+    ///
     /// # Panics
     ///
     /// Panics if `target` does not refer to a valid signal. Invalid targets
