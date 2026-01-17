@@ -63,6 +63,7 @@
 mod expr;
 mod kernel;
 mod node;
+mod pipeline;
 mod role;
 mod untyped;
 mod warmup;
@@ -70,6 +71,7 @@ mod warmup;
 pub use expr::*;
 pub use kernel::*;
 pub use node::*;
+pub use pipeline::*;
 pub use role::*;
 pub use warmup::*;
 
