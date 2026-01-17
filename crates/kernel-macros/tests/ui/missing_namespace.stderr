@@ -1,0 +1,13 @@
+error: unexpected end of input, missing `namespace = "..."` argument
+  --> tests/ui/missing_namespace.rs:5:1
+   |
+ 5 | / #[kernel_fn(
+ 6 | |     purity = Pure,
+ 7 | |     shape_in = [AnyScalar],
+ 8 | |     unit_in = [UnitAny],
+ 9 | |     shape_out = Scalar,
+10 | |     unit_out = UnitDerivSameAs(0)
+11 | | )]
+   | |__^
+   |
+   = note: this error originates in the attribute macro `kernel_fn` (in Nightly builds, run with -Z macro-backtrace for more info)

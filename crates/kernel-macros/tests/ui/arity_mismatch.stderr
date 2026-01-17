@@ -1,0 +1,5 @@
+error: shape_in has 2 constraints but function has 1 parameters
+  --> tests/ui/arity_mismatch.rs:13:8
+   |
+13 | pub fn test_fn(x: f64) -> f64 {
+   |        ^^^^^^^

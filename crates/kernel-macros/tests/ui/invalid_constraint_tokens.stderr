@@ -1,0 +1,19 @@
+error[E0433]: failed to resolve: could not find `continuum_kernel_registry` in the list of imported crates
+  --> tests/ui/invalid_constraint_tokens.rs:5:1
+   |
+ 5 | / #[kernel_fn(
+ 6 | |     namespace = "test",
+ 7 | |     purity = Pure,
+ 8 | |     shape_in = [ThisIsNotAValidConstraint],
+...  |
+11 | |     unit_out = UnitDerivSameAs(0)
+12 | | )]
+   | |__^ could not find `continuum_kernel_registry` in the list of imported crates
+   |
+   = note: this error originates in the attribute macro `kernel_fn` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find value `ThisIsNotAValidConstraint` in this scope
+ --> tests/ui/invalid_constraint_tokens.rs:8:17
+  |
+8 |     shape_in = [ThisIsNotAValidConstraint],
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^ not found in this scope

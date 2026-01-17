@@ -1,0 +1,5 @@
+error: unit_in attribute required when type constraints are provided
+  --> tests/ui/partial_constraints.rs:12:8
+   |
+12 | pub fn test_fn(x: f64) -> f64 {
+   |        ^^^^^^^
