@@ -1,0 +1,1491 @@
+//! Compile-time kernel type signatures
+//!
+//! This module defines **compile-time type signatures** for kernel operations used
+//! during DSL compilation and type checking. This is separate from the **runtime
+//! kernel registry** (`crates/kernel-registry`) which dispatches kernel calls during
+//! simulation execution.
+//!
+//! # Architecture
+//!
+//! - **Compile-time** (this module): Type signatures for DSL validation
+//! - **Runtime** (`kernel-registry`): Actual implementations populated via `#[kernel_fn]` macro
+//!
+//! Eventually, these should be synced by extracting type signatures from the runtime
+//! registry metadata.
+//!
+//! # Design Principles
+//!
+//! ## Type Safety
+//!
+//! All kernel calls are type-checked at compile time:
+//! - Argument count must match signature
+//! - Argument shapes must satisfy constraints (exact, broadcast, dimension variables)
+//! - Argument units must satisfy constraints (exact, dimensionless, angle, same-as)
+//! - Return type is derived from argument types
+//!
+//! ## Purity Enforcement
+//!
+//! Kernels are classified as Pure or Effect:
+//! - **Pure**: No side effects, deterministic, can be used in any phase
+//! - **Effect**: Mutates state (emit, spawn, destroy) or artifacts (log)
+//!
+//! Phase restrictions:
+//! - **Resolve, Measure, Assert**: Pure only
+//! - **Collect, Fracture, Apply**: Pure + Effect
+//!
+//! ## Determinism
+//!
+//! All kernels are deterministic. There are no non-deterministic kernels:
+//! - `rng.*` kernels derive randomness from `(seed, InstanceId, tick)` - fully reproducible
+//! - No kernel depends on wall-clock time, thread scheduling, or external state
+//!
+//! # Examples
+//!
+//! ## Mathematical Operations
+//!
+//! ```cdsl
+//! // maths.add: same shape, same unit, pure
+//! let sum = maths.add(velocity1, velocity2)  // Vector<3, m/s> + Vector<3, m/s> → Vector<3, m/s>
+//!
+//! // maths.mul: same shape, multiply units, pure
+//! let momentum = maths.mul(mass, velocity)  // Scalar<kg> * Vector<3, m/s> → Vector<3, kg·m/s>
+//! ```
+//!
+//! ## Vector Operations
+//!
+//! ```cdsl
+//! // vector.dot: scalar result, multiply units, dimensions must match
+//! let energy = vector.dot(force, displacement)  // Vector<3, N> · Vector<3, m> → Scalar<N·m>
+//!
+//! // vector.cross: 3D only, multiply units
+//! let torque = vector.cross(position, force)  // Vector<3, m> × Vector<3, N> → Vector<3, N·m>
+//! ```
+//!
+//! ## Effect Operations
+//!
+//! ```cdsl
+//! // emit: effect kernel, only in Collect/Apply phases
+//! emit(target_signal, computed_value)  // Mutates signal inputs
+//!
+//! // spawn: effect kernel, only in Fracture phase
+//! spawn(PlateEntity, { position, velocity })  // Creates new entity
+//! ```
+//!
+//! # Kernel Registry
+//!
+//! All built-in kernels are registered in a compile-time registry (`KERNEL_REGISTRY`).
+//! The registry is used for:
+//! - Type-checking kernel calls during IR construction
+//! - Validating purity during phase assignment
+//! - Deriving return types from argument types
+
+use super::KernelId;
+use crate::foundation::{Shape, Unit};
+
+/// Kernel signature
+///
+/// Defines the type signature and purity class of a kernel operation.
+/// Used for compile-time type checking and purity enforcement.
+///
+/// # Fields
+///
+/// - `id`: Unique kernel identifier (namespace + name)
+/// - `params`: Parameter type constraints
+/// - `returns`: Return type derivation
+/// - `purity`: Effect discipline (pure vs effectful)
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::{KernelSignature, KernelParam, KernelReturn, KernelPurity};
+/// use continuum_cdsl::ast::{ShapeConstraint, UnitConstraint, ShapeDerivation, UnitDerivation};
+/// use continuum_cdsl::ast::KernelId;
+///
+/// // maths.add(a, b) → same shape, same unit, pure
+/// let add_sig = KernelSignature {
+///     id: KernelId::new("maths", "add"),
+///     params: vec![
+///         KernelParam { name: "a", shape: ShapeConstraint::Any, unit: UnitConstraint::Any },
+///         KernelParam { name: "b", shape: ShapeConstraint::SameAs(0), unit: UnitConstraint::SameAs(0) },
+///     ],
+///     returns: KernelReturn {
+///         shape: ShapeDerivation::SameAs(0),
+///         unit: UnitDerivation::SameAs(0)
+///     },
+///     purity: KernelPurity::Pure,
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct KernelSignature {
+    /// Kernel identifier
+    pub id: KernelId,
+
+    /// Parameter type constraints
+    pub params: Vec<KernelParam>,
+
+    /// Return type derivation
+    pub returns: KernelReturn,
+
+    /// Effect discipline
+    pub purity: KernelPurity,
+}
+
+/// Kernel parameter type constraint
+///
+/// Defines the type requirements for a kernel parameter.
+/// Used during type checking to validate argument types.
+///
+/// # Fields
+///
+/// - `name`: Parameter name (for error messages)
+/// - `shape`: Shape constraint (exact, any, same-as, broadcast)
+/// - `unit`: Unit constraint (exact, dimensionless, angle, same-as)
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::{KernelParam, ShapeConstraint, UnitConstraint};
+///
+/// // Parameter that accepts any shape/unit
+/// let param_any = KernelParam {
+///     name: "value",
+///     shape: ShapeConstraint::Any,
+///     unit: UnitConstraint::Any
+/// };
+///
+/// // Parameter that must match parameter 0
+/// let param_same = KernelParam {
+///     name: "other",
+///     shape: ShapeConstraint::SameAs(0),
+///     unit: UnitConstraint::SameAs(0)
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct KernelParam {
+    /// Parameter name
+    pub name: &'static str,
+
+    /// Shape constraint
+    pub shape: ShapeConstraint,
+
+    /// Unit constraint
+    pub unit: UnitConstraint,
+}
+
+/// Shape constraint for kernel parameters
+///
+/// Defines what shapes are allowed for a parameter.
+/// Constraints can be exact, categorical (any scalar/vector/matrix),
+/// or relational (same-as, broadcast-with, dimension variables).
+///
+/// # Constraint Types
+///
+/// - **Exact**: Must be exactly this shape
+/// - **Categorical**: Any scalar/vector/matrix
+/// - **Relational**: Must match or broadcast with another parameter
+/// - **Dimension-constrained**: Vector/matrix with constrained dimensions
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::{ShapeConstraint, DimConstraint};
+/// use continuum_cdsl::foundation::Shape;
+///
+/// // Must be exactly Scalar
+/// let exact = ShapeConstraint::Exact(Shape::Scalar);
+///
+/// // Any vector (dimension unconstrained)
+/// let any_vec = ShapeConstraint::AnyVector;
+///
+/// // Same shape as parameter 0
+/// let same = ShapeConstraint::SameAs(0);
+///
+/// // Vector with dimension variable 0
+/// let vec_dim = ShapeConstraint::VectorDim(DimConstraint::Var(0));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ShapeConstraint {
+    /// Must be exactly this shape
+    Exact(Shape),
+
+    /// Any scalar
+    AnyScalar,
+
+    /// Vector of any dimension
+    AnyVector,
+
+    /// Matrix of any dimensions
+    AnyMatrix,
+
+    /// Any shape
+    Any,
+
+    /// Same shape as parameter N
+    SameAs(usize),
+
+    /// Broadcastable with parameter N
+    BroadcastWith(usize),
+
+    /// Vector with constrained dimension
+    VectorDim(DimConstraint),
+
+    /// Matrix with constrained dimensions
+    MatrixDims {
+        /// Row dimension constraint
+        rows: DimConstraint,
+        /// Column dimension constraint
+        cols: DimConstraint,
+    },
+}
+
+/// Dimension constraint for vectors and matrices
+///
+/// Defines dimension requirements for vector/matrix parameters.
+/// Dimension variables (Var) allow expressing constraints like
+/// "these two dimensions must match" without specifying exact values.
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::DimConstraint;
+///
+/// // Must be exactly 3
+/// let exact = DimConstraint::Exact(3);
+///
+/// // Any dimension
+/// let any = DimConstraint::Any;
+///
+/// // Dimension variable 0 (must match all other Var(0))
+/// let var = DimConstraint::Var(0);
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum DimConstraint {
+    /// Must be exactly this dimension
+    Exact(u8),
+
+    /// Any dimension
+    Any,
+
+    /// Dimension variable - Var(N) must equal all other Var(N)
+    Var(usize),
+}
+
+/// Unit constraint for kernel parameters
+///
+/// Defines what units are allowed for a parameter.
+/// Constraints can be exact, categorical (dimensionless, angle),
+/// or relational (same-as).
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::UnitConstraint;
+/// use continuum_cdsl::foundation::Unit;
+///
+/// // Must be exactly meters
+/// let exact = UnitConstraint::Exact(Unit::meters());
+///
+/// // Must be dimensionless
+/// let dimensionless = UnitConstraint::Dimensionless;
+///
+/// // Must be angle (rad or deg)
+/// let angle = UnitConstraint::Angle;
+///
+/// // Same unit as parameter 0
+/// let same = UnitConstraint::SameAs(0);
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnitConstraint {
+    /// Must be exactly this unit
+    Exact(Unit),
+
+    /// Must be dimensionless
+    Dimensionless,
+
+    /// Must be angle (for trig functions)
+    Angle,
+
+    /// Any unit
+    Any,
+
+    /// Same unit as parameter N
+    SameAs(usize),
+}
+
+/// Kernel return type
+///
+/// Defines how the return type is derived from parameter types.
+/// The return type is computed during type checking based on
+/// the actual argument types.
+///
+/// # Fields
+///
+/// - `shape`: Shape derivation rule
+/// - `unit`: Unit derivation rule
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::{KernelReturn, ShapeDerivation, UnitDerivation};
+///
+/// // Returns same shape and unit as parameter 0
+/// let same_as = KernelReturn {
+///     shape: ShapeDerivation::SameAs(0),
+///     unit: UnitDerivation::SameAs(0)
+/// };
+///
+/// // Returns scalar with product of parameter units
+/// let dot_product = KernelReturn {
+///     shape: ShapeDerivation::Scalar,
+///     unit: UnitDerivation::Multiply(vec![0, 1])
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct KernelReturn {
+    /// Shape derivation
+    pub shape: ShapeDerivation,
+
+    /// Unit derivation
+    pub unit: UnitDerivation,
+}
+
+/// Shape derivation for kernel return type
+///
+/// Defines how the return shape is computed from parameter shapes.
+/// Can be exact, derived from a parameter, computed from broadcast,
+/// or computed from dimension variables.
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::{ShapeDerivation, DimConstraint};
+/// use continuum_cdsl::foundation::Shape;
+///
+/// // Always returns scalar
+/// let scalar = ShapeDerivation::Scalar;
+///
+/// // Returns same shape as parameter 0
+/// let same = ShapeDerivation::SameAs(0);
+///
+/// // Returns broadcast of parameters 0 and 1
+/// let broadcast = ShapeDerivation::FromBroadcast(0, 1);
+///
+/// // Returns vector with dimension from variable 0
+/// let vec_dim = ShapeDerivation::VectorDim(DimConstraint::Var(0));
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum ShapeDerivation {
+    /// Always this exact shape
+    Exact(Shape),
+
+    /// Same shape as parameter N
+    SameAs(usize),
+
+    /// Broadcast result of parameters N and M
+    FromBroadcast(usize, usize),
+
+    /// Always scalar (reductions)
+    Scalar,
+
+    /// Vector with dimension from constraint
+    VectorDim(DimConstraint),
+
+    /// Matrix with dimensions from constraints
+    MatrixDims {
+        /// Row dimension constraint
+        rows: DimConstraint,
+        /// Column dimension constraint
+        cols: DimConstraint,
+    },
+}
+
+/// Unit derivation for kernel return type
+///
+/// Defines how the return unit is computed from parameter units.
+/// Can be exact, derived from a parameter, or computed from
+/// arithmetic operations (multiply, divide, sqrt, inverse).
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::UnitDerivation;
+/// use continuum_cdsl::foundation::Unit;
+///
+/// // Always dimensionless
+/// let dimensionless = UnitDerivation::Dimensionless;
+///
+/// // Same unit as parameter 0
+/// let same = UnitDerivation::SameAs(0);
+///
+/// // Product of parameter 0 and 1 units
+/// let multiply = UnitDerivation::Multiply(vec![0, 1]);
+///
+/// // Parameter 0 unit divided by parameter 1 unit
+/// let divide = UnitDerivation::Divide(0, 1);
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub enum UnitDerivation {
+    /// Always this exact unit
+    Exact(Unit),
+
+    /// Always dimensionless
+    Dimensionless,
+
+    /// Same unit as parameter N
+    SameAs(usize),
+
+    /// Product of parameter units
+    Multiply(Vec<usize>),
+
+    /// Parameter N unit divided by parameter M unit
+    Divide(usize, usize),
+
+    /// Square root of parameter N unit
+    Sqrt(usize),
+
+    /// Inverse of parameter N unit (1 / unit)
+    Inverse(usize),
+}
+
+/// Kernel purity class
+///
+/// Classifies kernels by their effect discipline.
+/// Used to enforce phase restrictions (pure-only phases vs effect-allowed phases).
+///
+/// # Purity Classes
+///
+/// - **Pure**: No side effects, deterministic, can be used in any phase
+/// - **Effect**: Mutates state (emit, spawn, destroy) or artifacts (log)
+///
+/// # Phase Restrictions
+///
+/// | Phase | Allowed |
+/// |-------|---------|
+/// | Configure | Pure |
+/// | Collect | Pure + Effect |
+/// | Resolve | **Pure only** |
+/// | Fracture | Pure + Effect |
+/// | Measure | **Pure only** |
+/// | Assert | Pure |
+/// | Apply | Pure + Effect |
+///
+/// # Determinism
+///
+/// All kernels are deterministic, including `rng.*`:
+/// - `rng.*` kernels derive randomness from `(seed, InstanceId, tick)`
+/// - Fully reproducible given the same seed
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::KernelPurity;
+///
+/// // Pure kernel (maths, vector, logic, etc.)
+/// let pure = KernelPurity::Pure;
+///
+/// // Effect kernel (emit, spawn, destroy, log)
+/// let effect = KernelPurity::Effect;
+///
+/// assert!(pure.is_pure());
+/// assert!(!effect.is_pure());
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum KernelPurity {
+    /// No side effects, deterministic, can be used anywhere
+    Pure,
+
+    /// Mutates state (emit, spawn, destroy) or artifacts (log)
+    Effect,
+}
+
+impl KernelPurity {
+    /// Check if this kernel is pure
+    ///
+    /// # Parameters
+    ///
+    /// None
+    ///
+    /// # Returns
+    ///
+    /// `true` if Pure, `false` if Effect
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::ast::KernelPurity;
+    ///
+    /// assert!(KernelPurity::Pure.is_pure());
+    /// assert!(!KernelPurity::Effect.is_pure());
+    /// ```
+    pub fn is_pure(self) -> bool {
+        matches!(self, Self::Pure)
+    }
+}
+
+/// Kernel registry
+///
+/// Global registry of all built-in kernel signatures.
+/// Used for type checking kernel calls during compilation.
+///
+/// # Thread Safety
+///
+/// The registry is initialized lazily using `OnceLock` for thread-safe initialization.
+/// After first access, lookups are lock-free.
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::KernelRegistry;
+/// use continuum_cdsl::ast::KernelId;
+///
+/// let registry = KernelRegistry::global();
+/// let sig = registry.get(&KernelId::new("maths", "add"));
+/// assert!(sig.is_some());
+/// ```
+pub struct KernelRegistry {
+    signatures: std::collections::HashMap<KernelId, KernelSignature>,
+}
+
+impl KernelRegistry {
+    /// Create a new empty kernel registry
+    ///
+    /// # Parameters
+    ///
+    /// None
+    ///
+    /// # Returns
+    ///
+    /// Empty registry
+    fn new() -> Self {
+        Self {
+            signatures: std::collections::HashMap::new(),
+        }
+    }
+
+    /// Register a kernel signature
+    ///
+    /// # Parameters
+    ///
+    /// - `signature`: Kernel signature to register
+    ///
+    /// # Panics
+    ///
+    /// Panics if a kernel with the same ID is already registered
+    fn register(&mut self, signature: KernelSignature) {
+        let id = signature.id.clone();
+        if self.signatures.insert(id.clone(), signature).is_some() {
+            panic!("Duplicate kernel registration: {}", id.qualified_name());
+        }
+    }
+
+    /// Get a kernel signature by ID
+    ///
+    /// # Parameters
+    ///
+    /// - `id`: Kernel identifier
+    ///
+    /// # Returns
+    ///
+    /// Kernel signature if found, None otherwise
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::ast::KernelRegistry;
+    /// use continuum_cdsl::ast::KernelId;
+    ///
+    /// let registry = KernelRegistry::global();
+    /// let sig = registry.get(&KernelId::new("maths", "add"));
+    /// assert!(sig.is_some());
+    /// assert_eq!(sig.unwrap().params.len(), 2);
+    /// ```
+    pub fn get(&self, id: &KernelId) -> Option<&KernelSignature> {
+        self.signatures.get(id)
+    }
+
+    /// Check if a kernel is registered
+    ///
+    /// # Parameters
+    ///
+    /// - `id`: Kernel identifier
+    ///
+    /// # Returns
+    ///
+    /// `true` if registered, `false` otherwise
+    pub fn contains(&self, id: &KernelId) -> bool {
+        self.signatures.contains_key(id)
+    }
+
+    /// Get all registered kernel IDs
+    ///
+    /// # Parameters
+    ///
+    /// None
+    ///
+    /// # Returns
+    ///
+    /// Iterator over kernel IDs
+    pub fn ids(&self) -> impl Iterator<Item = &KernelId> {
+        self.signatures.keys()
+    }
+}
+
+/// Global kernel registry instance
+///
+/// Lazily initialized on first access.
+/// Contains all built-in kernel signatures.
+pub static KERNEL_REGISTRY: std::sync::OnceLock<KernelRegistry> = std::sync::OnceLock::new();
+
+impl KernelRegistry {
+    /// Get or initialize the global kernel registry
+    ///
+    /// # Parameters
+    ///
+    /// None
+    ///
+    /// # Returns
+    ///
+    /// Reference to the global kernel registry
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::ast::KernelRegistry;
+    ///
+    /// let registry = KernelRegistry::global();
+    /// assert!(registry.ids().count() > 0);
+    /// ```
+    pub fn global() -> &'static KernelRegistry {
+        KERNEL_REGISTRY.get_or_init(Self::initialize)
+    }
+
+    /// Initialize the kernel registry with all built-in kernels
+    ///
+    /// # Built-in Namespaces
+    ///
+    /// - `maths.*` - Arithmetic operations (add, sub, mul, div, sin, cos, etc.)
+    /// - `vector.*` - Vector operations (dot, cross, norm, normalize, etc.)
+    /// - `matrix.*` - Matrix operations (mul, transpose, inverse, etc.)
+    /// - `logic.*` - Boolean operations (and, or, not, select, etc.)
+    /// - `compare.*` - Comparison operations (eq, ne, lt, le, gt, ge)
+    /// - `rng.*` - Seeded random number generation
+    /// - `effect.*` - Effect operations (emit, spawn, destroy, log)
+    fn initialize() -> KernelRegistry {
+        let mut registry = KernelRegistry::new();
+
+        // === Maths namespace ===
+
+        // maths.add(a, b) → same shape, same unit, pure
+        registry.register(KernelSignature {
+            id: KernelId::new("maths", "add"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::SameAs(0),
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(0),
+                unit: UnitDerivation::SameAs(0),
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // maths.sub(a, b) → same shape, same unit, pure
+        registry.register(KernelSignature {
+            id: KernelId::new("maths", "sub"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::SameAs(0),
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(0),
+                unit: UnitDerivation::SameAs(0),
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // maths.mul(a, b) → same shape, multiply units, pure
+        registry.register(KernelSignature {
+            id: KernelId::new("maths", "mul"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::SameAs(0),
+                    unit: UnitConstraint::Any,
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(0),
+                unit: UnitDerivation::Multiply(vec![0, 1]),
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // maths.div(a, b) → same shape, divide units, pure
+        registry.register(KernelSignature {
+            id: KernelId::new("maths", "div"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::SameAs(0),
+                    unit: UnitConstraint::Any,
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(0),
+                unit: UnitDerivation::Divide(0, 1),
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // maths.sin(x) → same shape, dimensionless (input must be angle)
+        registry.register(KernelSignature {
+            id: KernelId::new("maths", "sin"),
+            params: vec![KernelParam {
+                name: "x",
+                shape: ShapeConstraint::Any,
+                unit: UnitConstraint::Angle,
+            }],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(0),
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // maths.cos(x) → same shape, dimensionless (input must be angle)
+        registry.register(KernelSignature {
+            id: KernelId::new("maths", "cos"),
+            params: vec![KernelParam {
+                name: "x",
+                shape: ShapeConstraint::Any,
+                unit: UnitConstraint::Angle,
+            }],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(0),
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // maths.abs(x) → same shape, same unit, pure
+        registry.register(KernelSignature {
+            id: KernelId::new("maths", "abs"),
+            params: vec![KernelParam {
+                name: "x",
+                shape: ShapeConstraint::Any,
+                unit: UnitConstraint::Any,
+            }],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(0),
+                unit: UnitDerivation::SameAs(0),
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // === Vector namespace ===
+
+        // vector.dot(a, b) → scalar, multiply units, dims must match
+        registry.register(KernelSignature {
+            id: KernelId::new("vector", "dot"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::VectorDim(DimConstraint::Var(0)),
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::VectorDim(DimConstraint::Var(0)),
+                    unit: UnitConstraint::Any,
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Multiply(vec![0, 1]),
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // vector.cross(a, b) → vector<3>, multiply units, 3D only
+        registry.register(KernelSignature {
+            id: KernelId::new("vector", "cross"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::VectorDim(DimConstraint::Exact(3)),
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::VectorDim(DimConstraint::Exact(3)),
+                    unit: UnitConstraint::Any,
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::VectorDim(DimConstraint::Exact(3)),
+                unit: UnitDerivation::Multiply(vec![0, 1]),
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // vector.norm(v) → scalar, same unit, pure
+        registry.register(KernelSignature {
+            id: KernelId::new("vector", "norm"),
+            params: vec![KernelParam {
+                name: "v",
+                shape: ShapeConstraint::AnyVector,
+                unit: UnitConstraint::Any,
+            }],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::SameAs(0),
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // === Logic namespace ===
+
+        // logic.select(condition, if_true, if_false) → same shape/unit as branches
+        registry.register(KernelSignature {
+            id: KernelId::new("logic", "select"),
+            params: vec![
+                KernelParam {
+                    name: "condition",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::Dimensionless,
+                },
+                KernelParam {
+                    name: "if_true",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "if_false",
+                    shape: ShapeConstraint::SameAs(1),
+                    unit: UnitConstraint::SameAs(1),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(1),
+                unit: UnitDerivation::SameAs(1),
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // logic.and(a, b) → scalar bool
+        registry.register(KernelSignature {
+            id: KernelId::new("logic", "and"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::Dimensionless,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::Dimensionless,
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // logic.or(a, b) → scalar bool
+        registry.register(KernelSignature {
+            id: KernelId::new("logic", "or"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::Dimensionless,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::Dimensionless,
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // logic.not(a) → scalar bool
+        registry.register(KernelSignature {
+            id: KernelId::new("logic", "not"),
+            params: vec![KernelParam {
+                name: "a",
+                shape: ShapeConstraint::AnyScalar,
+                unit: UnitConstraint::Dimensionless,
+            }],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // === Compare namespace ===
+
+        // compare.lt(a, b) → scalar bool
+        registry.register(KernelSignature {
+            id: KernelId::new("compare", "lt"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // compare.eq(a, b) → scalar bool
+        registry.register(KernelSignature {
+            id: KernelId::new("compare", "eq"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::SameAs(0),
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // compare.ne(a, b) → scalar bool
+        registry.register(KernelSignature {
+            id: KernelId::new("compare", "ne"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::SameAs(0),
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // compare.le(a, b) → scalar bool
+        registry.register(KernelSignature {
+            id: KernelId::new("compare", "le"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // compare.gt(a, b) → scalar bool
+        registry.register(KernelSignature {
+            id: KernelId::new("compare", "gt"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // compare.ge(a, b) → scalar bool
+        registry.register(KernelSignature {
+            id: KernelId::new("compare", "ge"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::AnyScalar,
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: KernelPurity::Pure,
+        });
+
+        // === Effect Operations (Bare Names - No Namespace) ===
+
+        // emit(target, value) → Unit, effectful
+        // Note: bare name - called as emit(...) not effect.emit(...)
+        registry.register(KernelSignature {
+            id: KernelId::new("", "emit"),
+            params: vec![
+                KernelParam {
+                    name: "target",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "value",
+                    shape: ShapeConstraint::SameAs(0),
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Exact(Shape::Scalar),
+                unit: UnitDerivation::Exact(Unit::DIMENSIONLESS),
+            },
+            purity: KernelPurity::Effect,
+        });
+
+        // spawn(entity_type, initial_state) → Unit, effectful
+        // Note: bare name - called as spawn(...) not effect.spawn(...)
+        registry.register(KernelSignature {
+            id: KernelId::new("", "spawn"),
+            params: vec![
+                KernelParam {
+                    name: "entity_type",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "initial_state",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Exact(Shape::Scalar),
+                unit: UnitDerivation::Exact(Unit::DIMENSIONLESS),
+            },
+            purity: KernelPurity::Effect,
+        });
+
+        // destroy(entity) → Unit, effectful
+        // Note: bare name - called as destroy(...) not effect.destroy(...)
+        registry.register(KernelSignature {
+            id: KernelId::new("", "destroy"),
+            params: vec![KernelParam {
+                name: "entity",
+                shape: ShapeConstraint::Any,
+                unit: UnitConstraint::Any,
+            }],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Exact(Shape::Scalar),
+                unit: UnitDerivation::Exact(Unit::DIMENSIONLESS),
+            },
+            purity: KernelPurity::Effect,
+        });
+
+        // log(message) → Unit, effectful (observer artifact)
+        // Note: bare name - called as log(...) not effect.log(...)
+        registry.register(KernelSignature {
+            id: KernelId::new("", "log"),
+            params: vec![KernelParam {
+                name: "message",
+                shape: ShapeConstraint::Any,
+                unit: UnitConstraint::Any,
+            }],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Exact(Shape::Scalar),
+                unit: UnitDerivation::Exact(Unit::DIMENSIONLESS),
+            },
+            purity: KernelPurity::Effect,
+        });
+
+        registry
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::foundation::Shape;
+
+    #[test]
+    fn kernel_purity_is_pure() {
+        assert!(KernelPurity::Pure.is_pure());
+        assert!(!KernelPurity::Effect.is_pure());
+    }
+
+    #[test]
+    fn kernel_purity_equality() {
+        assert_eq!(KernelPurity::Pure, KernelPurity::Pure);
+        assert_eq!(KernelPurity::Effect, KernelPurity::Effect);
+        assert_ne!(KernelPurity::Pure, KernelPurity::Effect);
+    }
+
+    #[test]
+    fn shape_constraint_exact() {
+        let constraint = ShapeConstraint::Exact(Shape::Scalar);
+        assert_eq!(constraint, ShapeConstraint::Exact(Shape::Scalar));
+    }
+
+    #[test]
+    fn shape_constraint_any() {
+        let any = ShapeConstraint::Any;
+        let any_scalar = ShapeConstraint::AnyScalar;
+        let any_vector = ShapeConstraint::AnyVector;
+        let any_matrix = ShapeConstraint::AnyMatrix;
+
+        assert_ne!(any, any_scalar);
+        assert_ne!(any, any_vector);
+        assert_ne!(any, any_matrix);
+    }
+
+    #[test]
+    fn shape_constraint_same_as() {
+        let same0 = ShapeConstraint::SameAs(0);
+        let same1 = ShapeConstraint::SameAs(1);
+
+        assert_eq!(same0, ShapeConstraint::SameAs(0));
+        assert_ne!(same0, same1);
+    }
+
+    #[test]
+    fn dim_constraint_exact() {
+        let dim3 = DimConstraint::Exact(3);
+        let dim4 = DimConstraint::Exact(4);
+
+        assert_eq!(dim3, DimConstraint::Exact(3));
+        assert_ne!(dim3, dim4);
+    }
+
+    #[test]
+    fn dim_constraint_var() {
+        let var0 = DimConstraint::Var(0);
+        let var1 = DimConstraint::Var(1);
+
+        assert_eq!(var0, DimConstraint::Var(0));
+        assert_ne!(var0, var1);
+        assert_ne!(var0, DimConstraint::Any);
+    }
+
+    #[test]
+    fn unit_constraint_dimensionless() {
+        let dimensionless = UnitConstraint::Dimensionless;
+        assert_eq!(dimensionless, UnitConstraint::Dimensionless);
+    }
+
+    #[test]
+    fn unit_constraint_angle() {
+        let angle = UnitConstraint::Angle;
+        assert_eq!(angle, UnitConstraint::Angle);
+        assert_ne!(angle, UnitConstraint::Dimensionless);
+    }
+
+    #[test]
+    fn kernel_param_creation() {
+        let param = KernelParam {
+            name: "value",
+            shape: ShapeConstraint::Any,
+            unit: UnitConstraint::Any,
+        };
+
+        assert_eq!(param.name, "value");
+        assert_eq!(param.shape, ShapeConstraint::Any);
+        assert_eq!(param.unit, UnitConstraint::Any);
+    }
+
+    #[test]
+    fn kernel_return_creation() {
+        let ret = KernelReturn {
+            shape: ShapeDerivation::Scalar,
+            unit: UnitDerivation::Dimensionless,
+        };
+
+        assert_eq!(ret.shape, ShapeDerivation::Scalar);
+        assert_eq!(ret.unit, UnitDerivation::Dimensionless);
+    }
+
+    #[test]
+    fn shape_derivation_scalar() {
+        let scalar = ShapeDerivation::Scalar;
+        assert_eq!(scalar, ShapeDerivation::Scalar);
+    }
+
+    #[test]
+    fn shape_derivation_same_as() {
+        let same0 = ShapeDerivation::SameAs(0);
+        let same1 = ShapeDerivation::SameAs(1);
+
+        assert_eq!(same0, ShapeDerivation::SameAs(0));
+        assert_ne!(same0, same1);
+    }
+
+    #[test]
+    fn shape_derivation_broadcast() {
+        let broadcast = ShapeDerivation::FromBroadcast(0, 1);
+        assert_eq!(broadcast, ShapeDerivation::FromBroadcast(0, 1));
+        assert_ne!(broadcast, ShapeDerivation::FromBroadcast(1, 0));
+    }
+
+    #[test]
+    fn unit_derivation_dimensionless() {
+        let dimensionless = UnitDerivation::Dimensionless;
+        assert_eq!(dimensionless, UnitDerivation::Dimensionless);
+    }
+
+    #[test]
+    fn unit_derivation_multiply() {
+        let multiply = UnitDerivation::Multiply(vec![0, 1]);
+        assert_eq!(multiply, UnitDerivation::Multiply(vec![0, 1]));
+    }
+
+    #[test]
+    fn unit_derivation_divide() {
+        let divide = UnitDerivation::Divide(0, 1);
+        assert_eq!(divide, UnitDerivation::Divide(0, 1));
+        assert_ne!(divide, UnitDerivation::Divide(1, 0));
+    }
+
+    #[test]
+    fn unit_derivation_sqrt() {
+        let sqrt = UnitDerivation::Sqrt(0);
+        assert_eq!(sqrt, UnitDerivation::Sqrt(0));
+    }
+
+    #[test]
+    fn unit_derivation_inverse() {
+        let inverse = UnitDerivation::Inverse(0);
+        assert_eq!(inverse, UnitDerivation::Inverse(0));
+    }
+
+    #[test]
+    fn kernel_signature_creation() {
+        let sig = KernelSignature {
+            id: KernelId::new("maths", "add"),
+            params: vec![
+                KernelParam {
+                    name: "a",
+                    shape: ShapeConstraint::Any,
+                    unit: UnitConstraint::Any,
+                },
+                KernelParam {
+                    name: "b",
+                    shape: ShapeConstraint::SameAs(0),
+                    unit: UnitConstraint::SameAs(0),
+                },
+            ],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(0),
+                unit: UnitDerivation::SameAs(0),
+            },
+            purity: KernelPurity::Pure,
+        };
+
+        assert_eq!(sig.params.len(), 2);
+        assert_eq!(sig.purity, KernelPurity::Pure);
+    }
+
+    #[test]
+    fn registry_contains_maths_add() {
+        let registry = KernelRegistry::global();
+        let id = KernelId::new("maths", "add");
+        assert!(registry.contains(&id));
+    }
+
+    #[test]
+    fn registry_get_maths_add() {
+        let registry = KernelRegistry::global();
+        let id = KernelId::new("maths", "add");
+        let sig = registry.get(&id);
+
+        assert!(sig.is_some());
+        let sig = sig.unwrap();
+        assert_eq!(sig.params.len(), 2);
+        assert_eq!(sig.purity, KernelPurity::Pure);
+    }
+
+    #[test]
+    fn registry_contains_vector_dot() {
+        let registry = KernelRegistry::global();
+        let id = KernelId::new("vector", "dot");
+        assert!(registry.contains(&id));
+    }
+
+    #[test]
+    fn registry_get_vector_dot() {
+        let registry = KernelRegistry::global();
+        let id = KernelId::new("vector", "dot");
+        let sig = registry.get(&id);
+
+        assert!(sig.is_some());
+        let sig = sig.unwrap();
+        assert_eq!(sig.params.len(), 2);
+        assert_eq!(sig.purity, KernelPurity::Pure);
+
+        // Check vector dimension constraint
+        assert!(matches!(sig.params[0].shape, ShapeConstraint::VectorDim(_)));
+        assert!(matches!(sig.params[1].shape, ShapeConstraint::VectorDim(_)));
+
+        // Check return is scalar
+        assert_eq!(sig.returns.shape, ShapeDerivation::Scalar);
+    }
+
+    #[test]
+    fn registry_emit_is_bare_name() {
+        let registry = KernelRegistry::global();
+        // Effect operations are bare names (no namespace)
+        let id = KernelId::new("", "emit");
+        let sig = registry.get(&id);
+
+        assert!(sig.is_some());
+        assert_eq!(sig.unwrap().purity, KernelPurity::Effect);
+        assert_eq!(sig.unwrap().id.namespace, "");
+        assert_eq!(sig.unwrap().id.name, "emit");
+    }
+
+    #[test]
+    fn registry_maths_kernels_are_pure() {
+        let registry = KernelRegistry::global();
+
+        for name in &["add", "sub", "mul", "div", "sin", "cos", "abs"] {
+            let id = KernelId::new("maths", name);
+            let sig = registry.get(&id);
+            assert!(sig.is_some(), "maths.{} not found", name);
+            assert_eq!(
+                sig.unwrap().purity,
+                KernelPurity::Pure,
+                "maths.{} should be pure",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn registry_logic_select_signature() {
+        let registry = KernelRegistry::global();
+        let id = KernelId::new("logic", "select");
+        let sig = registry.get(&id);
+
+        assert!(sig.is_some());
+        let sig = sig.unwrap();
+        assert_eq!(sig.params.len(), 3);
+        assert_eq!(sig.params[0].name, "condition");
+        assert_eq!(sig.params[1].name, "if_true");
+        assert_eq!(sig.params[2].name, "if_false");
+    }
+
+    #[test]
+    fn registry_unknown_kernel_returns_none() {
+        let registry = KernelRegistry::global();
+        let id = KernelId::new("unknown", "kernel");
+        assert!(registry.get(&id).is_none());
+    }
+
+    #[test]
+    fn registry_has_multiple_namespaces() {
+        let registry = KernelRegistry::global();
+
+        // Check each namespace has at least one kernel
+        assert!(registry.contains(&KernelId::new("maths", "add")));
+        assert!(registry.contains(&KernelId::new("vector", "dot")));
+        assert!(registry.contains(&KernelId::new("logic", "select")));
+        assert!(registry.contains(&KernelId::new("compare", "lt")));
+        // Effect operations are bare names (empty namespace)
+        assert!(registry.contains(&KernelId::new("", "emit")));
+    }
+
+    #[test]
+    fn registry_compare_all_operations() {
+        let registry = KernelRegistry::global();
+
+        // All comparison operations should be present
+        for name in &["eq", "ne", "lt", "le", "gt", "ge"] {
+            let id = KernelId::new("compare", name);
+            assert!(registry.contains(&id), "compare.{} not found", name);
+            assert_eq!(registry.get(&id).unwrap().purity, KernelPurity::Pure);
+        }
+    }
+
+    #[test]
+    fn registry_effect_all_operations() {
+        let registry = KernelRegistry::global();
+
+        // All effect operations should be bare names
+        for name in &["emit", "spawn", "destroy", "log"] {
+            let id = KernelId::new("", name);
+            assert!(registry.contains(&id), "{} not found (bare name)", name);
+            assert_eq!(registry.get(&id).unwrap().purity, KernelPurity::Effect);
+        }
+    }
+}

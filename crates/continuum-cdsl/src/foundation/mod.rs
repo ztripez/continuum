@@ -4,16 +4,15 @@
 //! runtime foundation types. They represent compile-time constructs.
 
 pub mod path;
-pub mod shape;
 pub mod span;
 pub mod types;
-pub mod unit;
 
 pub use path::Path;
-pub use shape::Shape;
 pub use span::{SourceFile, SourceMap, Span};
 pub use types::{Bounds, KernelType, Type, UserType, UserTypeId};
-pub use unit::{Unit, UnitDimensions, UnitKind};
+
+// Re-export Shape and Unit from kernel-types (single source of truth)
+pub use continuum_kernel_types::{Shape, Unit, UnitDimensions, UnitKind};
 
 // Re-export from runtime foundation
 pub use continuum_foundation::{

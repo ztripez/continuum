@@ -61,15 +61,20 @@
 //! ```
 
 mod expr;
+mod kernel;
 mod node;
 mod role;
 mod untyped;
 mod warmup;
 
 pub use expr::*;
+pub use kernel::*;
 pub use node::*;
 pub use role::*;
 pub use warmup::*;
+
+// Re-export KernelId from kernel-types (single source of truth)
+pub use continuum_kernel_types::KernelId;
 
 // Re-export untyped AST types explicitly to avoid ExprKind ambiguity
 pub use untyped::{BinaryOp, Expr, TypeExpr, UnaryOp, UnitExpr};

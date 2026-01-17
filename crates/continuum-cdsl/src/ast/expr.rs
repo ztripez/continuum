@@ -162,20 +162,20 @@
 //! ```
 
 use crate::foundation::{Path, Span, Type, UserTypeId};
+use continuum_kernel_types::KernelId;
 
-// EntityId is defined in node.rs as the index type for per-entity nodes
 use super::node::EntityId;
 
 /// Kernel operation identifier
 ///
-/// All operations in Continuum DSL are namespaced kernel calls. This includes
-/// arithmetic (`maths.*`), vector operations (`vector.*`), logic (`logic.*`),
-/// comparison (`compare.*`), and effects (`emit`, `spawn`, `destroy`).
+/// All operations in Continuum DSL are kernel calls. Most use namespaces
+/// (`maths.*`, `vector.*`, `logic.*`, `compare.*`), but effect operations
+/// are bare names (`emit`, `spawn`, `destroy`, `log`).
 ///
 /// # Structure
 ///
-/// - **namespace** - Category of operation (e.g., "maths", "vector", "logic")
-/// - **name** - Specific operation (e.g., "add", "dot", "select")
+/// - **namespace** - Category of operation (e.g., "maths", "vector", "logic", or "" for bare names)
+/// - **name** - Specific operation (e.g., "add", "dot", "select", "emit")
 ///
 /// Both fields are `&'static str` because kernel IDs are statically known at
 /// compile time and come from a fixed registry.
@@ -194,8 +194,8 @@ use super::node::EntityId;
 /// // Conditional: if c { t } else { e } → logic.select(c, t, e)
 /// let select = KernelId { namespace: "logic", name: "select" };
 ///
-/// // Effects: emit(target, value)
-/// let emit = KernelId { namespace: "effect", name: "emit" };
+/// // Effects: emit(target, value) - bare name, no namespace
+/// let emit = KernelId { namespace: "", name: "emit" };
 /// ```
 ///
 /// # Namespaces
@@ -208,49 +208,9 @@ use super::node::EntityId;
 /// | `logic` | and, or, not, select | Pure |
 /// | `compare` | lt, le, gt, ge, eq, ne | Pure |
 /// | `rng` | uniform, normal, etc. (seeded) | Pure |
-/// | `effect` | emit, spawn, destroy, log | Effect |
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct KernelId {
-    /// Kernel namespace (category of operation)
-    ///
-    /// Examples: "maths", "vector", "logic", "compare", "effect"
-    pub namespace: &'static str,
-
-    /// Kernel name (specific operation within namespace)
-    ///
-    /// Examples: "add", "dot", "select", "lt", "emit"
-    pub name: &'static str,
-}
-
-impl KernelId {
-    /// Create a new kernel identifier
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::ast::KernelId;
-    ///
-    /// let add = KernelId::new("maths", "add");
-    /// let emit = KernelId::new("effect", "emit");
-    /// ```
-    pub const fn new(namespace: &'static str, name: &'static str) -> Self {
-        Self { namespace, name }
-    }
-
-    /// Get the fully qualified name as `namespace.name`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::ast::KernelId;
-    ///
-    /// let add = KernelId::new("maths", "add");
-    /// assert_eq!(add.qualified_name(), "maths.add");
-    /// ```
-    pub fn qualified_name(&self) -> String {
-        format!("{}.{}", self.namespace, self.name)
-    }
-}
+/// | *(bare)* | emit, spawn, destroy, log | Effect |
+///
+/// **NOTE:** KernelId is now imported from `continuum_kernel_types` (single source of truth)
 
 /// Aggregate operations for entity iteration
 ///
@@ -838,7 +798,7 @@ impl TypedExpr {
     ///
     /// let emit = TypedExpr::new(
     ///     ExprKind::Call {
-    ///         kernel: KernelId::new("effect", "emit"),
+    ///         kernel: KernelId::new("", "emit"),
     ///         args: vec![target, value],
     ///     },
     ///     Type::Unit,
@@ -872,10 +832,15 @@ impl TypedExpr {
             ExprKind::Fold { init, body, .. } => init.is_pure() && body.is_pure(),
 
             // Calls depend on kernel purity
-            // TEMPORARY: Use namespace heuristic until kernel registry exists (Phase 6)
-            // All kernels outside "effect" namespace are assumed pure (conservative)
+            // Look up kernel in registry to determine purity
             ExprKind::Call { kernel, args } => {
-                let kernel_is_pure = kernel.namespace != "effect";
+                use super::kernel::KernelRegistry;
+
+                let kernel_is_pure = KernelRegistry::global()
+                    .get(kernel)
+                    .map(|sig| sig.purity.is_pure())
+                    .unwrap_or(true); // Unknown kernels assumed pure (conservative)
+
                 kernel_is_pure && args.iter().all(|arg| arg.is_pure())
             }
 
@@ -895,7 +860,7 @@ mod tests {
         let add = KernelId::new("maths", "add");
         assert_eq!(add.qualified_name(), "maths.add");
 
-        let emit = KernelId::new("effect", "emit");
+        let emit = KernelId::new("", "emit");
         assert_eq!(emit.qualified_name(), "effect.emit");
     }
 
@@ -1053,7 +1018,7 @@ mod tests {
 
             let expr = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "emit"),
+                    kernel: KernelId::new("", "emit"),
                     args: vec![target, value],
                 },
                 Type::Unit,
@@ -1090,7 +1055,7 @@ mod tests {
         fn let_with_impure_value_is_impure() {
             let value = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "emit"),
+                    kernel: KernelId::new("", "emit"),
                     args: vec![],
                 },
                 Type::Unit,
@@ -1246,7 +1211,7 @@ mod tests {
             );
             let body = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "emit"),
+                    kernel: KernelId::new("", "emit"),
                     args: vec![],
                 },
                 Type::Unit,
@@ -1268,7 +1233,7 @@ mod tests {
         fn aggregate_with_impure_body_is_impure() {
             let body = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "emit"),
+                    kernel: KernelId::new("", "emit"),
                     args: vec![],
                 },
                 Type::Unit,
@@ -1291,7 +1256,7 @@ mod tests {
         fn fold_with_impure_init_is_impure() {
             let init = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "emit"),
+                    kernel: KernelId::new("", "emit"),
                     args: vec![],
                 },
                 Type::Unit,
@@ -1328,7 +1293,7 @@ mod tests {
             );
             let body = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "spawn"),
+                    kernel: KernelId::new("", "spawn"),
                     args: vec![],
                 },
                 Type::Unit,
@@ -1352,7 +1317,7 @@ mod tests {
         fn pure_kernel_with_impure_arg_is_impure() {
             let impure_arg = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "emit"),
+                    kernel: KernelId::new("", "emit"),
                     args: vec![],
                 },
                 Type::Unit,
@@ -1383,7 +1348,7 @@ mod tests {
 
             let field_value = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "log"),
+                    kernel: KernelId::new("", "log"),
                     args: vec![],
                 },
                 Type::Unit,
@@ -1405,7 +1370,7 @@ mod tests {
         fn field_access_with_impure_object_is_impure() {
             let object = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "destroy"),
+                    kernel: KernelId::new("", "destroy"),
                     args: vec![],
                 },
                 Type::Unit,
@@ -1434,7 +1399,7 @@ mod tests {
             );
             let impure = TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("effect", "emit"),
+                    kernel: KernelId::new("", "emit"),
                     args: vec![],
                 },
                 Type::Unit,
@@ -1493,8 +1458,9 @@ mod tests {
         fn effect_namespace() {
             let ops = vec!["emit", "spawn", "destroy", "log"];
             for op in ops {
-                let kernel = KernelId::new("effect", op);
-                assert_eq!(kernel.namespace, "effect");
+                // Effect operations are bare names (no namespace)
+                let kernel = KernelId::new("", op);
+                assert_eq!(kernel.namespace, "");
             }
         }
     }

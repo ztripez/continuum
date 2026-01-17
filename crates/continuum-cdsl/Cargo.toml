@@ -8,6 +8,7 @@ license = "MIT"
 [dependencies]
 continuum-foundation = { path = "../kernels/foundation" }
 continuum-kernel-registry = { path = "../kernel-registry" }
+continuum-kernel-types = { path = "../continuum-kernel-types" }
 
 # Parsing
 logos = "0.14"

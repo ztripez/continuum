@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     # New compiler
     "crates/continuum-cdsl",
+    "crates/continuum-kernel-types",
     
     # Temporarily disabled during compiler rewrite (depend on deleted vm/ir/compiler crates):
     # "crates/cdsl-lsp",

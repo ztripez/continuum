@@ -57,8 +57,9 @@
 
 use crate::foundation::{Path, Span};
 
-use super::expr::{AggregateOp, KernelId};
+use super::expr::AggregateOp;
 use super::node::EntityId;
+use continuum_kernel_types::KernelId;
 
 /// Untyped expression from parser
 ///
