@@ -793,6 +793,9 @@ pub enum ValidationErrorKind {
     EffectInAggregate { effect: &'static str },   // effectful expression in aggregate body
     InvalidCapture { name: String },              // lambda captures disallowed binding
     
+    // Purity errors
+    EffectInPurePhase { kernel: KernelId, phase: Phase },  // effectful kernel in pure-only phase
+    
     // Kernel errors
     UnknownKernel(KernelId),
     WrongArgCount { kernel: KernelId, expected: usize, found: usize },
@@ -1431,8 +1434,42 @@ pub struct KernelSignature {
     pub id: KernelId,
     pub params: Vec<KernelParam>,
     pub returns: KernelReturn,
+    pub purity: KernelPurity,  // effect discipline
+}
+
+/// Kernel purity class — used to enforce effect discipline
+pub enum KernelPurity {
+    Pure,    // No side effects, deterministic, can be used anywhere
+    Effect,  // Mutates state (emit, spawn, destroy) or artifacts (log)
 }
 ```
+
+**Purity classification:**
+
+| Namespace | Purity | Reason |
+|-----------|--------|--------|
+| `maths.*` | Pure | Arithmetic operations |
+| `vector.*` | Pure | Vector operations |
+| `matrix.*` | Pure | Matrix operations |
+| `logic.*` | Pure | Boolean operations |
+| `compare.*` | Pure | Comparison operations |
+| `rng.*` | Pure | Seeded randomness (deterministic) |
+| `emit` | Effect | Mutates signal inputs |
+| `spawn` | Effect | Creates entity |
+| `destroy` | Effect | Removes entity |
+| `log` | Effect | Writes observer artifact |
+
+**Phase enforcement:**
+
+| Phase | Allowed | Rationale |
+|-------|---------|-----------|
+| Configure | Pure | Setup only |
+| Collect | Pure + Effect | Emissions happen here |
+| Resolve | **Pure only** | Computing authoritative state |
+| Fracture | Pure + Effect | May spawn/destroy entities |
+| Measure | **Pure only** | Fields are derived values |
+| Assert | Pure | Validation only |
+| Apply (impulse) | Pure + Effect | Emissions happen here |
 
 **All kernels are deterministic.** There are no non-deterministic kernels:
 - `rng.*` kernels derive randomness from `(seed, InstanceId, tick)` — fully reproducible
@@ -1505,7 +1542,7 @@ pub enum UnitDerivation {
 **Examples:**
 
 ```rust
-// maths.add(a, b) → same shape, same unit
+// maths.add(a, b) → same shape, same unit, pure
 KernelSignature {
     id: KernelId { namespace: "maths", name: "add" },
     params: vec![
@@ -1513,6 +1550,18 @@ KernelSignature {
         KernelParam { name: "b", shape: SameAs(0), unit: SameAs(0) },
     ],
     returns: KernelReturn { shape: SameAs(0), unit: SameAs(0) },
+    purity: KernelPurity::Pure,
+}
+
+// emit(target, value) → Unit, effectful
+KernelSignature {
+    id: KernelId { namespace: "effect", name: "emit" },
+    params: vec![
+        KernelParam { name: "target", shape: Any, unit: Any },
+        KernelParam { name: "value", shape: SameAs(0), unit: SameAs(0) },
+    ],
+    returns: KernelReturn { shape: Exact(Shape::Scalar), unit: Exact(Unit::DIMENSIONLESS) },
+    purity: KernelPurity::Effect,  // mutates signal inputs
 }
 
 // vector.dot(a, b) → scalar, multiply units, dims must match
@@ -1523,6 +1572,7 @@ KernelSignature {
         KernelParam { name: "b", shape: VectorDim(Var(0)), unit: Any },  // same dim
     ],
     returns: KernelReturn { shape: Scalar, unit: Multiply(vec![0, 1]) },
+    purity: KernelPurity::Pure,
 }
 
 // maths.sin(x) → same shape, dimensionless (input must be angle)
@@ -1532,6 +1582,7 @@ KernelSignature {
         KernelParam { name: "x", shape: Any, unit: Angle },
     ],
     returns: KernelReturn { shape: SameAs(0), unit: Dimensionless },
+    purity: KernelPurity::Pure,
 }
 
 // matrix.mul(A, B) → A(m×n) * B(n×p) = (m×p), inner dims must match
@@ -1553,6 +1604,7 @@ KernelSignature {
         shape: MatrixDims { rows: Var(0), cols: Var(2) },  // m×p
         unit: Multiply(vec![0, 1]) 
     },
+    purity: KernelPurity::Pure,
 }
 ```
 
