@@ -203,27 +203,31 @@ signal atmosphere.co2_ppmv {
 
     config {
         initial: 280.0
-        min: 0.0
+        min: 10.0
         max: 10000.0
+        # Relaxation timescale for CO2 equilibration (~100 kyr for silicate weathering feedback)
+        relaxation_tau_s: 3.1536e12   # 100,000 years in seconds
     }
 
     resolve {
-        # CO2 changes through weathering sinks, volcanic sources, biological processes
-        # collected contains rates (ppmv/s) from fractures - integrate over dt
-        # Clamp to prevent negative concentrations (physical constraint)
-        maths.max(dt.integrate(prev, collected), config.atmosphere.co2_ppmv.min)
+        # CO2 equilibrates through volcanic sources, weathering sinks, ocean exchange
+        # For geological timescales (dt >> tau), use relaxation toward equilibrium
+        # collected contains equilibrium CO2 targets from fractures
+        # If no fractures emit, maintain previous value
+        let equilibrium = if collected > 0.0 { collected } else { prev } in
+        let relaxed = dt.relax(prev, equilibrium, config.atmosphere.co2_ppmv.relaxation_tau_s) in
+        maths.clamp(relaxed, config.atmosphere.co2_ppmv.min, config.atmosphere.co2_ppmv.max)
     }
 
     assert {
         prev >= config.atmosphere.co2_ppmv.min : fatal, "CO2 concentration cannot be negative"
-        # TODO: Fix rate constant scaling for geological dt (see continuum-lkjw)
-        # Temporarily demoted to warn to allow baseline testing
-        prev <= config.atmosphere.co2_ppmv.max : warn, "CO2 concentration exceeds expected maximum - check sources"
+        prev <= config.atmosphere.co2_ppmv.max : error, "CO2 concentration exceeds expected maximum - check sources"
     }
 }
 
 # Methane concentration in atmosphere
-# Important greenhouse gas with ~12 year lifetime
+# Important greenhouse gas with ~12 year lifetime in modern atmosphere
+# At geological timescales, CH4 equilibrates rapidly
 signal atmosphere.ch4_ppmv {
     : Scalar<ppmv, 0..50>
     : strata(atmosphere)
@@ -233,22 +237,24 @@ signal atmosphere.ch4_ppmv {
 
     config {
         initial: 1.8
-        min: 0.0
+        min: 0.01
         max: 50.0
+        # CH4 has short lifetime (~12 yr), equilibrates fast on geological timescales
+        relaxation_tau_s: 3.784e8   # ~12 years in seconds
     }
 
     resolve {
-        # Methane changes through oxidation decay and biogenic/volcanic sources
-        # collected contains rates (ppmv/s) from fractures - integrate over dt
-        # Clamp to prevent negative concentrations (physical constraint)
-        maths.max(dt.integrate(prev, collected), config.atmosphere.ch4_ppmv.min)
+        # Methane equilibrates rapidly due to short atmospheric lifetime
+        # For geological timescales, it's essentially at equilibrium each tick
+        # collected contains equilibrium CH4 from biogenic/volcanic sources
+        let equilibrium = if collected > 0.0 { collected } else { prev } in
+        let relaxed = dt.relax(prev, equilibrium, config.atmosphere.ch4_ppmv.relaxation_tau_s) in
+        maths.clamp(relaxed, config.atmosphere.ch4_ppmv.min, config.atmosphere.ch4_ppmv.max)
     }
 
     assert {
         prev >= config.atmosphere.ch4_ppmv.min : fatal, "CH4 concentration cannot be negative"
-        # TODO: Fix rate constant scaling for geological dt (see continuum-lkjw)
-        # Temporarily demoted to warn to allow baseline testing
-        prev <= config.atmosphere.ch4_ppmv.max : warn, "CH4 concentration exceeds expected maximum - check sources"
+        prev <= config.atmosphere.ch4_ppmv.max : error, "CH4 concentration exceeds expected maximum - check sources"
     }
 }
 
@@ -561,18 +567,26 @@ fracture atmosphere.ice_age {
 # Cross-Domain Carbon Cycle Fractures
 # -----------------------------------------------------------------------------
 
-# Volcanic CO2 coupling: tectonic activity -> atmospheric CO2 emissions
-# Represents background volcanic outgassing from ridges, subduction, hotspots
-fracture atmosphere.volcanic_co2_coupling {
+# CO2 equilibrium dynamics: volcanic sources vs weathering/ocean sinks
+# At geological timescales, CO2 equilibrates to balance sources and sinks
+# This single fracture computes the equilibrium including all feedbacks
+fracture atmosphere.co2_equilibrium {
     : strata(atmosphere)
 
     config {
-        # Base emission rate at Earth-like tectonic activity (activity = 1.0)
-        base_emission_kg_per_s: 8.0e9        # ~250 Mt CO2/yr (modern Earth estimate)
-        # Activity scaling exponent (higher = more sensitive to activity changes)
-        activity_exponent: 1.5
-        # Minimum emission (dormant tectonics)
-        min_emission_kg_per_s: 1.0e8
+        # Base equilibrium CO2 at Earth-like conditions (activity = 1.0, temp = 288K)
+        base_equilibrium_ppmv: 280.0
+        # Volcanic/tectonic activity scaling
+        activity_exponent: 0.5
+        # Minimum equilibrium (dormant tectonics)
+        min_equilibrium_ppmv: 50.0
+        # Temperature sensitivity (silicate weathering thermostat)
+        # Weathering efficiency doubles every 10K above reference
+        weathering_sensitivity: 0.0693      # ln(2)/10
+        # Ocean solubility: CO2 capacity decreases ~3% per K warming
+        ocean_sensitivity: 0.03
+        # Reference temperature for feedbacks
+        reference_temp_k: 288.0
     }
 
     when {
@@ -580,126 +594,62 @@ fracture atmosphere.volcanic_co2_coupling {
     }
 
     emit {
-        # CO2 emission rate = base * activity^exponent
         let activity = maths.max(signal.tectonics.activity, 0.1) in
-        let emission_factor = maths.pow(activity, config.fracture.atmosphere.volcanic_co2_coupling.activity_exponent) in
-        let emission_rate_kg_s = maths.max(
-            config.fracture.atmosphere.volcanic_co2_coupling.base_emission_kg_per_s * emission_factor,
-            config.fracture.atmosphere.volcanic_co2_coupling.min_emission_kg_per_s
+        let temp = signal.atmosphere.surface_temp.x in
+        let ref_temp = config.fracture.atmosphere.co2_equilibrium.reference_temp_k in
+        let temp_anomaly = temp - ref_temp in
+
+        # 1. Base equilibrium from volcanic activity
+        let activity_factor = maths.pow(activity, config.fracture.atmosphere.co2_equilibrium.activity_exponent) in
+        let volcanic_equilibrium = maths.max(
+            config.fracture.atmosphere.co2_equilibrium.base_equilibrium_ppmv * activity_factor,
+            config.fracture.atmosphere.co2_equilibrium.min_equilibrium_ppmv
         ) in
 
-        # Convert to ppmv/s rate - signal integrates with dt
-        # ~2.2 kg CO2 per ppmv per km³ atmosphere
-        let ppmv_per_kg = 1e-15 in
-        signal.atmosphere.co2_ppmv <- emission_rate_kg_s * ppmv_per_kg
+        # 2. Silicate weathering feedback (thermostat)
+        # Warmer -> more weathering -> lower equilibrium
+        let weathering_factor = maths.exp(-config.fracture.atmosphere.co2_equilibrium.weathering_sensitivity * temp_anomaly) in
+
+        # 3. Ocean solubility feedback
+        # Warmer -> less ocean capacity -> higher equilibrium
+        let ocean_factor = 1.0 + temp_anomaly * config.fracture.atmosphere.co2_equilibrium.ocean_sensitivity in
+
+        # Combined equilibrium with feedbacks
+        # Note: weathering and ocean feedbacks partially cancel
+        let equilibrium_ppmv = volcanic_equilibrium * weathering_factor * ocean_factor in
+
+        signal.atmosphere.co2_ppmv <- maths.clamp(equilibrium_ppmv, 50.0, 5000.0)
     }
 }
 
-# Silicate weathering CO2 sink (carbonate-silicate cycle)
-# Long-term climate thermostat: warmer -> more weathering -> CO2 removal -> cooling
-fracture atmosphere.silicate_weathering {
+# Methane equilibrium from volcanic/hydrothermal sources
+# CH4 has short atmospheric lifetime (~12 yr), equilibrates rapidly on geological timescales
+fracture atmosphere.ch4_equilibrium {
     : strata(atmosphere)
 
     config {
-        # Reference weathering rate at 288K and 280 ppmv CO2
-        base_weathering_kg_per_s: 4.0e9      # ~125 Mt CO2/yr (modern Earth estimate)
-        # Temperature sensitivity (Arrhenius-like)
-        # Weathering doubles roughly every 10K above reference
-        temperature_sensitivity: 0.0693      # ln(2)/10
-        reference_temp_k: 288.0
-        # CO2 sensitivity (higher CO2 = more weathering via carbonic acid)
-        co2_exponent: 0.3
-        reference_co2_ppmv: 280.0
-        # Minimum temperature for weathering (frozen = no weathering)
-        min_temp_k: 273.15
+        # Base equilibrium CH4 at Earth-like conditions
+        base_equilibrium_ppmv: 1.8
+        # Volcanic/tectonic activity scaling
+        activity_sensitivity: 0.3
+        # Minimum equilibrium (always some abiotic sources)
+        min_equilibrium_ppmv: 0.1
     }
 
     when {
-        signal.atmosphere.surface_temp.x > config.fracture.atmosphere.silicate_weathering.min_temp_k
-        signal.atmosphere.co2_ppmv > 10.0
+        signal.tectonics.activity > 0.0
     }
 
     emit {
-        let temp = signal.atmosphere.surface_temp.x in
-        let co2 = signal.atmosphere.co2_ppmv in
+        # Methane equilibrium depends on volcanic/hydrothermal activity
+        let activity = signal.tectonics.activity in
+        let equilibrium_ppmv = maths.max(
+            config.fracture.atmosphere.ch4_equilibrium.base_equilibrium_ppmv * 
+            (1.0 + config.fracture.atmosphere.ch4_equilibrium.activity_sensitivity * (activity - 1.0)),
+            config.fracture.atmosphere.ch4_equilibrium.min_equilibrium_ppmv
+        ) in
 
-        # Temperature factor: Arrhenius-like exponential
-        let temp_factor = maths.exp(config.fracture.atmosphere.silicate_weathering.temperature_sensitivity * (temp - config.fracture.atmosphere.silicate_weathering.reference_temp_k)) in
-
-        # CO2 factor: power law (more CO2 = more carbonic acid = more weathering)
-        let co2_factor = maths.pow(co2 / config.fracture.atmosphere.silicate_weathering.reference_co2_ppmv, config.fracture.atmosphere.silicate_weathering.co2_exponent) in
-
-        # Combined weathering rate (kg/s)
-        let weathering_rate_kg_s = config.fracture.atmosphere.silicate_weathering.base_weathering_kg_per_s * temp_factor * co2_factor in
-
-        # Emit as ppmv/s rate - signal integrates with dt
-        # Weathering removes CO2 (negative rate)
-        signal.atmosphere.co2_ppmv <- -weathering_rate_kg_s * 1e-15
-    }
-}
-
-# Ocean CO2 absorption: temperature-dependent CO2 solubility
-# Cold oceans absorb more CO2, warm oceans release CO2
-fracture atmosphere.ocean_co2_exchange {
-    : strata(atmosphere)
-
-    config {
-        # Exchange coefficient (kg CO2 per K temperature difference per second)
-        exchange_coefficient: 1.0e8
-        # Reference equilibrium temperature
-        reference_temp_k: 288.0
-        # Henry's law temperature sensitivity (solubility decreases ~3% per K)
-        solubility_temp_sensitivity: -0.03
-    }
-
-    when {
-        signal.atmosphere.co2_ppmv > 0.0
-    }
-
-    emit {
-        # Ocean-atmosphere CO2 exchange based on temperature
-        # Cold water = CO2 sink, warm water = CO2 source
-        let temp = signal.atmosphere.surface_temp.x in
-        let temp_anomaly = temp - config.fracture.atmosphere.ocean_co2_exchange.reference_temp_k in
-
-        # Solubility factor: colder = more soluble
-        let solubility_factor = 1.0 + temp_anomaly * config.fracture.atmosphere.ocean_co2_exchange.solubility_temp_sensitivity in
-
-        # Emit ppmv/s rate - signal integrates with dt
-        # Negative anomaly (cold) = absorption, positive (warm) = release
-        let flux_rate_ppmv_s = -temp_anomaly * config.fracture.atmosphere.ocean_co2_exchange.exchange_coefficient * solubility_factor * 1e-15 in
-
-        signal.atmosphere.co2_ppmv <- flux_rate_ppmv_s
-    }
-}
-
-# Methane oxidation: CH4 -> CO2 conversion in atmosphere
-# Long-term methane sink, short-term CO2 source
-fracture atmosphere.methane_oxidation {
-    : strata(atmosphere)
-
-    config {
-        # Methane lifetime in atmosphere (~12 years)
-        methane_lifetime_s: 3.784e8
-        # CO2 produced per unit CH4 oxidized (mass ratio)
-        co2_per_ch4: 2.75
-    }
-
-    when {
-        signal.atmosphere.ch4_ppmv > 0.1
-    }
-
-    emit {
-        # First-order decay of methane (ppmv/s)
-        let ch4 = signal.atmosphere.ch4_ppmv in
-        let decay_rate_ppmv_s = ch4 / config.fracture.atmosphere.methane_oxidation.methane_lifetime_s in
-
-        # Emit rates - signals integrate with dt
-        # CH4 decays, CO2 produced proportionally
-        let co2_rate_ppmv_s = decay_rate_ppmv_s * config.fracture.atmosphere.methane_oxidation.co2_per_ch4 * 1e-6 in
-
-        signal.atmosphere.ch4_ppmv <- -decay_rate_ppmv_s * 1e-6;
-        signal.atmosphere.co2_ppmv <- co2_rate_ppmv_s
+        signal.atmosphere.ch4_ppmv <- equilibrium_ppmv
     }
 }
 
