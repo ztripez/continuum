@@ -786,7 +786,7 @@ impl KernelRegistry {
             CtUnitDerivation::Exact(unit) => UnitDerivation::Exact(unit.clone()),
             CtUnitDerivation::Dimensionless => UnitDerivation::Dimensionless,
             CtUnitDerivation::SameAs(idx) => UnitDerivation::SameAs(*idx),
-            CtUnitDerivation::Multiply(indices) => UnitDerivation::Multiply(indices.clone()),
+            CtUnitDerivation::Multiply(indices) => UnitDerivation::Multiply(indices.to_vec()),
             CtUnitDerivation::Divide(a, b) => UnitDerivation::Divide(*a, *b),
             CtUnitDerivation::Sqrt(idx) => UnitDerivation::Sqrt(*idx),
             CtUnitDerivation::Inverse(idx) => UnitDerivation::Inverse(*idx),

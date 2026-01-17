@@ -324,7 +324,7 @@ pub enum UnitDerivation {
     SameAs(usize),
 
     /// Product of parameter units
-    Multiply(Vec<usize>),
+    Multiply(&'static [usize]),
 
     /// Parameter N unit divided by parameter M unit
     Divide(usize, usize),

@@ -178,7 +178,7 @@ pub fn dot(args: &[Value]) -> f64 {
     shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
     unit_in = [UnitAny, UnitAny],
     shape_out = ShapeVectorDim(DimExact(3)),
-    unit_out = Multiply([0, 1])
+    unit_out = Multiply(&[0, 1])
 )]
 pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [
@@ -269,7 +269,7 @@ pub fn distance_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
     shape_in = [VectorDim(DimExact(2)), VectorDim(DimExact(2))],
     unit_in = [UnitAny, UnitSameAs(0)],
     shape_out = Scalar,
-    unit_out = Multiply([0, 0])
+    unit_out = Multiply(&[0, 0])
 )]
 pub fn distance_sq_vec2(a: [f64; 2], b: [f64; 2]) -> f64 {
     continuum_foundation::vector_ops::distance_sq_vec2(a, b)
@@ -282,7 +282,7 @@ pub fn distance_sq_vec2(a: [f64; 2], b: [f64; 2]) -> f64 {
     shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
     unit_in = [UnitAny, UnitSameAs(0)],
     shape_out = Scalar,
-    unit_out = Multiply([0, 0])
+    unit_out = Multiply(&[0, 0])
 )]
 pub fn distance_sq_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
     continuum_foundation::vector_ops::distance_sq_vec3(a, b)
@@ -295,7 +295,7 @@ pub fn distance_sq_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
     shape_in = [VectorDim(DimExact(4)), VectorDim(DimExact(4))],
     unit_in = [UnitAny, UnitSameAs(0)],
     shape_out = Scalar,
-    unit_out = Multiply([0, 0])
+    unit_out = Multiply(&[0, 0])
 )]
 pub fn distance_sq_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
     continuum_foundation::vector_ops::distance_sq_vec4(a, b)

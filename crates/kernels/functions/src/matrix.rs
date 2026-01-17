@@ -15,7 +15,7 @@ use nalgebra as na;
     purity = Pure,
     shape_in = [],
     unit_in = [],
-    shape_out = MatrixDims { rows: DimExact(2), cols: DimExact(2) },
+    shape_out = ShapeMatrixDims { rows: DimExact(2), cols: DimExact(2) },
     unit_out = Dimensionless
 )]
 pub fn identity2() -> Mat2 {
@@ -30,7 +30,7 @@ pub fn identity2() -> Mat2 {
     purity = Pure,
     shape_in = [],
     unit_in = [],
-    shape_out = MatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
     unit_out = Dimensionless
 )]
 pub fn identity3() -> Mat3 {
@@ -45,7 +45,7 @@ pub fn identity3() -> Mat3 {
     purity = Pure,
     shape_in = [],
     unit_in = [],
-    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
     unit_out = Dimensionless
 )]
 pub fn identity4() -> Mat4 {
@@ -331,16 +331,7 @@ pub fn inverse(args: &[Value]) -> Value {
 
 /// Matrix multiply: `mul(a, b)` -> Mat
 /// Explicit function for matrix multiplication (alternative to a * b operator)
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix, SameAs(0)],
-    unit_in = [UnitAny, UnitAny],
-    shape_out = ShapeSameAs(0),
-    unit_out = Multiply([0, 1])
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn mul(args: &[Value]) -> Value {
     use continuum_foundation::matrix_ops::{mat2_mul, mat3_mul, mat4_mul};
     if args.len() != 2 {
@@ -355,16 +346,7 @@ pub fn mul(args: &[Value]) -> Value {
 }
 
 /// Transform vector by matrix: `transform(m, v)` -> Vec
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    variadic,
-    purity = Pure,
-    shape_in = [AnyMatrix, AnyVector],
-    unit_in = [UnitAny, UnitAny],
-    shape_out = ShapeSameAs(1),
-    unit_out = Multiply([0, 1])
-)]
+#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
 pub fn transform(args: &[Value]) -> Value {
     use continuum_foundation::matrix_ops::{mat2_transform, mat3_transform, mat4_transform};
     if args.len() != 2 {
@@ -385,7 +367,7 @@ pub fn transform(args: &[Value]) -> Value {
     purity = Pure,
     shape_in = [VectorDim(DimExact(4))],
     unit_in = [UnitDimensionless],
-    shape_out = MatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
     unit_out = Dimensionless
 )]
 pub fn from_quat(q: [f64; 4]) -> Mat3 {
@@ -426,7 +408,7 @@ pub fn from_quat(q: [f64; 4]) -> Mat3 {
     purity = Pure,
     shape_in = [VectorDim(DimExact(3)), AnyScalar],
     unit_in = [UnitDimensionless, Angle],
-    shape_out = MatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
     unit_out = Dimensionless
 )]
 pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
@@ -462,7 +444,7 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
     purity = Pure,
     shape_in = [AnyMatrix],
     unit_in = [UnitAny],
-    shape_out = AnyVector,
+    shape_out = ShapeVectorDim(DimVar(0)),
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn eigenvalues(args: &[Value]) -> Value {
@@ -622,7 +604,7 @@ pub fn svd_u(args: &[Value]) -> Value {
     purity = Pure,
     shape_in = [AnyMatrix],
     unit_in = [UnitAny],
-    shape_out = AnyVector,
+    shape_out = ShapeVectorDim(DimVar(0)),
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_s(args: &[Value]) -> Value {
@@ -735,7 +717,7 @@ pub fn trace(args: &[Value]) -> f64 {
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar, AnyScalar],
     unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless],
-    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
     unit_out = Dimensionless
 )]
 pub fn scale(x: f64, y: f64, z: f64) -> Mat4 {
@@ -757,7 +739,7 @@ pub fn scale(x: f64, y: f64, z: f64) -> Mat4 {
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar, AnyScalar],
     unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
-    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
     unit_out = Dimensionless
 )]
 pub fn translation(x: f64, y: f64, z: f64) -> Mat4 {
@@ -780,7 +762,7 @@ pub fn translation(x: f64, y: f64, z: f64) -> Mat4 {
     purity = Pure,
     shape_in = [AnyScalar],
     unit_in = [Angle],
-    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
     unit_out = Dimensionless
 )]
 pub fn rotation_x(angle: f64) -> Mat4 {
@@ -805,7 +787,7 @@ pub fn rotation_x(angle: f64) -> Mat4 {
     purity = Pure,
     shape_in = [AnyScalar],
     unit_in = [Angle],
-    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
     unit_out = Dimensionless
 )]
 pub fn rotation_y(angle: f64) -> Mat4 {
@@ -830,7 +812,7 @@ pub fn rotation_y(angle: f64) -> Mat4 {
     purity = Pure,
     shape_in = [AnyScalar],
     unit_in = [Angle],
-    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
     unit_out = Dimensionless
 )]
 pub fn rotation_z(angle: f64) -> Mat4 {
@@ -865,7 +847,7 @@ pub fn rotation_z(angle: f64) -> Mat4 {
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar],
     unit_in = [Angle, UnitDimensionless, UnitAny, UnitSameAs(2)],
-    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
     unit_out = Dimensionless
 )]
 pub fn perspective(fov_y: f64, aspect: f64, near: f64, far: f64) -> Mat4 {
@@ -910,7 +892,7 @@ pub fn perspective(fov_y: f64, aspect: f64, near: f64, far: f64) -> Mat4 {
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar, AnyScalar, AnyScalar],
     unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0), UnitSameAs(0), UnitAny, UnitSameAs(4)],
-    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
     unit_out = Dimensionless
 )]
 pub fn orthographic(left: f64, right: f64, bottom: f64, top: f64, near: f64, far: f64) -> Mat4 {
@@ -953,7 +935,7 @@ pub fn orthographic(left: f64, right: f64, bottom: f64, top: f64, near: f64, far
     purity = Pure,
     shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3)), VectorDim(DimExact(3))],
     unit_in = [UnitAny, UnitSameAs(0), UnitDimensionless],
-    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
     unit_out = Dimensionless
 )]
 pub fn look_at(eye: [f64; 3], target: [f64; 3], up: [f64; 3]) -> Mat4 {
