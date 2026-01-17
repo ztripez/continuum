@@ -280,6 +280,8 @@ trait HasIndex   { fn self_field(&self, name: &str) -> Value; }
 
 **Note:** This table shows *maximum* capabilities per phase. Each Role gets a subset — see `RoleSpec.phase_capabilities`. For example, Field in Measure doesn't get `Current` (it's producing the value), but gets `Current` in Assert (to validate what was emitted).
 
+**Statement blocks:** Phases with `Emit` capability (`Collect`, impulse `Apply`) use statement blocks (`ExecutionBody::Statements`). All other phases use expression blocks (`ExecutionBody::Expr`). See Rule 10.
+
 **Signal values by phase:**
 - **Collect:** Signals return **previous tick values** (not yet resolved this tick)
 - **Resolve:** Signals being resolved read `prev`; other signals return previous tick values
@@ -749,6 +751,7 @@ pub enum ValidationErrorKind {
     
     // Effect errors
     EffectInConditional { effect: &'static str },  // emit inside if/else branch
+    UnitInExpressionPosition { span: Span },       // Unit-typed expr in pure context
     
     // Kernel errors
     UnknownKernel(KernelId),
@@ -797,11 +800,12 @@ signal body.acceleration : Vec3<m/s2> {
     }
 }
 
-// Payload works the same way
+// Payload works the same way (apply is a statement block)
 impulse apply_force {
     : payload(magnitude: Scalar<N>, direction: Vec3<>)
     
     apply {
+        // Statement block — each line is a Unit-returning statement
         // payload has type { magnitude: Scalar<N>, direction: Vec3<> }
         emit(target.velocity, payload.direction * payload.magnitude / target.mass)
     }
@@ -1352,7 +1356,7 @@ Typo in path name → compile error, not silent signal reference.
 struct Execution {
     name: String,
     phase: Phase,
-    body: TypedExpr,
+    body: ExecutionBody,  // expression or statement block
     reads: Vec<Path>,
     
     // Traceability
@@ -1360,7 +1364,22 @@ struct Execution {
     source_kind: &'static str,
     source_span: Span,
 }
+
+/// Execution body — distinguishes pure expression blocks from effectful statement blocks
+enum ExecutionBody {
+    /// Pure phases (resolve, measure, assert, fracture, configure)
+    /// Single expression that produces a value
+    Expr(TypedExpr),
+    
+    /// Effect phases (collect, apply)
+    /// Sequence of statements, each must be Unit-typed
+    Statements(Vec<TypedExpr>),
+}
 ```
+
+**Expression vs Statement blocks:**
+- `Expr` — used by pure phases, must return a value (not `Unit`)
+- `Statements` — used by effect phases (`collect`, `apply`), each statement must be `Unit`-typed
 
 Name and phase are explicit. No derivation tables.
 Full context for error messages without backtracking.
@@ -1632,7 +1651,59 @@ emit(target, delta)
 3. **Adding operators = adding signatures** — no IR changes
 4. **IR stays minimal** — fewer `ExprKind` variants
 
-### 10. Complete ExprKind
+### 10. Statement Blocks for Effects
+
+Effect phases (`collect`, `apply`) use **statement blocks**, not expression blocks.
+
+**The problem:** With eager evaluation and `emit` returning `Unit`, nothing prevents:
+```cdsl
+let x = emit(a, 1) + emit(b, 2)  // nonsense — Unit + Unit
+```
+
+**The solution:** `Unit` is only legal at **statement position**.
+
+| Phase | Form | Effects | Returns |
+|-------|------|---------|---------|
+| Configure | expression | no | value |
+| **Collect** | **statement block** | **yes** | implicit Unit |
+| Resolve | expression | no | value |
+| Fracture | expression | no | value |
+| Measure | expression | no | value |
+| Assert | expression | no | Bool |
+| **Apply (impulse)** | **statement block** | **yes** | implicit Unit |
+
+**Statement block syntax:**
+```cdsl
+// Expression block (resolve) — returns a value
+signal velocity : Vec3<m/s> {
+    resolve { prev + inputs.acceleration * dt }
+}
+
+// Statement block (collect) — sequence of effects
+operator transfer_heat {
+    collect {
+        emit(neighbor.temperature, self.temperature * 0.1)
+        emit(self.temperature, -self.temperature * 0.1)
+    }
+}
+
+// Statement block (impulse apply)
+impulse apply_thrust {
+    apply {
+        emit(target.velocity, payload.direction * payload.magnitude / target.mass)
+    }
+}
+```
+
+**Rules:**
+1. In expression blocks: `Unit`-typed expression anywhere → `UnitInExpressionPosition` error
+2. In statement blocks: each statement must be `Unit`-typed
+3. `Unit` cannot be operand to `+ - * /`, cannot be in `let` binding used as value
+4. Statements are sequenced top-to-bottom (deterministic order)
+
+**IR representation:** Statement blocks lower to `ExecutionBody::Statements(Vec<TypedExpr>)` where each `TypedExpr` has `ty: Type::Unit`. No special `do` form needed — the block structure is explicit in `ExecutionBody`.
+
+### 11. Complete ExprKind
 
 ```rust
 enum ExprKind {
@@ -1693,7 +1764,9 @@ enum AggregateOp { Sum, Map, Max, Min, Count, Any, All }  // Fold is separate va
 
 **Side effects:**
 - `emit(target, value)` is a `Call` that returns `Unit`
-- Interpreter handles the side effect, type system knows it returns nothing useful
+- `Unit`-typed calls are only valid in **statement blocks** (see Rule 10)
+- Effect phases (`collect`, `apply`) use `ExecutionBody::Statements`
+- Pure phases use `ExecutionBody::Expr` — `Unit` anywhere in the expression tree is a compile error
 
 ---
 
@@ -1712,6 +1785,7 @@ enum AggregateOp { Sum, Map, Max, Min, Count, Any, All }  // Fold is separate va
 | Silent signal fallback on typos | Explicit resolution → error |
 | Per-primitive parsing loops | Unified content handling |
 | Match-as-polymorphism | Data-driven role registry |
+| `emit()` anywhere in expressions | `Unit` only in statement blocks → compile error |
 
 ---
 
