@@ -6,7 +6,7 @@
 //!
 //! - `Token` — all CDSL token types (keywords, operators, literals, identifiers)
 //! - Comments are stripped during lexing (not tokens)
-//! - Token strings defined once via macro (single source of truth)
+//! - Token strings defined once in `TOKEN_STRINGS` table (single source of truth for Display)
 //!
 //! # Examples
 //!
@@ -23,8 +23,15 @@ use logos::Logos;
 /// Represents all lexical elements of the CDSL language including keywords,
 /// operators, literals, and identifiers.
 ///
-/// Token strings defined once in const array to ensure single source of truth.
+/// Token strings for keywords, operators, and delimiters are defined once
+/// in the `TOKEN_STRINGS` table and indexed by discriminant for Display.
+///
+/// # Layout
+///
+/// Uses `#[repr(u16)]` to guarantee discriminant values are stable and
+/// can be safely used to index into `TOKEN_STRINGS`.
 #[derive(Logos, Debug, Clone, PartialEq)]
+#[repr(u16)]
 #[logos(skip r"[ \t\r\n]+")] // Skip whitespace
 #[logos(skip r"//[^\n]*")] // Skip // comments
 #[logos(skip r"#[^\n]*")] // Skip # comments
@@ -368,22 +375,39 @@ const TOKEN_STRINGS: &[&str] = &[
     "]", // delimiters
 ];
 
+impl Token {
+    /// Get the index into TOKEN_STRINGS for simple tokens.
+    ///
+    /// # Returns
+    ///
+    /// Index for simple tokens (keywords, operators, delimiters), or panics for data tokens.
+    ///
+    /// # Safety
+    ///
+    /// Safe due to `#[repr(u16)]` on Token enum ensuring stable discriminants.
+    fn token_string_index(&self) -> usize {
+        // Safe: Token has #[repr(u16)] so discriminant values are stable
+        let discriminant = unsafe { *(self as *const Token as *const u16) };
+        discriminant as usize
+    }
+}
+
 impl std::fmt::Display for Token {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            // Literals with data
+            // Literals with data (not in TOKEN_STRINGS table)
             Token::Integer(n) => write!(f, "{}", n),
             Token::Float(x) => write!(f, "{}", x),
             Token::String(s) => write!(f, "\"{}\"", s),
             Token::Ident(id) => write!(f, "{}", id),
 
             // Simple tokens (keywords, operators, delimiters)
-            // Use discriminant to index into TOKEN_STRINGS table
+            // Index into TOKEN_STRINGS using discriminant
             _ => {
-                let discriminant = unsafe { *(self as *const Token as *const usize) };
+                let idx = self.token_string_index();
                 let s = TOKEN_STRINGS
-                    .get(discriminant)
-                    .expect("BUG: token discriminant out of bounds");
+                    .get(idx)
+                    .expect("BUG: token discriminant out of bounds for TOKEN_STRINGS");
                 write!(f, "{}", s)
             }
         }
@@ -394,10 +418,25 @@ impl std::fmt::Display for Token {
 mod tests {
     use super::*;
 
+    /// Test helper: lex source and filter out errors.
+    ///
+    /// This is lenient for testing valid token sequences. For tests that need
+    /// to verify error handling, use `Token::lexer()` directly and check the
+    /// `Result` stream (see `test_lexer_error_detection`).
     fn lex(source: &str) -> Vec<Token> {
         Token::lexer(source)
             .filter_map(|result| result.ok())
             .collect()
+    }
+
+    /// Test helper: lex source and panic on any error.
+    ///
+    /// Use this when testing syntax that must be valid.
+    #[allow(dead_code)]
+    fn lex_strict(source: &str) -> Vec<Token> {
+        Token::lexer(source)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("Lexing failed - invalid token encountered")
     }
 
     #[test]
@@ -686,14 +725,16 @@ mod tests {
 
     #[test]
     fn test_invalid_token() {
-        // Invalid tokens are filtered out by filter_map(|r| r.ok())
+        // The lex() helper filters out errors for convenience.
+        // This tests that valid tokens are still recognized when invalid chars are present.
+        // For proper error detection, see test_lexer_error_detection below.
         let source = "signal @ temp";
         let tokens = lex(source);
         assert_eq!(
             tokens,
             vec![
                 Token::Signal,
-                // @ is skipped (error)
+                // @ is skipped (error filtered by helper)
                 Token::Ident("temp".to_string()),
             ]
         );
