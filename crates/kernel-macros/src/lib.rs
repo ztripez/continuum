@@ -647,6 +647,14 @@ fn generate_kernel_registration(
         || args.unit_out.is_some();
 
     if any_constraint_present {
+        // Reject constraints on variadic functions (they take &[Value], can't type-check per-arg)
+        if args.variadic {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                "variadic functions cannot have type constraints (they take &[Value] at runtime)",
+            ));
+        }
+
         // Require all constraint attributes when any are provided
         if args.purity.is_none() {
             return Err(syn::Error::new_spanned(

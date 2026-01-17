@@ -1,0 +1,5 @@
+error: variadic functions cannot have type constraints (they take &[Value] at runtime)
+  --> tests/ui/variadic_with_constraints.rs:14:8
+   |
+14 | pub fn test_fn(args: &[f64]) -> f64 {
+   |        ^^^^^^^
