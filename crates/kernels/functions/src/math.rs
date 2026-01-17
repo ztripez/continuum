@@ -266,8 +266,6 @@ pub fn atan2(y: f64, x: f64) -> f64 {
 
 /// Arcsine: `asin(x)` → angle in radians whose sine is x
 ///
-/// # Panics
-///
 /// Returns NaN if x is outside [-1, 1]
 #[kernel_fn(
     namespace = "maths",
@@ -282,8 +280,6 @@ pub fn asin(x: f64) -> f64 {
 }
 
 /// Arccosine: `acos(x)` → angle in radians whose cosine is x
-///
-/// # Panics
 ///
 /// Returns NaN if x is outside [-1, 1]
 #[kernel_fn(

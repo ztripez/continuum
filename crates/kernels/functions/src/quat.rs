@@ -1,5 +1,8 @@
+//! Quaternion operations for 3D rotation and orientation.
 //!
-//! Quaternion operations.
+//! This module provides kernel functions for constructing and manipulating quaternions,
+//! including rotation operations, conversions to/from matrices and axis-angle representations,
+//! and interpolation (slerp).
 
 use continuum_foundation::{Mat3, Mat4, Quat};
 use continuum_kernel_macros::kernel_fn;
