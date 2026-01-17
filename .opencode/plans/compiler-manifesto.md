@@ -327,7 +327,39 @@ let total = sum(map(plates, |p| p.area))
 // Seq cannot be returned from resolve blocks
 // Seq exists only within expressions
 ```
-```
+
+**Seq<T> constraints:**
+
+1. **Intermediate-only** — `Seq<T>` cannot be:
+   - A signal type (`signal masses : Seq<Scalar<kg>>` → error)
+   - A `let` binding unless immediately consumed (`let s = map(...); s` → error)
+   - Returned from resolve blocks
+   - Stored in any form
+   
+2. **Purity required** — aggregate bodies must be pure (no effects):
+   ```cdsl
+   // OK — pure body
+   sum(bodies, |b| b.mass)
+   
+   // ERROR — effectful body
+   sum(bodies, |b| { emit(x, b.mass); b.mass })
+   ```
+
+3. **Capture rules** — lambda bodies can only reference:
+   - `self` (current entity, if in entity context)
+   - Bound element (`b` in `|b| ...`)
+   - `const`/`config` values
+   - Resolved signals
+   - Outer `let` bindings (immutable)
+   
+   Cannot capture: mutable state, other iterators, ambiguous lifetime refs.
+
+4. **Determinism** — iteration and reduction order:
+   - All iteration uses **lexical `InstanceId` order** (deterministic)
+   - Floating-point reductions use **fixed-tree reduction** for bitwise stability
+   - `fold` with non-commutative function: order = InstanceId order
+
+**Compiler check:** `Seq<T>` type only valid as direct argument to aggregate functions. Any other use → `SeqNotConsumed` error.
 
 **KernelType — numeric types with physics:**
 
@@ -755,6 +787,11 @@ pub enum ValidationErrorKind {
         form: &'static str,     // which eager form (select, and, or)
     },
     UnitInExpressionPosition { span: Span },       // Unit-typed expr in pure context
+    
+    // Seq errors
+    SeqNotConsumed { span: Span },                 // Seq<T> not immediately consumed by aggregate
+    EffectInAggregate { effect: &'static str },   // effectful expression in aggregate body
+    InvalidCapture { name: String },              // lambda captures disallowed binding
     
     // Kernel errors
     UnknownKernel(KernelId),
@@ -1562,6 +1599,27 @@ let momentum = fold(plates, Vec3::zero(), |acc, p| acc + p.velocity * p.mass)
 2. **Parallelizable** — no loop-carried dependencies to analyze
 3. **Typed** — `sum` knows it returns same type as body, `map` returns `Seq<T>`
 4. **No mutation** — no accumulator variables, no off-by-one errors
+5. **Pure** — aggregate bodies must be effect-free (see below)
+
+**Aggregate body constraints:**
+
+| Constraint | Rule |
+|------------|------|
+| **Purity** | Body must be pure — no `emit`, `spawn`, `log` |
+| **Capture** | Can reference: `self`, bound element, `const`/`config`, signals, outer `let` bindings |
+| **No nesting** | Cannot nest aggregate over same entity inside body |
+
+```cdsl
+// OK — pure body, valid captures
+sum(plates, |p| p.area * config.density)
+
+// ERROR — effectful body
+sum(plates, |p| { emit(total, p.area); p.area })
+
+// ERROR — captures mutable state (if we had it)
+let mut acc = 0
+sum(plates, |p| { acc += 1; p.area })  // forbidden
+```
 
 **Aggregate signatures:**
 
