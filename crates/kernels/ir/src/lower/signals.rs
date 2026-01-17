@@ -127,6 +127,12 @@ impl Lowerer {
             iterate: self.lower_expr_typed(&w.iterate.node, &value_type),
         });
 
+        // Lower initial expression with type context (evaluated once at simulation start)
+        let initial = def
+            .initial
+            .as_ref()
+            .map(|i| self.lower_expr_typed(&i.body.node, &value_type));
+
         // Lower resolve expression with type context for vector/tensor expansion
         let resolve = def
             .resolve
@@ -151,6 +157,7 @@ impl Lowerer {
             value_type,
             uses_dt_raw: def.dt_raw,
             reads,
+            initial,
             resolve,
             warmup,
             assertions,

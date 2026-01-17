@@ -1061,33 +1061,71 @@ pub fn build_assertion(expr: &CompiledExpr, world: &CompiledWorld) -> AssertionF
 }
 
 pub fn get_initial_signal_value(world: &CompiledWorld, signal_id: &SignalId) -> Value {
+    let signals = world.signals();
+    let signal = signals.get(signal_id);
+
+    // 1. Check for explicit initial {} block in signal definition (preferred)
+    if let Some(sig) = signal {
+        if let Some(initial_expr) = &sig.initial {
+            let value = eval_initial_expr(initial_expr, &world.constants, &world.config);
+            tracing::debug!(signal = %signal_id, ?value, "signal initial from initial block");
+            return value;
+        }
+    }
+
     let name = signal_id.to_string();
+    let value_type = signal.map(|s| &s.value_type);
 
-    // 1. Check exact name in config (e.g. terra.energy)
+    // Helper to create a Value from a scalar config value using the signal's type
+    let make_value = |scalar: f64| -> Value {
+        match value_type {
+            Some(vt) => {
+                use continuum_foundation::PrimitiveStorageClass;
+                match vt.storage_class() {
+                    PrimitiveStorageClass::Scalar => Value::Scalar(scalar),
+                    PrimitiveStorageClass::Vec2 => Value::Vec2([scalar; 2]),
+                    PrimitiveStorageClass::Vec3 => Value::Vec3([scalar; 3]),
+                    PrimitiveStorageClass::Vec4 => {
+                        if vt.primitive_id.name() == "Quat" {
+                            // Quaternion identity with custom w component
+                            Value::Quat([scalar, 0.0, 0.0, 0.0])
+                        } else {
+                            Value::Vec4([scalar; 4])
+                        }
+                    }
+                    _ => Value::Scalar(scalar),
+                }
+            }
+            None => Value::Scalar(scalar),
+        }
+    };
+
+    // 2. Check exact name in config (e.g. terra.energy)
     if let Some((value, _)) = world.config.get(&name) {
-        return Value::Scalar(*value);
+        return make_value(*value);
     }
 
-    // 2. Check name.initial (e.g. terra.energy.initial)
+    // 3. Check name.initial (e.g. terra.energy.initial)
     if let Some((value, _)) = world.config.get(&format!("{}.initial", name)) {
-        return Value::Scalar(*value);
+        return make_value(*value);
     }
 
-    // 3. Check initial_name (legacy/test pattern, e.g. terra.initial_energy)
-    // We need to handle the case where initial is in the middle: terra.initial_energy
-    // If the signal is terra.energy, it might be terra.initial_energy.
+    // 4. Check initial_name (legacy/test pattern, e.g. terra.initial_energy)
     if let Some(pos) = name.rfind('.') {
         let prefix = &name[..pos];
         let last = &name[pos + 1..];
         if let Some((value, _)) = world.config.get(&format!("{}.initial_{}", prefix, last)) {
-            return Value::Scalar(*value);
+            return make_value(*value);
         }
     } else if let Some((value, _)) = world.config.get(&format!("initial_{}", name)) {
-        return Value::Scalar(*value);
+        return make_value(*value);
     }
 
-    // Default to 0.0 for now
-    Value::Scalar(0.0)
+    // Default to type's default value (0.0 for scalars, [0,0,0] for Vec3, etc.)
+    match value_type {
+        Some(vt) => vt.default_value(),
+        None => Value::Scalar(0.0),
+    }
 }
 
 /// Get initial value for a signal (legacy compatibility).

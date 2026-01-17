@@ -104,9 +104,16 @@ signal atmosphere.external_power {
     : title("External Radiative Power")
     : symbol("P_ext")
 
+    config {
+        # Default absorbed solar power for Earth: S*(1-α)/4 * 4πR²
+        # = 1361 * 0.7 / 4 * 5.1e14 ≈ 1.2e17 W
+        default_power: 1.22e17
+    }
+
     resolve {
         # Ephemeral signal - sum of all external radiative inputs
-        collected
+        # On first tick before fractures emit, use default Earth-like value
+        if collected > 0.0 { collected } else { config.atmosphere.external_power.default_power }
     }
 
     assert {
@@ -126,30 +133,50 @@ signal atmosphere.surface_temp {
     : symbol("T_surf")
 
     config {
-        heat_capacity_j_k: 5e23
         emissivity: 0.95
         tau_greenhouse: 1.0
+        # Thermal relaxation timescale for planetary temperature
+        # ~1000 years for atmospheric thermal inertia at geological scales
+        relaxation_tau_s: 3.15e10
+        # Initial temperature (Earth mean)
+        initial_temp: 288.0
+    }
+
+    # Initial value: Earth-like temperatures [mean, equator, pole]
+    initial {
+        # Simple test: use literal values for now
+        vector.vec3(288.0, 308.0, 248.0)
     }
 
     resolve {
         # T = [T_mean, T_equator, T_pole]
-        # Energy balance with Stefan-Boltzmann radiative cooling
-        # dT/dt = (P_in - P_out) / C
-        # P_out = epsilon_eff * sigma * A * T^4
+        # At geological timescales (dt >> thermal timescale), temperature equilibrates
+        # to radiative balance: P_in = P_out => T_eq = (P_in / (epsilon * sigma * A))^0.25
+        #
+        # Using relaxation dynamics instead of integration for numerical stability
+        # with large dt (10 Myr).
 
-        let t_mean = prev.x in
         let epsilon_eff = atmosphere.effective_emissivity(config.atmosphere.surface_temp.emissivity, config.atmosphere.surface_temp.tau_greenhouse) in
-        let radiative_loss = epsilon_eff * const.atmosphere.sigma * t_mean * t_mean * t_mean * t_mean in
+        
+        # Equilibrium temperature from Stefan-Boltzmann law
+        # P_in = epsilon * sigma * A * T^4
+        # T_eq = (P_in / (epsilon * sigma * A))^0.25
+        # For Earth: A = 5.1e14 m²
+        let surface_area = 5.1e14 in
+        let power_in = signal.atmosphere.external_power in
+        let t_eq_fourth = power_in / (epsilon_eff * const.atmosphere.sigma * surface_area) in
+        # T_eq = t_eq_fourth^0.25 = sqrt(sqrt(t_eq_fourth))
+        let t_eq = maths.sqrt(maths.sqrt(t_eq_fourth)) in
 
-        # Simple energy balance (placeholder for full model)
-        let net_power = signal.atmosphere.external_power - radiative_loss * 1e14 in
-        let dt_temp = net_power / config.atmosphere.surface_temp.heat_capacity_j_k in
+        # Relax toward equilibrium temperature
+        let t_mean = dt.relax(prev.x, t_eq, config.atmosphere.surface_temp.relaxation_tau_s) in
 
-        vector.vec3(
-            dt.integrate(t_mean, dt_temp),
-            prev.y + collected,
-            prev.z + collected
-        )
+        # Equator/pole differential: simple linear model from mean
+        # T_equator ≈ T_mean + 20K, T_pole ≈ T_mean - 40K (Earth average)
+        let t_equator = t_mean + 20.0 in
+        let t_pole = t_mean - 40.0 in
+
+        vector.vec3(t_mean, t_equator, t_pole)
     }
 
     assert {

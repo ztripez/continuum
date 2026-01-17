@@ -2328,6 +2328,9 @@ pub fn walk_signal_def_transform<T: AstTransformer + ?Sized>(
         warmup: def
             .warmup
             .map(|warmup| transformer.transform_warmup_block(warmup)),
+        initial: def
+            .initial
+            .map(|initial| transformer.transform_resolve_block(initial)),
         resolve: def
             .resolve
             .map(|resolve| transformer.transform_resolve_block(resolve)),

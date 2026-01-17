@@ -337,6 +337,8 @@ pub struct SignalDef {
     pub local_config: Vec<ConfigEntry>,
     /// Optional warmup block for initial convergence.
     pub warmup: Option<WarmupBlock>,
+    /// Initial value expression evaluated once at simulation start.
+    pub initial: Option<ResolveBlock>,
     /// Resolution expression evaluated each tick.
     pub resolve: Option<ResolveBlock>,
     /// Assertions validated after resolution.

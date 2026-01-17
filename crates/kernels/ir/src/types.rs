@@ -195,6 +195,8 @@ pub struct CompiledSignal {
     pub value_type: ValueType,
     pub uses_dt_raw: bool,
     pub reads: Vec<SignalId>,
+    /// Initial value expression, evaluated once at simulation start.
+    pub initial: Option<CompiledExpr>,
     pub resolve: Option<CompiledExpr>,
     pub warmup: Option<CompiledWarmup>,
     pub assertions: Vec<CompiledAssertion>,
@@ -925,6 +927,7 @@ impl ExtractFromNode for CompiledSignal {
                 value_type: props.value_type.clone(),
                 uses_dt_raw: props.uses_dt_raw,
                 reads: node.reads.clone(),
+                initial: props.initial.clone(),
                 resolve: props.resolve.clone(),
                 warmup: props.warmup.clone(),
                 assertions: props.assertions.clone(),

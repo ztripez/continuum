@@ -41,6 +41,7 @@ pub fn signal_def<'src>()
                 local_consts: vec![],
                 local_config: vec![],
                 warmup: None,
+                initial: None,
                 resolve: None,
                 assertions: None,
                 tensor_constraints: vec![],
@@ -56,6 +57,7 @@ pub fn signal_def<'src>()
                     SignalContent::Uses(u) => def.uses.push(u),
                     SignalContent::LocalConst(c) => def.local_consts.extend(c),
                     SignalContent::LocalConfig(c) => def.local_config.extend(c),
+                    SignalContent::Initial(i) => def.initial = Some(i),
                     SignalContent::Resolve(r) => def.resolve = Some(r),
                     SignalContent::Assert(a) => def.assertions = Some(a),
                     SignalContent::TensorConstraint(c) => def.tensor_constraints.push(c),
@@ -76,6 +78,7 @@ enum SignalContent {
     Uses(String),
     LocalConst(Vec<ConstEntry>),
     LocalConfig(Vec<ConfigEntry>),
+    Initial(ResolveBlock),
     Resolve(ResolveBlock),
     Assert(crate::ast::AssertBlock),
     /// Tensor constraint: `: symmetric` or `: positive_definite`
@@ -156,6 +159,10 @@ fn signal_content<'src>()
                     .delimited_by(tok(Token::LBrace), tok(Token::RBrace)),
             )
             .map(SignalContent::LocalConfig),
+        // initial { expr } - evaluated once at simulation start
+        tok(Token::Initial)
+            .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
+            .map(|body| SignalContent::Initial(ResolveBlock { body })),
         tok(Token::Resolve)
             .ignore_then(spanned_expr().delimited_by(tok(Token::LBrace), tok(Token::RBrace)))
             .map(|body| SignalContent::Resolve(ResolveBlock { body })),

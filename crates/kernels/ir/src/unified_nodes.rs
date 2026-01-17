@@ -90,6 +90,8 @@ pub struct SignalProperties {
     pub value_type: ValueType,
     /// Whether `dt_raw` is explicitly used
     pub uses_dt_raw: bool,
+    /// Initial value expression, evaluated once at simulation start
+    pub initial: Option<CompiledExpr>,
     /// The resolve expression (all types, vectors handled via runtime dispatch)
     pub resolve: Option<CompiledExpr>,
     /// Warmup configuration
