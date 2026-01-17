@@ -5,11 +5,9 @@ edition.workspace = true
 
 [dependencies]
 # Core crates needed for integration testing
-continuum-compiler = { version = "0.1.0", path = "../continuum-compiler" }
 continuum-foundation = { path = "../kernels/foundation" }
 continuum-functions = { path = "../kernels/functions" }
 continuum-runtime = { path = "../kernels/runtime" }
-continuum-vm = { path = "../kernels/vm" }
 indexmap = "2.13.0"
 
 [dev-dependencies]

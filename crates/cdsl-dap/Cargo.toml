@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-continuum-compiler = { path = "../continuum-compiler" }
 continuum-runtime = { path = "../kernels/runtime" }
 continuum-foundation = { path = "../kernels/foundation" }
 serde = { version = "1.0", features = ["derive"] }

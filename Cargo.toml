@@ -1,21 +1,20 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/cdsl-lsp",
-    "crates/cdsl-dap",
-    "crates/continuum-compiler",
+    # Temporarily disabled during compiler rewrite (depend on deleted vm/ir/compiler crates):
+    # "crates/cdsl-lsp",
+    # "crates/cdsl-dap",
+    # "crates/tools",
+    # "crates/tests",
+    # "crates/continuum-inspector",
+    # "crates/kernels/runtime",
+    # "crates/kernels/gpu",
+    # "crates/kernels/lens",
+    
     "crates/kernel-macros",
     "crates/kernel-registry",
-    "crates/kernels/dsl",
     "crates/kernels/foundation",
-    "crates/kernels/lens",
     "crates/kernels/functions",
-    "crates/kernels/ir",
-    "crates/kernels/runtime",
-    "crates/kernels/vm",
-    "crates/kernels/gpu",
-    "crates/tests",
-    "crates/tools", "crates/continuum-inspector",
 ]
 
 [workspace.package]
