@@ -214,13 +214,13 @@ pub enum InterpolationMethod {
 
     // === Scattered Data (weighted) ===
     /// Inverse distance weighting
-    Idw {
+    IDW {
         /// Power parameter (typically 2.0)
         power: f64,
     },
 
     /// Radial basis functions
-    Rbf {
+    RBF {
         /// RBF kernel type
         kernel: RbfKernel,
     },
@@ -244,7 +244,7 @@ pub enum InterpolationMethod {
 
     // === Local Approximation ===
     /// Moving least squares
-    Mls {
+    MLS {
         /// Polynomial degree
         degree: u8,
     },
@@ -273,6 +273,12 @@ pub enum RbfKernel {
 
     /// Thin plate spline: r² ln(r)
     ThinPlateSpline,
+
+    /// Polyharmonic spline: r^k (odd k) or r^k ln(r) (even k)
+    Polyharmonic {
+        /// Exponent k (degree of polyharmonic spline)
+        k: u8,
+    },
 }
 
 /// Variogram model for kriging interpolation
@@ -284,8 +290,6 @@ pub enum Variogram {
         sill: f64,
         /// Range (correlation distance)
         range: f64,
-        /// Nugget (measurement error variance)
-        nugget: f64,
     },
 
     /// Gaussian variogram
@@ -294,8 +298,6 @@ pub enum Variogram {
         sill: f64,
         /// Range (correlation distance)
         range: f64,
-        /// Nugget (measurement error variance)
-        nugget: f64,
     },
 
     /// Spherical variogram
@@ -304,8 +306,6 @@ pub enum Variogram {
         sill: f64,
         /// Range (correlation distance)
         range: f64,
-        /// Nugget (measurement error variance)
-        nugget: f64,
     },
 }
 
@@ -324,6 +324,12 @@ pub enum BoundaryCondition {
 
     /// Closed manifold (e.g., sphere has no boundary)
     NoBoundary,
+
+    /// Polynomial extrapolation beyond boundary
+    Extrapolate {
+        /// Polynomial order for extrapolation (0=constant, 1=linear, etc.)
+        order: u8,
+    },
 
     // === PDE boundary conditions ===
     /// Fixed value at boundary
@@ -657,7 +663,7 @@ mod tests {
         // Test InterpolationMethod variants
         let linear = InterpolationMethod::Linear;
         let cubic = InterpolationMethod::Cubic;
-        let _idw = InterpolationMethod::Idw { power: 2.0 };
+        let _idw = InterpolationMethod::IDW { power: 2.0 };
         assert_ne!(linear, cubic);
 
         // Test BoundaryCondition variants
