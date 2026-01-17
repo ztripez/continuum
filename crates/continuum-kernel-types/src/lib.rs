@@ -12,6 +12,45 @@
 //! - **No logic**: Pure data structures, no algorithms or business logic
 //! - **Distributed slice**: `KERNEL_SIGNATURES` populated at link time by macro
 //!
+//! # Dual Type Hierarchy Justification
+//!
+//! **Note**: This crate defines types that are parallel to (but separate from) the AST types
+//! in `continuum-cdsl::ast::kernel`. This duplication exists for architectural reasons:
+//!
+//! ## Why Two Hierarchies?
+//!
+//! 1. **Const-compatible static initialization**:
+//!    - This crate uses `&'static [KernelParam]` for parameter lists
+//!    - Required for `const` initialization in distributed slice (`KERNEL_SIGNATURES`)
+//!    - The `linkme` distributed slice requires all data to be `'static`
+//!
+//! 2. **AST requires owned, mutable structures**:
+//!    - `continuum-cdsl` uses `Vec<KernelParam>` for owned storage
+//!    - AST needs to build, modify, and serialize kernel registries
+//!    - Requires `serde` support for persistence
+//!
+//! 3. **Different lifetimes**:
+//!    - Compile-time signatures: `'static` lifetime (embedded in binary)
+//!    - AST signatures: Owned, heap-allocated (runtime constructed)
+//!
+//! ## Conversion Layer
+//!
+//! The `continuum-cdsl::ast::kernel::KernelRegistry::convert_*` functions bridge
+//! between these representations. This conversion is **one-way** (compile-time → AST)
+//! and happens once during registry initialization.
+//!
+//! ## Trade-offs
+//!
+//! - **Benefit**: Clean separation of const/static vs owned/mutable concerns
+//! - **Cost**: Requires maintaining parallel type definitions and conversion layer
+//! - **Risk**: Type drift if new constraint variants are added to only one side
+//!
+//! ## Mitigation
+//!
+//! - Shared tests ensure both hierarchies support the same constraint vocabulary
+//! - Conversion functions are centralized and exhaustive (fail to compile if variants added)
+//! - Future: Consider auto-generating one from the other via proc-macro
+//!
 //! # Design Principles
 //!
 //! ## Type Safety
