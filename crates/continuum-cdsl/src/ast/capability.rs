@@ -68,11 +68,11 @@
 //! impl HasDt for ResolveContext { /* ... */ }
 //!
 //! // Generic function that works with any context providing dt
-//! fn time_integrate<C: HasDt>(ctx: &C, rate: f64) -> Value {
-//!     if let Value::Scalar(dt) = ctx.dt() {
-//!         Value::Scalar(rate * dt)
+//! fn time_integrate<C: HasDt>(ctx: &C, rate: Value) -> Value {
+//!     if let (Value::Scalar(dt), Value::Scalar(r)) = (ctx.dt(), &rate) {
+//!         Value::Scalar(r * dt)
 //!     } else {
-//!         panic!("dt must be scalar")
+//!         panic!("dt and rate must be scalar")
 //!     }
 //! }
 //! ```

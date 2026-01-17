@@ -21,6 +21,8 @@
 //! - `Node<()>` - Global primitive (e.g., world-level signal)
 //! - `Node<EntityId>` - Per-entity primitive (e.g., `plate.velocity`)
 //!
+//! `EntityId` is an identifier type for entity definitions (see `crate::ast::node::EntityId`)
+//!
 //! **Traits are read-only.** Mutation happens on the concrete Node<I> struct.
 //! Pipeline functions take `&mut Node<I>`.
 //!
