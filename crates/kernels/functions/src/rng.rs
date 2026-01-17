@@ -28,7 +28,14 @@ use continuum_kernel_macros::kernel_fn;
 /// ```cdsl
 /// let child_seed = rng.derive(parent_seed, "velocity")
 /// ```
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn derive(parent_seed: i64, label_hash: i64) -> i64 {
     let stream = RngStream::new(parent_seed as u64);
     let child = stream.substream_from_hash(label_hash as u64);
@@ -39,7 +46,14 @@ pub fn derive(parent_seed: i64, label_hash: i64) -> i64 {
 ///
 /// Each entity gets a unique but deterministic seed derived from the
 /// base primitive seed.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn derive_entity(base_seed: i64, entity_index: i64) -> i64 {
     let stream = RngStream::new(base_seed as u64);
     let entity_stream = stream.for_entity(entity_index as u64);
@@ -54,7 +68,14 @@ pub fn derive_entity(base_seed: i64, entity_index: i64) -> i64 {
 ///
 /// Takes a seed and call index to produce a deterministic result.
 /// The execution context manages the call index automatically.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn uniform(seed: i64, call_index: i64) -> f64 {
     let mut stream = RngStream::new(seed as u64);
     // Advance stream by call_index to get unique value for this call
@@ -65,7 +86,14 @@ pub fn uniform(seed: i64, call_index: i64) -> f64 {
 }
 
 /// Generate a uniform random value in [min, max).
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitAny, UnitSameAs(2)],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(2)
+)]
 pub fn uniform_range(seed: i64, call_index: i64, min: f64, max: f64) -> f64 {
     let mut stream = RngStream::new(seed as u64);
     for _ in 0..call_index {
@@ -81,7 +109,14 @@ pub fn uniform_range(seed: i64, call_index: i64, min: f64, max: f64) -> f64 {
 /// Generate a standard normal (Gaussian) random value.
 ///
 /// Returns a value from N(0, 1).
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn normal(seed: i64, call_index: i64) -> f64 {
     let mut stream = RngStream::new(seed as u64);
     // Box-Muller uses 2 uniform values, so multiply call_index by 2
@@ -92,7 +127,14 @@ pub fn normal(seed: i64, call_index: i64) -> f64 {
 }
 
 /// Generate a normal random value with given mean and standard deviation.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitAny, UnitSameAs(2)],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(2)
+)]
 pub fn normal_with(seed: i64, call_index: i64, mean: f64, stddev: f64) -> f64 {
     let mut stream = RngStream::new(seed as u64);
     for _ in 0..(call_index * 2) {
@@ -106,7 +148,14 @@ pub fn normal_with(seed: i64, call_index: i64, mean: f64, stddev: f64) -> f64 {
 // ============================================================================
 
 /// Generate a random boolean with given probability of being true.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn bool_prob(seed: i64, call_index: i64, probability: f64) -> bool {
     let mut stream = RngStream::new(seed as u64);
     for _ in 0..call_index {
@@ -116,7 +165,14 @@ pub fn bool_prob(seed: i64, call_index: i64, probability: f64) -> bool {
 }
 
 /// Generate a random integer in [min, max] (inclusive).
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn int_range(seed: i64, call_index: i64, min: i64, max: i64) -> i64 {
     let mut stream = RngStream::new(seed as u64);
     for _ in 0..call_index {
@@ -130,7 +186,14 @@ pub fn int_range(seed: i64, call_index: i64, min: i64, max: i64) -> i64 {
 // ============================================================================
 
 /// Generate a random unit vector on the 2D unit circle.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = Dimensionless
+)]
 pub fn unit_vec2(seed: i64, call_index: i64) -> [f64; 2] {
     let mut stream = RngStream::new(seed as u64);
     for _ in 0..call_index {
@@ -140,7 +203,14 @@ pub fn unit_vec2(seed: i64, call_index: i64) -> [f64; 2] {
 }
 
 /// Generate a random unit vector on the 3D unit sphere.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = Dimensionless
+)]
 pub fn unit_vec3(seed: i64, call_index: i64) -> [f64; 3] {
     let stream = RngStream::new(seed as u64);
     // Rejection sampling uses variable number of calls, so we use a different approach:
@@ -151,7 +221,14 @@ pub fn unit_vec3(seed: i64, call_index: i64) -> [f64; 3] {
 }
 
 /// Generate a random unit quaternion (uniform rotation).
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = Dimensionless
+)]
 pub fn unit_quat(seed: i64, call_index: i64) -> [f64; 4] {
     let mut stream = RngStream::new(seed as u64);
     // Use 3 uniform values
@@ -162,7 +239,14 @@ pub fn unit_quat(seed: i64, call_index: i64) -> [f64; 4] {
 }
 
 /// Generate a random point inside the 2D unit disk.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = Dimensionless
+)]
 pub fn in_disk(seed: i64, call_index: i64) -> [f64; 2] {
     let stream = RngStream::new(seed as u64);
     let call_stream = stream.for_entity(call_index as u64);
@@ -171,7 +255,14 @@ pub fn in_disk(seed: i64, call_index: i64) -> [f64; 2] {
 }
 
 /// Generate a random point inside the 3D unit sphere.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = Dimensionless
+)]
 pub fn in_sphere(seed: i64, call_index: i64) -> [f64; 3] {
     let stream = RngStream::new(seed as u64);
     let call_stream = stream.for_entity(call_index as u64);
@@ -186,7 +277,14 @@ pub fn in_sphere(seed: i64, call_index: i64) -> [f64; 3] {
 /// Select between two options based on weights.
 ///
 /// Returns 0 or 1 based on relative weights.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn weighted_choice_2(seed: i64, call_index: i64, weight0: f64, weight1: f64) -> i64 {
     let mut stream = RngStream::new(seed as u64);
     for _ in 0..call_index {
@@ -197,7 +295,14 @@ pub fn weighted_choice_2(seed: i64, call_index: i64, weight0: f64, weight1: f64)
 }
 
 /// Select between three options based on weights.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn weighted_choice_3(
     seed: i64,
     call_index: i64,
@@ -214,7 +319,14 @@ pub fn weighted_choice_3(
 }
 
 /// Select between four options based on weights.
-#[kernel_fn(namespace = "rng")]
+#[kernel_fn(
+    namespace = "rng",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless, UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn weighted_choice_4(
     seed: i64,
     call_index: i64,
