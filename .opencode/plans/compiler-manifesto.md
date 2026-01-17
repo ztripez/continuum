@@ -458,11 +458,48 @@ impl Unit {
 // dB      = { kind: Logarithmic { base: 10.0 }, dims: dimensionless }
 ```
 
-**Unit algebra special cases:**
+**Unit algebra by UnitKind:**
+
+| Operation | Multiplicative | Affine | Logarithmic |
+|-----------|---------------|--------|-------------|
+| `a + b` | ✓ same dims | ✗ forbidden | ✗ forbidden |
+| `a - b` | ✓ same dims | ✓ → Multiplicative (delta) | ✗ forbidden |
+| `a * k` | ✓ | ✗ forbidden | ✗ forbidden |
+| `a / k` | ✓ | ✗ forbidden | ✗ forbidden |
+| `a == b` | ✓ | ✓ | ✓ |
+| `a < b` | ✓ | ✓ | ✓ |
+
+**Special cases:**
 - `T1 - T2` where both are Affine → result is Multiplicative (temperature difference)
 - `log(x)` requires dimensionless input → result is Logarithmic
 - `exp(x)` requires Logarithmic or dimensionless → result is dimensionless
-- Mixing Affine/Logarithmic in addition → compile error
+- Mixing Affine/Logarithmic in addition → `AffineArithmeticForbidden` error
+
+**Conversion kernels:**
+```cdsl
+// Affine → Multiplicative
+let t_kelvin = units.to_kelvin(t_celsius)  // °C → K
+let t_rankine = units.to_rankine(t_fahrenheit)  // °F → R
+
+// Logarithmic → Multiplicative
+let ratio = units.from_db(db_value)  // dB → linear ratio
+let conc = units.from_ph(ph_value)   // pH → H+ concentration
+
+// Safe arithmetic after conversion
+let delta = units.to_kelvin(t1) - units.to_kelvin(t2)
+```
+
+**Error example:**
+```
+error: cannot add affine units
+  --> world.cdsl:15:5
+   |
+15 |   let sum = t1 + t2
+   |             ^^^^^^^ both operands are Affine (degC)
+   |
+   = note: affine units don't support addition (20°C + 30°C ≠ 50°C)
+   = help: convert to Kelvin first: units.to_kelvin(t1) + units.to_kelvin(t2)
+```
 
 **Bounds — value constraints:**
 
@@ -804,6 +841,10 @@ pub enum ValidationErrorKind {
     // Vector access errors
     NamedComponentDimMismatch { dim: u8, component: &'static str },  // .x/.y/.z/.w on dim > 4
     ComponentOutOfBounds { dim: u8, index: u8 },  // .at(i) where i >= dim
+    
+    // Unit kind errors
+    AffineArithmeticForbidden { op: &'static str, unit: Unit },    // +, *, / on Affine
+    LogarithmicArithmeticForbidden { op: &'static str, unit: Unit }, // +, -, *, / on Logarithmic
     
     // Kernel errors
     UnknownKernel(KernelId),
