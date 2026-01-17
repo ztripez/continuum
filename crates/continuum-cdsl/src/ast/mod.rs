@@ -63,7 +63,15 @@
 mod expr;
 mod node;
 mod role;
+mod untyped;
 
 pub use expr::*;
 pub use node::*;
 pub use role::*;
+
+// Re-export untyped AST types explicitly to avoid ExprKind ambiguity
+pub use untyped::{BinaryOp, Expr, TypeExpr, UnaryOp, UnitExpr};
+
+// ExprKind from untyped module is public but not re-exported at top level
+// to avoid name collision with expr::ExprKind. Access it as untyped::ExprKind.
+pub use untyped::ExprKind as UntypedKind;

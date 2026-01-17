@@ -337,32 +337,11 @@ pub struct StratumId(
     pub Path,
 );
 
-/// Type expression from source (before resolution)
-///
-/// Represents a type as written in source code, before resolution
-/// determines the actual Type. Examples: `Scalar<m/s>`, `Vec3<N>`, `Plate`.
-///
-/// **Current status:** Placeholder - not yet implemented
-#[derive(Clone, Debug)]
-pub struct TypeExpr {
-    // This will hold unresolved type syntax when implemented
-    #[doc(hidden)]
-    _placeholder: (),
-}
-
-/// Expression from source (before compilation)
-///
-/// Represents an expression as parsed from source code, before type
-/// checking and compilation. Will contain AST nodes for operators,
-/// literals, function calls, etc.
-///
-/// **Current status:** Placeholder - not yet implemented
-#[derive(Clone, Debug)]
-pub struct Expr {
-    // This will hold untyped expression tree when implemented
-    #[doc(hidden)]
-    _placeholder: (),
-}
+// Re-export untyped AST types for use in Node
+//
+// These are defined in the untyped module and represent the parser output
+// before type resolution transforms them into TypedExpr.
+pub use super::untyped::{Expr, TypeExpr};
 
 /// Validation error from semantic analysis
 ///
@@ -568,7 +547,7 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         // output set but type_expr still present -> not resolved
-        node.type_expr = Some(TypeExpr { _placeholder: () });
+        node.type_expr = Some(TypeExpr::Bool);
         node.output = Some(Type::Bool);
         assert!(!node.is_resolved());
 
@@ -583,7 +562,8 @@ mod tests {
         assert!(!node.is_compiled());
 
         // executions present but execution_exprs not empty -> not compiled
-        node.execution_exprs = vec![("test".to_string(), Expr { _placeholder: () })];
+        let test_expr = Expr::literal(0.0, None, span);
+        node.execution_exprs = vec![("test".to_string(), test_expr)];
         node.executions = vec![Execution { _placeholder: () }];
         assert!(!node.is_compiled());
     }
