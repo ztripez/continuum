@@ -796,6 +796,11 @@ pub enum ValidationErrorKind {
     // Purity errors
     EffectInPurePhase { kernel: KernelId, phase: Phase },  // effectful kernel in pure-only phase
     
+    // N-body iterator errors
+    OtherOutsideEntityContext { span: Span },     // other() used outside Node<EntityId>
+    NestedIteratorForbidden { span: Span },       // other(other(...)) or pairs(pairs(...))
+    IteratorNotConsumed { span: Span },           // EntityIter/PairIter not used as aggregate source
+    
     // Kernel errors
     UnknownKernel(KernelId),
     WrongArgCount { kernel: KernelId, expected: usize, found: usize },
@@ -1233,15 +1238,49 @@ All instances must complete before the aggregate resolves.
 
 ### Pairwise Operations (N-Body)
 
-`other(entity)` and `pairs(entity)` enable N-body style interactions:
+`other(entity)` and `pairs(entity)` are **aggregate sources** for N-body style interactions.
+
+**Type definitions:**
+
+```rust
+// other(E) — all instances of E except self
+other(E: EntityId) -> EntityIter<E>
+
+// pairs(E) — unique pairs (a, b) where a.id < b.id
+pairs(E: EntityId) -> PairIter<E>
+```
+
+**Usage:**
 
 ```cdsl
+// other() — excludes self, binds single element
 member body.acceleration : Vec3<m/s2> {
     resolve {
         sum(other(bodies), |o| gravity(self.pos, o.pos, o.mass))
     }
 }
+
+// pairs() — unique pairs, binds tuple (a, b)
+signal total_interaction : Scalar<J> {
+    resolve {
+        sum(pairs(bodies), |(a, b)| interaction_energy(a.pos, b.pos))
+    }
+}
 ```
+
+**Scope rules:**
+
+| Rule | Constraint |
+|------|------------|
+| `other(X)` context | Only valid in `Node<EntityId>` (requires `HasIndex`) |
+| `pairs(X)` context | Valid in any context (global or per-entity) |
+| Nesting | `other(other(...))` forbidden — no dynamic composition |
+| `self` binding | Implicitly available in `other()` lambda |
+
+**Compiler checks:**
+- `other()` outside entity context → `OtherOutsideEntityContext` error
+- Nested iterator composition → `NestedIteratorForbidden` error
+- `EntityIter<E>` / `PairIter<E>` only valid as aggregate source
 
 **Iteration order:**
 - `other(entity)` iterates all instances except `self` in **lexical InstanceId order**
