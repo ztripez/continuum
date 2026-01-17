@@ -135,10 +135,8 @@ pub mod vm {
 
 /// Error types and diagnostics
 ///
-/// Phase 9 will implement the CompileError system.
-pub mod error {
-    //! Compilation errors and diagnostics.
-}
+/// Provides structured error reporting for all compiler phases.
+pub mod error;
 
 /// Public compilation API
 ///
