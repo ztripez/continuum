@@ -31,7 +31,7 @@
 //!
 //! fn process_resolved<T: Resolved>(node: &T) {
 //!     println!("Output type: {:?}", node.output());  // Resolved
-//!     println!("Input types: {:?}", node.inputs());  // Resolved
+//!     println!("Input types: {:?}", node.inputs());  // Resolved (named inputs)
 //! }
 //! ```
 
@@ -77,12 +77,14 @@ pub trait Resolved: Parsed {
     /// Returns `None` if type resolution hasn't completed yet.
     fn output(&self) -> Option<&Type>;
 
-    /// Get the input types (what this node receives)
+    /// Get the named input types (what this node receives)
     ///
-    /// For signals: inputs from collect/emit
-    /// For operators: depends on operator type
-    /// For impulses: payload type
-    fn inputs(&self) -> Option<&Type>;
+    /// Each input has a name and type. For signals, these are inputs from
+    /// collect/emit expressions. For operators, depends on operator type.
+    /// For impulses, these are payload fields.
+    ///
+    /// Returns empty slice before type resolution completes.
+    fn inputs(&self) -> &[(String, Type)];
 }
 
 /// Validation complete - has error diagnostics
@@ -149,10 +151,10 @@ mod tests {
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path.clone(), span, RoleData::Signal, ());
 
-        // Initially no output or inputs
+        // Initially no output, empty inputs
         let resolved: &dyn Resolved = &node;
         assert!(resolved.output().is_none());
-        assert!(resolved.inputs().is_none());
+        assert!(resolved.inputs().is_empty());
 
         // Can access Parsed and Named methods through Resolved
         assert!(resolved.type_expr().is_none());

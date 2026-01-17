@@ -142,12 +142,14 @@ pub struct Node<I: Index = ()> {
     /// Set by type resolution. None before resolution.
     pub output: Option<Type>,
 
-    /// Input type (what this node receives)
+    /// Named input types (what this node receives)
     ///
-    /// For impulses: type of payload
-    /// For operators on entities: type of entity data
-    /// None if no inputs.
-    pub inputs: Option<Type>,
+    /// Set by type resolution. Each input has a name and type.
+    /// For signals: inputs from collect/emit expressions
+    /// For operators: depends on operator type
+    /// For impulses: payload fields
+    /// Empty before resolution.
+    pub inputs: Vec<(String, Type)>,
 
     // =========================================================================
     // Indexing
@@ -210,7 +212,7 @@ impl<I: Index> Node<I> {
             executions: Vec::new(),
             stratum: None,
             output: None,
-            inputs: None,
+            inputs: Vec::new(),
             index,
             type_expr: None,
             execution_exprs: Vec::new(),
@@ -261,6 +263,60 @@ impl<I: Index> Node<I> {
     /// `true` if validation errors have been recorded, `false` otherwise
     pub fn has_errors(&self) -> bool {
         !self.validation_errors.is_empty()
+    }
+}
+
+// =============================================================================
+// Pipeline Trait Implementations
+// =============================================================================
+// These traits describe the data lifecycle of Node<I> as it flows through
+// compilation passes. See ast/pipeline.rs for trait definitions.
+
+use super::pipeline::{Compiled, Named, Parsed, Resolved, Validated};
+
+impl<I: Index> Named for Node<I> {
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+impl<I: Index> Parsed for Node<I> {
+    fn type_expr(&self) -> Option<&TypeExpr> {
+        self.type_expr.as_ref()
+    }
+
+    fn execution_exprs(&self) -> &[(String, Expr)] {
+        &self.execution_exprs
+    }
+}
+
+impl<I: Index> Resolved for Node<I> {
+    fn output(&self) -> Option<&Type> {
+        self.output.as_ref()
+    }
+
+    fn inputs(&self) -> &[(String, Type)] {
+        &self.inputs
+    }
+}
+
+impl<I: Index> Validated for Node<I> {
+    fn validation_errors(&self) -> &[ValidationError] {
+        &self.validation_errors
+    }
+}
+
+impl<I: Index> Compiled for Node<I> {
+    fn executions(&self) -> &[Execution] {
+        &self.executions
+    }
+
+    fn reads(&self) -> &[Path] {
+        &self.reads
     }
 }
 
@@ -973,7 +1029,7 @@ mod tests {
         assert!(node.executions.is_empty());
         assert!(node.stratum.is_none());
         assert!(node.output.is_none());
-        assert!(node.inputs.is_none());
+        assert!(node.inputs.is_empty());
         assert!(node.type_expr.is_none());
         assert!(node.execution_exprs.is_empty());
         assert!(node.reads.is_empty());
@@ -1081,7 +1137,7 @@ mod tests {
 
         let condition = TypedExpr {
             expr: ExprKind::Literal {
-                value: 1.0,  // true represented as 1.0
+                value: 1.0, // true represented as 1.0
                 unit: None,
             },
             ty: Type::Bool,
@@ -1138,12 +1194,8 @@ mod tests {
             span,
         };
 
-        let validation = AnalyzerValidation::new(
-            condition,
-            ValidationSeverity::Warn,
-            "test message",
-            span,
-        );
+        let validation =
+            AnalyzerValidation::new(condition, ValidationSeverity::Warn, "test message", span);
 
         assert_eq!(validation.severity, ValidationSeverity::Warn);
         assert_eq!(validation.message, "test message");
