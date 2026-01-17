@@ -55,8 +55,8 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{Expr, TypeExpr, UnitExpr, UntypedKind as ExprKind};
-use crate::foundation::Span;
+use crate::ast::{BinaryOp, Expr, TypeExpr, UnaryOp, UnitExpr, UntypedKind as ExprKind};
+use crate::foundation::{Path, Span};
 use crate::lexer::Token;
 
 /// Parse an expression from a token stream.
@@ -80,7 +80,7 @@ use crate::lexer::Token;
 /// ];
 /// let expr = parse_expr(&tokens)?;
 /// ```
-pub fn parse_expr(tokens: &[Token]) -> ParseResult<Expr, Rich<Token>> {
+pub fn parse_expr(tokens: &[Token]) -> ParseResult<Expr, EmptyErr> {
     expr_parser().parse(tokens)
 }
 
@@ -94,26 +94,275 @@ pub fn parse_expr(tokens: &[Token]) -> ParseResult<Expr, Rich<Token>> {
 /// - Function calls
 /// - Field access
 /// - Struct construction
-fn expr_parser<'src>()
--> impl Parser<'src, &'src [Token], Expr, extra::Err<Rich<'src, Token>>> + Clone {
-    recursive(|_expr| {
-        // TODO: Implement recursive expression parser
-        //
-        // Structure:
-        // 1. Atoms (literals, identifiers, context values, parenthesized expressions)
-        // 2. Postfix (field access, function calls)
-        // 3. Unary (negation, logical not)
-        // 4. Binary with precedence (power, mul/div/mod, add/sub, comparison, logical)
-        // 5. Let bindings
-        // 6. If expressions
+fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
+    recursive(|expr| {
+        // === Atoms ===
 
-        // Stub: parse any token as error placeholder
-        any().map(|_| {
+        // Boolean literals
+        let bool_literal = select! {
+            Token::True => ExprKind::BoolLiteral(true),
+            Token::False => ExprKind::BoolLiteral(false),
+        }
+        .map_with(|kind, e| Expr::new(kind, token_span(e.span())));
+
+        // Numeric literals (integers and floats)
+        let numeric_literal = select! {
+            Token::Integer(n) => n as f64,
+            Token::Float(f) => f,
+        }
+        .then(
+            // Optional unit: < unit_expr >
+            just(Token::Lt)
+                .ignore_then(unit_expr_parser())
+                .then_ignore(just(Token::Gt))
+                .or_not(),
+        )
+        .map_with(|(value, unit), e| {
+            Expr::new(ExprKind::Literal { value, unit }, token_span(e.span()))
+        });
+
+        // Context values (prev, current, inputs, dt, self, other, payload)
+        let context_value = select! {
+            Token::Prev => ExprKind::Prev,
+            Token::Current => ExprKind::Current,
+            Token::Inputs => ExprKind::Inputs,
+            Token::Dt => ExprKind::Dt,
+            Token::Self_ => ExprKind::Self_,
+            Token::Other => ExprKind::Other,
+            Token::Payload => ExprKind::Payload,
+        }
+        .map_with(|kind, e| Expr::new(kind, token_span(e.span())));
+
+        // Identifiers (local variables, signal references, etc.)
+        let identifier = select! {
+            Token::Ident(name) => name,
+        }
+        .map_with(|name, e| Expr::new(ExprKind::Local(name), token_span(e.span())));
+
+        // Parenthesized expressions
+        let parens = expr
+            .clone()
+            .delimited_by(just(Token::LParen), just(Token::RParen));
+
+        // Vector literals: [expr, expr, ...]
+        let vector_literal = expr
+            .clone()
+            .separated_by(just(Token::Comma))
+            .allow_trailing()
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::LBracket), just(Token::RBracket))
+            .map_with(|elements, e| Expr::new(ExprKind::Vector(elements), token_span(e.span())));
+
+        // Atom: any of the above
+        let atom = choice((
+            bool_literal,
+            numeric_literal,
+            context_value,
+            vector_literal,
+            parens,
+            identifier,
+        ));
+
+        // === Postfix (field access, function calls) ===
+
+        // Field access: atom.field
+        let field_access = atom.clone().foldl(
+            just(Token::Dot)
+                .ignore_then(select! { Token::Ident(name) => name })
+                .repeated(),
+            |object, field| {
+                let span = object.span;
+                Expr::new(
+                    ExprKind::FieldAccess {
+                        object: Box::new(object),
+                        field,
+                    },
+                    span,
+                )
+            },
+        );
+
+        // Function calls: atom(arg, arg, ...)
+        let call = field_access.clone().foldl(
+            expr.clone()
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LParen), just(Token::RParen))
+                .repeated(),
+            |func_expr, args| {
+                let span = func_expr.span;
+
+                // Extract path from func_expr for Call
+                match &func_expr.kind {
+                    ExprKind::Local(name) => {
+                        let path = Path::from_str(name);
+                        Expr::new(ExprKind::Call { func: path, args }, span)
+                    }
+                    _ => Expr::new(
+                        ExprKind::ParseError(
+                            "complex function expressions not yet supported".to_string(),
+                        ),
+                        span,
+                    ),
+                }
+            },
+        );
+
+        // === Unary operators ===
+
+        let unary = choice((
+            just(Token::Minus).to(UnaryOp::Neg),
+            just(Token::Bang).to(UnaryOp::Not),
+        ))
+        .repeated()
+        .foldr(call.clone(), |op, operand| {
+            let span = operand.span;
             Expr::new(
-                ExprKind::ParseError("not yet implemented".to_string()),
-                Span::new(0, 0, 0, 0),
+                ExprKind::Unary {
+                    op,
+                    operand: Box::new(operand),
+                },
+                span,
             )
-        })
+        });
+
+        // === Binary operators with precedence ===
+
+        // Power (highest precedence, right-associative)
+        let power_op = just(Token::Caret).to(BinaryOp::Pow);
+        let power = unary.clone().foldl_with(
+            power_op.then(unary.clone()).repeated(),
+            |left, (op, right), e| {
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    token_span(e.span()),
+                )
+            },
+        );
+
+        // Multiplication, division, modulo
+        let mul_op = choice((
+            just(Token::Star).to(BinaryOp::Mul),
+            just(Token::Slash).to(BinaryOp::Div),
+            just(Token::Percent).to(BinaryOp::Mod),
+        ));
+        let mul =
+            power
+                .clone()
+                .foldl_with(mul_op.then(power).repeated(), |left, (op, right), e| {
+                    Expr::new(
+                        ExprKind::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        token_span(e.span()),
+                    )
+                });
+
+        // Addition, subtraction
+        let add_op = choice((
+            just(Token::Plus).to(BinaryOp::Add),
+            just(Token::Minus).to(BinaryOp::Sub),
+        ));
+        let add = mul
+            .clone()
+            .foldl_with(add_op.then(mul).repeated(), |left, (op, right), e| {
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    token_span(e.span()),
+                )
+            });
+
+        // Comparison operators
+        let cmp_op = choice((
+            just(Token::Lt).to(BinaryOp::Lt),
+            just(Token::LtEq).to(BinaryOp::Le),
+            just(Token::Gt).to(BinaryOp::Gt),
+            just(Token::GtEq).to(BinaryOp::Ge),
+            just(Token::EqEq).to(BinaryOp::Eq),
+            just(Token::BangEq).to(BinaryOp::Ne),
+        ));
+        let comparison =
+            add.clone()
+                .foldl_with(cmp_op.then(add).repeated(), |left, (op, right), e| {
+                    Expr::new(
+                        ExprKind::Binary {
+                            op,
+                            left: Box::new(left),
+                            right: Box::new(right),
+                        },
+                        token_span(e.span()),
+                    )
+                });
+
+        // Logical AND
+        let and = comparison.clone().foldl_with(
+            just(Token::AndAnd)
+                .to(BinaryOp::And)
+                .then(comparison)
+                .repeated(),
+            |left, (op, right), e| {
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    token_span(e.span()),
+                )
+            },
+        );
+
+        // Logical OR (lowest precedence)
+        let or = and.clone().foldl_with(
+            just(Token::OrOr)
+                .to(BinaryOp::Or)
+                .then(and.clone())
+                .repeated(),
+            |left, (op, right), e| {
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    token_span(e.span()),
+                )
+            },
+        );
+
+        // Logical OR (lowest precedence)
+        let or = and.clone().foldl_with(
+            just(Token::OrOr).to(BinaryOp::Or).then(and).repeated(),
+            |left, (op, right), e| {
+                Expr::new(
+                    ExprKind::Binary {
+                        op,
+                        left: Box::new(left),
+                        right: Box::new(right),
+                    },
+                    token_span(e.span()),
+                )
+            },
+        );
+
+        // TODO: Let bindings
+        // TODO: If expressions
+        // TODO: Struct construction
+        // TODO: Aggregates (sum, map, fold)
+
+        // Return the lowest precedence parser (logical OR)
+        or
     })
 }
 
