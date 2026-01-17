@@ -1,0 +1,5 @@
+error: unit_inference cannot be used with type constraints (use unit_out instead)
+  --> tests/ui/unit_inference_with_constraints.rs:14:8
+   |
+14 | pub fn test_fn(x: f64) -> f64 {
+   |        ^^^^^^^

@@ -655,6 +655,14 @@ fn generate_kernel_registration(
             ));
         }
 
+        // Reject unit_inference when type constraints are present (ambiguous)
+        if args.unit_inference.is_some() {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                "unit_inference cannot be used with type constraints (use unit_out instead)",
+            ));
+        }
+
         // Require all constraint attributes when any are provided
         if args.purity.is_none() {
             return Err(syn::Error::new_spanned(
