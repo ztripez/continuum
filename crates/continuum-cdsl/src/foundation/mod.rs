@@ -4,9 +4,11 @@
 //! runtime foundation types. They represent compile-time constructs.
 
 pub mod path;
+pub mod shape;
 pub mod unit;
 
 pub use path::Path;
+pub use shape::Shape;
 pub use unit::{Unit, UnitDimensions, UnitKind};
 
 // Re-export typed IDs
