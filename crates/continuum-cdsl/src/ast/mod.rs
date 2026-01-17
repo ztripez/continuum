@@ -60,6 +60,7 @@
 //! );
 //! ```
 
+mod capability;
 mod expr;
 mod kernel;
 mod node;
@@ -68,6 +69,7 @@ mod role;
 mod untyped;
 mod warmup;
 
+pub use capability::*;
 pub use expr::*;
 pub use kernel::*;
 pub use node::*;
