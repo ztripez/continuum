@@ -64,10 +64,12 @@ mod expr;
 mod node;
 mod role;
 mod untyped;
+mod warmup;
 
 pub use expr::*;
 pub use node::*;
 pub use role::*;
+pub use warmup::*;
 
 // Re-export untyped AST types explicitly to avoid ExprKind ambiguity
 pub use untyped::{BinaryOp, Expr, TypeExpr, UnaryOp, UnitExpr};
