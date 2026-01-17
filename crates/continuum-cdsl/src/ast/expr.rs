@@ -152,7 +152,7 @@
 //! let total_mass = TypedExpr {
 //!     expr: ExprKind::Aggregate {
 //!         op: AggregateOp::Sum,
-//!         entity: EntityId(Path::from_str("plate")),
+//!         entity: EntityId::new("plate"),
 //!         binding: "p".to_string(),
 //!         body: Box::new(mass_expr),
 //!     },
@@ -164,7 +164,7 @@
 use crate::foundation::{Path, Span, Type, UserTypeId};
 use continuum_kernel_types::KernelId;
 
-use super::node::EntityId;
+use crate::foundation::EntityId;
 
 /// Kernel operation identifier
 ///
@@ -1096,7 +1096,7 @@ mod tests {
             let expr = TypedExpr::new(
                 ExprKind::Aggregate {
                     op: AggregateOp::Sum,
-                    entity: EntityId(Path::from_str("plate")),
+                    entity: EntityId::new("plate"),
                     binding: "p".to_string(),
                     body: Box::new(body),
                 },
@@ -1185,7 +1185,7 @@ mod tests {
 
             let expr = TypedExpr::new(
                 ExprKind::Fold {
-                    entity: EntityId(Path::from_str("plate")),
+                    entity: EntityId::new("plate"),
                     init: Box::new(init),
                     acc: "acc".to_string(),
                     elem: "elem".to_string(),
@@ -1242,7 +1242,7 @@ mod tests {
             let expr = TypedExpr::new(
                 ExprKind::Aggregate {
                     op: AggregateOp::Sum,
-                    entity: EntityId(Path::from_str("plate")),
+                    entity: EntityId::new("plate"),
                     binding: "p".to_string(),
                     body: Box::new(body),
                 },
@@ -1269,7 +1269,7 @@ mod tests {
             );
             let expr = TypedExpr::new(
                 ExprKind::Fold {
-                    entity: EntityId(Path::from_str("plate")),
+                    entity: EntityId::new("plate"),
                     init: Box::new(init),
                     acc: "acc".to_string(),
                     elem: "elem".to_string(),
@@ -1301,7 +1301,7 @@ mod tests {
             );
             let expr = TypedExpr::new(
                 ExprKind::Fold {
-                    entity: EntityId(Path::from_str("plate")),
+                    entity: EntityId::new("plate"),
                     init: Box::new(init),
                     acc: "acc".to_string(),
                     elem: "elem".to_string(),

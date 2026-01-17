@@ -58,7 +58,7 @@
 use crate::foundation::{Path, Span};
 
 use super::expr::AggregateOp;
-use super::node::EntityId;
+use crate::foundation::EntityId;
 use continuum_kernel_types::KernelId;
 
 /// Untyped expression from parser
@@ -1180,7 +1180,7 @@ mod tests {
         let expr = Expr::new(
             ExprKind::Aggregate {
                 op: AggregateOp::Sum,
-                entity: EntityId(Path::from_str("plate")),
+                entity: EntityId::new("plate"),
                 binding: "p".to_string(),
                 body: Box::new(body),
             },
@@ -1201,7 +1201,7 @@ mod tests {
         let body = Expr::local("acc", make_span());
         let expr = Expr::new(
             ExprKind::Fold {
-                entity: EntityId(Path::from_str("plate")),
+                entity: EntityId::new("plate"),
                 init: Box::new(init),
                 acc: "acc".to_string(),
                 elem: "elem".to_string(),
