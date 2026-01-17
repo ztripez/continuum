@@ -38,9 +38,6 @@ use continuum_foundation::TypeId;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Type {
     /// Numeric kernel type (shape + unit + optional bounds)
-    ///
-    /// Will be expanded to KernelType in Phase 1.5.
-    /// For now, stored as placeholder to establish structure.
     Kernel(KernelType),
 
     /// User-defined product type (struct)
@@ -67,8 +64,8 @@ pub enum Type {
 
 /// Kernel type — numeric type with physics.
 ///
-/// Phase 1.5 will flesh this out with proper implementation.
-/// For now, this is a forward declaration to establish structure.
+/// Combines geometric structure (Shape), physical dimensions (Unit),
+/// and optional value constraints (Bounds).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct KernelType {
     /// Geometric structure
