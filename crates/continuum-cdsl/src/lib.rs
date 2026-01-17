@@ -91,10 +91,8 @@ pub mod lexer;
 
 /// Parser (chumsky-based parsing)
 ///
-/// Phase 10 will implement the parser.
-pub mod parser {
-    //! Parsing CDSL tokens into untyped AST.
-}
+/// Implements recursive descent parsing with chumsky combinators.
+pub mod parser;
 
 /// Name and type resolution
 ///
