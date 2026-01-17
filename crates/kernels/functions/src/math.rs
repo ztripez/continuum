@@ -4,6 +4,60 @@
 
 use continuum_kernel_macros::kernel_fn;
 
+// === Basic Arithmetic ===
+
+/// Addition: `add(a, b)` → a + b
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn add(a: f64, b: f64) -> f64 {
+    a + b
+}
+
+/// Subtraction: `sub(a, b)` → a - b
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn sub(a: f64, b: f64) -> f64 {
+    a - b
+}
+
+/// Multiplication: `mul(a, b)` → a * b
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, Any],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeSameAs(0),
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn mul(a: f64, b: f64) -> f64 {
+    a * b
+}
+
+/// Division: `div(a, b)` → a / b
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, Any],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeSameAs(0),
+    unit_out = Divide(0, 1)
+)]
+pub fn div(a: f64, b: f64) -> f64 {
+    a / b
+}
+
 // === Basic math ===
 
 /// Absolute value: `abs(x)`

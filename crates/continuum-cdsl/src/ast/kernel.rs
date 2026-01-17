@@ -807,6 +807,11 @@ mod tests {
     use super::*;
     use crate::foundation::Shape;
 
+    // Import continuum-functions to ensure kernel signatures are linked
+    // This populates the KERNEL_SIGNATURES distributed slice for tests
+    #[allow(unused_imports)]
+    use continuum_functions as _;
+
     #[test]
     fn kernel_purity_is_pure() {
         assert!(KernelPurity::Pure.is_pure());
@@ -934,7 +939,7 @@ mod tests {
     #[test]
     fn unit_derivation_multiply() {
         let multiply = UnitDerivation::Multiply(vec![0, 1]);
-        assert_eq!(multiply, UnitDerivation::Multiply(vec![0, 1]));
+        assert_eq!(multiply.clone(), multiply);
     }
 
     #[test]

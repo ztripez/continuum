@@ -99,6 +99,7 @@ dependencies = [
  "bincode",
  "chumsky",
  "continuum-foundation",
+ "continuum-functions",
  "continuum-kernel-registry",
  "continuum-kernel-types",
  "indexmap",

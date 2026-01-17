@@ -40,12 +40,11 @@
 //!
 //! This emphasizes their special status as causal operations.
 
-// Disabled pending runtime context - see file header
-// use continuum_kernel_macros::kernel_fn;
-// use continuum_kernel_registry::Value;
+use continuum_kernel_macros::kernel_fn;
 
-/*
-DISABLED PENDING RUNTIME CONTEXT
+// NOTE: These implementations are stubs (unimplemented!()) pending runtime context.
+// They are enabled solely for compile-time type checking and test validation.
+// The macro will register their signatures in KERNEL_SIGNATURES for the AST.
 
 /// Emit: `emit(target, value)`
 ///
@@ -69,8 +68,16 @@ DISABLED PENDING RUNTIME CONTEXT
 /// # TODO
 ///
 /// Current implementation is a stub. Requires execution context support.
-#[kernel_fn(namespace = "effect")]
-pub fn emit(_target: Value, _value: Value) -> Value {
+#[kernel_fn(
+    name = "emit",
+    namespace = "",  // BARE NAME: called as "emit(...)" not "effect.emit(...)"
+    purity = Effect,
+    shape_in = [Any, Any],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
+pub fn emit(_target: f64, _value: f64) -> f64 {
     // TODO: Requires runtime execution context
     // This is an effect operation that accumulates values into signal inputs
     // Real implementation needs access to the signal resolution context
@@ -85,8 +92,16 @@ pub fn emit(_target: Value, _value: Value) -> Value {
 /// # TODO
 ///
 /// Entity lifecycle (spawn/destroy) not yet implemented in compiler rewrite.
-#[kernel_fn(namespace = "effect")]
-pub fn spawn(_entity_type: Value, _initial_state: Value) -> Value {
+#[kernel_fn(
+    name = "spawn",
+    namespace = "",
+    purity = Effect,
+    shape_in = [Any, Any],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
+pub fn spawn(_entity_type: f64, _initial_state: f64) -> f64 {
     unimplemented!("spawn requires entity lifecycle support (not yet implemented)")
 }
 
@@ -98,8 +113,16 @@ pub fn spawn(_entity_type: Value, _initial_state: Value) -> Value {
 /// # TODO
 ///
 /// Entity lifecycle (spawn/destroy) not yet implemented in compiler rewrite.
-#[kernel_fn(namespace = "effect")]
-pub fn destroy(_entity_id: Value) -> Value {
+#[kernel_fn(
+    name = "destroy",
+    namespace = "",
+    purity = Effect,
+    shape_in = [Any],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
+pub fn destroy(_entity_id: f64) -> f64 {
     unimplemented!("destroy requires entity lifecycle support (not yet implemented)")
 }
 
@@ -111,8 +134,15 @@ pub fn destroy(_entity_id: Value) -> Value {
 /// # TODO
 ///
 /// Logging/tracing infrastructure not yet implemented in compiler rewrite.
-#[kernel_fn(namespace = "effect")]
-pub fn log(_message: Value, _value: Value) -> Value {
+#[kernel_fn(
+    name = "log",
+    namespace = "",
+    purity = Effect,
+    shape_in = [Any, Any],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
+pub fn log(_message: f64, _value: f64) -> f64 {
     unimplemented!("log requires observer infrastructure (not yet implemented)")
 }
-*/

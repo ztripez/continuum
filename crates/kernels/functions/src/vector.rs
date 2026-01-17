@@ -608,8 +608,19 @@ pub fn abs_vec4(v: [f64; 4]) -> [f64; 4] {
     [v[0].abs(), v[1].abs(), v[2].abs(), v[3].abs()]
 }
 
-// Helper functions for internal use (not exposed via kernel_fn)
-fn dot_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
+// Helper functions for internal use
+// dot_vec3 is also exposed as vector.dot for compile-time type checking
+/// Dot product (Vec3): `dot(a, b)` -> Scalar
+#[kernel_fn(
+    name = "dot",
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn dot_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
     a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 

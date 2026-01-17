@@ -5,7 +5,7 @@
 
 mod compare;
 mod dt;
-// mod effect;  // Disabled pending runtime context - see effect.rs header
+mod effect; // Re-enabled for type checking (implementations are stubs)
 mod logic;
 mod math;
 mod matrix;

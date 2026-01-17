@@ -861,7 +861,7 @@ mod tests {
         assert_eq!(add.qualified_name(), "maths.add");
 
         let emit = KernelId::new("", "emit");
-        assert_eq!(emit.qualified_name(), "effect.emit");
+        assert_eq!(emit.qualified_name(), "emit"); // Bare name (empty namespace)
     }
 
     #[test]
