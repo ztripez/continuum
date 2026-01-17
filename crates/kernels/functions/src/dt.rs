@@ -11,10 +11,12 @@ use continuum_kernel_registry::{VRegBuffer, VectorizedResult, eval_in_namespace}
 /// Default uses Euler method
 #[kernel_fn(
     namespace = "dt",
-    category = "simulation",
-    vectorized,
-    unit_inference = "integrate",
-    pattern_hint = "integration"
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
 )]
 pub fn integrate(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
@@ -24,10 +26,12 @@ pub fn integrate(prev: f64, rate: f64, dt: Dt) -> f64 {
 /// Explicit Euler method (same as default integrate)
 #[kernel_fn(
     namespace = "dt",
-    category = "simulation",
-    vectorized,
-    unit_inference = "integrate",
-    pattern_hint = "integration"
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
 )]
 pub fn integrate_euler(prev: f64, rate: f64, dt: Dt) -> f64 {
     prev + rate * dt
@@ -37,10 +41,12 @@ pub fn integrate_euler(prev: f64, rate: f64, dt: Dt) -> f64 {
 /// Note: This is a simplified RK4 that assumes constant rate over dt
 #[kernel_fn(
     namespace = "dt",
-    category = "simulation",
-    vectorized,
-    unit_inference = "integrate",
-    pattern_hint = "integration"
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
 )]
 pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified RK4 for constant rate case
@@ -52,10 +58,12 @@ pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
 /// Note: This is simplified for single-variable case
 #[kernel_fn(
     namespace = "dt",
-    category = "simulation",
-    vectorized,
-    unit_inference = "integrate",
-    pattern_hint = "integration"
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
 )]
 pub fn integrate_verlet(prev: f64, rate: f64, dt: Dt) -> f64 {
     // Simplified Verlet integration
@@ -65,17 +73,27 @@ pub fn integrate_verlet(prev: f64, rate: f64, dt: Dt) -> f64 {
 /// Exponential decay: `decay(value, halflife)` → `value * 0.5^(dt/halflife)`
 #[kernel_fn(
     namespace = "dt",
-    category = "simulation",
-    vectorized,
-    unit_inference = "decay",
-    pattern_hint = "decay"
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
 )]
 pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
     value * 0.5_f64.powf(dt / halflife)
 }
 
 /// Exponential relaxation: `relax(current, target, tau)` → approaches target
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0), AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
+)]
 pub fn relax(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     let alpha = std::f64::consts::E.powf(-dt / tau);
     target + (current - target) * alpha
@@ -83,26 +101,57 @@ pub fn relax(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
 
 /// Exponential relaxation: `relax_to(current, target, tau)` → approaches target
 /// Alias for `relax`
-#[kernel_fn(namespace = "dt", category = "simulation")]
+#[kernel_fn(
+    namespace = "dt",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0), AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn relax_to(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     relax(current, target, tau, dt)
 }
 
 /// Smooth transition: `smooth(current, target, tau)` → approaches target
 /// Same as relax - exponential approach to target value
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0), AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
+)]
 pub fn smooth(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
     relax(current, target, tau, dt)
 }
 
 /// Bounded accumulation: `accumulate(prev, delta, min, max)` → clamps accumulated value
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitAny, UnitSameAs(0), UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
+)]
 pub fn accumulate(prev: f64, delta: f64, min: f64, max: f64, dt: Dt) -> f64 {
     (prev + delta * dt).clamp(min, max)
 }
 
 /// Phase advancement: `advance_phase(phase, omega)` → wraps phase in [0, 2π)
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
+)]
 pub fn advance_phase(phase: f64, omega: f64, dt: Dt) -> f64 {
     // Use the wrap function from math stdlib: wrap(value, min, max)
     let new_phase = phase + omega * dt;
@@ -125,7 +174,15 @@ pub fn advance_phase(phase: f64, omega: f64, dt: Dt) -> f64 {
 
 /// Damping: `damp(value, damping_factor)` → applies damping
 /// Note: This is a simplified damping model. Full spring-damper systems need more context.
-#[kernel_fn(namespace = "dt", category = "simulation", vectorized)]
+#[kernel_fn(
+    namespace = "dt",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0),
+    vectorized
+)]
 pub fn damp(value: f64, damping_factor: f64, dt: Dt) -> f64 {
     // Simple exponential damping: value * (1 - damping_factor * dt)
     // Clamp to prevent negative damping
