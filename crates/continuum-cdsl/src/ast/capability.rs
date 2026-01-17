@@ -64,16 +64,36 @@ use crate::foundation::Path;
 ///
 /// Provides access to configuration values and constants defined in the world.
 /// Available in all execution phases.
+///
+/// # Panics
+///
+/// All lookup methods **panic** if the path is invalid. This is intentional:
+/// - Invalid paths indicate compiler bugs (name resolution should have caught them)
+/// - Panics are loud, making bugs visible immediately
+/// - At runtime, all paths should be pre-validated by the compiler
+///
+/// **Note:** Future phases will use resolved IDs (ConfigId, ConstId) instead of
+/// Path, making invalid lookups unrepresentable at compile time.
 pub trait HasScoping {
     /// Look up a configuration value by path
     ///
     /// Config values are runtime-configurable parameters that can be set
     /// per scenario or run.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `path` does not refer to a valid config symbol. Invalid paths
+    /// indicate a compiler bug - name resolution should have validated all paths.
     fn config(&self, path: &Path) -> f64;
 
     /// Look up a constant value by path
     ///
     /// Constants are compile-time values that cannot change during execution.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `path` does not refer to a valid constant symbol. Invalid paths
+    /// indicate a compiler bug - name resolution should have validated all paths.
     fn constant(&self, path: &Path) -> f64;
 }
 
@@ -84,10 +104,23 @@ pub trait HasScoping {
 /// - **Collect**: Returns previous tick values (current tick not yet resolved)
 /// - **Resolve**: Signal being resolved reads `prev`; other signals return previous tick
 /// - **Fracture/Measure/Assert**: Returns current tick values (just resolved)
+///
+/// # Panics
+///
+/// Lookup methods **panic** if the path is invalid. Invalid paths indicate
+/// compiler bugs (name resolution should have validated all signal references).
+///
+/// **Note:** Future phases will use SignalId instead of Path, making invalid
+/// lookups unrepresentable at compile time.
 pub trait HasSignals {
     /// Read a signal value by path
     ///
     /// Returns the signal value appropriate for the current phase.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `path` does not refer to a valid signal. Invalid paths indicate
+    /// a compiler bug - name resolution should have validated all signal references.
     fn signal(&self, path: &Path) -> f64;
 }
 
@@ -151,11 +184,24 @@ pub trait HasPayload {
 ///
 /// Available in Collect phase and impulse Apply blocks. Allows accumulating
 /// values into signals for resolution.
+///
+/// # Panics
+///
+/// `emit` **panics** if the target path is invalid. Invalid paths indicate
+/// compiler bugs (name resolution should have validated all emit targets).
+///
+/// **Note:** Future phases will use SignalId instead of Path.
 pub trait CanEmit {
     /// Emit a value to a target signal
     ///
     /// Accumulates the value into the target signal's inputs. The signal will
     /// resolve these inputs during the Resolve phase.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `target` does not refer to a valid signal. Invalid targets
+    /// indicate a compiler bug - name resolution should have validated all
+    /// emit targets.
     fn emit(&mut self, target: &Path, value: f64);
 }
 
@@ -166,12 +212,26 @@ pub trait CanEmit {
 ///
 /// Provides access to other members of the same entity (e.g., `self.velocity`
 /// when inside a `plate` entity context).
+///
+/// # Panics
+///
+/// `self_field` **panics** if the field name is invalid. Invalid field names
+/// indicate compiler bugs (name resolution should have validated all member
+/// access).
+///
+/// **Note:** Future phases will use MemberId instead of string names.
 pub trait HasIndex {
     /// Access a field on the current entity
     ///
     /// Returns the value of another member on the same entity instance.
     /// For example, inside a `plate.force` operator, `self_field("velocity")`
     /// would return `plate.velocity` for the current plate instance.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `name` does not refer to a valid member of the current entity.
+    /// Invalid names indicate a compiler bug - name resolution should have
+    /// validated all member access.
     fn self_field(&self, name: &str) -> f64;
 }
 
@@ -243,17 +303,19 @@ mod tests {
         struct TestContext;
         impl HasSignals for TestContext {
             fn signal(&self, path: &Path) -> f64 {
+                // In a real implementation, unknown paths would panic
+                // This test implementation only supports one known path
                 if path == &Path::from_str("world.temperature") {
                     300.0
                 } else {
-                    0.0
+                    panic!("Unknown signal path: {}", path)
                 }
             }
         }
 
         let ctx = TestContext;
         assert_eq!(ctx.signal(&Path::from_str("world.temperature")), 300.0);
-        assert_eq!(ctx.signal(&Path::from_str("other.signal")), 0.0);
+        // Accessing unknown signal would panic (as documented)
     }
 
     #[test]
@@ -425,12 +487,13 @@ mod tests {
             // Function that requires full Resolve phase capabilities
         }
 
+        // Compile-time test: this function's existence proves that the
+        // Collect phase capability combination is valid. Not called at runtime.
         #[allow(dead_code)]
         fn needs_collect_capabilities<C: HasScoping + HasSignals + HasDt + HasPayload + CanEmit>(
             _ctx: &mut C,
         ) {
             // Function that requires Collect phase capabilities
-            // Not called in test, but demonstrates trait bounds work correctly
         }
 
         let ctx = MockResolveContext {
@@ -442,7 +505,8 @@ mod tests {
         // Should compile with matching capabilities
         needs_resolve_capabilities(&ctx);
 
-        // Note: needs_collect_capabilities would not compile with MockResolveContext
-        // because it doesn't implement HasPayload or CanEmit (different phase)
+        // Demonstrate compile-time capability enforcement:
+        // The following would NOT compile (uncomment to verify):
+        // needs_collect_capabilities(&mut ctx);  // Error: MockResolveContext doesn't implement HasPayload or CanEmit
     }
 }
