@@ -66,24 +66,8 @@
 #![deny(missing_docs)]
 #![deny(rustdoc::broken_intra_doc_links)]
 
-// Re-export foundation types for convenience
-pub use continuum_foundation as foundation;
-
-/// Compiler foundation: shared types and utilities
-///
-/// This module will house types that are used throughout the compiler
-/// but are not part of the public API. Phase 1 will add:
-/// - Path and typed IDs
-/// - Unit system
-/// - Type enum and UserType
-/// - Shape system
-/// - KernelType and Bounds
-pub mod cdsl_foundation {
-    //! Compiler-specific foundation types.
-    //!
-    //! These types are distinct from runtime foundation types and are used
-    //! during compilation.
-}
+// Compiler foundation module
+pub mod foundation;
 
 /// Source location tracking (Span, SourceMap)
 ///
