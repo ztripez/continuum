@@ -6,13 +6,29 @@ use continuum_foundation::tensor::TensorData;
 use continuum_kernel_macros::kernel_fn;
 
 /// Create tensor filled with zeros: `zeros(rows, cols)`
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0)],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = Dimensionless
+)]
 pub fn zeros(rows: f64, cols: f64) -> TensorData {
     TensorData::new(rows as usize, cols as usize)
 }
 
 /// Create tensor filled with ones: `ones(rows, cols)`
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0)],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = Dimensionless
+)]
 pub fn ones(rows: f64, cols: f64) -> TensorData {
     let r = rows as usize;
     let c = cols as usize;
@@ -21,7 +37,15 @@ pub fn ones(rows: f64, cols: f64) -> TensorData {
 }
 
 /// Create identity tensor: `eye(size)`
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = Dimensionless
+)]
 pub fn eye(size: f64) -> TensorData {
     let n = size as usize;
     let mut data = vec![0.0; n * n];
@@ -32,33 +56,73 @@ pub fn eye(size: f64) -> TensorData {
 }
 
 /// Get element: `get(t, row, col)` -> Scalar
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any, AnyScalar, SameAs(1)],
+    unit_in = [UnitAny, UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn get(t: TensorData, row: f64, col: f64) -> f64 {
     t.get(row as usize, col as usize)
 }
 
 /// Set element (returns new tensor): `set(t, row, col, value)` -> Tensor
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any, AnyScalar, SameAs(1), SameAs(1)],
+    unit_in = [UnitAny, UnitDimensionless, UnitDimensionless, UnitSameAs(0)],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn set(mut t: TensorData, row: f64, col: f64, value: f64) -> TensorData {
     t.set(row as usize, col as usize, value);
     t
 }
 
 /// Get number of rows: `rows(t)`
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any],
+    unit_in = [UnitAny],
+    shape_out = ShapeDerivation::Scalar,
+    unit_out = Dimensionless
+)]
 pub fn rows(t: TensorData) -> f64 {
     t.rows as f64
 }
 
 /// Get number of columns: `cols(t)`
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any],
+    unit_in = [UnitAny],
+    shape_out = ShapeDerivation::Scalar,
+    unit_out = Dimensionless
+)]
 pub fn cols(t: TensorData) -> f64 {
     t.cols as f64
 }
 
 /// Tensor multiply: `mul(a, b)` -> Tensor
 /// Requires a.cols == b.rows
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn mul(a: TensorData, b: TensorData) -> TensorData {
     if a.cols != b.rows {
         panic!(
@@ -80,7 +144,15 @@ pub fn mul(a: TensorData, b: TensorData) -> TensorData {
 }
 
 /// Transpose: `transpose(t)` -> Tensor
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any],
+    unit_in = [UnitAny],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn transpose(t: TensorData) -> TensorData {
     let mut result = TensorData::new(t.cols, t.rows);
     for i in 0..t.rows {
@@ -92,7 +164,15 @@ pub fn transpose(t: TensorData) -> TensorData {
 }
 
 /// Element-wise addition: `add(a, b)` -> Tensor
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn add(a: TensorData, b: TensorData) -> TensorData {
     if a.rows != b.rows || a.cols != b.cols {
         panic!(
@@ -110,7 +190,15 @@ pub fn add(a: TensorData, b: TensorData) -> TensorData {
 }
 
 /// Element-wise subtraction: `sub(a, b)` -> Tensor
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn sub(a: TensorData, b: TensorData) -> TensorData {
     if a.rows != b.rows || a.cols != b.cols {
         panic!(
@@ -128,7 +216,15 @@ pub fn sub(a: TensorData, b: TensorData) -> TensorData {
 }
 
 /// Scalar multiplication: `scale(t, s)` -> Tensor
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any, AnyScalar],
+    unit_in = [UnitAny, UnitDimensionless],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn scale(t: TensorData, s: f64) -> TensorData {
     let mut result = TensorData::new(t.rows, t.cols);
     for i in 0..t.rows {
@@ -145,7 +241,15 @@ pub fn scale(t: TensorData, s: f64) -> TensorData {
 
 /// Trace (sum of diagonal): `trace(t)` -> Scalar
 /// For non-square tensors, sums min(rows, cols) diagonal elements.
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any],
+    unit_in = [UnitAny],
+    shape_out = ShapeDerivation::Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn trace(t: TensorData) -> f64 {
     let n = t.rows.min(t.cols);
     let mut sum = 0.0;
@@ -157,7 +261,15 @@ pub fn trace(t: TensorData) -> f64 {
 
 /// Frobenius norm: `norm(t)` -> Scalar
 /// Square root of sum of squared elements.
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any],
+    unit_in = [UnitAny],
+    shape_out = ShapeDerivation::Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn norm(t: TensorData) -> f64 {
     let mut sum_sq = 0.0;
     for i in 0..t.rows {
@@ -171,7 +283,15 @@ pub fn norm(t: TensorData) -> f64 {
 
 /// Determinant: `det(t)` -> Scalar
 /// Requires square tensor. Uses LU decomposition via nalgebra.
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any],
+    unit_in = [UnitAny],
+    shape_out = ShapeDerivation::Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn det(t: TensorData) -> f64 {
     use nalgebra::DMatrix;
 
@@ -188,7 +308,15 @@ pub fn det(t: TensorData) -> f64 {
 
 /// Matrix inverse: `inv(t)` -> Tensor
 /// Requires square tensor. Panics if singular.
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any],
+    unit_in = [UnitAny],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn inv(t: TensorData) -> TensorData {
     use nalgebra::DMatrix;
 
@@ -221,7 +349,15 @@ pub fn inv(t: TensorData) -> TensorData {
 
 /// Reshape tensor: `reshape(t, new_rows, new_cols)` -> Tensor
 /// Total elements must match.
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any, AnyScalar, SameAs(1)],
+    unit_in = [UnitAny, UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn reshape(t: TensorData, new_rows: f64, new_cols: f64) -> TensorData {
     let nr = new_rows as usize;
     let nc = new_cols as usize;
@@ -251,7 +387,15 @@ pub fn reshape(t: TensorData, new_rows: f64, new_cols: f64) -> TensorData {
 
 /// Extract sub-tensor: `slice(t, row_start, row_end, col_start, col_end)` -> Tensor
 /// Indices are inclusive start, exclusive end.
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any, AnyScalar, SameAs(1), SameAs(1), SameAs(1)],
+    unit_in = [UnitAny, UnitDimensionless, UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn slice(
     t: TensorData,
     row_start: f64,
@@ -291,7 +435,15 @@ pub fn slice(
 /// Solve linear system Ax = b: `solve(A, b)` -> Tensor
 /// A must be square, b must have same number of rows as A.
 /// Returns x such that Ax = b.
-#[kernel_fn(namespace = "tensor", category = "tensor")]
+#[kernel_fn(
+    namespace = "tensor",
+    category = "tensor",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeDerivation::SameAs(0),
+    unit_out = UnitDerivSameAs(1)
+)]
 pub fn solve(a: TensorData, b: TensorData) -> TensorData {
     use nalgebra::DMatrix;
 

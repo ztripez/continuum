@@ -5,26 +5,58 @@ use continuum_foundation::{Mat3, Mat4, Quat};
 use continuum_kernel_macros::kernel_fn;
 
 /// Construct a quaternion: `quat(w, x, y, z)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0), SameAs(0), SameAs(0)],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn quat(w: f64, x: f64, y: f64, z: f64) -> Quat {
     Quat([w, x, y, z])
 }
 
 /// Identity quaternion: `identity()`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [],
+    unit_in = [],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn identity() -> Quat {
     Quat([1.0, 0.0, 0.0, 0.0])
 }
 
 /// Quaternion norm (magnitude): `norm(q)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion)],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::Scalar,
+    unit_out = Dimensionless
+)]
 pub fn norm(q: Quat) -> f64 {
     let [w, x, y, z] = q.0;
     (w * w + x * x + y * y + z * z).sqrt()
 }
 
 /// Normalize a quaternion: `normalize(q)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion)],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn normalize(q: Quat) -> Quat {
     let [w, x, y, z] = q.0;
     let mag = (w * w + x * x + y * y + z * z).sqrt();
@@ -35,14 +67,30 @@ pub fn normalize(q: Quat) -> Quat {
 }
 
 /// Conjugate a quaternion: `conjugate(q)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion)],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn conjugate(q: Quat) -> Quat {
     let [w, x, y, z] = q.0;
     Quat([w, -x, -y, -z])
 }
 
 /// Multiply quaternions: `mul(a, b)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion), SameAs(0)],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn mul(a: Quat, b: Quat) -> Quat {
     let [aw, ax, ay, az] = a.0;
     let [bw, bx, by, bz] = b.0;
@@ -55,7 +103,15 @@ pub fn mul(a: Quat, b: Quat) -> Quat {
 }
 
 /// Quaternion inverse: `inverse(q)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion)],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn inverse(q: Quat) -> Quat {
     let [w, x, y, z] = q.0;
     let norm_sq = w * w + x * x + y * y + z * z;
@@ -66,7 +122,15 @@ pub fn inverse(q: Quat) -> Quat {
 }
 
 /// Quaternion dot product: `dot(a, b)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion), SameAs(0)],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::Scalar,
+    unit_out = Dimensionless
+)]
 pub fn dot(a: Quat, b: Quat) -> f64 {
     let [aw, ax, ay, az] = a.0;
     let [bw, bx, by, bz] = b.0;
@@ -74,7 +138,15 @@ pub fn dot(a: Quat, b: Quat) -> f64 {
 }
 
 /// Construct a quaternion from axis-angle: `from_axis_angle(axis, angle)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [VectorDim(DimConstraint::Exact(3)), AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Quat {
     let [x, y, z] = axis;
     let mag = (x * x + y * y + z * z).sqrt();
@@ -88,7 +160,15 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Quat {
 }
 
 /// Rotate a vector by a quaternion: `rotate(q, v)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion), VectorDim(DimConstraint::Exact(3))],
+    unit_in = [UnitDimensionless, UnitAny],
+    shape_out = ShapeDerivation::VectorDim(DimConstraint::Exact(3)),
+    unit_out = UnitDerivation::SameAs(1)
+)]
 pub fn rotate(q: Quat, v: [f64; 3]) -> [f64; 3] {
     let [qw, qx, qy, qz] = q.0;
     let [vx, vy, vz] = v;
@@ -106,7 +186,15 @@ pub fn rotate(q: Quat, v: [f64; 3]) -> [f64; 3] {
 }
 
 /// Linear interpolation: `lerp(a, b, t)` (not normalized)
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion), SameAs(0), AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn lerp(a: Quat, b: Quat, t: f64) -> Quat {
     let [aw, ax, ay, az] = a.0;
     let [bw, bx, by, bz] = b.0;
@@ -119,13 +207,29 @@ pub fn lerp(a: Quat, b: Quat, t: f64) -> Quat {
 }
 
 /// Normalized linear interpolation: `nlerp(a, b, t)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion), SameAs(0), AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn nlerp(a: Quat, b: Quat, t: f64) -> Quat {
     normalize(lerp(a, b, t))
 }
 
 /// Spherical linear interpolation: `slerp(a, b, t)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion), SameAs(0), AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn slerp(a: Quat, b: Quat, t: f64) -> Quat {
     let mut b = b;
     let mut d = dot(a, b);
@@ -157,7 +261,15 @@ pub fn slerp(a: Quat, b: Quat, t: f64) -> Quat {
 }
 
 /// Convert to 3x3 rotation matrix: `to_mat3(q)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion)],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::MatrixDims { rows: DimConstraint::Exact(3), cols: DimConstraint::Exact(3) },
+    unit_out = Dimensionless
+)]
 pub fn to_mat3(q: Quat) -> Mat3 {
     let [w, x, y, z] = q.0;
 
@@ -179,7 +291,15 @@ pub fn to_mat3(q: Quat) -> Mat3 {
 }
 
 /// Convert to 4x4 rotation matrix: `to_mat4(q)`
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion)],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::MatrixDims { rows: DimConstraint::Exact(4), cols: DimConstraint::Exact(4) },
+    unit_out = Dimensionless
+)]
 pub fn to_mat4(q: Quat) -> Mat4 {
     let [w, x, y, z] = q.0;
 
@@ -209,13 +329,29 @@ pub fn to_mat4(q: Quat) -> Mat4 {
 }
 
 /// Extract rotation angle: `angle(q)` → radians
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion)],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::Scalar,
+    unit_out = Dimensionless
+)]
 pub fn angle(q: Quat) -> f64 {
     2.0 * q.0[0].acos()
 }
 
 /// Extract rotation axis: `axis(q)` → Vec3
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion)],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::VectorDim(DimConstraint::Exact(3)),
+    unit_out = Dimensionless
+)]
 pub fn axis(q: Quat) -> [f64; 3] {
     let [w, x, y, z] = q.0;
     let s = (1.0 - w * w).sqrt();
@@ -229,7 +365,15 @@ pub fn axis(q: Quat) -> [f64; 3] {
 }
 
 /// Convert quaternion to Euler angles (XYZ convention): `to_euler(q)` → [roll, pitch, yaw]
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [Exact(Shape::Quaternion)],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::VectorDim(DimConstraint::Exact(3)),
+    unit_out = Dimensionless
+)]
 pub fn to_euler(q: Quat) -> [f64; 3] {
     let [w, x, y, z] = q.0;
 
@@ -255,7 +399,15 @@ pub fn to_euler(q: Quat) -> [f64; 3] {
 }
 
 /// Convert Euler angles to quaternion (XYZ convention): `from_euler(v)` → quaternion
-#[kernel_fn(namespace = "quat", category = "quaternion")]
+#[kernel_fn(
+    namespace = "quat",
+    category = "quaternion",
+    purity = Pure,
+    shape_in = [VectorDim(DimConstraint::Exact(3))],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeDerivation::Exact(Shape::Quaternion),
+    unit_out = Dimensionless
+)]
 pub fn from_euler(v: [f64; 3]) -> Quat {
     let [roll, pitch, yaw] = v;
 
