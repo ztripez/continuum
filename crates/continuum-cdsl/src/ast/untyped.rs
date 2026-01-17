@@ -102,6 +102,15 @@ pub struct Expr {
 impl Expr {
     /// Create a new untyped expression
     ///
+    /// # Parameters
+    ///
+    /// - `kind`: The expression kind (literal, operator, binding form, etc.)
+    /// - `span`: Source location for error messages
+    ///
+    /// # Returns
+    ///
+    /// An untyped expression wrapping the kind with source location.
+    ///
     /// # Examples
     ///
     /// ```rust,ignore
@@ -144,6 +153,15 @@ impl Expr {
 
     /// Create a local variable reference
     ///
+    /// # Parameters
+    ///
+    /// - `name`: Variable name to reference
+    /// - `span`: Source location
+    ///
+    /// # Returns
+    ///
+    /// An untyped expression referencing a let-bound variable.
+    ///
     /// # Examples
     ///
     /// ```rust,ignore
@@ -155,9 +173,22 @@ impl Expr {
 
     /// Create a binary operator expression
     ///
-    /// Binary operators desugar to kernel calls during type resolution:
+    /// Binary operators are preserved as syntax in the untyped AST and
+    /// desugar to kernel calls (built-in runtime functions) during type resolution.
+    ///
+    /// # Parameters
+    ///
+    /// - `op`: Binary operator (Add, Mul, Lt, And, etc.)
+    /// - `left`: Left operand expression
+    /// - `right`: Right operand expression
+    /// - `span`: Source location
+    ///
+    /// # Returns
+    ///
+    /// An untyped binary operator expression that will desugar during type resolution:
     /// - `a + b` → `maths.add(a, b)`
     /// - `a * b` → `maths.mul(a, b)`
+    /// - `a < b` → `compare.lt(a, b)`
     ///
     /// # Examples
     ///
@@ -177,7 +208,18 @@ impl Expr {
 
     /// Create a unary operator expression
     ///
-    /// Unary operators desugar to kernel calls during type resolution:
+    /// Unary operators are preserved as syntax in the untyped AST and
+    /// desugar to kernel calls (built-in runtime functions) during type resolution.
+    ///
+    /// # Parameters
+    ///
+    /// - `op`: Unary operator (Neg or Not)
+    /// - `operand`: Operand expression
+    /// - `span`: Source location
+    ///
+    /// # Returns
+    ///
+    /// An untyped unary operator expression that will desugar during type resolution:
     /// - `-x` → `maths.neg(x)`
     /// - `!x` → `logic.not(x)`
     ///
@@ -200,9 +242,10 @@ impl Expr {
 /// Untyped expression kinds
 ///
 /// These are the syntactic forms the parser recognizes. During type resolution,
-/// operators are desugared to kernel calls:
+/// operators are desugared to **kernel calls** (built-in runtime functions provided
+/// by the engine, organized in namespaces like `maths.*`, `vector.*`, `logic.*`).
 ///
-/// | Syntax | Desugars to |
+/// | Syntax | Desugars to Kernel |
 /// |--------|-------------|
 /// | `a + b` | `maths.add(a, b)` |
 /// | `a * b` | `maths.mul(a, b)` |
@@ -541,6 +584,12 @@ pub enum ExprKind {
     /// Allows parser to continue after encountering an error and report
     /// multiple errors in a single pass.
     ///
+    /// # String Format
+    ///
+    /// The string contains a human-readable error message describing what
+    /// the parser expected but didn't find. It should be non-empty and
+    /// suitable for display in diagnostic output.
+    ///
     /// # Examples
     ///
     /// ```text
@@ -555,6 +604,9 @@ pub enum ExprKind {
     ///     right: ParseError("expected expression"),
     /// }
     /// ```
+    ///
+    /// The error message is preserved in the AST and can be reported later
+    /// during type checking or validation.
     ParseError(String),
 }
 
@@ -782,32 +834,51 @@ pub enum TypeExpr {
 /// Unit expression from source (before unit resolution)
 ///
 /// Represents a unit as written in source code. Unit resolution converts
-/// these to actual [`Unit`] values.
+/// these to actual [`Unit`](crate::foundation::Unit) values during type checking.
+///
+/// # Operand Ordering
+///
+/// - **Multiply(lhs, rhs)**: Represents `lhs * rhs` (e.g., `kg * m`)
+/// - **Divide(numerator, denominator)**: Represents `numerator / denominator` (e.g., `m / s`)
+/// - **Power(base, exponent)**: Represents `base ^ exponent` (e.g., `m ^ 2`)
+///
+/// Exponents are stored as `i8` to support both positive (`m^2`) and negative (`s^-1`) powers.
 ///
 /// # Examples
 ///
 /// ```cdsl
-/// m           // meters
-/// m/s         // meters per second
-/// kg*m/s^2    // Newtons
-/// <>          // dimensionless
-/// K           // Kelvin
+/// m           // Base("m")
+/// m/s         // Divide(Base("m"), Base("s"))
+/// kg*m/s^2    // Divide(Multiply(Base("kg"), Base("m")), Power(Base("s"), 2))
+/// <>          // Dimensionless
+/// K           // Base("K")
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnitExpr {
     /// Base unit: `m`, `kg`, `s`, `K`, etc.
+    ///
+    /// String contains the base unit symbol (e.g., "m", "kg", "s").
     Base(String),
 
     /// Dimensionless: `<>`
+    ///
+    /// Represents explicitly dimensionless quantities.
     Dimensionless,
 
     /// Multiplication: `kg*m`
+    ///
+    /// Represents `lhs * rhs` where both operands are unit expressions.
     Multiply(Box<UnitExpr>, Box<UnitExpr>),
 
     /// Division: `m/s`
+    ///
+    /// Represents `numerator / denominator` where both operands are unit expressions.
     Divide(Box<UnitExpr>, Box<UnitExpr>),
 
     /// Power: `m^2`
+    ///
+    /// Represents `base ^ exponent` where base is a unit expression and
+    /// exponent is an integer (positive or negative).
     Power(Box<UnitExpr>, i8),
 }
 
