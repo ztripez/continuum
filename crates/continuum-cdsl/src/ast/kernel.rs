@@ -80,7 +80,7 @@
 //! - Deriving return types from argument types
 
 use crate::foundation::{Shape, Unit};
-use continuum_kernel_types::KernelId;
+use continuum_kernel_types::{KERNEL_SIGNATURES, KernelId};
 
 /// Kernel signature
 ///
@@ -671,19 +671,134 @@ impl KernelRegistry {
     /// - `rng.*` - Seeded random number generation
     /// - `effect.*` - Effect operations (emit, spawn, destroy, log)
     fn initialize() -> KernelRegistry {
-        let registry = KernelRegistry::new();
+        let mut registry = KernelRegistry::new();
 
-        // TODO: Populate from KERNEL_SIGNATURES distributed slice
-        // The `#[kernel_fn]` macro will emit compile-time signatures that populate
-        // the registry automatically. This manual initialization has been removed
-        // to eliminate the architectural violation (duplicate source of truth).
-        //
-        // Once the macro is extended and kernels migrated, this will be replaced with:
-        // for sig in KERNEL_SIGNATURES {
-        //     registry.register(sig.clone());
-        // }
+        // Populate from KERNEL_SIGNATURES distributed slice
+        // The `#[kernel_fn]` macro emits compile-time signatures that are collected
+        // by the distributed_slice macro at link time.
+        for sig in KERNEL_SIGNATURES {
+            // Convert from compile-time signature to AST signature
+            let ast_sig = Self::convert_signature(sig);
+            registry.register(ast_sig);
+        }
 
         registry
+    }
+
+    /// Convert compile-time KernelSignature to AST KernelSignature
+    fn convert_signature(sig: &continuum_kernel_types::KernelSignature) -> KernelSignature {
+        KernelSignature {
+            id: KernelId::new(sig.id.namespace, sig.id.name),
+            params: sig.params.iter().map(Self::convert_param).collect(),
+            returns: Self::convert_return(&sig.returns),
+            purity: Self::convert_purity(sig.purity),
+        }
+    }
+
+    /// Convert compile-time KernelParam to AST KernelParam
+    fn convert_param(param: &continuum_kernel_types::KernelParam) -> KernelParam {
+        KernelParam {
+            name: param.name,
+            shape: Self::convert_shape_constraint(&param.shape),
+            unit: Self::convert_unit_constraint(&param.unit),
+        }
+    }
+
+    /// Convert compile-time ShapeConstraint to AST ShapeConstraint
+    fn convert_shape_constraint(
+        constraint: &continuum_kernel_types::ShapeConstraint,
+    ) -> ShapeConstraint {
+        use continuum_kernel_types::ShapeConstraint as CtShapeConstraint;
+        match constraint {
+            CtShapeConstraint::Exact(shape) => ShapeConstraint::Exact(shape.clone()),
+            CtShapeConstraint::AnyScalar => ShapeConstraint::AnyScalar,
+            CtShapeConstraint::AnyVector => ShapeConstraint::AnyVector,
+            CtShapeConstraint::AnyMatrix => ShapeConstraint::AnyMatrix,
+            CtShapeConstraint::Any => ShapeConstraint::Any,
+            CtShapeConstraint::SameAs(idx) => ShapeConstraint::SameAs(*idx),
+            CtShapeConstraint::BroadcastWith(idx) => ShapeConstraint::BroadcastWith(*idx),
+            CtShapeConstraint::VectorDim(dim) => {
+                ShapeConstraint::VectorDim(Self::convert_dim_constraint(dim))
+            }
+            CtShapeConstraint::MatrixDims { rows, cols } => ShapeConstraint::MatrixDims {
+                rows: Self::convert_dim_constraint(rows),
+                cols: Self::convert_dim_constraint(cols),
+            },
+        }
+    }
+
+    /// Convert compile-time DimConstraint to AST DimConstraint
+    fn convert_dim_constraint(constraint: &continuum_kernel_types::DimConstraint) -> DimConstraint {
+        use continuum_kernel_types::DimConstraint as CtDimConstraint;
+        match constraint {
+            CtDimConstraint::Exact(dim) => DimConstraint::Exact(*dim),
+            CtDimConstraint::Any => DimConstraint::Any,
+            CtDimConstraint::Var(idx) => DimConstraint::Var(*idx),
+        }
+    }
+
+    /// Convert compile-time UnitConstraint to AST UnitConstraint
+    fn convert_unit_constraint(
+        constraint: &continuum_kernel_types::UnitConstraint,
+    ) -> UnitConstraint {
+        use continuum_kernel_types::UnitConstraint as CtUnitConstraint;
+        match constraint {
+            CtUnitConstraint::Exact(unit) => UnitConstraint::Exact(unit.clone()),
+            CtUnitConstraint::Dimensionless => UnitConstraint::Dimensionless,
+            CtUnitConstraint::Angle => UnitConstraint::Angle,
+            CtUnitConstraint::Any => UnitConstraint::Any,
+            CtUnitConstraint::SameAs(idx) => UnitConstraint::SameAs(*idx),
+        }
+    }
+
+    /// Convert compile-time KernelReturn to AST KernelReturn
+    fn convert_return(ret: &continuum_kernel_types::KernelReturn) -> KernelReturn {
+        KernelReturn {
+            shape: Self::convert_shape_derivation(&ret.shape),
+            unit: Self::convert_unit_derivation(&ret.unit),
+        }
+    }
+
+    /// Convert compile-time ShapeDerivation to AST ShapeDerivation
+    fn convert_shape_derivation(
+        deriv: &continuum_kernel_types::ShapeDerivation,
+    ) -> ShapeDerivation {
+        use continuum_kernel_types::ShapeDerivation as CtShapeDerivation;
+        match deriv {
+            CtShapeDerivation::Exact(shape) => ShapeDerivation::Exact(shape.clone()),
+            CtShapeDerivation::SameAs(idx) => ShapeDerivation::SameAs(*idx),
+            CtShapeDerivation::FromBroadcast(a, b) => ShapeDerivation::FromBroadcast(*a, *b),
+            CtShapeDerivation::Scalar => ShapeDerivation::Scalar,
+            CtShapeDerivation::VectorDim(dim) => {
+                ShapeDerivation::VectorDim(Self::convert_dim_constraint(dim))
+            }
+            CtShapeDerivation::MatrixDims { rows, cols } => ShapeDerivation::MatrixDims {
+                rows: Self::convert_dim_constraint(rows),
+                cols: Self::convert_dim_constraint(cols),
+            },
+        }
+    }
+
+    /// Convert compile-time UnitDerivation to AST UnitDerivation
+    fn convert_unit_derivation(deriv: &continuum_kernel_types::UnitDerivation) -> UnitDerivation {
+        use continuum_kernel_types::UnitDerivation as CtUnitDerivation;
+        match deriv {
+            CtUnitDerivation::Exact(unit) => UnitDerivation::Exact(unit.clone()),
+            CtUnitDerivation::Dimensionless => UnitDerivation::Dimensionless,
+            CtUnitDerivation::SameAs(idx) => UnitDerivation::SameAs(*idx),
+            CtUnitDerivation::Multiply(indices) => UnitDerivation::Multiply(indices.clone()),
+            CtUnitDerivation::Divide(a, b) => UnitDerivation::Divide(*a, *b),
+            CtUnitDerivation::Sqrt(idx) => UnitDerivation::Sqrt(*idx),
+            CtUnitDerivation::Inverse(idx) => UnitDerivation::Inverse(*idx),
+        }
+    }
+
+    /// Convert compile-time KernelPurity to AST KernelPurity
+    fn convert_purity(purity: continuum_kernel_types::KernelPurity) -> KernelPurity {
+        match purity {
+            continuum_kernel_types::KernelPurity::Pure => KernelPurity::Pure,
+            continuum_kernel_types::KernelPurity::Effect => KernelPurity::Effect,
+        }
     }
 }
 
