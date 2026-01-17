@@ -394,4 +394,38 @@ mod tests {
         assert_eq!(Bounds::min(0.0).to_string(), "[0..]");
         assert_eq!(Bounds::max(100.0).to_string(), "[..100]");
     }
+
+    #[test]
+    fn test_bounds_max_only() {
+        let bounds = Bounds::max(10.0);
+
+        // Values below max are allowed
+        assert!(bounds.contains(9.9));
+        assert!(bounds.contains(0.0));
+        assert!(bounds.contains(-100.0));
+
+        // Values above max are rejected
+        assert!(!bounds.contains(10.1));
+        assert!(!bounds.contains(100.0));
+
+        // Non-finite values always rejected
+        assert!(!bounds.contains(f64::INFINITY));
+        assert!(!bounds.contains(f64::NAN));
+    }
+
+    #[test]
+    fn test_kernel_type_display() {
+        // Scalar with no bounds
+        let kt = KernelType::new(Shape::Scalar, Unit::DIMENSIONLESS, None);
+        let display = format!("{}", kt);
+        assert!(display.contains("Scalar"));
+
+        // Scalar with bounds
+        let kt_bounded =
+            KernelType::new(Shape::Scalar, Unit::meters(), Some(Bounds::range(0.0, 1.0)));
+        let display = format!("{}", kt_bounded);
+        assert!(display.contains("Scalar"));
+        assert!(display.contains("m"));
+        assert!(display.contains("[0..1]"));
+    }
 }

@@ -381,4 +381,34 @@ mod tests {
         assert_eq!(map.file_path(&span).to_str(), Some("test.cdsl"));
         assert_eq!(map.line_col(&span), (1, 1));
     }
+
+    #[test]
+    #[should_panic(expected = "malformed span")]
+    fn test_span_len_panics_on_inverted() {
+        let span = Span::new(0, 10, 5, 1); // end < start
+        let _ = span.len();
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot merge spans from different files")]
+    fn test_span_merge_panics_on_different_files() {
+        let span1 = Span::new(0, 0, 1, 1);
+        let span2 = Span::new(1, 0, 1, 1); // different file_id
+        let _ = span1.merge(&span2);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot extend span with span from different file")]
+    fn test_span_extend_panics_on_different_files() {
+        let mut span1 = Span::new(0, 0, 1, 1);
+        let span2 = Span::new(1, 0, 1, 1); // different file_id
+        span1.extend(&span2);
+    }
+
+    #[test]
+    #[should_panic(expected = "beyond EOF")]
+    fn test_source_file_line_col_panics_on_out_of_bounds() {
+        let file = SourceFile::new(PathBuf::from("test.cdsl"), "abc".to_string());
+        let _ = file.line_col(4); // offset beyond EOF
+    }
 }

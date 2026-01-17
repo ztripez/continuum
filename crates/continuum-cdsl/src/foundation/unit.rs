@@ -514,9 +514,35 @@ mod tests {
         let m = Unit::meters();
         let s = Unit::seconds();
 
+        // Test multiply: m * s = m·s
+        let m_s = m.multiply(&s).unwrap();
+        assert_eq!(m_s.dims().length, 1);
+        assert_eq!(m_s.dims().time, 1);
+
+        // Test multiply to create area: m * m = m²
+        let area = m.multiply(&m).unwrap();
+        assert_eq!(area.dims().length, 2);
+    }
+
+    #[test]
+    fn test_divide() {
+        let m = Unit::meters();
+        let s = Unit::seconds();
+
         let m_per_s = m.divide(&s).unwrap();
         assert_eq!(m_per_s.dims().length, 1);
         assert_eq!(m_per_s.dims().time, -1);
+    }
+
+    #[test]
+    fn test_pow() {
+        let m = Unit::meters();
+
+        let area = m.pow(2).unwrap();
+        assert_eq!(area.dims().length, 2);
+
+        let inv_s = Unit::seconds().pow(-1).unwrap();
+        assert_eq!(inv_s.dims().time, -1);
     }
 
     #[test]
@@ -544,6 +570,52 @@ mod tests {
         assert!(db.add(&db).is_none());
         assert!(db.subtract(&db).is_none());
         assert!(db.multiply(&db).is_none());
+    }
+
+    #[test]
+    fn test_affine_multiply_divide_pow_forbidden() {
+        let c = Unit::celsius();
+        let k = Unit::kelvin();
+
+        // Affine units cannot be multiplied
+        assert!(c.multiply(&k).is_none());
+        assert!(c.multiply(&c).is_none());
+
+        // Affine units cannot be divided
+        assert!(c.divide(&k).is_none());
+        assert!(c.divide(&c).is_none());
+
+        // Affine units cannot be raised to powers
+        assert!(c.pow(2).is_none());
+        assert!(c.pow(-1).is_none());
+    }
+
+    #[test]
+    fn test_multiplicative_add_success_and_mismatch() {
+        let m1 = Unit::meters();
+        let m2 = Unit::meters();
+
+        // Same dimensions: addition allowed
+        assert!(m1.add(&m2).is_some());
+
+        // Different dimensions: addition forbidden
+        let s = Unit::seconds();
+        assert!(m1.add(&s).is_none());
+    }
+
+    #[test]
+    fn test_multiplicative_subtract() {
+        let m1 = Unit::meters();
+        let m2 = Unit::meters();
+
+        // Same dimensions: subtraction allowed
+        let result = m1.subtract(&m2).unwrap();
+        assert!(result.is_multiplicative());
+        assert_eq!(result.dims().length, 1);
+
+        // Different dimensions: subtraction forbidden
+        let s = Unit::seconds();
+        assert!(m1.subtract(&s).is_none());
     }
 
     #[test]
