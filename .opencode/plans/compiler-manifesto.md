@@ -750,7 +750,10 @@ pub enum ValidationErrorKind {
     MissingCapability { phase: Phase, capability: Capability },
     
     // Effect errors
-    EffectInConditional { effect: &'static str },  // emit inside if/else branch
+    EffectInConditional { 
+        effect: &'static str,   // which effect kernel (emit, spawn, log)
+        form: &'static str,     // which eager form (select, and, or)
+    },
     UnitInExpressionPosition { span: Span },       // Unit-typed expr in pure context
     
     // Kernel errors
@@ -1625,15 +1628,57 @@ All operators desugar to kernel calls. IR has one `Call` form, no special `Binar
 - `logic.select(c, t, e)` — both `t` and `e` evaluate regardless of `c`
 - `logic.and(a, b)` / `logic.or(a, b)` — both sides evaluate (no short-circuit)
 
-**Side effects in conditionals are forbidden.** If either branch of `if/else` contains `emit`, the compiler rejects it with `EffectInConditional` error:
+**Effects forbidden under eager-evaluation forms.** Because all arguments evaluate eagerly, effectful expressions are forbidden under:
+
+| Form | Why |
+|------|-----|
+| `logic.select(c, t, e)` | Both `t` and `e` execute regardless of `c` |
+| `logic.and(a, b)` | Both `a` and `b` execute (no short-circuit) |
+| `logic.or(a, b)` | Both `a` and `b` execute (no short-circuit) |
+
+**Effectful = contains any effect kernel** (emit, spawn, log, etc.). The compiler checks `expr.is_pure()` recursively:
+
+```rust
+impl TypedExpr {
+    fn is_pure(&self) -> bool {
+        match &self.expr {
+            ExprKind::Call { kernel, args } => {
+                kernel.is_pure() && args.iter().all(|a| a.is_pure())
+            }
+            ExprKind::Let { value, body, .. } => value.is_pure() && body.is_pure(),
+            // ... other cases recurse
+        }
+    }
+}
+```
+
+**Validation rule:** When type-checking `logic.select`, `logic.and`, `logic.or`:
+- Check each argument with `is_pure()`
+- If not pure → `EffectInConditional` error
 
 ```cdsl
 // COMPILE ERROR — emit in conditional branch
-if condition { emit(target, value) }
+if condition { emit(target, value) } else { 0.0 }
+//             ^^^^^^^^^^^^^^^^^^^^ effectful
+
+// COMPILE ERROR — effect in short-circuit position  
+should_emit && emit(target, value)  // both sides execute!
 
 // CORRECT — conditional value, unconditional emit
 let delta = if condition { value } else { 0.0 }
 emit(target, delta)
+```
+
+**Error message:**
+```
+error: effectful expression in conditional branch
+  --> world.cdsl:42:5
+   |
+42 |   if cond { emit(x, 1) } else { 0 }
+   |             ^^^^^^^^^^ 'emit' is effectful
+   |
+   = note: both branches of 'if' evaluate eagerly (desugars to logic.select)
+   = help: move effect outside conditional, or use statement-level control flow
 ```
 
 **Constants (zero-arg calls):**
