@@ -232,7 +232,14 @@ impl Bounds {
     }
 
     /// Check if a value is within bounds.
+    ///
+    /// Returns false for NaN and infinite values (bounds are always finite).
     pub fn contains(&self, value: f64) -> bool {
+        // Reject non-finite values explicitly (NaN, ±Infinity)
+        if !value.is_finite() {
+            return false;
+        }
+
         if let Some(min) = self.min {
             if value < min {
                 return false;
@@ -341,17 +348,22 @@ mod tests {
     fn test_bounds() {
         let unbounded = Bounds::unbounded();
         assert!(unbounded.is_unbounded());
-        assert!(unbounded.contains(f64::INFINITY));
-        assert!(unbounded.contains(f64::NEG_INFINITY));
+
+        // Non-finite values are always rejected
+        assert!(!unbounded.contains(f64::INFINITY));
+        assert!(!unbounded.contains(f64::NEG_INFINITY));
+        assert!(!unbounded.contains(f64::NAN));
 
         let range = Bounds::range(0.0, 1.0);
         assert!(range.contains(0.5));
         assert!(!range.contains(-0.1));
         assert!(!range.contains(1.1));
+        assert!(!range.contains(f64::NAN));
 
         let min_only = Bounds::min(0.0);
         assert!(min_only.contains(100.0));
         assert!(!min_only.contains(-1.0));
+        assert!(!min_only.contains(f64::INFINITY));
     }
 
     #[test]

@@ -90,7 +90,16 @@ impl Span {
     }
 
     /// Get the length of this span in bytes.
+    ///
+    /// # Panics
+    /// Panics if end < start (malformed span).
     pub fn len(&self) -> u32 {
+        assert!(
+            self.end >= self.start,
+            "malformed span: end ({}) < start ({})",
+            self.end,
+            self.start
+        );
         self.end - self.start
     }
 
@@ -191,7 +200,17 @@ impl SourceFile {
     /// Get (line, column) for a byte offset.
     ///
     /// Both line and column are 1-based.
+    ///
+    /// # Panics
+    /// Panics if offset is beyond EOF.
     pub fn line_col(&self, offset: u32) -> (u32, u32) {
+        assert!(
+            offset <= self.source.len() as u32,
+            "offset {} is beyond EOF (len = {})",
+            offset,
+            self.source.len()
+        );
+
         // Binary search to find the line
         let line_idx = match self.line_starts.binary_search(&offset) {
             Ok(idx) => idx,             // Exact match (start of line)
@@ -230,7 +249,12 @@ impl SourceFile {
     /// Get the number of lines in this file.
     pub fn line_count(&self) -> usize {
         // line_starts includes EOF sentinel, so count is len - 1
-        self.line_starts.len().saturating_sub(1)
+        // Invariant: line_starts always has at least 1 element (byte 0)
+        assert!(
+            !self.line_starts.is_empty(),
+            "line_starts invariant violated: empty array"
+        );
+        self.line_starts.len() - 1
     }
 }
 
