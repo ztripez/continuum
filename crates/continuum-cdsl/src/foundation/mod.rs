@@ -5,10 +5,12 @@
 
 pub mod path;
 pub mod shape;
+pub mod types;
 pub mod unit;
 
 pub use path::Path;
 pub use shape::Shape;
+pub use types::{Bounds, KernelType, Type, UserType, UserTypeId};
 pub use unit::{Unit, UnitDimensions, UnitKind};
 
 // Re-export typed IDs
