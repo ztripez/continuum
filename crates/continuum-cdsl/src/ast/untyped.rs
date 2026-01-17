@@ -864,15 +864,27 @@ mod tests {
     }
 
     #[test]
-    fn binary_op_kernels() {
-        assert_eq!(BinaryOp::Add.kernel(), KernelId::new("maths", "add"));
-        assert_eq!(BinaryOp::Sub.kernel(), KernelId::new("maths", "sub"));
-        assert_eq!(BinaryOp::Mul.kernel(), KernelId::new("maths", "mul"));
-        assert_eq!(BinaryOp::Div.kernel(), KernelId::new("maths", "div"));
-        assert_eq!(BinaryOp::Lt.kernel(), KernelId::new("compare", "lt"));
-        assert_eq!(BinaryOp::Eq.kernel(), KernelId::new("compare", "eq"));
-        assert_eq!(BinaryOp::And.kernel(), KernelId::new("logic", "and"));
-        assert_eq!(BinaryOp::Or.kernel(), KernelId::new("logic", "or"));
+    fn binary_op_kernels_complete() {
+        // Test all 14 binary operators
+        let cases = [
+            (BinaryOp::Add, KernelId::new("maths", "add")),
+            (BinaryOp::Sub, KernelId::new("maths", "sub")),
+            (BinaryOp::Mul, KernelId::new("maths", "mul")),
+            (BinaryOp::Div, KernelId::new("maths", "div")),
+            (BinaryOp::Mod, KernelId::new("maths", "mod")),
+            (BinaryOp::Pow, KernelId::new("maths", "pow")),
+            (BinaryOp::Eq, KernelId::new("compare", "eq")),
+            (BinaryOp::Ne, KernelId::new("compare", "ne")),
+            (BinaryOp::Lt, KernelId::new("compare", "lt")),
+            (BinaryOp::Le, KernelId::new("compare", "le")),
+            (BinaryOp::Gt, KernelId::new("compare", "gt")),
+            (BinaryOp::Ge, KernelId::new("compare", "ge")),
+            (BinaryOp::And, KernelId::new("logic", "and")),
+            (BinaryOp::Or, KernelId::new("logic", "or")),
+        ];
+        for (op, expected) in cases {
+            assert_eq!(op.kernel(), expected, "kernel mismatch for {:?}", op);
+        }
     }
 
     #[test]
@@ -940,6 +952,331 @@ mod tests {
         match unit {
             UnitExpr::Divide(_, _) => {}
             _ => panic!("expected divide"),
+        }
+    }
+
+    #[test]
+    fn unit_expr_dimensionless() {
+        let unit = UnitExpr::Dimensionless;
+        assert!(matches!(unit, UnitExpr::Dimensionless));
+    }
+
+    #[test]
+    fn unit_expr_power() {
+        let base = Box::new(UnitExpr::Base("m".to_string()));
+        let unit = UnitExpr::Power(base, 2);
+        match unit {
+            UnitExpr::Power(_, exp) => assert_eq!(exp, 2),
+            _ => panic!("expected power"),
+        }
+    }
+
+    // === ExprKind Variant Coverage Tests ===
+
+    #[test]
+    fn expr_kind_vector() {
+        let elem = Expr::literal(1.0, None, make_span());
+        let expr = Expr::new(ExprKind::Vector(vec![elem.clone(), elem]), make_span());
+        match expr.kind {
+            ExprKind::Vector(v) => assert_eq!(v.len(), 2),
+            _ => panic!("expected vector"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_signal() {
+        let path = Path::from_str("velocity");
+        let expr = Expr::new(ExprKind::Signal(path.clone()), make_span());
+        match expr.kind {
+            ExprKind::Signal(p) => assert_eq!(p, path),
+            _ => panic!("expected signal"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_field() {
+        let path = Path::from_str("temperature");
+        let expr = Expr::new(ExprKind::Field(path.clone()), make_span());
+        match expr.kind {
+            ExprKind::Field(p) => assert_eq!(p, path),
+            _ => panic!("expected field"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_config() {
+        let path = Path::from_str("initial_temp");
+        let expr = Expr::new(ExprKind::Config(path.clone()), make_span());
+        match expr.kind {
+            ExprKind::Config(p) => assert_eq!(p, path),
+            _ => panic!("expected config"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_const() {
+        let path = Path::from_str("BOLTZMANN");
+        let expr = Expr::new(ExprKind::Const(path.clone()), make_span());
+        match expr.kind {
+            ExprKind::Const(p) => assert_eq!(p, path),
+            _ => panic!("expected const"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_prev() {
+        let expr = Expr::new(ExprKind::Prev, make_span());
+        assert!(matches!(expr.kind, ExprKind::Prev));
+    }
+
+    #[test]
+    fn expr_kind_current() {
+        let expr = Expr::new(ExprKind::Current, make_span());
+        assert!(matches!(expr.kind, ExprKind::Current));
+    }
+
+    #[test]
+    fn expr_kind_inputs() {
+        let expr = Expr::new(ExprKind::Inputs, make_span());
+        assert!(matches!(expr.kind, ExprKind::Inputs));
+    }
+
+    #[test]
+    fn expr_kind_dt() {
+        let expr = Expr::new(ExprKind::Dt, make_span());
+        assert!(matches!(expr.kind, ExprKind::Dt));
+    }
+
+    #[test]
+    fn expr_kind_self() {
+        let expr = Expr::new(ExprKind::Self_, make_span());
+        assert!(matches!(expr.kind, ExprKind::Self_));
+    }
+
+    #[test]
+    fn expr_kind_other() {
+        let expr = Expr::new(ExprKind::Other, make_span());
+        assert!(matches!(expr.kind, ExprKind::Other));
+    }
+
+    #[test]
+    fn expr_kind_payload() {
+        let expr = Expr::new(ExprKind::Payload, make_span());
+        assert!(matches!(expr.kind, ExprKind::Payload));
+    }
+
+    #[test]
+    fn expr_kind_if() {
+        let cond = Expr::literal(1.0, None, make_span());
+        let then_br = Expr::literal(2.0, None, make_span());
+        let else_br = Expr::literal(3.0, None, make_span());
+        let expr = Expr::new(
+            ExprKind::If {
+                condition: Box::new(cond),
+                then_branch: Box::new(then_br),
+                else_branch: Box::new(else_br),
+            },
+            make_span(),
+        );
+        match expr.kind {
+            ExprKind::If { .. } => {}
+            _ => panic!("expected if"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_let() {
+        let value = Expr::literal(10.0, None, make_span());
+        let body = Expr::local("x", make_span());
+        let expr = Expr::new(
+            ExprKind::Let {
+                name: "x".to_string(),
+                value: Box::new(value),
+                body: Box::new(body),
+            },
+            make_span(),
+        );
+        match expr.kind {
+            ExprKind::Let { name, .. } => assert_eq!(name, "x"),
+            _ => panic!("expected let"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_aggregate() {
+        let body = Expr::local("p", make_span());
+        let expr = Expr::new(
+            ExprKind::Aggregate {
+                op: AggregateOp::Sum,
+                entity: EntityId(Path::from_str("plate")),
+                binding: "p".to_string(),
+                body: Box::new(body),
+            },
+            make_span(),
+        );
+        match expr.kind {
+            ExprKind::Aggregate { op, binding, .. } => {
+                assert_eq!(op, AggregateOp::Sum);
+                assert_eq!(binding, "p");
+            }
+            _ => panic!("expected aggregate"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_fold() {
+        let init = Expr::literal(0.0, None, make_span());
+        let body = Expr::local("acc", make_span());
+        let expr = Expr::new(
+            ExprKind::Fold {
+                entity: EntityId(Path::from_str("plate")),
+                init: Box::new(init),
+                acc: "acc".to_string(),
+                elem: "elem".to_string(),
+                body: Box::new(body),
+            },
+            make_span(),
+        );
+        match expr.kind {
+            ExprKind::Fold { acc, elem, .. } => {
+                assert_eq!(acc, "acc");
+                assert_eq!(elem, "elem");
+            }
+            _ => panic!("expected fold"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_call() {
+        let arg = Expr::literal(1.0, None, make_span());
+        let expr = Expr::new(
+            ExprKind::Call {
+                func: Path::from_str("sin"),
+                args: vec![arg],
+            },
+            make_span(),
+        );
+        match expr.kind {
+            ExprKind::Call { func, args } => {
+                assert_eq!(func, Path::from_str("sin"));
+                assert_eq!(args.len(), 1);
+            }
+            _ => panic!("expected call"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_struct() {
+        let field_val = Expr::literal(1.5e11, None, make_span());
+        let expr = Expr::new(
+            ExprKind::Struct {
+                ty: Path::from_str("Orbit"),
+                fields: vec![("semi_major".to_string(), field_val)],
+            },
+            make_span(),
+        );
+        match expr.kind {
+            ExprKind::Struct { ty, fields } => {
+                assert_eq!(ty, Path::from_str("Orbit"));
+                assert_eq!(fields.len(), 1);
+                assert_eq!(fields[0].0, "semi_major");
+            }
+            _ => panic!("expected struct"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_field_access() {
+        let object = Expr::local("orbit", make_span());
+        let expr = Expr::new(
+            ExprKind::FieldAccess {
+                object: Box::new(object),
+                field: "semi_major".to_string(),
+            },
+            make_span(),
+        );
+        match expr.kind {
+            ExprKind::FieldAccess { field, .. } => {
+                assert_eq!(field, "semi_major");
+            }
+            _ => panic!("expected field access"),
+        }
+    }
+
+    #[test]
+    fn expr_kind_parse_error() {
+        let expr = Expr::new(
+            ExprKind::ParseError("expected expression".to_string()),
+            make_span(),
+        );
+        match expr.kind {
+            ExprKind::ParseError(msg) => {
+                assert_eq!(msg, "expected expression");
+            }
+            _ => panic!("expected parse error"),
+        }
+    }
+
+    // === TypeExpr Missing Variants ===
+
+    #[test]
+    fn type_expr_matrix() {
+        let ty = TypeExpr::Matrix {
+            rows: 3,
+            cols: 3,
+            unit: None,
+        };
+        match ty {
+            TypeExpr::Matrix { rows, cols, unit } => {
+                assert_eq!(rows, 3);
+                assert_eq!(cols, 3);
+                assert_eq!(unit, None);
+            }
+            _ => panic!("expected matrix"),
+        }
+    }
+
+    #[test]
+    fn type_expr_bool() {
+        let ty = TypeExpr::Bool;
+        assert!(matches!(ty, TypeExpr::Bool));
+    }
+
+    // === Helper Method Operand Tests ===
+
+    #[test]
+    fn expr_binary_preserves_operands() {
+        let span = make_span();
+        let left = Expr::literal(1.0, None, span);
+        let right = Expr::literal(2.0, None, span);
+        let expr = Expr::binary(BinaryOp::Add, left.clone(), right.clone(), span);
+
+        match expr.kind {
+            ExprKind::Binary {
+                op,
+                left: l,
+                right: r,
+            } => {
+                assert_eq!(op, BinaryOp::Add);
+                assert_eq!(*l, left);
+                assert_eq!(*r, right);
+            }
+            _ => panic!("expected binary"),
+        }
+    }
+
+    #[test]
+    fn expr_unary_preserves_operand() {
+        let span = make_span();
+        let operand = Expr::literal(42.0, None, span);
+        let expr = Expr::unary(UnaryOp::Neg, operand.clone(), span);
+
+        match expr.kind {
+            ExprKind::Unary { op, operand: o } => {
+                assert_eq!(op, UnaryOp::Neg);
+                assert_eq!(*o, operand);
+            }
+            _ => panic!("expected unary"),
         }
     }
 }
