@@ -806,6 +806,23 @@ impl TypedExpr {
     /// An expression is pure if it doesn't call any `Effect` kernels. This is
     /// used to enforce effect discipline in pure-only phases (Resolve, Measure).
     ///
+    /// # Current Implementation
+    ///
+    /// **TEMPORARY HEURISTIC:** This implementation uses a namespace-based heuristic
+    /// (`effect.*` is impure, all others are pure) because the kernel registry is
+    /// not yet implemented (Phase 6). Once the kernel registry exists, this method
+    /// must be updated to query `KernelSignature::purity` instead.
+    ///
+    /// **Limitation:** Unknown or unregistered kernels are conservatively treated
+    /// as pure. This could allow effect kernels outside the `effect` namespace to
+    /// be incorrectly classified. The kernel registry will enforce this correctly.
+    ///
+    /// # Returns
+    ///
+    /// - `true` if the expression contains no effect kernels (or uses the conservative
+    ///   assumption for unknown kernels)
+    /// - `false` if any `effect.*` kernel is reachable in the expression tree
+    ///
     /// # Examples
     ///
     /// ```rust,ignore
@@ -833,7 +850,6 @@ impl TypedExpr {
         match &self.expr {
             // Literals and references are always pure
             ExprKind::Literal { .. }
-            | ExprKind::Vector(_)
             | ExprKind::Local(_)
             | ExprKind::Signal(_)
             | ExprKind::Field(_)
@@ -847,14 +863,17 @@ impl TypedExpr {
             | ExprKind::Other
             | ExprKind::Payload => true,
 
-            // Binding forms are pure if their bodies are pure
+            // Vector is pure if all elements are pure
+            ExprKind::Vector(exprs) => exprs.iter().all(|e| e.is_pure()),
+
+            // Binding forms are pure if their operands are pure
             ExprKind::Let { value, body, .. } => value.is_pure() && body.is_pure(),
             ExprKind::Aggregate { body, .. } => body.is_pure(),
             ExprKind::Fold { init, body, .. } => init.is_pure() && body.is_pure(),
 
             // Calls depend on kernel purity
-            // TODO: Check kernel registry for purity classification
-            // For now, assume effect.* namespace is impure
+            // TEMPORARY: Use namespace heuristic until kernel registry exists (Phase 6)
+            // All kernels outside "effect" namespace are assumed pure (conservative)
             ExprKind::Call { kernel, args } => {
                 let kernel_is_pure = kernel.namespace != "effect";
                 kernel_is_pure && args.iter().all(|arg| arg.is_pure())
@@ -1211,6 +1230,222 @@ mod tests {
                 make_span(),
             );
             assert!(expr.is_pure());
+        }
+
+        // === Impurity Propagation Tests ===
+
+        #[test]
+        fn let_with_impure_body_is_impure() {
+            let value = TypedExpr::new(
+                ExprKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                scalar_type(),
+                make_span(),
+            );
+            let body = TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("effect", "emit"),
+                    args: vec![],
+                },
+                Type::Unit,
+                make_span(),
+            );
+            let expr = TypedExpr::new(
+                ExprKind::Let {
+                    name: "x".to_string(),
+                    value: Box::new(value),
+                    body: Box::new(body),
+                },
+                scalar_type(),
+                make_span(),
+            );
+            assert!(!expr.is_pure());
+        }
+
+        #[test]
+        fn aggregate_with_impure_body_is_impure() {
+            let body = TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("effect", "emit"),
+                    args: vec![],
+                },
+                Type::Unit,
+                make_span(),
+            );
+            let expr = TypedExpr::new(
+                ExprKind::Aggregate {
+                    op: AggregateOp::Sum,
+                    entity: EntityId(Path::from_str("plate")),
+                    binding: "p".to_string(),
+                    body: Box::new(body),
+                },
+                scalar_type(),
+                make_span(),
+            );
+            assert!(!expr.is_pure());
+        }
+
+        #[test]
+        fn fold_with_impure_init_is_impure() {
+            let init = TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("effect", "emit"),
+                    args: vec![],
+                },
+                Type::Unit,
+                make_span(),
+            );
+            let body = TypedExpr::new(
+                ExprKind::Local("acc".to_string()),
+                scalar_type(),
+                make_span(),
+            );
+            let expr = TypedExpr::new(
+                ExprKind::Fold {
+                    entity: EntityId(Path::from_str("plate")),
+                    init: Box::new(init),
+                    acc: "acc".to_string(),
+                    elem: "elem".to_string(),
+                    body: Box::new(body),
+                },
+                scalar_type(),
+                make_span(),
+            );
+            assert!(!expr.is_pure());
+        }
+
+        #[test]
+        fn fold_with_impure_body_is_impure() {
+            let init = TypedExpr::new(
+                ExprKind::Literal {
+                    value: 0.0,
+                    unit: None,
+                },
+                scalar_type(),
+                make_span(),
+            );
+            let body = TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("effect", "spawn"),
+                    args: vec![],
+                },
+                Type::Unit,
+                make_span(),
+            );
+            let expr = TypedExpr::new(
+                ExprKind::Fold {
+                    entity: EntityId(Path::from_str("plate")),
+                    init: Box::new(init),
+                    acc: "acc".to_string(),
+                    elem: "elem".to_string(),
+                    body: Box::new(body),
+                },
+                scalar_type(),
+                make_span(),
+            );
+            assert!(!expr.is_pure());
+        }
+
+        #[test]
+        fn pure_kernel_with_impure_arg_is_impure() {
+            let impure_arg = TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("effect", "emit"),
+                    args: vec![],
+                },
+                Type::Unit,
+                make_span(),
+            );
+            let pure_lit = TypedExpr::new(
+                ExprKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                scalar_type(),
+                make_span(),
+            );
+            let expr = TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("maths", "add"),
+                    args: vec![pure_lit, impure_arg],
+                },
+                scalar_type(),
+                make_span(),
+            );
+            assert!(!expr.is_pure());
+        }
+
+        #[test]
+        fn struct_with_impure_field_is_impure() {
+            use continuum_foundation::TypeId;
+
+            let field_value = TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("effect", "log"),
+                    args: vec![],
+                },
+                Type::Unit,
+                make_span(),
+            );
+            let orbit_ty = TypeId::from("Orbit");
+            let expr = TypedExpr::new(
+                ExprKind::Struct {
+                    ty: orbit_ty.clone(),
+                    fields: vec![("semi_major".to_string(), field_value)],
+                },
+                Type::User(orbit_ty),
+                make_span(),
+            );
+            assert!(!expr.is_pure());
+        }
+
+        #[test]
+        fn field_access_with_impure_object_is_impure() {
+            let object = TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("effect", "destroy"),
+                    args: vec![],
+                },
+                Type::Unit,
+                make_span(),
+            );
+            let expr = TypedExpr::new(
+                ExprKind::FieldAccess {
+                    object: Box::new(object),
+                    field: "x".to_string(),
+                },
+                scalar_type(),
+                make_span(),
+            );
+            assert!(!expr.is_pure());
+        }
+
+        #[test]
+        fn vector_with_impure_element_is_impure() {
+            let pure = TypedExpr::new(
+                ExprKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                scalar_type(),
+                make_span(),
+            );
+            let impure = TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("effect", "emit"),
+                    args: vec![],
+                },
+                Type::Unit,
+                make_span(),
+            );
+            let expr = TypedExpr::new(
+                ExprKind::Vector(vec![pure.clone(), impure, pure]),
+                scalar_type(),
+                make_span(),
+            );
+            assert!(!expr.is_pure());
         }
     }
 
