@@ -7,7 +7,7 @@
 //!
 //! ## Determinism
 //!
-//! WarmUp iteration count is part of the replayable execution trace. Given the same:
+//! WarmUp is deterministic and replayable from seed. Given the same:
 //! - World definition
 //! - Scenario parameters
 //! - Random seed
@@ -54,6 +54,7 @@
 //! ```
 
 use super::TypedExpr;
+use std::num::NonZeroU32;
 
 /// WarmUp phase policy
 ///
@@ -80,7 +81,7 @@ use super::TypedExpr;
 /// Given the same world + scenario + seed, WarmUp:
 /// - Always runs the same number of iterations
 /// - Always produces identical final state
-/// - Iteration count is part of the execution trace
+/// - Execution is fully replayable from seed
 ///
 /// # Examples
 ///
@@ -135,7 +136,7 @@ pub struct WarmUpPolicy {
     ///
     /// The predicate can access:
     /// - All resolved signals (current tick values)
-    /// - `prev` values (previous tick or initial values)
+    /// - `prev` keyword (evaluates to signal value from previous tick, or initial value for first tick)
     /// - Config and const values
     ///
     /// # Common Patterns
@@ -164,6 +165,10 @@ pub struct WarmUpPolicy {
     /// without `converged` evaluating to `true`, behavior is determined by
     /// `on_timeout`.
     ///
+    /// # Type
+    ///
+    /// Must be non-zero. Zero iterations is invalid and rejected at compile time.
+    ///
     /// # Choosing a Value
     ///
     /// - **Fast settling:** 100-500 iterations
@@ -180,7 +185,7 @@ pub struct WarmUpPolicy {
     /// max_iterations: 500   // Fast mechanical equilibrium
     /// max_iterations: 5000  // Slow climate stabilization
     /// ```
-    pub max_iterations: u32,
+    pub max_iterations: NonZeroU32,
 
     /// Timeout behavior
     ///
@@ -205,8 +210,8 @@ impl WarmUpPolicy {
     ///
     /// # Parameters
     ///
-    /// - `converged`: Boolean expression for convergence check
-    /// - `max_iterations`: Maximum number of WarmUp ticks
+    /// - `converged`: Boolean expression for convergence check (must be Type::Bool)
+    /// - `max_iterations`: Maximum number of WarmUp ticks (must be non-zero)
     /// - `on_timeout`: Behavior when max_iterations is reached
     ///
     /// # Returns
@@ -215,14 +220,23 @@ impl WarmUpPolicy {
     ///
     /// # Examples
     ///
-    /// ```rust,ignore
+    /// ```rust
+    /// use continuum_cdsl::ast::{WarmUpPolicy, WarmUpTimeout, TypedExpr, ExprKind};
+    /// use continuum_cdsl::foundation::{Type, Span};
+    /// use std::num::NonZeroU32;
+    ///
+    /// let converged = TypedExpr::new(ExprKind::Prev, Type::Bool, Span::new(0, 0, 0, 0));
     /// let policy = WarmUpPolicy::new(
-    ///     converged_expr,
-    ///     1000,
+    ///     converged,
+    ///     NonZeroU32::new(1000).unwrap(),
     ///     WarmUpTimeout::Fault,
     /// );
     /// ```
-    pub fn new(converged: TypedExpr, max_iterations: u32, on_timeout: WarmUpTimeout) -> Self {
+    pub fn new(
+        converged: TypedExpr,
+        max_iterations: NonZeroU32,
+        on_timeout: WarmUpTimeout,
+    ) -> Self {
         Self {
             converged,
             max_iterations,
@@ -317,6 +331,10 @@ pub enum WarmUpTimeout {
 impl WarmUpTimeout {
     /// Check if this timeout behavior halts the simulation
     ///
+    /// # Parameters
+    ///
+    /// None
+    ///
     /// # Returns
     ///
     /// - `true` for `Fault` (halts simulation)
@@ -338,7 +356,8 @@ impl WarmUpTimeout {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::{KernelType, Shape, Span, Type, Unit};
+    use crate::foundation::{Span, Type};
+    use std::num::NonZeroU32;
 
     fn make_span() -> Span {
         Span::new(0, 0, 0, 0)
@@ -348,11 +367,43 @@ mod tests {
         TypedExpr::new(super::super::ExprKind::Prev, Type::Bool, make_span())
     }
 
+    fn nz(n: u32) -> NonZeroU32 {
+        NonZeroU32::new(n).unwrap()
+    }
+
     #[test]
     fn warmup_policy_creation() {
-        let policy = WarmUpPolicy::new(bool_expr(), 1000, WarmUpTimeout::Fault);
-        assert_eq!(policy.max_iterations, 1000);
+        let policy = WarmUpPolicy::new(bool_expr(), nz(1000), WarmUpTimeout::Fault);
+        assert_eq!(policy.max_iterations, nz(1000));
         assert_eq!(policy.on_timeout, WarmUpTimeout::Fault);
+    }
+
+    #[test]
+    fn warmup_policy_preserves_converged() {
+        let expr = bool_expr();
+        let policy = WarmUpPolicy::new(expr.clone(), nz(1000), WarmUpTimeout::Fault);
+        assert_eq!(policy.converged, expr);
+    }
+
+    #[test]
+    fn warmup_policy_max_iterations_edge_values() {
+        let expr = bool_expr();
+
+        // Minimum value (1)
+        let policy_min = WarmUpPolicy::new(expr.clone(), nz(1), WarmUpTimeout::Warn);
+        assert_eq!(policy_min.max_iterations, nz(1));
+
+        // Maximum value (u32::MAX)
+        let policy_max = WarmUpPolicy::new(expr, NonZeroU32::MAX, WarmUpTimeout::Fault);
+        assert_eq!(policy_max.max_iterations, NonZeroU32::MAX);
+    }
+
+    #[test]
+    fn warmup_policy_full_equality() {
+        let expr = bool_expr();
+        let policy1 = WarmUpPolicy::new(expr.clone(), nz(1000), WarmUpTimeout::Fault);
+        let policy2 = WarmUpPolicy::new(expr, nz(1000), WarmUpTimeout::Fault);
+        assert_eq!(policy1, policy2);
     }
 
     #[test]
@@ -370,18 +421,9 @@ mod tests {
 
     #[test]
     fn warmup_policy_clone() {
-        let policy = WarmUpPolicy::new(bool_expr(), 500, WarmUpTimeout::Warn);
+        let policy = WarmUpPolicy::new(bool_expr(), nz(500), WarmUpTimeout::Warn);
         let cloned = policy.clone();
         assert_eq!(policy.max_iterations, cloned.max_iterations);
         assert_eq!(policy.on_timeout, cloned.on_timeout);
-    }
-
-    #[test]
-    fn warmup_policy_equality() {
-        let policy1 = WarmUpPolicy::new(bool_expr(), 1000, WarmUpTimeout::Fault);
-        let policy2 = WarmUpPolicy::new(bool_expr(), 1000, WarmUpTimeout::Fault);
-        // Policies compare equal if fields match
-        assert_eq!(policy1.max_iterations, policy2.max_iterations);
-        assert_eq!(policy1.on_timeout, policy2.on_timeout);
     }
 }
