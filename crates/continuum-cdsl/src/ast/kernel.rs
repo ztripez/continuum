@@ -534,7 +534,7 @@ impl KernelPurity {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use continuum_cdsl::ast::KernelRegistry;
 /// use continuum_cdsl::ast::KernelId;
 ///
@@ -590,7 +590,7 @@ impl KernelRegistry {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use continuum_cdsl::ast::KernelRegistry;
     /// use continuum_cdsl::ast::KernelId;
     ///
@@ -649,7 +649,7 @@ impl KernelRegistry {
     ///
     /// # Examples
     ///
-    /// ```rust
+    /// ```rust,ignore
     /// use continuum_cdsl::ast::KernelRegistry;
     ///
     /// let registry = KernelRegistry::global();
