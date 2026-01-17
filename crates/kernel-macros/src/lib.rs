@@ -247,19 +247,128 @@ impl Parse for KernelArg {
 
 /// Register a function as a kernel callable from DSL.
 ///
-/// # Arguments
+/// This macro generates dual registration for kernel functions:
+/// - Runtime registration in `KERNELS` distributed slice (for VM execution)
+/// - Compile-time registration in `KERNEL_SIGNATURES` distributed slice (for type checking)
 ///
-/// - `name = "..."` (optional): The name used in DSL expressions (defaults to function name)
-/// - `namespace = "..."` (required): Namespace tag (e.g. "maths", "vector", "dt")
-/// - `category = "..."` (optional): Category tag (defaults to "math")
-/// - `variadic` (optional): Mark as variadic (takes `&[Value]` or `&[f64]`)
-/// - `vectorized` (optional): Mark as having vectorized implementation available
+/// # Required Arguments
+///
+/// - `namespace = "..."`: Namespace tag (e.g. "maths", "vector", "dt", "logic", "compare")
+///
+/// # Optional Arguments (Runtime Only)
+///
+/// - `name = "..."`: DSL name (defaults to function name)
+/// - `category = "..."`: Category tag (defaults to "math")
+/// - `variadic`: Mark as variadic (takes `&[Value]` or `&[f64]`)
+/// - `vectorized`: Mark as having vectorized implementation available
+/// - `unit_inference = "..."`: Unit derivation rule ("dimensionless", "preserve_first", "sqrt", "integrate", "decay")
+/// - `pattern_hint = "..."`: Hint for optimizer ("clamping", "decay", "integration")
+/// - `requires_uses = "..."`: Required `use` statement key
+/// - `requires_uses_hint = "..."`: Error message hint for missing `use`
+///
+/// # Type Constraint Arguments (Compile-Time Signatures)
+///
+/// When ANY type constraint attribute is provided, ALL must be provided (no implicit defaults):
+///
+/// - `purity = Pure | Effect`: Effect discipline
+///   - `Pure`: No side effects, deterministic, can be used in any phase
+///   - `Effect`: Mutates state (emit, spawn, destroy) or produces artifacts (log)
+///
+/// - `shape_in = [...]`: Parameter shape constraints (array, one per parameter)
+///   - `Any`: Accept any shape
+///   - `AnyScalar`: Accept only scalar values
+///   - `AnyVector`: Accept vectors of any dimension
+///   - `AnyMatrix`: Accept matrices of any dimensions
+///   - `SameAs(N)`: Must match parameter N's shape
+///   - `BroadcastWith(N)`: Must be broadcastable with parameter N
+///   - `Exact(Shape::Scalar)`: Must be exactly this shape
+///
+/// - `unit_in = [...]`: Parameter unit constraints (array, one per parameter)
+///   - `UnitAny`: Accept any unit
+///   - `UnitDimensionless`: Must be dimensionless
+///   - `Angle`: Must be an angle (radians)
+///   - `UnitSameAs(N)`: Must match parameter N's unit
+///   - `UnitExact(Unit::...)`: Must be exactly this unit
+///
+/// - `shape_out = ...`: Return shape derivation
+///   - `ShapeSameAs(N)`: Returns same shape as parameter N
+///   - `Scalar`: Always returns a scalar
+///   - `FromBroadcast(N, M)`: Returns broadcast result of parameters N and M
+///   - `ShapeExact(Shape::...)`: Always returns this exact shape
+///
+/// - `unit_out = ...`: Return unit derivation
+///   - `UnitDerivSameAs(N)`: Returns same unit as parameter N
+///   - `Dimensionless`: Always returns dimensionless value
+///   - `Multiply(N, M)`: Returns unit_N * unit_M
+///   - `Divide(N, M)`: Returns unit_N / unit_M
+///   - `Sqrt(N)`: Returns sqrt(unit_N)
+///   - `UnitDerivExact(Unit::...)`: Always returns this exact unit
 ///
 /// # Detection
 ///
 /// - If the last parameter is `Dt`, the function is dt-dependent
 /// - If the first parameter is `&[f64]` or `&[Value]` and `variadic` is set, it's variadic
 /// - Otherwise, arity is the number of parameters
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use continuum_kernel_macros::kernel_fn;
+/// use continuum_kernel_types::prelude::*;
+///
+/// // Simple pure function with type constraints
+/// #[kernel_fn(
+///     namespace = "maths",
+///     purity = Pure,
+///     shape_in = [Any, SameAs(0)],
+///     unit_in = [UnitAny, UnitSameAs(0)],
+///     shape_out = ShapeSameAs(0),
+///     unit_out = UnitDerivSameAs(0)
+/// )]
+/// pub fn add(a: f64, b: f64) -> f64 {
+///     a + b
+/// }
+///
+/// // Boolean logic with dimensionless output
+/// #[kernel_fn(
+///     namespace = "logic",
+///     purity = Pure,
+///     shape_in = [Any, Any],
+///     unit_in = [UnitDimensionless, UnitDimensionless],
+///     shape_out = ShapeSameAs(0),
+///     unit_out = Dimensionless
+/// )]
+/// pub fn and(a: bool, b: bool) -> bool {
+///     a && b
+/// }
+///
+/// // Comparison returning dimensionless boolean
+/// #[kernel_fn(
+///     namespace = "compare",
+///     purity = Pure,
+///     shape_in = [Any, SameAs(0)],
+///     unit_in = [UnitAny, UnitSameAs(0)],
+///     shape_out = ShapeSameAs(0),
+///     unit_out = Dimensionless
+/// )]
+/// pub fn eq(a: f64, b: f64) -> bool {
+///     (a - b).abs() < f64::EPSILON
+/// }
+///
+/// // Legacy syntax (runtime-only, no type constraints)
+/// #[kernel_fn(namespace = "maths")]
+/// pub fn abs(x: f64) -> f64 {
+///     x.abs()
+/// }
+/// ```
+///
+/// # Errors
+///
+/// Compile-time errors are emitted when:
+/// - `namespace` attribute is missing
+/// - Type constraint attributes are partially provided (all-or-nothing required)
+/// - `shape_in` or `unit_in` arity doesn't match parameter count
+/// - Invalid Rust syntax in constraint expressions
 #[proc_macro_attribute]
 pub fn kernel_fn(attr: TokenStream, item: TokenStream) -> TokenStream {
     let args = parse_macro_input!(attr as KernelFnArgs);
@@ -530,8 +639,49 @@ fn generate_kernel_registration(
     };
 
     // Structural validation for new type constraint attributes (if present)
-    if let (Some(shape_in_vec), Some(unit_in_vec)) = (&args.shape_in, &args.unit_in) {
+    // When ANY constraint attribute is provided, ALL must be provided (no implicit defaults)
+    let any_constraint_present = args.purity.is_some()
+        || args.shape_in.is_some()
+        || args.unit_in.is_some()
+        || args.shape_out.is_some()
+        || args.unit_out.is_some();
+
+    if any_constraint_present {
+        // Require all constraint attributes when any are provided
+        if args.purity.is_none() {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                "purity attribute required when type constraints are provided",
+            ));
+        }
+        if args.shape_in.is_none() {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                "shape_in attribute required when type constraints are provided",
+            ));
+        }
+        if args.unit_in.is_none() {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                "unit_in attribute required when type constraints are provided",
+            ));
+        }
+        if args.shape_out.is_none() {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                "shape_out attribute required when type constraints are provided",
+            ));
+        }
+        if args.unit_out.is_none() {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                "unit_out attribute required when type constraints are provided",
+            ));
+        }
+
         let param_count = user_params.len();
+        let shape_in_vec = args.shape_in.as_ref().unwrap();
+        let unit_in_vec = args.unit_in.as_ref().unwrap();
 
         // Validate shape_in arity matches parameter count
         if shape_in_vec.len() != param_count {
@@ -559,44 +709,27 @@ fn generate_kernel_registration(
     }
 
     // Generate compile-time signature registration if type constraints are provided
-    let signature_registration = if args.purity.is_some()
-        || args.shape_in.is_some()
-        || args.unit_in.is_some()
-        || args.shape_out.is_some()
-        || args.unit_out.is_some()
-    {
+    let signature_registration = if any_constraint_present {
         let signature_name = format_ident!("__KERNEL_SIG_{}", fn_name.to_string().to_uppercase());
 
-        // Extract constraint expressions (already parsed as Rust syntax)
-        let purity_expr = args
-            .purity
-            .as_ref()
-            .map(|e| quote! { #e })
-            .unwrap_or(quote! { ::continuum_kernel_types::KernelPurity::Pure });
-
-        let shape_in_exprs = args
+        // Extract constraint expressions (all guaranteed to be Some at this point)
+        let purity_expr = args.purity.as_ref().unwrap();
+        let shape_in_exprs: Vec<_> = args
             .shape_in
             .as_ref()
-            .map(|vec| vec.iter().map(|e| quote! { #e }).collect::<Vec<_>>())
-            .unwrap_or_default();
-
-        let unit_in_exprs = args
+            .unwrap()
+            .iter()
+            .map(|e| quote! { #e })
+            .collect();
+        let unit_in_exprs: Vec<_> = args
             .unit_in
             .as_ref()
-            .map(|vec| vec.iter().map(|e| quote! { #e }).collect::<Vec<_>>())
-            .unwrap_or_default();
-
-        let shape_out_expr = args
-            .shape_out
-            .as_ref()
+            .unwrap()
+            .iter()
             .map(|e| quote! { #e })
-            .unwrap_or(quote! { ::continuum_kernel_types::ShapeDerivation::SameAs(0) });
-
-        let unit_out_expr = args
-            .unit_out
-            .as_ref()
-            .map(|e| quote! { #e })
-            .unwrap_or(quote! { ::continuum_kernel_types::UnitDerivation::SameAs(0) });
+            .collect();
+        let shape_out_expr = args.shape_out.as_ref().unwrap();
+        let unit_out_expr = args.unit_out.as_ref().unwrap();
 
         quote! {
             #[allow(non_upper_case_globals)]
