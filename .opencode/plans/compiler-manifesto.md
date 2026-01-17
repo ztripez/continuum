@@ -56,7 +56,8 @@ pub struct Node<I: Index = ()> {
     pub symbol: Option<String>,
     
     // Role + role-specific data (prevents invalid states)
-    pub role: RoleData,
+    pub role_id: RoleId,
+    pub role_data: RoleSpecificData,
     
     // Common capabilities (used by multiple roles)
     pub scoping: Option<Scoping>,
@@ -71,7 +72,8 @@ pub struct Node<I: Index = ()> {
 }
 
 /// Role-specific data — makes invalid states unrepresentable
-pub enum RoleData {
+/// Stored alongside RoleId to avoid match-as-polymorphism
+pub enum RoleSpecificData {
     Signal,
     Field { reconstruction: Option<ReconstructionHint> },
     Operator,
@@ -79,30 +81,19 @@ pub enum RoleData {
     Fracture,
     Chronicle,
 }
-
-impl RoleData {
-    pub fn id(&self) -> RoleId {
-        match self {
-            Self::Signal => RoleId::Signal,
-            Self::Field { .. } => RoleId::Field,
-            Self::Operator => RoleId::Operator,
-            Self::Impulse { .. } => RoleId::Impulse,
-            Self::Fracture => RoleId::Fracture,
-            Self::Chronicle => RoleId::Chronicle,
-        }
-    }
-}
 ```
 
-**`RoleData`** — what it is + role-specific data (Signal, Field with reconstruction, etc.)
+**`role_id: RoleId`** — the role identifier (used for registry lookup)
+**`role_data: RoleSpecificData`** — role-specific data (Field reconstruction, Impulse payload, etc.)
 **`I: Index`** — where it lives (`()` = global, `EntityId` = per-entity)
 
-Member is `Node<EntityId>` with `role: RoleData::Signal`. Not a separate type.
+Member is `Node<EntityId>` with `role_id: RoleId::Signal`. Not a separate type.
 
-**Why `RoleData` enum instead of `Option<T>` fields:**
+**Why separate `RoleId` + `RoleSpecificData`:**
+- No match needed to get role ID — it's a direct field access
 - Invalid states are unrepresentable (Signal can't have reconstruction)
-- Role-specific data is co-located with the role tag
-- `role.id()` still gives `RoleId` for registry lookup
+- Role-specific data is co-located with the role
+- Follows "no match-as-polymorphism" rule from AGENTS.md
 
 **Output, Inputs, Payload — all just Type:**
 - No separate `Input` or `Payload` structs
@@ -253,9 +244,10 @@ Contexts are built from orthogonal capabilities, not inheritance.
 // Capabilities — compose as needed
 trait HasScoping { fn config(&self, path: &Path) -> Value; fn constant(&self, path: &Path) -> Value; }
 trait HasSignals { fn signal(&self, path: &Path) -> Value; }
+trait HasFields  { fn field(&self, path: &Path) -> Value; }
 trait HasPrev    { fn prev(&self) -> &Value; }
 trait HasCurrent { fn current(&self) -> &Value; }
-trait HasInputs  { fn inputs(&self) -> f64; }
+trait HasInputs  { fn inputs(&self) -> &Value; }
 trait HasDt      { fn dt(&self) -> f64; }
 trait HasPayload { fn payload(&self) -> &Value; }
 trait CanEmit    { fn emit(&self, target: &Path, value: Value); }
@@ -264,23 +256,23 @@ trait HasIndex   { fn self_field(&self, name: &str) -> Value; }
 
 **Phase contexts implement only what they provide:**
 
-| Phase | Scoping | Signals | Prev | Current | Inputs | Dt | Payload | Emit |
-|-------|---------|---------|------|---------|--------|-----|---------|------|
+| Phase | Scoping | Signals | Fields | Prev | Current | Inputs | Dt | Payload | Emit |
+|-------|---------|---------|--------|------|---------|--------|-----|---------|------|
 | *Initialization (pre-DAG)* |
-| CollectConfig | ✓ | - | - | - | - | - | - | - |
-| Initialize | ✓ | - | - | - | - | - | - | - |
+| CollectConfig | ✓ | - | - | - | - | - | - | - | - |
+| Initialize | ✓ | - | - | - | - | - | - | - | - |
 | WarmUp | *(runs tick phases until stable)* |
 | *Tick Execution (DAG)* |
-| Configure | ✓ | - | - | - | - | - | - | - |
-| Collect | ✓ | ✓ | - | - | - | ✓ | ✓ | ✓ |
-| Resolve | ✓ | ✓ | ✓ | - | ✓ | ✓ | - | - |
-| Fracture | ✓ | ✓ | - | - | - | ✓ | - | - |
-| Measure | ✓ | ✓ | - | ✓ | - | ✓ | - | - |
-| Assert | ✓ | ✓ | ✓ | ✓ | - | ✓ | - | - |
+| Configure | ✓ | - | - | - | - | - | - | - | - |
+| Collect | ✓ | ✓ | - | - | - | - | ✓ | ✓ | ✓ |
+| Resolve | ✓ | ✓ | - | ✓ | - | ✓ | ✓ | - | - |
+| Fracture | ✓ | ✓ | - | - | - | - | ✓ | - | - |
+| Measure | ✓ | ✓ | - | - | ✓ | - | ✓ | - | - |
+| Assert | ✓ | ✓ | - | ✓ | ✓ | - | ✓ | - | - |
 
 **Note:** This table shows *maximum* capabilities per phase. Each Role gets a subset — see `RoleSpec.phase_capabilities`. For example, Field in Measure doesn't get `Current` (it's producing the value), but gets `Current` in Assert (to validate what was emitted).
 
-**Statement blocks:** Phases with `Emit` capability (`Collect`, impulse `Apply`) use statement blocks (`ExecutionBody::Statements`). All other phases use expression blocks (`ExecutionBody::Expr`). See Rule 10.
+**Statement blocks:** Phases with `Emit` capability (`Collect`) use statement blocks (`ExecutionBody::Statements`). Impulse `apply` blocks also use statement blocks (they execute in Collect phase). All other phases use expression blocks (`ExecutionBody::Expr`). See Rule 10.
 
 **Signal values by phase:**
 - **Collect:** Signals return **previous tick values** (not yet resolved this tick)
@@ -630,15 +622,21 @@ struct ValidationRule {
 }
 
 enum Severity {
-    Fatal,  // halt simulation immediately
-    Error,  // log, mark failed, continue
-    Warn,   // log, continue
+    Fatal,  // halt simulation immediately (kernel roles only)
+    Error,  // log, mark failed, continue (kernel roles only)
+    Warn,   // log, continue (all roles)
 }
 
 // Type aliases for context clarity
 type Assertion = ValidationRule;
 type AnalyzerValidation = ValidationRule;
 ```
+
+**Observer boundary enforcement:**
+- **Kernel roles** (Signal, Operator, Fracture, Impulse) may use any severity (Fatal/Error/Warn)
+- **Observer roles** (Field, Chronicle, Analyzer) may only use `Warn` severity
+- Using Fatal/Error in observer assertion → `ObserverAssertionMustBeWarn` compile error
+- Rationale: Observers must be removable without changing simulation outcomes; halting the run violates this invariant
 
 ```cdsl
 signal core.temp : Scalar<K, 100..10000> {
@@ -698,17 +696,18 @@ impl Phase {
 pub enum Capability {
     Scoping = 0,   // config/const access
     Signals = 1,   // signal read access
-    Prev = 2,      // previous tick value
-    Current = 3,   // just-resolved value
-    Inputs = 4,    // accumulated inputs
-    Dt = 5,        // time step
-    Payload = 6,   // impulse payload
-    Emit = 7,      // emit to signal
-    Index = 8,     // entity self-reference
+    Fields = 2,    // field read access (observer-only)
+    Prev = 3,      // previous tick value
+    Current = 4,   // just-resolved value
+    Inputs = 5,    // accumulated inputs
+    Dt = 6,        // time step
+    Payload = 7,   // impulse payload
+    Emit = 8,      // emit to signal
+    Index = 9,     // entity self-reference
 }
 
 impl Capability {
-    pub const COUNT: usize = 9;
+    pub const COUNT: usize = 10;
 }
 ```
 
@@ -817,6 +816,9 @@ pub enum ValidationErrorKind {
     // Phase/capability errors
     InvalidPhase { role: RoleId, phase: Phase },
     MissingCapability { phase: Phase, capability: Capability },
+    
+    // Observer boundary errors
+    ObserverAssertionMustBeWarn { role: RoleId, severity: Severity },  // observer used Fatal/Error
     
     // Effect errors
     EffectInConditional { 
@@ -1481,21 +1483,26 @@ No capability → compile error.
 
 **Resolution order:**
 ```
-locals → scoping (config/const) → signals → ERROR
+locals → scoping (config/const) → signals/fields (capability-gated) → ERROR
 ```
 
 Typo in path name → compile error, not silent signal reference.
 
 **Namespace prefixes (explicit > implicit):**
 
-| Prefix | Resolves To | Example |
-|--------|-------------|---------|
-| (none) | Local binding | `let x = ...; x` |
-| `signal.` | Signal path | `signal.body.velocity` |
-| `field.` | Field path | `field.temperature` |
-| `config.` | Config value | `config.gravity_constant` |
-| `const.` | Constant | `const.PI` |
-| `fn.` | Function | `fn.physics.gravity` |
+| Prefix | Resolves To | Requires Capability | Example |
+|--------|-------------|---------------------|---------|
+| (none) | Local binding | - | `let x = ...; x` |
+| `signal.` | Signal path | `HasSignals` | `signal.body.velocity` |
+| `field.` | Field path | `HasFields` | `field.temperature` |
+| `config.` | Config value | `HasScoping` | `config.gravity_constant` |
+| `const.` | Constant | `HasScoping` | `const.PI` |
+| `fn.` | Function | - | `fn.physics.gravity` |
+
+**Capability enforcement:**
+- `field.X` resolution requires `HasFields` capability
+- Attempting field access in kernel phases (Configure/Collect/Resolve/Fracture) → `MissingCapability` error
+- Fields are only accessible in observer contexts (Analyzer, Chronicle via special handling)
 
 **Ergonomic rule:** Bare signal paths allowed if unambiguous:
 ```cdsl
@@ -1510,9 +1517,11 @@ signal.body.velocity  // Required — ambiguous without prefix
 **Compiler behavior:**
 1. Check local scope first
 2. Check scoping hierarchy (config, const)
-3. Check signal namespace
-4. If found in multiple → `AmbiguousReference` error
-5. If not found → `UnresolvedPath` error
+3. Check signal namespace (if `HasSignals`)
+4. Check field namespace (if `HasFields`)
+5. If found in multiple → `AmbiguousReference` error
+6. If not found → `UnresolvedPath` error
+7. If found but capability missing → `MissingCapability` error
 
 **Error message:**
 ```
@@ -1573,7 +1582,7 @@ pub struct KernelSignature {
 /// Kernel purity class — used to enforce effect discipline
 pub enum KernelPurity {
     Pure,    // No side effects, deterministic, can be used anywhere
-    Effect,  // Mutates state (emit, spawn, destroy) or artifacts (log)
+    Effect,  // Mutates state (emit) or artifacts (log)
 }
 ```
 
@@ -1588,21 +1597,24 @@ pub enum KernelPurity {
 | `compare.*` | Pure | Comparison operations |
 | `rng.*` | Pure | Seeded randomness (deterministic) |
 | `emit` | Effect | Mutates signal inputs |
-| `spawn` | Effect | Creates entity |
-| `destroy` | Effect | Removes entity |
 | `log` | Effect | Writes observer artifact |
+
+**Note:** `spawn` and `destroy` kernels are **not yet implemented**. Entity lifecycle is currently fixed at scenario initialization (see Entity section). Dynamic entity creation/destruction tracked in `continuum-ojgp`.
 
 **Phase enforcement:**
 
 | Phase | Allowed | Rationale |
 |-------|---------|-----------|
 | Configure | Pure | Setup only |
-| Collect | Pure + Effect | Emissions happen here |
+| Collect | Pure + Effect | Emissions and impulses happen here |
 | Resolve | **Pure only** | Computing authoritative state |
-| Fracture | Pure + Effect | May spawn/destroy entities |
+| Fracture | **Pure only** | Detect tension (no effects currently) |
 | Measure | **Pure only** | Fields are derived values |
 | Assert | Pure | Validation only |
-| Apply (impulse) | Pure + Effect | Emissions happen here |
+
+**Note on impulses:** Impulse `apply` blocks execute in the Collect phase using statement blocks. They have access to `Payload` + `Emit` capabilities.
+
+**Note on Fracture:** Fracture is currently pure-only. When dynamic entity lifecycle is implemented (`continuum-ojgp`), Fracture may use effect kernels for spawn/destroy.
 
 **All kernels are deterministic.** There are no non-deterministic kernels:
 - `rng.*` kernels derive randomness from `(seed, InstanceId, tick)` — fully reproducible
@@ -1950,15 +1962,17 @@ let x = emit(a, 1) + emit(b, 2)  // nonsense — Unit + Unit
 
 **The solution:** `Unit` is only legal at **statement position**.
 
-| Phase | Form | Effects | Returns |
-|-------|------|---------|---------|
+| Phase/Block | Form | Effects | Returns |
+|-------------|------|---------|---------|
 | Configure | expression | no | value |
-| **Collect** | **statement block** | **yes** | implicit Unit |
+| **Collect (operator)** | **statement block** | **yes** | implicit Unit |
+| **Collect (impulse apply)** | **statement block** | **yes** | implicit Unit |
 | Resolve | expression | no | value |
 | Fracture | expression | no | value |
 | Measure | expression | no | value |
 | Assert | expression | no | Bool |
-| **Apply (impulse)** | **statement block** | **yes** | implicit Unit |
+
+**Note:** Both operator Collect blocks and impulse `apply` blocks execute in the Collect phase using statement blocks.
 
 **Statement block syntax:**
 ```cdsl
