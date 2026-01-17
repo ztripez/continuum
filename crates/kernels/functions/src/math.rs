@@ -7,19 +7,44 @@ use continuum_kernel_macros::kernel_fn;
 // === Basic math ===
 
 /// Absolute value: `abs(x)`
-#[kernel_fn(namespace = "maths", unit_inference = "preserve_first")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn abs(x: f64) -> f64 {
     x.abs()
 }
 
 /// Square root: `sqrt(x)`
-#[kernel_fn(namespace = "maths", unit_inference = "sqrt")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = Sqrt(0)
+)]
 pub fn sqrt(x: f64) -> f64 {
     x.sqrt()
 }
 
 /// Power: `pow(base, exp)`
-#[kernel_fn(namespace = "maths")]
+///
+/// Raises base to the power of exp. Note: Unit derivation for pow is complex
+/// (base^exp) and requires exp to be a compile-time constant for proper typing.
+/// This function uses a simple type constraint.
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0)],
+    unit_in = [UnitAny, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn pow(base: f64, exp: f64) -> f64 {
     base.powf(exp)
 }
@@ -27,17 +52,25 @@ pub fn pow(base: f64, exp: f64) -> f64 {
 /// Clamp: `clamp(value, min, max)`
 #[kernel_fn(
     namespace = "maths",
-    unit_inference = "preserve_first",
-    pattern_hint = "clamping",
-    requires_uses = "clamping",
-    requires_uses_hint = "Silently constrains values to bounds, masking out-of-range conditions that may indicate bugs. Use assertions to validate bounds instead"
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
 )]
 pub fn clamp(value: f64, min: f64, max: f64) -> f64 {
     value.clamp(min, max)
 }
 
 /// Linear interpolation: `lerp(a, b, t)` → `a + t * (b - a)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + t * (b - a)
 }
@@ -45,7 +78,14 @@ pub fn lerp(a: f64, b: f64, t: f64) -> f64 {
 /// Linear interpolation (alias): `mix(a, b, t)` → `a + t * (b - a)`
 ///
 /// Same as `lerp`, provided for GLSL/shader compatibility.
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn mix(a: f64, b: f64, t: f64) -> f64 {
     a + t * (b - a)
 }
@@ -53,7 +93,14 @@ pub fn mix(a: f64, b: f64, t: f64) -> f64 {
 /// Step function: `step(edge, x)` → 0.0 if x < edge, else 1.0
 ///
 /// Sharp transition at edge. Common in shader programming.
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn step(edge: f64, x: f64) -> f64 {
     if x < edge { 0.0 } else { 1.0 }
 }
@@ -62,7 +109,14 @@ pub fn step(edge: f64, x: f64) -> f64 {
 ///
 /// Returns 0 if x ≤ e0, 1 if x ≥ e1, smooth interpolation between.
 /// Uses cubic Hermite polynomial: 3t² - 2t³
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
     let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
@@ -73,8 +127,11 @@ pub fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
 /// Equivalent to `clamp(x, 0.0, 1.0)`. Common in shader programming.
 #[kernel_fn(
     namespace = "maths",
-    requires_uses = "clamping",
-    requires_uses_hint = "Silently clamps to [0, 1], masking out-of-range conditions that may indicate bugs. Use assertions to validate bounds instead"
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
 )]
 pub fn saturate(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
@@ -83,31 +140,72 @@ pub fn saturate(x: f64) -> f64 {
 // === Trigonometry ===
 
 /// Sine: `sin(x)`
-#[kernel_fn(namespace = "maths", unit_inference = "dimensionless_angle")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [Angle],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn sin(x: f64) -> f64 {
     x.sin()
 }
 
 /// Cosine: `cos(x)`
-#[kernel_fn(namespace = "maths", unit_inference = "dimensionless_angle")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [Angle],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn cos(x: f64) -> f64 {
     x.cos()
 }
 
 /// Tangent: `tan(x)`
-#[kernel_fn(namespace = "maths", unit_inference = "dimensionless_angle")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [Angle],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn tan(x: f64) -> f64 {
     x.tan()
 }
 
 /// Arctangent: `atan(x)`
-#[kernel_fn(namespace = "maths")]
+///
+/// Returns angle in radians. Output unit is Angle, which is a dimensionless
+/// quantity in the unit system but marked separately for type safety.
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn atan(x: f64) -> f64 {
     x.atan()
 }
 
 /// Arctangent with two parameters: `atan2(y, x)`
-#[kernel_fn(namespace = "maths")]
+///
+/// Returns angle in radians. Output unit is dimensionless (angle is treated
+/// as dimensionless in the unit system but with type safety).
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0)],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn atan2(y: f64, x: f64) -> f64 {
     y.atan2(x)
 }
@@ -117,7 +215,14 @@ pub fn atan2(y: f64, x: f64) -> f64 {
 /// # Panics
 ///
 /// Returns NaN if x is outside [-1, 1]
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn asin(x: f64) -> f64 {
     x.asin()
 }
@@ -127,7 +232,14 @@ pub fn asin(x: f64) -> f64 {
 /// # Panics
 ///
 /// Returns NaN if x is outside [-1, 1]
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn acos(x: f64) -> f64 {
     x.acos()
 }
@@ -135,25 +247,53 @@ pub fn acos(x: f64) -> f64 {
 // === Hyperbolic ===
 
 /// Hyperbolic sine: `sinh(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn sinh(x: f64) -> f64 {
     x.sinh()
 }
 
 /// Hyperbolic cosine: `cosh(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn cosh(x: f64) -> f64 {
     x.cosh()
 }
 
 /// Hyperbolic tangent: `tanh(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn tanh(x: f64) -> f64 {
     x.tanh()
 }
 
 /// Inverse hyperbolic sine: `asinh(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn asinh(x: f64) -> f64 {
     x.asinh()
 }
@@ -163,7 +303,14 @@ pub fn asinh(x: f64) -> f64 {
 /// # Panics
 ///
 /// Returns NaN if x < 1
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn acosh(x: f64) -> f64 {
     x.acosh()
 }
@@ -173,7 +320,14 @@ pub fn acosh(x: f64) -> f64 {
 /// # Panics
 ///
 /// Returns NaN if x is outside (-1, 1)
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn atanh(x: f64) -> f64 {
     x.atanh()
 }
@@ -181,19 +335,40 @@ pub fn atanh(x: f64) -> f64 {
 // === Exponential / Logarithmic ===
 
 /// Exponential: `exp(x)` → `e^x`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn exp(x: f64) -> f64 {
     x.exp()
 }
 
 /// Natural log: `ln(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn ln(x: f64) -> f64 {
     x.ln()
 }
 
 /// Log base 10: `log10(x)`
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn log10(x: f64) -> f64 {
     x.log10()
 }
@@ -201,19 +376,43 @@ pub fn log10(x: f64) -> f64 {
 /// Logarithm with arbitrary base: `log(x, base)`
 ///
 /// Computes log_base(x) = ln(x) / ln(base)
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0)],
+    unit_in = [UnitDimensionless, UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn log(x: f64, base: f64) -> f64 {
     x.ln() / base.ln()
 }
 
 /// Log base 2: `log2(x)` → log₂(x)
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitDimensionless],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn log2(x: f64) -> f64 {
     x.log2()
 }
 
 /// Cube root: `cbrt(x)` → ∛x
-#[kernel_fn(namespace = "maths")]
+///
+/// Takes the cube root. Unit derivation for cbrt (x^(1/3)) is not directly
+/// expressible in the type system, so we use UnitDerivSameAs(0) as a conservative constraint.
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn cbrt(x: f64) -> f64 {
     x.cbrt()
 }
@@ -222,7 +421,14 @@ pub fn cbrt(x: f64) -> f64 {
 ///
 /// Returns the fractional component of a number.
 /// For example: fract(3.7) = 0.7
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn fract(x: f64) -> f64 {
     x.fract()
 }
@@ -230,37 +436,80 @@ pub fn fract(x: f64) -> f64 {
 // === Rounding ===
 
 /// Floor: `floor(x)` → largest integer ≤ x
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn floor(x: f64) -> f64 {
     x.floor()
 }
 
 /// Ceiling: `ceil(x)` → smallest integer ≥ x
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn ceil(x: f64) -> f64 {
     x.ceil()
 }
 
 /// Round: `round(x)` → nearest integer (half-way rounds away from zero)
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn round(x: f64) -> f64 {
     x.round()
 }
 
 /// Truncate: `trunc(x)` → integer part (round toward zero)
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn trunc(x: f64) -> f64 {
     x.trunc()
 }
 
 /// Sign: `sign(x)` → -1.0 if x < 0, 0.0 if x == 0, 1.0 if x > 0
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
 pub fn sign(x: f64) -> f64 {
     if x == 0.0 { 0.0 } else { x.signum() }
 }
 
 /// Modulo: `mod(a, b)` → `a % b` (always positive)
-#[kernel_fn(name = "mod", namespace = "maths")]
+#[kernel_fn(
+    name = "mod",
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn modulo(a: f64, b: f64) -> f64 {
     ((a % b) + b) % b
 }
@@ -272,7 +521,14 @@ pub fn modulo(a: f64, b: f64) -> f64 {
 /// # Panics
 ///
 /// Panics if `min` or `max` are not finite, or if `max <= min`.
-#[kernel_fn(namespace = "maths")]
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [AnyScalar, SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn wrap(value: f64, min: f64, max: f64) -> f64 {
     assert!(min.is_finite(), "wrap: min must be finite, got {}", min);
     assert!(max.is_finite(), "wrap: max must be finite, got {}", max);
@@ -291,19 +547,43 @@ pub fn wrap(value: f64, min: f64, max: f64) -> f64 {
 // === Variadic ===
 
 /// Minimum: `min(a, b, ...)`
-#[kernel_fn(namespace = "maths", variadic, unit_inference = "preserve_first")]
+#[kernel_fn(
+    namespace = "maths",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn min(args: &[f64]) -> f64 {
     args.iter().cloned().fold(f64::INFINITY, f64::min)
 }
 
 /// Maximum: `max(a, b, ...)`
-#[kernel_fn(namespace = "maths", variadic, unit_inference = "preserve_first")]
+#[kernel_fn(
+    namespace = "maths",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn max(args: &[f64]) -> f64 {
     args.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
 }
 
 /// Sum: `sum(a, b, ...)`
-#[kernel_fn(namespace = "maths", variadic)]
+#[kernel_fn(
+    namespace = "maths",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn sum(args: &[f64]) -> f64 {
     args.iter().sum()
 }
