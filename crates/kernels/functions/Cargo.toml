@@ -7,5 +7,10 @@ edition = "2024"
 continuum-foundation = { path = "../foundation" }
 continuum-kernel-registry = { path = "../../kernel-registry" }
 continuum-kernel-macros = { path = "../../kernel-macros" }
+continuum-kernel-types = { path = "../../continuum-kernel-types" }
 linkme = "0.3"
 nalgebra = "0.33"
+
+[[test]]
+name = "test_signatures"
+path = "tests/test_signatures.rs"

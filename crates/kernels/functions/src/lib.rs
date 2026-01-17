@@ -3,7 +3,10 @@
 //! Kernel functions available for use in DSL expressions.
 //! Functions are registered via the `#[kernel_fn]` attribute macro.
 
+mod compare;
 mod dt;
+// mod effect;  // Disabled pending runtime context - see effect.rs header
+mod logic;
 mod math;
 mod matrix;
 mod quat;
@@ -44,3 +47,13 @@ static RNG_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "rng" };
 
 #[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
 static STATS_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "stats" };
+
+#[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
+static LOGIC_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "logic" };
+
+#[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
+static COMPARE_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "compare" };
+
+// Disabled pending runtime context - see effect.rs header
+// #[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
+// static EFFECT_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "effect" };

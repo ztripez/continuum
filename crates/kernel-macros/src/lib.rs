@@ -28,7 +28,7 @@
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
-    Ident, ItemFn, LitStr, Token,
+    Expr, Ident, ItemFn, LitStr, Token,
     parse::{Parse, ParseStream},
     parse_macro_input,
     punctuated::Punctuated,
@@ -45,6 +45,12 @@ struct KernelFnArgs {
     pattern_hints: Vec<String>,
     requires_uses: Option<String>,
     requires_uses_hint: Option<String>,
+    // New Rust-syntax type constraints (optional, for compile-time signatures)
+    purity: Option<Expr>,
+    shape_in: Option<Vec<Expr>>,
+    unit_in: Option<Vec<Expr>>,
+    shape_out: Option<Expr>,
+    unit_out: Option<Expr>,
 }
 
 /// Arguments to the vectorized_kernel_fn attribute
@@ -64,6 +70,11 @@ impl Parse for KernelFnArgs {
         let mut pattern_hints = Vec::new();
         let mut requires_uses = None;
         let mut requires_uses_hint = None;
+        let mut purity = None;
+        let mut shape_in = None;
+        let mut unit_in = None;
+        let mut shape_out = None;
+        let mut unit_out = None;
 
         let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
         for arg in args {
@@ -77,6 +88,11 @@ impl Parse for KernelFnArgs {
                 KernelArg::PatternHint(h) => pattern_hints.push(h),
                 KernelArg::RequiresUses(r) => requires_uses = Some(r),
                 KernelArg::RequiresUsesHint(h) => requires_uses_hint = Some(h),
+                KernelArg::Purity(p) => purity = Some(p),
+                KernelArg::ShapeIn(s) => shape_in = Some(s),
+                KernelArg::UnitIn(u) => unit_in = Some(u),
+                KernelArg::ShapeOut(s) => shape_out = Some(s),
+                KernelArg::UnitOut(u) => unit_out = Some(u),
             }
         }
 
@@ -92,6 +108,11 @@ impl Parse for KernelFnArgs {
             pattern_hints,
             requires_uses,
             requires_uses_hint,
+            purity,
+            shape_in,
+            unit_in,
+            shape_out,
+            unit_out,
         })
     }
 }
@@ -112,7 +133,12 @@ impl Parse for VectorizedKernelArgs {
                 | KernelArg::UnitInference(_)
                 | KernelArg::PatternHint(_)
                 | KernelArg::RequiresUses(_)
-                | KernelArg::RequiresUsesHint(_) => {}
+                | KernelArg::RequiresUsesHint(_)
+                | KernelArg::Purity(_)
+                | KernelArg::ShapeIn(_)
+                | KernelArg::UnitIn(_)
+                | KernelArg::ShapeOut(_)
+                | KernelArg::UnitOut(_) => {}
             }
         }
 
@@ -132,6 +158,12 @@ enum KernelArg {
     PatternHint(String),
     RequiresUses(String),
     RequiresUsesHint(String),
+    // New Rust-syntax type constraints
+    Purity(Expr),
+    ShapeIn(Vec<Expr>),
+    UnitIn(Vec<Expr>),
+    ShapeOut(Expr),
+    UnitOut(Expr),
 }
 
 impl Parse for KernelArg {
@@ -175,6 +207,36 @@ impl Parse for KernelArg {
             }
             "variadic" => Ok(KernelArg::Variadic),
             "vectorized" => Ok(KernelArg::Vectorized),
+            // New Rust-syntax type constraints (token forwarding)
+            "purity" => {
+                input.parse::<Token![=]>()?;
+                let expr: Expr = input.parse()?;
+                Ok(KernelArg::Purity(expr))
+            }
+            "shape_in" => {
+                input.parse::<Token![=]>()?;
+                let content;
+                syn::bracketed!(content in input);
+                let exprs = Punctuated::<Expr, Token![,]>::parse_terminated(&content)?;
+                Ok(KernelArg::ShapeIn(exprs.into_iter().collect()))
+            }
+            "unit_in" => {
+                input.parse::<Token![=]>()?;
+                let content;
+                syn::bracketed!(content in input);
+                let exprs = Punctuated::<Expr, Token![,]>::parse_terminated(&content)?;
+                Ok(KernelArg::UnitIn(exprs.into_iter().collect()))
+            }
+            "shape_out" => {
+                input.parse::<Token![=]>()?;
+                let expr: Expr = input.parse()?;
+                Ok(KernelArg::ShapeOut(expr))
+            }
+            "unit_out" => {
+                input.parse::<Token![=]>()?;
+                let expr: Expr = input.parse()?;
+                Ok(KernelArg::UnitOut(expr))
+            }
             other => Err(syn::Error::new(
                 ident.span(),
                 format!("unknown argument: {}", other),
@@ -467,6 +529,101 @@ fn generate_kernel_registration(
         quote! { None }
     };
 
+    // Structural validation for new type constraint attributes (if present)
+    if let (Some(shape_in_vec), Some(unit_in_vec)) = (&args.shape_in, &args.unit_in) {
+        let param_count = user_params.len();
+
+        // Validate shape_in arity matches parameter count
+        if shape_in_vec.len() != param_count {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                format!(
+                    "shape_in has {} constraints but function has {} parameters",
+                    shape_in_vec.len(),
+                    param_count
+                ),
+            ));
+        }
+
+        // Validate unit_in arity matches parameter count
+        if unit_in_vec.len() != param_count {
+            return Err(syn::Error::new_spanned(
+                &func.sig.ident,
+                format!(
+                    "unit_in has {} constraints but function has {} parameters",
+                    unit_in_vec.len(),
+                    param_count
+                ),
+            ));
+        }
+    }
+
+    // Generate compile-time signature registration if type constraints are provided
+    let signature_registration = if args.purity.is_some()
+        || args.shape_in.is_some()
+        || args.unit_in.is_some()
+        || args.shape_out.is_some()
+        || args.unit_out.is_some()
+    {
+        let signature_name = format_ident!("__KERNEL_SIG_{}", fn_name.to_string().to_uppercase());
+
+        // Extract constraint expressions (already parsed as Rust syntax)
+        let purity_expr = args
+            .purity
+            .as_ref()
+            .map(|e| quote! { #e })
+            .unwrap_or(quote! { ::continuum_kernel_types::KernelPurity::Pure });
+
+        let shape_in_exprs = args
+            .shape_in
+            .as_ref()
+            .map(|vec| vec.iter().map(|e| quote! { #e }).collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        let unit_in_exprs = args
+            .unit_in
+            .as_ref()
+            .map(|vec| vec.iter().map(|e| quote! { #e }).collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        let shape_out_expr = args
+            .shape_out
+            .as_ref()
+            .map(|e| quote! { #e })
+            .unwrap_or(quote! { ::continuum_kernel_types::ShapeDerivation::SameAs(0) });
+
+        let unit_out_expr = args
+            .unit_out
+            .as_ref()
+            .map(|e| quote! { #e })
+            .unwrap_or(quote! { ::continuum_kernel_types::UnitDerivation::SameAs(0) });
+
+        quote! {
+            #[allow(non_upper_case_globals)]
+            #[::continuum_kernel_registry::linkme::distributed_slice(::continuum_kernel_types::KERNEL_SIGNATURES)]
+            static #signature_name: ::continuum_kernel_types::KernelSignature = {
+                use ::continuum_kernel_types::prelude::*;
+                ::continuum_kernel_types::KernelSignature {
+                    id: ::continuum_kernel_types::KernelId::new(#namespace, #dsl_name),
+                    purity: #purity_expr,
+                    params: &[
+                        #(::continuum_kernel_types::KernelParam {
+                            name: #param_names,
+                            shape: #shape_in_exprs,
+                            unit: #unit_in_exprs,
+                        }),*
+                    ],
+                    returns: ::continuum_kernel_types::KernelReturn {
+                        shape: #shape_out_expr,
+                        unit: #unit_out_expr,
+                    },
+                }
+            };
+        }
+    } else {
+        quote! {}
+    };
+
     Ok(quote! {
         #func
 
@@ -488,6 +645,8 @@ fn generate_kernel_registration(
                 requires_uses: #requires_uses_value,
             }
         };
+
+        #signature_registration
     })
 }
 

@@ -34,6 +34,7 @@
 //! - `rng.*` kernels derive randomness from `(seed, InstanceId, tick)` - fully reproducible
 //! - No kernel depends on wall-clock time, thread scheduling, or external state
 
+pub mod prelude;
 pub mod shape;
 pub mod unit;
 
@@ -174,7 +175,7 @@ pub struct KernelSignature {
     pub id: KernelId,
 
     /// Parameter type constraints
-    pub params: Vec<KernelParam>,
+    pub params: &'static [KernelParam],
 
     /// Return type derivation
     pub returns: KernelReturn,

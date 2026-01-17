@@ -123,6 +123,7 @@ dependencies = [
  "continuum-foundation",
  "continuum-kernel-macros",
  "continuum-kernel-registry",
+ "continuum-kernel-types",
  "linkme",
  "nalgebra",
 ]
@@ -131,6 +132,7 @@ dependencies = [
 name = "continuum-kernel-macros"
 version = "0.1.0"
 dependencies = [
+ "continuum-kernel-types",
  "proc-macro2",
  "quote",
  "syn",
