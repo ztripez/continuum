@@ -35,7 +35,7 @@
 //! # Examples
 //!
 //! ```
-//! # use continuum_cdsl::foundation::phase::*;
+//! # use continuum_foundation::phase::*;
 //! // Check if a phase is initialization
 //! assert!(Phase::Initialize.is_init());
 //! assert!(!Phase::Resolve.is_init());

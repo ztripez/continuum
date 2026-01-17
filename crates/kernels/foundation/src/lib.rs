@@ -9,6 +9,7 @@ pub mod field;
 pub mod ids;
 pub mod matrix_ops;
 pub mod operators;
+pub mod phase;
 pub mod primitives;
 pub mod rng;
 pub mod stable_hash;
@@ -25,6 +26,7 @@ pub use ids::{
 pub use coercion::{TypeCheckOp, TypeCheckResult, can_operate, type_shape};
 pub use field::FieldSample;
 pub use operators::{AggregateOp, BinaryOp, UnaryOp};
+pub use phase::{Capability, CapabilitySet, Phase, PhaseSet};
 pub use primitives::{
     PRIMITIVE_TYPES, PrimitiveParamKind, PrimitiveParamSpec, PrimitiveShape, PrimitiveStorageClass,
     PrimitiveTypeDef, PrimitiveTypeId, primitive_type_by_name,
