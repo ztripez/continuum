@@ -55,74 +55,107 @@ pub struct CompileError {
 ///
 /// Errors are categorized by the compiler phase that detected them.
 /// This enables filtering, statistics, and phase-specific error recovery.
+///
+/// # Invariant
+///
+/// The discriminant values must match the ERROR_KIND_NAMES array indices.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(u8)]
 pub enum ErrorKind {
     // Parse phase
     /// Syntax error (invalid token, unexpected EOF, etc.)
-    Syntax,
+    Syntax = 0,
 
     // Name resolution phase
     /// Undefined symbol (signal, field, config, etc.)
-    UndefinedName,
+    UndefinedName = 1,
     /// Duplicate definition at same path
-    DuplicateName,
+    DuplicateName = 2,
     /// Ambiguous reference (could refer to multiple symbols)
-    AmbiguousName,
+    AmbiguousName = 3,
 
     // Type resolution phase
     /// Type mismatch (expected X, got Y)
-    TypeMismatch,
+    TypeMismatch = 4,
     /// Unknown type name
-    UnknownType,
+    UnknownType = 5,
     /// Recursive type definition
-    RecursiveType,
+    RecursiveType = 6,
 
     // Shape validation
     /// Shape mismatch (Vec2 vs Vec3, etc.)
-    ShapeMismatch,
+    ShapeMismatch = 7,
     /// Dimension mismatch in matrix operations
-    DimensionMismatch,
+    DimensionMismatch = 8,
 
     // Unit validation
     /// Unit mismatch (m/s vs K, etc.)
-    UnitMismatch,
+    UnitMismatch = 9,
     /// Invalid unit expression
-    InvalidUnit,
+    InvalidUnit = 10,
 
     // Kernel validation
     /// Unknown kernel name
-    UnknownKernel,
+    UnknownKernel = 11,
     /// Wrong number of arguments to kernel
-    WrongArgCount,
+    WrongArgCount = 12,
     /// Argument shape doesn't satisfy kernel constraint
-    InvalidKernelShape,
+    InvalidKernelShape = 13,
     /// Argument unit doesn't satisfy kernel constraint
-    InvalidKernelUnit,
+    InvalidKernelUnit = 14,
 
     // Capability validation
     /// Capability not available in this phase (e.g., prev in measure)
-    MissingCapability,
+    MissingCapability = 15,
     /// Invalid use of capability (e.g., emit with wrong target)
-    InvalidCapability,
+    InvalidCapability = 16,
 
     // Effect validation
     /// Effect (emit) used in pure phase
-    EffectInPureContext,
+    EffectInPureContext = 17,
 
     // Structure validation
     /// Circular dependency detected
-    CyclicDependency,
+    CyclicDependency = 18,
     /// Path collision (signal.x conflicts with signal field x)
-    PathCollision,
+    PathCollision = 19,
 
     // Execution compilation
     /// Cannot compile to executable form
-    CompilationFailed,
+    CompilationFailed = 20,
 
     // Generic
     /// Internal compiler error (bug in compiler)
-    Internal,
+    Internal = 21,
 }
+
+/// Human-readable names for error kinds.
+///
+/// Index matches ErrorKind discriminant.
+const ERROR_KIND_NAMES: &[&str] = &[
+    "syntax error",            // 0: Syntax
+    "undefined name",          // 1: UndefinedName
+    "duplicate name",          // 2: DuplicateName
+    "ambiguous name",          // 3: AmbiguousName
+    "type mismatch",           // 4: TypeMismatch
+    "unknown type",            // 5: UnknownType
+    "recursive type",          // 6: RecursiveType
+    "shape mismatch",          // 7: ShapeMismatch
+    "dimension mismatch",      // 8: DimensionMismatch
+    "unit mismatch",           // 9: UnitMismatch
+    "invalid unit",            // 10: InvalidUnit
+    "unknown kernel",          // 11: UnknownKernel
+    "wrong argument count",    // 12: WrongArgCount
+    "invalid kernel shape",    // 13: InvalidKernelShape
+    "invalid kernel unit",     // 14: InvalidKernelUnit
+    "missing capability",      // 15: MissingCapability
+    "invalid capability",      // 16: InvalidCapability
+    "effect in pure context",  // 17: EffectInPureContext
+    "cyclic dependency",       // 18: CyclicDependency
+    "path collision",          // 19: PathCollision
+    "compilation failed",      // 20: CompilationFailed
+    "internal compiler error", // 21: Internal
+];
 
 /// Diagnostic severity level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -159,14 +192,7 @@ impl CompileError {
     ///
     /// A new error with severity `Error` and no secondary labels or notes.
     pub fn new(kind: ErrorKind, span: Span, message: String) -> Self {
-        Self {
-            kind,
-            severity: Severity::Error,
-            span,
-            message,
-            labels: Vec::new(),
-            notes: Vec::new(),
-        }
+        Self::with_severity(kind, Severity::Error, span, message)
     }
 
     /// Creates a new warning diagnostic.
@@ -181,14 +207,7 @@ impl CompileError {
     ///
     /// A new diagnostic with severity `Warning`.
     pub fn warning(kind: ErrorKind, span: Span, message: String) -> Self {
-        Self {
-            kind,
-            severity: Severity::Warning,
-            span,
-            message,
-            labels: Vec::new(),
-            notes: Vec::new(),
-        }
+        Self::with_severity(kind, Severity::Warning, span, message)
     }
 
     /// Creates a new note diagnostic.
@@ -203,9 +222,14 @@ impl CompileError {
     ///
     /// A new diagnostic with severity `Note`.
     pub fn note(kind: ErrorKind, span: Span, message: String) -> Self {
+        Self::with_severity(kind, Severity::Note, span, message)
+    }
+
+    /// Internal constructor with explicit severity.
+    fn with_severity(kind: ErrorKind, severity: Severity, span: Span, message: String) -> Self {
         Self {
             kind,
-            severity: Severity::Note,
+            severity,
             span,
             message,
             labels: Vec::new(),
@@ -246,34 +270,15 @@ impl CompileError {
 impl ErrorKind {
     /// Returns a human-readable name for this error kind.
     ///
+    /// # Parameters
+    ///
+    /// (none - uses `self`)
+    ///
     /// # Returns
     ///
     /// String slice with the error kind name.
     pub fn name(self) -> &'static str {
-        match self {
-            ErrorKind::Syntax => "syntax error",
-            ErrorKind::UndefinedName => "undefined name",
-            ErrorKind::DuplicateName => "duplicate name",
-            ErrorKind::AmbiguousName => "ambiguous name",
-            ErrorKind::TypeMismatch => "type mismatch",
-            ErrorKind::UnknownType => "unknown type",
-            ErrorKind::RecursiveType => "recursive type",
-            ErrorKind::ShapeMismatch => "shape mismatch",
-            ErrorKind::DimensionMismatch => "dimension mismatch",
-            ErrorKind::UnitMismatch => "unit mismatch",
-            ErrorKind::InvalidUnit => "invalid unit",
-            ErrorKind::UnknownKernel => "unknown kernel",
-            ErrorKind::WrongArgCount => "wrong argument count",
-            ErrorKind::InvalidKernelShape => "invalid kernel shape",
-            ErrorKind::InvalidKernelUnit => "invalid kernel unit",
-            ErrorKind::MissingCapability => "missing capability",
-            ErrorKind::InvalidCapability => "invalid capability",
-            ErrorKind::EffectInPureContext => "effect in pure context",
-            ErrorKind::CyclicDependency => "cyclic dependency",
-            ErrorKind::PathCollision => "path collision",
-            ErrorKind::CompilationFailed => "compilation failed",
-            ErrorKind::Internal => "internal compiler error",
-        }
+        ERROR_KIND_NAMES[self as usize]
     }
 }
 
