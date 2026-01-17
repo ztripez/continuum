@@ -5,11 +5,13 @@
 
 pub mod path;
 pub mod shape;
+pub mod span;
 pub mod types;
 pub mod unit;
 
 pub use path::Path;
 pub use shape::Shape;
+pub use span::{SourceFile, SourceMap, Span};
 pub use types::{Bounds, KernelType, Type, UserType, UserTypeId};
 pub use unit::{Unit, UnitDimensions, UnitKind};
 
