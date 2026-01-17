@@ -281,6 +281,16 @@ pub enum ExprKind {
         unit: Option<UnitExpr>,
     },
 
+    /// Boolean literal
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// true
+    /// false
+    /// ```
+    BoolLiteral(bool),
+
     /// Vector literal
     ///
     /// # Examples
