@@ -4,25 +4,50 @@
 
 use continuum_foundation::{Mat2, Mat3, Mat4, Value};
 use continuum_kernel_macros::kernel_fn;
+use continuum_kernel_types::prelude::*;
 use nalgebra as na;
 
 /// Identity 2x2 matrix: `identity2()`
 /// Returns column-major: [1, 0, 0, 1]
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [],
+    unit_in = [],
+    shape_out = MatrixDims { rows: DimExact(2), cols: DimExact(2) },
+    unit_out = Dimensionless
+)]
 pub fn identity2() -> Mat2 {
     Mat2([1.0, 0.0, 0.0, 1.0])
 }
 
 /// Identity 3x3 matrix: `identity3()`
 /// Returns column-major: [1, 0, 0, 0, 1, 0, 0, 0, 1]
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [],
+    unit_in = [],
+    shape_out = MatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    unit_out = Dimensionless
+)]
 pub fn identity3() -> Mat3 {
     Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
 }
 
 /// Identity 4x4 matrix: `identity4()`
 /// Returns column-major: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [],
+    unit_in = [],
+    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Dimensionless
+)]
 pub fn identity4() -> Mat4 {
     Mat4([
         1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -31,7 +56,16 @@ pub fn identity4() -> Mat4 {
 
 /// Transpose a matrix: `transpose(m)`
 /// Converts column-major to row-major order (or vice versa)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix],
+    unit_in = [UnitAny],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn transpose(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.transpose expects exactly 1 argument");
@@ -60,7 +94,16 @@ pub fn transpose(args: &[Value]) -> Value {
 }
 
 /// Determinant of a matrix: `determinant(m)` -> Scalar
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn determinant(args: &[Value]) -> f64 {
     if args.len() != 1 {
         panic!("matrix.determinant expects exactly 1 argument");
@@ -125,7 +168,16 @@ pub fn determinant(args: &[Value]) -> f64 {
 
 /// Inverse of a matrix: `inverse(m)` -> Mat
 /// Panics if matrix is singular (determinant = 0)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix],
+    unit_in = [UnitAny],
+    shape_out = ShapeSameAs(0),
+    unit_out = Inverse(0)
+)]
 pub fn inverse(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.inverse expects exactly 1 argument");
@@ -279,7 +331,16 @@ pub fn inverse(args: &[Value]) -> Value {
 
 /// Matrix multiply: `mul(a, b)` -> Mat
 /// Explicit function for matrix multiplication (alternative to a * b operator)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix, SameAs(0)],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeSameAs(0),
+    unit_out = Multiply([0, 1])
+)]
 pub fn mul(args: &[Value]) -> Value {
     use continuum_foundation::matrix_ops::{mat2_mul, mat3_mul, mat4_mul};
     if args.len() != 2 {
@@ -294,7 +355,16 @@ pub fn mul(args: &[Value]) -> Value {
 }
 
 /// Transform vector by matrix: `transform(m, v)` -> Vec
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix, AnyVector],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeSameAs(1),
+    unit_out = Multiply([0, 1])
+)]
 pub fn transform(args: &[Value]) -> Value {
     use continuum_foundation::matrix_ops::{mat2_transform, mat3_transform, mat4_transform};
     if args.len() != 2 {
@@ -309,7 +379,15 @@ pub fn transform(args: &[Value]) -> Value {
 }
 
 /// Build rotation matrix from quaternion: `from_quat(q)` -> Mat3
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4))],
+    unit_in = [UnitDimensionless],
+    shape_out = MatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    unit_out = Dimensionless
+)]
 pub fn from_quat(q: [f64; 4]) -> Mat3 {
     let (x, y, z, w) = (q[0], q[1], q[2], q[3]);
 
@@ -342,7 +420,15 @@ pub fn from_quat(q: [f64; 4]) -> Mat3 {
 }
 
 /// Build rotation matrix from axis-angle: `from_axis_angle(axis, angle)` -> Mat3
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), AnyScalar],
+    unit_in = [UnitDimensionless, Angle],
+    shape_out = MatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    unit_out = Dimensionless
+)]
 pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
     // Normalize axis
     let len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
@@ -369,7 +455,16 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
 /// Eigenvalues of a symmetric matrix: `eigenvalues(m)` -> Vec
 /// Returns eigenvalues sorted in descending order
 /// Note: Only works for symmetric matrices. Non-symmetric matrices will give incorrect results.
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix],
+    unit_in = [UnitAny],
+    shape_out = AnyVector,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn eigenvalues(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.eigenvalues expects exactly 1 argument");
@@ -408,7 +503,16 @@ pub fn eigenvalues(args: &[Value]) -> Value {
 
 /// Eigenvectors of a symmetric matrix: `eigenvectors(m)` -> Mat
 /// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeSameAs(0),
+    unit_out = Dimensionless
+)]
 pub fn eigenvectors(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.eigenvectors expects exactly 1 argument");
@@ -472,7 +576,16 @@ pub fn eigenvectors(args: &[Value]) -> Value {
 
 /// SVD - U matrix: `svd_u(m)` -> Mat
 /// Returns the left singular vectors (U in A = UΣV^T)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeSameAs(0),
+    unit_out = Dimensionless
+)]
 pub fn svd_u(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.svd_u expects exactly 1 argument");
@@ -502,7 +615,16 @@ pub fn svd_u(args: &[Value]) -> Value {
 
 /// SVD - singular values: `svd_s(m)` -> Vec
 /// Returns the singular values (diagonal of Σ in A = UΣV^T)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix],
+    unit_in = [UnitAny],
+    shape_out = AnyVector,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn svd_s(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.svd_s expects exactly 1 argument");
@@ -538,7 +660,16 @@ pub fn svd_s(args: &[Value]) -> Value {
 
 /// SVD - V^T matrix: `svd_vt(m)` -> Mat
 /// Returns the transposed right singular vectors (V^T in A = UΣV^T)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix],
+    unit_in = [UnitDimensionless],
+    shape_out = ShapeSameAs(0),
+    unit_out = Dimensionless
+)]
 pub fn svd_vt(args: &[Value]) -> Value {
     if args.len() != 1 {
         panic!("matrix.svd_vt expects exactly 1 argument");
@@ -571,7 +702,16 @@ pub fn svd_vt(args: &[Value]) -> Value {
 // ============================================================================
 
 /// Trace of a matrix (sum of diagonal elements): `trace(m)` -> Scalar
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    variadic,
+    purity = Pure,
+    shape_in = [AnyMatrix],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn trace(args: &[Value]) -> f64 {
     if args.len() != 1 {
         panic!("matrix.trace expects exactly 1 argument");
@@ -589,7 +729,15 @@ pub fn trace(args: &[Value]) -> f64 {
 
 /// Scale matrix: `scale(x, y, z)` -> Mat4
 /// Creates a 4x4 scaling transformation matrix.
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitDimensionless, UnitDimensionless, UnitDimensionless],
+    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Dimensionless
+)]
 pub fn scale(x: f64, y: f64, z: f64) -> Mat4 {
     // Column-major 4x4:
     // [[x, 0, 0, 0], [0, y, 0, 0], [0, 0, z, 0], [0, 0, 0, 1]]
@@ -603,7 +751,15 @@ pub fn scale(x: f64, y: f64, z: f64) -> Mat4 {
 
 /// Translation matrix: `translation(x, y, z)` -> Mat4
 /// Creates a 4x4 translation transformation matrix.
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
+    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Dimensionless
+)]
 pub fn translation(x: f64, y: f64, z: f64) -> Mat4 {
     // Column-major 4x4:
     // [[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0], [x, y, z, 1]]
@@ -618,7 +774,15 @@ pub fn translation(x: f64, y: f64, z: f64) -> Mat4 {
 /// Rotation around X axis: `rotation_x(angle)` -> Mat4
 /// Creates a 4x4 rotation matrix around the X axis.
 /// Angle is in radians.
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [Angle],
+    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Dimensionless
+)]
 pub fn rotation_x(angle: f64) -> Mat4 {
     let c = angle.cos();
     let s = angle.sin();
@@ -635,7 +799,15 @@ pub fn rotation_x(angle: f64) -> Mat4 {
 /// Rotation around Y axis: `rotation_y(angle)` -> Mat4
 /// Creates a 4x4 rotation matrix around the Y axis.
 /// Angle is in radians.
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [Angle],
+    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Dimensionless
+)]
 pub fn rotation_y(angle: f64) -> Mat4 {
     let c = angle.cos();
     let s = angle.sin();
@@ -652,7 +824,15 @@ pub fn rotation_y(angle: f64) -> Mat4 {
 /// Rotation around Z axis: `rotation_z(angle)` -> Mat4
 /// Creates a 4x4 rotation matrix around the Z axis.
 /// Angle is in radians.
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [Angle],
+    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Dimensionless
+)]
 pub fn rotation_z(angle: f64) -> Mat4 {
     let c = angle.cos();
     let s = angle.sin();
@@ -679,7 +859,15 @@ pub fn rotation_z(angle: f64) -> Mat4 {
 /// * `aspect` - Aspect ratio (width / height)
 /// * `near` - Near clipping plane distance (positive)
 /// * `far` - Far clipping plane distance (positive)
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [Angle, UnitDimensionless, UnitAny, UnitSameAs(2)],
+    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Dimensionless
+)]
 pub fn perspective(fov_y: f64, aspect: f64, near: f64, far: f64) -> Mat4 {
     let f = 1.0 / (fov_y / 2.0).tan();
     let nf = 1.0 / (near - far);
@@ -716,7 +904,15 @@ pub fn perspective(fov_y: f64, aspect: f64, near: f64, far: f64) -> Mat4 {
 /// * `top` - Top clipping plane
 /// * `near` - Near clipping plane
 /// * `far` - Far clipping plane
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0), UnitSameAs(0), UnitAny, UnitSameAs(4)],
+    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Dimensionless
+)]
 pub fn orthographic(left: f64, right: f64, bottom: f64, top: f64, near: f64, far: f64) -> Mat4 {
     let lr = 1.0 / (left - right);
     let bt = 1.0 / (bottom - top);
@@ -751,7 +947,15 @@ pub fn orthographic(left: f64, right: f64, bottom: f64, top: f64, near: f64, far
 /// * `eye` - Camera position as Vec3
 /// * `target` - Target position to look at as Vec3
 /// * `up` - Up direction as Vec3 (usually [0, 1, 0])
-#[kernel_fn(namespace = "matrix", category = "matrix")]
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitSameAs(0), UnitDimensionless],
+    shape_out = MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Dimensionless
+)]
 pub fn look_at(eye: [f64; 3], target: [f64; 3], up: [f64; 3]) -> Mat4 {
     // Forward vector (from eye to target, normalized)
     let fx = target[0] - eye[0];
