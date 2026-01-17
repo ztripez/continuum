@@ -801,6 +801,10 @@ pub enum ValidationErrorKind {
     NestedIteratorForbidden { span: Span },       // other(other(...)) or pairs(pairs(...))
     IteratorNotConsumed { span: Span },           // EntityIter/PairIter not used as aggregate source
     
+    // Vector access errors
+    NamedComponentDimMismatch { dim: u8, component: &'static str },  // .x/.y/.z/.w on dim > 4
+    ComponentOutOfBounds { dim: u8, index: u8 },  // .at(i) where i >= dim
+    
     // Kernel errors
     UnknownKernel(KernelId),
     WrongArgCount { kernel: KernelId, expected: usize, found: usize },
@@ -1955,6 +1959,38 @@ enum AggregateOp { Sum, Map, Max, Min, Count, Any, All }  // Fold is separate va
 - `payload.value` → `FieldAccess { object: Payload, field: "value" }`
 - `orbit.semi_major` → `FieldAccess { object: Signal("orbit"), field: "semi_major" }`
 - `vec.x` → `FieldAccess { object: vec, field: "x" }` (vector component)
+
+**Vector component access — dimension rules:**
+
+| Access | Dim 2 | Dim 3 | Dim 4 | Dim 5+ |
+|--------|-------|-------|-------|--------|
+| `.x` | ✓ | ✓ | ✓ | ✗ |
+| `.y` | ✓ | ✓ | ✓ | ✗ |
+| `.z` | ✗ | ✓ | ✓ | ✗ |
+| `.w` | ✗ | ✗ | ✓ | ✗ |
+| `.at(i)` | ✓ | ✓ | ✓ | ✓ |
+
+**Rules:**
+1. Named access (`.x/.y/.z/.w`) only for `dim in 2..=4`
+2. `.at(i)` works for any dimension; `i` must be compile-time literal for static bounds check
+3. `vector.get(vec, i)` is the kernel form, allows runtime index (with bounds check)
+
+**Lowering:**
+```
+vec.x      →  Call(vector.get, [vec, Literal(0)])
+vec.at(2)  →  Call(vector.get, [vec, Literal(2)])
+```
+
+**Error:**
+```
+error: named component access not available for Vector<5, _>
+  --> world.cdsl:10:5
+   |
+10 |   let c = v5.x
+   |              ^ .x only valid for dim 2-4
+   |
+   = help: use v5.at(0) for generic component access
+```
 
 **Side effects:**
 - `emit(target, value)` is a `Call` that returns `Unit`
