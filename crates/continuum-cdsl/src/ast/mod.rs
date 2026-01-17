@@ -60,8 +60,10 @@
 //! );
 //! ```
 
+mod expr;
 mod node;
 mod role;
 
+pub use expr::*;
 pub use node::*;
 pub use role::*;
