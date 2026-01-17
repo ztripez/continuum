@@ -55,8 +55,8 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{BinaryOp, Expr, TypeExpr, UnaryOp, UnitExpr, UntypedKind as ExprKind};
-use crate::foundation::{Path, Span};
+use crate::ast::{Expr, TypeExpr, UnitExpr, UntypedKind as ExprKind};
+use crate::foundation::Span;
 use crate::lexer::Token;
 
 /// Parse an expression from a token stream.
@@ -80,7 +80,7 @@ use crate::lexer::Token;
 /// ];
 /// let expr = parse_expr(&tokens)?;
 /// ```
-pub fn parse_expr(tokens: &[Token]) -> Result<Expr, Vec<Simple<'static, Token>>> {
+pub fn parse_expr(tokens: &[Token]) -> ParseResult<Expr, Rich<Token>> {
     expr_parser().parse(tokens)
 }
 
@@ -94,7 +94,8 @@ pub fn parse_expr(tokens: &[Token]) -> Result<Expr, Vec<Simple<'static, Token>>>
 /// - Function calls
 /// - Field access
 /// - Struct construction
-fn expr_parser() -> impl Parser<'static, Token, Expr> + Clone {
+fn expr_parser<'src>()
+-> impl Parser<'src, &'src [Token], Expr, extra::Err<Rich<'src, Token>>> + Clone {
     recursive(|_expr| {
         // TODO: Implement recursive expression parser
         //
@@ -106,7 +107,13 @@ fn expr_parser() -> impl Parser<'static, Token, Expr> + Clone {
         // 5. Let bindings
         // 6. If expressions
 
-        todo!("implement expr_parser")
+        // Stub: parse any token as error placeholder
+        any().map(|_| {
+            Expr::new(
+                ExprKind::ParseError("not yet implemented".to_string()),
+                Span::new(0, 0, 0, 0),
+            )
+        })
     })
 }
 
@@ -142,8 +149,7 @@ fn expr_parser() -> impl Parser<'static, Token, Expr> + Clone {
 /// # Returns
 ///
 /// Parsed unit expression or error.
-fn unit_expr_parser()
--> impl Parser<'static, Token, UnitExpr, Error = Simple<'static, Token>> + Clone {
+fn unit_expr_parser<'src>() -> impl Parser<'src, &'src [Token], UnitExpr> + Clone {
     // TODO: Implement unit expression parser
     //
     // This is critical since units are NOT single tokens.
@@ -154,7 +160,8 @@ fn unit_expr_parser()
     //
     // Special case: `<>` (empty brackets) → Dimensionless
 
-    todo!("implement unit_expr_parser")
+    // Stub: parse any identifier as base unit
+    any().map(|_| UnitExpr::Dimensionless)
 }
 
 /// Parse a type expression.
@@ -178,8 +185,7 @@ fn unit_expr_parser()
 /// Bool                → Bool
 /// OrbitalElements     → User(Path(...))
 /// ```
-fn type_expr_parser()
--> impl Parser<'static, Token, TypeExpr, Error = Simple<'static, Token>> + Clone {
+fn type_expr_parser<'src>() -> impl Parser<'src, &'src [Token], TypeExpr> + Clone {
     // TODO: Implement type expression parser
     //
     // Handle:
@@ -189,7 +195,8 @@ fn type_expr_parser()
     // 4. Bool
     // 5. User types (identifiers)
 
-    todo!("implement type_expr_parser")
+    // Stub: return Bool for any input
+    any().map(|_| TypeExpr::Bool)
 }
 
 /// Helper to convert chumsky span to Continuum Span.
