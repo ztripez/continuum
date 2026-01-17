@@ -1,7 +1,58 @@
-// Unified Node<I> structure
-//
-// Everything is Node<I> with RoleData.
-// No separate AST→IR copying - same struct flows through all passes.
+//! Unified Node<I> structure
+//!
+//! This module defines `Node<I>`, the single structure that represents all
+//! AST nodes throughout the compilation pipeline. Unlike traditional compilers
+//! with separate AST and IR representations, Continuum uses one unified structure
+//! that accumulates data through each compilation phase.
+//!
+//! # The Node<I> Design
+//!
+//! `Node<I>` is generic over an index type `I`:
+//! - `Node<()>` - Global primitive (signal, field, operator at world scope)
+//! - `Node<EntityId>` - Per-entity primitive (member)
+//!
+//! This makes the distinction between global and per-entity nodes type-safe and
+//! explicit in the type system.
+//!
+//! # Lifecycle
+//!
+//! As the node flows through compilation phases, fields are added and cleared:
+//!
+//! 1. **Parsed** - Has `type_expr` and `execution_exprs` from source
+//! 2. **Resolved** - `type_expr` cleared, `output` and `inputs` set
+//! 3. **Validated** - `validation_errors` populated
+//! 4. **Compiled** - `execution_exprs` cleared, `executions` and `reads` set
+//!
+//! This makes the pipeline state explicit: you can check `is_resolved()`,
+//! `is_compiled()`, etc. to determine what phase the node has completed.
+//!
+//! # Examples
+//!
+//! ```rust,ignore
+//! use continuum_cdsl::ast::{Node, RoleData, EntityId};
+//! use continuum_cdsl::foundation::{Path, Span, Type};
+//!
+//! // Create a global signal node
+//! let mut signal = Node::new(
+//!     Path::from_str("world.temperature"),
+//!     Span::new(0, 0, 100, 1),
+//!     RoleData::Signal,
+//!     (), // global
+//! );
+//!
+//! // After type resolution
+//! signal.output = Some(Type::Kernel(KernelType { /*...*/ }));
+//! assert!(signal.is_resolved());
+//!
+//! // Create a per-entity member
+//! let member = Node::new(
+//!     Path::from_str("plate.area"),
+//!     Span::new(0, 0, 100, 1),
+//!     RoleData::Signal,
+//!     EntityId(Path::from_str("plate")),
+//! );
+//! assert_eq!(member.index, EntityId(Path::from_str("plate")));
+//! ```
 
 use crate::foundation::{Path, Span, Type};
 use std::path::PathBuf;
@@ -23,9 +74,19 @@ impl Index for () {}
 /// Entity identifier for per-entity nodes
 ///
 /// This will be used as the index type for members.
-/// EntityId(Path) points to the entity declaration.
+/// The wrapped Path points to the entity declaration.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// let entity_id = EntityId(Path::from_str("plate"));
+/// let member = Node::new(path, span, RoleData::Signal, entity_id);
+/// ```
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
-pub struct EntityId(pub Path);
+pub struct EntityId(
+    /// Path to the entity declaration
+    pub Path,
+);
 
 impl Index for EntityId {}
 
@@ -135,6 +196,21 @@ pub struct Node<I: Index = ()> {
 
 impl<I: Index> Node<I> {
     /// Create a new node with minimal required fields
+    ///
+    /// All optional fields are initialized to None/empty. Lifecycle fields
+    /// (`type_expr`, `execution_exprs`, etc) start empty - they will be
+    /// populated by compilation phases.
+    ///
+    /// # Parameters
+    ///
+    /// - `path`: Hierarchical path to this node (e.g., "world.temperature")
+    /// - `span`: Source location for error messages
+    /// - `role`: Role data (what this node is + role-specific data)
+    /// - `index`: Where this node lives (() = global, EntityId = per-entity)
+    ///
+    /// # Returns
+    ///
+    /// A new node in initial state (not resolved, not compiled)
     pub fn new(path: Path, span: Span, role: RoleData, index: I) -> Self {
         Self {
             path,
@@ -159,21 +235,45 @@ impl<I: Index> Node<I> {
     }
 
     /// Get the role ID for this node
+    ///
+    /// # Returns
+    ///
+    /// The RoleId enum value for this node's role (Signal, Field, etc)
     pub fn role_id(&self) -> super::role::RoleId {
         self.role.id()
     }
 
     /// Check if this node has been type-resolved
+    ///
+    /// A node is considered resolved when:
+    /// - `type_expr` has been cleared (consumed by type resolver)
+    /// - `output` type has been set
+    ///
+    /// # Returns
+    ///
+    /// `true` if type resolution has completed, `false` otherwise
     pub fn is_resolved(&self) -> bool {
         self.type_expr.is_none() && self.output.is_some()
     }
 
     /// Check if this node has been compiled
+    ///
+    /// A node is considered compiled when:
+    /// - `execution_exprs` have been cleared (consumed by compiler)
+    /// - `executions` have been added (compiled execution blocks)
+    ///
+    /// # Returns
+    ///
+    /// `true` if compilation has completed, `false` otherwise
     pub fn is_compiled(&self) -> bool {
         self.execution_exprs.is_empty() && !self.executions.is_empty()
     }
 
     /// Check if this node has validation errors
+    ///
+    /// # Returns
+    ///
+    /// `true` if validation errors have been recorded, `false` otherwise
     pub fn has_errors(&self) -> bool {
         !self.validation_errors.is_empty()
     }
@@ -182,61 +282,99 @@ impl<I: Index> Node<I> {
 // =============================================================================
 // Placeholder types for dependent structures
 // =============================================================================
-// These will be properly implemented in later phases.
-// For now they're minimal stubs to make Node compile.
+// These are minimal placeholder types that will be properly implemented in
+// future phases. They exist to allow Node<I> to compile and be tested, but
+// are not yet functional.
 
 /// Scoping information for config/const resolution
 ///
-/// TODO: Implement in scoping module (Phase 3.2)
+/// This will contain mappings from names to config values and constants.
+/// Will be implemented when the resolution phase is added.
+///
+/// **Current status:** Placeholder - not yet implemented
 #[derive(Clone, Debug)]
 pub struct Scoping {
-    // Placeholder
+    // This will hold config/const lookups when implemented
+    #[doc(hidden)]
+    _placeholder: (),
 }
 
 /// Assertion to validate invariants
 ///
-/// TODO: Implement in assertion module (Phase 3.2)
+/// Assertions validate conditions after execution completes.
+/// Each assertion has a condition expression and error message.
+///
+/// **Current status:** Placeholder - not yet implemented
 #[derive(Clone, Debug)]
 pub struct Assertion {
-    // Placeholder
+    // This will hold assertion expression and message when implemented
+    #[doc(hidden)]
+    _placeholder: (),
 }
 
 /// Compiled execution block
 ///
-/// TODO: Implement in execution module (Phase 3.2)
+/// An execution block contains the compiled code for a specific phase,
+/// along with metadata about what it reads and emits.
+///
+/// **Current status:** Placeholder - not yet implemented
 #[derive(Clone, Debug)]
 pub struct Execution {
-    // Placeholder
+    // This will hold phase, body, and dependency info when implemented
+    #[doc(hidden)]
+    _placeholder: (),
 }
 
 /// Stratum identifier (execution lane)
 ///
-/// TODO: Implement in stratum module
+/// Identifies which execution stratum a node belongs to.
+/// Strata control execution cadence and scheduling.
+///
+/// **Current status:** Minimal implementation - path-based ID only
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct StratumId(pub Path);
+pub struct StratumId(
+    /// Path to the stratum declaration
+    pub Path,
+);
 
 /// Type expression from source (before resolution)
 ///
-/// TODO: Implement in expr module (Phase 4)
+/// Represents a type as written in source code, before resolution
+/// determines the actual Type. Examples: `Scalar<m/s>`, `Vec3<N>`, `Plate`.
+///
+/// **Current status:** Placeholder - not yet implemented
 #[derive(Clone, Debug)]
 pub struct TypeExpr {
-    // Placeholder
+    // This will hold unresolved type syntax when implemented
+    #[doc(hidden)]
+    _placeholder: (),
 }
 
 /// Expression from source (before compilation)
 ///
-/// TODO: Implement in expr module (Phase 4)
+/// Represents an expression as parsed from source code, before type
+/// checking and compilation. Will contain AST nodes for operators,
+/// literals, function calls, etc.
+///
+/// **Current status:** Placeholder - not yet implemented
 #[derive(Clone, Debug)]
 pub struct Expr {
-    // Placeholder
+    // This will hold untyped expression tree when implemented
+    #[doc(hidden)]
+    _placeholder: (),
 }
 
 /// Validation error from semantic analysis
 ///
-/// TODO: Implement in validation module
+/// Structured error produced during validation passes. Contains error
+/// kind, message, source location, and hints for fixing.
+///
+/// **Current status:** Placeholder - not yet implemented
 #[derive(Clone, Debug)]
 pub struct ValidationError {
-    // Placeholder
+    // This will hold error kind, span, and hints when implemented
+    #[doc(hidden)]
+    _placeholder: (),
 }
 
 #[cfg(test)]
@@ -280,11 +418,17 @@ mod tests {
     fn test_field_with_reconstruction() {
         let path = Path::from_str("test.field");
         let span = Span::new(0, 0, 10, 1);
+        let hint = super::super::role::ReconstructionHint {
+            domain: super::super::role::Domain::Cartesian,
+            method: super::super::role::InterpolationMethod::Linear,
+            boundary: super::super::role::BoundaryCondition::Clamp,
+            conservative: false,
+        };
         let node = Node::new(
             path,
             span,
             RoleData::Field {
-                reconstruction: Some(super::super::role::ReconstructionHint::Linear),
+                reconstruction: Some(hint.clone()),
             },
             (),
         );
@@ -293,6 +437,7 @@ mod tests {
         match &node.role {
             RoleData::Field { reconstruction } => {
                 assert!(reconstruction.is_some());
+                assert_eq!(reconstruction.as_ref().unwrap(), &hint);
             }
             _ => panic!("Expected Field role"),
         }
@@ -339,7 +484,7 @@ mod tests {
 
         // After compilation: execution_exprs cleared, executions set
         node.execution_exprs = Vec::new();
-        node.executions = vec![Execution {}];
+        node.executions = vec![Execution { _placeholder: () }];
         assert!(node.is_compiled());
     }
 
@@ -351,7 +496,8 @@ mod tests {
 
         assert!(!node.has_errors());
 
-        node.validation_errors.push(ValidationError {});
+        node.validation_errors
+            .push(ValidationError { _placeholder: () });
         assert!(node.has_errors());
     }
 
@@ -413,5 +559,55 @@ mod tests {
 
         assert_eq!(entity1, entity1_dup);
         assert_ne!(entity1, entity2);
+    }
+
+    #[test]
+    fn test_node_lifecycle_boundaries() {
+        let path = Path::from_str("test.signal");
+        let span = Span::new(0, 0, 10, 1);
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // output set but type_expr still present -> not resolved
+        node.type_expr = Some(TypeExpr { _placeholder: () });
+        node.output = Some(Type::Bool);
+        assert!(!node.is_resolved());
+
+        // type_expr cleared but no output -> not resolved
+        node.type_expr = None;
+        node.output = None;
+        assert!(!node.is_resolved());
+
+        // execution_exprs empty but no executions -> not compiled
+        node.execution_exprs = Vec::new();
+        node.executions = Vec::new();
+        assert!(!node.is_compiled());
+
+        // executions present but execution_exprs not empty -> not compiled
+        node.execution_exprs = vec![("test".to_string(), Expr { _placeholder: () })];
+        node.executions = vec![Execution { _placeholder: () }];
+        assert!(!node.is_compiled());
+    }
+
+    #[test]
+    fn test_node_default_initialization() {
+        let path = Path::from_str("test.signal");
+        let span = Span::new(0, 0, 10, 1);
+        let node = Node::new(path.clone(), span, RoleData::Signal, ());
+
+        // Verify all lifecycle fields start empty/None
+        assert!(node.file.is_none());
+        assert!(node.doc.is_none());
+        assert!(node.title.is_none());
+        assert!(node.symbol.is_none());
+        assert!(node.scoping.is_none());
+        assert!(node.assertions.is_empty());
+        assert!(node.executions.is_empty());
+        assert!(node.stratum.is_none());
+        assert!(node.output.is_none());
+        assert!(node.inputs.is_none());
+        assert!(node.type_expr.is_none());
+        assert!(node.execution_exprs.is_empty());
+        assert!(node.reads.is_empty());
+        assert!(node.validation_errors.is_empty());
     }
 }
