@@ -15,6 +15,7 @@ config {
     test.initial_mass: 100.0
     test.initial_energy: 50.0
     test.decay_rate: 0.01
+    test.initial_counter: 100.0
 }
 
 strata simulation {
@@ -110,6 +111,18 @@ signal test.particle_count {
 
     resolve {
         agg.count(entity.test.particle)
+    }
+}
+
+# Simple counter signal to verify checkpoint state
+signal test.counter {
+    : Scalar<1, 0..10000>
+    : strata(simulation)
+    : title("Counter")
+    : symbol("counter")
+
+    resolve {
+        prev + 10.0
     }
 }
 

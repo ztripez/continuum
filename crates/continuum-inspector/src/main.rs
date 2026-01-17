@@ -1,11 +1,11 @@
 use axum::{
-    Router,
+    Json, Router,
     extract::{
         State,
         ws::{Message, WebSocket, WebSocketUpgrade},
     },
     response::IntoResponse,
-    routing::get,
+    routing::{get, post},
 };
 use clap::Parser;
 use continuum_tools::ipc_protocol::{
@@ -13,11 +13,14 @@ use continuum_tools::ipc_protocol::{
     read_frame, write_frame,
 };
 use futures::{SinkExt, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::{Child, Command};
+use std::sync::Arc;
 use tokio::io::{AsyncWriteExt, BufReader, BufWriter};
 use tokio::net::{TcpListener, UnixStream};
+use tokio::sync::Mutex;
 use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::{debug, error, info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -45,11 +48,18 @@ struct Cli {
 #[derive(Clone)]
 struct AppState {
     socket: PathBuf,
+    sim_manager: Arc<Mutex<SimulationManager>>,
+}
+
+struct SimulationManager {
+    current_guard: Option<IpcServerGuard>,
 }
 
 struct IpcServerGuard {
     child: Child,
     socket: PathBuf,
+    world_path: PathBuf,
+    scenario: Option<String>,
 }
 
 impl Drop for IpcServerGuard {
@@ -85,7 +95,11 @@ fn find_world_ipc_binary() -> Option<PathBuf> {
     None
 }
 
-fn launch_ipc_server(world: &PathBuf, socket: &PathBuf) -> Result<IpcServerGuard, String> {
+fn launch_ipc_server(
+    world: &PathBuf,
+    socket: &PathBuf,
+    scenario: Option<&str>,
+) -> Result<IpcServerGuard, String> {
     let binary = find_world_ipc_binary().ok_or_else(|| {
         "world-ipc binary not found. Run: cargo build --bin world-ipc".to_string()
     })?;
@@ -95,23 +109,38 @@ fn launch_ipc_server(world: &PathBuf, socket: &PathBuf) -> Result<IpcServerGuard
         std::fs::remove_file(socket).ok();
     }
 
-    info!(
-        "Launching IPC server: {} --socket {} {}",
-        binary.display(),
-        socket.display(),
-        world.display()
-    );
+    let mut cmd = Command::new(&binary);
+    cmd.arg("--socket").arg(socket);
 
-    let child = Command::new(&binary)
-        .arg("--socket")
-        .arg(socket)
-        .arg(world)
+    if let Some(scenario_name) = scenario {
+        info!(
+            "Launching IPC server: {} --socket {} --scenario {} {}",
+            binary.display(),
+            socket.display(),
+            scenario_name,
+            world.display()
+        );
+        cmd.arg("--scenario").arg(scenario_name);
+    } else {
+        info!(
+            "Launching IPC server: {} --socket {} {}",
+            binary.display(),
+            socket.display(),
+            world.display()
+        );
+    }
+
+    cmd.arg(world);
+
+    let child = cmd
         .spawn()
         .map_err(|e| format!("Failed to spawn world-ipc: {e}"))?;
 
     Ok(IpcServerGuard {
         child,
         socket: socket.clone(),
+        world_path: world.clone(),
+        scenario: scenario.map(|s| s.to_string()),
     })
 }
 
@@ -129,7 +158,7 @@ async fn main() {
 
     // Launch IPC server if world path provided
     let _ipc_guard = if let Some(ref world) = cli.world {
-        match launch_ipc_server(world, &cli.socket) {
+        match launch_ipc_server(world, &cli.socket, None) {
             Ok(guard) => {
                 // Wait for socket to be ready
                 for i in 0..20 {
@@ -160,8 +189,13 @@ async fn main() {
         None
     };
 
+    let sim_manager = Arc::new(Mutex::new(SimulationManager {
+        current_guard: _ipc_guard,
+    }));
+
     let state = AppState {
         socket: cli.socket.clone(),
+        sim_manager: sim_manager.clone(),
     };
 
     let static_dir = cli
@@ -172,6 +206,10 @@ async fn main() {
 
     let app = Router::new()
         .route("/ws", get(ws_handler))
+        .route("/api/sim/load", post(load_simulation))
+        .route("/api/sim/restart", post(restart_simulation))
+        .route("/api/sim/stop", post(stop_simulation))
+        .route("/api/sim/status", get(simulation_status))
         .fallback_service(ServeDir::new(static_dir))
         .layer(TraceLayer::new_for_http())
         .with_state(state);
@@ -320,4 +358,197 @@ async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
     }
 
     info!("WebSocket connection closed");
+}
+
+#[derive(Debug, Deserialize)]
+struct LoadSimulationRequest {
+    world_path: String,
+    scenario: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ApiResponse {
+    success: bool,
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct SimulationStatusResponse {
+    running: bool,
+    world_path: Option<String>,
+    scenario: Option<String>,
+}
+
+async fn load_simulation(
+    State(state): State<AppState>,
+    Json(req): Json<LoadSimulationRequest>,
+) -> Json<ApiResponse> {
+    info!("Loading simulation from: {}", req.world_path);
+
+    let world_path = PathBuf::from(&req.world_path);
+    if !world_path.exists() {
+        return Json(ApiResponse {
+            success: false,
+            message: format!("World path does not exist: {}", req.world_path),
+        });
+    }
+
+    let mut manager = state.sim_manager.lock().await;
+
+    // Stop existing simulation if running
+    if let Some(mut guard) = manager.current_guard.take() {
+        info!("Stopping existing simulation");
+        let _ = guard.child.kill();
+        let _ = guard.child.wait();
+        if guard.socket.exists() {
+            let _ = std::fs::remove_file(&guard.socket);
+        }
+
+        // Wait for socket to be removed
+        for _ in 0..20 {
+            if !state.socket.exists() {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    // Launch new simulation
+    match launch_ipc_server(&world_path, &state.socket, req.scenario.as_deref()) {
+        Ok(guard) => {
+            // Wait for socket to be ready
+            for i in 0..20 {
+                if state.socket.exists() {
+                    info!("New simulation ready");
+                    manager.current_guard = Some(guard);
+                    return Json(ApiResponse {
+                        success: true,
+                        message: format!("Simulation loaded from {}", req.world_path),
+                    });
+                }
+                if i == 19 {
+                    return Json(ApiResponse {
+                        success: false,
+                        message: "Failed to start simulation (socket not created)".to_string(),
+                    });
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+            }
+
+            Json(ApiResponse {
+                success: false,
+                message: "Timeout waiting for simulation to start".to_string(),
+            })
+        }
+        Err(e) => Json(ApiResponse {
+            success: false,
+            message: format!("Failed to launch simulation: {}", e),
+        }),
+    }
+}
+
+async fn restart_simulation(State(state): State<AppState>) -> Json<ApiResponse> {
+    info!("Restarting simulation");
+
+    let mut manager = state.sim_manager.lock().await;
+
+    let (world_path, scenario) = if let Some(ref guard) = manager.current_guard {
+        (guard.world_path.clone(), guard.scenario.clone())
+    } else {
+        return Json(ApiResponse {
+            success: false,
+            message: "No simulation is currently running".to_string(),
+        });
+    };
+
+    // Stop existing simulation
+    if let Some(mut guard) = manager.current_guard.take() {
+        info!("Stopping simulation for restart");
+        let _ = guard.child.kill();
+        let _ = guard.child.wait();
+        if guard.socket.exists() {
+            let _ = std::fs::remove_file(&guard.socket);
+        }
+
+        // Wait for socket to be removed
+        for _ in 0..20 {
+            if !state.socket.exists() {
+                break;
+            }
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    // Launch new simulation with same world path and scenario
+    match launch_ipc_server(&world_path, &state.socket, scenario.as_deref()) {
+        Ok(guard) => {
+            // Wait for socket to be ready
+            for i in 0..20 {
+                if state.socket.exists() {
+                    info!("Simulation restarted");
+                    manager.current_guard = Some(guard);
+                    return Json(ApiResponse {
+                        success: true,
+                        message: format!("Simulation restarted from {}", world_path.display()),
+                    });
+                }
+                if i == 19 {
+                    return Json(ApiResponse {
+                        success: false,
+                        message: "Failed to restart simulation (socket not created)".to_string(),
+                    });
+                }
+                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+            }
+
+            Json(ApiResponse {
+                success: false,
+                message: "Timeout waiting for simulation to restart".to_string(),
+            })
+        }
+        Err(e) => Json(ApiResponse {
+            success: false,
+            message: format!("Failed to restart simulation: {}", e),
+        }),
+    }
+}
+
+async fn stop_simulation(State(state): State<AppState>) -> Json<ApiResponse> {
+    info!("Stopping simulation");
+
+    let mut manager = state.sim_manager.lock().await;
+
+    if let Some(mut guard) = manager.current_guard.take() {
+        let _ = guard.child.kill();
+        let _ = guard.child.wait();
+        if guard.socket.exists() {
+            let _ = std::fs::remove_file(&guard.socket);
+        }
+
+        Json(ApiResponse {
+            success: true,
+            message: "Simulation stopped".to_string(),
+        })
+    } else {
+        Json(ApiResponse {
+            success: false,
+            message: "No simulation is running".to_string(),
+        })
+    }
+}
+
+async fn simulation_status(State(state): State<AppState>) -> Json<SimulationStatusResponse> {
+    let manager = state.sim_manager.lock().await;
+
+    Json(SimulationStatusResponse {
+        running: manager.current_guard.is_some(),
+        world_path: manager
+            .current_guard
+            .as_ref()
+            .map(|g| g.world_path.display().to_string()),
+        scenario: manager
+            .current_guard
+            .as_ref()
+            .and_then(|g| g.scenario.clone()),
+    })
 }

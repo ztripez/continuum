@@ -515,14 +515,29 @@ impl<'a> Compiler<'a> {
                 continue;
             };
 
-            // Per docs/execution/phases.md: Resolve "reads resolved signals from the
-            // previous tick" and "must be deterministic and order-independent".
-            // Signal references always read previous tick values, so there are no
-            // same-tick dependencies between signals. Use empty reads to allow
-            // parallel resolution.
+            // Signals may have intra-tick dependencies within the same stratum.
+            // When signal A reads signal B (via `signal.B`), A depends on B's
+            // current-tick resolved value. The runtime's SignalStorage.get()
+            // returns the current-tick value if resolved, else the previous tick.
+            // We must order resolution so that dependencies resolve first.
+            //
+            // Filter reads to only include signals in the same stratum, since
+            // cross-stratum dependencies are handled by stratum ordering.
+            let same_stratum_reads: std::collections::HashSet<SignalId> = signal
+                .reads
+                .iter()
+                .filter(|read_id| {
+                    signals
+                        .get(*read_id)
+                        .map(|s| s.stratum == *stratum_id)
+                        .unwrap_or(false)
+                })
+                .map(|id| SignalId::from(id.to_string()))
+                .collect();
+
             let node = DagNode {
                 id: NodeId(format!("sig.{}", signal_id)),
-                reads: std::collections::HashSet::new(), // No same-tick dependencies
+                reads: same_stratum_reads,
                 writes: Some(SignalId::from(signal_id.to_string())),
                 kind: NodeKind::SignalResolve {
                     signal: SignalId::from(signal_id.to_string()),
@@ -552,10 +567,22 @@ impl<'a> Compiler<'a> {
             let member_signal_id =
                 MemberSignalId::new(member.entity_id.clone(), member.signal_name.clone());
 
-            // Per docs: signal references read previous tick values, no same-tick deps
+            // Member signals may read global signals. Filter to same-stratum deps.
+            let same_stratum_reads: std::collections::HashSet<SignalId> = member
+                .reads
+                .iter()
+                .filter(|read_id| {
+                    signals
+                        .get(*read_id)
+                        .map(|s| s.stratum == *stratum_id)
+                        .unwrap_or(false)
+                })
+                .map(|id| SignalId::from(id.to_string()))
+                .collect();
+
             let node = DagNode {
                 id: NodeId(format!("member.{}", member_id.to_string())),
-                reads: std::collections::HashSet::new(), // No same-tick dependencies
+                reads: same_stratum_reads,
                 writes: None, // Member signals don't write to global signal namespace
                 kind: NodeKind::MemberSignalResolve {
                     member_signal: member_signal_id,
@@ -713,11 +740,25 @@ impl<'a> Compiler<'a> {
                 continue;
             }
 
-            // Signal references read from the PREVIOUS tick's values, so they
-            // don't create same-tick dependencies. Pass empty reads to avoid
-            // creating DAG edges between signals.
-            // (signal.reads is informational only - for analysis, not scheduling)
-            builder.add_signal_resolve(signal_id.clone(), self.resolver_indices[signal_id], &[]);
+            // Signals may have intra-tick dependencies within the same stratum.
+            // Filter reads to only include signals in the same stratum.
+            let same_stratum_reads: Vec<SignalId> = signal
+                .reads
+                .iter()
+                .filter(|read_id| {
+                    signals
+                        .get(*read_id)
+                        .map(|s| s.stratum == *stratum_id)
+                        .unwrap_or(false)
+                })
+                .map(|id| SignalId::from(id.to_string()))
+                .collect();
+
+            builder.add_signal_resolve(
+                signal_id.clone(),
+                self.resolver_indices[signal_id],
+                &same_stratum_reads,
+            );
         }
 
         let dag = builder.build()?;

@@ -2187,10 +2187,9 @@ impulse tectonics.volcanic {
                 payload.heat_j * config.impulse.tectonics.volcanic.surface_heat_efficiency in
             signal.thermal.surface_flux <- surface_heat / 1.0e18;
 
-            # Volatiles released contribute to atmospheric CO2
-            let co2_release =
-                payload.volatiles * config.impulse.tectonics.volcanic.volatile_to_co2_factor in
-            signal.atmosphere.co2_ppmv <- co2_release;
+            # NOTE: CO2 release disabled - at geological timescales, CO2 is handled
+            # by equilibrium dynamics in atmosphere.co2_equilibrium fracture
+            # Individual eruptions are insignificant vs long-term volcanic degassing
 
             # Volcanic activity index boost
             signal.tectonics.volcanism <- payload.volatiles / 10.0;

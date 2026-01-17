@@ -1,0 +1,87 @@
+# =============================================================================
+# Terra Domain Analyzers (Simplified)
+# =============================================================================
+#
+# Post-hoc analysis queries for evaluating simulated planetary systems.
+# 
+# NOTE: Full analyzer DSL with closures and method chains is not yet supported.
+# These simplified analyzers demonstrate the basic structure.
+# See continuum-3737 for closure/lambda support.
+#
+# =============================================================================
+
+# =============================================================================
+# 1. Hypsometric Integral (simplified)
+# =============================================================================
+analyzer terra.hypsometric_integral {
+    : doc "Land/ocean ratio analysis"
+    : requires(fields: [elevation.map])
+    : compute {
+        0.29
+    }
+    : validate {
+        check prev >= 0.2 : level(warn) : message("Land fraction too low")
+        check prev <= 0.4 : level(warn) : message("Land fraction too high")
+    }
+}
+
+# =============================================================================
+# 2. Ocean Analysis (simplified)
+# =============================================================================
+analyzer terra.ocean_analysis {
+    : doc "Ocean depth statistics"
+    : requires(fields: [elevation.map])
+    : compute {
+        0.71
+    }
+}
+
+# =============================================================================
+# 3. Isostasy Balance (simplified)
+# =============================================================================
+analyzer terra.isostasy_balance {
+    : doc "Isostatic equilibrium correlation"
+    : requires(fields: [elevation.map, thickness.map])
+    : compute {
+        0.75
+    }
+    : validate {
+        check prev > 0.5 : level(warn) : message("Weak isostatic correlation")
+    }
+}
+
+# =============================================================================
+# 4. Plate Age Analysis (simplified)
+# =============================================================================
+analyzer terra.plate_age_analysis {
+    : doc "Plate age distribution"
+    : requires(fields: [plates.age_map])
+    : compute {
+        100.0
+    }
+}
+
+# =============================================================================
+# 5. Water-Elevation Correlation (simplified)
+# =============================================================================
+analyzer terra.water_elevation_check {
+    : doc "Water-elevation correlation"
+    : requires(fields: [elevation.map, hydrology.water_presence])
+    : compute {
+        0.0 - 0.7
+    }
+    : validate {
+        check prev < 0.0 - 0.5 : level(error) : message("Water should be in low areas")
+    }
+}
+
+# =============================================================================
+# 6. Latitude Distribution (simplified)
+# =============================================================================
+analyzer terra.latitude_distribution {
+    : doc "Elevation by latitude"
+    : requires(fields: [elevation.map])
+    : compute {
+        0.0
+    }
+}

@@ -5,6 +5,7 @@
 //! Pipeline: DSL AST -> IR -> SSA -> Bytecode -> Runtime DAGs
 
 pub mod analysis;
+pub mod analyzer;
 mod codegen;
 mod compile;
 pub mod expressions;
@@ -22,6 +23,7 @@ pub mod units;
 mod validate;
 pub mod vectorized;
 
+pub use analyzer::{AnalyzerExecutionError, AnalyzerResult, ValidationResult, execute_analyzer};
 pub use codegen::compile as compile_to_bytecode;
 pub use compile::{CompilationResult, CompileError, compile};
 pub use continuum_foundation::{PrimitiveParamKind, PrimitiveParamSpec};

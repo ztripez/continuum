@@ -8,6 +8,7 @@ mod math;
 mod matrix;
 mod quat;
 mod rng;
+mod stats;
 /// Tensor operations - exposed for VM executor arithmetic support
 pub mod tensor_ops;
 mod vector;
@@ -40,3 +41,6 @@ static TENSOR_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "tens
 
 #[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
 static RNG_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "rng" };
+
+#[continuum_kernel_registry::linkme::distributed_slice(NAMESPACES)]
+static STATS_NAMESPACE: NamespaceDescriptor = NamespaceDescriptor { name: "stats" };

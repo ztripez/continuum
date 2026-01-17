@@ -311,35 +311,17 @@ fracture ecology.mass_extinction {
 # Process-Based Ecology Fractures
 # -----------------------------------------------------------------------------
 
-# Biosphere CO2 coupling: NEE = NPP - decomposition
-# Couples terrestrial carbon cycle to atmospheric CO2
-# Sign convention: positive NEE = net carbon uptake (biosphere sink)
-fracture ecology.biosphere_co2_coupling {
-    : strata(ecology)
-
-    config {
-        co2_to_c_ratio: 3.667                # CO2 molar mass (44) / C molar mass (12)
-        planet_surface_area_m2: 5.1e14       # Earth surface area
-    }
-
-    when {
-        signal.ecology.npp > 0.0
-    }
-
-    emit {
-        # NEE = NPP - decomposition (positive = carbon uptake)
-        let npp = signal.ecology.npp in
-        let decomp = signal.ecology.decomposition_rate in
-        let nee = npp - decomp in
-
-        # Convert NEE to CO2 flux (negative NEE = CO2 release)
-        # NEE positive = uptake = removing CO2 from atmosphere
-        let co2_flux = -nee * config.fracture.ecology.biosphere_co2_coupling.co2_to_c_ratio in
-
-        # Emit to atmosphere (simplified: modulate CO2 ppmv)
-        signal.atmosphere.co2_ppmv <- co2_flux * 0.001
-    }
-}
+# Biosphere CO2 feedback: vegetation affects CO2 equilibrium
+# NOTE: Disabled for now - the main CO2 equilibrium is set by atmosphere.co2_equilibrium
+# At geological timescales, biosphere carbon cycling is secondary to geochemical cycles
+# TODO: Integrate biosphere feedback into atmosphere.co2_equilibrium fracture
+#
+# fracture ecology.biosphere_co2_coupling {
+#     : strata(ecology)
+#     config { equilibrium_sensitivity: 0.1 }
+#     when { signal.ecology.npp > 0.0 }
+#     emit { ... }
+# }
 
 # Carrying capacity exceeded: triggers dieback when biomass > sustainable
 # K = NPP * turnover_time / maintenance_cost
@@ -431,11 +413,8 @@ fracture ecology.fire_disturbance {
         let burned = biomass * config.fracture.ecology.fire_disturbance.burn_fraction in
         signal.ecology.biomass <- -burned
 
-        # Some carbon released to atmosphere
-        let released = burned * config.fracture.ecology.fire_disturbance.carbon_release_fraction in
-        signal.atmosphere.co2_ppmv <- released * 1e-6
-
         # Remaining carbon enters soil as char/ash
+        # CO2 release handled by equilibrium dynamics (fire is fast, equilibration is geological)
         let charred = burned * (1.0 - config.fracture.ecology.fire_disturbance.carbon_release_fraction) in
         signal.ecology.soil_carbon <- charred * 0.5
     }

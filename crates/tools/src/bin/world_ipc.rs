@@ -15,13 +15,14 @@ use tokio::task::yield_now;
 use tokio::time::{Duration, sleep};
 use tracing::{debug, error, info, warn};
 
-use continuum_compiler::ir::{RuntimeBuildOptions, build_runtime, compile};
+use continuum_compiler::ir::{RuntimeBuildOptions, Scenario, build_runtime, compile};
 use continuum_ir::CompiledWorld;
 use continuum_lens::{FieldLens, FieldLensConfig, PlaybackClock};
 use continuum_runtime::executor::Runtime;
 use continuum_tools::ipc_protocol::{
-    AssertionEvent, ChronicleEvent, ChroniclePollPayload, EntityInfo, EntityListPayload, EraInfo,
-    EraListPayload, FieldHistoryPayload, FieldInfo, FieldLatestPayload, FieldListPayload,
+    AssertionEvent, CheckpointInfo, CheckpointListPayload, CheckpointRequestPayload,
+    CheckpointResumePayload, ChronicleEvent, ChroniclePollPayload, EntityInfo, EntityListPayload,
+    EraInfo, EraListPayload, FieldHistoryPayload, FieldInfo, FieldLatestPayload, FieldListPayload,
     FieldQueryBatchPayload, FieldQueryPayload, ImpulseEmitPayload, ImpulseInfo, ImpulseListPayload,
     IpcCommand, IpcEvent, IpcFrame, IpcRequest, IpcResponse, IpcResponsePayload, JsonValue,
     PlaybackPayload, SignalInfo, SignalListPayload, StatusPayload, StratumInfo, StratumListPayload,
@@ -38,6 +39,10 @@ struct Cli {
     /// Unix socket path to listen on.
     #[arg(long)]
     socket: PathBuf,
+
+    /// Scenario name to load from world/scenarios/
+    #[arg(long)]
+    scenario: Option<String>,
 
     /// Override dt for all eras.
     #[arg(long)]
@@ -102,13 +107,37 @@ async fn main() {
         }
     };
 
+    // Load scenario if specified
+    let scenario = if let Some(ref scenario_name) = cli.scenario {
+        let scenario_path = cli
+            .world_dir
+            .join("scenarios")
+            .join(format!("{}.yaml", scenario_name));
+        if !scenario_path.exists() {
+            error!("Scenario file not found: {}", scenario_path.display());
+            std::process::exit(1);
+        }
+        match Scenario::load(&scenario_path) {
+            Ok(s) => {
+                info!("Loaded scenario: {}", scenario_name);
+                Some(s)
+            }
+            Err(err) => {
+                error!("Failed to load scenario: {}", err);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        None
+    };
+
     debug!("Building runtime...");
-    let (runtime, report) = match build_runtime(
+    let (mut runtime, report) = match build_runtime(
         &world,
         compilation,
         RuntimeBuildOptions {
             dt_override: cli.dt,
-            scenario: None,
+            scenario,
         },
     ) {
         Ok(result) => result,
@@ -117,6 +146,9 @@ async fn main() {
             std::process::exit(1);
         }
     };
+
+    // Enable checkpointing with queue depth of 4
+    runtime.enable_checkpointing(4);
 
     let lens = match FieldLens::new(FieldLensConfig::default()) {
         Ok(lens) => lens,
@@ -376,6 +408,10 @@ async fn handle_command(
                 payload: Some(IpcResponsePayload::Status(status_payload(&state))),
                 error: None,
             })
+        }
+        IpcCommand::Shutdown => {
+            info!("Shutdown command received, exiting gracefully");
+            std::process::exit(0);
         }
         IpcCommand::WorldInfo => {
             let state = state.lock().await;
@@ -879,6 +915,136 @@ async fn handle_command(
                 payload: Some(IpcResponsePayload::AssertionFailures(
                     AssertionFailuresPayload { failures },
                 )),
+                error: None,
+            })
+        }
+        IpcCommand::CheckpointRequest { path } => {
+            let state = state.lock().await;
+
+            // Generate checkpoint path if not provided
+            let checkpoint_path = if let Some(p) = path {
+                PathBuf::from(p)
+            } else {
+                PathBuf::from(format!(
+                    "./checkpoints/checkpoint_{:010}.ckpt",
+                    state.runtime.tick()
+                ))
+            };
+
+            // Ensure parent directory exists
+            if let Some(parent) = checkpoint_path.parent() {
+                tokio::fs::create_dir_all(parent).await?;
+            }
+
+            // Request checkpoint (non-blocking)
+            state
+                .runtime
+                .request_checkpoint(&checkpoint_path)
+                .map_err(|e| anyhow::anyhow!("checkpoint request failed: {}", e))?;
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::CheckpointRequest(
+                    CheckpointRequestPayload {
+                        tick: state.runtime.tick(),
+                        path: checkpoint_path.to_string_lossy().to_string(),
+                    },
+                )),
+                error: None,
+            })
+        }
+        IpcCommand::CheckpointList { dir } => {
+            let dir_path = PathBuf::from(&dir);
+
+            let mut checkpoints = Vec::new();
+
+            if dir_path.exists() {
+                let mut entries = tokio::fs::read_dir(&dir_path).await?;
+                while let Some(entry) = entries.next_entry().await? {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("ckpt") {
+                        // Load checkpoint header to get metadata
+                        if let Ok(checkpoint) =
+                            continuum_runtime::checkpoint::load_checkpoint(&path)
+                        {
+                            let metadata = tokio::fs::metadata(&path).await?;
+                            checkpoints.push(CheckpointInfo {
+                                path: path.to_string_lossy().to_string(),
+                                tick: checkpoint.header.tick,
+                                sim_time: checkpoint.header.sim_time,
+                                created_at: checkpoint
+                                    .header
+                                    .created_at
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .map(|d| d.as_secs().to_string())
+                                    .unwrap_or_else(|_| "unknown".to_string()),
+                                size_bytes: metadata.len(),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Sort by tick (descending)
+            checkpoints.sort_by(|a, b| b.tick.cmp(&a.tick));
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::CheckpointList(CheckpointListPayload {
+                    checkpoints,
+                })),
+                error: None,
+            })
+        }
+        IpcCommand::CheckpointResume { path, force } => {
+            let mut state = state.lock().await;
+
+            if state.running {
+                anyhow::bail!("simulation is running (stop first)");
+            }
+
+            let checkpoint_path = PathBuf::from(&path);
+
+            // Load checkpoint
+            state
+                .runtime
+                .load_checkpoint(&checkpoint_path, force)
+                .map_err(|e| anyhow::anyhow!("failed to load checkpoint: {}", e))?;
+
+            // Sync cached sim_time with runtime
+            state.sim_time = state.runtime.sim_time();
+
+            info!("Resumed from checkpoint at tick {}", state.runtime.tick());
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::CheckpointResume(
+                    CheckpointResumePayload {
+                        tick: state.runtime.tick(),
+                        sim_time: state.runtime.sim_time(),
+                        era: state.runtime.era().to_string(),
+                    },
+                )),
+                error: None,
+            })
+        }
+        IpcCommand::CheckpointRemove { path } => {
+            let checkpoint_path = PathBuf::from(&path);
+
+            // Delete the checkpoint file
+            tokio::fs::remove_file(&checkpoint_path)
+                .await
+                .map_err(|e| anyhow::anyhow!("failed to remove checkpoint: {}", e))?;
+
+            info!("Removed checkpoint: {}", checkpoint_path.display());
+
+            Ok(IpcResponse {
+                id,
+                ok: true,
+                payload: Some(IpcResponsePayload::CheckpointRemove),
                 error: None,
             })
         }

@@ -18,8 +18,8 @@ pub mod vector_ops;
 
 // Re-export ID types at crate root
 pub use ids::{
-    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
-    OperatorId, Path, SignalId, StratumId, TypeId,
+    AnalyzerId, ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId,
+    MemberId, OperatorId, Path, SignalId, StratumId, TypeId,
 };
 
 pub use coercion::{TypeCheckOp, TypeCheckResult, can_operate, type_shape};

@@ -197,6 +197,28 @@ pub struct AssertionFailuresRequest {
     pub signal_id: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+#[serde(default)]
+pub struct CheckpointRequestRequest {
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckpointListRequest {
+    pub dir: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckpointResumeRequest {
+    pub path: String,
+    pub force: Option<bool>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckpointRemoveRequest {
+    pub path: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcRequest {
     pub id: u64,
@@ -213,6 +235,7 @@ pub enum IpcCommand {
         count: Option<u64>,
     },
     Stop,
+    Shutdown,
     WorldInfo,
     SignalList,
     SignalDescribe {
@@ -278,6 +301,19 @@ pub enum IpcCommand {
     AssertionFailures {
         signal_id: Option<String>,
     },
+    CheckpointRequest {
+        path: Option<String>,
+    },
+    CheckpointList {
+        dir: String,
+    },
+    CheckpointResume {
+        path: String,
+        force: bool,
+    },
+    CheckpointRemove {
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -319,6 +355,10 @@ pub enum IpcResponsePayload {
     EntityDescribe(EntityInfo),
     AssertionList(AssertionListPayload),
     AssertionFailures(AssertionFailuresPayload),
+    CheckpointRequest(CheckpointRequestPayload),
+    CheckpointList(CheckpointListPayload),
+    CheckpointResume(CheckpointResumePayload),
+    CheckpointRemove,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -535,6 +575,33 @@ pub struct AssertionFailuresPayload {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointRequestPayload {
+    pub tick: u64,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointInfo {
+    pub path: String,
+    pub tick: u64,
+    pub sim_time: f64,
+    pub created_at: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointListPayload {
+    pub checkpoints: Vec<CheckpointInfo>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckpointResumePayload {
+    pub tick: u64,
+    pub sim_time: f64,
+    pub era: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum IpcFrame {
     Response(IpcResponse),
     Event(IpcEvent),
@@ -694,6 +761,10 @@ pub fn ipc_response_to_json(response: &IpcResponse) -> JsonResponse {
         Some(IpcResponsePayload::EntityDescribe(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::AssertionList(p)) => serde_json::to_value(p).ok(),
         Some(IpcResponsePayload::AssertionFailures(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::CheckpointRequest(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::CheckpointList(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::CheckpointResume(p)) => serde_json::to_value(p).ok(),
+        Some(IpcResponsePayload::CheckpointRemove) => None,
         None => None,
     };
     JsonResponse {
@@ -729,6 +800,7 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
             IpcCommand::Run { count: req.count }
         }
         "stop" => IpcCommand::Stop,
+        "shutdown" => IpcCommand::Shutdown,
         "world.info" => IpcCommand::WorldInfo,
         "signal.list" => IpcCommand::SignalList,
         "signal.describe" => {
@@ -834,6 +906,25 @@ pub fn json_request_to_ipc(request: JsonRequest) -> anyhow::Result<IpcRequest> {
             IpcCommand::AssertionFailures {
                 signal_id: req.signal_id,
             }
+        }
+        "checkpoint.request" => {
+            let req: CheckpointRequestRequest = deserialize_or_default(request.payload)?;
+            IpcCommand::CheckpointRequest { path: req.path }
+        }
+        "checkpoint.list" => {
+            let req: CheckpointListRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::CheckpointList { dir: req.dir }
+        }
+        "checkpoint.resume" => {
+            let req: CheckpointResumeRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::CheckpointResume {
+                path: req.path,
+                force: req.force.unwrap_or(false),
+            }
+        }
+        "checkpoint.remove" => {
+            let req: CheckpointRemoveRequest = serde_json::from_value(request.payload)?;
+            IpcCommand::CheckpointRemove { path: req.path }
         }
         _ => anyhow::bail!("unknown request type: {}", request.kind),
     };

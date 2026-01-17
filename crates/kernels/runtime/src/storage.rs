@@ -73,7 +73,7 @@ use serde::{Deserialize, Serialize};
 /// // Now 301.0 is the previous value
 /// assert_eq!(storage.get_prev(&temp), Some(&Value::Scalar(301.0)));
 /// ```
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SignalStorage {
     /// Values resolved in the current tick.
     current: IndexMap<SignalId, Value>,
@@ -440,7 +440,7 @@ impl EntityInstances {
 ///
 /// Uses stable InstanceIds (not numeric indexes) for deterministic iteration
 /// across serialization/deserialization and parallel execution.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct EntityStorage {
     /// Instances resolved in the current tick
     current: IndexMap<EntityId, EntityInstances>,

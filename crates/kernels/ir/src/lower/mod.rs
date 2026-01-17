@@ -3,6 +3,7 @@
 //! This module transforms DSL abstract syntax trees into the typed intermediate
 //! representation (IR) used for DAG construction and runtime execution.
 
+mod analyzer;
 mod chronicles;
 mod convert;
 mod deps;
@@ -23,14 +24,14 @@ use thiserror::Error;
 
 use continuum_dsl::ast::{self, CompilationUnit, Item, Span};
 use continuum_foundation::{
-    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, MemberId, OperatorId, Path,
-    SignalId, StratumId, TypeId,
+    AnalyzerId, ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, MemberId,
+    OperatorId, Path, SignalId, StratumId, TypeId,
 };
 
 use crate::{
-    CompiledChronicle, CompiledEntity, CompiledEra, CompiledField, CompiledFn, CompiledFracture,
-    CompiledImpulse, CompiledMember, CompiledOperator, CompiledSignal, CompiledStratum,
-    CompiledType, CompiledTypeField, CompiledWorld,
+    CompiledAnalyzer, CompiledChronicle, CompiledEntity, CompiledEra, CompiledField, CompiledFn,
+    CompiledFracture, CompiledImpulse, CompiledMember, CompiledOperator, CompiledSignal,
+    CompiledStratum, CompiledType, CompiledTypeField, CompiledWorld,
 };
 
 /// Errors that can occur during the lowering phase.
@@ -270,6 +271,7 @@ pub(crate) struct Lowerer {
     pub(crate) entities: IndexMap<EntityId, CompiledEntity>,
     pub(crate) members: IndexMap<MemberId, CompiledMember>,
     pub(crate) chronicles: IndexMap<ChronicleId, CompiledChronicle>,
+    pub(crate) analyzers: IndexMap<AnalyzerId, CompiledAnalyzer>,
     pub(crate) types: IndexMap<TypeId, CompiledType>,
     /// Pre-collected signal names for dependency resolution.
     /// Populated before lowering signals to handle forward references.
@@ -296,6 +298,7 @@ impl Lowerer {
             entities: IndexMap::new(),
             members: IndexMap::new(),
             chronicles: IndexMap::new(),
+            analyzers: IndexMap::new(),
             types: IndexMap::new(),
             known_signal_names: std::collections::HashSet::new(),
             known_member_names: std::collections::HashSet::new(),
@@ -487,6 +490,7 @@ impl Lowerer {
                         symbol: signal.symbol.clone(),
                         value_type: signal.value_type.clone(),
                         uses_dt_raw: signal.uses_dt_raw,
+                        initial: signal.initial.clone(),
                         resolve: signal.resolve.clone(),
                         warmup: signal.warmup.clone(),
                         assertions: signal.assertions.clone(),
@@ -635,6 +639,27 @@ impl Lowerer {
                     crate::unified_nodes::ChronicleProperties {
                         doc: chronicle.doc.clone(),
                         handlers: chronicle.handlers.clone(),
+                    },
+                ),
+            };
+            nodes.insert(id.path().clone(), node);
+        }
+
+        for (id, analyzer) in &self.analyzers {
+            let node = crate::unified_nodes::CompiledNode {
+                id: id.path().clone(),
+                file: analyzer.file.clone(),
+                span: analyzer.span.clone(),
+                stratum: None,
+                reads: Vec::new(),
+                member_reads: Vec::new(),
+                kind: crate::unified_nodes::NodeKind::Analyzer(
+                    crate::unified_nodes::AnalyzerProperties {
+                        doc: analyzer.doc.clone(),
+                        required_fields: analyzer.required_fields.clone(),
+                        compute: analyzer.compute.clone(),
+                        output_schema: analyzer.output_schema.clone(),
+                        validations: analyzer.validations.clone(),
                     },
                 ),
             };

@@ -41,10 +41,11 @@ pub use warmup::{WarmupExecutor, WarmupFn};
 
 use indexmap::IndexMap;
 
-use tracing::{debug, error, info, instrument, trace};
+use tracing::{debug, error, info, instrument, trace, warn};
 
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
+use crate::lens_sink::{LensData, LensSink};
 use crate::soa_storage::{MemberSignalBuffer, ValueType as MemberValueType};
 use crate::storage::{
     EmittedEventRecord, EntityInstances, EntityStorage, EventBuffer, FieldBuffer, FieldSample,
@@ -54,43 +55,26 @@ use crate::types::{
     Dt, EntityId, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value,
     WarmupConfig, WarmupResult,
 };
-use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct RunManifest {
-    pub run_id: String,
-    pub created_at: String,
-    pub seed: u64,
-    pub steps: u64,
-    pub stride: u64,
-    pub signals: Vec<String>,
-    pub fields: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TickSnapshot {
-    pub tick: u64,
-    pub time_seconds: f64,
-    pub signals: std::collections::HashMap<String, Value>,
-    pub fields: std::collections::HashMap<String, Vec<FieldSample>>,
-}
+// Note: RunManifest and TickSnapshot removed
+// Use LensSink for observer data output (fields only, no signals)
+// Signals belong in checkpoints, not observer snapshots
 
 #[derive(Debug, Clone)]
-pub struct SnapshotOptions {
-    pub output_dir: PathBuf,
+pub struct CheckpointOptions {
+    pub checkpoint_dir: PathBuf,
     pub stride: u64,
-    pub signals: Vec<SignalId>,
-    pub fields: Vec<FieldId>,
-    pub seed: u64,
+    pub wall_clock_interval: Option<std::time::Duration>,
+    pub keep_last_n: Option<usize>,
 }
 
-#[derive(Debug, Clone)]
 pub struct RunOptions {
     pub steps: u64,
     pub print_signals: bool,
     pub signals: Vec<SignalId>,
-    pub snapshot: Option<SnapshotOptions>,
+    pub lens_sink: Option<Box<dyn LensSink>>,
+    pub checkpoint: Option<CheckpointOptions>,
 }
 
 #[derive(Debug, Clone)]
@@ -108,40 +92,12 @@ pub enum RunError {
 
 pub fn run_simulation(
     runtime: &mut Runtime,
-    options: RunOptions,
+    mut options: RunOptions,
 ) -> std::result::Result<RunReport, RunError> {
-    let mut run_dir: Option<PathBuf> = None;
+    let run_dir: Option<PathBuf> = None;
 
-    if let Some(snapshot) = &options.snapshot {
-        let run_id = format!(
-            "{}",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|t| t.as_secs())
-                .unwrap_or(0)
-        );
-        let dir = snapshot.output_dir.join(&run_id);
-        std::fs::create_dir_all(&dir).map_err(|e| RunError::Snapshot(e.to_string()))?;
-
-        let created_at = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|t| t.as_secs().to_string())
-            .unwrap_or_else(|_| "0".to_string());
-        let manifest = RunManifest {
-            run_id: run_id.clone(),
-            created_at,
-            seed: snapshot.seed,
-            steps: options.steps,
-            stride: snapshot.stride,
-            signals: snapshot.signals.iter().map(|id| id.to_string()).collect(),
-            fields: snapshot.fields.iter().map(|id| id.to_string()).collect(),
-        };
-        let manifest_json = serde_json::to_string_pretty(&manifest)
-            .map_err(|e| RunError::Snapshot(e.to_string()))?;
-        std::fs::write(dir.join("run.json"), manifest_json)
-            .map_err(|e| RunError::Snapshot(e.to_string()))?;
-        run_dir = Some(dir);
-    }
+    // Lens sink is handled separately now - no manifest created here
+    // The sink handles its own manifest/metadata
 
     if !runtime.is_warmup_complete() {
         runtime
@@ -149,43 +105,14 @@ pub fn run_simulation(
             .map_err(|e| RunError::Execution(e.to_string()))?;
     }
 
-    let write_snapshot = |step: u64, runtime: &mut Runtime| -> std::result::Result<(), RunError> {
-        let Some(snapshot) = &options.snapshot else {
-            return Ok(());
-        };
-        let mut signal_values = std::collections::HashMap::new();
-        for id in &snapshot.signals {
-            if let Some(val) = runtime.get_signal(id) {
-                signal_values.insert(id.to_string(), val.clone());
-            }
-        }
+    let mut last_checkpoint_time = std::time::Instant::now();
+    // Setup checkpoint directory if enabled
+    if let Some(checkpoint) = &options.checkpoint {
+        std::fs::create_dir_all(&checkpoint.checkpoint_dir)
+            .map_err(|e| RunError::Execution(e.to_string()))?;
+    }
 
-        let mut field_samples = std::collections::HashMap::new();
-        for id in &snapshot.fields {
-            if let Some(samples) = runtime.field_buffer().get_samples(id) {
-                if !samples.is_empty() {
-                    field_samples.insert(id.to_string(), samples.to_vec());
-                }
-            }
-        }
-
-        let tick_snapshot = TickSnapshot {
-            tick: runtime.tick(),
-            time_seconds: runtime.sim_time(),
-            signals: signal_values,
-            fields: field_samples,
-        };
-
-        let encoded =
-            bincode::serialize(&tick_snapshot).map_err(|e| RunError::Snapshot(e.to_string()))?;
-        let filename = format!("tick_{:010}.bin", step);
-        let path = run_dir.as_ref().unwrap().join(filename);
-        std::fs::write(path, encoded).map_err(|e| RunError::Snapshot(e.to_string()))?;
-
-        Ok(())
-    };
-
-    for i in 0..options.steps {
+    for _i in 0..options.steps {
         runtime
             .execute_tick()
             .map_err(|e| RunError::Execution(e.to_string()))?;
@@ -200,15 +127,102 @@ pub fn run_simulation(
             println!("{}", line);
         }
 
-        if let Some(snapshot) = &options.snapshot {
-            if i % snapshot.stride == 0 {
-                write_snapshot(i, runtime)?;
+        // Emit field data to lens sink
+        if let Some(ref mut sink) = options.lens_sink {
+            let fields = runtime.drain_fields();
+            let lens_data = LensData { fields };
+            sink.emit_tick(runtime.tick(), runtime.sim_time(), lens_data)
+                .map_err(|e| RunError::Snapshot(e.to_string()))?;
+        }
+
+        // Checkpoint logic
+        if let Some(checkpoint) = &options.checkpoint {
+            let should_checkpoint = {
+                let stride_met = runtime.tick() % checkpoint.stride == 0;
+                let wall_clock_met = checkpoint
+                    .wall_clock_interval
+                    .map(|interval| last_checkpoint_time.elapsed() >= interval)
+                    .unwrap_or(false);
+                stride_met || wall_clock_met
+            };
+
+            if should_checkpoint {
+                let checkpoint_path = checkpoint
+                    .checkpoint_dir
+                    .join(format!("checkpoint_{:010}.ckpt", runtime.tick()));
+
+                if let Err(e) = runtime.request_checkpoint(&checkpoint_path) {
+                    warn!("Checkpoint request failed: {}", e);
+                } else {
+                    debug!("Checkpoint requested for tick {}", runtime.tick());
+                    last_checkpoint_time = std::time::Instant::now();
+
+                    // Update 'latest' symlink
+                    let latest_link = checkpoint.checkpoint_dir.join("latest");
+                    let _ = std::fs::remove_file(&latest_link); // Ignore errors
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::symlink;
+                        let _ = symlink(
+                            format!("checkpoint_{:010}.ckpt", runtime.tick()),
+                            &latest_link,
+                        );
+                    }
+                }
+
+                // Prune old checkpoints if configured
+                if let Some(keep_n) = checkpoint.keep_last_n {
+                    prune_old_checkpoints(&checkpoint.checkpoint_dir, keep_n);
+                }
             }
         }
     }
 
+    // Close lens sink (writes manifest, finalizes output)
+    if let Some(ref mut sink) = options.lens_sink {
+        sink.close()
+            .map_err(|e| RunError::Snapshot(e.to_string()))?;
+    }
+
     Ok(RunReport { run_dir })
 }
+
+/// Prune old checkpoints, keeping only the last N.
+fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) {
+    let Ok(entries) = std::fs::read_dir(checkpoint_dir) else {
+        return;
+    };
+
+    let mut checkpoints: Vec<_> = entries
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext == "ckpt")
+                .unwrap_or(false)
+        })
+        .collect();
+
+    if checkpoints.len() <= keep_n {
+        return;
+    }
+
+    // Sort by filename (which includes tick number)
+    checkpoints.sort_by_key(|entry| entry.file_name());
+
+    // Remove oldest checkpoints
+    let to_remove = checkpoints.len() - keep_n;
+    for entry in checkpoints.iter().take(to_remove) {
+        let _ = std::fs::remove_file(entry.path());
+        debug!("Pruned old checkpoint: {}", entry.path().display());
+    }
+}
+
+// ============================================================================
+// Era and Stratum Configuration
+// ============================================================================
 
 /// Era configuration
 pub struct EraConfig {
@@ -269,6 +283,12 @@ pub struct Runtime {
     active_tick_ctx: Option<TickContext>,
     /// Pending impulses to apply in next Collect phase (handler_idx, payload)
     pending_impulses: Vec<(usize, Value)>,
+    /// Background checkpoint writer (optional)
+    checkpoint_writer: Option<crate::checkpoint::CheckpointWriter>,
+    /// World IR hash for checkpoint validation (set once at initialization)
+    world_ir_hash: Option<[u8; 32]>,
+    /// Initial seed for determinism
+    initial_seed: u64,
 }
 
 impl Runtime {
@@ -295,6 +315,9 @@ impl Runtime {
             breakpoints: std::collections::HashSet::new(),
             active_tick_ctx: None,
             pending_impulses: Vec::new(),
+            checkpoint_writer: None,
+            world_ir_hash: None,
+            initial_seed: 0,
         }
     }
 
@@ -729,6 +752,132 @@ impl Runtime {
             debug!(from = %self.current_era, to = %next_era, "era transition");
             self.current_era = next_era;
         }
+        Ok(())
+    }
+
+    // ========================================================================
+    // Checkpoint Methods
+    // ========================================================================
+
+    /// Enable checkpoint writer with specified queue depth.
+    pub fn enable_checkpointing(&mut self, queue_depth: usize) {
+        info!(queue_depth, "enabling checkpoint writer");
+        self.checkpoint_writer = Some(crate::checkpoint::CheckpointWriter::new(queue_depth));
+    }
+
+    /// Set the world IR hash for checkpoint validation.
+    pub fn set_world_ir_hash(&mut self, hash: [u8; 32]) {
+        self.world_ir_hash = Some(hash);
+    }
+
+    /// Set the initial seed for determinism.
+    pub fn set_initial_seed(&mut self, seed: u64) {
+        self.initial_seed = seed;
+    }
+
+    /// Request a checkpoint write (non-blocking).
+    ///
+    /// If checkpointing is not enabled, returns an error.
+    /// If the queue is full, drops the checkpoint and returns an error.
+    pub fn request_checkpoint(&self, path: &std::path::Path) -> Result<()> {
+        let writer = self
+            .checkpoint_writer
+            .as_ref()
+            .ok_or_else(|| Error::Checkpoint("checkpointing not enabled".to_string()))?;
+
+        // Extract member signal data
+        let member_signals = crate::checkpoint::MemberSignalData::from_buffer(&self.member_signals)
+            .map_err(|e| Error::Checkpoint(e.to_string()))?;
+
+        // Build era configs for validation
+        let era_configs = self
+            .eras
+            .iter()
+            .map(|(id, cfg)| {
+                (
+                    id.clone(),
+                    crate::checkpoint::EraConfigSnapshot {
+                        dt: cfg.dt.0,
+                        strata_count: cfg.strata.len(),
+                    },
+                )
+            })
+            .collect();
+
+        // Build checkpoint
+        let checkpoint = crate::checkpoint::Checkpoint {
+            header: crate::checkpoint::CheckpointHeader {
+                version: crate::checkpoint::CHECKPOINT_VERSION,
+                world_ir_hash: self.world_ir_hash.unwrap_or([0u8; 32]),
+                tick: self.tick,
+                sim_time: self.sim_time,
+                seed: self.initial_seed,
+                current_era: self.current_era.clone(),
+                created_at: std::time::SystemTime::now(),
+                world_git_hash: None,
+            },
+            state: crate::checkpoint::CheckpointState {
+                signals: self.signals.clone(),
+                entities: self.entities.clone(),
+                member_signals,
+                era_configs,
+                stratum_states: std::collections::HashMap::new(), // TODO: capture stratum states
+            },
+        };
+
+        writer
+            .request_checkpoint(
+                path.to_owned(),
+                checkpoint,
+                crate::checkpoint::DEFAULT_COMPRESSION_LEVEL,
+            )
+            .map_err(|e| Error::Checkpoint(e.to_string()))
+    }
+
+    /// Load a checkpoint and replace runtime state (validation optional).
+    ///
+    /// If `force` is false, validates world IR hash.
+    /// Returns error if validation fails or deserialization fails.
+    pub fn load_checkpoint(&mut self, path: &std::path::Path, force: bool) -> Result<()> {
+        info!(path = %path.display(), "loading checkpoint");
+
+        let checkpoint = crate::checkpoint::load_checkpoint(path)
+            .map_err(|e| Error::Checkpoint(e.to_string()))?;
+
+        // Validate world IR hash
+        if !force {
+            if let Some(current_hash) = self.world_ir_hash {
+                if checkpoint.header.world_ir_hash != current_hash {
+                    return Err(Error::Checkpoint(
+                        "World IR mismatch: checkpoint hash does not match current world"
+                            .to_string(),
+                    ));
+                }
+            }
+        }
+
+        // Restore state
+        self.signals = checkpoint.state.signals;
+        self.entities = checkpoint.state.entities;
+
+        // Restore member signals
+        checkpoint
+            .state
+            .member_signals
+            .restore_into_buffer(&mut self.member_signals)
+            .map_err(|e| Error::Checkpoint(e.to_string()))?;
+
+        self.tick = checkpoint.header.tick;
+        self.sim_time = checkpoint.header.sim_time;
+        self.current_era = checkpoint.header.current_era;
+        self.initial_seed = checkpoint.header.seed;
+
+        info!(
+            tick = checkpoint.header.tick,
+            sim_time = checkpoint.header.sim_time,
+            "checkpoint loaded successfully"
+        );
+
         Ok(())
     }
 }

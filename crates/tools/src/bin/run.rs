@@ -13,7 +13,8 @@ use tracing::{error, info, warn};
 use continuum_compiler::ir::{
     BinaryBundle, RuntimeBuildOptions, Scenario, build_runtime, compile, find_scenarios,
 };
-use continuum_runtime::executor::{RunOptions, SnapshotOptions, run_simulation};
+use continuum_runtime::executor::{CheckpointOptions, RunOptions, run_simulation};
+use continuum_runtime::lens_sink::{FileSink, FileSinkConfig, FilteredSink, LensSinkConfig};
 
 #[derive(Parser, Debug)]
 #[command(name = "run")]
@@ -47,6 +48,33 @@ struct Args {
     /// Snapshot stride
     #[arg(long = "stride", alias = "snapshot-stride", default_value = "10")]
     stride: u64,
+
+    // ========================================================================
+    // Checkpoint Options
+    // ========================================================================
+    /// Enable checkpointing and set checkpoint directory
+    #[arg(long = "checkpoint-dir")]
+    checkpoint_dir: Option<PathBuf>,
+
+    /// Checkpoint every N ticks
+    #[arg(long = "checkpoint-stride", default_value = "1000")]
+    checkpoint_stride: u64,
+
+    /// Checkpoint at most once per N seconds (wall-clock throttling)
+    #[arg(long = "checkpoint-interval")]
+    checkpoint_interval: Option<u64>,
+
+    /// Keep only the last N checkpoints (prune older ones)
+    #[arg(long = "keep-checkpoints")]
+    keep_checkpoints: Option<usize>,
+
+    /// Resume from latest checkpoint in checkpoint directory
+    #[arg(long = "resume")]
+    resume: bool,
+
+    /// Skip world IR validation when resuming (dangerous!)
+    #[arg(long = "force-resume")]
+    force_resume: bool,
 }
 
 fn main() {
@@ -209,16 +237,80 @@ fn main() {
         );
     }
 
-    // Prepare snapshot directory if requested
-    let snapshot = args.save_dir.as_ref().map(|dir| SnapshotOptions {
-        output_dir: dir.clone(),
-        stride: args.stride,
-        signals: signals.keys().cloned().collect(),
-        fields: fields.keys().cloned().collect(),
-        seed: 0,
+    // ========================================================================
+    // Checkpoint Setup
+    // ========================================================================
+
+    // Enable checkpointing if checkpoint-dir is specified
+    if args.checkpoint_dir.is_some() {
+        info!("Enabling checkpoint writer (queue depth: 3)");
+        runtime.enable_checkpointing(3);
+    }
+
+    // Resume from checkpoint if requested
+    if args.resume {
+        let checkpoint_dir = args
+            .checkpoint_dir
+            .as_ref()
+            .map(|p| p.clone())
+            .unwrap_or_else(|| PathBuf::from("./checkpoints"));
+
+        info!("Attempting to resume from: {}", checkpoint_dir.display());
+
+        // Find latest checkpoint
+        let checkpoint_path = find_latest_checkpoint(&checkpoint_dir);
+
+        match checkpoint_path {
+            Some(path) => {
+                info!("Found checkpoint: {}", path.display());
+                if let Err(e) = runtime.load_checkpoint(&path, args.force_resume) {
+                    error!("Failed to load checkpoint: {}", e);
+                    if !args.force_resume {
+                        error!("Tip: Use --force-resume to skip world IR validation");
+                    }
+                    process::exit(1);
+                }
+                info!("Resumed from tick {}", runtime.tick());
+            }
+            None => {
+                error!("No checkpoint found in: {}", checkpoint_dir.display());
+                error!("Cannot resume - no checkpoint exists");
+                process::exit(1);
+            }
+        }
+    }
+
+    // Prepare lens sink if save directory requested
+    let lens_sink = args.save_dir.as_ref().map(|dir| {
+        let config = FileSinkConfig {
+            output_dir: dir.clone(),
+            seed: 0, // TODO: Get actual seed from scenario or args
+            steps: args.steps,
+            stride: args.stride,
+            field_filter: fields.keys().cloned().collect(),
+        };
+
+        let file_sink = FileSink::new(config).expect("Failed to create file sink");
+
+        // Wrap with FilteredSink to apply stride
+        let sink_config = LensSinkConfig {
+            stride: args.stride,
+            field_filter: fields.keys().cloned().collect(),
+        };
+
+        Box::new(FilteredSink::new(file_sink, sink_config))
+            as Box<dyn continuum_runtime::lens_sink::LensSink>
     });
 
     info!("Running {} steps...", args.steps);
+
+    // Build checkpoint options if checkpoint-dir is specified
+    let checkpoint = args.checkpoint_dir.as_ref().map(|dir| CheckpointOptions {
+        checkpoint_dir: dir.clone(),
+        stride: args.checkpoint_stride,
+        wall_clock_interval: args.checkpoint_interval.map(std::time::Duration::from_secs),
+        keep_last_n: args.keep_checkpoints,
+    });
 
     let report = match run_simulation(
         &mut runtime,
@@ -226,7 +318,8 @@ fn main() {
             steps: args.steps,
             print_signals: true,
             signals: signals.keys().cloned().collect(),
-            snapshot,
+            lens_sink,
+            checkpoint,
         },
     ) {
         Ok(report) => report,
@@ -241,4 +334,38 @@ fn main() {
     }
 
     info!("Simulation complete!");
+}
+
+/// Find the latest checkpoint in a directory.
+///
+/// Looks for 'latest' symlink first, then finds the newest checkpoint by filename.
+fn find_latest_checkpoint(checkpoint_dir: &PathBuf) -> Option<PathBuf> {
+    // Try 'latest' symlink first
+    let latest_link = checkpoint_dir.join("latest");
+    if latest_link.exists() {
+        return Some(latest_link);
+    }
+
+    // Find newest checkpoint by filename
+    let mut checkpoints: Vec<_> = std::fs::read_dir(checkpoint_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .path()
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .map(|ext| ext == "ckpt")
+                .unwrap_or(false)
+        })
+        .collect();
+
+    if checkpoints.is_empty() {
+        return None;
+    }
+
+    // Sort by filename (descending) to get latest
+    checkpoints.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+
+    Some(checkpoints.first()?.path())
 }

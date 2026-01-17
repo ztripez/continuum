@@ -4,9 +4,9 @@ use indexmap::IndexMap;
 
 use continuum_dsl::ast::Span;
 use continuum_foundation::{
-    ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId, MemberId,
-    OperatorId, Path, PrimitiveParamKind, PrimitiveStorageClass, PrimitiveTypeDef, PrimitiveTypeId,
-    SignalId, StratumId, TypeId, Value, primitive_type_by_name,
+    AnalyzerId, ChronicleId, EntityId, EraId, FieldId, FnId, FractureId, ImpulseId, InstanceId,
+    MemberId, OperatorId, Path, PrimitiveParamKind, PrimitiveStorageClass, PrimitiveTypeDef,
+    PrimitiveTypeId, SignalId, StratumId, TypeId, Value, primitive_type_by_name,
 };
 
 // Re-export StratumState from foundation for backwards compatibility
@@ -130,6 +130,11 @@ impl CompiledWorld {
     pub fn types(&self) -> IndexMap<TypeId, CompiledType> {
         self.extract_nodes()
     }
+
+    /// Get all analyzer nodes from the unified node map.
+    pub fn analyzers(&self) -> IndexMap<AnalyzerId, CompiledAnalyzer> {
+        self.extract_nodes()
+    }
 }
 
 /// A compiled stratum definition representing a simulation layer.
@@ -190,6 +195,8 @@ pub struct CompiledSignal {
     pub value_type: ValueType,
     pub uses_dt_raw: bool,
     pub reads: Vec<SignalId>,
+    /// Initial value expression, evaluated once at simulation start.
+    pub initial: Option<CompiledExpr>,
     pub resolve: Option<CompiledExpr>,
     pub warmup: Option<CompiledWarmup>,
     pub assertions: Vec<CompiledAssertion>,
@@ -299,6 +306,59 @@ pub struct CompiledChronicle {
     pub doc: Option<String>,
     pub reads: Vec<SignalId>,
     pub handlers: Vec<CompiledObserveHandler>,
+}
+
+/// A compiled analyzer definition for post-hoc analysis queries.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledAnalyzer {
+    pub file: Option<PathBuf>,
+    pub span: Span,
+    pub id: AnalyzerId,
+    pub doc: Option<String>,
+    pub required_fields: Vec<FieldId>,
+    pub compute: CompiledExpr,
+    pub output_schema: OutputSchema,
+    pub validations: Vec<CompiledValidation>,
+}
+
+/// Output schema for an analyzer's results.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputSchema {
+    pub fields: Vec<OutputField>,
+}
+
+/// A field in an analyzer's output schema.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OutputField {
+    pub name: String,
+    pub value_type: ValueType,
+    pub nested: Option<Box<OutputSchema>>,
+}
+
+/// A validation check within an analyzer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompiledValidation {
+    pub condition: CompiledExpr,
+    pub severity: ValidationSeverity,
+    pub message: Option<String>,
+}
+
+/// The severity level of a validation check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ValidationSeverity {
+    Error,
+    Warning,
+    Info,
+}
+
+impl std::fmt::Display for ValidationSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ValidationSeverity::Error => write!(f, "error"),
+            ValidationSeverity::Warning => write!(f, "warning"),
+            ValidationSeverity::Info => write!(f, "info"),
+        }
+    }
 }
 
 /// A compiled custom type definition.
@@ -867,6 +927,7 @@ impl ExtractFromNode for CompiledSignal {
                 value_type: props.value_type.clone(),
                 uses_dt_raw: props.uses_dt_raw,
                 reads: node.reads.clone(),
+                initial: props.initial.clone(),
                 resolve: props.resolve.clone(),
                 warmup: props.warmup.clone(),
                 assertions: props.assertions.clone(),
@@ -1080,6 +1141,27 @@ impl ExtractFromNode for CompiledChronicle {
                 doc: props.doc.clone(),
                 reads: node.reads.clone(),
                 handlers: props.handlers.clone(),
+            })
+        } else {
+            None
+        }
+    }
+}
+
+impl ExtractFromNode for CompiledAnalyzer {
+    type Id = AnalyzerId;
+
+    fn try_extract(path: &Path, node: &crate::unified_nodes::CompiledNode) -> Option<Self> {
+        if let crate::unified_nodes::NodeKind::Analyzer(props) = &node.kind {
+            Some(CompiledAnalyzer {
+                file: node.file.clone(),
+                span: node.span.clone(),
+                id: AnalyzerId::from(path.clone()),
+                doc: props.doc.clone(),
+                required_fields: props.required_fields.clone(),
+                compute: props.compute.clone(),
+                output_schema: props.output_schema.clone(),
+                validations: props.validations.clone(),
             })
         } else {
             None

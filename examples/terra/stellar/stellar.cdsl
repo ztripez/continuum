@@ -58,6 +58,7 @@ config {
     stellar.default_spot_amplitude: 0.001
     stellar.default_activity_cycle_years: 11.0
     stellar.default_flare_rate_per_day: 0.0
+    stellar.default_variability_factor: 1.0
 
     # Counts (overridden by scenario)
     stellar.star_count: 1
@@ -291,12 +292,15 @@ member stellar.star.flare_rate {
 
 member stellar.star.variability_factor {
     : Scalar<1, 0.5..2.0>
-    : strata(stellar.activity)
+    : strata(stellar.orbit)  # Must be in orbit stratum so it's computed before luminosity
     : title("Luminosity Variability Factor")
     : symbol("f_var")
 
+    initial { config.stellar.default_variability_factor }
+
     resolve {
         # Rotational modulation (starspots)
+        # At geological timescales this averages out, but we keep it for completeness
         let rot_phase = sim.time / (self.rotation_period * 86400.0) in
         let spot_mod = 1.0 - self.spot_amplitude * maths.sin(TAU * rot_phase) in
 
@@ -548,14 +552,22 @@ member stellar.moon.tidal_heating {
 # =============================================================================
 
 # Total insolation from all stars
+# NOTE: Using constant value as workaround for entity member initialization issue
+# TODO: Fix entity member initial value propagation (continuum-wpqp)
 signal stellar.total_insolation {
     : Scalar<W/m², 0..1e6>
     : strata(stellar.orbit)
     : title("Total Stellar Insolation")
     : symbol("F_total")
 
+    config {
+        # Solar constant at 1 AU
+        solar_constant: 1361.0
+    }
+
     resolve {
-        agg.sum(entity.stellar.star, self.flux)
+        # Temporarily use constant until entity initialization is fixed
+        config.stellar.total_insolation.solar_constant
     }
 }
 
@@ -611,7 +623,7 @@ signal stellar.moon_count {
 # Primary star variability (convenience signal for atmosphere coupling)
 signal stellar.primary_variability_factor {
     : Scalar<1, 0.5..2.0>
-    : strata(stellar.activity)
+    : strata(stellar.orbit)  # Same stratum as the member it reads
     : title("Primary Star Variability")
     : symbol("f_var_0")
 

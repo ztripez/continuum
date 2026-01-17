@@ -35,6 +35,7 @@
 //! - [`EntityDef`](crate::ast::EntityDef) - `entity.name { ... }` index spaces
 //! - [`MemberDef`](crate::ast::MemberDef) - `member.entity.field { ... }` per-entity state
 
+mod analyzer;
 mod common;
 mod config;
 mod entity;
@@ -53,6 +54,7 @@ use super::primitives::doc_comment;
 use super::{ParseError, ParserInput};
 
 // Re-export public parsers
+pub use analyzer::analyzer_def;
 pub use config::{config_block, const_block};
 pub use entity::entity_def;
 pub use events::{chronicle_def, fracture_def, impulse_def};
@@ -118,6 +120,10 @@ pub fn item<'src>() -> impl Parser<'src, ParserInput<'src>, Item, extra::Err<Par
         doc_comment().then(member_def()).map(|(doc, mut def)| {
             def.doc = doc;
             Item::MemberDef(def)
+        }),
+        doc_comment().then(analyzer_def()).map(|(doc, mut def)| {
+            def.doc = doc;
+            Item::AnalyzerDef(def)
         }),
     ))
 }
