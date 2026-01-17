@@ -50,13 +50,15 @@
 //! # Examples
 //!
 //! ```rust,ignore
+//! use continuum_foundation::Value;
+//!
 //! // Context for Resolve phase with full capabilities
 //! struct ResolveContext {
 //!     scoping: ScopingData,
 //!     signals: SignalData,
 //!     prev: Value,
-//!     inputs: f64,
-//!     dt: f64,
+//!     inputs: Value,
+//!     dt: Value,
 //! }
 //!
 //! impl HasScoping for ResolveContext { /* ... */ }
@@ -66,8 +68,12 @@
 //! impl HasDt for ResolveContext { /* ... */ }
 //!
 //! // Generic function that works with any context providing dt
-//! fn time_integrate<C: HasDt>(ctx: &C, value: f64) -> f64 {
-//!     value * ctx.dt()
+//! fn time_integrate<C: HasDt>(ctx: &C, rate: f64) -> Value {
+//!     if let Value::Scalar(dt) = ctx.dt() {
+//!         Value::Scalar(rate * dt)
+//!     } else {
+//!         panic!("dt must be scalar")
+//!     }
 //! }
 //! ```
 
@@ -94,6 +100,14 @@ pub trait HasScoping {
     /// Config values are runtime-configurable parameters that can be set
     /// per scenario or run.
     ///
+    /// # Parameters
+    ///
+    /// * `path` - Hierarchical path to the config symbol
+    ///
+    /// # Returns
+    ///
+    /// Reference to the config value
+    ///
     /// # Panics
     ///
     /// Panics if `path` does not refer to a valid config symbol. Invalid paths
@@ -103,6 +117,14 @@ pub trait HasScoping {
     /// Look up a constant value by path
     ///
     /// Constants are compile-time values that cannot change during execution.
+    ///
+    /// # Parameters
+    ///
+    /// * `path` - Hierarchical path to the constant symbol
+    ///
+    /// # Returns
+    ///
+    /// Reference to the constant value
     ///
     /// # Panics
     ///
@@ -131,6 +153,15 @@ pub trait HasSignals {
     ///
     /// Returns the signal value appropriate for the current phase.
     ///
+    /// # Parameters
+    ///
+    /// * `path` - Hierarchical path to the signal
+    ///
+    /// # Returns
+    ///
+    /// Reference to the signal value. The specific value depends on the current
+    /// phase (previous tick in Collect, current tick in Measure/Assert).
+    ///
     /// # Panics
     ///
     /// Panics if `path` does not refer to a valid signal. Invalid paths indicate
@@ -146,6 +177,10 @@ pub trait HasPrev {
     /// Get the previous tick value
     ///
     /// This is the value this node produced last tick.
+    ///
+    /// # Returns
+    ///
+    /// Reference to the previous tick's value
     fn prev(&self) -> &Value;
 }
 
@@ -157,6 +192,10 @@ pub trait HasCurrent {
     /// Get the current tick value
     ///
     /// This is the value this node produced this tick.
+    ///
+    /// # Returns
+    ///
+    /// Reference to the current tick's value
     fn current(&self) -> &Value;
 }
 
@@ -169,6 +208,10 @@ pub trait HasInputs {
     ///
     /// This is the sum of all `emit()` calls targeting this signal during
     /// the Collect phase.
+    ///
+    /// # Returns
+    ///
+    /// Reference to the accumulated input value
     fn inputs(&self) -> &Value;
 }
 
@@ -180,6 +223,10 @@ pub trait HasDt {
     /// Get the time step for this tick
     ///
     /// Returns dt in world time units as a scalar Value.
+    ///
+    /// # Returns
+    ///
+    /// Reference to the time step value (typically Value::Scalar)
     fn dt(&self) -> &Value;
 }
 
@@ -191,6 +238,10 @@ pub trait HasPayload {
     /// Get the impulse payload value
     ///
     /// Returns the payload sent with this impulse event.
+    ///
+    /// # Returns
+    ///
+    /// Reference to the impulse payload value
     fn payload(&self) -> &Value;
 }
 
@@ -210,6 +261,11 @@ pub trait CanEmit {
     ///
     /// Accumulates the value into the target signal's inputs. The signal will
     /// resolve these inputs during the Resolve phase.
+    ///
+    /// # Parameters
+    ///
+    /// * `target` - Hierarchical path to the signal receiving the value
+    /// * `value` - Value to emit (owned, will be accumulated)
     ///
     /// # Panics
     ///
@@ -240,6 +296,14 @@ pub trait HasIndex {
     /// Returns the value of another member on the same entity instance.
     /// For example, inside a `plate.force` operator, `self_field("velocity")`
     /// would return `plate.velocity` for the current plate instance.
+    ///
+    /// # Parameters
+    ///
+    /// * `name` - Field name (member name within the current entity)
+    ///
+    /// # Returns
+    ///
+    /// Reference to the field value on the current entity instance
     ///
     /// # Panics
     ///
@@ -282,18 +346,30 @@ mod tests {
     }
 
     impl HasScoping for MockResolveContext {
-        fn config(&self, _path: &Path) -> &Value {
-            &self.config
+        fn config(&self, path: &Path) -> &Value {
+            if path == &Path::from_str("test") {
+                &self.config
+            } else {
+                panic!("MockResolveContext: unknown config path: {}", path)
+            }
         }
 
-        fn constant(&self, _path: &Path) -> &Value {
-            &self.constant
+        fn constant(&self, path: &Path) -> &Value {
+            if path == &Path::from_str("test") {
+                &self.constant
+            } else {
+                panic!("MockResolveContext: unknown constant path: {}", path)
+            }
         }
     }
 
     impl HasSignals for MockResolveContext {
-        fn signal(&self, _path: &Path) -> &Value {
-            &self.signal
+        fn signal(&self, path: &Path) -> &Value {
+            if path == &Path::from_str("test") {
+                &self.signal
+            } else {
+                panic!("MockResolveContext: unknown signal path: {}", path)
+            }
         }
     }
 
@@ -546,15 +622,6 @@ mod tests {
             // Function that requires full Resolve phase capabilities
         }
 
-        // Compile-time test: this function's existence proves that the
-        // Collect phase capability combination is valid. Not called at runtime.
-        #[allow(dead_code)]
-        fn needs_collect_capabilities<C: HasScoping + HasSignals + HasDt + HasPayload + CanEmit>(
-            _ctx: &mut C,
-        ) {
-            // Function that requires Collect phase capabilities
-        }
-
         let ctx = MockResolveContext {
             dt: Value::Scalar(0.016),
             prev: Value::Scalar(5.0),
@@ -567,8 +634,8 @@ mod tests {
         // Should compile with matching capabilities
         needs_resolve_capabilities(&ctx);
 
-        // Demonstrate compile-time capability enforcement:
-        // The following would NOT compile (uncomment to verify):
-        // needs_collect_capabilities(&mut ctx);  // Error: MockResolveContext doesn't implement HasPayload or CanEmit
+        // Capability enforcement is compile-time:
+        // A function requiring Collect capabilities (HasPayload + CanEmit)
+        // would NOT accept MockResolveContext (it only has Resolve capabilities)
     }
 }

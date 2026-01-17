@@ -14,6 +14,13 @@
 //! - **Validated**: Errors (validation_errors) - after validation pass
 //! - **Compiled**: Execution (executions, reads) - after compilation
 //!
+//! # What is Node<I>?
+//!
+//! `Node<I>` is the unified structure for all DSL primitives (signals, fields,
+//! operators, etc.). The generic parameter `I` specifies where the node lives:
+//! - `Node<()>` - Global primitive (e.g., world-level signal)
+//! - `Node<EntityId>` - Per-entity primitive (e.g., `plate.velocity`)
+//!
 //! **Traits are read-only.** Mutation happens on the concrete Node<I> struct.
 //! Pipeline functions take `&mut Node<I>`.
 //!
@@ -45,9 +52,18 @@ use crate::foundation::{Path, Span, Type};
 /// This is the base of the pipeline trait hierarchy.
 pub trait Named {
     /// Get the hierarchical path to this node
+    ///
+    /// # Returns
+    ///
+    /// Reference to the node's hierarchical path (e.g., "world.temperature").
     fn path(&self) -> &Path;
 
     /// Get the source location for error messages
+    ///
+    /// # Returns
+    ///
+    /// Source span indicating file, line, and column range where this node
+    /// was defined.
     fn span(&self) -> Span;
 }
 
@@ -59,12 +75,22 @@ pub trait Parsed: Named {
     /// Get the type expression from source (if present)
     ///
     /// This will be `None` after type resolution consumes it.
+    ///
+    /// # Returns
+    ///
+    /// `Some(&TypeExpr)` if the node has an unresolved type expression from source,
+    /// `None` after type resolution completes (type expression is consumed).
     fn type_expr(&self) -> Option<&TypeExpr>;
 
     /// Get the execution expressions from source
     ///
     /// Map from phase name to expression. These will be cleared after
     /// compilation transforms them into typed Execution structs.
+    ///
+    /// # Returns
+    ///
+    /// Slice of (phase_name, expression) pairs from source. Empty after
+    /// compilation consumes them.
     fn execution_exprs(&self) -> &[(String, Expr)];
 }
 
@@ -75,6 +101,11 @@ pub trait Resolved: Parsed {
     /// Get the output type (what this node produces)
     ///
     /// Returns `None` if type resolution hasn't completed yet.
+    ///
+    /// # Returns
+    ///
+    /// `Some(&Type)` if type resolution completed successfully, `None` if
+    /// the node hasn't been type-resolved yet.
     fn output(&self) -> Option<&Type>;
 
     /// Get the named input types (what this node receives)
@@ -84,6 +115,11 @@ pub trait Resolved: Parsed {
     /// For impulses, these are payload fields.
     ///
     /// Returns empty slice before type resolution completes.
+    ///
+    /// # Returns
+    ///
+    /// Slice of (name, type) pairs representing named inputs to this node.
+    /// Empty before type resolution.
     fn inputs(&self) -> &[(String, Type)];
 }
 
@@ -94,6 +130,10 @@ pub trait Validated: Resolved {
     /// Get validation errors found during semantic analysis
     ///
     /// Returns empty slice if no errors were found.
+    ///
+    /// # Returns
+    ///
+    /// Slice of validation errors. Empty if validation passed without errors.
     fn validation_errors(&self) -> &[ValidationError];
 }
 
@@ -104,11 +144,21 @@ pub trait Compiled: Validated {
     /// Get the compiled execution blocks
     ///
     /// Each execution has a phase, body, and metadata.
+    ///
+    /// # Returns
+    ///
+    /// Slice of compiled execution blocks for different phases. Empty before
+    /// compilation.
     fn executions(&self) -> &[Execution];
 
     /// Get the dependency paths (what this node reads from)
     ///
     /// Used for DAG construction to determine execution order.
+    ///
+    /// # Returns
+    ///
+    /// Slice of paths to nodes this node depends on (reads from). Used for
+    /// DAG construction. Empty before compilation.
     fn reads(&self) -> &[Path];
 }
 
