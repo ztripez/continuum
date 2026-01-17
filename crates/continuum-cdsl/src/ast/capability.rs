@@ -13,6 +13,19 @@
 //! **Capabilities are NOT a hierarchy.** They are independent traits that can
 //! be mixed and matched.
 //!
+//! # Value Types
+//!
+//! All capability traits use `continuum_foundation::Value` for runtime values
+//! instead of primitive types like `f64`. This preserves type information
+//! through the execution pipeline and supports:
+//! - Scalars, booleans, integers
+//! - Vectors (Vec2, Vec3, Vec4) and quaternions
+//! - Matrices (Mat2, Mat3, Mat4)
+//! - Tensors and structured maps
+//!
+//! This design allows the DSL to support rich typed data while maintaining
+//! compile-time type safety through the Type system.
+//!
 //! # Phase Capabilities
 //!
 //! Different phases provide different subsets of capabilities:
@@ -59,6 +72,7 @@
 //! ```
 
 use crate::foundation::Path;
+use continuum_foundation::Value;
 
 /// Access to config values and constants
 ///
@@ -84,7 +98,7 @@ pub trait HasScoping {
     ///
     /// Panics if `path` does not refer to a valid config symbol. Invalid paths
     /// indicate a compiler bug - name resolution should have validated all paths.
-    fn config(&self, path: &Path) -> f64;
+    fn config(&self, path: &Path) -> &Value;
 
     /// Look up a constant value by path
     ///
@@ -94,7 +108,7 @@ pub trait HasScoping {
     ///
     /// Panics if `path` does not refer to a valid constant symbol. Invalid paths
     /// indicate a compiler bug - name resolution should have validated all paths.
-    fn constant(&self, path: &Path) -> f64;
+    fn constant(&self, path: &Path) -> &Value;
 }
 
 /// Access to resolved signal values
@@ -121,7 +135,7 @@ pub trait HasSignals {
     ///
     /// Panics if `path` does not refer to a valid signal. Invalid paths indicate
     /// a compiler bug - name resolution should have validated all signal references.
-    fn signal(&self, path: &Path) -> f64;
+    fn signal(&self, path: &Path) -> &Value;
 }
 
 /// Access to previous tick value
@@ -132,7 +146,7 @@ pub trait HasPrev {
     /// Get the previous tick value
     ///
     /// This is the value this node produced last tick.
-    fn prev(&self) -> f64;
+    fn prev(&self) -> &Value;
 }
 
 /// Access to current tick value
@@ -143,7 +157,7 @@ pub trait HasCurrent {
     /// Get the current tick value
     ///
     /// This is the value this node produced this tick.
-    fn current(&self) -> f64;
+    fn current(&self) -> &Value;
 }
 
 /// Access to accumulated inputs
@@ -155,7 +169,7 @@ pub trait HasInputs {
     ///
     /// This is the sum of all `emit()` calls targeting this signal during
     /// the Collect phase.
-    fn inputs(&self) -> f64;
+    fn inputs(&self) -> &Value;
 }
 
 /// Access to delta time
@@ -165,8 +179,8 @@ pub trait HasInputs {
 pub trait HasDt {
     /// Get the time step for this tick
     ///
-    /// Returns dt in world time units.
-    fn dt(&self) -> f64;
+    /// Returns dt in world time units as a scalar Value.
+    fn dt(&self) -> &Value;
 }
 
 /// Access to impulse payload
@@ -177,7 +191,7 @@ pub trait HasPayload {
     /// Get the impulse payload value
     ///
     /// Returns the payload sent with this impulse event.
-    fn payload(&self) -> f64;
+    fn payload(&self) -> &Value;
 }
 
 /// Ability to emit values to signals
@@ -202,7 +216,7 @@ pub trait CanEmit {
     /// Panics if `target` does not refer to a valid signal. Invalid targets
     /// indicate a compiler bug - name resolution should have validated all
     /// emit targets.
-    fn emit(&mut self, target: &Path, value: f64);
+    fn emit(&mut self, target: &Path, value: Value);
 }
 
 /// Access to entity-specific fields (per-entity index)
@@ -232,7 +246,7 @@ pub trait HasIndex {
     /// Panics if `name` does not refer to a valid member of the current entity.
     /// Invalid names indicate a compiler bug - name resolution should have
     /// validated all member access.
-    fn self_field(&self, name: &str) -> f64;
+    fn self_field(&self, name: &str) -> &Value;
 }
 
 #[cfg(test)]
@@ -241,165 +255,191 @@ mod tests {
 
     // Mock context for testing capability composition
     struct MockResolveContext {
-        dt: f64,
-        prev: f64,
-        inputs: f64,
+        dt: Value,
+        prev: Value,
+        inputs: Value,
+        config: Value,
+        constant: Value,
+        signal: Value,
     }
 
     impl HasDt for MockResolveContext {
-        fn dt(&self) -> f64 {
-            self.dt
+        fn dt(&self) -> &Value {
+            &self.dt
         }
     }
 
     impl HasPrev for MockResolveContext {
-        fn prev(&self) -> f64 {
-            self.prev
+        fn prev(&self) -> &Value {
+            &self.prev
         }
     }
 
     impl HasInputs for MockResolveContext {
-        fn inputs(&self) -> f64 {
-            self.inputs
+        fn inputs(&self) -> &Value {
+            &self.inputs
         }
     }
 
     impl HasScoping for MockResolveContext {
-        fn config(&self, _path: &Path) -> f64 {
-            1.0 // Mock value
+        fn config(&self, _path: &Path) -> &Value {
+            &self.config
         }
 
-        fn constant(&self, _path: &Path) -> f64 {
-            2.0 // Mock value
+        fn constant(&self, _path: &Path) -> &Value {
+            &self.constant
         }
     }
 
     impl HasSignals for MockResolveContext {
-        fn signal(&self, _path: &Path) -> f64 {
-            3.0 // Mock value
+        fn signal(&self, _path: &Path) -> &Value {
+            &self.signal
         }
     }
 
     #[test]
     fn test_has_scoping_trait() {
-        struct TestContext;
+        struct TestContext {
+            config_val: Value,
+            const_val: Value,
+        }
         impl HasScoping for TestContext {
-            fn config(&self, _path: &Path) -> f64 {
-                42.0
+            fn config(&self, _path: &Path) -> &Value {
+                &self.config_val
             }
-            fn constant(&self, _path: &Path) -> f64 {
-                100.0
+            fn constant(&self, _path: &Path) -> &Value {
+                &self.const_val
             }
         }
 
-        let ctx = TestContext;
+        let ctx = TestContext {
+            config_val: Value::Scalar(42.0),
+            const_val: Value::Scalar(100.0),
+        };
         let path = Path::from_str("test.value");
-        assert_eq!(ctx.config(&path), 42.0);
-        assert_eq!(ctx.constant(&path), 100.0);
+        assert_eq!(ctx.config(&path), &Value::Scalar(42.0));
+        assert_eq!(ctx.constant(&path), &Value::Scalar(100.0));
     }
 
     #[test]
     fn test_has_signals_trait() {
-        struct TestContext;
+        struct TestContext {
+            temperature: Value,
+        }
         impl HasSignals for TestContext {
-            fn signal(&self, path: &Path) -> f64 {
+            fn signal(&self, path: &Path) -> &Value {
                 // In a real implementation, unknown paths would panic
                 // This test implementation only supports one known path
                 if path == &Path::from_str("world.temperature") {
-                    300.0
+                    &self.temperature
                 } else {
                     panic!("Unknown signal path: {}", path)
                 }
             }
         }
 
-        let ctx = TestContext;
-        assert_eq!(ctx.signal(&Path::from_str("world.temperature")), 300.0);
+        let ctx = TestContext {
+            temperature: Value::Scalar(300.0),
+        };
+        assert_eq!(
+            ctx.signal(&Path::from_str("world.temperature")),
+            &Value::Scalar(300.0)
+        );
         // Accessing unknown signal would panic (as documented)
     }
 
     #[test]
     fn test_has_prev_trait() {
         struct TestContext {
-            value: f64,
+            value: Value,
         }
         impl HasPrev for TestContext {
-            fn prev(&self) -> f64 {
-                self.value
+            fn prev(&self) -> &Value {
+                &self.value
             }
         }
 
-        let ctx = TestContext { value: 10.5 };
-        assert_eq!(ctx.prev(), 10.5);
+        let ctx = TestContext {
+            value: Value::Scalar(10.5),
+        };
+        assert_eq!(ctx.prev(), &Value::Scalar(10.5));
     }
 
     #[test]
     fn test_has_current_trait() {
         struct TestContext {
-            value: f64,
+            value: Value,
         }
         impl HasCurrent for TestContext {
-            fn current(&self) -> f64 {
-                self.value
+            fn current(&self) -> &Value {
+                &self.value
             }
         }
 
-        let ctx = TestContext { value: 20.5 };
-        assert_eq!(ctx.current(), 20.5);
+        let ctx = TestContext {
+            value: Value::Scalar(20.5),
+        };
+        assert_eq!(ctx.current(), &Value::Scalar(20.5));
     }
 
     #[test]
     fn test_has_inputs_trait() {
         struct TestContext {
-            accumulated: f64,
+            accumulated: Value,
         }
         impl HasInputs for TestContext {
-            fn inputs(&self) -> f64 {
-                self.accumulated
+            fn inputs(&self) -> &Value {
+                &self.accumulated
             }
         }
 
-        let ctx = TestContext { accumulated: 15.0 };
-        assert_eq!(ctx.inputs(), 15.0);
+        let ctx = TestContext {
+            accumulated: Value::Scalar(15.0),
+        };
+        assert_eq!(ctx.inputs(), &Value::Scalar(15.0));
     }
 
     #[test]
     fn test_has_dt_trait() {
         struct TestContext {
-            time_step: f64,
+            time_step: Value,
         }
         impl HasDt for TestContext {
-            fn dt(&self) -> f64 {
-                self.time_step
+            fn dt(&self) -> &Value {
+                &self.time_step
             }
         }
 
-        let ctx = TestContext { time_step: 0.016 };
-        assert_eq!(ctx.dt(), 0.016);
+        let ctx = TestContext {
+            time_step: Value::Scalar(0.016),
+        };
+        assert_eq!(ctx.dt(), &Value::Scalar(0.016));
     }
 
     #[test]
     fn test_has_payload_trait() {
         struct TestContext {
-            data: f64,
+            data: Value,
         }
         impl HasPayload for TestContext {
-            fn payload(&self) -> f64 {
-                self.data
+            fn payload(&self) -> &Value {
+                &self.data
             }
         }
 
-        let ctx = TestContext { data: 99.9 };
-        assert_eq!(ctx.payload(), 99.9);
+        let ctx = TestContext {
+            data: Value::Scalar(99.9),
+        };
+        assert_eq!(ctx.payload(), &Value::Scalar(99.9));
     }
 
     #[test]
     fn test_can_emit_trait() {
         struct TestContext {
-            emissions: Vec<(Path, f64)>,
+            emissions: Vec<(Path, Value)>,
         }
         impl CanEmit for TestContext {
-            fn emit(&mut self, target: &Path, value: f64) {
+            fn emit(&mut self, target: &Path, value: Value) {
                 self.emissions.push((target.clone(), value));
             }
         }
@@ -410,68 +450,87 @@ mod tests {
         let target1 = Path::from_str("signal.a");
         let target2 = Path::from_str("signal.b");
 
-        ctx.emit(&target1, 10.0);
-        ctx.emit(&target2, 20.0);
+        ctx.emit(&target1, Value::Scalar(10.0));
+        ctx.emit(&target2, Value::Scalar(20.0));
 
         assert_eq!(ctx.emissions.len(), 2);
         assert_eq!(ctx.emissions[0].0, target1);
-        assert_eq!(ctx.emissions[0].1, 10.0);
+        assert_eq!(ctx.emissions[0].1, Value::Scalar(10.0));
         assert_eq!(ctx.emissions[1].0, target2);
-        assert_eq!(ctx.emissions[1].1, 20.0);
+        assert_eq!(ctx.emissions[1].1, Value::Scalar(20.0));
     }
 
     #[test]
     fn test_has_index_trait() {
-        struct TestContext;
+        struct TestContext {
+            velocity: Value,
+            mass: Value,
+        }
         impl HasIndex for TestContext {
-            fn self_field(&self, name: &str) -> f64 {
+            fn self_field(&self, name: &str) -> &Value {
                 match name {
-                    "velocity" => 5.0,
-                    "mass" => 1000.0,
-                    _ => 0.0,
+                    "velocity" => &self.velocity,
+                    "mass" => &self.mass,
+                    _ => panic!("Unknown field: {}", name),
                 }
             }
         }
 
-        let ctx = TestContext;
-        assert_eq!(ctx.self_field("velocity"), 5.0);
-        assert_eq!(ctx.self_field("mass"), 1000.0);
-        assert_eq!(ctx.self_field("unknown"), 0.0);
+        let ctx = TestContext {
+            velocity: Value::Scalar(5.0),
+            mass: Value::Scalar(1000.0),
+        };
+        assert_eq!(ctx.self_field("velocity"), &Value::Scalar(5.0));
+        assert_eq!(ctx.self_field("mass"), &Value::Scalar(1000.0));
+        // Accessing unknown field would panic (as documented)
     }
 
     #[test]
     fn test_capability_composition() {
         let ctx = MockResolveContext {
-            dt: 0.016,
-            prev: 5.0,
-            inputs: 2.0,
+            dt: Value::Scalar(0.016),
+            prev: Value::Scalar(5.0),
+            inputs: Value::Scalar(2.0),
+            config: Value::Scalar(1.0),
+            constant: Value::Scalar(2.0),
+            signal: Value::Scalar(3.0),
         };
 
         // Context implements multiple orthogonal capabilities
-        assert_eq!(ctx.dt(), 0.016);
-        assert_eq!(ctx.prev(), 5.0);
-        assert_eq!(ctx.inputs(), 2.0);
-        assert_eq!(ctx.config(&Path::from_str("test")), 1.0);
-        assert_eq!(ctx.constant(&Path::from_str("test")), 2.0);
-        assert_eq!(ctx.signal(&Path::from_str("test")), 3.0);
+        assert_eq!(ctx.dt(), &Value::Scalar(0.016));
+        assert_eq!(ctx.prev(), &Value::Scalar(5.0));
+        assert_eq!(ctx.inputs(), &Value::Scalar(2.0));
+        assert_eq!(ctx.config(&Path::from_str("test")), &Value::Scalar(1.0));
+        assert_eq!(ctx.constant(&Path::from_str("test")), &Value::Scalar(2.0));
+        assert_eq!(ctx.signal(&Path::from_str("test")), &Value::Scalar(3.0));
     }
 
     #[test]
     fn test_generic_functions_with_capabilities() {
         // Generic function using HasDt
         fn time_integrate<C: HasDt>(ctx: &C, rate: f64) -> f64 {
-            rate * ctx.dt()
+            if let Value::Scalar(dt) = ctx.dt() {
+                rate * dt
+            } else {
+                panic!("dt must be scalar")
+            }
         }
 
         // Generic function using HasPrev and HasInputs
         fn compute_delta<C: HasPrev + HasInputs>(ctx: &C) -> f64 {
-            ctx.inputs() - ctx.prev()
+            match (ctx.inputs(), ctx.prev()) {
+                (Value::Scalar(i), Value::Scalar(p)) => i - p,
+                _ => panic!("inputs and prev must be scalar"),
+            }
         }
 
         let ctx = MockResolveContext {
-            dt: 0.1,
-            prev: 10.0,
-            inputs: 12.0,
+            dt: Value::Scalar(0.1),
+            prev: Value::Scalar(10.0),
+            inputs: Value::Scalar(12.0),
+            config: Value::Scalar(1.0),
+            constant: Value::Scalar(2.0),
+            signal: Value::Scalar(3.0),
         };
 
         assert_eq!(time_integrate(&ctx, 5.0), 0.5);
@@ -497,9 +556,12 @@ mod tests {
         }
 
         let ctx = MockResolveContext {
-            dt: 0.016,
-            prev: 5.0,
-            inputs: 2.0,
+            dt: Value::Scalar(0.016),
+            prev: Value::Scalar(5.0),
+            inputs: Value::Scalar(2.0),
+            config: Value::Scalar(1.0),
+            constant: Value::Scalar(2.0),
+            signal: Value::Scalar(3.0),
         };
 
         // Should compile with matching capabilities
