@@ -11,6 +11,7 @@ use continuum_kernel_registry::{VRegBuffer, VectorizedResult, eval_in_namespace}
 /// Default uses Euler method
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar],
     unit_in = [UnitAny, UnitAny],
@@ -26,6 +27,7 @@ pub fn integrate(prev: f64, rate: f64, dt: Dt) -> f64 {
 /// Explicit Euler method (same as default integrate)
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar],
     unit_in = [UnitAny, UnitAny],
@@ -41,6 +43,7 @@ pub fn integrate_euler(prev: f64, rate: f64, dt: Dt) -> f64 {
 /// Note: This is a simplified RK4 that assumes constant rate over dt
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar],
     unit_in = [UnitAny, UnitAny],
@@ -58,6 +61,7 @@ pub fn integrate_rk4(prev: f64, rate: f64, dt: Dt) -> f64 {
 /// Note: This is simplified for single-variable case
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar],
     unit_in = [UnitAny, UnitAny],
@@ -73,6 +77,7 @@ pub fn integrate_verlet(prev: f64, rate: f64, dt: Dt) -> f64 {
 /// Exponential decay: `decay(value, halflife)` → `value * 0.5^(dt/halflife)`
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar],
     unit_in = [UnitAny, UnitAny],
@@ -87,6 +92,7 @@ pub fn decay(value: f64, halflife: f64, dt: Dt) -> f64 {
 /// Exponential relaxation: `relax(current, target, tau)` → approaches target
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, SameAs(0), AnyScalar],
     unit_in = [UnitAny, UnitSameAs(0), UnitAny],
@@ -100,9 +106,12 @@ pub fn relax(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
 }
 
 /// Exponential relaxation: `relax_to(current, target, tau)` → approaches target
-/// Alias for `relax`
+/// Alias for relax with inverse time constant tau (time constant instead of rate)
+/// Commonly used form: tau is the "time to reach ~63% of target"
 #[kernel_fn(
+    name = "relax_to",
     namespace = "dt",
+    category = "math",
     purity = Pure,
     shape_in = [AnyScalar, SameAs(0), AnyScalar],
     unit_in = [UnitAny, UnitSameAs(0), UnitAny],
@@ -117,6 +126,7 @@ pub fn relax_to(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
 /// Same as relax - exponential approach to target value
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, SameAs(0), AnyScalar],
     unit_in = [UnitAny, UnitSameAs(0), UnitAny],
@@ -131,6 +141,7 @@ pub fn smooth(current: f64, target: f64, tau: f64, dt: Dt) -> f64 {
 /// Bounded accumulation: `accumulate(prev, delta, min, max)` → clamps accumulated value
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar, SameAs(0), SameAs(0)],
     unit_in = [UnitAny, UnitAny, UnitSameAs(0), UnitSameAs(0)],
@@ -145,6 +156,7 @@ pub fn accumulate(prev: f64, delta: f64, min: f64, max: f64, dt: Dt) -> f64 {
 /// Phase advancement: `advance_phase(phase, omega)` → wraps phase in [0, 2π)
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar],
     unit_in = [UnitAny, UnitAny],
@@ -176,6 +188,7 @@ pub fn advance_phase(phase: f64, omega: f64, dt: Dt) -> f64 {
 /// Note: This is a simplified damping model. Full spring-damper systems need more context.
 #[kernel_fn(
     namespace = "dt",
+    category = "simulation",
     purity = Pure,
     shape_in = [AnyScalar, AnyScalar],
     unit_in = [UnitAny, UnitAny],
