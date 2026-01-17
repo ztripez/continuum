@@ -6,19 +6,40 @@ use continuum_foundation::Value;
 use continuum_kernel_macros::kernel_fn;
 
 /// Construct a 2D vector: `vec2(x, y)`
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn vec2(x: f64, y: f64) -> [f64; 2] {
     [x, y]
 }
 
 /// Construct a 3D vector: `vec3(x, y, z)`
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn vec3(x: f64, y: f64, z: f64) -> [f64; 3] {
     [x, y, z]
 }
 
 /// Construct a 4D vector: `vec4(x, y, z, w)`
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [AnyScalar, AnyScalar, AnyScalar, AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0), UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn vec4(x: f64, y: f64, z: f64, w: f64) -> [f64; 4] {
     [x, y, z, w]
 }
@@ -151,7 +172,14 @@ pub fn dot(args: &[Value]) -> f64 {
 }
 
 /// Cross product (Vec3 only): `cross(a, b)` -> Vec3
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = Multiply([0, 1])
+)]
 pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     [
         a[1] * b[2] - a[2] * b[1],
@@ -162,7 +190,14 @@ pub fn cross(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
 
 /// Reflect vector v around normal n: `reflect(v, n)`
 /// Normal n is assumed to be normalized (unit vector)
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitDimensionless],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn reflect(v: [f64; 3], n: [f64; 3]) -> [f64; 3] {
     let d = 2.0 * (v[0] * n[0] + v[1] * n[1] + v[2] * n[2]);
     [v[0] - d * n[0], v[1] - d * n[1], v[2] - d * n[2]]
@@ -170,7 +205,14 @@ pub fn reflect(v: [f64; 3], n: [f64; 3]) -> [f64; 3] {
 
 /// Project a onto b: `project(a, onto)`
 /// Returns the projection of vector a onto vector b
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn project(a: [f64; 3], onto: [f64; 3]) -> [f64; 3] {
     let dot_ab = a[0] * onto[0] + a[1] * onto[1] + a[2] * onto[2];
     let dot_bb = onto[0] * onto[0] + onto[1] * onto[1] + onto[2] * onto[2];
@@ -182,37 +224,79 @@ pub fn project(a: [f64; 3], onto: [f64; 3]) -> [f64; 3] {
 }
 
 /// Distance between two 2D vectors: `distance(a, b)`
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2)), VectorDim(DimExact(2))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn distance_vec2(a: [f64; 2], b: [f64; 2]) -> f64 {
     continuum_foundation::vector_ops::distance_vec2(a, b)
 }
 
 /// Distance between two 3D vectors: `distance(a, b)`
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn distance_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
     continuum_foundation::vector_ops::distance_vec3(a, b)
 }
 
 /// Distance between two 4D vectors: `distance(a, b)`
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4)), VectorDim(DimExact(4))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn distance_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
     continuum_foundation::vector_ops::distance_vec4(a, b)
 }
 
 /// Squared distance between two 2D vectors: `distance_sq(a, b)` - cheaper than distance
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2)), VectorDim(DimExact(2))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = Multiply([0, 0])
+)]
 pub fn distance_sq_vec2(a: [f64; 2], b: [f64; 2]) -> f64 {
     continuum_foundation::vector_ops::distance_sq_vec2(a, b)
 }
 
 /// Squared distance between two 3D vectors: `distance_sq(a, b)` - cheaper than distance
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = Multiply([0, 0])
+)]
 pub fn distance_sq_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
     continuum_foundation::vector_ops::distance_sq_vec3(a, b)
 }
 
 /// Squared distance between two 4D vectors: `distance_sq(a, b)` - cheaper than distance
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4)), VectorDim(DimExact(4))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = Scalar,
+    unit_out = Multiply([0, 0])
+)]
 pub fn distance_sq_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
     continuum_foundation::vector_ops::distance_sq_vec4(a, b)
 }
@@ -246,13 +330,27 @@ pub fn distance_sq(args: &[Value]) -> f64 {
 }
 
 /// Linear interpolation for Vec2: `lerp(a, b, t)` → a + t * (b - a)
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2)), VectorDim(DimExact(2)), AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitDimensionless],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn lerp_vec2(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
     [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])]
 }
 
 /// Linear interpolation for Vec3: `lerp(a, b, t)` → a + t * (b - a)
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3)), AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitDimensionless],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn lerp_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
     [
         a[0] + t * (b[0] - a[0]),
@@ -262,7 +360,14 @@ pub fn lerp_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
 }
 
 /// Linear interpolation for Vec4: `lerp(a, b, t)` → a + t * (b - a)
-#[kernel_fn(namespace = "vector", category = "vector")]
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4)), VectorDim(DimExact(4)), AnyScalar],
+    unit_in = [UnitAny, UnitSameAs(0), UnitDimensionless],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = UnitDerivSameAs(0)
+)]
 pub fn lerp_vec4(a: [f64; 4], b: [f64; 4], t: f64) -> [f64; 4] {
     [
         a[0] + t * (b[0] - a[0]),
