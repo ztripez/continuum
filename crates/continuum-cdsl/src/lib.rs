@@ -78,15 +78,11 @@ pub mod span {
 
 /// AST node definitions
 ///
-/// Phase 3-4 will implement the AST:
-/// - Node<I> wrapper
-/// - Role system
-/// - Scoping, Assertion, Execution structs
-/// - ExprKind and TypedExpr
-/// - Untyped AST for parser output
-pub mod ast {
-    //! Abstract syntax tree definitions.
-}
+/// Phase 3-4: AST implementation
+/// - Phase 3.1: Node<I> wrapper and Role system ✅
+/// - Phase 3.2: Scoping, Assertion, Execution structs (TODO)
+/// - Phase 4: ExprKind and TypedExpr (TODO)
+pub mod ast;
 
 /// Lexer (logos-based tokenization)
 ///
