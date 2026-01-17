@@ -846,6 +846,11 @@ pub enum ValidationErrorKind {
     AffineArithmeticForbidden { op: &'static str, unit: Unit },    // +, *, / on Affine
     LogarithmicArithmeticForbidden { op: &'static str, unit: Unit }, // +, -, *, / on Logarithmic
     
+    // Struct literal errors
+    MissingStructField { ty: UserTypeId, field: String },   // required field not provided
+    UnknownStructField { ty: UserTypeId, field: String },   // field not in type definition
+    ShorthandForbidden { field: String },                   // { x } instead of { x: x }
+    
     // Kernel errors
     UnknownKernel(KernelId),
     WrongArgCount { kernel: KernelId, expected: usize, found: usize },
@@ -1981,6 +1986,49 @@ enum ExprKind {
 
 enum AggregateOp { Sum, Map, Max, Min, Count, Any, All }  // Fold is separate variant
 ```
+
+**Struct literal rules (strict, per prime directive):**
+
+| Rule | Behavior |
+|------|----------|
+| Missing field | Compile error |
+| Extra field | Compile error |
+| Field order | Irrelevant (not positional) |
+| Shorthand `{ x }` | **Forbidden** — must write `{ x: x }` |
+
+```cdsl
+// VALID — all fields, explicit names
+let orbit = Orbit {
+    semi_major: 1.5e11<m>,
+    eccentricity: 0.017<>,
+    inclination: 0.0<rad>
+}
+
+// ERROR — missing field
+let orbit = Orbit {
+    semi_major: 1.5e11<m>,
+    eccentricity: 0.017<>
+    // inclination missing → MissingStructField error
+}
+
+// ERROR — extra field
+let orbit = Orbit {
+    semi_major: 1.5e11<m>,
+    eccentricity: 0.017<>,
+    inclination: 0.0<rad>,
+    period: 365<day>  // → UnknownStructField error
+}
+
+// ERROR — shorthand forbidden
+let semi_major = 1.5e11<m>
+let orbit = Orbit {
+    semi_major,  // → ShorthandForbidden error, write semi_major: semi_major
+    eccentricity: 0.017<>,
+    inclination: 0.0<rad>
+}
+```
+
+**Rationale:** Explicit field names prevent accidental misassignment during refactoring. No shorthand keeps simulation intent clear.
 
 **Binding forms vs Calls:**
 - `Let`, `Aggregate`, and `Fold` introduce variable bindings — they're not function calls
