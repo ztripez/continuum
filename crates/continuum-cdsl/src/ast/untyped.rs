@@ -55,7 +55,7 @@
 //! // and produces TypedExpr with ty: Scalar<m>
 //! ```
 
-use crate::foundation::{Path, Span, Unit};
+use crate::foundation::{Path, Span};
 
 use super::expr::{AggregateOp, KernelId};
 use super::node::EntityId;
@@ -75,10 +75,14 @@ use super::node::EntityId;
 /// # Examples
 ///
 /// ```rust,ignore
-/// use continuum_cdsl::ast::Expr;
+/// use continuum_cdsl::ast::{Expr, UnitExpr};
 ///
-/// // Literal with unit (synthesis mode)
-/// let with_unit = Expr::literal(100.0, Some(Unit::meters()), span);
+/// // Literal with unit syntax (synthesis mode)
+/// let with_unit = Expr::literal(
+///     100.0,
+///     Some(UnitExpr::Base("m".to_string())),
+///     span
+/// );
 ///
 /// // Literal without unit (checking mode - infers from context)
 /// let without_unit = Expr::literal(100.0, None, span);
@@ -109,16 +113,32 @@ impl Expr {
 
     /// Create a literal expression
     ///
+    /// # Parameters
+    ///
+    /// - `value`: Numeric value of the literal
+    /// - `unit`: Optional unit syntax (None = infer from context during type resolution)
+    /// - `span`: Source location
+    ///
+    /// # Returns
+    ///
+    /// An untyped expression representing a numeric literal with optional unit syntax.
+    ///
     /// # Examples
     ///
     /// ```rust,ignore
-    /// // With unit
-    /// let distance = Expr::literal(100.0, Some(Unit::meters()), span);
+    /// use continuum_cdsl::ast::{Expr, UnitExpr};
+    ///
+    /// // With unit syntax
+    /// let distance = Expr::literal(
+    ///     100.0,
+    ///     Some(UnitExpr::Base("m".to_string())),
+    ///     span
+    /// );
     ///
     /// // Without unit (infer from context)
     /// let number = Expr::literal(42.0, None, span);
     /// ```
-    pub fn literal(value: f64, unit: Option<Unit>, span: Span) -> Self {
+    pub fn literal(value: f64, unit: Option<UnitExpr>, span: Span) -> Self {
         Self::new(ExprKind::Literal { value, unit }, span)
     }
 
@@ -198,20 +218,23 @@ impl Expr {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
     // === Literals ===
-    /// Numeric literal with optional unit
+    /// Numeric literal with optional unit syntax
     ///
     /// # Examples
     ///
     /// ```cdsl
-    /// 100.0<m>     // value: 100.0, unit: Some(Unit::meters())
+    /// 100.0<m>     // value: 100.0, unit: Some(UnitExpr::Base("m"))
     /// 3.14         // value: 3.14, unit: None (infer from context)
-    /// 0.0<>        // value: 0.0, unit: Some(Unit::DIMENSIONLESS)
+    /// 0.0<>        // value: 0.0, unit: Some(UnitExpr::Dimensionless)
     /// ```
+    ///
+    /// **Important:** The unit is stored as syntactic [`UnitExpr`], not resolved
+    /// [`Unit`](crate::foundation::Unit). Unit resolution happens during type checking.
     Literal {
         /// Numeric value
         value: f64,
-        /// Optional unit annotation (None = infer from context)
-        unit: Option<Unit>,
+        /// Optional unit syntax (None = infer from context during type resolution)
+        unit: Option<UnitExpr>,
     },
 
     /// Vector literal
