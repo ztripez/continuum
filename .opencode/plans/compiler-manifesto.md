@@ -851,6 +851,9 @@ pub enum ValidationErrorKind {
     UnknownStructField { ty: UserTypeId, field: String },   // field not in type definition
     ShorthandForbidden { field: String },                   // { x } instead of { x: x }
     
+    // Resolution errors (additional)
+    AmbiguousReference { name: String, namespaces: Vec<&'static str> },  // found in multiple namespaces
+    
     // Kernel errors
     UnknownKernel(KernelId),
     WrongArgCount { kernel: KernelId, expected: usize, found: usize },
@@ -1476,11 +1479,52 @@ No capability → compile error.
 
 ### 4. Resolution Has No Silent Fallback
 
+**Resolution order:**
 ```
-locals → scoping hierarchy → signals → ERROR
+locals → scoping (config/const) → signals → ERROR
 ```
 
 Typo in path name → compile error, not silent signal reference.
+
+**Namespace prefixes (explicit > implicit):**
+
+| Prefix | Resolves To | Example |
+|--------|-------------|---------|
+| (none) | Local binding | `let x = ...; x` |
+| `signal.` | Signal path | `signal.body.velocity` |
+| `field.` | Field path | `field.temperature` |
+| `config.` | Config value | `config.gravity_constant` |
+| `const.` | Constant | `const.PI` |
+| `fn.` | Function | `fn.physics.gravity` |
+
+**Ergonomic rule:** Bare signal paths allowed if unambiguous:
+```cdsl
+// If body.velocity exists only as a signal
+body.velocity       // OK — unambiguous, resolves to signal
+signal.body.velocity  // Also OK — explicit
+
+// If collision with config.body or const.body
+signal.body.velocity  // Required — ambiguous without prefix
+```
+
+**Compiler behavior:**
+1. Check local scope first
+2. Check scoping hierarchy (config, const)
+3. Check signal namespace
+4. If found in multiple → `AmbiguousReference` error
+5. If not found → `UnresolvedPath` error
+
+**Error message:**
+```
+error: ambiguous reference 'gravity'
+  --> world.cdsl:10:5
+   |
+10 |   let f = gravity * mass
+   |           ^^^^^^^ found in multiple namespaces
+   |
+   = note: found signal.gravity and config.gravity
+   = help: use explicit prefix: signal.gravity or config.gravity
+```
 
 ### 5. Executions Are Self-Contained
 
