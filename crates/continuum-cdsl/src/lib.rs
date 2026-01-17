@@ -86,10 +86,8 @@ pub mod ast;
 
 /// Lexer (logos-based tokenization)
 ///
-/// Phase 10 will implement the lexer.
-pub mod lexer {
-    //! Tokenization of CDSL source code.
-}
+/// Provides tokenization of CDSL source code.
+pub mod lexer;
 
 /// Parser (chumsky-based parsing)
 ///
