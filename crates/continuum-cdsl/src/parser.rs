@@ -1338,19 +1338,29 @@ fn member_parser<'src>()
         .map_with(|(((full_path, type_expr), attrs), blocks), e| {
             let span = token_span(e.span());
 
+            // PARSER/SEMANTIC BOUNDARY ISSUE
             // Extract entity ID from member path structure
+            //
             // Member paths are hierarchical: <entity>.<member> (e.g., "Plate.velocity")
-            // Parser extracts entity portion syntactically (everything before last segment)
-            // Semantic analysis will validate:
-            //   - Entity declaration exists
-            //   - Member name is valid for that entity
-            //   - Member type and attributes are correct
+            // Parser syntactically splits path to get entity portion (before last dot)
+            //
+            // This is acceptable syntactic work:
+            //   - Parser handles path structure (syntax)
+            //   - Semantic analysis validates entity exists (semantics)
+            //
+            // HOWEVER: Empty string fallback hides malformed syntax
+            //   - "member velocity" (no entity) → EntityId("")
+            //   - Should error during parsing, not defer to semantic analysis
+            //   - But Node<EntityId> constructor requires EntityId, so we need placeholder
+            //
+            // TODO: Consider making EntityId Optional in Node or error in parser
             let path_str = full_path.to_string();
             let parts: Vec<&str> = path_str.split('.').collect();
             let entity_path_str = if parts.len() > 1 {
                 parts[..parts.len() - 1].join(".")
             } else {
-                // Member without entity prefix (will fail semantic validation)
+                // FAIL-HARD VIOLATION: Hides malformed member declaration
+                // Semantic validation will catch this, but parser should error
                 String::new()
             };
 
