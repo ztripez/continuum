@@ -102,10 +102,10 @@ pub mod desugar;
 
 /// Name and type resolution
 ///
-/// Phase 11 will implement resolution passes.
-pub mod resolve {
-    //! Name resolution and type resolution passes.
-}
+/// Phase 11: Resolution passes
+/// - Name resolution: Validates Path references (Phase 11)
+/// - Type resolution: Resolves TypeExpr to Type (Phase 11)
+pub mod resolve;
 
 /// Validation passes
 ///
