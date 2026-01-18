@@ -1304,18 +1304,22 @@ fn member_parser<'src>()
         .map_with(|(((full_path, type_expr), attrs), blocks), e| {
             let span = token_span(e.span());
 
-            // Extract entity ID from path: plate.area -> entity=plate
-            // For simplicity, assume entity is all segments except last
+            // Extract entity ID from member path structure
+            // Member paths are hierarchical: <entity>.<member> (e.g., "Plate.velocity")
+            // Parser extracts entity portion syntactically (everything before last segment)
+            // Semantic analysis will validate:
+            //   - Entity declaration exists
+            //   - Member name is valid for that entity
+            //   - Member type and attributes are correct
             let path_str = full_path.to_string();
             let parts: Vec<&str> = path_str.split('.').collect();
             let entity_path_str = if parts.len() > 1 {
                 parts[..parts.len() - 1].join(".")
             } else {
-                // No entity prefix, use empty path (will fail validation)
+                // Member without entity prefix (will fail semantic validation)
                 String::new()
             };
 
-            // Convert to FoundationPath for EntityId
             let foundation_path = FoundationPath::from_str(&entity_path_str);
             let entity_id = EntityId(foundation_path);
             let mut node = Node::new(full_path, span, RoleData::Signal, entity_id);
