@@ -377,6 +377,40 @@ pub struct RoleSpec {
     pub has_reconstruction: bool,
 }
 
+impl RoleSpec {
+    /// Get the capability set available for this role in the given phase.
+    ///
+    /// This is the authoritative source for phase→capability mapping.
+    /// Returns an empty set if the phase is not in `allowed_phases`.
+    ///
+    /// # Parameters
+    ///
+    /// - `phase`: The execution phase to query
+    ///
+    /// # Returns
+    ///
+    /// The set of capabilities available for this role in the given phase.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// use continuum_foundation::{Phase, Capability};
+    ///
+    /// let spec = RoleId::Signal.spec();
+    /// let caps = spec.capabilities_for_phase(Phase::Resolve);
+    /// assert!(caps.contains(Capability::Prev));
+    /// assert!(caps.contains(Capability::Inputs));
+    ///
+    /// // Disallowed phase returns empty set
+    /// let caps = spec.capabilities_for_phase(Phase::Measure);
+    /// assert!(caps.is_empty());
+    /// ```
+    #[inline]
+    pub const fn capabilities_for_phase(&self, phase: Phase) -> CapabilitySet {
+        self.phase_capabilities[phase as usize]
+    }
+}
+
 /// Compile-time registry of all role specifications
 ///
 /// This is a static array indexed by RoleId as usize.
@@ -679,5 +713,66 @@ mod tests {
             conservative: false,
         };
         assert!(!hint.conservative);
+    }
+
+    #[test]
+    fn test_capabilities_for_phase() {
+        // Signal in Resolve has specific capabilities
+        let spec = RoleId::Signal.spec();
+        let caps = spec.capabilities_for_phase(Phase::Resolve);
+        assert!(caps.contains(Capability::Scoping));
+        assert!(caps.contains(Capability::Signals));
+        assert!(caps.contains(Capability::Prev));
+        assert!(caps.contains(Capability::Inputs));
+        assert!(caps.contains(Capability::Dt));
+
+        // Signal in Measure (disallowed phase) has no capabilities
+        let caps = spec.capabilities_for_phase(Phase::Measure);
+        assert!(caps.is_empty());
+
+        // Field in Measure has specific capabilities
+        let spec = RoleId::Field.spec();
+        let caps = spec.capabilities_for_phase(Phase::Measure);
+        assert!(caps.contains(Capability::Scoping));
+        assert!(caps.contains(Capability::Signals));
+        assert!(caps.contains(Capability::Dt));
+        assert!(!caps.contains(Capability::Prev));
+
+        // Impulse in Collect has Payload and Emit
+        let spec = RoleId::Impulse.spec();
+        let caps = spec.capabilities_for_phase(Phase::Collect);
+        assert!(caps.contains(Capability::Payload));
+        assert!(caps.contains(Capability::Emit));
+    }
+
+    #[test]
+    fn test_capabilities_for_phase_matches_registry() {
+        // Verify the new method returns the same as direct array access
+        for role_id in [
+            RoleId::Signal,
+            RoleId::Field,
+            RoleId::Operator,
+            RoleId::Impulse,
+            RoleId::Fracture,
+            RoleId::Chronicle,
+        ] {
+            let spec = role_id.spec();
+            for phase in [
+                Phase::Configure,
+                Phase::Collect,
+                Phase::Resolve,
+                Phase::Fracture,
+                Phase::Measure,
+                Phase::Assert,
+            ] {
+                let via_method = spec.capabilities_for_phase(phase);
+                let via_array = spec.phase_capabilities[phase as usize];
+                assert_eq!(
+                    via_method, via_array,
+                    "Mismatch for {:?} in {:?}",
+                    role_id, phase
+                );
+            }
+        }
     }
 }

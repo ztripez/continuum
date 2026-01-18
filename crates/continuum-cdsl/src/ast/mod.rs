@@ -69,6 +69,7 @@ mod node;
 mod pipeline;
 mod role;
 mod untyped;
+mod walk;
 mod warmup;
 
 pub use block::*;
@@ -79,6 +80,7 @@ pub use kernel::*;
 pub use node::*;
 pub use pipeline::*;
 pub use role::*;
+pub use walk::*;
 pub use warmup::*;
 
 // Re-export KernelId from kernel-types (single source of truth)

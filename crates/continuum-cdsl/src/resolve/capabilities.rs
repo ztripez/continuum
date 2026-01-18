@@ -8,6 +8,7 @@
 //!
 //! - **Scoping** - Access to config/const values (available in all phases)
 //! - **Signals** - Read signal values (available in most phases)
+//! - **Fields** - Read field values (available in Measure, Assert phases for Field role only)
 //! - **Prev** - Previous tick value (available in Resolve, Assert)
 //! - **Current** - Just-resolved value (available in Assert, Measure, Fracture)
 //! - **Inputs** - Accumulated inputs (available in Resolve)
@@ -16,9 +17,16 @@
 //! - **Emit** - Emit to signal (available in Collect phase and impulse handlers)
 //! - **Index** - Entity self-reference (available in per-entity contexts)
 //!
+//! # Phase→Capability Mapping
+//!
+//! The authoritative mapping of which capabilities are available in each phase
+//! is defined in `crate::ast::RoleSpec::capabilities_for_phase()`. This ensures
+//! a single source of truth - no ad-hoc context construction with potentially
+//! invalid capability sets.
+//!
 //! # What This Pass Does
 //!
-//! 1. **Context detection** - Determines available capabilities from the current execution context
+//! 1. **Context detection** - Determines available capabilities from RoleSpec + Phase
 //! 2. **Expression scanning** - Recursively finds all capability-requiring expressions
 //! 3. **Access validation** - Checks that required capabilities are available in context
 //!
