@@ -58,6 +58,7 @@ use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, Stratu
 use std::path::PathBuf;
 
 use super::block::BlockBody;
+use super::declaration::Attribute;
 use super::expr::TypedExpr;
 use super::role::RoleData;
 
@@ -164,6 +165,13 @@ pub struct Node<I: Index = ()> {
     // =========================================================================
     // Lifecycle Fields (cleared after consumption)
     // =========================================================================
+    /// Parsed attributes from source (processed by semantic analysis)
+    ///
+    /// Raw attributes like `:title("...")`, `:stratum(fast)`, etc.
+    /// Semantic analysis extracts these into proper fields (title, stratum, etc).
+    /// Cleared after processing.
+    pub attributes: Vec<Attribute>,
+
     /// Type expression from source (cleared after resolution)
     pub type_expr: Option<TypeExpr>,
 
@@ -216,6 +224,7 @@ impl<I: Index> Node<I> {
             output: None,
             inputs: Vec::new(),
             index,
+            attributes: Vec::new(),
             type_expr: None,
             execution_blocks: Vec::new(),
             reads: Vec::new(),
@@ -371,6 +380,12 @@ pub struct Entity {
 
     /// Documentation comment from source
     pub doc: Option<String>,
+
+    /// Parsed attributes from source
+    ///
+    /// Raw attributes like `:count(100)`, etc.
+    /// Processed during semantic analysis.
+    pub attributes: Vec<Attribute>,
 }
 
 impl Entity {
@@ -381,6 +396,7 @@ impl Entity {
             path,
             span,
             doc: None,
+            attributes: Vec::new(),
         }
     }
 }

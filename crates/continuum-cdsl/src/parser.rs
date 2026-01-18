@@ -1069,10 +1069,11 @@ fn signal_parser<'src>()
         .then(warmup_parser().or_not())
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|((((path, type_expr), _attrs), _warmup), blocks), e| {
+        .map_with(|((((path, type_expr), attrs), _warmup), blocks), e| {
             let span = token_span(e.span());
             let mut node = Node::new(path, span, RoleData::Signal, ());
             node.type_expr = type_expr;
+            node.attributes = attrs;
 
             // Store execution blocks directly (both expressions and statements)
             // Semantic analysis will validate that statements only appear in effect phases
@@ -1080,7 +1081,6 @@ fn signal_parser<'src>()
                 node.execution_blocks.push((name, body));
             }
 
-            // TODO: Apply attributes (extract title, symbol, stratum, etc.)
             // TODO: Handle warmup block
 
             Declaration::Node(node)
@@ -1105,7 +1105,7 @@ fn field_parser<'src>()
         .then_ignore(just(Token::LBrace))
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|(((path, type_expr), _attrs), blocks), e| {
+        .map_with(|(((path, type_expr), attrs), blocks), e| {
             let span = token_span(e.span());
             let mut node = Node::new(
                 path,
@@ -1116,6 +1116,7 @@ fn field_parser<'src>()
                 (),
             );
             node.type_expr = type_expr;
+            node.attributes = attrs;
 
             for (name, body) in blocks {
                 node.execution_blocks.push((name, body));
@@ -1142,10 +1143,11 @@ fn operator_parser<'src>()
         .then_ignore(just(Token::LBrace))
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|(((path, type_expr), _attrs), blocks), e| {
+        .map_with(|(((path, type_expr), attrs), blocks), e| {
             let span = token_span(e.span());
             let mut node = Node::new(path, span, RoleData::Operator, ());
             node.type_expr = type_expr;
+            node.attributes = attrs;
 
             for (name, body) in blocks {
                 node.execution_blocks.push((name, body));
@@ -1173,10 +1175,11 @@ fn impulse_parser<'src>()
         .then_ignore(just(Token::LBrace))
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|(((path, type_expr), _attrs), blocks), e| {
+        .map_with(|(((path, type_expr), attrs), blocks), e| {
             let span = token_span(e.span());
             let mut node = Node::new(path, span, RoleData::Impulse { payload: None }, ());
             node.type_expr = type_expr;
+            node.attributes = attrs;
 
             for (name, body) in blocks {
                 node.execution_blocks.push((name, body));
@@ -1205,10 +1208,11 @@ fn fracture_parser<'src>()
         .then(when_parser().or_not())
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|((((path, type_expr), _attrs), _when), blocks), e| {
+        .map_with(|((((path, type_expr), attrs), _when), blocks), e| {
             let span = token_span(e.span());
             let mut node = Node::new(path, span, RoleData::Fracture, ());
             node.type_expr = type_expr;
+            node.attributes = attrs;
 
             // TODO: Handle when block
 
@@ -1241,10 +1245,11 @@ fn chronicle_parser<'src>()
         .then_ignore(just(Token::LBrace))
         .then(observe_parser().or_not())
         .then_ignore(just(Token::RBrace))
-        .map_with(|(((path, type_expr), _attrs), _observe), e| {
+        .map_with(|(((path, type_expr), attrs), _observe), e| {
             let span = token_span(e.span());
             let mut node = Node::new(path, span, RoleData::Chronicle, ());
             node.type_expr = type_expr;
+            node.attributes = attrs;
 
             // TODO: Handle observe block
 
@@ -1271,12 +1276,12 @@ fn entity_parser<'src>()
         .then_ignore(just(Token::LBrace))
         .then(attribute_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|(path, _attrs), e| {
+        .map_with(|(path, attrs), e| {
             let span = token_span(e.span());
             // Convert Path to FoundationPath for EntityId
             let foundation_path = FoundationPath::from_str(&path.to_string());
-            let entity = Entity::new(EntityId(foundation_path), path, span);
-            // TODO: Extract count from attributes
+            let mut entity = Entity::new(EntityId(foundation_path), path, span);
+            entity.attributes = attrs;
             Declaration::Entity(entity)
         })
 }
@@ -1299,7 +1304,7 @@ fn member_parser<'src>()
         .then_ignore(just(Token::LBrace))
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|(((full_path, type_expr), _attrs), blocks), e| {
+        .map_with(|(((full_path, type_expr), attrs), blocks), e| {
             let span = token_span(e.span());
 
             // Extract entity ID from path: plate.area -> entity=plate
@@ -1318,6 +1323,7 @@ fn member_parser<'src>()
             let entity_id = EntityId(foundation_path);
             let mut node = Node::new(full_path, span, RoleData::Signal, entity_id);
             node.type_expr = type_expr;
+            node.attributes = attrs;
 
             for (name, body) in blocks {
                 node.execution_blocks.push((name, body));
