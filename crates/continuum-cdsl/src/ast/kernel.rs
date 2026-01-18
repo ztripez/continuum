@@ -1010,14 +1010,17 @@ mod tests {
     #[test]
     fn registry_contains_vector_dot() {
         let registry = KernelRegistry::global();
-        let id = KernelId::new("vector", "dot");
-        assert!(registry.contains(&id));
+        // Vector dot product is now typed by dimension
+        assert!(registry.contains(&KernelId::new("vector", "dot_vec2")));
+        assert!(registry.contains(&KernelId::new("vector", "dot_vec3")));
+        assert!(registry.contains(&KernelId::new("vector", "dot_vec4")));
     }
 
     #[test]
     fn registry_get_vector_dot() {
         let registry = KernelRegistry::global();
-        let id = KernelId::new("vector", "dot");
+        // Test the vec3 variant as an example
+        let id = KernelId::new("vector", "dot_vec3");
         let sig = registry.get(&id);
 
         assert!(sig.is_some());
@@ -1025,7 +1028,7 @@ mod tests {
         assert_eq!(sig.params.len(), 2);
         assert_eq!(sig.purity, KernelPurity::Pure);
 
-        // Check vector dimension constraint
+        // Check vector dimension constraint (VectorDim with exact dimension 3)
         assert!(matches!(sig.params[0].shape, ShapeConstraint::VectorDim(_)));
         assert!(matches!(sig.params[1].shape, ShapeConstraint::VectorDim(_)));
 
@@ -1090,7 +1093,7 @@ mod tests {
 
         // Check each namespace has at least one kernel
         assert!(registry.contains(&KernelId::new("maths", "add")));
-        assert!(registry.contains(&KernelId::new("vector", "dot")));
+        assert!(registry.contains(&KernelId::new("vector", "dot_vec3")));
         assert!(registry.contains(&KernelId::new("logic", "select")));
         assert!(registry.contains(&KernelId::new("compare", "lt")));
         // Effect operations are bare names (empty namespace)

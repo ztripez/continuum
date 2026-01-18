@@ -1724,7 +1724,7 @@ mod tests {
         let type_table = test_type_table();
         let ctx = test_ctx(&type_table);
 
-        // vector.dot expects two Vector<3> arguments
+        // dot_vec3 expects two Vector<3> arguments, but we give it Vector<2>
         let vec2_arg = TypedExpr::new(
             ExprKind::Literal {
                 value: 1.0,
@@ -1736,7 +1736,7 @@ mod tests {
 
         let call_expr = TypedExpr::new(
             ExprKind::Call {
-                kernel: KernelId::new("vector", "dot"),
+                kernel: KernelId::new("vector", "dot_vec3"),
                 args: vec![vec2_arg.clone(), vec2_arg],
             },
             Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
@@ -1955,7 +1955,7 @@ mod tests {
         let type_table = test_type_table();
         let ctx = test_ctx(&type_table);
 
-        // Valid vector.dot call with Vector<3>
+        // Valid dot_vec3 call with Vector<3>
         let vec3_arg1 = TypedExpr::new(
             ExprKind::Literal {
                 value: 1.0,
@@ -1976,7 +1976,7 @@ mod tests {
 
         let call_expr = TypedExpr::new(
             ExprKind::Call {
-                kernel: KernelId::new("vector", "dot"),
+                kernel: KernelId::new("vector", "dot_vec3"),
                 args: vec![vec3_arg1, vec3_arg2],
             },
             Type::kernel(Shape::Scalar, Unit::meters(), None),
