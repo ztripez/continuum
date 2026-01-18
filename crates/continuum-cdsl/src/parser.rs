@@ -57,8 +57,8 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    Attribute, BinaryOp, BlockBody, Expr, Stmt, TypeExpr, UnaryOp, UnitExpr,
-    UntypedKind as ExprKind,
+    Attribute, BinaryOp, BlockBody, Expr, ObserveBlock, ObserveWhen, Stmt, TransitionDecl,
+    TypeExpr, UnaryOp, UnitExpr, UntypedKind as ExprKind, WarmupBlock, WhenBlock,
 };
 use crate::foundation::{Path, Span};
 use crate::lexer::Token;
@@ -783,6 +783,113 @@ fn block_body_parser<'src>()
 
     // Try statement list first, then expression
     choice((stmt_list, single_expr))
+}
+
+/// Parse warmup block: `warmup { :iterations(N) iterate { expr } }`
+///
+/// Warmup blocks contain attributes (iterations, convergence) and an
+/// iterate sub-block with the warmup expression.
+fn warmup_parser<'src>()
+-> impl Parser<'src, &'src [Token], WarmupBlock, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::WarmUp)
+        .ignore_then(
+            attribute_parser()
+                .repeated()
+                .collect::<Vec<_>>()
+                .then(just(Token::Iterate).ignore_then(
+                    expr_parser().delimited_by(just(Token::LBrace), just(Token::RBrace)),
+                ))
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
+        .map_with(|(attrs, iterate), e| WarmupBlock {
+            attrs,
+            iterate,
+            span: token_span(e.span()),
+        })
+}
+
+/// Parse when block: `when { condition1; condition2; ... }`
+///
+/// When blocks contain conditions that must all be true.
+/// Conditions are expressions separated by semicolons or newlines.
+fn when_parser<'src>()
+-> impl Parser<'src, &'src [Token], WhenBlock, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::When)
+        .ignore_then(
+            expr_parser()
+                .separated_by(just(Token::Semicolon))
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
+        .map_with(|conditions, e| WhenBlock {
+            conditions,
+            span: token_span(e.span()),
+        })
+}
+
+/// Parse observe block for chronicles: `observe { when condition { emit ... } }`
+///
+/// Observe blocks contain when clauses with associated emit blocks.
+/// Example:
+/// ```cdsl
+/// observe {
+///     when signal.diversity < -0.5 {
+///         emit event.extinction { severity: 0.8 }
+///     }
+/// }
+/// ```
+fn observe_parser<'src>()
+-> impl Parser<'src, &'src [Token], ObserveBlock, extra::Err<Rich<'src, Token>>> + Clone {
+    // when clause: `when condition { emit_statements }`
+    let when_clause = just(Token::When)
+        .ignore_then(expr_parser())
+        .then(
+            stmt_parser(expr_parser())
+                .separated_by(just(Token::Semicolon))
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
+        .map_with(|(condition, emit_block), e| ObserveWhen {
+            condition,
+            emit_block,
+            span: token_span(e.span()),
+        });
+
+    just(Token::Observe)
+        .ignore_then(
+            when_clause
+                .repeated()
+                .at_least(1)
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
+        .map_with(|when_clauses, e| ObserveBlock {
+            when_clauses,
+            span: token_span(e.span()),
+        })
+}
+
+/// Parse transition block: `transition target_era when { conditions }`
+///
+/// Transitions define when to switch from one era to another.
+/// Example:
+/// ```cdsl
+/// transition stable when {
+///     signal.temp < 1000<K>;
+///     signal.time > 1e9<s>
+/// }
+/// ```
+fn transition_parser<'src>()
+-> impl Parser<'src, &'src [Token], TransitionDecl, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Transition)
+        .ignore_then(path_parser())
+        .then(when_parser())
+        .map_with(|(target, when_block), e| TransitionDecl {
+            target,
+            conditions: when_block.conditions,
+            span: token_span(e.span()),
+        })
 }
 
 #[cfg(test)]
