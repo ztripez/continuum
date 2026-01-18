@@ -636,14 +636,21 @@ fn type_expr_parser<'src>()
 /// - File ID mapping
 /// - Line number calculation from byte offsets
 /// - Source map integration
+///
+/// # Current Implementation
+///
+/// This function currently returns placeholder spans with file_id=0 and line=0.
+/// Proper span conversion requires a SourceMap context which is not yet implemented.
+/// When SourceMap integration is added, this function will be updated to:
+/// - Accept a SourceMap/FileId parameter
+/// - Look up line numbers from byte offsets
+/// - Return properly mapped spans
+///
+/// The current placeholder implementation is sufficient for parser development
+/// but will need to be replaced before production use.
 fn token_span(span: SimpleSpan) -> Span {
-    // TODO: Implement proper span conversion
-    //
-    // Needs:
-    // - File ID from context
-    // - Line number lookup from byte offset
-    // - SourceMap integration
-
+    // Placeholder span conversion until SourceMap integration is complete.
+    // Returns byte offsets with file_id=0 and line=0.
     Span::new(0, span.start as u32, span.end as u32, 0)
 }
 
@@ -661,9 +668,16 @@ mod tests {
     ///
     /// # Returns
     ///
-    /// Parsed expression or panic on error.
+    /// Parsed expression.
+    ///
+    /// # Panics
+    ///
+    /// Panics if lexing fails or if parsing produces errors. Test inputs
+    /// should always be valid.
     fn lex_and_parse(source: &str) -> Expr {
-        let tokens: Vec<_> = Token::lexer(source).filter_map(|r| r.ok()).collect();
+        let tokens: Vec<_> = Token::lexer(source)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("lexer should not produce errors for test inputs");
         parse_expr(&tokens).unwrap()
     }
 
@@ -681,6 +695,13 @@ mod tests {
     ///
     /// - `Ok(Expr)` if parsing succeeded with no errors
     /// - `Err(true)` if parsing failed (has errors)
+    ///
+    /// # Errors
+    ///
+    /// Returns `Err(true)` if the parser produces any errors. The boolean
+    /// value is always `true` when present, indicating that parse errors
+    /// occurred. Test helpers don't need full Rich<Token> error details,
+    /// just success/failure indication.
     ///
     /// # Panics
     ///
@@ -1573,33 +1594,36 @@ mod tests {
     }
 
     #[test]
-    fn test_if_precedence_vs_operators() {
-        // if should be lowest precedence, but as operand requires parentheses
-        // 1 + if true { 2 } else { 3 }  (if as operand without parens)
+    fn test_if_as_operand_requires_parentheses() {
+        // if expression cannot be used directly as operand without parentheses
+        // 1 + if true { 2 } else { 3 } should fail
         let result = lex_and_parse_result("1 + if true { 2 } else { 3 }");
-        // This should parse as: 1 + (if ...) since choice tries let/if first
-        // Actually, the way we've structured it, this should work
-        // Let me verify the actual behavior
-        match result {
-            Ok(expr) => {
-                // If it parses, it should be Add with if on the right
-                match expr.kind {
-                    ExprKind::Binary {
-                        op: BinaryOp::Add, ..
-                    } => {
-                        // This is valid - if has lower precedence so it captures everything
-                    }
-                    ExprKind::If { .. } => {
-                        // This would mean: if (parsed as 1 + true) { 2 } else { 3 }
-                        panic!("if should not capture 1 + as its condition");
-                    }
-                    _ => panic!("unexpected parse result: {:?}", expr.kind),
-                }
+        assert!(
+            result.is_err(),
+            "expected error: if cannot be used as operand without parentheses"
+        );
+    }
+
+    #[test]
+    fn test_if_with_parentheses_as_operand() {
+        // if expression CAN be used as operand when parenthesized
+        // 1 + (if true { 2 } else { 3 }) should parse
+        let expr = lex_and_parse("1 + (if true { 2 } else { 3 })");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Add,
+                left,
+                right,
+            } => {
+                // Left should be 1
+                assert!(matches!(left.kind, ExprKind::Literal { value: 1.0, .. }));
+                // Right should be if expression
+                assert!(matches!(right.kind, ExprKind::If { .. }));
             }
-            Err(_) => {
-                // If it errors, that's also acceptable behavior
-                // (depends on how choice combinator works)
-            }
+            _ => panic!(
+                "expected Add with parenthesized if on right, got {:?}",
+                expr.kind
+            ),
         }
     }
 }
