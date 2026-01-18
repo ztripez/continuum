@@ -385,7 +385,14 @@ mod tests {
             unit: Some(UnitExpr::Base("m".to_string())),
         };
         let resolved = resolve_type_expr(&vector_type, &type_table, test_span()).unwrap();
-        assert!(resolved.is_kernel());
+
+        // Verify it's a kernel type with correct shape
+        let Type::Kernel(kernel) = resolved else {
+            panic!("Expected kernel type");
+        };
+        assert_eq!(kernel.shape, Shape::Vector { dim: 3 });
+        assert_eq!(kernel.unit.dims().length, 1);
+        assert!(kernel.unit.is_multiplicative());
     }
 
     #[test]
@@ -397,8 +404,9 @@ mod tests {
             dim: 0,
             unit: Some(UnitExpr::Base("m".to_string())),
         };
-        let result = resolve_type_expr(&vector_type, &type_table, test_span());
-        assert!(result.is_err());
+        let err = resolve_type_expr(&vector_type, &type_table, test_span()).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::DimensionMismatch);
+        assert!(err.message.contains("Vector dimension"));
     }
 
     #[test]
@@ -412,7 +420,39 @@ mod tests {
             unit: Some(UnitExpr::Base("kg".to_string())),
         };
         let resolved = resolve_type_expr(&matrix_type, &type_table, test_span()).unwrap();
-        assert!(resolved.is_kernel());
+
+        // Verify it's a kernel type with correct shape
+        let Type::Kernel(kernel) = resolved else {
+            panic!("Expected kernel type");
+        };
+        assert_eq!(kernel.shape, Shape::Matrix { rows: 3, cols: 3 });
+        assert_eq!(kernel.unit.dims().mass, 1);
+        assert!(kernel.unit.is_multiplicative());
+    }
+
+    #[test]
+    fn test_matrix_zero_rows_or_cols_fails() {
+        let type_table = TypeTable::new();
+
+        // Matrix with zero rows
+        let zero_rows = TypeExpr::Matrix {
+            rows: 0,
+            cols: 3,
+            unit: Some(UnitExpr::Base("kg".to_string())),
+        };
+        let err = resolve_type_expr(&zero_rows, &type_table, test_span()).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::DimensionMismatch);
+        assert!(err.message.contains("Matrix dimensions"));
+
+        // Matrix with zero cols
+        let zero_cols = TypeExpr::Matrix {
+            rows: 3,
+            cols: 0,
+            unit: Some(UnitExpr::Base("kg".to_string())),
+        };
+        let err = resolve_type_expr(&zero_cols, &type_table, test_span()).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::DimensionMismatch);
+        assert!(err.message.contains("Matrix dimensions"));
     }
 
     #[test]
@@ -437,7 +477,14 @@ mod tests {
         // Resolve reference to it
         let user_type_expr = TypeExpr::User(path);
         let resolved = resolve_type_expr(&user_type_expr, &type_table, test_span()).unwrap();
+
+        // Verify it's a user type with correct ID
         assert!(resolved.is_user());
+        if let Type::User(resolved_id) = resolved {
+            assert_eq!(resolved_id, type_id);
+        } else {
+            panic!("Expected user type");
+        }
     }
 
     #[test]
@@ -446,8 +493,9 @@ mod tests {
 
         // Try to resolve unknown type
         let user_type_expr = TypeExpr::User(Path::from("UnknownType"));
-        let result = resolve_type_expr(&user_type_expr, &type_table, test_span());
-        assert!(result.is_err());
+        let err = resolve_type_expr(&user_type_expr, &type_table, test_span()).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::UnknownType);
+        assert!(err.message.contains("Unknown user type"));
     }
 
     #[test]
@@ -462,8 +510,18 @@ mod tests {
         assert!(resolve_base_unit("cd", span).is_ok());
         assert!(resolve_base_unit("rad", span).is_ok());
 
-        // Unknown unit should fail
-        assert!(resolve_base_unit("xyz", span).is_err());
+        // Unknown unit should fail with proper error
+        let err = resolve_base_unit("xyz", span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("Unknown base unit"));
+    }
+
+    #[test]
+    fn test_unknown_unit_via_unit_expr() {
+        let unit_expr = UnitExpr::Base("nope".to_string());
+        let err = resolve_unit_expr(Some(&unit_expr), test_span()).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("Unknown base unit"));
     }
 
     #[test]
@@ -580,5 +638,41 @@ mod tests {
         let err = multiply_units(&celsius, &kelvin, span).unwrap_err();
         assert_eq!(err.span, span);
         assert_eq!(err.kind, ErrorKind::InvalidUnit);
+    }
+
+    #[test]
+    fn test_non_multiplicative_unit_arithmetic_fails() {
+        let span = test_span();
+        let celsius = Unit::celsius();
+        let kelvin = Unit::kelvin();
+
+        // Cannot multiply affine units
+        let err = multiply_units(&celsius, &kelvin, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("Cannot multiply non-multiplicative"));
+
+        // Cannot divide affine units
+        let err = divide_units(&celsius, &kelvin, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("Cannot divide non-multiplicative"));
+
+        // Cannot raise affine units to powers
+        let err = power_unit(&celsius, 2, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("Cannot raise non-multiplicative"));
+    }
+
+    #[test]
+    fn test_dimension_overflow_fails() {
+        let span = test_span();
+
+        // Create units with extreme exponents that will overflow when multiplied
+        let left = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
+        let right = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
+        let unit_expr = UnitExpr::Multiply(Box::new(left), Box::new(right));
+
+        let err = resolve_unit_expr(Some(&unit_expr), span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("overflow"));
     }
 }
