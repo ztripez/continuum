@@ -1047,6 +1047,40 @@ fn execution_block_parser<'src>()
 // =============================================================================
 // Role Declaration Parsers
 // =============================================================================
+//
+// All role parsers follow a common structure:
+//   Token → path → type → attrs → [special]? → blocks → map to Node
+//
+// Pattern:
+//   just(Token::<Role>)
+//     .ignore_then(path_parser())
+//     .then(type_annotation_parser().or_not())
+//     .then(attribute_parser().repeated())
+//     .then_ignore(just(Token::LBrace))
+//     [.then(special_parser().or_not())]  // warmup/when/observe
+//     .then(execution_block_parser().repeated())
+//     .then_ignore(just(Token::RBrace))
+//     .map_with(|(((path, type_expr), attrs), blocks), e| {
+//         let mut node = Node::new(path, span, RoleData::<Role>, ());
+//         node.type_expr = type_expr;
+//         node.attributes = attrs;
+//         [node.special = special;]  // for roles with special blocks
+//         for (name, body) in blocks { node.execution_blocks.push((name, body)); }
+//         Declaration::Node(node)
+//     })
+//
+// Variations:
+//   - Signal: adds warmup_parser() before blocks
+//   - Fracture: adds when_parser() before blocks
+//   - Chronicle: adds observe_parser(), no execution blocks
+//   - Field/Impulse: RoleData has extra fields (reconstruction/payload)
+//
+// Not abstracted because:
+//   1. Each role has unique token and RoleData construction
+//   2. Special parsers appear at different positions
+//   3. Macro would obscure simple, readable parser chains
+//   4. Six implementations are maintainable and easier to understand
+// =============================================================================
 
 /// Parse a signal declaration.
 ///
