@@ -137,6 +137,14 @@ impl Type {
         }
     }
 
+    /// Get the kernel type, if this is a kernel type.
+    pub fn as_kernel(&self) -> Option<&KernelType> {
+        match self {
+            Type::Kernel(k) => Some(k),
+            _ => None,
+        }
+    }
+
     /// Create a Bool type.
     pub const fn bool() -> Self {
         Type::Bool

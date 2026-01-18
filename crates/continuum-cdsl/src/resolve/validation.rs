@@ -38,40 +38,44 @@
 //! }
 //! ```
 
-use crate::ast::{ExprKind, KernelId, TypedExpr};
+use crate::ast::{ExprKind, KernelId, KernelRegistry, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{Span, Type};
 use crate::resolve::types::TypeTable;
 
-/// Context for validating typed CDSL expressions using user-defined types.
+/// Context for validating typed CDSL expressions using user-defined types and kernel signatures.
 ///
-/// `ValidationContext` provides read-only access to user type definitions that
-/// expression validation needs when checking struct construction and field
-/// access.
+/// `ValidationContext` provides read-only access to user type definitions and kernel
+/// signatures that expression validation needs when checking struct construction, field
+/// access, and kernel calls.
 ///
 /// # Parameters
 ///
 /// - `type_table`: Reference to the [`TypeTable`] containing user-defined types.
+/// - `kernel_registry`: Reference to the [`KernelRegistry`] containing kernel signatures.
 ///
 /// # Returns
 ///
-/// A `ValidationContext` that borrows the provided type table for lookups during
-/// validation.
+/// A `ValidationContext` that borrows the provided registries for lookups during validation.
 ///
 /// # Examples
 ///
 /// ```rust
+/// use continuum_cdsl::ast::KernelRegistry;
 /// use continuum_cdsl::resolve::types::TypeTable;
 /// use continuum_cdsl::resolve::validation::ValidationContext;
 ///
 /// let type_table = TypeTable::new();
-/// let ctx = ValidationContext::new(&type_table);
+/// let kernel_registry = KernelRegistry::global();
+/// let ctx = ValidationContext::new(&type_table, kernel_registry);
 /// let _ = ctx;
 /// ```
-#[derive(Debug)]
 pub struct ValidationContext<'a> {
     /// User type definitions for struct validation
     pub type_table: &'a TypeTable,
+
+    /// Kernel signatures for kernel call validation
+    pub kernel_registry: &'a KernelRegistry,
 }
 
 impl<'a> ValidationContext<'a> {
@@ -80,12 +84,16 @@ impl<'a> ValidationContext<'a> {
     /// # Parameters
     ///
     /// - `type_table`: User type definitions for struct validation.
+    /// - `kernel_registry`: Kernel signatures for kernel call validation.
     ///
     /// # Returns
     ///
     /// A new validation context ready for use.
-    pub fn new(type_table: &'a TypeTable) -> Self {
-        Self { type_table }
+    pub fn new(type_table: &'a TypeTable, kernel_registry: &'a KernelRegistry) -> Self {
+        Self {
+            type_table,
+            kernel_registry,
+        }
     }
 }
 
@@ -109,13 +117,14 @@ impl<'a> ValidationContext<'a> {
 /// # Examples
 ///
 /// ```rust
-/// use continuum_cdsl::ast::{ExprKind, TypedExpr};
+/// use continuum_cdsl::ast::{ExprKind, KernelRegistry, TypedExpr};
 /// use continuum_cdsl::foundation::{Shape, Span, Type, Unit};
 /// use continuum_cdsl::resolve::types::TypeTable;
 /// use continuum_cdsl::resolve::validation::{validate_expr, ValidationContext};
 ///
 /// let type_table = TypeTable::new();
-/// let ctx = ValidationContext::new(&type_table);
+/// let kernel_registry = KernelRegistry::global();
+/// let ctx = ValidationContext::new(&type_table, kernel_registry);
 /// let expr = TypedExpr::new(
 ///     ExprKind::Literal {
 ///         value: 1.0,
@@ -269,9 +278,9 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
 ///
 /// Vector of validation errors (empty if call is valid).
 fn validate_kernel_call(
-    _kernel: &KernelId,
+    kernel: &KernelId,
     args: &[TypedExpr],
-    _span: Span,
+    span: Span,
     ctx: &ValidationContext<'_>,
 ) -> Vec<CompileError> {
     let mut errors = Vec::new();
@@ -281,15 +290,53 @@ fn validate_kernel_call(
         errors.extend(validate_expr(arg, ctx));
     }
 
-    // Kernel signature validation requires kernel registry (not yet implemented).
-    // When kernel registry is available (Phase 6), this function should:
-    // 1. Look up kernel signature by KernelId
-    // 2. Validate argument count matches signature
-    // 3. Validate argument types satisfy signature constraints
-    // 4. Validate argument shapes satisfy signature constraints
-    // 5. Validate argument units satisfy signature constraints
-    //
-    // Until then, we validate that arguments are well-formed (done above).
+    // Look up kernel signature
+    let Some(signature) = ctx.kernel_registry.get(kernel) else {
+        errors.push(CompileError::new(
+            ErrorKind::UnknownKernel,
+            span,
+            format!("Unknown kernel: {}", kernel.qualified_name()),
+        ));
+        return errors;
+    };
+
+    // Validate argument count
+    if args.len() != signature.params.len() {
+        errors.push(CompileError::new(
+            ErrorKind::WrongArgCount,
+            span,
+            format!(
+                "kernel {} expects {} arguments, got {}",
+                kernel.qualified_name(),
+                signature.params.len(),
+                args.len()
+            ),
+        ));
+        return errors;
+    }
+
+    // Validate each argument against its parameter constraint
+    for (i, (arg, param)) in args.iter().zip(&signature.params).enumerate() {
+        // Validate shape constraint
+        errors.extend(validate_shape_constraint(
+            &arg.ty,
+            &param.shape,
+            i,
+            args,
+            kernel,
+            arg.span,
+        ));
+
+        // Validate unit constraint
+        errors.extend(validate_unit_constraint(
+            &arg.ty,
+            &param.unit,
+            i,
+            args,
+            kernel,
+            arg.span,
+        ));
+    }
 
     errors
 }
@@ -453,6 +500,314 @@ fn validate_field_access(
     errors
 }
 
+/// Validates an argument's shape against a parameter's shape constraint.
+///
+/// # Parameters
+///
+/// - `arg_type`: The argument's type.
+/// - `constraint`: The parameter's shape constraint.
+/// - `arg_index`: Index of this argument.
+/// - `all_args`: All arguments (for SameAs/BroadcastWith constraints).
+/// - `kernel`: Kernel identifier for error messages.
+/// - `span`: Source location for error reporting.
+///
+/// # Returns
+///
+/// Vector of validation errors (empty if shape satisfies constraint).
+fn validate_shape_constraint(
+    arg_type: &Type,
+    constraint: &crate::ast::ShapeConstraint,
+    arg_index: usize,
+    all_args: &[TypedExpr],
+    kernel: &KernelId,
+    span: Span,
+) -> Vec<CompileError> {
+    use crate::ast::ShapeConstraint;
+    use crate::foundation::Shape;
+
+    let mut errors = Vec::new();
+
+    // Extract shape from type (only kernel types have shapes)
+    let Some(arg_shape) = arg_type.as_kernel().map(|k| &k.shape) else {
+        // Non-kernel types (Bool, User, Unit, Seq) fail shape constraints
+        if !matches!(constraint, ShapeConstraint::Any) {
+            errors.push(CompileError::new(
+                ErrorKind::InvalidKernelShape,
+                span,
+                format!(
+                    "kernel {} argument {} must be a kernel type, found {:?}",
+                    kernel.qualified_name(),
+                    arg_index,
+                    arg_type
+                ),
+            ));
+        }
+        return errors;
+    };
+
+    match constraint {
+        ShapeConstraint::Exact(expected) => {
+            if arg_shape != expected {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelShape,
+                    span,
+                    format!(
+                        "kernel {} argument {} must be {:?}, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        expected,
+                        arg_shape
+                    ),
+                ));
+            }
+        }
+
+        ShapeConstraint::AnyScalar => {
+            if !matches!(arg_shape, Shape::Scalar) {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelShape,
+                    span,
+                    format!(
+                        "kernel {} argument {} must be Scalar, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        arg_shape
+                    ),
+                ));
+            }
+        }
+
+        ShapeConstraint::AnyVector => {
+            if !matches!(arg_shape, Shape::Vector { .. }) {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelShape,
+                    span,
+                    format!(
+                        "kernel {} argument {} must be Vector, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        arg_shape
+                    ),
+                ));
+            }
+        }
+
+        ShapeConstraint::AnyMatrix => {
+            if !matches!(arg_shape, Shape::Matrix { .. }) {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelShape,
+                    span,
+                    format!(
+                        "kernel {} argument {} must be Matrix, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        arg_shape
+                    ),
+                ));
+            }
+        }
+
+        ShapeConstraint::Any => {
+            // Any shape is allowed
+        }
+
+        ShapeConstraint::SameAs(param_index) => {
+            if *param_index < all_args.len() {
+                if let Some(expected_shape) =
+                    all_args[*param_index].ty.as_kernel().map(|k| &k.shape)
+                {
+                    if arg_shape != expected_shape {
+                        errors.push(CompileError::new(
+                            ErrorKind::InvalidKernelShape,
+                            span,
+                            format!(
+                                "kernel {} argument {} must have same shape as argument {}, expected {:?}, found {:?}",
+                                kernel.qualified_name(),
+                                arg_index,
+                                param_index,
+                                expected_shape,
+                                arg_shape
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
+        ShapeConstraint::VectorDim(dim_constraint) => {
+            if let Shape::Vector { dim } = arg_shape {
+                if !matches_dim_constraint(*dim, dim_constraint) {
+                    errors.push(CompileError::new(
+                        ErrorKind::InvalidKernelShape,
+                        span,
+                        format!(
+                            "kernel {} argument {} vector dimension does not satisfy constraint {:?}",
+                            kernel.qualified_name(),
+                            arg_index,
+                            dim_constraint
+                        ),
+                    ));
+                }
+            } else {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelShape,
+                    span,
+                    format!(
+                        "kernel {} argument {} must be Vector, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        arg_shape
+                    ),
+                ));
+            }
+        }
+
+        ShapeConstraint::BroadcastWith(_) | ShapeConstraint::MatrixDims { .. } => {
+            // TODO: Implement broadcast and matrix dimension validation
+            // These are more complex and can be added later
+        }
+    }
+
+    errors
+}
+
+/// Check if a dimension satisfies a dimension constraint.
+fn matches_dim_constraint(dim: u8, constraint: &crate::ast::DimConstraint) -> bool {
+    use crate::ast::DimConstraint;
+
+    match constraint {
+        DimConstraint::Exact(expected) => dim == *expected,
+        DimConstraint::Any => true,
+        DimConstraint::Var(_) => {
+            // TODO: Track dimension variables across parameters
+            // For now, accept any dimension for Var constraints
+            true
+        }
+    }
+}
+
+/// Validates an argument's unit against a parameter's unit constraint.
+///
+/// # Parameters
+///
+/// - `arg_type`: The argument's type.
+/// - `constraint`: The parameter's unit constraint.
+/// - `arg_index`: Index of this argument.
+/// - `all_args`: All arguments (for SameAs constraints).
+/// - `kernel`: Kernel identifier for error messages.
+/// - `span`: Source location for error reporting.
+///
+/// # Returns
+///
+/// Vector of validation errors (empty if unit satisfies constraint).
+fn validate_unit_constraint(
+    arg_type: &Type,
+    constraint: &crate::ast::UnitConstraint,
+    arg_index: usize,
+    all_args: &[TypedExpr],
+    kernel: &KernelId,
+    span: Span,
+) -> Vec<CompileError> {
+    use crate::ast::UnitConstraint;
+
+    let mut errors = Vec::new();
+
+    // Extract unit from type (only kernel types have units)
+    let Some(arg_unit) = arg_type.as_kernel().map(|k| &k.unit) else {
+        // Non-kernel types don't have units
+        if !matches!(constraint, UnitConstraint::Any) {
+            errors.push(CompileError::new(
+                ErrorKind::InvalidKernelUnit,
+                span,
+                format!(
+                    "kernel {} argument {} must be a kernel type with units, found {:?}",
+                    kernel.qualified_name(),
+                    arg_index,
+                    arg_type
+                ),
+            ));
+        }
+        return errors;
+    };
+
+    match constraint {
+        UnitConstraint::Exact(expected) => {
+            if arg_unit != expected {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "kernel {} argument {} must have unit {:?}, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        expected,
+                        arg_unit
+                    ),
+                ));
+            }
+        }
+
+        UnitConstraint::Dimensionless => {
+            if !arg_unit.is_dimensionless() {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "kernel {} argument {} must be dimensionless, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        arg_unit
+                    ),
+                ));
+            }
+        }
+
+        UnitConstraint::Angle => {
+            // Check if the unit has angle dimension (angle exponent != 0)
+            if arg_unit.dims().angle == 0 {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "kernel {} argument {} must be an angle unit, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        arg_unit
+                    ),
+                ));
+            }
+        }
+
+        UnitConstraint::Any => {
+            // Any unit is allowed
+        }
+
+        UnitConstraint::SameAs(param_index) => {
+            if *param_index < all_args.len() {
+                if let Some(expected_unit) = all_args[*param_index].ty.as_kernel().map(|k| &k.unit)
+                {
+                    if arg_unit != expected_unit {
+                        errors.push(CompileError::new(
+                            ErrorKind::InvalidKernelUnit,
+                            span,
+                            format!(
+                                "kernel {} argument {} must have same unit as argument {}, expected {:?}, found {:?}",
+                                kernel.qualified_name(),
+                                arg_index,
+                                param_index,
+                                expected_unit,
+                                arg_unit
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    errors
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -467,10 +822,14 @@ mod tests {
         TypeTable::new()
     }
 
+    fn test_ctx(type_table: &TypeTable) -> ValidationContext<'_> {
+        ValidationContext::new(type_table, KernelRegistry::global())
+    }
+
     #[test]
     fn test_validate_literal() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
         let expr = TypedExpr::new(
             ExprKind::Literal {
                 value: 42.0,
@@ -487,7 +846,7 @@ mod tests {
     #[test]
     fn test_validate_vector_elements() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         let elem1 = TypedExpr::new(
             ExprKind::Literal {
@@ -520,7 +879,7 @@ mod tests {
     #[test]
     fn test_validate_let_binding() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         let value = TypedExpr::new(
             ExprKind::Literal {
@@ -554,7 +913,7 @@ mod tests {
     #[test]
     fn test_validate_vector_elements_type_mismatch() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // First element is Scalar
         let elem1 = TypedExpr::new(
@@ -593,7 +952,7 @@ mod tests {
         use crate::foundation::Bounds;
 
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Type has min bound of 0.0
         let bounded_type = Type::kernel(
@@ -626,7 +985,7 @@ mod tests {
         use crate::foundation::Bounds;
 
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Type has max bound of 100.0
         let bounded_type = Type::kernel(
@@ -659,7 +1018,7 @@ mod tests {
         use crate::foundation::Bounds;
 
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Type has bounds [0.0, 100.0]
         let bounded_type = Type::kernel(
@@ -688,7 +1047,7 @@ mod tests {
     #[test]
     fn test_validate_vector_unit_mismatch() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // First element has unit m
         let elem1 = TypedExpr::new(
@@ -725,7 +1084,7 @@ mod tests {
     #[test]
     fn test_validate_empty_vector() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Empty vector is valid (no type conflicts possible)
         let vec_expr = TypedExpr::new(
@@ -741,7 +1100,7 @@ mod tests {
     #[test]
     fn test_validate_seq_in_let_binding_fails() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Trying to store Seq<Scalar> in let binding (invalid!)
         let seq_value = TypedExpr::new(
@@ -782,7 +1141,7 @@ mod tests {
     #[test]
     fn test_validate_seq_in_vector_fails() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Trying to create vector containing Seq (invalid!)
         let seq_elem = TypedExpr::new(
@@ -814,7 +1173,7 @@ mod tests {
     #[test]
     fn test_validate_seq_in_struct_field_fails() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Trying to store Seq in struct field (invalid!)
         let seq_value = TypedExpr::new(
@@ -853,7 +1212,7 @@ mod tests {
     #[test]
     fn test_validate_struct_unknown_type() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Constructing unknown type
         let field_value = TypedExpr::new(
@@ -903,7 +1262,7 @@ mod tests {
         );
         type_table.register(user_type);
 
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Field 'x' has wrong type (Bool instead of Scalar<m>)
         let wrong_field = TypedExpr::new(
@@ -953,7 +1312,7 @@ mod tests {
         );
         type_table.register(user_type);
 
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Field 'z' doesn't exist on Vec2
         let field = TypedExpr::new(
@@ -983,7 +1342,7 @@ mod tests {
     #[test]
     fn test_validate_field_access_unknown_type() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Accessing field on unknown type
         let object = TypedExpr::new(
@@ -1030,7 +1389,7 @@ mod tests {
         );
         type_table.register(user_type);
 
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Accessing field 'z' which doesn't exist
         let object = TypedExpr::new(
@@ -1077,7 +1436,7 @@ mod tests {
         );
         type_table.register(user_type);
 
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Valid struct construction
         let field_x = TypedExpr::new(
@@ -1116,7 +1475,7 @@ mod tests {
         use crate::foundation::Bounds;
 
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Argument violates bounds
         let arg = TypedExpr::new(
@@ -1137,7 +1496,7 @@ mod tests {
 
         let call_expr = TypedExpr::new(
             ExprKind::Call {
-                kernel: KernelId::new("maths", "identity"),
+                kernel: KernelId::new("maths", "abs"),
                 args: vec![arg],
             },
             Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
@@ -1173,7 +1532,7 @@ mod tests {
         );
         type_table.register(user_type);
 
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Valid field access
         let object = TypedExpr::new(
@@ -1198,7 +1557,7 @@ mod tests {
     #[test]
     fn test_validate_field_access_on_kernel_type() {
         let type_table = test_type_table();
-        let ctx = ValidationContext::new(&type_table);
+        let ctx = test_ctx(&type_table);
 
         // Field access on kernel type (Vector) is allowed (not validated here)
         let object = TypedExpr::new(
@@ -1218,6 +1577,328 @@ mod tests {
 
         // No errors - kernel type field access is not validated at this level
         let errors = validate_expr(&field_access, &ctx);
+        assert!(errors.is_empty());
+    }
+
+    // ============================================================================
+    // Kernel Validation Tests
+    // ============================================================================
+
+    #[test]
+    fn test_validate_kernel_unknown() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        let arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("unknown", "kernel"),
+                args: vec![arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::UnknownKernel);
+        assert!(errors[0].message.contains("unknown.kernel"));
+    }
+
+    #[test]
+    fn test_validate_kernel_wrong_arg_count() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        // maths.abs expects 1 argument
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("maths", "abs"),
+                args: vec![], // Wrong: should have 1 arg
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::WrongArgCount);
+        assert!(errors[0].message.contains("expects 1 arguments, got 0"));
+    }
+
+    #[test]
+    fn test_validate_kernel_shape_exact_mismatch() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        // vector.dot expects two Vector<3> arguments
+        let vec2_arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Vector { dim: 2 }, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("vector", "dot"),
+                args: vec![vec2_arg.clone(), vec2_arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
+        // Should have 2 errors (one for each argument shape mismatch)
+        assert!(!errors.is_empty());
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.kind == ErrorKind::InvalidKernelShape)
+        );
+    }
+
+    #[test]
+    fn test_validate_kernel_shape_scalar_vs_vector() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        // vector.cross expects two Vector<3> arguments, but we give it scalars
+        let scalar_arg1 = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let scalar_arg2 = TypedExpr::new(
+            ExprKind::Literal {
+                value: 2.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("vector", "cross"),
+                args: vec![scalar_arg1, scalar_arg2],
+            },
+            Type::kernel(Shape::Vector { dim: 3 }, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
+        assert!(!errors.is_empty());
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.kind == ErrorKind::InvalidKernelShape)
+        );
+    }
+
+    #[test]
+    fn test_validate_kernel_shape_sameas_mismatch() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        // maths.add expects both args to have same shape (SameAs constraint)
+        let scalar_arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let vec3_arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Vector { dim: 3 }, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("maths", "add"),
+                args: vec![scalar_arg, vec3_arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
+        assert!(!errors.is_empty());
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.kind == ErrorKind::InvalidKernelShape)
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("must have same shape as argument 0"))
+        );
+    }
+
+    #[test]
+    fn test_validate_kernel_unit_exact_mismatch() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        // sin expects a dimensionless (or angle) argument, but we give it meters
+        let meters_arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::meters()),
+            },
+            Type::kernel(Shape::Scalar, Unit::meters(), None),
+            test_span(),
+        );
+
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("maths", "sin"),
+                args: vec![meters_arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
+        assert!(!errors.is_empty());
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.kind == ErrorKind::InvalidKernelUnit)
+        );
+    }
+
+    #[test]
+    fn test_validate_kernel_unit_sameas_mismatch() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        // maths.add expects both args to have same unit (SameAs constraint)
+        let meters_arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::meters()),
+            },
+            Type::kernel(Shape::Scalar, Unit::meters(), None),
+            test_span(),
+        );
+
+        let seconds_arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            test_span(),
+        );
+
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("maths", "add"),
+                args: vec![meters_arg, seconds_arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
+        assert!(!errors.is_empty());
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.kind == ErrorKind::InvalidKernelUnit)
+        );
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.message.contains("must have same unit as argument 0"))
+        );
+    }
+
+    #[test]
+    fn test_validate_kernel_valid_call() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        // Valid maths.abs call
+        let arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: -5.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("maths", "abs"),
+                args: vec![arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_kernel_valid_vector_call() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        // Valid vector.dot call with Vector<3>
+        let vec3_arg1 = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Vector { dim: 3 }, Unit::meters(), None),
+            test_span(),
+        );
+
+        let vec3_arg2 = TypedExpr::new(
+            ExprKind::Literal {
+                value: 2.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Vector { dim: 3 }, Unit::meters(), None),
+            test_span(),
+        );
+
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("vector", "dot"),
+                args: vec![vec3_arg1, vec3_arg2],
+            },
+            Type::kernel(Shape::Scalar, Unit::meters(), None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
         assert!(errors.is_empty());
     }
 }
