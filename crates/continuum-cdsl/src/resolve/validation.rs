@@ -41,41 +41,43 @@
 use crate::ast::{ExprKind, KernelId, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{Span, Type};
+use crate::resolve::types::TypeTable;
 
 /// Validation context containing type tables and registries.
 ///
 /// Provides access to type information needed during validation:
-/// - User type definitions
-/// - Kernel signatures
-/// - Symbol tables
+/// - User type definitions via TypeTable
+/// - Kernel signatures (pending kernel registry implementation)
+/// - Symbol tables (pending implementation)
 ///
 /// # Examples
 ///
 /// ```rust,ignore
 /// use continuum_cdsl::resolve::validation::ValidationContext;
+/// use continuum_cdsl::resolve::types::TypeTable;
 ///
-/// let ctx = ValidationContext::new();
+/// let type_table = TypeTable::new();
+/// let ctx = ValidationContext::new(&type_table);
 /// // Use ctx for validation...
 /// ```
 #[derive(Debug)]
-pub struct ValidationContext {
-    // Future: TypeTable, KernelRegistry, SymbolTable
+pub struct ValidationContext<'a> {
+    /// User type definitions for struct validation
+    pub type_table: &'a TypeTable,
 }
 
-impl ValidationContext {
-    /// Create a new empty validation context.
+impl<'a> ValidationContext<'a> {
+    /// Create a new validation context.
+    ///
+    /// # Parameters
+    ///
+    /// - `type_table`: User type definitions for struct validation.
     ///
     /// # Returns
     ///
     /// A new validation context ready for use.
-    pub fn new() -> Self {
-        Self {}
-    }
-}
-
-impl Default for ValidationContext {
-    fn default() -> Self {
-        Self::new()
+    pub fn new(type_table: &'a TypeTable) -> Self {
+        Self { type_table }
     }
 }
 
@@ -104,7 +106,7 @@ impl Default for ValidationContext {
 ///     eprintln!("{}", error);
 /// }
 /// ```
-pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext) -> Vec<CompileError> {
+pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
     match &expr.expr {
@@ -174,8 +176,11 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext) -> Vec<CompileEr
             errors.extend(validate_expr(body, ctx));
         }
 
-        ExprKind::Struct { fields, .. } => {
-            // Validate all field expressions
+        ExprKind::Struct {
+            ty: type_id,
+            fields,
+        } => {
+            // Validate all field expressions recursively
             for (name, field_expr) in fields {
                 errors.extend(validate_expr(field_expr, ctx));
 
@@ -191,12 +196,18 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext) -> Vec<CompileEr
                     ));
                 }
             }
-            // TODO: Validate field types match struct definition
+
+            // Validate fields against user type definition
+            errors.extend(validate_struct_fields(type_id, fields, expr.span, ctx));
         }
 
-        ExprKind::FieldAccess { object, .. } => {
+        ExprKind::FieldAccess { object, field } => {
             errors.extend(validate_expr(object, ctx));
-            // TODO: Validate field exists on object type
+
+            // Validate field exists on object type (for user types)
+            if let Type::User(type_id) = &object.ty {
+                errors.extend(validate_field_access(type_id, field, expr.span, ctx));
+            }
         }
 
         // References don't need validation
@@ -239,7 +250,7 @@ fn validate_kernel_call(
     _kernel: &KernelId,
     args: &[TypedExpr],
     _span: Span,
-    ctx: &ValidationContext,
+    ctx: &ValidationContext<'_>,
 ) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
@@ -248,11 +259,15 @@ fn validate_kernel_call(
         errors.extend(validate_expr(arg, ctx));
     }
 
-    // TODO: Validate kernel exists
-    // TODO: Validate argument count
-    // TODO: Validate argument types
-    // TODO: Validate argument shapes
-    // TODO: Validate argument units
+    // Kernel signature validation requires kernel registry (not yet implemented).
+    // When kernel registry is available (Phase 6), this function should:
+    // 1. Look up kernel signature by KernelId
+    // 2. Validate argument count matches signature
+    // 3. Validate argument types satisfy signature constraints
+    // 4. Validate argument shapes satisfy signature constraints
+    // 5. Validate argument units satisfy signature constraints
+    //
+    // Until then, we validate that arguments are well-formed (done above).
 
     errors
 }
@@ -304,18 +319,136 @@ fn validate_literal_bounds(value: f64, ty: &Type, span: Span) -> Vec<CompileErro
     errors
 }
 
+/// Validates struct fields against user type definition.
+///
+/// Checks that all provided fields exist in the type definition
+/// and have compatible types.
+///
+/// # Parameters
+///
+/// - `type_id`: User type identifier.
+/// - `fields`: Field name-value pairs from struct construction.
+/// - `span`: Source location for error reporting.
+/// - `ctx`: Validation context with type table.
+///
+/// # Returns
+///
+/// Vector of validation errors (empty if all fields are valid).
+fn validate_struct_fields(
+    type_id: &continuum_foundation::TypeId,
+    fields: &[(String, TypedExpr)],
+    span: Span,
+    ctx: &ValidationContext<'_>,
+) -> Vec<CompileError> {
+    use crate::foundation::Path;
+
+    let mut errors = Vec::new();
+
+    // Look up user type in type table
+    let path = Path::from(type_id.as_str());
+    let Some(user_type) = ctx.type_table.get(&path) else {
+        errors.push(CompileError::new(
+            ErrorKind::UnknownType,
+            span,
+            format!("Unknown user type: {}", type_id),
+        ));
+        return errors;
+    };
+
+    // Validate each field
+    for (field_name, field_expr) in fields {
+        // Check if field exists in type definition
+        if let Some((_name, expected_ty)) =
+            user_type.fields.iter().find(|(name, _)| name == field_name)
+        {
+            // Check if field type matches expected type
+            if &field_expr.ty != expected_ty {
+                errors.push(CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    field_expr.span,
+                    format!(
+                        "struct field '{}' has type {:?}, expected {:?}",
+                        field_name, field_expr.ty, expected_ty
+                    ),
+                ));
+            }
+        } else {
+            errors.push(CompileError::new(
+                ErrorKind::UnknownType,
+                field_expr.span,
+                format!("struct type {} has no field '{}'", type_id, field_name),
+            ));
+        }
+    }
+
+    errors
+}
+
+/// Validates field access on user types.
+///
+/// Checks that the accessed field exists in the user type definition.
+///
+/// # Parameters
+///
+/// - `type_id`: User type identifier.
+/// - `field_name`: Name of the accessed field.
+/// - `span`: Source location for error reporting.
+/// - `ctx`: Validation context with type table.
+///
+/// # Returns
+///
+/// Vector of validation errors (empty if field exists).
+fn validate_field_access(
+    type_id: &continuum_foundation::TypeId,
+    field_name: &str,
+    span: Span,
+    ctx: &ValidationContext<'_>,
+) -> Vec<CompileError> {
+    use crate::foundation::Path;
+
+    let mut errors = Vec::new();
+
+    // Look up user type in type table
+    let path = Path::from(type_id.as_str());
+    let Some(user_type) = ctx.type_table.get(&path) else {
+        errors.push(CompileError::new(
+            ErrorKind::UnknownType,
+            span,
+            format!("Unknown user type: {}", type_id),
+        ));
+        return errors;
+    };
+
+    // Check if field exists
+    if !user_type.fields.iter().any(|(name, _)| name == field_name) {
+        errors.push(CompileError::new(
+            ErrorKind::UnknownType,
+            span,
+            format!("type {} has no field '{}'", type_id, field_name),
+        ));
+    }
+
+    errors
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::foundation::{Shape, Unit};
+    use crate::resolve::types::TypeTable;
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)
     }
 
+    fn test_type_table() -> TypeTable {
+        TypeTable::new()
+    }
+
     #[test]
     fn test_validate_literal() {
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
         let expr = TypedExpr::new(
             ExprKind::Literal {
                 value: 42.0,
@@ -331,7 +464,8 @@ mod tests {
 
     #[test]
     fn test_validate_vector_elements() {
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         let elem1 = TypedExpr::new(
             ExprKind::Literal {
@@ -363,7 +497,8 @@ mod tests {
 
     #[test]
     fn test_validate_let_binding() {
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         let value = TypedExpr::new(
             ExprKind::Literal {
@@ -396,7 +531,8 @@ mod tests {
 
     #[test]
     fn test_validate_vector_elements_type_mismatch() {
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         // First element is Scalar
         let elem1 = TypedExpr::new(
@@ -434,7 +570,8 @@ mod tests {
     fn test_validate_literal_below_minimum() {
         use crate::foundation::Bounds;
 
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         // Type has min bound of 0.0
         let bounded_type = Type::kernel(
@@ -466,7 +603,8 @@ mod tests {
     fn test_validate_literal_above_maximum() {
         use crate::foundation::Bounds;
 
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         // Type has max bound of 100.0
         let bounded_type = Type::kernel(
@@ -498,7 +636,8 @@ mod tests {
     fn test_validate_literal_within_bounds() {
         use crate::foundation::Bounds;
 
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         // Type has bounds [0.0, 100.0]
         let bounded_type = Type::kernel(
@@ -526,7 +665,8 @@ mod tests {
 
     #[test]
     fn test_validate_vector_unit_mismatch() {
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         // First element has unit m
         let elem1 = TypedExpr::new(
@@ -562,7 +702,8 @@ mod tests {
 
     #[test]
     fn test_validate_empty_vector() {
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         // Empty vector is valid (no type conflicts possible)
         let vec_expr = TypedExpr::new(
@@ -577,7 +718,8 @@ mod tests {
 
     #[test]
     fn test_validate_seq_in_let_binding_fails() {
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         // Trying to store Seq<Scalar> in let binding (invalid!)
         let seq_value = TypedExpr::new(
@@ -617,7 +759,8 @@ mod tests {
 
     #[test]
     fn test_validate_seq_in_vector_fails() {
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         // Trying to create vector containing Seq (invalid!)
         let seq_elem = TypedExpr::new(
@@ -648,7 +791,8 @@ mod tests {
 
     #[test]
     fn test_validate_seq_in_struct_field_fails() {
-        let ctx = ValidationContext::new();
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
 
         // Trying to store Seq in struct field (invalid!)
         let seq_value = TypedExpr::new(
@@ -671,12 +815,277 @@ mod tests {
         );
 
         let errors = validate_expr(&struct_expr, &ctx);
-        assert_eq!(errors.len(), 1);
+        // Expect 2 errors: Seq type error + unknown type error
+        assert_eq!(errors.len(), 2);
+        // First error is Seq type leakage
         assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
         assert!(
             errors[0]
                 .message
                 .contains("Seq types cannot be stored in struct field")
         );
+        // Second error is unknown type (not registered)
+        assert_eq!(errors[1].kind, ErrorKind::UnknownType);
+    }
+
+    #[test]
+    fn test_validate_struct_unknown_type() {
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
+
+        // Constructing unknown type
+        let field_value = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let struct_expr = TypedExpr::new(
+            ExprKind::Struct {
+                ty: continuum_foundation::TypeId::from("UnknownType"),
+                fields: vec![("x".to_string(), field_value)],
+            },
+            Type::user(continuum_foundation::TypeId::from("UnknownType")),
+            test_span(),
+        );
+
+        let errors = validate_expr(&struct_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::UnknownType);
+        assert!(errors[0].message.contains("Unknown user type"));
+    }
+
+    #[test]
+    fn test_validate_struct_field_type_mismatch() {
+        use crate::foundation::{Path, UserType};
+
+        // Create type table with a user type
+        let mut type_table = TypeTable::new();
+        let type_id = continuum_foundation::TypeId::from("Vec2");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Vec2"),
+            vec![
+                (
+                    "x".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+                (
+                    "y".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+            ],
+        );
+        type_table.register(user_type);
+
+        let ctx = ValidationContext::new(&type_table);
+
+        // Field 'x' has wrong type (Bool instead of Scalar<m>)
+        let wrong_field = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::Bool, // Wrong type!
+            test_span(),
+        );
+
+        let struct_expr = TypedExpr::new(
+            ExprKind::Struct {
+                ty: type_id.clone(),
+                fields: vec![("x".to_string(), wrong_field)],
+            },
+            Type::user(type_id),
+            test_span(),
+        );
+
+        let errors = validate_expr(&struct_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(errors[0].message.contains("field 'x'"));
+    }
+
+    #[test]
+    fn test_validate_struct_unknown_field() {
+        use crate::foundation::{Path, UserType};
+
+        // Create type table with a user type
+        let mut type_table = TypeTable::new();
+        let type_id = continuum_foundation::TypeId::from("Vec2");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Vec2"),
+            vec![
+                (
+                    "x".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+                (
+                    "y".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+            ],
+        );
+        type_table.register(user_type);
+
+        let ctx = ValidationContext::new(&type_table);
+
+        // Field 'z' doesn't exist on Vec2
+        let field = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::meters()),
+            },
+            Type::kernel(Shape::Scalar, Unit::meters(), None),
+            test_span(),
+        );
+
+        let struct_expr = TypedExpr::new(
+            ExprKind::Struct {
+                ty: type_id.clone(),
+                fields: vec![("z".to_string(), field)], // Unknown field!
+            },
+            Type::user(type_id),
+            test_span(),
+        );
+
+        let errors = validate_expr(&struct_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::UnknownType);
+        assert!(errors[0].message.contains("no field 'z'"));
+    }
+
+    #[test]
+    fn test_validate_field_access_unknown_type() {
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
+
+        // Accessing field on unknown type
+        let object = TypedExpr::new(
+            ExprKind::Local("obj".to_string()),
+            Type::user(continuum_foundation::TypeId::from("UnknownType")),
+            test_span(),
+        );
+
+        let field_access = TypedExpr::new(
+            ExprKind::FieldAccess {
+                object: Box::new(object),
+                field: "x".to_string(),
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&field_access, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::UnknownType);
+        assert!(errors[0].message.contains("Unknown user type"));
+    }
+
+    #[test]
+    fn test_validate_field_access_unknown_field() {
+        use crate::foundation::{Path, UserType};
+
+        // Create type table with a user type
+        let mut type_table = TypeTable::new();
+        let type_id = continuum_foundation::TypeId::from("Vec2");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Vec2"),
+            vec![
+                (
+                    "x".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+                (
+                    "y".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+            ],
+        );
+        type_table.register(user_type);
+
+        let ctx = ValidationContext::new(&type_table);
+
+        // Accessing field 'z' which doesn't exist
+        let object = TypedExpr::new(
+            ExprKind::Local("v".to_string()),
+            Type::user(type_id),
+            test_span(),
+        );
+
+        let field_access = TypedExpr::new(
+            ExprKind::FieldAccess {
+                object: Box::new(object),
+                field: "z".to_string(), // Unknown field!
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&field_access, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::UnknownType);
+        assert!(errors[0].message.contains("no field 'z'"));
+    }
+
+    #[test]
+    fn test_validate_struct_valid() {
+        use crate::foundation::{Path, UserType};
+
+        // Create type table with a user type
+        let mut type_table = TypeTable::new();
+        let type_id = continuum_foundation::TypeId::from("Vec2");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Vec2"),
+            vec![
+                (
+                    "x".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+                (
+                    "y".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+            ],
+        );
+        type_table.register(user_type);
+
+        let ctx = ValidationContext::new(&type_table);
+
+        // Valid struct construction
+        let field_x = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::meters()),
+            },
+            Type::kernel(Shape::Scalar, Unit::meters(), None),
+            test_span(),
+        );
+
+        let field_y = TypedExpr::new(
+            ExprKind::Literal {
+                value: 2.0,
+                unit: Some(Unit::meters()),
+            },
+            Type::kernel(Shape::Scalar, Unit::meters(), None),
+            test_span(),
+        );
+
+        let struct_expr = TypedExpr::new(
+            ExprKind::Struct {
+                ty: type_id.clone(),
+                fields: vec![("x".to_string(), field_x), ("y".to_string(), field_y)],
+            },
+            Type::user(type_id),
+            test_span(),
+        );
+
+        let errors = validate_expr(&struct_expr, &ctx);
+        assert!(errors.is_empty());
     }
 }
