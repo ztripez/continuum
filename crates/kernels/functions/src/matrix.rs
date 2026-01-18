@@ -193,7 +193,7 @@ pub fn determinant_mat4(mat: Mat4) -> f64 {
     unit_out = Inverse(0)
 )]
 pub fn inverse_mat2(mat: Mat2) -> Mat2 {
-    let det = mat.0[0] * mat.0[3] - mat.0[2] * mat.0[1];
+    let det = determinant_mat2(Mat2(mat.0));
     if det.abs() < 1e-10 {
         panic!("matrix.inverse: matrix is singular (determinant = 0)");
     }
@@ -228,8 +228,7 @@ pub fn inverse_mat3(mat: Mat3) -> Mat3 {
     let m12 = mat.0[7];
     let m22 = mat.0[8];
 
-    let det = m00 * (m11 * m22 - m21 * m12) - m01 * (m10 * m22 - m20 * m12)
-        + m02 * (m10 * m21 - m20 * m11);
+    let det = determinant_mat3(Mat3(mat.0));
 
     if det.abs() < 1e-10 {
         panic!("matrix.inverse: matrix is singular (determinant = 0)");
@@ -279,16 +278,7 @@ pub fn inverse_mat4(mat: Mat4) -> Mat4 {
     let m23 = mat.0[14];
     let m33 = mat.0[15];
 
-    let det0 = m11 * (m22 * m33 - m32 * m23) - m21 * (m12 * m33 - m32 * m13)
-        + m31 * (m12 * m23 - m22 * m13);
-    let det1 = m10 * (m22 * m33 - m32 * m23) - m20 * (m12 * m33 - m32 * m13)
-        + m30 * (m12 * m23 - m22 * m13);
-    let det2 = m10 * (m21 * m33 - m31 * m23) - m20 * (m11 * m33 - m31 * m13)
-        + m30 * (m11 * m23 - m21 * m13);
-    let det3 = m10 * (m21 * m32 - m31 * m22) - m20 * (m11 * m32 - m31 * m12)
-        + m30 * (m11 * m22 - m21 * m12);
-
-    let det = m00 * det0 - m01 * det1 + m02 * det2 - m03 * det3;
+    let det = determinant_mat4(Mat4(mat.0));
 
     if det.abs() < 1e-10 {
         panic!("matrix.inverse: matrix is singular (determinant = 0)");
