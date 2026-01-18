@@ -2584,4 +2584,930 @@ mod tests {
             ),
         }
     }
+
+    // ========================================================================
+    // Declaration Parser Tests
+    // ========================================================================
+
+    /// Helper to lex and parse declarations
+    fn lex_and_parse_decl(source: &str) -> Vec<Declaration> {
+        let tokens: Vec<_> = Token::lexer(source)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("lexer should not produce errors for test inputs");
+        parse_declarations(&tokens)
+            .into_result()
+            .expect("parser failed")
+    }
+
+    /// Helper that returns Result for error testing
+    fn lex_and_parse_decl_result(source: &str) -> Result<Vec<Declaration>, String> {
+        let tokens: Vec<_> = Token::lexer(source)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|_| "lexer error".to_string())?;
+        parse_declarations(&tokens)
+            .into_result()
+            .map_err(|e| format!("parser error: {:?}", e))
+    }
+
+    // ------------------------------------------------------------------------
+    // Core Parser Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_path_simple() {
+        let source = "entity Plate {}";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Entity(entity) => {
+                assert_eq!(entity.path.to_string(), "Plate");
+            }
+            _ => panic!("expected entity declaration"),
+        }
+    }
+
+    #[test]
+    fn test_path_dotted() {
+        let source = "signal terra.temperature : type Scalar<K> { resolve { 273.15 } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                assert_eq!(node.path.to_string(), "terra.temperature");
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_type_annotation_with_type_keyword() {
+        let source = "signal temp : type Scalar<K> { resolve { 0 } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                assert!(node.type_expr.is_some());
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_attribute_simple() {
+        let source = "signal temp : initial { resolve { 0 } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(_node) => {
+                // Attributes parsed but not yet attached to node
+                // Just verify it parses successfully
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_attribute_with_args() {
+        let source = "signal temp : stratum(physics) { resolve { 0 } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(_node) => {
+                // Attributes parsed but not yet attached to node
+                // Just verify it parses successfully
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_stmt_let_binding() {
+        let source = "operator op { apply { let x = 10; x } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        // Successfully parsed
+    }
+
+    #[test]
+    fn test_stmt_signal_assign() {
+        let source = "operator op { apply { temperature <- 273.15 } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        // Successfully parsed
+    }
+
+    #[test]
+    fn test_stmt_field_assign() {
+        let source = "field vis { measure { temperature <- 273.15 } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        // Successfully parsed
+    }
+
+    #[test]
+    fn test_block_body_expression() {
+        let source = "signal temp : type Scalar<K> { resolve { 273.15 } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => match &node.role {
+                RoleData::Signal => {
+                    // Signal role confirmed
+                    // resolve block is in execution_exprs
+                }
+                _ => panic!("expected signal role"),
+            },
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_block_body_statements() {
+        let source = "operator op { apply { let x = 10; let y = 20; x + y } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        // Successfully parsed
+    }
+
+    // ------------------------------------------------------------------------
+    // Signal Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_signal_basic() {
+        let source = "signal temperature : type Scalar<K> { resolve { 273.15 } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                assert_eq!(node.path.to_string(), "temperature");
+                assert!(node.type_expr.is_some());
+                match &node.role {
+                    RoleData::Signal => {
+                        // Signal role confirmed
+                        // resolve block is in execution_exprs
+                    }
+                    _ => panic!("expected signal role"),
+                }
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    // TODO: Add test for signal with doc comment once doc comment parsing is implemented
+    // #[test]
+    // fn test_signal_with_doc_comment() {
+    //     let source = r#"
+    // /// Surface temperature in Kelvin
+    // signal temperature : type Scalar<K> { resolve { 273.15 } }
+    // "#;
+    //     let decls = lex_and_parse_decl(source);
+    //     assert_eq!(decls.len(), 1);
+    //     match &decls[0] {
+    //         Declaration::Node(node) => {
+    //             assert!(node.doc.is_some());
+    //         }
+    //         _ => panic!("expected signal declaration"),
+    //     }
+    // }
+
+    #[test]
+    fn test_signal_with_warmup() {
+        let source = r#"
+signal temperature : type Scalar<K> {
+    warmup {
+        :iterations(100)
+        iterate { prev + 0.1 }
+    }
+    resolve { prev + 1.0 }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        // TODO: Verify warmup block is attached to signal
+    }
+
+    #[test]
+    fn test_signal_with_multiple_attributes() {
+        let source = r#"
+signal temp 
+    : type Scalar<K> 
+    : initial 
+    : stratum(physics) 
+{ 
+    resolve { 273.15 } 
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(_node) => {
+                // Attributes parsed but not yet attached to node
+                // Just verify it parses successfully
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_signal_with_collect_and_resolve() {
+        let source = r#"
+signal force : type Vector<3, N> {
+    collect { gravity + wind }
+    resolve { sum(inputs) }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => match &node.role {
+                RoleData::Signal => {
+                    // Signal role confirmed
+                    // collect and resolve blocks are in execution_exprs
+                }
+                _ => panic!("expected signal role"),
+            },
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Field Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_field_basic() {
+        let source = "field temperature : type Scalar<K> { measure { 273.15 } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                assert_eq!(node.path.to_string(), "temperature");
+                match &node.role {
+                    RoleData::Field { .. } => {
+                        // Field role confirmed
+                        // measure block is in execution_exprs, not in RoleData
+                    }
+                    _ => panic!("expected field role"),
+                }
+            }
+            _ => panic!("expected field declaration"),
+        }
+    }
+
+    #[test]
+    fn test_field_with_reconstruction() {
+        let source = r#"
+field elevation : type Scalar<m> {
+    measure { sample_elevation(location) }
+    :reconstruction(idw)
+    :samples(1000)
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(_node) => {
+                // Attributes parsed but not yet attached to node
+                // Just verify it parses successfully
+            }
+            _ => panic!("expected field declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Operator Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_operator_basic() {
+        let source = r#"
+operator apply_gravity {
+    apply { velocity <- velocity + gravity * dt }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                match &node.role {
+                    RoleData::Operator => {
+                        // Operator role confirmed
+                        // apply block is in execution_exprs
+                    }
+                    _ => panic!("expected operator role"),
+                }
+            }
+            _ => panic!("expected operator declaration"),
+        }
+    }
+
+    #[test]
+    fn test_operator_with_collect_and_apply() {
+        let source = r#"
+operator accumulate_forces {
+    collect { total_force + external_forces }
+    apply { acceleration <- total_force / mass }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                match &node.role {
+                    RoleData::Operator => {
+                        // Operator role confirmed
+                        // collect and apply blocks in execution_exprs
+                    }
+                    _ => panic!("expected operator role"),
+                }
+            }
+            _ => panic!("expected operator declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Impulse Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_impulse_basic() {
+        let source = r#"
+impulse external_force : type Vector<3, N> {
+    apply { force <- force + value }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                match &node.role {
+                    RoleData::Impulse { .. } => {
+                        // Impulse role confirmed
+                        // apply block in execution_exprs
+                    }
+                    _ => panic!("expected impulse role"),
+                }
+            }
+            _ => panic!("expected impulse declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Fracture Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_fracture_basic() {
+        let source = r#"
+fracture stress_exceeded {
+    when { stress > yield_strength }
+    emit { split_entity(self) }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                match &node.role {
+                    RoleData::Fracture => {
+                        // Fracture role confirmed
+                        // when/emit blocks in execution_exprs
+                    }
+                    _ => panic!("expected fracture role"),
+                }
+            }
+            _ => panic!("expected fracture declaration"),
+        }
+    }
+
+    #[test]
+    fn test_fracture_with_multiple_conditions() {
+        let source = r#"
+fracture boundary_collision {
+    when { 
+        temperature > 1000
+        pressure < 0.1
+    }
+    emit { destroy(self) }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        // Successfully parsed
+    }
+
+    // ------------------------------------------------------------------------
+    // Chronicle Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_chronicle_basic() {
+        let source = r#"
+chronicle plate_lifecycle {
+    observe {
+        when { created }
+        emit { log("Plate created") }
+    }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                match &node.role {
+                    RoleData::Chronicle => {
+                        // Chronicle role confirmed
+                        // observe block in execution_exprs
+                    }
+                    _ => panic!("expected chronicle role"),
+                }
+            }
+            _ => panic!("expected chronicle declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Entity Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_entity_basic() {
+        let source = "entity Plate {}";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Entity(entity) => {
+                assert_eq!(entity.path.to_string(), "Plate");
+            }
+            _ => panic!("expected entity declaration"),
+        }
+    }
+
+    // TODO: Add test for entity with doc comment once doc comment parsing is implemented
+    // #[test]
+    // fn test_entity_with_doc_comment() {
+    //     let source = r#"
+    // /// Tectonic plate entity
+    // entity Plate {}
+    // "#;
+    //     let decls = lex_and_parse_decl(source);
+    //     assert_eq!(decls.len(), 1);
+    //     match &decls[0] {
+    //         Declaration::Entity(entity) => {
+    //             assert!(entity.doc.is_some());
+    //         }
+    //         _ => panic!("expected entity declaration"),
+    //     }
+    // }
+
+    // ------------------------------------------------------------------------
+    // Member Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_member_basic() {
+        let source = r#"
+member Plate.velocity : type Vector<3, m/s> {
+    resolve { prev + acceleration * dt }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Member(node) => {
+                // Full path is Plate.velocity
+                assert_eq!(node.path.to_string(), "Plate.velocity");
+                // Entity ID should be Plate
+                assert_eq!(node.index.0.to_string(), "Plate");
+            }
+            _ => panic!("expected member declaration"),
+        }
+    }
+
+    #[test]
+    fn test_member_with_stratum() {
+        let source = r#"
+member Plate.stress 
+    : type Scalar<Pa> 
+    : stratum(physics) 
+{
+    resolve { calculate_stress() }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Member(node) => {
+                // Attributes are not yet extracted in parser
+                // Just verify it parsed successfully
+                assert_eq!(node.path.to_string(), "Plate.stress");
+            }
+            _ => panic!("expected member declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Stratum Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_stratum_basic() {
+        let source = "stratum physics {}";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Stratum(stratum) => {
+                assert_eq!(stratum.path.to_string(), "physics");
+            }
+            _ => panic!("expected stratum declaration"),
+        }
+    }
+
+    // TODO: Add test for stratum with doc comment once doc comment parsing is implemented
+    // #[test]
+    // fn test_stratum_with_doc_comment() {
+    //     let source = r#"
+    // /// Physics simulation stratum
+    // stratum physics {}
+    // "#;
+    //     let decls = lex_and_parse_decl(source);
+    //     assert_eq!(decls.len(), 1);
+    //     match &decls[0] {
+    //         Declaration::Stratum(stratum) => {
+    //             assert!(stratum.doc.is_some());
+    //         }
+    //         _ => panic!("expected stratum declaration"),
+    //     }
+    // }
+
+    // ------------------------------------------------------------------------
+    // Era Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_era_basic() {
+        let source = r#"
+era simulation 
+    : dt(1.0)
+    : is_initial
+{
+    strata {
+        physics: every(1)
+    }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Era(era) => {
+                assert_eq!(era.path.to_string(), "simulation");
+                assert!(!era.strata_policy.is_empty());
+            }
+            _ => panic!("expected era declaration"),
+        }
+    }
+
+    #[test]
+    fn test_era_with_transitions() {
+        let source = r#"
+era warmup 
+    : dt(0.1)
+    : is_initial
+{
+    strata {
+        physics: every(1)
+    }
+    transition simulation {
+        when { tick > 1000 }
+    }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Era(era) => {
+                assert!(!era.transitions.is_empty());
+                assert_eq!(era.transitions[0].target.to_string(), "simulation");
+            }
+            _ => panic!("expected era declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Type Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_type_decl_basic() {
+        let source = r#"
+type PlateState {
+    position: Vector<3, m>
+    velocity: Vector<3, m/s>
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Type(ty) => {
+                assert_eq!(ty.name, "PlateState");
+                assert_eq!(ty.fields.len(), 2);
+                assert_eq!(ty.fields[0].name, "position");
+                assert_eq!(ty.fields[1].name, "velocity");
+            }
+            _ => panic!("expected type declaration"),
+        }
+    }
+
+    #[test]
+    fn test_type_decl_with_doc_comments() {
+        let source = r#"
+/// Plate state container
+type PlateState {
+    position: Vector<3, m>
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Type(ty) => {
+                assert!(ty.doc.is_some());
+                // TypeField doesn't have doc field (per TypeField struct definition)
+            }
+            _ => panic!("expected type declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // World Declaration Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_world_basic() {
+        let source = r#"
+world terra {
+    warmup {
+        :iterations(100)
+        iterate { run_physics() }
+    }
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::World(world) => {
+                assert_eq!(world.path.to_string(), "terra");
+                assert!(world.warmup.is_some());
+            }
+            _ => panic!("expected world declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Const Block Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_const_block_basic() {
+        let source = r#"
+const {
+    PI: type Scalar = 3.14159
+    GRAVITY: type Vector<3, m/s^2> = vec3(0, 0, -9.81)
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Const(entries) => {
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].path.to_string(), "PI");
+                assert_eq!(entries[1].path.to_string(), "GRAVITY");
+            }
+            _ => panic!("expected const declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Config Block Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_config_block_basic() {
+        let source = r#"
+config {
+    dt: type Scalar<s> = 1.0
+    max_iterations: type Int = 1000
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Config(entries) => {
+                assert_eq!(entries.len(), 2);
+                assert_eq!(entries[0].path.to_string(), "dt");
+                assert!(entries[0].default.is_some());
+            }
+            _ => panic!("expected config declaration"),
+        }
+    }
+
+    #[test]
+    fn test_config_without_defaults() {
+        let source = r#"
+config {
+    world_seed: type Int
+}
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Config(entries) => {
+                assert_eq!(entries.len(), 1);
+                assert!(entries[0].default.is_none());
+            }
+            _ => panic!("expected config declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Type Expression Sugar Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_vec2_sugar() {
+        let source = "signal pos : type Vec2<m> { resolve { vec2(0, 0) } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                if let Some(TypeExpr::Vector { dim, .. }) = &node.type_expr {
+                    assert_eq!(*dim, 2);
+                } else {
+                    panic!("expected Vec2 to desugar to Vector<2, unit>");
+                }
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_vec3_sugar() {
+        let source = "signal pos : type Vec3<m> { resolve { vec3(0, 0, 0) } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                if let Some(TypeExpr::Vector { dim, .. }) = &node.type_expr {
+                    assert_eq!(*dim, 3);
+                } else {
+                    panic!("expected Vec3 to desugar to Vector<3, unit>");
+                }
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_vec4_sugar() {
+        let source = "signal color : type Vec4<None> { resolve { vec4(1, 1, 1, 1) } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                if let Some(TypeExpr::Vector { dim, .. }) = &node.type_expr {
+                    assert_eq!(*dim, 4);
+                } else {
+                    panic!("expected Vec4 to desugar to Vector<4, None>");
+                }
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_quat_sugar() {
+        let source = "signal rotation : type Quat { resolve { quat_identity() } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                if let Some(TypeExpr::Vector { dim, unit, .. }) = &node.type_expr {
+                    assert_eq!(*dim, 4);
+                    assert!(unit.is_none());
+                } else {
+                    panic!("expected Quat to desugar to Vector<4, None>");
+                }
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_mat2_sugar() {
+        let source = "signal transform : type Mat2<None> { resolve { mat2_identity() } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                if let Some(TypeExpr::Matrix { rows, cols, .. }) = &node.type_expr {
+                    assert_eq!(*rows, 2);
+                    assert_eq!(*cols, 2);
+                } else {
+                    panic!("expected Mat2 to desugar to Matrix<2, 2, unit>");
+                }
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_mat3_sugar() {
+        let source = "signal transform : type Mat3<None> { resolve { mat3_identity() } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                if let Some(TypeExpr::Matrix { rows, cols, .. }) = &node.type_expr {
+                    assert_eq!(*rows, 3);
+                    assert_eq!(*cols, 3);
+                } else {
+                    panic!("expected Mat3 to desugar to Matrix<3, 3, unit>");
+                }
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    #[test]
+    fn test_mat4_sugar() {
+        let source = "signal transform : type Mat4<None> { resolve { mat4_identity() } }";
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 1);
+        match &decls[0] {
+            Declaration::Node(node) => {
+                if let Some(TypeExpr::Matrix { rows, cols, .. }) = &node.type_expr {
+                    assert_eq!(*rows, 4);
+                    assert_eq!(*cols, 4);
+                } else {
+                    panic!("expected Mat4 to desugar to Matrix<4, 4, unit>");
+                }
+            }
+            _ => panic!("expected signal declaration"),
+        }
+    }
+
+    // ------------------------------------------------------------------------
+    // Error Case Tests
+    // ------------------------------------------------------------------------
+
+    #[test]
+    fn test_error_missing_resolve_block() {
+        let source = "signal temp : type Scalar<K> {}";
+        let result = lex_and_parse_decl_result(source);
+        assert!(
+            result.is_err(),
+            "expected error for signal without resolve block"
+        );
+    }
+
+    #[test]
+    fn test_error_missing_type_in_const() {
+        let source = "const { PI = 3.14159 }";
+        let result = lex_and_parse_decl_result(source);
+        assert!(
+            result.is_err(),
+            "expected error for const entry without type"
+        );
+    }
+
+    #[test]
+    fn test_error_invalid_member_path() {
+        let source = "member velocity { resolve { 0 } }";
+        let result = lex_and_parse_decl_result(source);
+        assert!(result.is_err(), "expected error for member without entity");
+    }
+
+    #[test]
+    fn test_error_empty_entity_body() {
+        // Empty entity body should be valid (just {})
+        let source = "entity Plate";
+        let result = lex_and_parse_decl_result(source);
+        assert!(result.is_err(), "expected error for entity without braces");
+    }
+
+    #[test]
+    fn test_multiple_declarations() {
+        let source = r#"
+entity Plate {}
+
+signal temperature : type Scalar<K> { resolve { 273.15 } }
+
+field elevation : type Scalar<m> { measure { 0 } }
+"#;
+        let decls = lex_and_parse_decl(source);
+        assert_eq!(decls.len(), 3);
+        assert!(matches!(decls[0], Declaration::Entity(_)));
+        assert!(matches!(decls[1], Declaration::Node(_)));
+        assert!(matches!(decls[2], Declaration::Node(_)));
+    }
 }
