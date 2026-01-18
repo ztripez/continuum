@@ -637,4 +637,71 @@ mod tests {
                 .any(|e| e.kind == ErrorKind::EffectInPureContext)
         );
     }
+
+    #[test]
+    fn test_effect_kernel_in_assert_phase() {
+        let registry = KernelRegistry::global();
+        let ctx = EffectContext::new(Phase::Assert);
+
+        // Assert is a pure-only phase - effect kernels should be rejected
+        let call = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("", "emit"),
+                args: vec![
+                    TypedExpr::new(
+                        ExprKind::Local("signal_id".to_string()),
+                        Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                        test_span(),
+                    ),
+                    TypedExpr::new(
+                        ExprKind::Literal {
+                            value: 1.0,
+                            unit: None,
+                        },
+                        Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                        test_span(),
+                    ),
+                ],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_effect_purity(&call, &ctx, registry);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::EffectInPureContext);
+        assert!(errors[0].message.contains("Assert"));
+    }
+
+    #[test]
+    fn test_unknown_kernel_in_effect_allowed_phase() {
+        let registry = KernelRegistry::global();
+        let ctx = EffectContext::new(Phase::Collect);
+
+        // Unknown kernel in effect-allowed phase should ONLY report UnknownKernel
+        // NOT EffectInPureContext (since Collect allows effects)
+        let call = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("unknown", "missing"),
+                args: vec![TypedExpr::new(
+                    ExprKind::Literal {
+                        value: 1.0,
+                        unit: None,
+                    },
+                    Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                    test_span(),
+                )],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_effect_purity(&call, &ctx, registry);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::UnknownKernel);
+        assert!(errors[0].message.contains("unknown.missing"));
+        // Should NOT mention effect purity violation (not EffectInPureContext)
+        assert!(!errors[0].message.contains("pure-only"));
+        assert!(!errors[0].message.contains("cannot be called"));
+    }
 }
