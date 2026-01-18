@@ -52,6 +52,7 @@
 //! let expr = parse_expr(&tokens)?;
 //! ```
 
+use chumsky::error::EmptyErr;
 use chumsky::prelude::*;
 
 use crate::ast::{BinaryOp, Expr, TypeExpr, UnaryOp, UnitExpr, UntypedKind as ExprKind};
@@ -70,10 +71,15 @@ use crate::lexer::Token;
 ///
 /// # Errors
 ///
-/// Returns `Err(Vec<EmptyErr>)` when parsing fails. `EmptyErr` is a placeholder
-/// error type that carries no diagnostic information (no spans, no expected tokens).
+/// Returns `Err(Vec<EmptyErr>)` when parsing fails. [`EmptyErr`] is a placeholder
+/// error type from chumsky that carries no diagnostic information—no source spans,
+/// no expected token lists, no error messages. The `Vec` length indicates the
+/// number of parse failures encountered, but provides no details about what went
+/// wrong or where.
 ///
-/// TODO: Implement detailed error reporting using `Rich<Token>` error type for
+/// To check for errors, use `.into_result().is_err()` on the returned [`ParseResult`].
+///
+/// TODO: Replace [`EmptyErr`] with [`Rich<Token>`](chumsky::error::Rich) for
 /// meaningful diagnostics with source locations and expected token information.
 ///
 /// # Examples
@@ -239,40 +245,33 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
         let power = unary
             .clone()
             .then(power_op.then(unary.clone()).repeated().collect::<Vec<_>>())
-            .map(|(first, mut rest)| {
+            .map(|(first, rest)| {
                 if rest.is_empty() {
-                    first
-                } else {
-                    // Build right-associatively using rfold pattern
-                    // rest[i] = (operator connecting i-1 to i, operand i)
-                    let (mut next_op, mut result) = rest.pop().unwrap();
+                    return first;
+                }
 
-                    // Build from right to left: each iteration uses the operator
-                    // from the NEXT pair (which connects current operand to accumulated tree)
-                    while let Some((op, left_val)) = rest.pop() {
-                        let span = left_val.span;
-                        result = Expr::new(
-                            ExprKind::Binary {
-                                op: next_op,
-                                left: Box::new(left_val),
-                                right: Box::new(result),
-                            },
-                            span,
-                        );
-                        next_op = op;
-                    }
-
-                    // Combine with first operand
-                    let span = first.span;
+                // Helper to build power binary node (eliminates duplication)
+                let make_pow = |left: Expr, right: Expr| {
+                    let span = left.span;
                     Expr::new(
                         ExprKind::Binary {
-                            op: next_op,
-                            left: Box::new(first),
-                            right: Box::new(result),
+                            op: BinaryOp::Pow,
+                            left: Box::new(left),
+                            right: Box::new(right),
                         },
                         span,
                     )
-                }
+                };
+
+                // Build right-to-left using iterator fold
+                // For `2 ^ 3 ^ 4`, rest = [(Pow, 3), (Pow, 4)]
+                // Reverse to [(Pow, 4), (Pow, 3)], start with 4, fold left with 3
+                let mut iter = rest.into_iter().rev();
+                let (_, rightmost) = iter.next().unwrap();
+
+                let right_tree = iter.fold(rightmost, |acc, (_, operand)| make_pow(operand, acc));
+
+                make_pow(first, right_tree)
             });
 
         // Multiplication, division, modulo
@@ -868,20 +867,101 @@ mod tests {
                             inner_left.kind,
                             ExprKind::Literal { value: 3.0, .. }
                         ));
-                        // inner_right should be 4 ^ 5
-                        assert!(matches!(
-                            inner_right.kind,
+                        // inner_right should be 4 ^ 5 with full leaves verified
+                        match inner_right.kind {
                             ExprKind::Binary {
                                 op: BinaryOp::Pow,
-                                ..
+                                left: leaf_left,
+                                right: leaf_right,
+                            } => {
+                                assert!(matches!(
+                                    leaf_left.kind,
+                                    ExprKind::Literal { value: 4.0, .. }
+                                ));
+                                assert!(matches!(
+                                    leaf_right.kind,
+                                    ExprKind::Literal { value: 5.0, .. }
+                                ));
                             }
-                        ));
+                            _ => panic!("expected innermost pow, got {:?}", inner_right.kind),
+                        }
                     }
                     _ => panic!("expected nested pow, got {:?}", right.kind),
                 }
             }
             _ => panic!("expected pow chain, got {:?}", expr.kind),
         }
+    }
+
+    #[test]
+    fn test_power_parenthesized_right() {
+        // Explicit parentheses on right: 2 ^ (3 ^ 4)
+        let expr = lex_and_parse("2 ^ (3 ^ 4)");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Pow,
+                left,
+                right,
+            } => {
+                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                match right.kind {
+                    ExprKind::Binary {
+                        op: BinaryOp::Pow,
+                        left: rleft,
+                        right: rright,
+                    } => {
+                        assert!(matches!(rleft.kind, ExprKind::Literal { value: 3.0, .. }));
+                        assert!(matches!(rright.kind, ExprKind::Literal { value: 4.0, .. }));
+                    }
+                    _ => panic!("expected parenthesized pow on right, got {:?}", right.kind),
+                }
+            }
+            _ => panic!("expected pow with parenthesized right, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_power_vs_comparison() {
+        // Power should bind tighter than comparison: 1 < 2 ^ 3 is 1 < (2 ^ 3)
+        let expr = lex_and_parse("1 < 2 ^ 3");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Lt,
+                left,
+                right,
+            } => {
+                assert!(matches!(left.kind, ExprKind::Literal { value: 1.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Pow,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected comparison with pow on right, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_power_missing_rhs() {
+        // Missing right operand should fail
+        let tokens: Vec<_> = Token::lexer("2 ^").filter_map(|r| r.ok()).collect();
+        assert!(parse_expr(&tokens).into_result().is_err());
+    }
+
+    #[test]
+    fn test_power_missing_lhs() {
+        // Missing left operand should fail
+        let tokens: Vec<_> = Token::lexer("^ 2").filter_map(|r| r.ok()).collect();
+        assert!(parse_expr(&tokens).into_result().is_err());
+    }
+
+    #[test]
+    fn test_power_double_operator() {
+        // Double operator should fail
+        let tokens: Vec<_> = Token::lexer("2 ^ ^ 3").filter_map(|r| r.ok()).collect();
+        assert!(parse_expr(&tokens).into_result().is_err());
     }
 
     #[test]
