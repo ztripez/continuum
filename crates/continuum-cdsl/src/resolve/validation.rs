@@ -896,7 +896,7 @@ fn validate_unit_constraint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::{Shape, Unit};
+    use crate::foundation::{Bounds, Shape, Unit};
     use crate::resolve::types::TypeTable;
 
     fn test_span() -> Span {
@@ -1984,6 +1984,60 @@ mod tests {
         );
 
         let errors = validate_expr(&call_expr, &ctx);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_literal_at_min_boundary() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        let ty = Type::kernel(
+            Shape::Scalar,
+            Unit::DIMENSIONLESS,
+            Some(Bounds {
+                min: Some(0.0),
+                max: Some(1.0),
+            }),
+        );
+
+        let min_expr = TypedExpr::new(
+            ExprKind::Literal {
+                value: 0.0,
+                unit: None,
+            },
+            ty,
+            test_span(),
+        );
+
+        let errors = validate_expr(&min_expr, &ctx);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_literal_at_max_boundary() {
+        let type_table = test_type_table();
+        let ctx = test_ctx(&type_table);
+
+        let ty = Type::kernel(
+            Shape::Scalar,
+            Unit::DIMENSIONLESS,
+            Some(Bounds {
+                min: Some(0.0),
+                max: Some(1.0),
+            }),
+        );
+
+        let max_expr = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            ty,
+            test_span(),
+        );
+
+        let errors = validate_expr(&max_expr, &ctx);
         assert!(errors.is_empty());
     }
 }
