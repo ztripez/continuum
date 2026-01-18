@@ -17,6 +17,21 @@
 //! - Kernel registry to handle all operations uniformly
 //! - New operators to be added via kernel signatures, not AST changes
 //!
+//! # Pipeline Position
+//!
+//! ```text
+//! Parse → Desugar → Name Resolution → Type Resolution → Validation → Compilation
+//!           ^^^^^^
+//!           YOU ARE HERE
+//! ```
+//!
+//! **Integration status:** Not yet wired into compilation pipeline (Phase 11 work).
+//! When integrated, desugaring must run:
+//! - **After:** Parser produces untyped AST
+//! - **Before:** Name resolution begins
+//!
+//! See: Phase 11 name resolution task (continuum-q7e5)
+//!
 //! # Examples
 //!
 //! ```rust,ignore
@@ -33,6 +48,18 @@
 //! let desugared = desugar_expr(expr);
 //! // Now: KernelCall { kernel: logic.select, args: [cond, then_val, else_val] }
 //! ```
+//!
+//! # Scope
+//!
+//! This module handles **syntax desugaring** - transformations that don't require type information:
+//! - Operators (`+`, `-`, `*`, etc.) → kernel calls (we know the operator syntax)
+//! - If-expressions → `logic.select` (we know the control flow syntax)
+//!
+//! **Not in scope:** Type-directed desugaring that requires type information:
+//! - Vector component access (`.x`, `.y`, `.at(i)`) → `vector.get()` kernel calls
+//!   - Handled during type resolution when we know if `obj.x` is a vector or user type
+//! - Unit conversions, shape broadcasts, etc.
+//!   - Handled during type checking
 //!
 //! # Operator Mappings
 //!
@@ -224,6 +251,8 @@ pub fn desugar_expr(expr: Expr) -> Expr {
             span,
         },
 
+        // FieldAccess preserved - vector component desugaring requires type info
+        // (can't tell if obj.x is a vector component or user type field until type resolution)
         ExprKind::FieldAccess { object, field } => Expr {
             kind: ExprKind::FieldAccess {
                 object: Box::new(desugar_expr(*object)),
