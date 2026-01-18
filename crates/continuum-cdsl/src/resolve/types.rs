@@ -95,10 +95,11 @@ impl TypeTable {
 pub fn resolve_type_expr(
     type_expr: &TypeExpr,
     type_table: &TypeTable,
+    span: Span,
 ) -> Result<Type, CompileError> {
     match type_expr {
         TypeExpr::Scalar { unit } => {
-            let resolved_unit = resolve_unit_expr(unit.as_ref())?;
+            let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
             Ok(Type::kernel(Shape::Scalar, resolved_unit, None))
         }
 
@@ -106,11 +107,11 @@ pub fn resolve_type_expr(
             if *dim == 0 {
                 return Err(CompileError::new(
                     ErrorKind::DimensionMismatch,
-                    Span::new(0, 0, 0, 0), // TODO: pass span from caller
+                    span,
                     "Vector dimension must be greater than 0".to_string(),
                 ));
             }
-            let resolved_unit = resolve_unit_expr(unit.as_ref())?;
+            let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
             Ok(Type::kernel(
                 Shape::Vector { dim: *dim },
                 resolved_unit,
@@ -122,11 +123,11 @@ pub fn resolve_type_expr(
             if *rows == 0 || *cols == 0 {
                 return Err(CompileError::new(
                     ErrorKind::DimensionMismatch,
-                    Span::new(0, 0, 0, 0), // TODO: pass span from caller
+                    span,
                     "Matrix dimensions must be greater than 0".to_string(),
                 ));
             }
-            let resolved_unit = resolve_unit_expr(unit.as_ref())?;
+            let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
             Ok(Type::kernel(
                 Shape::Matrix {
                     rows: *rows,
@@ -141,7 +142,7 @@ pub fn resolve_type_expr(
             let type_id = type_table.get_id(path).ok_or_else(|| {
                 CompileError::new(
                     ErrorKind::UnknownType,
-                    Span::new(0, 0, 0, 0), // TODO: pass span from caller
+                    span,
                     format!("Unknown user type: {}", path),
                 )
             })?;
@@ -162,24 +163,24 @@ pub fn resolve_type_expr(
 /// - Base unit name is unrecognized
 /// - Unit arithmetic is invalid
 /// - Exponent is out of range for i8
-pub fn resolve_unit_expr(unit_expr: Option<&UnitExpr>) -> Result<Unit, CompileError> {
+pub fn resolve_unit_expr(unit_expr: Option<&UnitExpr>, span: Span) -> Result<Unit, CompileError> {
     match unit_expr {
         None => Ok(Unit::DIMENSIONLESS),
         Some(UnitExpr::Dimensionless) => Ok(Unit::DIMENSIONLESS),
-        Some(UnitExpr::Base(name)) => resolve_base_unit(name),
+        Some(UnitExpr::Base(name)) => resolve_base_unit(name, span),
         Some(UnitExpr::Multiply(lhs, rhs)) => {
-            let lhs_unit = resolve_unit_expr(Some(lhs))?;
-            let rhs_unit = resolve_unit_expr(Some(rhs))?;
-            multiply_units(&lhs_unit, &rhs_unit)
+            let lhs_unit = resolve_unit_expr(Some(lhs), span)?;
+            let rhs_unit = resolve_unit_expr(Some(rhs), span)?;
+            multiply_units(&lhs_unit, &rhs_unit, span)
         }
         Some(UnitExpr::Divide(numerator, denominator)) => {
-            let num_unit = resolve_unit_expr(Some(numerator))?;
-            let den_unit = resolve_unit_expr(Some(denominator))?;
-            divide_units(&num_unit, &den_unit)
+            let num_unit = resolve_unit_expr(Some(numerator), span)?;
+            let den_unit = resolve_unit_expr(Some(denominator), span)?;
+            divide_units(&num_unit, &den_unit, span)
         }
         Some(UnitExpr::Power(base, exponent)) => {
-            let base_unit = resolve_unit_expr(Some(base))?;
-            power_unit(&base_unit, *exponent)
+            let base_unit = resolve_unit_expr(Some(base), span)?;
+            power_unit(&base_unit, *exponent, span)
         }
     }
 }
@@ -187,7 +188,7 @@ pub fn resolve_unit_expr(unit_expr: Option<&UnitExpr>) -> Result<Unit, CompileEr
 /// Resolve a base unit name to a Unit
 ///
 /// Maps unit symbols (m, kg, s, etc.) to their Unit definitions.
-fn resolve_base_unit(name: &str) -> Result<Unit, CompileError> {
+fn resolve_base_unit(name: &str, span: Span) -> Result<Unit, CompileError> {
     let unit = match name {
         // SI base units
         "m" => Unit::meters(),
@@ -202,7 +203,7 @@ fn resolve_base_unit(name: &str) -> Result<Unit, CompileError> {
         _ => {
             return Err(CompileError::new(
                 ErrorKind::InvalidUnit,
-                Span::new(0, 0, 0, 0), // TODO: pass span from caller
+                span,
                 format!("Unknown base unit: {}", name),
             ));
         }
@@ -213,51 +214,51 @@ fn resolve_base_unit(name: &str) -> Result<Unit, CompileError> {
 /// Multiply two units
 ///
 /// Combines dimensional exponents and validates kind compatibility.
-fn multiply_units(lhs: &Unit, rhs: &Unit) -> Result<Unit, CompileError> {
+fn multiply_units(lhs: &Unit, rhs: &Unit, span: Span) -> Result<Unit, CompileError> {
     // Only multiplicative units can be multiplied
     if !lhs.is_multiplicative() || !rhs.is_multiplicative() {
         return Err(CompileError::new(
             ErrorKind::InvalidUnit,
-            Span::new(0, 0, 0, 0), // TODO: pass span from caller
+            span,
             "Cannot multiply non-multiplicative units (affine/logarithmic)".to_string(),
         ));
     }
 
-    let dims = add_dimensions(lhs.dims(), rhs.dims())?;
+    let dims = add_dimensions(lhs.dims(), rhs.dims(), span)?;
     Ok(Unit::new(UnitKind::Multiplicative, dims))
 }
 
 /// Divide two units
 ///
 /// Subtracts dimensional exponents and validates kind compatibility.
-fn divide_units(numerator: &Unit, denominator: &Unit) -> Result<Unit, CompileError> {
+fn divide_units(numerator: &Unit, denominator: &Unit, span: Span) -> Result<Unit, CompileError> {
     // Only multiplicative units can be divided
     if !numerator.is_multiplicative() || !denominator.is_multiplicative() {
         return Err(CompileError::new(
             ErrorKind::InvalidUnit,
-            Span::new(0, 0, 0, 0), // TODO: pass span from caller
+            span,
             "Cannot divide non-multiplicative units (affine/logarithmic)".to_string(),
         ));
     }
 
-    let dims = subtract_dimensions(numerator.dims(), denominator.dims())?;
+    let dims = subtract_dimensions(numerator.dims(), denominator.dims(), span)?;
     Ok(Unit::new(UnitKind::Multiplicative, dims))
 }
 
 /// Raise a unit to a power
 ///
 /// Multiplies all dimensional exponents by the exponent.
-fn power_unit(base: &Unit, exponent: i8) -> Result<Unit, CompileError> {
+fn power_unit(base: &Unit, exponent: i8, span: Span) -> Result<Unit, CompileError> {
     // Only multiplicative units can be raised to powers
     if !base.is_multiplicative() {
         return Err(CompileError::new(
             ErrorKind::InvalidUnit,
-            Span::new(0, 0, 0, 0), // TODO: pass span from caller
+            span,
             "Cannot raise non-multiplicative units to powers (affine/logarithmic)".to_string(),
         ));
     }
 
-    let dims = scale_dimensions(base.dims(), exponent)?;
+    let dims = scale_dimensions(base.dims(), exponent, span)?;
     Ok(Unit::new(UnitKind::Multiplicative, dims))
 }
 
@@ -265,16 +266,17 @@ fn power_unit(base: &Unit, exponent: i8) -> Result<Unit, CompileError> {
 fn add_dimensions(
     lhs: &UnitDimensions,
     rhs: &UnitDimensions,
+    span: Span,
 ) -> Result<UnitDimensions, CompileError> {
     Ok(UnitDimensions {
-        length: checked_add_i8(lhs.length, rhs.length, "length")?,
-        mass: checked_add_i8(lhs.mass, rhs.mass, "mass")?,
-        time: checked_add_i8(lhs.time, rhs.time, "time")?,
-        temperature: checked_add_i8(lhs.temperature, rhs.temperature, "temperature")?,
-        current: checked_add_i8(lhs.current, rhs.current, "current")?,
-        amount: checked_add_i8(lhs.amount, rhs.amount, "amount")?,
-        luminosity: checked_add_i8(lhs.luminosity, rhs.luminosity, "luminosity")?,
-        angle: checked_add_i8(lhs.angle, rhs.angle, "angle")?,
+        length: checked_add_i8(lhs.length, rhs.length, "length", span)?,
+        mass: checked_add_i8(lhs.mass, rhs.mass, "mass", span)?,
+        time: checked_add_i8(lhs.time, rhs.time, "time", span)?,
+        temperature: checked_add_i8(lhs.temperature, rhs.temperature, "temperature", span)?,
+        current: checked_add_i8(lhs.current, rhs.current, "current", span)?,
+        amount: checked_add_i8(lhs.amount, rhs.amount, "amount", span)?,
+        luminosity: checked_add_i8(lhs.luminosity, rhs.luminosity, "luminosity", span)?,
+        angle: checked_add_i8(lhs.angle, rhs.angle, "angle", span)?,
     })
 }
 
@@ -282,61 +284,66 @@ fn add_dimensions(
 fn subtract_dimensions(
     lhs: &UnitDimensions,
     rhs: &UnitDimensions,
+    span: Span,
 ) -> Result<UnitDimensions, CompileError> {
     Ok(UnitDimensions {
-        length: checked_sub_i8(lhs.length, rhs.length, "length")?,
-        mass: checked_sub_i8(lhs.mass, rhs.mass, "mass")?,
-        time: checked_sub_i8(lhs.time, rhs.time, "time")?,
-        temperature: checked_sub_i8(lhs.temperature, rhs.temperature, "temperature")?,
-        current: checked_sub_i8(lhs.current, rhs.current, "current")?,
-        amount: checked_sub_i8(lhs.amount, rhs.amount, "amount")?,
-        luminosity: checked_sub_i8(lhs.luminosity, rhs.luminosity, "luminosity")?,
-        angle: checked_sub_i8(lhs.angle, rhs.angle, "angle")?,
+        length: checked_sub_i8(lhs.length, rhs.length, "length", span)?,
+        mass: checked_sub_i8(lhs.mass, rhs.mass, "mass", span)?,
+        time: checked_sub_i8(lhs.time, rhs.time, "time", span)?,
+        temperature: checked_sub_i8(lhs.temperature, rhs.temperature, "temperature", span)?,
+        current: checked_sub_i8(lhs.current, rhs.current, "current", span)?,
+        amount: checked_sub_i8(lhs.amount, rhs.amount, "amount", span)?,
+        luminosity: checked_sub_i8(lhs.luminosity, rhs.luminosity, "luminosity", span)?,
+        angle: checked_sub_i8(lhs.angle, rhs.angle, "angle", span)?,
     })
 }
 
 /// Scale dimensional exponents (for power)
-fn scale_dimensions(dims: &UnitDimensions, scale: i8) -> Result<UnitDimensions, CompileError> {
+fn scale_dimensions(
+    dims: &UnitDimensions,
+    scale: i8,
+    span: Span,
+) -> Result<UnitDimensions, CompileError> {
     Ok(UnitDimensions {
-        length: checked_mul_i8(dims.length, scale, "length")?,
-        mass: checked_mul_i8(dims.mass, scale, "mass")?,
-        time: checked_mul_i8(dims.time, scale, "time")?,
-        temperature: checked_mul_i8(dims.temperature, scale, "temperature")?,
-        current: checked_mul_i8(dims.current, scale, "current")?,
-        amount: checked_mul_i8(dims.amount, scale, "amount")?,
-        luminosity: checked_mul_i8(dims.luminosity, scale, "luminosity")?,
-        angle: checked_mul_i8(dims.angle, scale, "angle")?,
+        length: checked_mul_i8(dims.length, scale, "length", span)?,
+        mass: checked_mul_i8(dims.mass, scale, "mass", span)?,
+        time: checked_mul_i8(dims.time, scale, "time", span)?,
+        temperature: checked_mul_i8(dims.temperature, scale, "temperature", span)?,
+        current: checked_mul_i8(dims.current, scale, "current", span)?,
+        amount: checked_mul_i8(dims.amount, scale, "amount", span)?,
+        luminosity: checked_mul_i8(dims.luminosity, scale, "luminosity", span)?,
+        angle: checked_mul_i8(dims.angle, scale, "angle", span)?,
     })
 }
 
 /// Checked addition for i8 with dimension name in error
-fn checked_add_i8(a: i8, b: i8, dim_name: &str) -> Result<i8, CompileError> {
+fn checked_add_i8(a: i8, b: i8, dim_name: &str, span: Span) -> Result<i8, CompileError> {
     a.checked_add(b).ok_or_else(|| {
         CompileError::new(
             ErrorKind::InvalidUnit,
-            Span::new(0, 0, 0, 0), // TODO: pass span from caller
+            span,
             format!("Dimension exponent overflow for {}", dim_name),
         )
     })
 }
 
 /// Checked subtraction for i8 with dimension name in error
-fn checked_sub_i8(a: i8, b: i8, dim_name: &str) -> Result<i8, CompileError> {
+fn checked_sub_i8(a: i8, b: i8, dim_name: &str, span: Span) -> Result<i8, CompileError> {
     a.checked_sub(b).ok_or_else(|| {
         CompileError::new(
             ErrorKind::InvalidUnit,
-            Span::new(0, 0, 0, 0), // TODO: pass span from caller
+            span,
             format!("Dimension exponent overflow for {}", dim_name),
         )
     })
 }
 
 /// Checked multiplication for i8 with dimension name in error
-fn checked_mul_i8(a: i8, b: i8, dim_name: &str) -> Result<i8, CompileError> {
+fn checked_mul_i8(a: i8, b: i8, dim_name: &str, span: Span) -> Result<i8, CompileError> {
     a.checked_mul(b).ok_or_else(|| {
         CompileError::new(
             ErrorKind::InvalidUnit,
-            Span::new(0, 0, 0, 0), // TODO: pass span from caller
+            span,
             format!("Dimension exponent overflow for {}", dim_name),
         )
     })
@@ -347,20 +354,24 @@ mod tests {
     use super::*;
     use crate::foundation::TypeId;
 
+    fn test_span() -> Span {
+        Span::new(0, 10, 20, 1)
+    }
+
     #[test]
     fn test_resolve_scalar_type() {
         let type_table = TypeTable::new();
 
         // Scalar with no unit (dimensionless)
         let scalar_type = TypeExpr::Scalar { unit: None };
-        let resolved = resolve_type_expr(&scalar_type, &type_table).unwrap();
+        let resolved = resolve_type_expr(&scalar_type, &type_table, test_span()).unwrap();
         assert!(resolved.is_kernel());
 
         // Scalar with meters
         let scalar_m = TypeExpr::Scalar {
             unit: Some(UnitExpr::Base("m".to_string())),
         };
-        let resolved = resolve_type_expr(&scalar_m, &type_table).unwrap();
+        let resolved = resolve_type_expr(&scalar_m, &type_table, test_span()).unwrap();
         assert!(resolved.is_kernel());
     }
 
@@ -373,7 +384,7 @@ mod tests {
             dim: 3,
             unit: Some(UnitExpr::Base("m".to_string())),
         };
-        let resolved = resolve_type_expr(&vector_type, &type_table).unwrap();
+        let resolved = resolve_type_expr(&vector_type, &type_table, test_span()).unwrap();
         assert!(resolved.is_kernel());
     }
 
@@ -386,7 +397,7 @@ mod tests {
             dim: 0,
             unit: Some(UnitExpr::Base("m".to_string())),
         };
-        let result = resolve_type_expr(&vector_type, &type_table);
+        let result = resolve_type_expr(&vector_type, &type_table, test_span());
         assert!(result.is_err());
     }
 
@@ -400,7 +411,7 @@ mod tests {
             cols: 3,
             unit: Some(UnitExpr::Base("kg".to_string())),
         };
-        let resolved = resolve_type_expr(&matrix_type, &type_table).unwrap();
+        let resolved = resolve_type_expr(&matrix_type, &type_table, test_span()).unwrap();
         assert!(resolved.is_kernel());
     }
 
@@ -409,7 +420,7 @@ mod tests {
         let type_table = TypeTable::new();
 
         let bool_type = TypeExpr::Bool;
-        let resolved = resolve_type_expr(&bool_type, &type_table).unwrap();
+        let resolved = resolve_type_expr(&bool_type, &type_table, test_span()).unwrap();
         assert!(resolved.is_bool());
     }
 
@@ -425,7 +436,7 @@ mod tests {
 
         // Resolve reference to it
         let user_type_expr = TypeExpr::User(path);
-        let resolved = resolve_type_expr(&user_type_expr, &type_table).unwrap();
+        let resolved = resolve_type_expr(&user_type_expr, &type_table, test_span()).unwrap();
         assert!(resolved.is_user());
     }
 
@@ -435,23 +446,24 @@ mod tests {
 
         // Try to resolve unknown type
         let user_type_expr = TypeExpr::User(Path::from("UnknownType"));
-        let result = resolve_type_expr(&user_type_expr, &type_table);
+        let result = resolve_type_expr(&user_type_expr, &type_table, test_span());
         assert!(result.is_err());
     }
 
     #[test]
     fn test_resolve_base_units() {
-        assert!(resolve_base_unit("m").is_ok());
-        assert!(resolve_base_unit("kg").is_ok());
-        assert!(resolve_base_unit("s").is_ok());
-        assert!(resolve_base_unit("K").is_ok());
-        assert!(resolve_base_unit("A").is_ok());
-        assert!(resolve_base_unit("mol").is_ok());
-        assert!(resolve_base_unit("cd").is_ok());
-        assert!(resolve_base_unit("rad").is_ok());
+        let span = test_span();
+        assert!(resolve_base_unit("m", span).is_ok());
+        assert!(resolve_base_unit("kg", span).is_ok());
+        assert!(resolve_base_unit("s", span).is_ok());
+        assert!(resolve_base_unit("K", span).is_ok());
+        assert!(resolve_base_unit("A", span).is_ok());
+        assert!(resolve_base_unit("mol", span).is_ok());
+        assert!(resolve_base_unit("cd", span).is_ok());
+        assert!(resolve_base_unit("rad", span).is_ok());
 
         // Unknown unit should fail
-        assert!(resolve_base_unit("xyz").is_err());
+        assert!(resolve_base_unit("xyz", span).is_err());
     }
 
     #[test]
@@ -459,7 +471,7 @@ mod tests {
         // m * s = m·s
         let m = Unit::meters();
         let s = Unit::seconds();
-        let result = multiply_units(&m, &s).unwrap();
+        let result = multiply_units(&m, &s, test_span()).unwrap();
         assert_eq!(result.dims().length, 1);
         assert_eq!(result.dims().time, 1);
     }
@@ -469,7 +481,7 @@ mod tests {
         // m / s = m/s
         let m = Unit::meters();
         let s = Unit::seconds();
-        let result = divide_units(&m, &s).unwrap();
+        let result = divide_units(&m, &s, test_span()).unwrap();
         assert_eq!(result.dims().length, 1);
         assert_eq!(result.dims().time, -1);
     }
@@ -478,7 +490,7 @@ mod tests {
     fn test_unit_power() {
         // m^2
         let m = Unit::meters();
-        let result = power_unit(&m, 2).unwrap();
+        let result = power_unit(&m, 2, test_span()).unwrap();
         assert_eq!(result.dims().length, 2);
     }
 
@@ -489,7 +501,7 @@ mod tests {
             Box::new(UnitExpr::Base("m".to_string())),
             Box::new(UnitExpr::Base("s".to_string())),
         );
-        let resolved = resolve_unit_expr(Some(&unit_expr)).unwrap();
+        let resolved = resolve_unit_expr(Some(&unit_expr), test_span()).unwrap();
         assert_eq!(resolved.dims().length, 1);
         assert_eq!(resolved.dims().time, -1);
     }
@@ -504,7 +516,7 @@ mod tests {
         let s_squared = UnitExpr::Power(Box::new(UnitExpr::Base("s".to_string())), 2);
         let unit_expr = UnitExpr::Divide(Box::new(kg_m), Box::new(s_squared));
 
-        let resolved = resolve_unit_expr(Some(&unit_expr)).unwrap();
+        let resolved = resolve_unit_expr(Some(&unit_expr), test_span()).unwrap();
         assert_eq!(resolved.dims().mass, 1);
         assert_eq!(resolved.dims().length, 1);
         assert_eq!(resolved.dims().time, -2);
@@ -512,10 +524,10 @@ mod tests {
 
     #[test]
     fn test_dimensionless_unit() {
-        let resolved = resolve_unit_expr(None).unwrap();
+        let resolved = resolve_unit_expr(None, test_span()).unwrap();
         assert!(resolved.is_dimensionless());
 
-        let explicit = resolve_unit_expr(Some(&UnitExpr::Dimensionless)).unwrap();
+        let explicit = resolve_unit_expr(Some(&UnitExpr::Dimensionless), test_span()).unwrap();
         assert!(explicit.is_dimensionless());
     }
 
@@ -534,5 +546,39 @@ mod tests {
         assert!(table.contains(&path));
         assert_eq!(table.get_id(&path), Some(type_id));
         assert!(table.get(&path).is_some());
+    }
+
+    #[test]
+    fn test_error_spans_are_preserved() {
+        let type_table = TypeTable::new();
+        let span = Span::new(1, 100, 200, 10);
+
+        // Test vector zero dimension error preserves span
+        let vector_type = TypeExpr::Vector {
+            dim: 0,
+            unit: Some(UnitExpr::Base("m".to_string())),
+        };
+        let err = resolve_type_expr(&vector_type, &type_table, span).unwrap_err();
+        assert_eq!(err.span, span);
+        assert_eq!(err.kind, ErrorKind::DimensionMismatch);
+
+        // Test unknown user type error preserves span
+        let user_type_expr = TypeExpr::User(Path::from("UnknownType"));
+        let err = resolve_type_expr(&user_type_expr, &type_table, span).unwrap_err();
+        assert_eq!(err.span, span);
+        assert_eq!(err.kind, ErrorKind::UnknownType);
+
+        // Test unknown unit error preserves span
+        let unit_expr = UnitExpr::Base("xyz".to_string());
+        let err = resolve_unit_expr(Some(&unit_expr), span).unwrap_err();
+        assert_eq!(err.span, span);
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+
+        // Test non-multiplicative unit multiplication error preserves span
+        let celsius = Unit::celsius();
+        let kelvin = Unit::kelvin();
+        let err = multiply_units(&celsius, &kelvin, span).unwrap_err();
+        assert_eq!(err.span, span);
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
     }
 }
