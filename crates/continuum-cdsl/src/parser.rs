@@ -72,10 +72,11 @@ use crate::lexer::Token;
 ///
 /// Returns `Err(Vec<Rich<Token>>)` when parsing fails. Each [`Rich<Token>`](chumsky::error::Rich)
 /// error contains:
-/// - **Span**: Source location where the error occurred
-/// - **Expected tokens**: What the parser was expecting to see
-/// - **Found token**: What was actually encountered (if any)
-/// - **Label**: Human-readable error message
+/// - **Span**: Token index range into the `tokens` slice (not byte offsets in source).
+///   For example, `span.start` and `span.end` are indices into the token array.
+/// - **Expected tokens**: The `Token` variants the parser was expecting at this position
+/// - **Found token**: The actual `Token` encountered, or `None` at end-of-input
+/// - **Reason/Label**: Human-readable error context from chumsky
 ///
 /// Multiple errors may be returned if the parser encounters several issues.
 ///
