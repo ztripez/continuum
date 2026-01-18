@@ -16,7 +16,7 @@
 //!
 //! # What This Pass Does
 //!
-//! 1. **Phase detection** - Determines execution phase from role and context
+//! 1. **Phase detection** - Determines execution phase from operator metadata
 //! 2. **Kernel scanning** - Recursively finds all kernel calls in expressions
 //! 3. **Purity validation** - Checks that Effect kernels are only called in effect-allowed phases
 //!
@@ -24,7 +24,7 @@
 //!
 //! - **No type checking** - Types must already be validated
 //! - **No kernel existence checking** - Kernels must be in registry
-//! - **No capability validation** - This is separate (Phase 12: capability validation)
+//! - **No capability validation** - This is a separate validation pass
 //!
 //! # Pipeline Position
 //!
