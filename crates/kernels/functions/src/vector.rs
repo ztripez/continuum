@@ -462,8 +462,9 @@ pub fn slerp_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
     // Clamp to handle numerical errors
     let dot = dot.clamp(-1.0, 1.0);
 
-    // If vectors are nearly parallel, use nlerp to avoid division by zero
-    if dot.abs() > 0.9995 {
+    // Fast path for small angles (dot > 0.95 ≈ 18°): nlerp approximation is nearly
+    // identical to slerp but avoids expensive transcendental operations (acos, sin)
+    if dot > 0.95 {
         return nlerp_vec3(a, b, t);
     }
 

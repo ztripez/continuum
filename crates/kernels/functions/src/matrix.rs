@@ -494,6 +494,12 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
     crate::quat::to_mat3(quat)
 }
 
+/// Sort eigenvalues in descending order by magnitude
+fn sort_eigenvalues_desc<const N: usize>(mut vals: [f64; N]) -> [f64; N] {
+    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    vals
+}
+
 /// Eigenvalues of a symmetric matrix: `eigenvalues_mat2(m)` -> Vec2
 ///
 /// Returns eigenvalues sorted in descending order.
@@ -520,9 +526,7 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
 pub fn eigenvalues_mat2(arr: Mat2) -> [f64; 2] {
     let mat = na::Matrix2::from_column_slice(&arr.0);
     let eig = mat.symmetric_eigen();
-    let mut vals = [eig.eigenvalues[0], eig.eigenvalues[1]];
-    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
-    vals
+    sort_eigenvalues_desc([eig.eigenvalues[0], eig.eigenvalues[1]])
 }
 
 /// Eigenvalues of a symmetric matrix: `eigenvalues_mat3(m)` -> Vec3
@@ -551,9 +555,7 @@ pub fn eigenvalues_mat2(arr: Mat2) -> [f64; 2] {
 pub fn eigenvalues_mat3(arr: Mat3) -> [f64; 3] {
     let mat = na::Matrix3::from_column_slice(&arr.0);
     let eig = mat.symmetric_eigen();
-    let mut vals = [eig.eigenvalues[0], eig.eigenvalues[1], eig.eigenvalues[2]];
-    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
-    vals
+    sort_eigenvalues_desc([eig.eigenvalues[0], eig.eigenvalues[1], eig.eigenvalues[2]])
 }
 
 /// Eigenvalues of a symmetric matrix: `eigenvalues_mat4(m)` -> Vec4
@@ -582,14 +584,12 @@ pub fn eigenvalues_mat3(arr: Mat3) -> [f64; 3] {
 pub fn eigenvalues_mat4(arr: Mat4) -> [f64; 4] {
     let mat = na::Matrix4::from_column_slice(&arr.0);
     let eig = mat.symmetric_eigen();
-    let mut vals = [
+    sort_eigenvalues_desc([
         eig.eigenvalues[0],
         eig.eigenvalues[1],
         eig.eigenvalues[2],
         eig.eigenvalues[3],
-    ];
-    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
-    vals
+    ])
 }
 
 /// Eigenvectors of a symmetric matrix: `eigenvectors_mat2(m)` -> Mat2
