@@ -106,6 +106,8 @@ pub enum Capability {
     Emit = 7,
     /// Entity self-reference
     Index = 8,
+    /// Field read access (observer-only)
+    Fields = 9,
 }
 
 /// Bitset of phases (compact representation).
@@ -148,7 +150,7 @@ impl Phase {
 
 impl Capability {
     /// Total number of capabilities
-    pub const COUNT: usize = 9;
+    pub const COUNT: usize = 10;
 
     /// Get the capability name as a static string.
     pub const fn name(self) -> &'static str {
@@ -162,6 +164,7 @@ impl Capability {
             Self::Payload => "Payload",
             Self::Emit => "Emit",
             Self::Index => "Index",
+            Self::Fields => "Fields",
         }
     }
 }

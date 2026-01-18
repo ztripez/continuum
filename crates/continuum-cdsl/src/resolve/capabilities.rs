@@ -171,6 +171,8 @@ impl CapabilityContext {
 /// - **`ExprKind::Payload`** - Requires `Capability::Payload` (impulse trigger data)
 /// - **`ExprKind::Self_`** - Requires `Capability::Index` (entity self-reference)
 /// - **`ExprKind::Other`** - Requires `Capability::Index` (other entity access)
+/// - **`ExprKind::Signal`** - Requires `Capability::Signals` (signal read access)
+/// - **`ExprKind::Field`** - Requires `Capability::Fields` (field read access, observer-only)
 /// - **`ExprKind::Call { kernel: emit, ... }`** - Requires `Capability::Emit` (signal emission)
 ///
 /// Note: **emit** is identified by empty namespace and name "emit" (bare kernel call).
@@ -345,11 +347,33 @@ fn scan_for_capability_violations(
             }
         }
 
+        ExprKind::Signal(_) => {
+            if !ctx.has_capability(Capability::Signals) {
+                errors.push(CompileError::new(
+                    ErrorKind::MissingCapability,
+                    expr.span,
+                    format!(
+                        "signal access requires Capability::Signals (only available in signal-reading phases)"
+                    ),
+                ));
+            }
+        }
+
+        ExprKind::Field(_) => {
+            if !ctx.has_capability(Capability::Fields) {
+                errors.push(CompileError::new(
+                    ErrorKind::MissingCapability,
+                    expr.span,
+                    format!(
+                        "field access requires Capability::Fields (only available in observer contexts)"
+                    ),
+                ));
+            }
+        }
+
         // === Non-capability-requiring expressions (leaf nodes or pure) ===
         ExprKind::Literal { .. }
         | ExprKind::Local(_)
-        | ExprKind::Signal(_)
-        | ExprKind::Field(_)
         | ExprKind::Config(_)
         | ExprKind::Const(_) => {
             // These don't require special capabilities
@@ -900,5 +924,117 @@ mod tests {
         assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
         assert!(errors[0].message.contains("other"));
         assert!(errors[0].message.contains("Capability::Index"));
+    }
+
+    #[test]
+    fn test_signal_access_allowed() {
+        use crate::foundation::Path;
+
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Signals));
+
+        let expr = TypedExpr::new(
+            ExprKind::Signal(Path::from_str("body.velocity")),
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 0);
+    }
+
+    #[test]
+    fn test_signal_access_denied() {
+        use crate::foundation::Path;
+
+        let ctx = CapabilityContext::new(CapabilitySet::empty());
+
+        let expr = TypedExpr::new(
+            ExprKind::Signal(Path::from_str("body.velocity")),
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+        assert!(errors[0].message.contains("signal"));
+        assert!(errors[0].message.contains("Capability::Signals"));
+    }
+
+    #[test]
+    fn test_field_access_allowed() {
+        use crate::foundation::Path;
+
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Fields));
+
+        let expr = TypedExpr::new(
+            ExprKind::Field(Path::from_str("temperature")),
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 0);
+    }
+
+    #[test]
+    fn test_field_access_denied() {
+        use crate::foundation::Path;
+
+        let ctx = CapabilityContext::new(CapabilitySet::empty());
+
+        let expr = TypedExpr::new(
+            ExprKind::Field(Path::from_str("temperature")),
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+        assert!(errors[0].message.contains("field"));
+        assert!(errors[0].message.contains("Capability::Fields"));
+    }
+
+    #[test]
+    fn test_signal_in_causal_phase_denied() {
+        use crate::foundation::Path;
+
+        // Configure phase has no Signals capability
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Scoping));
+
+        let expr = TypedExpr::new(
+            ExprKind::Signal(Path::from_str("body.mass")),
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+    }
+
+    #[test]
+    fn test_field_in_causal_phase_denied() {
+        use crate::foundation::Path;
+
+        // Resolve phase has no Fields capability (fields are observer-only)
+        let ctx = CapabilityContext::new(
+            CapabilitySet::empty()
+                .with(Capability::Signals)
+                .with(Capability::Prev)
+                .with(Capability::Dt),
+        );
+
+        let expr = TypedExpr::new(
+            ExprKind::Field(Path::from_str("elevation")),
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+        assert!(errors[0].message.contains("observer"));
     }
 }
