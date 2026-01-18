@@ -48,6 +48,4 @@
 //! ```
 
 pub mod names;
-
-// Type resolution will be implemented in Phase 11 (type resolution task)
-// pub mod types;
+pub mod types;
