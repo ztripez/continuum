@@ -1932,4 +1932,156 @@ mod tests {
     fn test_orthographic_near_equals_far() {
         let _ = orthographic(0.0, 1.0, 0.0, 1.0, 1.0, 1.0);
     }
+
+    // === Mat4 Value Tests ===
+
+    #[test]
+    fn test_determinant_mat4_identity() {
+        let m = Mat4([
+            1.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 1.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 1.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        let det = determinant_mat4(m);
+        assert_eq!(det, 1.0);
+    }
+
+    #[test]
+    fn test_determinant_mat4_scaled() {
+        // Determinant of diagonal matrix is product of diagonal elements
+        let m = Mat4([
+            2.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 3.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 4.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 5.0, // col 3
+        ]);
+        let det = determinant_mat4(m);
+        assert_eq!(det, 2.0 * 3.0 * 4.0 * 5.0); // 120.0
+    }
+
+    #[test]
+    fn test_inverse_mat4_identity() {
+        let identity = Mat4([
+            1.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 1.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 1.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        let expected = [
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ];
+        let inv = inverse_mat4(identity);
+        assert_eq!(inv.0, expected);
+    }
+
+    #[test]
+    fn test_inverse_mat4_scaled() {
+        let m = Mat4([
+            2.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 2.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 2.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        let inv = inverse_mat4(m);
+        let expected = Mat4([
+            0.5, 0.0, 0.0, 0.0, // col 0
+            0.0, 0.5, 0.0, 0.0, // col 1
+            0.0, 0.0, 0.5, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        assert_eq!(inv.0, expected.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "singular")]
+    fn test_inverse_mat4_singular() {
+        // Zero row = singular matrix
+        let m = Mat4([
+            0.0, 0.0, 0.0, 0.0, // col 0 - all zeros
+            0.0, 1.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 1.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        let _ = inverse_mat4(m);
+    }
+
+    #[test]
+    fn test_mul_mat4_identity() {
+        let identity = Mat4([
+            1.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 1.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 1.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        let m = Mat4([
+            1.0, 2.0, 3.0, 4.0, // col 0
+            5.0, 6.0, 7.0, 8.0, // col 1
+            9.0, 10.0, 11.0, 12.0, // col 2
+            13.0, 14.0, 15.0, 16.0, // col 3
+        ]);
+        let expected = [
+            1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
+        ];
+        let result = mul_mat4(identity, m);
+        assert_eq!(result.0, expected);
+    }
+
+    #[test]
+    fn test_mul_mat4_inverse() {
+        // A * A^-1 = I
+        let m = Mat4([
+            2.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 3.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 4.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        let m_copy = Mat4([
+            2.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 3.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 4.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        let inv = inverse_mat4(m);
+        let result = mul_mat4(m_copy, inv);
+
+        let identity = Mat4([
+            1.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 1.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 1.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+
+        // Check each element is close to identity (accounting for floating point error)
+        for i in 0..16 {
+            assert!((result.0[i] - identity.0[i]).abs() < 1e-10);
+        }
+    }
+
+    #[test]
+    fn test_transform_mat4_vec4_identity() {
+        let identity = Mat4([
+            1.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 1.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 1.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        let v = [1.0, 2.0, 3.0, 4.0];
+        let result = transform_mat4_vec4(identity, v);
+        assert_eq!(result, v);
+    }
+
+    #[test]
+    fn test_transform_mat4_vec4_scaled() {
+        // Scale x by 2, y by 3, z by 4, w unchanged
+        let m = Mat4([
+            2.0, 0.0, 0.0, 0.0, // col 0
+            0.0, 3.0, 0.0, 0.0, // col 1
+            0.0, 0.0, 4.0, 0.0, // col 2
+            0.0, 0.0, 0.0, 1.0, // col 3
+        ]);
+        let v = [1.0, 1.0, 1.0, 1.0];
+        let result = transform_mat4_vec4(m, v);
+        assert_eq!(result, [2.0, 3.0, 4.0, 1.0]);
+    }
 }
