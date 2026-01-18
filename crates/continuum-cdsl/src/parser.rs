@@ -1387,29 +1387,34 @@ fn stratum_parser<'src>()
         .map_with(|(path, attrs), e| {
             let span = token_span(e.span());
 
-            // Extract stride/cadence from attributes
-            // Default to 1 only if attribute is absent (not if invalid)
-            // BOUNDARY ISSUE: Parser should preserve raw attributes
-            // TODO: Store attrs on Stratum, validate/default in semantic analysis
+            // PARSER/SEMANTIC BOUNDARY VIOLATION
+            // Extract stride/cadence from attributes in parser
+            // This should be done in semantic analysis, not parser
+            //
+            // Current behavior (WRONG):
+            //   - Attribute absent → default 1 (OK)
+            //   - Attribute invalid → default 1 (FAIL-HARD VIOLATION: should error)
+            //
+            // Raw attributes are preserved in stratum.attributes for semantic validation
+            // TODO: Make cadence Optional<u32>, move extraction to semantic analysis
             let cadence_attr = attrs
                 .iter()
                 .find(|attr| attr.name == "stride" || attr.name == "cadence");
 
             let cadence = match cadence_attr {
                 Some(attr) => {
-                    // Attribute exists - parse value or default to 1 if unparseable
-                    // NOTE: Invalid values (non-literal) are silently defaulted
-                    // Semantic analysis should validate this
+                    // Attribute exists - extract literal value or default
+                    // WRONG: Should error on non-literal, not default
                     attr.args
                         .first()
                         .and_then(|expr| match &expr.kind {
                             ExprKind::Literal { value, .. } => Some(*value as u32),
                             _ => None,
                         })
-                        .unwrap_or(1) // FAIL-HARD: Should error on invalid, not default
+                        .unwrap_or(1) // Hides invalid attribute values
                 }
                 None => {
-                    // Attribute absent - use default (every tick)
+                    // No attribute - default to every tick
                     1
                 }
             };

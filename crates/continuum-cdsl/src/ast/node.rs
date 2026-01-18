@@ -461,10 +461,16 @@ pub struct Stratum {
 
     /// Execution cadence - execute every N ticks (1 = every tick)
     ///
-    /// Parsed from `:stride(N)` or `:cadence(N)` attributes.
-    /// Defaults to 1 if attribute is absent.
-    /// Note: Validation that cadence > 0 happens in parser/validator,
-    /// not at construction time.
+    /// **Parser/Semantic Boundary Issue:** Currently extracted from `:stride(N)` or
+    /// `:cadence(N)` attributes by parser with default of 1 if absent or invalid.
+    /// This is semantic work that should be in analyzer.
+    ///
+    /// Parser defaults to 1 when:
+    /// - No :stride/:cadence attribute present (valid default)
+    /// - Attribute exists but value is non-literal (SHOULD ERROR, not default)
+    ///
+    /// Semantic analysis should validate using stored `attributes` field.
+    /// Validation that cadence > 0 happens in semantic validator.
     pub cadence: u32,
 
     /// Source location for error messages
