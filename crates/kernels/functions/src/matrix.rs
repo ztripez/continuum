@@ -456,6 +456,8 @@ pub fn transform_mat4_vec4(m: Mat4, v: [f64; 4]) -> [f64; 4] {
 }
 
 /// Build rotation matrix from quaternion: `from_quat(q)` -> Mat3
+///
+/// Input quaternion is in [x, y, z, w] order and will be normalized before conversion.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -466,42 +468,14 @@ pub fn transform_mat4_vec4(m: Mat4, v: [f64; 4]) -> [f64; 4] {
     unit_out = Dimensionless
 )]
 pub fn from_quat(q: [f64; 4]) -> Mat3 {
-    let (x, y, z, w) = (q[0], q[1], q[2], q[3]);
+    use continuum_foundation::Quat;
 
-    // Normalize quaternion
-    let norm = (x * x + y * y + z * z + w * w).sqrt();
-    assert!(
-        norm > f64::EPSILON,
-        "cannot create rotation matrix from zero quaternion: [{}, {}, {}, {}]",
-        x,
-        y,
-        z,
-        w
-    );
-    let (x, y, z, w) = (x / norm, y / norm, z / norm, w / norm);
+    // Convert [x, y, z, w] to Quat [w, x, y, z] order
+    let quat = Quat([q[3], q[0], q[1], q[2]]);
 
-    // Compute rotation matrix elements (column-major)
-    let xx = x * x;
-    let yy = y * y;
-    let zz = z * z;
-    let xy = x * y;
-    let xz = x * z;
-    let yz = y * z;
-    let wx = w * x;
-    let wy = w * y;
-    let wz = w * z;
-
-    Mat3([
-        1.0 - 2.0 * (yy + zz),
-        2.0 * (xy + wz),
-        2.0 * (xz - wy),
-        2.0 * (xy - wz),
-        1.0 - 2.0 * (xx + zz),
-        2.0 * (yz + wx),
-        2.0 * (xz + wy),
-        2.0 * (yz - wx),
-        1.0 - 2.0 * (xx + yy),
-    ])
+    // Normalize and convert using quat module (One Truth)
+    let normalized = crate::quat::normalize(quat);
+    crate::quat::to_mat3(normalized)
 }
 
 /// Build rotation matrix from axis-angle: `from_axis_angle(axis, angle)` -> Mat3
@@ -1910,7 +1884,7 @@ mod tests {
     // === Zero-Norm Guard Tests ===
 
     #[test]
-    #[should_panic(expected = "cannot create rotation matrix from zero quaternion")]
+    #[should_panic(expected = "quat.normalize requires non-zero quaternion")]
     fn test_from_quat_zero() {
         let _ = from_quat([0.0, 0.0, 0.0, 0.0]);
     }
