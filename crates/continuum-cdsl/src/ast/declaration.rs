@@ -143,7 +143,11 @@ pub struct WorldDecl {
     /// Version string
     pub version: Option<String>,
 
-    /// Warmup policy for iterative equilibration
+    /// Warmup policy for iterative equilibration (parsed from raw attributes)
+    ///
+    /// Stored as `WarmupPolicy` for now, but should be changed to raw attributes
+    /// and validated during semantic analysis to avoid parser/semantic boundary violation.
+    /// TODO: Change to `Option<Vec<Attribute>>` and build WarmupPolicy in analyzer
     pub warmup: Option<WarmupPolicy>,
 
     /// Source location
@@ -157,19 +161,29 @@ pub struct WorldDecl {
 ///
 /// Per compiler manifesto, this must use expression-based convergence
 /// predicate, not a simple float threshold.
+///
+/// **Parser/Semantic Boundary Issue:** This is currently built by the parser
+/// from raw attributes. Should be moved to semantic analysis phase.
+/// Fields are Optional to avoid silent defaults when attributes are missing/invalid.
+/// Semantic analysis validates required fields and applies proper defaults.
 #[derive(Debug, Clone)]
 pub struct WarmupPolicy {
     /// Expression that evaluates to true when converged.
     ///
     /// Example: `maths.max_delta(signals) < 1e-6`
     /// This is a typed expression, not a constant.
-    pub converged: Expr,
+    /// None if `:converged(...)` attribute is missing or invalid.
+    pub converged: Option<Expr>,
 
-    /// Maximum iterations before timeout (required).
-    pub max_iterations: u32,
+    /// Maximum iterations before timeout.
+    ///
+    /// None if `:max_iterations(...)` attribute is missing or invalid.
+    pub max_iterations: Option<u32>,
 
-    /// Behavior on timeout (required, defaults to Fail).
-    pub on_timeout: WarmupTimeout,
+    /// Behavior on timeout.
+    ///
+    /// None if `:on_timeout(...)` attribute is missing or invalid.
+    pub on_timeout: Option<WarmupTimeout>,
 
     /// Source location
     pub span: Span,

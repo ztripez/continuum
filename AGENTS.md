@@ -61,11 +61,15 @@ These rules must remain true regardless of implementation details.
 - Observers may be removed entirely without changing outcomes.
 - Lens, chronicles, and analysis are strictly non-causal.
 
+### One Truth
+- One source of truth
+- Any conversion/normalization/mapping logic (DTO↔domain, schema↔model, unit conversions, enum translations, field renames) must exist in exactly one dedicated module. Call sites may not duplicate conversion logic.
+- Large conversions must be centralized: If a conversion touches >5 fields or is >15 LOC, it must be extracted to a conversions (or the repo’s chosen location) and reused.
+- Refactor-first: If a similar conversion exists, extend/refactor it. Creating a second converter for the same conceptual transformation is forbidden.
 ### Fail Loudly
 - No hidden clamps.
 - No silent correction.
 - Impossible or runaway states are detected via assertions and surfaced as faults.
-Got it. Here’s a **hard-cut, agent-friendly version** — no fluff, no philosophy.
 
 ---
 
@@ -384,4 +388,4 @@ When asked for go/no-go:
 * No cheerleading (“awesome”, “love this”, etc.)
 * No corporate fluff.
 * No “obviously / simply / just”.
-
+* User decides what is production ready or functionally complete

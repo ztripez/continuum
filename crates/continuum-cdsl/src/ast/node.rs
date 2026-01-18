@@ -461,6 +461,8 @@ pub struct Stratum {
 
     /// Execution cadence - execute every N ticks (1 = every tick)
     ///
+    /// Parsed from `:stride(N)` or `:cadence(N)` attributes.
+    /// Defaults to 1 if attribute is absent.
     /// Note: Validation that cadence > 0 happens in parser/validator,
     /// not at construction time.
     pub cadence: u32,
@@ -470,6 +472,12 @@ pub struct Stratum {
 
     /// Documentation comment from source
     pub doc: Option<String>,
+
+    /// Parsed attributes from source
+    ///
+    /// Raw attributes for semantic analysis to validate.
+    /// Parser extracts cadence but preserves all attributes.
+    pub attributes: Vec<Attribute>,
 }
 
 impl Stratum {
@@ -485,6 +493,7 @@ impl Stratum {
             cadence,
             span,
             doc: None,
+            attributes: Vec::new(),
         }
     }
 

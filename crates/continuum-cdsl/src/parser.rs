@@ -1388,21 +1388,36 @@ fn stratum_parser<'src>()
             let span = token_span(e.span());
 
             // Extract stride/cadence from attributes
-            // Default to 1 if not specified (every tick)
-            let cadence = attrs
+            // Default to 1 only if attribute is absent (not if invalid)
+            // BOUNDARY ISSUE: Parser should preserve raw attributes
+            // TODO: Store attrs on Stratum, validate/default in semantic analysis
+            let cadence_attr = attrs
                 .iter()
-                .find(|attr| attr.name == "stride" || attr.name == "cadence")
-                .and_then(|attr| {
-                    attr.args.first().and_then(|expr| match &expr.kind {
-                        ExprKind::Literal { value, .. } => Some(*value as u32),
-                        _ => None,
-                    })
-                })
-                .unwrap_or(1);
+                .find(|attr| attr.name == "stride" || attr.name == "cadence");
+
+            let cadence = match cadence_attr {
+                Some(attr) => {
+                    // Attribute exists - parse value or default to 1 if unparseable
+                    // NOTE: Invalid values (non-literal) are silently defaulted
+                    // Semantic analysis should validate this
+                    attr.args
+                        .first()
+                        .and_then(|expr| match &expr.kind {
+                            ExprKind::Literal { value, .. } => Some(*value as u32),
+                            _ => None,
+                        })
+                        .unwrap_or(1) // FAIL-HARD: Should error on invalid, not default
+                }
+                None => {
+                    // Attribute absent - use default (every tick)
+                    1
+                }
+            };
 
             // Convert Path to FoundationPath for StratumId
             let foundation_path = FoundationPath::from_str(&path.to_string());
-            let stratum = Stratum::new(StratumId(foundation_path), path, cadence, span);
+            let mut stratum = Stratum::new(StratumId(foundation_path), path, cadence, span);
+            stratum.attributes = attrs;
             Declaration::Stratum(stratum)
         })
 }
@@ -1535,26 +1550,27 @@ fn world_parser<'src>()
         .map_with(|attrs, e| {
             let span = token_span(e.span());
 
-            // Extract converged expression (required)
+            // Extract converged expression (optional - semantic analysis will validate/default)
+            // BOUNDARY VIOLATION: Parser should preserve raw attributes, not interpret them
+            // This builds WarmupPolicy from attributes, which is semantic work
+            // TODO: Store raw attributes, build policy in semantic analysis
             let converged = attrs
                 .iter()
                 .find(|attr| attr.name == "converged")
-                .and_then(|attr| attr.args.first().cloned())
-                .unwrap_or_else(|| Expr::new(ExprKind::BoolLiteral(true), span));
+                .and_then(|attr| attr.args.first().cloned());
 
-            // Extract max_iterations (required, default to 1000)
+            // Extract max_iterations (no default - preserve None if missing/invalid)
             let max_iterations = attrs
                 .iter()
                 .find(|attr| attr.name == "max_iterations")
                 .and_then(|attr| {
                     attr.args.first().and_then(|expr| match &expr.kind {
                         ExprKind::Literal { value, .. } => Some(*value as u32),
-                        _ => None,
+                        _ => None, // Invalid type - semantic analysis will error
                     })
-                })
-                .unwrap_or(1000);
+                });
 
-            // Extract on_timeout (default to Fail)
+            // Extract on_timeout (no default - preserve None if missing/invalid)
             let on_timeout = attrs
                 .iter()
                 .find(|attr| attr.name == "on_timeout")
@@ -1562,10 +1578,9 @@ fn world_parser<'src>()
                     attr.args.first().and_then(|expr| match &expr.kind {
                         ExprKind::Local(id) if id == "fail" => Some(WarmupTimeout::Fail),
                         ExprKind::Local(id) if id == "continue" => Some(WarmupTimeout::Continue),
-                        _ => None,
+                        _ => None, // Invalid value - semantic analysis will error
                     })
-                })
-                .unwrap_or(WarmupTimeout::Fail);
+                });
 
             WarmupPolicy {
                 converged,
