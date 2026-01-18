@@ -1,19 +1,21 @@
-//! Type resolution pass
+//! Type resolution for CDSL type and unit syntax.
 //!
-//! Resolves `TypeExpr` → `Type` and performs basic type inference.
+//! Translates parsed [`TypeExpr`](crate::ast::TypeExpr) and
+//! [`UnitExpr`](crate::ast::UnitExpr) nodes into semantic [`Type`] and [`Unit`]
+//! values used by later validation passes.
 //!
 //! # What This Pass Does
 //!
 //! 1. **TypeExpr → Type** - Resolves untyped type syntax to semantic types
 //! 2. **UnitExpr → Unit** - Resolves unit syntax to dimensional units
-//! 3. **User type lookup** - Resolves type names to TypeIds
-//! 4. **Kernel type resolution** - Derives return types from kernel signatures
+//! 3. **User type lookup** - Resolves type names to TypeIds via [`TypeTable`]
+//! 4. **Dimensional analysis** - Validates and computes unit arithmetic
 //!
 //! # What This Pass Does NOT Do
 //!
 //! - **No full type inference** - Complex bidirectional inference deferred to validation
 //! - **No type checking** - Compatibility validation happens in later passes
-//! - **No unit arithmetic** - Complex dimensional analysis deferred
+//! - **No kernel call resolution** - Return types resolved during validation
 //!
 //! # Pipeline Position
 //!
@@ -25,11 +27,21 @@
 //!
 //! # Examples
 //!
-//! ```cdsl
-//! signal velocity : Vector<3, m/s>  // TypeExpr → Type::Kernel(Vector<3, m/s>)
-//! type OrbitalElements {            // Registers user type
-//!     semi_major_axis: Scalar<m>
-//! }
+//! ```rust
+//! use continuum_cdsl::resolve::types::{resolve_type_expr, TypeTable};
+//! use continuum_cdsl::ast::{TypeExpr, UnitExpr};
+//! use continuum_cdsl::foundation::Span;
+//!
+//! let table = TypeTable::new();
+//! let span = Span::new(0, 0, 10, 1);
+//!
+//! // Resolve Vector<3, m>
+//! let ty = TypeExpr::Vector {
+//!     dim: 3,
+//!     unit: Some(UnitExpr::Base("m".into())),
+//! };
+//! let resolved = resolve_type_expr(&ty, &table, span).unwrap();
+//! assert!(resolved.is_kernel());
 //! ```
 
 use crate::ast::{TypeExpr, UnitExpr};
@@ -39,9 +51,27 @@ use crate::foundation::{
 };
 use std::collections::HashMap;
 
-/// Type table for user-defined types
+/// Registry of user-defined types keyed by fully-qualified [`Path`](crate::foundation::Path).
 ///
-/// Maps type names to their definitions and assigns unique TypeIds.
+/// `TypeTable` assigns stable [`UserTypeId`](crate::foundation::TypeId) values and supports
+/// lookup by name during type resolution. The table does not perform validation;
+/// it only stores declarations.
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::resolve::types::TypeTable;
+/// use continuum_cdsl::foundation::{Path, UserType, TypeId};
+///
+/// let mut table = TypeTable::new();
+/// let path = Path::from("Vec3");
+/// let type_id = TypeId::from("Vec3");
+/// let user_type = UserType::new(type_id.clone(), path.clone(), vec![]);
+/// table.register(user_type);
+///
+/// assert!(table.contains(&path));
+/// assert_eq!(table.get_id(&path), Some(type_id));
+/// ```
 #[derive(Debug, Default)]
 pub struct TypeTable {
     /// Map from type path to UserType definition
@@ -65,33 +95,125 @@ impl TypeTable {
         self.type_ids.insert(path, id);
     }
 
-    /// Look up a type by path
+    /// Looks up a user type by [`Path`](crate::foundation::Path).
+    ///
+    /// # Parameters
+    ///
+    /// - `path`: Fully-qualified type name.
+    ///
+    /// # Returns
+    ///
+    /// The stored [`UserType`] if present; otherwise `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::resolve::types::TypeTable;
+    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
+    ///
+    /// let mut table = TypeTable::new();
+    /// let path = Path::from("Foo");
+    /// table.register(UserType::new(TypeId::from("Foo"), path.clone(), vec![]));
+    ///
+    /// assert!(table.get(&path).is_some());
+    /// ```
     pub fn get(&self, path: &Path) -> Option<&UserType> {
         self.types.get(path)
     }
 
-    /// Look up a type ID by path
+    /// Looks up a user type identifier by [`Path`](crate::foundation::Path).
+    ///
+    /// # Parameters
+    ///
+    /// - `path`: Fully-qualified type name.
+    ///
+    /// # Returns
+    ///
+    /// The [`UserTypeId`](crate::foundation::TypeId) if present; otherwise `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::resolve::types::TypeTable;
+    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
+    ///
+    /// let mut table = TypeTable::new();
+    /// let path = Path::from("Foo");
+    /// let id = TypeId::from("Foo");
+    /// table.register(UserType::new(id.clone(), path.clone(), vec![]));
+    ///
+    /// assert_eq!(table.get_id(&path), Some(id));
+    /// ```
     pub fn get_id(&self, path: &Path) -> Option<UserTypeId> {
         self.type_ids.get(path).cloned()
     }
 
-    /// Check if a type exists
+    /// Tests whether a user type exists in the table.
+    ///
+    /// # Parameters
+    ///
+    /// - `path`: Fully-qualified type name.
+    ///
+    /// # Returns
+    ///
+    /// `true` if the type is registered, otherwise `false`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::resolve::types::TypeTable;
+    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
+    ///
+    /// let mut table = TypeTable::new();
+    /// let path = Path::from("Foo");
+    /// table.register(UserType::new(TypeId::from("Foo"), path.clone(), vec![]));
+    ///
+    /// assert!(table.contains(&path));
+    /// ```
     pub fn contains(&self, path: &Path) -> bool {
         self.types.contains_key(path)
     }
 }
 
-/// Resolve a TypeExpr to a Type
+/// Resolves a parsed [`TypeExpr`](crate::ast::TypeExpr) into a semantic [`Type`].
 ///
-/// Converts untyped type syntax from the parser into semantic Type values.
-/// This includes resolving unit expressions and looking up user types.
+/// Converts untyped type syntax from the CDSL AST into semantic type values,
+/// including resolving unit expressions and looking up user-defined types.
+///
+/// # Parameters
+///
+/// - `type_expr`: Parsed type syntax from the CDSL AST.
+/// - `type_table`: Registry of user-defined types for name lookup.
+/// - `span`: Source location for error reporting.
+///
+/// # Returns
+///
+/// A resolved [`Type`] suitable for later validation and IR lowering.
 ///
 /// # Errors
 ///
-/// Returns `CompileError` if:
-/// - Unit expression is invalid
-/// - User type reference doesn't exist
-/// - Vector/Matrix dimensions are invalid
+/// Returns [`CompileError`](crate::error::CompileError) if:
+/// - Unit expression syntax is invalid
+/// - A user type name is unknown
+/// - Vector or matrix dimensions are zero
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::resolve::types::{resolve_type_expr, TypeTable};
+/// use continuum_cdsl::ast::{TypeExpr, UnitExpr};
+/// use continuum_cdsl::foundation::Span;
+///
+/// let table = TypeTable::new();
+/// let span = Span::new(0, 10, 20, 1);
+///
+/// // Resolve Scalar<m>
+/// let expr = TypeExpr::Scalar {
+///     unit: Some(UnitExpr::Base("m".into())),
+/// };
+/// let ty = resolve_type_expr(&expr, &table, span).unwrap();
+/// assert!(ty.is_kernel());
+/// ```
 pub fn resolve_type_expr(
     type_expr: &TypeExpr,
     type_table: &TypeTable,
@@ -153,16 +275,45 @@ pub fn resolve_type_expr(
     }
 }
 
-/// Resolve a UnitExpr to a Unit
+/// Resolves a parsed [`UnitExpr`](crate::ast::UnitExpr) into a semantic [`Unit`].
 ///
-/// Converts unit syntax to dimensional unit values with proper exponents.
+/// Converts unit syntax to dimensional unit values with dimensional exponents.
+/// Handles unit arithmetic (multiply, divide, power) and validates kind compatibility.
+///
+/// # Parameters
+///
+/// - `unit_expr`: Optional unit syntax; `None` yields dimensionless units.
+/// - `span`: Source location for error reporting.
+///
+/// # Returns
+///
+/// A resolved [`Unit`] with dimensional exponents computed from the expression.
 ///
 /// # Errors
 ///
-/// Returns `CompileError` if:
-/// - Base unit name is unrecognized
-/// - Unit arithmetic is invalid
-/// - Exponent is out of range for i8
+/// Returns [`CompileError`](crate::error::CompileError) if:
+/// - A base unit name is unrecognized
+/// - Unit arithmetic is invalid for affine or logarithmic units
+/// - Dimensional exponent math overflows `i8` bounds
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::resolve::types::resolve_unit_expr;
+/// use continuum_cdsl::ast::UnitExpr;
+/// use continuum_cdsl::foundation::Span;
+///
+/// let span = Span::new(0, 10, 20, 1);
+///
+/// // Resolve m/s
+/// let expr = UnitExpr::Divide(
+///     Box::new(UnitExpr::Base("m".into())),
+///     Box::new(UnitExpr::Base("s".into())),
+/// );
+/// let unit = resolve_unit_expr(Some(&expr), span).unwrap();
+/// assert_eq!(unit.dims().length, 1);
+/// assert_eq!(unit.dims().time, -1);
+/// ```
 pub fn resolve_unit_expr(unit_expr: Option<&UnitExpr>, span: Span) -> Result<Unit, CompileError> {
     match unit_expr {
         None => Ok(Unit::DIMENSIONLESS),
