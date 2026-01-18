@@ -2,7 +2,6 @@
 //!
 //! Functions for constructing vector types.
 
-use continuum_foundation::Value;
 use continuum_kernel_macros::kernel_fn;
 
 /// Construct a 2D vector: `vec2(x, y)`
@@ -44,131 +43,162 @@ pub fn vec4(x: f64, y: f64, z: f64, w: f64) -> [f64; 4] {
     [x, y, z, w]
 }
 
-/// Construct a vector from 2-4 scalar components or pass through a vector.
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn vec(args: &[Value]) -> Value {
-    if args.len() == 1 {
-        return match &args[0] {
-            Value::Vec2(v) => Value::Vec2(*v),
-            Value::Vec3(v) => Value::Vec3(*v),
-            Value::Vec4(v) => Value::Vec4(*v),
-            _ => panic!("vector.vec expects a vector or 2-4 scalar components"),
-        };
-    }
-
-    let mut components = Vec::new();
-    for arg in args {
-        if let Some(v) = arg.as_scalar() {
-            components.push(v);
-        } else {
-            panic!("vector.vec expects scalar components");
-        }
-    }
-
-    match components.len() {
-        2 => Value::Vec2([components[0], components[1]]),
-        3 => Value::Vec3([components[0], components[1], components[2]]),
-        4 => Value::Vec4([components[0], components[1], components[2], components[3]]),
-        _ => panic!("vector.vec expects 2-4 scalar components"),
-    }
+/// Vector length/magnitude for Vec2: `length(vec)`
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2))],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn length_vec2(v: [f64; 2]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1]).sqrt()
 }
 
-/// Vector length/magnitude: `length(x, y, z)` or `length(vec)`
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn length(args: &[Value]) -> f64 {
-    if args.len() == 1 {
-        // Single argument: expect vector type
-        match &args[0] {
-            Value::Vec2(v) => (v[0] * v[0] + v[1] * v[1]).sqrt(),
-            Value::Vec3(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt(),
-            Value::Vec4(v) => (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt(),
-            Value::Scalar(s) => s.abs(),
-            _ => 0.0,
-        }
+/// Vector length/magnitude for Vec3: `length(vec)`
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3))],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn length_vec3(v: [f64; 3]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
+}
+
+/// Vector length/magnitude for Vec4: `length(vec)`
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4))],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn length_vec4(v: [f64; 4]) -> f64 {
+    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt()
+}
+
+/// Absolute value for scalar: `length(scalar)`
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn length_scalar(s: f64) -> f64 {
+    s.abs()
+}
+
+/// Normalize a Vec2 to unit length: `normalize(vec)`
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2))],
+    unit_in = [UnitAny],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = Dimensionless
+)]
+pub fn normalize_vec2(v: [f64; 2]) -> [f64; 2] {
+    let mag = (v[0] * v[0] + v[1] * v[1]).sqrt();
+    if mag > 0.0 {
+        [v[0] / mag, v[1] / mag]
     } else {
-        // Multiple arguments: treat as components
-        let mut sum_sq = 0.0;
-        for arg in args {
-            if let Some(v) = arg.as_scalar() {
-                sum_sq += v * v;
-            }
-        }
-        sum_sq.sqrt()
+        [0.0, 0.0]
     }
 }
 
-/// Normalize a vector: `normalize(vec)` or `normalize(x, y, z)`
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn normalize(args: &[Value]) -> Value {
-    if args.len() == 1 {
-        match &args[0] {
-            Value::Vec2(v) => {
-                let mag = (v[0] * v[0] + v[1] * v[1]).sqrt();
-                if mag > 0.0 {
-                    Value::Vec2([v[0] / mag, v[1] / mag])
-                } else {
-                    Value::Vec2([0.0, 0.0])
-                }
-            }
-            Value::Vec3(v) => {
-                let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-                if mag > 0.0 {
-                    Value::Vec3([v[0] / mag, v[1] / mag, v[2] / mag])
-                } else {
-                    Value::Vec3([0.0, 0.0, 0.0])
-                }
-            }
-            Value::Vec4(v) => {
-                let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt();
-                if mag > 0.0 {
-                    Value::Vec4([v[0] / mag, v[1] / mag, v[2] / mag, v[3] / mag])
-                } else {
-                    Value::Vec4([0.0, 0.0, 0.0, 0.0])
-                }
-            }
-            Value::Scalar(s) => Value::Scalar(s.signum()),
-            v => v.clone(),
-        }
+/// Normalize a Vec3 to unit length: `normalize(vec)`
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3))],
+    unit_in = [UnitAny],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = Dimensionless
+)]
+pub fn normalize_vec3(v: [f64; 3]) -> [f64; 3] {
+    let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if mag > 0.0 {
+        [v[0] / mag, v[1] / mag, v[2] / mag]
     } else {
-        // Multiple scalar args -> return normalized vector
-        // Infer dimension from arg count
-        let mut components = Vec::new();
-        let mut sum_sq = 0.0;
-        for arg in args {
-            if let Some(v) = arg.as_scalar() {
-                components.push(v);
-                sum_sq += v * v;
-            }
-        }
-
-        let mag = sum_sq.sqrt();
-        if mag > 0.0 {
-            for c in &mut components {
-                *c /= mag;
-            }
-        }
-
-        match components.len() {
-            2 => Value::Vec2([components[0], components[1]]),
-            3 => Value::Vec3([components[0], components[1], components[2]]),
-            4 => Value::Vec4([components[0], components[1], components[2], components[3]]),
-            _ => Value::Scalar(0.0), // Error or fallback
-        }
+        [0.0, 0.0, 0.0]
     }
 }
 
-/// Dot product: `dot(a, b)` -> Scalar
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn dot(args: &[Value]) -> f64 {
-    if args.len() != 2 {
-        panic!("vector.dot expects exactly 2 arguments");
+/// Normalize a Vec4 to unit length: `normalize(vec)`
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4))],
+    unit_in = [UnitAny],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = Dimensionless
+)]
+pub fn normalize_vec4(v: [f64; 4]) -> [f64; 4] {
+    let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt();
+    if mag > 0.0 {
+        [v[0] / mag, v[1] / mag, v[2] / mag, v[3] / mag]
+    } else {
+        [0.0, 0.0, 0.0, 0.0]
     }
-    match (&args[0], &args[1]) {
-        (Value::Vec2(a), Value::Vec2(b)) => a[0] * b[0] + a[1] * b[1],
-        (Value::Vec3(a), Value::Vec3(b)) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2],
-        (Value::Vec4(a), Value::Vec4(b)) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3],
-        _ => panic!("vector.dot requires two vectors of same dimension"),
-    }
+}
+
+/// Get sign of scalar: `normalize(scalar)` returns -1, 0, or 1
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [AnyScalar],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
+pub fn normalize_scalar(s: f64) -> f64 {
+    s.signum()
+}
+
+/// Dot product for Vec2: `dot(a, b)` -> Scalar
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2)), VectorDim(DimExact(2))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn dot_vec2(a: [f64; 2], b: [f64; 2]) -> f64 {
+    a[0] * b[0] + a[1] * b[1]
+}
+
+/// Dot product for Vec3: `dot(a, b)` -> Scalar
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn dot_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// Dot product for Vec4: `dot(a, b)` -> Scalar
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4)), VectorDim(DimExact(4))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = Scalar,
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn dot_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2] + a[3] * b[3]
 }
 
 /// Cross product (Vec3 only): `cross(a, b)` -> Vec3
@@ -301,34 +331,6 @@ pub fn distance_sq_vec4(a: [f64; 4], b: [f64; 4]) -> f64 {
     continuum_foundation::vector_ops::distance_sq_vec4(a, b)
 }
 
-/// Distance between two vectors: `distance(a, b)` (variadic)
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn distance(args: &[Value]) -> f64 {
-    if args.len() != 2 {
-        panic!("vector.distance expects exactly 2 arguments");
-    }
-    match (&args[0], &args[1]) {
-        (Value::Vec2(a), Value::Vec2(b)) => distance_vec2(*a, *b),
-        (Value::Vec3(a), Value::Vec3(b)) => distance_vec3(*a, *b),
-        (Value::Vec4(a), Value::Vec4(b)) => distance_vec4(*a, *b),
-        _ => panic!("vector.distance requires two vectors of same dimension"),
-    }
-}
-
-/// Squared distance between two vectors: `distance_sq(a, b)` (variadic) - cheaper than distance
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn distance_sq(args: &[Value]) -> f64 {
-    if args.len() != 2 {
-        panic!("vector.distance_sq expects exactly 2 arguments");
-    }
-    match (&args[0], &args[1]) {
-        (Value::Vec2(a), Value::Vec2(b)) => distance_sq_vec2(*a, *b),
-        (Value::Vec3(a), Value::Vec3(b)) => distance_sq_vec3(*a, *b),
-        (Value::Vec4(a), Value::Vec4(b)) => distance_sq_vec4(*a, *b),
-        _ => panic!("vector.distance_sq requires two vectors of same dimension"),
-    }
-}
-
 /// Linear interpolation for Vec2: `lerp(a, b, t)` → a + t * (b - a)
 #[kernel_fn(
     namespace = "vector",
@@ -377,24 +379,6 @@ pub fn lerp_vec4(a: [f64; 4], b: [f64; 4], t: f64) -> [f64; 4] {
     ]
 }
 
-/// Linear interpolation: `lerp(a, b, t)` → a + t * (b - a) (variadic)
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn lerp(args: &[Value]) -> Value {
-    if args.len() != 3 {
-        panic!("vector.lerp expects exactly 3 arguments");
-    }
-    let t = match &args[2] {
-        Value::Scalar(s) => *s,
-        _ => panic!("vector.lerp: third argument must be a scalar"),
-    };
-    match (&args[0], &args[1]) {
-        (Value::Vec2(a), Value::Vec2(b)) => Value::Vec2(lerp_vec2(*a, *b, t)),
-        (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3(lerp_vec3(*a, *b, t)),
-        (Value::Vec4(a), Value::Vec4(b)) => Value::Vec4(lerp_vec4(*a, *b, t)),
-        _ => panic!("vector.lerp requires two vectors of same dimension"),
-    }
-}
-
 /// Mix for Vec2 (GLSL alias for lerp): `mix(a, b, t)` → a + t * (b - a)
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn mix_vec2(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
@@ -411,12 +395,6 @@ pub fn mix_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn mix_vec4(a: [f64; 4], b: [f64; 4], t: f64) -> [f64; 4] {
     lerp_vec4(a, b, t)
-}
-
-/// Mix (GLSL alias for lerp): `mix(a, b, t)` → a + t * (b - a) (variadic)
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn mix(args: &[Value]) -> Value {
-    lerp(args)
 }
 
 // ============================================================================
@@ -451,23 +429,6 @@ pub fn nlerp_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
     }
 }
 
-/// Normalized linear interpolation (variadic): `nlerp(a, b, t)` → normalize(lerp(a, b, t))
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn nlerp(args: &[Value]) -> Value {
-    if args.len() != 3 {
-        panic!("vector.nlerp expects exactly 3 arguments");
-    }
-    let t = match &args[2] {
-        Value::Scalar(v) => *v,
-        _ => panic!("vector.nlerp: third argument must be a scalar"),
-    };
-    match (&args[0], &args[1]) {
-        (Value::Vec2(a), Value::Vec2(b)) => Value::Vec2(nlerp_vec2(*a, *b, t)),
-        (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3(nlerp_vec3(*a, *b, t)),
-        _ => panic!("vector.nlerp requires two vectors of same dimension (Vec2 or Vec3)"),
-    }
-}
-
 /// Spherical linear interpolation for Vec3: `slerp(a, b, t)`
 ///
 /// Interpolates along the great circle arc between two unit vectors.
@@ -499,22 +460,6 @@ pub fn slerp_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
         s0 * a[1] + s1 * b[1],
         s0 * a[2] + s1 * b[2],
     ]
-}
-
-/// Spherical linear interpolation (variadic): `slerp(a, b, t)`
-#[kernel_fn(namespace = "vector", category = "vector", variadic)]
-pub fn slerp(args: &[Value]) -> Value {
-    if args.len() != 3 {
-        panic!("vector.slerp expects exactly 3 arguments");
-    }
-    let t = match &args[2] {
-        Value::Scalar(v) => *v,
-        _ => panic!("vector.slerp: third argument must be a scalar"),
-    };
-    match (&args[0], &args[1]) {
-        (Value::Vec3(a), Value::Vec3(b)) => Value::Vec3(slerp_vec3(*a, *b, t)),
-        _ => panic!("vector.slerp requires two Vec3 unit vectors"),
-    }
 }
 
 /// Component-wise clamp for Vec2: `clamp(v, min, max)`
@@ -608,26 +553,6 @@ pub fn abs_vec4(v: [f64; 4]) -> [f64; 4] {
     [v[0].abs(), v[1].abs(), v[2].abs(), v[3].abs()]
 }
 
-// Helper functions for internal use
-// dot_vec3 is also exposed as vector.dot for compile-time type checking
-/// Dot product (Vec3): `dot(a, b)` -> Scalar
-#[kernel_fn(
-    name = "dot",
-    namespace = "vector",
-    purity = Pure,
-    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
-    unit_in = [UnitAny, UnitAny],
-    shape_out = Scalar,
-    unit_out = Multiply(&[0, 1])
-)]
-pub fn dot_vec3(a: [f64; 3], b: [f64; 3]) -> f64 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-}
-
-fn length_vec3(v: [f64; 3]) -> f64 {
-    (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt()
-}
-
 /// Angle between two vectors in radians: `angle(a, b)`
 #[kernel_fn(namespace = "vector", category = "vector")]
 pub fn angle(a: [f64; 3], b: [f64; 3]) -> f64 {
@@ -695,79 +620,6 @@ mod tests {
         assert!(is_known_in("vector", "vec4"));
         let desc = get_in_namespace("vector", "vec4").unwrap();
         assert_eq!(desc.arity, Arity::Fixed(4));
-    }
-
-    #[test]
-    fn test_vec_variadic_registered() {
-        assert!(is_known_in("vector", "vec"));
-        let desc = get_in_namespace("vector", "vec").unwrap();
-        assert_eq!(desc.arity, Arity::Variadic);
-    }
-
-    #[test]
-    fn test_length_variadic() {
-        let args = [Value::Scalar(3.0), Value::Scalar(4.0)];
-        let res = length(&args);
-        assert_eq!(res, 5.0);
-    }
-
-    #[test]
-    fn test_length_vector() {
-        let args = [Value::Vec3([1.0, 2.0, 2.0])];
-        let res = length(&args);
-        assert_eq!(res, 3.0);
-    }
-
-    #[test]
-    fn test_vec_variadic_value() {
-        let args = [Value::Scalar(1.0), Value::Scalar(2.0), Value::Scalar(3.0)];
-        let res = vec(&args);
-        assert_eq!(res, Value::Vec3([1.0, 2.0, 3.0]));
-    }
-
-    #[test]
-    fn test_dot_vec2() {
-        let a = Value::Vec2([1.0, 2.0]);
-        let b = Value::Vec2([3.0, 4.0]);
-        let result = dot(&[a, b]);
-        assert_eq!(result, 11.0); // 1*3 + 2*4 = 3 + 8 = 11
-    }
-
-    #[test]
-    fn test_dot_vec3() {
-        let a = Value::Vec3([1.0, 0.0, 0.0]);
-        let b = Value::Vec3([0.0, 1.0, 0.0]);
-        let result = dot(&[a, b]);
-        assert_eq!(result, 0.0); // Perpendicular vectors
-    }
-
-    #[test]
-    fn test_dot_vec3_parallel() {
-        let a = Value::Vec3([2.0, 0.0, 0.0]);
-        let b = Value::Vec3([3.0, 0.0, 0.0]);
-        let result = dot(&[a, b]);
-        assert_eq!(result, 6.0); // Parallel vectors
-    }
-
-    #[test]
-    fn test_dot_vec4() {
-        let a = Value::Vec4([1.0, 2.0, 3.0, 4.0]);
-        let b = Value::Vec4([1.0, 1.0, 1.0, 1.0]);
-        let result = dot(&[a, b]);
-        assert_eq!(result, 10.0); // 1+2+3+4
-    }
-
-    #[test]
-    #[should_panic(expected = "same dimension")]
-    fn test_dot_dimension_mismatch() {
-        let a = Value::Vec2([1.0, 2.0]);
-        let b = Value::Vec3([1.0, 2.0, 3.0]);
-        let _ = dot(&[a, b]);
-    }
-
-    #[test]
-    fn test_dot_registered() {
-        assert!(is_known_in("vector", "dot"));
     }
 
     #[test]
@@ -866,7 +718,6 @@ mod tests {
         assert_eq!(result, a);
     }
 
-    #[test]
     #[should_panic(expected = "zero vector")]
     fn test_project_onto_zero() {
         let a = [1.0, 2.0, 3.0];
@@ -933,80 +784,6 @@ mod tests {
     }
 
     #[test]
-    fn test_distance_variadic_vec2() {
-        let a = Value::Vec2([0.0, 0.0]);
-        let b = Value::Vec2([3.0, 4.0]);
-        let result = distance(&[a, b]);
-        assert_eq!(result, 5.0);
-    }
-
-    #[test]
-    fn test_distance_variadic_vec3() {
-        let a = Value::Vec3([0.0, 0.0, 0.0]);
-        let b = Value::Vec3([1.0, 2.0, 2.0]);
-        let result = distance(&[a, b]);
-        assert_eq!(result, 3.0);
-    }
-
-    #[test]
-    fn test_distance_variadic_vec4() {
-        let a = Value::Vec4([0.0, 0.0, 0.0, 0.0]);
-        let b = Value::Vec4([2.0, 2.0, 1.0, 0.0]);
-        let result = distance(&[a, b]);
-        assert_eq!(result, 3.0);
-    }
-
-    #[test]
-    fn test_distance_sq_variadic_vec2() {
-        let a = Value::Vec2([0.0, 0.0]);
-        let b = Value::Vec2([3.0, 4.0]);
-        let result = distance_sq(&[a, b]);
-        assert_eq!(result, 25.0);
-    }
-
-    #[test]
-    fn test_distance_sq_variadic_vec3() {
-        let a = Value::Vec3([1.0, 2.0, 3.0]);
-        let b = Value::Vec3([4.0, 6.0, 3.0]);
-        let result = distance_sq(&[a, b]);
-        assert_eq!(result, 25.0);
-    }
-
-    #[test]
-    fn test_distance_sq_variadic_vec4() {
-        let a = Value::Vec4([1.0, 1.0, 1.0, 1.0]);
-        let b = Value::Vec4([2.0, 2.0, 2.0, 2.0]);
-        let result = distance_sq(&[a, b]);
-        assert_eq!(result, 4.0);
-    }
-
-    #[test]
-    #[should_panic(expected = "same dimension")]
-    fn test_distance_dimension_mismatch() {
-        let a = Value::Vec2([1.0, 2.0]);
-        let b = Value::Vec3([1.0, 2.0, 3.0]);
-        let _ = distance(&[a, b]);
-    }
-
-    #[test]
-    #[should_panic(expected = "same dimension")]
-    fn test_distance_sq_dimension_mismatch() {
-        let a = Value::Vec2([1.0, 2.0]);
-        let b = Value::Vec3([1.0, 2.0, 3.0]);
-        let _ = distance_sq(&[a, b]);
-    }
-
-    #[test]
-    fn test_distance_registered() {
-        assert!(is_known_in("vector", "distance"));
-    }
-
-    #[test]
-    fn test_distance_sq_registered() {
-        assert!(is_known_in("vector", "distance_sq"));
-    }
-
-    #[test]
     fn test_distance_vec2_registered() {
         assert!(is_known_in("vector", "distance_vec2"));
     }
@@ -1052,11 +829,6 @@ mod tests {
     }
 
     #[test]
-    fn test_lerp_variadic_registered() {
-        assert!(is_known_in("vector", "lerp"));
-    }
-
-    #[test]
     fn test_mix_vec2_registered() {
         assert!(is_known_in("vector", "mix_vec2"));
     }
@@ -1069,11 +841,6 @@ mod tests {
     #[test]
     fn test_mix_vec4_registered() {
         assert!(is_known_in("vector", "mix_vec4"));
-    }
-
-    #[test]
-    fn test_mix_variadic_registered() {
-        assert!(is_known_in("vector", "mix"));
     }
 
     #[test]
@@ -1149,42 +916,6 @@ mod tests {
     }
 
     #[test]
-    fn test_lerp_variadic_vec2() {
-        let a = Value::Vec2([0.0, 0.0]);
-        let b = Value::Vec2([10.0, 20.0]);
-        let t = Value::Scalar(0.5);
-        let result = lerp(&[a, b, t]);
-        assert_eq!(result, Value::Vec2([5.0, 10.0]));
-    }
-
-    #[test]
-    fn test_lerp_variadic_vec3() {
-        let a = Value::Vec3([0.0, 0.0, 0.0]);
-        let b = Value::Vec3([10.0, 20.0, 30.0]);
-        let t = Value::Scalar(0.5);
-        let result = lerp(&[a, b, t]);
-        assert_eq!(result, Value::Vec3([5.0, 10.0, 15.0]));
-    }
-
-    #[test]
-    fn test_lerp_variadic_vec4() {
-        let a = Value::Vec4([0.0, 0.0, 0.0, 0.0]);
-        let b = Value::Vec4([10.0, 20.0, 30.0, 40.0]);
-        let t = Value::Scalar(0.5);
-        let result = lerp(&[a, b, t]);
-        assert_eq!(result, Value::Vec4([5.0, 10.0, 15.0, 20.0]));
-    }
-
-    #[test]
-    #[should_panic(expected = "same dimension")]
-    fn test_lerp_dimension_mismatch() {
-        let a = Value::Vec2([1.0, 2.0]);
-        let b = Value::Vec3([1.0, 2.0, 3.0]);
-        let t = Value::Scalar(0.5);
-        let _ = lerp(&[a, b, t]);
-    }
-
-    #[test]
     fn test_mix_vec2() {
         let a = [0.0, 0.0];
         let b = [10.0, 20.0];
@@ -1206,15 +937,6 @@ mod tests {
         let b = [10.0, 20.0, 30.0, 40.0];
         let result = mix_vec4(a, b, 0.5);
         assert_eq!(result, [5.0, 10.0, 15.0, 20.0]);
-    }
-
-    #[test]
-    fn test_mix_variadic_vec3() {
-        let a = Value::Vec3([0.0, 0.0, 0.0]);
-        let b = Value::Vec3([10.0, 20.0, 30.0]);
-        let t = Value::Scalar(0.5);
-        let result = mix(&[a, b, t]);
-        assert_eq!(result, Value::Vec3([5.0, 10.0, 15.0]));
     }
 
     // Component-wise clamp tests
@@ -1487,11 +1209,6 @@ mod tests {
     }
 
     #[test]
-    fn test_nlerp_variadic_registered() {
-        assert!(is_known_in("vector", "nlerp"));
-    }
-
-    #[test]
     fn test_nlerp_vec2_at_endpoints() {
         // At t=0, should return normalized a
         let a = [3.0, 4.0]; // Length 5
@@ -1556,44 +1273,10 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_nlerp_variadic_vec2() {
-        let a = Value::Vec2([1.0, 0.0]);
-        let b = Value::Vec2([0.0, 1.0]);
-        let t = Value::Scalar(0.5);
-        let result = nlerp(&[a, b, t]);
-        if let Value::Vec2(v) = result {
-            let len = (v[0] * v[0] + v[1] * v[1]).sqrt();
-            assert!((len - 1.0).abs() < 1e-10);
-        } else {
-            panic!("Expected Vec2 result");
-        }
-    }
-
-    #[test]
-    fn test_nlerp_variadic_vec3() {
-        let a = Value::Vec3([1.0, 0.0, 0.0]);
-        let b = Value::Vec3([0.0, 1.0, 0.0]);
-        let t = Value::Scalar(0.5);
-        let result = nlerp(&[a, b, t]);
-        if let Value::Vec3(v) = result {
-            let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-            assert!((len - 1.0).abs() < 1e-10);
-        } else {
-            panic!("Expected Vec3 result");
-        }
-    }
-
     // Tests for slerp (spherical linear interpolation)
-
     #[test]
     fn test_slerp_vec3_registered() {
         assert!(is_known_in("vector", "slerp_vec3"));
-    }
-
-    #[test]
-    fn test_slerp_variadic_registered() {
-        assert!(is_known_in("vector", "slerp"));
     }
 
     #[test]
@@ -1679,30 +1362,5 @@ mod tests {
                 t
             );
         }
-    }
-
-    #[test]
-    fn test_slerp_variadic_vec3() {
-        let a = Value::Vec3([1.0, 0.0, 0.0]);
-        let b = Value::Vec3([0.0, 1.0, 0.0]);
-        let t = Value::Scalar(0.5);
-        let result = slerp(&[a, b, t]);
-        if let Value::Vec3(v) = result {
-            let sqrt2_2 = std::f64::consts::FRAC_1_SQRT_2;
-            assert!((v[0] - sqrt2_2).abs() < 1e-10);
-            assert!((v[1] - sqrt2_2).abs() < 1e-10);
-            assert!((v[2] - 0.0).abs() < 1e-10);
-        } else {
-            panic!("Expected Vec3 result");
-        }
-    }
-
-    #[test]
-    #[should_panic(expected = "Vec3")]
-    fn test_slerp_rejects_vec2() {
-        let a = Value::Vec2([1.0, 0.0]);
-        let b = Value::Vec2([0.0, 1.0]);
-        let t = Value::Scalar(0.5);
-        let _ = slerp(&[a, b, t]);
     }
 }
