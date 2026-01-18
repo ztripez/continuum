@@ -495,8 +495,19 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
 }
 
 /// Eigenvalues of a symmetric matrix: `eigenvalues_mat2(m)` -> Vec2
-/// Returns eigenvalues sorted in descending order
-/// Note: Only works for symmetric matrices. Non-symmetric matrices will give incorrect results.
+///
+/// Returns eigenvalues sorted in descending order.
+///
+/// # Preconditions
+/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
+///   Non-symmetric matrices will produce incorrect results without error.
+///   No runtime validation is performed for performance reasons.
+///
+/// # Determinism Warning
+/// Eigenvalue ordering is currently implementation-defined (descending by magnitude).
+/// While stable within a single nalgebra version, ordering may change between versions.
+/// Sign of eigenvectors is ambiguous (v and -v are both valid eigenvectors).
+/// For deterministic simulations, consider these limitations carefully.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -515,8 +526,19 @@ pub fn eigenvalues_mat2(arr: Mat2) -> [f64; 2] {
 }
 
 /// Eigenvalues of a symmetric matrix: `eigenvalues_mat3(m)` -> Vec3
-/// Returns eigenvalues sorted in descending order
-/// Note: Only works for symmetric matrices. Non-symmetric matrices will give incorrect results.
+///
+/// Returns eigenvalues sorted in descending order.
+///
+/// # Preconditions
+/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
+///   Non-symmetric matrices will produce incorrect results without error.
+///   No runtime validation is performed for performance reasons.
+///
+/// # Determinism Warning
+/// Eigenvalue ordering is currently implementation-defined (descending by magnitude).
+/// While stable within a single nalgebra version, ordering may change between versions.
+/// Sign of eigenvectors is ambiguous (v and -v are both valid eigenvectors).
+/// For deterministic simulations, consider these limitations carefully.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -535,8 +557,19 @@ pub fn eigenvalues_mat3(arr: Mat3) -> [f64; 3] {
 }
 
 /// Eigenvalues of a symmetric matrix: `eigenvalues_mat4(m)` -> Vec4
-/// Returns eigenvalues sorted in descending order
-/// Note: Only works for symmetric matrices. Non-symmetric matrices will give incorrect results.
+///
+/// Returns eigenvalues sorted in descending order.
+///
+/// # Preconditions
+/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
+///   Non-symmetric matrices will produce incorrect results without error.
+///   No runtime validation is performed for performance reasons.
+///
+/// # Determinism Warning
+/// Eigenvalue ordering is currently implementation-defined (descending by magnitude).
+/// While stable within a single nalgebra version, ordering may change between versions.
+/// Sign of eigenvectors is ambiguous (v and -v are both valid eigenvectors).
+/// For deterministic simulations, consider these limitations carefully.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -560,7 +593,22 @@ pub fn eigenvalues_mat4(arr: Mat4) -> [f64; 4] {
 }
 
 /// Eigenvectors of a symmetric matrix: `eigenvectors_mat2(m)` -> Mat2
-/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues)
+///
+/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues).
+/// Eigenvectors are orthonormal and sorted to match eigenvalue order (descending).
+///
+/// # Preconditions
+/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
+///   Non-symmetric matrices will produce incorrect results without error.
+///   No runtime validation is performed for performance reasons.
+///
+/// # Determinism Warning
+/// - **Sign ambiguity**: Both v and -v are valid eigenvectors for eigenvalue λ.
+///   The returned sign is nalgebra implementation-defined and may change between versions.
+/// - **Ordering**: Eigenvectors are sorted by eigenvalue magnitude (descending).
+///   While stable within a nalgebra version, ordering may change between versions.
+/// - For deterministic simulations requiring stable signs/ordering, consider
+///   implementing canonical normalization (e.g., first non-zero component positive).
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -587,7 +635,22 @@ pub fn eigenvectors_mat2(arr: Mat2) -> Mat2 {
 }
 
 /// Eigenvectors of a symmetric matrix: `eigenvectors_mat3(m)` -> Mat3
-/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues)
+///
+/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues).
+/// Eigenvectors are orthonormal and sorted to match eigenvalue order (descending).
+///
+/// # Preconditions
+/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
+///   Non-symmetric matrices will produce incorrect results without error.
+///   No runtime validation is performed for performance reasons.
+///
+/// # Determinism Warning
+/// - **Sign ambiguity**: Both v and -v are valid eigenvectors for eigenvalue λ.
+///   The returned sign is nalgebra implementation-defined and may change between versions.
+/// - **Ordering**: Eigenvectors are sorted by eigenvalue magnitude (descending).
+///   While stable within a nalgebra version, ordering may change between versions.
+/// - For deterministic simulations requiring stable signs/ordering, consider
+///   implementing canonical normalization (e.g., first non-zero component positive).
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -615,7 +678,22 @@ pub fn eigenvectors_mat3(arr: Mat3) -> Mat3 {
 }
 
 /// Eigenvectors of a symmetric matrix: `eigenvectors_mat4(m)` -> Mat4
-/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues)
+///
+/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues).
+/// Eigenvectors are orthonormal and sorted to match eigenvalue order (descending).
+///
+/// # Preconditions
+/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
+///   Non-symmetric matrices will produce incorrect results without error.
+///   No runtime validation is performed for performance reasons.
+///
+/// # Determinism Warning
+/// - **Sign ambiguity**: Both v and -v are valid eigenvectors for eigenvalue λ.
+///   The returned sign is nalgebra implementation-defined and may change between versions.
+/// - **Ordering**: Eigenvectors are sorted by eigenvalue magnitude (descending).
+///   While stable within a nalgebra version, ordering may change between versions.
+/// - For deterministic simulations requiring stable signs/ordering, consider
+///   implementing canonical normalization (e.g., first non-zero component positive).
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -644,7 +722,17 @@ pub fn eigenvectors_mat4(arr: Mat4) -> Mat4 {
 }
 
 /// SVD - U matrix: `svd_u_mat2(m)` -> Mat2
-/// Returns the left singular vectors (U in A = UΣV^T)
+///
+/// Returns the left singular vectors (U in A = UΣV^T).
+/// Columns of U are orthonormal.
+///
+/// # Determinism Warning
+/// - **Sign ambiguity**: For singular value σ, both (u, v) and (-u, -v) are valid.
+///   The returned signs are nalgebra implementation-defined and may change between versions.
+/// - **Ordering**: Singular vectors are sorted by singular value magnitude (descending).
+///   While stable within a nalgebra version, ordering may change between versions.
+/// - For deterministic simulations, be aware these limitations may cause non-determinism
+///   if nalgebra's SVD implementation changes.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -662,7 +750,17 @@ pub fn svd_u_mat2(arr: Mat2) -> Mat2 {
 }
 
 /// SVD - U matrix: `svd_u_mat3(m)` -> Mat3
-/// Returns the left singular vectors (U in A = UΣV^T)
+///
+/// Returns the left singular vectors (U in A = UΣV^T).
+/// Columns of U are orthonormal.
+///
+/// # Determinism Warning
+/// - **Sign ambiguity**: For singular value σ, both (u, v) and (-u, -v) are valid.
+///   The returned signs are nalgebra implementation-defined and may change between versions.
+/// - **Ordering**: Singular vectors are sorted by singular value magnitude (descending).
+///   While stable within a nalgebra version, ordering may change between versions.
+/// - For deterministic simulations, be aware these limitations may cause non-determinism
+///   if nalgebra's SVD implementation changes.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -680,7 +778,17 @@ pub fn svd_u_mat3(arr: Mat3) -> Mat3 {
 }
 
 /// SVD - U matrix: `svd_u_mat4(m)` -> Mat4
-/// Returns the left singular vectors (U in A = UΣV^T)
+///
+/// Returns the left singular vectors (U in A = UΣV^T).
+/// Columns of U are orthonormal.
+///
+/// # Determinism Warning
+/// - **Sign ambiguity**: For singular value σ, both (u, v) and (-u, -v) are valid.
+///   The returned signs are nalgebra implementation-defined and may change between versions.
+/// - **Ordering**: Singular vectors are sorted by singular value magnitude (descending).
+///   While stable within a nalgebra version, ordering may change between versions.
+/// - For deterministic simulations, be aware these limitations may cause non-determinism
+///   if nalgebra's SVD implementation changes.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -698,7 +806,13 @@ pub fn svd_u_mat4(arr: Mat4) -> Mat4 {
 }
 
 /// SVD - singular values: `svd_s_mat2(m)` -> Vec2
-/// Returns the singular values (diagonal of Σ in A = UΣV^T)
+///
+/// Returns the singular values (diagonal of Σ in A = UΣV^T).
+/// Singular values are always non-negative and returned in descending order.
+///
+/// # Determinism
+/// Singular values themselves are mathematically unique (up to ordering).
+/// Ordering is descending by magnitude, which is stable and deterministic.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -715,7 +829,13 @@ pub fn svd_s_mat2(arr: Mat2) -> [f64; 2] {
 }
 
 /// SVD - singular values: `svd_s_mat3(m)` -> Vec3
-/// Returns the singular values (diagonal of Σ in A = UΣV^T)
+///
+/// Returns the singular values (diagonal of Σ in A = UΣV^T).
+/// Singular values are always non-negative and returned in descending order.
+///
+/// # Determinism
+/// Singular values themselves are mathematically unique (up to ordering).
+/// Ordering is descending by magnitude, which is stable and deterministic.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -736,7 +856,13 @@ pub fn svd_s_mat3(arr: Mat3) -> [f64; 3] {
 }
 
 /// SVD - singular values: `svd_s_mat4(m)` -> Vec4
-/// Returns the singular values (diagonal of Σ in A = UΣV^T)
+///
+/// Returns the singular values (diagonal of Σ in A = UΣV^T).
+/// Singular values are always non-negative and returned in descending order.
+///
+/// # Determinism
+/// Singular values themselves are mathematically unique (up to ordering).
+/// Ordering is descending by magnitude, which is stable and deterministic.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -758,7 +884,17 @@ pub fn svd_s_mat4(arr: Mat4) -> [f64; 4] {
 }
 
 /// SVD - V^T matrix: `svd_vt_mat2(m)` -> Mat2
-/// Returns the transposed right singular vectors (V^T in A = UΣV^T)
+///
+/// Returns the transposed right singular vectors (V^T in A = UΣV^T).
+/// Rows of V^T are orthonormal (equivalently, columns of V are orthonormal).
+///
+/// # Determinism Warning
+/// - **Sign ambiguity**: For singular value σ, both (u, v) and (-u, -v) are valid.
+///   The returned signs are nalgebra implementation-defined and may change between versions.
+/// - **Ordering**: Singular vectors are sorted by singular value magnitude (descending).
+///   While stable within a nalgebra version, ordering may change between versions.
+/// - For deterministic simulations, be aware these limitations may cause non-determinism
+///   if nalgebra's SVD implementation changes.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -776,7 +912,17 @@ pub fn svd_vt_mat2(arr: Mat2) -> Mat2 {
 }
 
 /// SVD - V^T matrix: `svd_vt_mat3(m)` -> Mat3
-/// Returns the transposed right singular vectors (V^T in A = UΣV^T)
+///
+/// Returns the transposed right singular vectors (V^T in A = UΣV^T).
+/// Rows of V^T are orthonormal (equivalently, columns of V are orthonormal).
+///
+/// # Determinism Warning
+/// - **Sign ambiguity**: For singular value σ, both (u, v) and (-u, -v) are valid.
+///   The returned signs are nalgebra implementation-defined and may change between versions.
+/// - **Ordering**: Singular vectors are sorted by singular value magnitude (descending).
+///   While stable within a nalgebra version, ordering may change between versions.
+/// - For deterministic simulations, be aware these limitations may cause non-determinism
+///   if nalgebra's SVD implementation changes.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -794,7 +940,17 @@ pub fn svd_vt_mat3(arr: Mat3) -> Mat3 {
 }
 
 /// SVD - V^T matrix: `svd_vt_mat4(m)` -> Mat4
-/// Returns the transposed right singular vectors (V^T in A = UΣV^T)
+///
+/// Returns the transposed right singular vectors (V^T in A = UΣV^T).
+/// Rows of V^T are orthonormal (equivalently, columns of V are orthonormal).
+///
+/// # Determinism Warning
+/// - **Sign ambiguity**: For singular value σ, both (u, v) and (-u, -v) are valid.
+///   The returned signs are nalgebra implementation-defined and may change between versions.
+/// - **Ordering**: Singular vectors are sorted by singular value magnitude (descending).
+///   While stable within a nalgebra version, ordering may change between versions.
+/// - For deterministic simulations, be aware these limitations may cause non-determinism
+///   if nalgebra's SVD implementation changes.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -1189,6 +1345,28 @@ pub fn look_at(eye: [f64; 3], target: [f64; 3], up: [f64; 3]) -> Mat4 {
 mod tests {
     use super::*;
     use continuum_kernel_registry::{Arity, get_in_namespace, is_known_in};
+
+    // Helper functions for matrix-vector multiplication (used in correctness tests)
+    fn mat2_times_vec2(m: Mat2, v: [f64; 2]) -> [f64; 2] {
+        [m.0[0] * v[0] + m.0[2] * v[1], m.0[1] * v[0] + m.0[3] * v[1]]
+    }
+
+    fn mat3_times_vec3(m: Mat3, v: [f64; 3]) -> [f64; 3] {
+        [
+            m.0[0] * v[0] + m.0[3] * v[1] + m.0[6] * v[2],
+            m.0[1] * v[0] + m.0[4] * v[1] + m.0[7] * v[2],
+            m.0[2] * v[0] + m.0[5] * v[1] + m.0[8] * v[2],
+        ]
+    }
+
+    fn mat4_times_vec4(m: Mat4, v: [f64; 4]) -> [f64; 4] {
+        [
+            m.0[0] * v[0] + m.0[4] * v[1] + m.0[8] * v[2] + m.0[12] * v[3],
+            m.0[1] * v[0] + m.0[5] * v[1] + m.0[9] * v[2] + m.0[13] * v[3],
+            m.0[2] * v[0] + m.0[6] * v[1] + m.0[10] * v[2] + m.0[14] * v[3],
+            m.0[3] * v[0] + m.0[7] * v[1] + m.0[11] * v[2] + m.0[15] * v[3],
+        ]
+    }
 
     #[test]
     fn test_transpose_mat2_registered() {
@@ -1643,6 +1821,370 @@ mod tests {
         assert!((s[0] - 3.0).abs() < 1e-10);
         assert!((s[1] - 2.0).abs() < 1e-10);
         assert!((s[2] - 1.0).abs() < 1e-10);
+    }
+
+    // ============================================================================
+    // Eigenvalue/Eigenvector Correctness Tests
+    // ============================================================================
+
+    #[test]
+    fn test_eigenvalues_eigenvectors_mat2_correctness() {
+        // Symmetric matrix [[3, 1], [1, 3]]
+        let m_data = [3.0, 1.0, 1.0, 3.0];
+        let eigenvals = eigenvalues_mat2(Mat2(m_data));
+        let eigenvecs = eigenvectors_mat2(Mat2(m_data));
+
+        // Test A·v = λ·v for each eigenvalue/eigenvector pair
+        // Column 0: eigenvector for eigenvals[0]
+        let v0 = [eigenvecs.0[0], eigenvecs.0[1]];
+        let av0 = mat2_times_vec2(Mat2(m_data), v0);
+        let lambda_v0 = [eigenvals[0] * v0[0], eigenvals[0] * v0[1]];
+        assert!(
+            (av0[0] - lambda_v0[0]).abs() < 1e-10,
+            "A·v0 ≠ λ0·v0 (x component)"
+        );
+        assert!(
+            (av0[1] - lambda_v0[1]).abs() < 1e-10,
+            "A·v0 ≠ λ0·v0 (y component)"
+        );
+
+        // Column 1: eigenvector for eigenvals[1]
+        let v1 = [eigenvecs.0[2], eigenvecs.0[3]];
+        let av1 = mat2_times_vec2(Mat2(m_data), v1);
+        let lambda_v1 = [eigenvals[1] * v1[0], eigenvals[1] * v1[1]];
+        assert!(
+            (av1[0] - lambda_v1[0]).abs() < 1e-10,
+            "A·v1 ≠ λ1·v1 (x component)"
+        );
+        assert!(
+            (av1[1] - lambda_v1[1]).abs() < 1e-10,
+            "A·v1 ≠ λ1·v1 (y component)"
+        );
+    }
+
+    #[test]
+    fn test_eigenvectors_mat2_orthonormality() {
+        // Symmetric matrix [[3, 1], [1, 3]]
+        let eigenvecs = eigenvectors_mat2(Mat2([3.0, 1.0, 1.0, 3.0]));
+
+        // Columns should be orthonormal
+        let v0 = [eigenvecs.0[0], eigenvecs.0[1]];
+        let v1 = [eigenvecs.0[2], eigenvecs.0[3]];
+
+        // Check unit length
+        let norm0 = (v0[0] * v0[0] + v0[1] * v0[1]).sqrt();
+        let norm1 = (v1[0] * v1[0] + v1[1] * v1[1]).sqrt();
+        assert!((norm0 - 1.0).abs() < 1e-10, "Eigenvector 0 not unit length");
+        assert!((norm1 - 1.0).abs() < 1e-10, "Eigenvector 1 not unit length");
+
+        // Check orthogonality (dot product should be 0)
+        let dot = v0[0] * v1[0] + v0[1] * v1[1];
+        assert!(dot.abs() < 1e-10, "Eigenvectors not orthogonal");
+    }
+
+    #[test]
+    fn test_eigenvalues_eigenvectors_mat3_correctness() {
+        // Symmetric matrix [[4, 1, 0], [1, 4, 1], [0, 1, 4]]
+        let m_data = [4.0, 1.0, 0.0, 1.0, 4.0, 1.0, 0.0, 1.0, 4.0];
+        let eigenvals = eigenvalues_mat3(Mat3(m_data));
+        let eigenvecs = eigenvectors_mat3(Mat3(m_data));
+
+        // Test A·v = λ·v for each eigenvalue/eigenvector pair
+        for i in 0..3 {
+            let v = [
+                eigenvecs.0[i * 3],
+                eigenvecs.0[i * 3 + 1],
+                eigenvecs.0[i * 3 + 2],
+            ];
+            let av = mat3_times_vec3(Mat3(m_data), v);
+            let lambda_v = [
+                eigenvals[i] * v[0],
+                eigenvals[i] * v[1],
+                eigenvals[i] * v[2],
+            ];
+
+            assert!(
+                (av[0] - lambda_v[0]).abs() < 1e-10,
+                "A·v{} ≠ λ{}·v{} (x component)",
+                i,
+                i,
+                i
+            );
+            assert!(
+                (av[1] - lambda_v[1]).abs() < 1e-10,
+                "A·v{} ≠ λ{}·v{} (y component)",
+                i,
+                i,
+                i
+            );
+            assert!(
+                (av[2] - lambda_v[2]).abs() < 1e-10,
+                "A·v{} ≠ λ{}·v{} (z component)",
+                i,
+                i,
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_eigenvectors_mat3_orthonormality() {
+        // Symmetric matrix [[4, 1, 0], [1, 4, 1], [0, 1, 4]]
+        let eigenvecs = eigenvectors_mat3(Mat3([4.0, 1.0, 0.0, 1.0, 4.0, 1.0, 0.0, 1.0, 4.0]));
+
+        // Check unit length and orthogonality for all pairs
+        for i in 0..3 {
+            let v = [
+                eigenvecs.0[i * 3],
+                eigenvecs.0[i * 3 + 1],
+                eigenvecs.0[i * 3 + 2],
+            ];
+
+            // Check unit length
+            let norm = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+            assert!(
+                (norm - 1.0).abs() < 1e-10,
+                "Eigenvector {} not unit length",
+                i
+            );
+
+            // Check orthogonality with all other vectors
+            for j in (i + 1)..3 {
+                let w = [
+                    eigenvecs.0[j * 3],
+                    eigenvecs.0[j * 3 + 1],
+                    eigenvecs.0[j * 3 + 2],
+                ];
+                let dot = v[0] * w[0] + v[1] * w[1] + v[2] * w[2];
+                assert!(
+                    dot.abs() < 1e-10,
+                    "Eigenvectors {} and {} not orthogonal",
+                    i,
+                    j
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_eigenvalues_eigenvectors_mat4_correctness() {
+        // Symmetric 4x4 matrix (tridiagonal)
+        let m_data = [
+            5.0, 1.0, 0.0, 0.0, 1.0, 5.0, 1.0, 0.0, 0.0, 1.0, 5.0, 1.0, 0.0, 0.0, 1.0, 5.0,
+        ];
+        let eigenvals = eigenvalues_mat4(Mat4(m_data));
+        let eigenvecs = eigenvectors_mat4(Mat4(m_data));
+
+        // Test A·v = λ·v for each eigenvalue/eigenvector pair
+        for i in 0..4 {
+            let v = [
+                eigenvecs.0[i * 4],
+                eigenvecs.0[i * 4 + 1],
+                eigenvecs.0[i * 4 + 2],
+                eigenvecs.0[i * 4 + 3],
+            ];
+            let av = mat4_times_vec4(Mat4(m_data), v);
+            let lambda_v = [
+                eigenvals[i] * v[0],
+                eigenvals[i] * v[1],
+                eigenvals[i] * v[2],
+                eigenvals[i] * v[3],
+            ];
+
+            for k in 0..4 {
+                assert!(
+                    (av[k] - lambda_v[k]).abs() < 1e-9,
+                    "A·v{} ≠ λ{}·v{} (component {})",
+                    i,
+                    i,
+                    i,
+                    k
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_eigenvectors_mat4_orthonormality() {
+        // Symmetric 4x4 matrix (tridiagonal)
+        let eigenvecs = eigenvectors_mat4(Mat4([
+            5.0, 1.0, 0.0, 0.0, 1.0, 5.0, 1.0, 0.0, 0.0, 1.0, 5.0, 1.0, 0.0, 0.0, 1.0, 5.0,
+        ]));
+
+        // Check unit length and orthogonality for all pairs
+        for i in 0..4 {
+            let v = [
+                eigenvecs.0[i * 4],
+                eigenvecs.0[i * 4 + 1],
+                eigenvecs.0[i * 4 + 2],
+                eigenvecs.0[i * 4 + 3],
+            ];
+
+            // Check unit length
+            let norm = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt();
+            assert!(
+                (norm - 1.0).abs() < 1e-9,
+                "Eigenvector {} not unit length",
+                i
+            );
+
+            // Check orthogonality with all other vectors
+            for j in (i + 1)..4 {
+                let w = [
+                    eigenvecs.0[j * 4],
+                    eigenvecs.0[j * 4 + 1],
+                    eigenvecs.0[j * 4 + 2],
+                    eigenvecs.0[j * 4 + 3],
+                ];
+                let dot = v[0] * w[0] + v[1] * w[1] + v[2] * w[2] + v[3] * w[3];
+                assert!(
+                    dot.abs() < 1e-9,
+                    "Eigenvectors {} and {} not orthogonal",
+                    i,
+                    j
+                );
+            }
+        }
+    }
+
+    // ============================================================================
+    // SVD Correctness Tests
+    // ============================================================================
+
+    #[test]
+    fn test_svd_mat2_reconstruction() {
+        // Test matrix
+        let m_data = [3.0, 1.0, 1.0, 2.0];
+
+        let u = svd_u_mat2(Mat2(m_data));
+        let s = svd_s_mat2(Mat2(m_data));
+        let vt = svd_vt_mat2(Mat2(m_data));
+
+        // Reconstruct: A ≈ U·Σ·V^T
+        // Matrices are column-major: [col0_row0, col0_row1, col1_row0, col1_row1]
+        // Compute U·Σ·V^T element by element
+        let mut reconstructed = [0.0; 4];
+        for col in 0..2 {
+            for row in 0..2 {
+                // A[col][row] = sum_k U[k][row] * s[k] * V^T[col][k]
+                for k in 0..2 {
+                    reconstructed[col * 2 + row] += u.0[k * 2 + row] * s[k] * vt.0[col * 2 + k];
+                }
+            }
+        }
+
+        // Check reconstruction matches original
+        for i in 0..4 {
+            assert!(
+                (reconstructed[i] - m_data[i]).abs() < 1e-10,
+                "SVD reconstruction failed at index {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_svd_mat3_reconstruction() {
+        // Test matrix
+        let m_data = [4.0, 1.0, 0.0, 1.0, 3.0, 1.0, 0.0, 1.0, 2.0];
+
+        let u = svd_u_mat3(Mat3(m_data));
+        let s = svd_s_mat3(Mat3(m_data));
+        let vt = svd_vt_mat3(Mat3(m_data));
+
+        // Reconstruct: A ≈ U·Σ·V^T
+        // Matrices are column-major
+        let mut reconstructed = [0.0; 9];
+        for col in 0..3 {
+            for row in 0..3 {
+                // A[col][row] = sum_k U[k][row] * s[k] * V^T[col][k]
+                for k in 0..3 {
+                    reconstructed[col * 3 + row] += u.0[k * 3 + row] * s[k] * vt.0[col * 3 + k];
+                }
+            }
+        }
+
+        // Check reconstruction matches original
+        for i in 0..9 {
+            assert!(
+                (reconstructed[i] - m_data[i]).abs() < 1e-10,
+                "SVD reconstruction failed at index {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_svd_mat4_reconstruction() {
+        // Test matrix (4x4 symmetric)
+        let m_data = [
+            5.0, 1.0, 0.0, 0.0, 1.0, 4.0, 1.0, 0.0, 0.0, 1.0, 3.0, 1.0, 0.0, 0.0, 1.0, 2.0,
+        ];
+
+        let u = svd_u_mat4(Mat4(m_data));
+        let s = svd_s_mat4(Mat4(m_data));
+        let vt = svd_vt_mat4(Mat4(m_data));
+
+        // Reconstruct: A ≈ U·Σ·V^T
+        // Matrices are column-major
+        let mut reconstructed = [0.0; 16];
+        for col in 0..4 {
+            for row in 0..4 {
+                // A[col][row] = sum_k U[k][row] * s[k] * V^T[col][k]
+                for k in 0..4 {
+                    reconstructed[col * 4 + row] += u.0[k * 4 + row] * s[k] * vt.0[col * 4 + k];
+                }
+            }
+        }
+
+        // Check reconstruction matches original
+        for i in 0..16 {
+            assert!(
+                (reconstructed[i] - m_data[i]).abs() < 1e-9,
+                "SVD reconstruction failed at index {}",
+                i
+            );
+        }
+    }
+
+    #[test]
+    fn test_svd_u_orthonormality_mat2() {
+        let u = svd_u_mat2(Mat2([3.0, 1.0, 1.0, 2.0]));
+
+        // Check columns are orthonormal
+        let u0 = [u.0[0], u.0[1]];
+        let u1 = [u.0[2], u.0[3]];
+
+        // Check unit length
+        let norm0 = (u0[0] * u0[0] + u0[1] * u0[1]).sqrt();
+        let norm1 = (u1[0] * u1[0] + u1[1] * u1[1]).sqrt();
+        assert!((norm0 - 1.0).abs() < 1e-10, "U column 0 not unit length");
+        assert!((norm1 - 1.0).abs() < 1e-10, "U column 1 not unit length");
+
+        // Check orthogonality
+        let dot = u0[0] * u1[0] + u0[1] * u1[1];
+        assert!(dot.abs() < 1e-10, "U columns not orthogonal");
+    }
+
+    #[test]
+    fn test_svd_vt_orthonormality_mat3() {
+        let vt = svd_vt_mat3(Mat3([4.0, 1.0, 0.0, 1.0, 3.0, 1.0, 0.0, 1.0, 2.0]));
+
+        // V^T rows should be orthonormal (equivalently, V columns are orthonormal)
+        for i in 0..3 {
+            let row = [vt.0[i * 3], vt.0[i * 3 + 1], vt.0[i * 3 + 2]];
+
+            // Check unit length
+            let norm = (row[0] * row[0] + row[1] * row[1] + row[2] * row[2]).sqrt();
+            assert!((norm - 1.0).abs() < 1e-10, "V^T row {} not unit length", i);
+
+            // Check orthogonality with other rows
+            for j in (i + 1)..3 {
+                let other = [vt.0[j * 3], vt.0[j * 3 + 1], vt.0[j * 3 + 2]];
+                let dot = row[0] * other[0] + row[1] * other[1] + row[2] * other[2];
+                assert!(dot.abs() < 1e-10, "V^T rows {} and {} not orthogonal", i, j);
+            }
+        }
     }
 
     // ============================================================================
