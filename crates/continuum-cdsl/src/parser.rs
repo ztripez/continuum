@@ -57,8 +57,9 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    Attribute, BinaryOp, BlockBody, Expr, ObserveBlock, ObserveWhen, Stmt, TransitionDecl,
-    TypeExpr, UnaryOp, UnitExpr, UntypedKind as ExprKind, WarmupBlock, WhenBlock,
+    Attribute, BinaryOp, BlockBody, Declaration, Expr, Node, ObserveBlock, ObserveWhen, RoleData,
+    Stmt, TransitionDecl, TypeExpr, UnaryOp, UnitExpr, UntypedKind as ExprKind, WarmupBlock,
+    WhenBlock,
 };
 use crate::foundation::{Path, Span};
 use crate::lexer::Token;
@@ -889,6 +890,267 @@ fn transition_parser<'src>()
             target,
             conditions: when_block.conditions,
             span: token_span(e.span()),
+        })
+}
+
+// =============================================================================
+// Block Parsers (for role declarations)
+// =============================================================================
+
+/// Parse a simple execution block: `block_name { body }`
+///
+/// Execution blocks contain the logic for different phases.
+/// Examples: `resolve { expr }`, `collect { stmts }`, `measure { expr }`
+fn execution_block_parser<'src>()
+-> impl Parser<'src, &'src [Token], (String, BlockBody), extra::Err<Rich<'src, Token>>> + Clone {
+    let block_keyword = select! {
+        Token::Resolve => "resolve",
+        Token::Collect => "collect",
+        Token::Apply => "apply",
+        Token::Measure => "measure",
+        Token::Assert => "assert",
+        Token::Emit => "emit",
+    };
+
+    block_keyword
+        .then(block_body_parser().delimited_by(just(Token::LBrace), just(Token::RBrace)))
+        .map(|(name, body)| (name.to_string(), body))
+}
+
+// =============================================================================
+// Role Declaration Parsers
+// =============================================================================
+
+/// Parse a signal declaration.
+///
+/// Example:
+/// ```cdsl
+/// signal temp {
+///     : type Scalar<K>
+///     : strata(simulation)
+///     warmup { :iterations(100) iterate { prev * 0.9 } }
+///     resolve { prev + 1 }
+/// }
+/// ```
+fn signal_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Signal)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(type_annotation_parser().or_not())
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then(warmup_parser().or_not())
+        .then(execution_block_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|((((path, type_expr), attrs), _warmup), blocks), e| {
+            let span = token_span(e.span());
+            let mut node = Node::new(path, span, RoleData::Signal, ());
+            node.type_expr = type_expr;
+
+            // Convert BlockBody to execution expressions (placeholder - needs proper conversion)
+            for (name, body) in blocks {
+                // For now, only handle Expression bodies
+                // TODO: Handle Statement bodies properly
+                match body {
+                    BlockBody::Expression(expr) => {
+                        node.execution_exprs.push((name, expr));
+                    }
+                    BlockBody::Statements(_stmts) => {
+                        // TODO: Convert statements to expression or handle differently
+                        // For now, skip statement blocks
+                    }
+                }
+            }
+
+            // TODO: Apply attributes (extract title, symbol, stratum, etc.)
+            // TODO: Handle warmup block
+
+            Declaration::Node(node)
+        })
+}
+
+/// Parse a field declaration.
+///
+/// Example:
+/// ```cdsl
+/// field temp_map {
+///     : type Scalar<K>
+///     measure { signal.temp }
+/// }
+/// ```
+fn field_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Field)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(type_annotation_parser().or_not())
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then(execution_block_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|(((path, type_expr), _attrs), blocks), e| {
+            let span = token_span(e.span());
+            let mut node = Node::new(
+                path,
+                span,
+                RoleData::Field {
+                    reconstruction: None,
+                },
+                (),
+            );
+            node.type_expr = type_expr;
+
+            for (name, body) in blocks {
+                match body {
+                    BlockBody::Expression(expr) => {
+                        node.execution_exprs.push((name, expr));
+                    }
+                    BlockBody::Statements(_) => {}
+                }
+            }
+
+            Declaration::Node(node)
+        })
+}
+
+/// Parse an operator declaration.
+///
+/// Example:
+/// ```cdsl
+/// operator budget {
+///     collect { signal.heat <- radiation - loss; }
+/// }
+/// ```
+fn operator_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Operator)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(type_annotation_parser().or_not())
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then(execution_block_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|(((path, type_expr), _attrs), blocks), e| {
+            let span = token_span(e.span());
+            let mut node = Node::new(path, span, RoleData::Operator, ());
+            node.type_expr = type_expr;
+
+            for (name, body) in blocks {
+                match body {
+                    BlockBody::Expression(expr) => {
+                        node.execution_exprs.push((name, expr));
+                    }
+                    BlockBody::Statements(_) => {}
+                }
+            }
+
+            Declaration::Node(node)
+        })
+}
+
+/// Parse an impulse declaration.
+///
+/// Example:
+/// ```cdsl
+/// impulse asteroid {
+///     : type ImpactEvent
+///     apply { signal.energy <- payload.energy; }
+/// }
+/// ```
+fn impulse_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Impulse)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(type_annotation_parser().or_not())
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then(execution_block_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|(((path, type_expr), _attrs), blocks), e| {
+            let span = token_span(e.span());
+            let mut node = Node::new(path, span, RoleData::Impulse { payload: None }, ());
+            node.type_expr = type_expr;
+
+            for (name, body) in blocks {
+                match body {
+                    BlockBody::Expression(expr) => {
+                        node.execution_exprs.push((name, expr));
+                    }
+                    BlockBody::Statements(_) => {}
+                }
+            }
+
+            Declaration::Node(node)
+        })
+}
+
+/// Parse a fracture declaration.
+///
+/// Example:
+/// ```cdsl
+/// fracture runaway {
+///     when { signal.temp > 350<K> }
+///     emit { signal.feedback <- 1.5; }
+/// }
+/// ```
+fn fracture_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Fracture)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(type_annotation_parser().or_not())
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then(when_parser().or_not())
+        .then(execution_block_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|((((path, type_expr), _attrs), _when), blocks), e| {
+            let span = token_span(e.span());
+            let mut node = Node::new(path, span, RoleData::Fracture, ());
+            node.type_expr = type_expr;
+
+            // TODO: Handle when block
+
+            for (name, body) in blocks {
+                match body {
+                    BlockBody::Expression(expr) => {
+                        node.execution_exprs.push((name, expr));
+                    }
+                    BlockBody::Statements(_) => {}
+                }
+            }
+
+            Declaration::Node(node)
+        })
+}
+
+/// Parse a chronicle declaration.
+///
+/// Example:
+/// ```cdsl
+/// chronicle extinction {
+///     observe {
+///         when signal.diversity < -0.5 {
+///             emit event.extinction { severity: 0.8 };
+///         }
+///     }
+/// }
+/// ```
+fn chronicle_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Chronicle)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(type_annotation_parser().or_not())
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then(observe_parser().or_not())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|(((path, type_expr), _attrs), _observe), e| {
+            let span = token_span(e.span());
+            let mut node = Node::new(path, span, RoleData::Chronicle, ());
+            node.type_expr = type_expr;
+
+            // TODO: Handle observe block
+
+            Declaration::Node(node)
         })
 }
 
