@@ -666,13 +666,97 @@ mod tests {
     fn test_dimension_overflow_fails() {
         let span = test_span();
 
-        // Create units with extreme exponents that will overflow when multiplied
+        // Multiply overflow
         let left = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
         let right = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
         let unit_expr = UnitExpr::Multiply(Box::new(left), Box::new(right));
-
         let err = resolve_unit_expr(Some(&unit_expr), span).unwrap_err();
         assert_eq!(err.kind, ErrorKind::InvalidUnit);
         assert!(err.message.contains("overflow"));
+
+        // Divide overflow (subtraction)
+        let big = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 120);
+        let tiny = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), -120);
+        let divide = UnitExpr::Divide(Box::new(big), Box::new(tiny));
+        let err = resolve_unit_expr(Some(&divide), span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("overflow"));
+
+        // Power overflow (scaling)
+        let huge_power = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 127);
+        let power = UnitExpr::Power(Box::new(huge_power), 2);
+        let err = resolve_unit_expr(Some(&power), span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("overflow"));
+    }
+
+    #[test]
+    fn test_unit_power_with_zero_and_negative_exponents() {
+        let span = test_span();
+
+        // m^0 = dimensionless
+        let zero = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 0);
+        let resolved = resolve_unit_expr(Some(&zero), span).unwrap();
+        assert!(resolved.is_dimensionless());
+
+        // m^-1 = 1/m
+        let neg = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), -1);
+        let resolved = resolve_unit_expr(Some(&neg), span).unwrap();
+        assert_eq!(resolved.dims().length, -1);
+    }
+
+    #[test]
+    fn test_vector_matrix_none_unit_is_dimensionless() {
+        let type_table = TypeTable::new();
+        let span = test_span();
+
+        // Vector with no unit
+        let vector = TypeExpr::Vector { dim: 2, unit: None };
+        let resolved = resolve_type_expr(&vector, &type_table, span).unwrap();
+        let Type::Kernel(kernel) = resolved else {
+            panic!("Expected kernel type");
+        };
+        assert!(kernel.unit.is_dimensionless());
+        assert_eq!(kernel.shape, Shape::Vector { dim: 2 });
+
+        // Matrix with no unit
+        let matrix = TypeExpr::Matrix {
+            rows: 2,
+            cols: 2,
+            unit: None,
+        };
+        let resolved = resolve_type_expr(&matrix, &type_table, span).unwrap();
+        let Type::Kernel(kernel) = resolved else {
+            panic!("Expected kernel type");
+        };
+        assert!(kernel.unit.is_dimensionless());
+        assert_eq!(kernel.shape, Shape::Matrix { rows: 2, cols: 2 });
+    }
+
+    #[test]
+    fn test_scalar_type_details() {
+        let type_table = TypeTable::new();
+        let span = test_span();
+
+        // Scalar with no unit
+        let scalar = TypeExpr::Scalar { unit: None };
+        let resolved = resolve_type_expr(&scalar, &type_table, span).unwrap();
+        let Type::Kernel(kernel) = resolved else {
+            panic!("Expected kernel type");
+        };
+        assert_eq!(kernel.shape, Shape::Scalar);
+        assert!(kernel.unit.is_dimensionless());
+
+        // Scalar with meters
+        let scalar_m = TypeExpr::Scalar {
+            unit: Some(UnitExpr::Base("m".to_string())),
+        };
+        let resolved = resolve_type_expr(&scalar_m, &type_table, span).unwrap();
+        let Type::Kernel(kernel) = resolved else {
+            panic!("Expected kernel type");
+        };
+        assert_eq!(kernel.shape, Shape::Scalar);
+        assert_eq!(kernel.unit.dims().length, 1);
+        assert!(kernel.unit.is_multiplicative());
     }
 }
