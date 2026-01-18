@@ -57,7 +57,7 @@
 use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, StratumId, Type};
 use std::path::PathBuf;
 
-use super::declaration::BlockBody;
+use super::block::BlockBody;
 use super::expr::TypedExpr;
 use super::role::RoleData;
 
@@ -793,7 +793,7 @@ pub struct Execution {
 //
 // These are defined in the untyped module and represent the parser output
 // before type resolution transforms them into TypedExpr.
-pub use super::untyped::{Expr, TypeExpr};
+pub use super::untyped::TypeExpr;
 
 /// Validation error from semantic analysis
 ///
@@ -811,8 +811,8 @@ pub struct ValidationError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::declaration::BlockBody;
-    use crate::ast::expr::Expr;
+    use crate::ast::block::BlockBody;
+    use crate::ast::untyped::Expr;
     use crate::foundation::Span;
 
     #[test]

@@ -9,7 +9,7 @@
 //!
 //! Each trait adds new data that becomes available after a specific pass:
 //! - **Named**: Identity (path, span) - available immediately after parsing
-//! - **Parsed**: Syntax (type_expr, execution_exprs) - from parser
+//! - **Parsed**: Syntax (type_expr, execution_blocks) - from parser
 //! - **Resolved**: Semantics (output, inputs) - after type resolution
 //! - **Validated**: Errors (validation_errors) - after validation pass
 //! - **Compiled**: Execution (executions, reads) - after compilation
@@ -44,8 +44,9 @@
 //! }
 //! ```
 
+use super::block::BlockBody;
 use super::node::{Execution, ValidationError};
-use super::untyped::{Expr, TypeExpr};
+use super::untyped::TypeExpr;
 use crate::foundation::{Path, Span, Type};
 
 /// Base trait - every node has identity
@@ -84,16 +85,17 @@ pub trait Parsed: Named {
     /// `None` after type resolution completes (type expression is consumed).
     fn type_expr(&self) -> Option<&TypeExpr>;
 
-    /// Get the execution expressions from source
+    /// Get the execution blocks from source
     ///
-    /// Map from phase name to expression. These will be cleared after
-    /// compilation transforms them into typed Execution structs.
+    /// Map from phase name to block body (expression or statements).
+    /// These will be cleared after compilation transforms them into
+    /// typed Execution structs.
     ///
     /// # Returns
     ///
-    /// Slice of (phase_name, expression) pairs from source. Empty after
+    /// Slice of (phase_name, block_body) pairs from source. Empty after
     /// compilation consumes them.
-    fn execution_exprs(&self) -> &[(String, Expr)];
+    fn execution_blocks(&self) -> &[(String, BlockBody)];
 }
 
 /// Type resolution complete - has semantic types
@@ -188,10 +190,10 @@ mod tests {
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path.clone(), span, RoleData::Signal, ());
 
-        // Initially no type_expr or execution_exprs
+        // Initially no type_expr or execution_blocks
         let parsed: &dyn Parsed = &node;
         assert!(parsed.type_expr().is_none());
-        assert!(parsed.execution_exprs().is_empty());
+        assert!(parsed.execution_blocks().is_empty());
 
         // Can still access Named methods through Parsed (supertrait)
         assert_eq!(parsed.path(), &path);

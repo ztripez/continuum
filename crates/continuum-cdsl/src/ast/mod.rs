@@ -60,6 +60,7 @@
 //! );
 //! ```
 
+mod block;
 mod capability;
 mod declaration;
 mod expr;
@@ -70,6 +71,7 @@ mod role;
 mod untyped;
 mod warmup;
 
+pub use block::*;
 pub use capability::*;
 pub use declaration::*;
 pub use expr::*;
