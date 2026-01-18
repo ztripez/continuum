@@ -719,60 +719,62 @@ pub fn sum_4(a: f64, b: f64, c: f64, d: f64) -> f64 {
 mod tests {
     use continuum_kernel_registry::{Value, eval_in_namespace, get_in_namespace, is_known_in};
 
-    #[test]
-    fn test_pure_functions_registered() {
-        assert!(is_known_in("maths", "abs"));
-        assert!(is_known_in("maths", "sqrt"));
-        assert!(is_known_in("maths", "sin"));
-        assert!(is_known_in("maths", "cos"));
-        assert!(is_known_in("maths", "tan"));
-        assert!(is_known_in("maths", "atan"));
-        assert!(is_known_in("maths", "atan2"));
-        assert!(is_known_in("maths", "asin"));
-        assert!(is_known_in("maths", "acos"));
-        assert!(is_known_in("maths", "sinh"));
-        assert!(is_known_in("maths", "cosh"));
-        assert!(is_known_in("maths", "tanh"));
-        assert!(is_known_in("maths", "asinh"));
-        assert!(is_known_in("maths", "acosh"));
-        assert!(is_known_in("maths", "atanh"));
-        assert!(is_known_in("maths", "exp"));
-        assert!(is_known_in("maths", "ln"));
-        assert!(is_known_in("maths", "log10"));
-        assert!(is_known_in("maths", "log"));
-        assert!(is_known_in("maths", "log2"));
-        assert!(is_known_in("maths", "cbrt"));
-        assert!(is_known_in("maths", "fract"));
-        assert!(is_known_in("maths", "pow"));
-        assert!(is_known_in("maths", "clamp"));
-        assert!(is_known_in("maths", "lerp"));
-        assert!(is_known_in("maths", "mix"));
-        assert!(is_known_in("maths", "step"));
-        assert!(is_known_in("maths", "smoothstep"));
-        assert!(is_known_in("maths", "saturate"));
-        assert!(is_known_in("maths", "floor"));
-        assert!(is_known_in("maths", "ceil"));
-        assert!(is_known_in("maths", "round"));
-        assert!(is_known_in("maths", "trunc"));
-        assert!(is_known_in("maths", "sign"));
-    }
+    /// Table of all maths kernels that should be registered
+    const MATHS_KERNELS: &[&str] = &[
+        "abs",
+        "acos",
+        "acosh",
+        "asin",
+        "asinh",
+        "atan",
+        "atan2",
+        "atanh",
+        "cbrt",
+        "ceil",
+        "clamp",
+        "cos",
+        "cosh",
+        "exp",
+        "floor",
+        "fract",
+        "lerp",
+        "ln",
+        "log",
+        "log10",
+        "log2",
+        "max_2",
+        "max_3",
+        "max_4",
+        "min_2",
+        "min_3",
+        "min_4",
+        "mix",
+        "pow",
+        "round",
+        "saturate",
+        "sign",
+        "sin",
+        "sinh",
+        "smoothstep",
+        "sqrt",
+        "step",
+        "sum_2",
+        "sum_3",
+        "sum_4",
+        "tan",
+        "tanh",
+        "trunc",
+    ];
 
     #[test]
-    fn test_min_max_sum_functions_registered() {
-        // Min overloads
-        assert!(is_known_in("maths", "min_2"));
-        assert!(is_known_in("maths", "min_3"));
-        assert!(is_known_in("maths", "min_4"));
-
-        // Max overloads
-        assert!(is_known_in("maths", "max_2"));
-        assert!(is_known_in("maths", "max_3"));
-        assert!(is_known_in("maths", "max_4"));
-
-        // Sum overloads
-        assert!(is_known_in("maths", "sum_2"));
-        assert!(is_known_in("maths", "sum_3"));
-        assert!(is_known_in("maths", "sum_4"));
+    fn test_all_maths_kernels_registered() {
+        for name in MATHS_KERNELS {
+            assert!(
+                is_known_in("maths", name),
+                "Kernel maths::{} not registered",
+                name
+            );
+        }
     }
 
     #[test]

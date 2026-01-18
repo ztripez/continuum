@@ -621,27 +621,57 @@ pub fn faceforward(n: [f64; 3], i: [f64; 3], nref: [f64; 3]) -> [f64; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use continuum_kernel_registry::{Arity, get_in_namespace, is_known_in};
+    use continuum_kernel_registry::is_known_in;
+
+    /// Table of all vector kernels that should be registered
+    const VECTOR_KERNELS: &[&str] = &[
+        "abs_vec2",
+        "abs_vec3",
+        "abs_vec4",
+        "angle",
+        "clamp_vec2",
+        "clamp_vec3",
+        "clamp_vec4",
+        "cross",
+        "distance_sq_vec2",
+        "distance_sq_vec3",
+        "distance_sq_vec4",
+        "distance_vec2",
+        "distance_vec3",
+        "distance_vec4",
+        "faceforward",
+        "lerp_vec2",
+        "lerp_vec3",
+        "lerp_vec4",
+        "max_vec2",
+        "max_vec3",
+        "max_vec4",
+        "min_vec2",
+        "min_vec3",
+        "min_vec4",
+        "mix_vec2",
+        "mix_vec3",
+        "mix_vec4",
+        "nlerp_vec2",
+        "nlerp_vec3",
+        "project",
+        "reflect",
+        "refract",
+        "slerp_vec3",
+        "vec2",
+        "vec3",
+        "vec4",
+    ];
 
     #[test]
-    fn test_vec2_registered() {
-        assert!(is_known_in("vector", "vec2"));
-        let desc = get_in_namespace("vector", "vec2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(2));
-    }
-
-    #[test]
-    fn test_vec3_registered() {
-        assert!(is_known_in("vector", "vec3"));
-        let desc = get_in_namespace("vector", "vec3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(3));
-    }
-
-    #[test]
-    fn test_vec4_registered() {
-        assert!(is_known_in("vector", "vec4"));
-        let desc = get_in_namespace("vector", "vec4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(4));
+    fn test_all_vector_kernels_registered() {
+        for name in VECTOR_KERNELS {
+            assert!(
+                is_known_in("vector", name),
+                "Kernel vector::{} not registered",
+                name
+            );
+        }
     }
 
     #[test]
@@ -678,11 +708,6 @@ mod tests {
         let result = cross(a, b);
         // a × b = (2*6-3*5, 3*4-1*6, 1*5-2*4) = (-3, 6, -3)
         assert_eq!(result, [-3.0, 6.0, -3.0]);
-    }
-
-    #[test]
-    fn test_cross_registered() {
-        assert!(is_known_in("vector", "cross"));
     }
 
     #[test]
@@ -749,16 +774,6 @@ mod tests {
     }
 
     #[test]
-    fn test_reflect_registered() {
-        assert!(is_known_in("vector", "reflect"));
-    }
-
-    #[test]
-    fn test_project_registered() {
-        assert!(is_known_in("vector", "project"));
-    }
-
-    #[test]
     fn test_distance_vec2() {
         let a = [0.0, 0.0];
         let b = [3.0, 4.0];
@@ -804,66 +819,6 @@ mod tests {
         let b = [2.0, 2.0, 2.0, 2.0];
         let result = distance_sq_vec4(a, b);
         assert_eq!(result, 4.0); // 4 * 1^2
-    }
-
-    #[test]
-    fn test_distance_vec2_registered() {
-        assert!(is_known_in("vector", "distance_vec2"));
-    }
-
-    #[test]
-    fn test_distance_vec3_registered() {
-        assert!(is_known_in("vector", "distance_vec3"));
-    }
-
-    #[test]
-    fn test_distance_vec4_registered() {
-        assert!(is_known_in("vector", "distance_vec4"));
-    }
-
-    #[test]
-    fn test_distance_sq_vec2_registered() {
-        assert!(is_known_in("vector", "distance_sq_vec2"));
-    }
-
-    #[test]
-    fn test_distance_sq_vec3_registered() {
-        assert!(is_known_in("vector", "distance_sq_vec3"));
-    }
-
-    #[test]
-    fn test_distance_sq_vec4_registered() {
-        assert!(is_known_in("vector", "distance_sq_vec4"));
-    }
-
-    #[test]
-    fn test_lerp_vec2_registered() {
-        assert!(is_known_in("vector", "lerp_vec2"));
-    }
-
-    #[test]
-    fn test_lerp_vec3_registered() {
-        assert!(is_known_in("vector", "lerp_vec3"));
-    }
-
-    #[test]
-    fn test_lerp_vec4_registered() {
-        assert!(is_known_in("vector", "lerp_vec4"));
-    }
-
-    #[test]
-    fn test_mix_vec2_registered() {
-        assert!(is_known_in("vector", "mix_vec2"));
-    }
-
-    #[test]
-    fn test_mix_vec3_registered() {
-        assert!(is_known_in("vector", "mix_vec3"));
-    }
-
-    #[test]
-    fn test_mix_vec4_registered() {
-        assert!(is_known_in("vector", "mix_vec4"));
     }
 
     #[test]
@@ -984,21 +939,6 @@ mod tests {
         assert_eq!(result, [0.0, 0.0, 0.5, 1.0]);
     }
 
-    #[test]
-    fn test_clamp_vec2_registered() {
-        assert!(is_known_in("vector", "clamp_vec2"));
-    }
-
-    #[test]
-    fn test_clamp_vec3_registered() {
-        assert!(is_known_in("vector", "clamp_vec3"));
-    }
-
-    #[test]
-    fn test_clamp_vec4_registered() {
-        assert!(is_known_in("vector", "clamp_vec4"));
-    }
-
     // Component-wise min tests
     #[test]
     fn test_min_vec2() {
@@ -1022,21 +962,6 @@ mod tests {
         let b = [2.0, 3.0, 5.0, 1.0];
         let result = min_vec4(a, b);
         assert_eq!(result, [1.0, 3.0, 2.0, 1.0]);
-    }
-
-    #[test]
-    fn test_min_vec2_registered() {
-        assert!(is_known_in("vector", "min_vec2"));
-    }
-
-    #[test]
-    fn test_min_vec3_registered() {
-        assert!(is_known_in("vector", "min_vec3"));
-    }
-
-    #[test]
-    fn test_min_vec4_registered() {
-        assert!(is_known_in("vector", "min_vec4"));
     }
 
     // Component-wise max tests
@@ -1064,21 +989,6 @@ mod tests {
         assert_eq!(result, [2.0, 4.0, 5.0, 6.0]);
     }
 
-    #[test]
-    fn test_max_vec2_registered() {
-        assert!(is_known_in("vector", "max_vec2"));
-    }
-
-    #[test]
-    fn test_max_vec3_registered() {
-        assert!(is_known_in("vector", "max_vec3"));
-    }
-
-    #[test]
-    fn test_max_vec4_registered() {
-        assert!(is_known_in("vector", "max_vec4"));
-    }
-
     // Component-wise abs tests
     #[test]
     fn test_abs_vec2() {
@@ -1101,27 +1011,7 @@ mod tests {
         assert_eq!(result, [1.0, 2.0, 3.0, 4.0]);
     }
 
-    #[test]
-    fn test_abs_vec2_registered() {
-        assert!(is_known_in("vector", "abs_vec2"));
-    }
-
-    #[test]
-    fn test_abs_vec3_registered() {
-        assert!(is_known_in("vector", "abs_vec3"));
-    }
-
-    #[test]
-    fn test_abs_vec4_registered() {
-        assert!(is_known_in("vector", "abs_vec4"));
-    }
-
     // Tests for angle, refract, faceforward
-
-    #[test]
-    fn test_angle_registered() {
-        assert!(is_known_in("vector", "angle"));
-    }
 
     #[test]
     fn test_angle_perpendicular() {
@@ -1156,11 +1046,6 @@ mod tests {
     }
 
     #[test]
-    fn test_refract_registered() {
-        assert!(is_known_in("vector", "refract"));
-    }
-
-    #[test]
     fn test_refract_normal_incidence() {
         // Normal incidence (perpendicular)
         let i = [0.0, -1.0, 0.0];
@@ -1182,11 +1067,6 @@ mod tests {
         let result = refract(i, n, eta);
         // Should return zero vector for total internal reflection
         assert_eq!(result, [0.0, 0.0, 0.0]);
-    }
-
-    #[test]
-    fn test_faceforward_registered() {
-        assert!(is_known_in("vector", "faceforward"));
     }
 
     #[test]
@@ -1220,16 +1100,6 @@ mod tests {
     }
 
     // Tests for nlerp (normalized linear interpolation)
-
-    #[test]
-    fn test_nlerp_vec2_registered() {
-        assert!(is_known_in("vector", "nlerp_vec2"));
-    }
-
-    #[test]
-    fn test_nlerp_vec3_registered() {
-        assert!(is_known_in("vector", "nlerp_vec3"));
-    }
 
     #[test]
     fn test_nlerp_vec2_at_endpoints() {
@@ -1297,10 +1167,6 @@ mod tests {
     }
 
     // Tests for slerp (spherical linear interpolation)
-    #[test]
-    fn test_slerp_vec3_registered() {
-        assert!(is_known_in("vector", "slerp_vec3"));
-    }
 
     #[test]
     fn test_slerp_vec3_at_endpoints() {

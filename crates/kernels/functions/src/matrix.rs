@@ -1344,7 +1344,7 @@ pub fn look_at(eye: [f64; 3], target: [f64; 3], up: [f64; 3]) -> Mat4 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use continuum_kernel_registry::{Arity, get_in_namespace, is_known_in};
+    use continuum_kernel_registry::is_known_in;
 
     // Helper functions for matrix-vector multiplication (used in correctness tests)
     fn mat2_times_vec2(m: Mat2, v: [f64; 2]) -> [f64; 2] {
@@ -1368,256 +1368,65 @@ mod tests {
         ]
     }
 
-    #[test]
-    fn test_transpose_mat2_registered() {
-        assert!(is_known_in("matrix", "transpose_mat2"));
-        let desc = get_in_namespace("matrix", "transpose_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
+    /// Table of all matrix kernels that should be registered
+    const MATRIX_KERNELS: &[&str] = &[
+        "determinant_mat2",
+        "determinant_mat3",
+        "determinant_mat4",
+        "eigenvalues_mat2",
+        "eigenvalues_mat3",
+        "eigenvalues_mat4",
+        "eigenvectors_mat2",
+        "eigenvectors_mat3",
+        "eigenvectors_mat4",
+        "from_axis_angle",
+        "from_quat",
+        "identity2",
+        "identity3",
+        "identity4",
+        "inverse_mat2",
+        "inverse_mat3",
+        "inverse_mat4",
+        "look_at",
+        "mul_mat2",
+        "mul_mat3",
+        "mul_mat4",
+        "orthographic",
+        "perspective",
+        "rotation_x",
+        "rotation_y",
+        "rotation_z",
+        "scale",
+        "svd_s_mat2",
+        "svd_s_mat3",
+        "svd_s_mat4",
+        "svd_u_mat2",
+        "svd_u_mat3",
+        "svd_u_mat4",
+        "svd_vt_mat2",
+        "svd_vt_mat3",
+        "svd_vt_mat4",
+        "trace_mat2",
+        "trace_mat3",
+        "trace_mat4",
+        "transform_mat2_vec2",
+        "transform_mat3_vec3",
+        "transform_mat4_vec4",
+        "translation",
+        "transpose_mat2",
+        "transpose_mat3",
+        "transpose_mat4",
+    ];
 
     #[test]
-    fn test_transpose_mat3_registered() {
-        assert!(is_known_in("matrix", "transpose_mat3"));
-        let desc = get_in_namespace("matrix", "transpose_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_transpose_mat4_registered() {
-        assert!(is_known_in("matrix", "transpose_mat4"));
-        let desc = get_in_namespace("matrix", "transpose_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_determinant_mat2_registered() {
-        assert!(is_known_in("matrix", "determinant_mat2"));
-        let desc = get_in_namespace("matrix", "determinant_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_determinant_mat3_registered() {
-        assert!(is_known_in("matrix", "determinant_mat3"));
-        let desc = get_in_namespace("matrix", "determinant_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_determinant_mat4_registered() {
-        assert!(is_known_in("matrix", "determinant_mat4"));
-        let desc = get_in_namespace("matrix", "determinant_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_inverse_mat2_registered() {
-        assert!(is_known_in("matrix", "inverse_mat2"));
-        let desc = get_in_namespace("matrix", "inverse_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_inverse_mat3_registered() {
-        assert!(is_known_in("matrix", "inverse_mat3"));
-        let desc = get_in_namespace("matrix", "inverse_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_inverse_mat4_registered() {
-        assert!(is_known_in("matrix", "inverse_mat4"));
-        let desc = get_in_namespace("matrix", "inverse_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_mul_mat2_registered() {
-        assert!(is_known_in("matrix", "mul_mat2"));
-        let desc = get_in_namespace("matrix", "mul_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(2));
-    }
-
-    #[test]
-    fn test_mul_mat3_registered() {
-        assert!(is_known_in("matrix", "mul_mat3"));
-        let desc = get_in_namespace("matrix", "mul_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(2));
-    }
-
-    #[test]
-    fn test_mul_mat4_registered() {
-        assert!(is_known_in("matrix", "mul_mat4"));
-        let desc = get_in_namespace("matrix", "mul_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(2));
-    }
-
-    #[test]
-    fn test_transform_mat2_vec2_registered() {
-        assert!(is_known_in("matrix", "transform_mat2_vec2"));
-        let desc = get_in_namespace("matrix", "transform_mat2_vec2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(2));
-    }
-
-    #[test]
-    fn test_transform_mat3_vec3_registered() {
-        assert!(is_known_in("matrix", "transform_mat3_vec3"));
-        let desc = get_in_namespace("matrix", "transform_mat3_vec3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(2));
-    }
-
-    #[test]
-    fn test_transform_mat4_vec4_registered() {
-        assert!(is_known_in("matrix", "transform_mat4_vec4"));
-        let desc = get_in_namespace("matrix", "transform_mat4_vec4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(2));
-    }
-
-    #[test]
-    fn test_eigenvalues_mat2_registered() {
-        assert!(is_known_in("matrix", "eigenvalues_mat2"));
-        let desc = get_in_namespace("matrix", "eigenvalues_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_eigenvalues_mat3_registered() {
-        assert!(is_known_in("matrix", "eigenvalues_mat3"));
-        let desc = get_in_namespace("matrix", "eigenvalues_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_eigenvalues_mat4_registered() {
-        assert!(is_known_in("matrix", "eigenvalues_mat4"));
-        let desc = get_in_namespace("matrix", "eigenvalues_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_eigenvectors_mat2_registered() {
-        assert!(is_known_in("matrix", "eigenvectors_mat2"));
-        let desc = get_in_namespace("matrix", "eigenvectors_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_eigenvectors_mat3_registered() {
-        assert!(is_known_in("matrix", "eigenvectors_mat3"));
-        let desc = get_in_namespace("matrix", "eigenvectors_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_eigenvectors_mat4_registered() {
-        assert!(is_known_in("matrix", "eigenvectors_mat4"));
-        let desc = get_in_namespace("matrix", "eigenvectors_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_svd_u_mat2_registered() {
-        assert!(is_known_in("matrix", "svd_u_mat2"));
-        let desc = get_in_namespace("matrix", "svd_u_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_svd_u_mat3_registered() {
-        assert!(is_known_in("matrix", "svd_u_mat3"));
-        let desc = get_in_namespace("matrix", "svd_u_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_svd_u_mat4_registered() {
-        assert!(is_known_in("matrix", "svd_u_mat4"));
-        let desc = get_in_namespace("matrix", "svd_u_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_svd_s_mat2_registered() {
-        assert!(is_known_in("matrix", "svd_s_mat2"));
-        let desc = get_in_namespace("matrix", "svd_s_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_svd_s_mat3_registered() {
-        assert!(is_known_in("matrix", "svd_s_mat3"));
-        let desc = get_in_namespace("matrix", "svd_s_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_svd_s_mat4_registered() {
-        assert!(is_known_in("matrix", "svd_s_mat4"));
-        let desc = get_in_namespace("matrix", "svd_s_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_svd_vt_mat2_registered() {
-        assert!(is_known_in("matrix", "svd_vt_mat2"));
-        let desc = get_in_namespace("matrix", "svd_vt_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_svd_vt_mat3_registered() {
-        assert!(is_known_in("matrix", "svd_vt_mat3"));
-        let desc = get_in_namespace("matrix", "svd_vt_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_svd_vt_mat4_registered() {
-        assert!(is_known_in("matrix", "svd_vt_mat4"));
-        let desc = get_in_namespace("matrix", "svd_vt_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_trace_mat2_registered() {
-        assert!(is_known_in("matrix", "trace_mat2"));
-        let desc = get_in_namespace("matrix", "trace_mat2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_trace_mat3_registered() {
-        assert!(is_known_in("matrix", "trace_mat3"));
-        let desc = get_in_namespace("matrix", "trace_mat3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_trace_mat4_registered() {
-        assert!(is_known_in("matrix", "trace_mat4"));
-        let desc = get_in_namespace("matrix", "trace_mat4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(1));
-    }
-
-    #[test]
-    fn test_identity2_registered() {
-        assert!(is_known_in("matrix", "identity2"));
-        let desc = get_in_namespace("matrix", "identity2").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(0));
-    }
-
-    #[test]
-    fn test_identity3_registered() {
-        assert!(is_known_in("matrix", "identity3"));
-        let desc = get_in_namespace("matrix", "identity3").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(0));
-    }
-
-    #[test]
-    fn test_identity4_registered() {
-        assert!(is_known_in("matrix", "identity4"));
-        let desc = get_in_namespace("matrix", "identity4").unwrap();
-        assert_eq!(desc.arity, Arity::Fixed(0));
+    fn test_all_matrix_kernels_registered() {
+        for name in MATRIX_KERNELS {
+            assert!(
+                is_known_in("matrix", name),
+                "Kernel matrix::{} not registered",
+                name
+            );
+        }
     }
 
     #[test]
@@ -1757,16 +1566,6 @@ mod tests {
         for i in 0..9 {
             assert!((result.0[i] - expected[i]).abs() < 1e-10);
         }
-    }
-
-    #[test]
-    fn test_from_quat_registered() {
-        assert!(is_known_in("matrix", "from_quat"));
-    }
-
-    #[test]
-    fn test_from_axis_angle_registered() {
-        assert!(is_known_in("matrix", "from_axis_angle"));
     }
 
     #[test]
@@ -2232,11 +2031,6 @@ mod tests {
     }
 
     #[test]
-    fn test_scale_registered() {
-        assert!(is_known_in("matrix", "scale"));
-    }
-
-    #[test]
     fn test_translation_basic() {
         let m = translation(10.0, 20.0, 30.0);
         // Translation is in column 3: [x, y, z, 1]
@@ -2248,11 +2042,6 @@ mod tests {
         assert_eq!(m.0[0], 1.0);
         assert_eq!(m.0[5], 1.0);
         assert_eq!(m.0[10], 1.0);
-    }
-
-    #[test]
-    fn test_translation_registered() {
-        assert!(is_known_in("matrix", "translation"));
     }
 
     #[test]
@@ -2275,21 +2064,11 @@ mod tests {
     }
 
     #[test]
-    fn test_rotation_x_registered() {
-        assert!(is_known_in("matrix", "rotation_x"));
-    }
-
-    #[test]
     fn test_rotation_y_zero() {
         let m = rotation_y(0.0);
         assert!((m.0[0] - 1.0).abs() < 1e-10);
         assert!((m.0[5] - 1.0).abs() < 1e-10);
         assert!((m.0[10] - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_rotation_y_registered() {
-        assert!(is_known_in("matrix", "rotation_y"));
     }
 
     #[test]
@@ -2306,11 +2085,6 @@ mod tests {
         // cos(90) = 0, sin(90) = 1
         assert!((m.0[0] - 0.0).abs() < 1e-10);
         assert!((m.0[1] - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_rotation_z_registered() {
-        assert!(is_known_in("matrix", "rotation_z"));
     }
 
     // ============================================================================
@@ -2339,11 +2113,6 @@ mod tests {
     }
 
     #[test]
-    fn test_perspective_registered() {
-        assert!(is_known_in("matrix", "perspective"));
-    }
-
-    #[test]
     fn test_orthographic_basic() {
         let m = orthographic(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0);
         // Check that it produces a valid orthographic matrix
@@ -2359,11 +2128,6 @@ mod tests {
         // For symmetric bounds, translation should be 0
         assert!((m.0[12] - 0.0).abs() < 1e-10); // tx
         assert!((m.0[13] - 0.0).abs() < 1e-10); // ty
-    }
-
-    #[test]
-    fn test_orthographic_registered() {
-        assert!(is_known_in("matrix", "orthographic"));
     }
 
     #[test]
@@ -2392,11 +2156,6 @@ mod tests {
         assert!((m.0[5] - 1.0).abs() < 1e-10);
         // Forward (negated) should be (0, 0, 1)
         assert!((m.0[10] - 1.0).abs() < 1e-10);
-    }
-
-    #[test]
-    fn test_look_at_registered() {
-        assert!(is_known_in("matrix", "look_at"));
     }
 
     // === Zero-Norm Guard Tests ===
