@@ -288,15 +288,35 @@ fn scan_for_capability_violations(
             scan_for_capability_violations(body, ctx, errors);
         }
 
+        ExprKind::Self_ => {
+            if !ctx.has_capability(Capability::Index) {
+                errors.push(CompileError::new(
+                    ErrorKind::MissingCapability,
+                    expr.span,
+                    format!("self cannot be accessed in this context (requires Capability::Index)"),
+                ));
+            }
+        }
+
+        ExprKind::Other => {
+            if !ctx.has_capability(Capability::Index) {
+                errors.push(CompileError::new(
+                    ErrorKind::MissingCapability,
+                    expr.span,
+                    format!(
+                        "other cannot be accessed in this context (requires Capability::Index)"
+                    ),
+                ));
+            }
+        }
+
         // === Non-capability-requiring expressions (leaf nodes or pure) ===
         ExprKind::Literal { .. }
         | ExprKind::Local(_)
         | ExprKind::Signal(_)
         | ExprKind::Field(_)
         | ExprKind::Config(_)
-        | ExprKind::Const(_)
-        | ExprKind::Self_
-        | ExprKind::Other => {
+        | ExprKind::Const(_) => {
             // These don't require special capabilities
         }
     }
@@ -783,5 +803,67 @@ mod tests {
 
         let errors = validate_capability_access(&emit, &ctx);
         assert_eq!(errors.len(), 0);
+    }
+
+    #[test]
+    fn test_self_access_allowed() {
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Index));
+
+        let expr = TypedExpr::new(
+            ExprKind::Self_,
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 0);
+    }
+
+    #[test]
+    fn test_self_access_denied() {
+        let ctx = CapabilityContext::new(CapabilitySet::empty());
+
+        let expr = TypedExpr::new(
+            ExprKind::Self_,
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+        assert!(errors[0].message.contains("self"));
+        assert!(errors[0].message.contains("Capability::Index"));
+    }
+
+    #[test]
+    fn test_other_access_allowed() {
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Index));
+
+        let expr = TypedExpr::new(
+            ExprKind::Other,
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 0);
+    }
+
+    #[test]
+    fn test_other_access_denied() {
+        let ctx = CapabilityContext::new(CapabilitySet::empty());
+
+        let expr = TypedExpr::new(
+            ExprKind::Other,
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+        assert!(errors[0].message.contains("other"));
+        assert!(errors[0].message.contains("Capability::Index"));
     }
 }
