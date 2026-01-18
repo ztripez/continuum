@@ -57,6 +57,13 @@ use continuum_foundation::Phase;
 /// Carries the execution phase information needed to determine whether
 /// effect kernels are allowed in the current context.
 ///
+/// **Effect kernels** are kernels that produce side effects such as `emit`,
+/// `spawn`, `destroy`, and `log`. **Pure kernels** are deterministic,
+/// side-effect-free operations like `maths.*`, `vector.*`, `logic.*`.
+///
+/// Effect kernels may only be called in effect-allowed phases (Collect, Fracture).
+/// Pure kernels may be called in any phase.
+///
 /// # Parameters
 ///
 /// - `phase`: The execution phase this expression will run in.
@@ -102,11 +109,12 @@ impl EffectContext {
 
     /// Check if this phase allows effect kernels.
     ///
-    /// Effect kernels (emit, spawn, destroy, log) are only allowed in:
-    /// - Collect
-    /// - Fracture
+    /// **Effect kernels** (emit, spawn, destroy, log) produce side effects and are
+    /// only allowed in Collect and Fracture phases. **Pure kernels** (maths.*, vector.*,
+    /// logic.*) are deterministic, side-effect-free operations allowed in all phases.
     ///
-    /// Pure kernels are allowed in all phases.
+    /// Effect-allowed phases: Collect, Fracture  
+    /// Pure-only phases: Configure, Resolve, Measure, Assert
     ///
     /// # Returns
     ///
@@ -131,6 +139,10 @@ impl EffectContext {
 
 /// Validates that all kernel calls in an expression respect purity restrictions for the current phase.
 ///
+/// **Effect kernels** (emit, spawn, destroy, log) produce side effects and may only be
+/// called in Collect and Fracture phases. **Pure kernels** (maths.*, vector.*, logic.*)
+/// are deterministic operations allowed in all phases.
+///
 /// Recursively scans the expression tree for kernel calls and validates that:
 /// - Pure kernels are allowed in all phases
 /// - Effect kernels are only called in effect-allowed phases (Collect, Fracture)
@@ -144,6 +156,9 @@ impl EffectContext {
 /// # Returns
 ///
 /// Vector of validation errors (empty if all kernel calls are valid).
+/// Returns `ErrorKind::EffectInPureContext` when effect kernels are called in pure-only phases.
+/// Returns `ErrorKind::UnknownKernel` defensively when kernel is not in registry
+/// (should have been caught by type validation).
 ///
 /// # Examples
 ///
