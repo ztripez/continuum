@@ -57,12 +57,16 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    Attribute, BinaryOp, BlockBody, Declaration, Expr, Node, ObserveBlock, ObserveWhen, RoleData,
-    Stmt, TransitionDecl, TypeExpr, UnaryOp, UnitExpr, UntypedKind as ExprKind, WarmupBlock,
-    WhenBlock,
+    Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, Entity, EraDecl, Expr,
+    Node, ObserveBlock, ObserveWhen, RoleData, Stmt, Stratum, StratumPolicyEntry, StratumState,
+    TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr, UntypedKind as ExprKind,
+    WarmupBlock, WarmupPolicy, WarmupTimeout, WhenBlock, WorldDecl,
 };
-use crate::foundation::{Path, Span};
+use crate::foundation::{EntityId, Path, Span, StratumId};
 use crate::lexer::Token;
+
+// Need continuum_foundation::Path for EntityId/StratumId
+use continuum_foundation::Path as FoundationPath;
 
 /// Parse an expression from a token stream.
 ///
@@ -1152,6 +1156,335 @@ fn chronicle_parser<'src>()
 
             Declaration::Node(node)
         })
+}
+
+// =============================================================================
+// Structural Declaration Parsers
+// =============================================================================
+
+/// Parse an entity declaration.
+///
+/// Example:
+/// ```cdsl
+/// entity plate {
+///     : count(5..50)
+/// }
+/// ```
+fn entity_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Entity)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|(path, _attrs), e| {
+            let span = token_span(e.span());
+            // Convert Path to FoundationPath for EntityId
+            let foundation_path = FoundationPath::from_str(&path.to_string());
+            let entity = Entity::new(EntityId(foundation_path), path, span);
+            // TODO: Extract count from attributes
+            Declaration::Entity(entity)
+        })
+}
+
+/// Parse a member declaration.
+///
+/// Example:
+/// ```cdsl
+/// member plate.area {
+///     : type Scalar<m2>
+///     resolve { prev }
+/// }
+/// ```
+fn member_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Member)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(type_annotation_parser().or_not())
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then(execution_block_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|(((full_path, type_expr), _attrs), blocks), e| {
+            let span = token_span(e.span());
+
+            // Extract entity ID from path: plate.area -> entity=plate
+            // For simplicity, assume entity is all segments except last
+            let path_str = full_path.to_string();
+            let parts: Vec<&str> = path_str.split('.').collect();
+            let entity_path_str = if parts.len() > 1 {
+                parts[..parts.len() - 1].join(".")
+            } else {
+                // No entity prefix, use empty path (will fail validation)
+                String::new()
+            };
+
+            // Convert to FoundationPath for EntityId
+            let foundation_path = FoundationPath::from_str(&entity_path_str);
+            let entity_id = EntityId(foundation_path);
+            let mut node = Node::new(full_path, span, RoleData::Signal, entity_id);
+            node.type_expr = type_expr;
+
+            for (name, body) in blocks {
+                match body {
+                    BlockBody::Expression(expr) => {
+                        node.execution_exprs.push((name, expr));
+                    }
+                    BlockBody::Statements(_) => {}
+                }
+            }
+
+            Declaration::Member(node)
+        })
+}
+
+/// Parse a stratum declaration.
+///
+/// Example:
+/// ```cdsl
+/// strata simulation {
+///     : stride(1)
+///     : title("Simulation")
+/// }
+/// ```
+fn stratum_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Strata)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|(path, _attrs), e| {
+            let span = token_span(e.span());
+            // TODO: Extract stride from attributes, default to 1
+            let cadence = 1;
+            // Convert Path to FoundationPath for StratumId
+            let foundation_path = FoundationPath::from_str(&path.to_string());
+            let stratum = Stratum::new(StratumId(foundation_path), path, cadence, span);
+            Declaration::Stratum(stratum)
+        })
+}
+
+/// Parse an era declaration.
+///
+/// Example:
+/// ```cdsl
+/// era main {
+///     : initial
+///     : dt(1<s>)
+///     strata { simulation: active }
+///     transition stable when { signal.temp < 1000<K> }
+/// }
+/// ```
+fn era_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    // Strata policy entry: `path : active` or `path : gated`
+    let strata_entry = path_parser()
+        .then_ignore(just(Token::Colon))
+        .then(select! {
+            Token::Ident(s) if s == "active" => StratumState::Active,
+            Token::Ident(s) if s == "gated" => StratumState::Gated,
+        })
+        .map_with(|(path, state), e| StratumPolicyEntry {
+            stratum: path,
+            state,
+            stride: None,
+            span: token_span(e.span()),
+        });
+
+    // Strata block: `strata { entries }`
+    let strata_block = just(Token::Strata).ignore_then(
+        strata_entry
+            .separated_by(just(Token::Semicolon).or_not())
+            .collect::<Vec<_>>()
+            .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+    );
+
+    just(Token::Era)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then(strata_block.or_not())
+        .then(transition_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|(((path, attrs), strata_policy), transitions), e| {
+            let span = token_span(e.span());
+
+            // TODO: Extract dt, is_initial, is_terminal from attributes
+            let era = EraDecl {
+                path,
+                span,
+                doc: None,
+                dt: None,
+                is_initial: attrs.iter().any(|a| a.name == "initial"),
+                is_terminal: attrs.iter().any(|a| a.name == "terminal"),
+                strata_policy: strata_policy.unwrap_or_default(),
+                transitions,
+            };
+
+            Declaration::Era(era)
+        })
+}
+
+/// Parse a type declaration.
+///
+/// Example:
+/// ```cdsl
+/// type ImpactEvent {
+///     mass: Scalar<kg>
+///     velocity: Vec3<m/s>
+/// }
+/// ```
+fn type_decl_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    // Field: `name : TypeExpr`
+    let field = select! { Token::Ident(name) => name }
+        .then_ignore(just(Token::Colon))
+        .then(just(Token::Type).ignore_then(type_expr_parser()))
+        .map_with(|(name, type_expr), e| TypeField {
+            name,
+            type_expr,
+            span: token_span(e.span()),
+        });
+
+    just(Token::Type)
+        .ignore_then(select! { Token::Ident(name) => name })
+        .then_ignore(just(Token::LBrace))
+        .then(
+            field
+                .separated_by(just(Token::Semicolon).or_not())
+                .collect::<Vec<_>>(),
+        )
+        .then_ignore(just(Token::RBrace))
+        .map_with(|(name, fields), e| {
+            Declaration::Type(TypeDecl {
+                name,
+                fields,
+                span: token_span(e.span()),
+                doc: None,
+            })
+        })
+}
+
+/// Parse a world block.
+///
+/// Example:
+/// ```cdsl
+/// world terra {
+///     : title("Terra")
+///     : version("1.0.0")
+///     warmup {
+///         :converged(maths.max_delta(signals) < 1e-6)
+///         :max_iterations(1000)
+///         :on_timeout(fail)
+///     }
+/// }
+/// ```
+fn world_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    // Warmup policy block
+    let warmup_policy = just(Token::WarmUp)
+        .ignore_then(
+            attribute_parser()
+                .repeated()
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
+        .map_with(|attrs, e| {
+            // TODO: Extract converged expression, max_iterations, on_timeout from attributes
+            // For now, create placeholder
+            WarmupPolicy {
+                converged: Expr::new(ExprKind::BoolLiteral(true), token_span(e.span())),
+                max_iterations: 1000,
+                on_timeout: WarmupTimeout::Fail,
+                span: token_span(e.span()),
+            }
+        });
+
+    just(Token::World)
+        .ignore_then(path_parser())
+        .then_ignore(just(Token::LBrace))
+        .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then(warmup_policy.or_not())
+        .then_ignore(just(Token::RBrace))
+        .map_with(|((path, attrs), warmup), e| {
+            // TODO: Extract title, version from attributes
+            Declaration::World(WorldDecl {
+                path,
+                span: token_span(e.span()),
+                title: None,
+                version: None,
+                warmup,
+                doc: None,
+            })
+        })
+}
+
+/// Parse a const block.
+///
+/// Example:
+/// ```cdsl
+/// const {
+///     physics.gravity: 9.81
+/// }
+/// ```
+fn const_block_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    // Entry: `path : expr`
+    let entry = path_parser()
+        .then_ignore(just(Token::Colon))
+        .then(just(Token::Type).ignore_then(type_expr_parser()))
+        .then_ignore(just(Token::Eq))
+        .then(expr_parser())
+        .map_with(|((path, type_expr), value), e| ConstEntry {
+            path,
+            value,
+            type_expr,
+            span: token_span(e.span()),
+            doc: None,
+        });
+
+    just(Token::Const)
+        .ignore_then(
+            entry
+                .separated_by(just(Token::Semicolon).or_not())
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
+        .map(Declaration::Const)
+}
+
+/// Parse a config block.
+///
+/// Example:
+/// ```cdsl
+/// config {
+///     initial_temp: 5500<K>
+/// }
+/// ```
+fn config_block_parser<'src>()
+-> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+    // Entry: `path : type TypeExpr = expr` or `path : type TypeExpr`
+    let entry = path_parser()
+        .then_ignore(just(Token::Colon))
+        .then(just(Token::Type).ignore_then(type_expr_parser()))
+        .then(just(Token::Eq).ignore_then(expr_parser()).or_not())
+        .map_with(|((path, type_expr), default), e| ConfigEntry {
+            path,
+            default,
+            type_expr,
+            span: token_span(e.span()),
+            doc: None,
+        });
+
+    just(Token::Config)
+        .ignore_then(
+            entry
+                .separated_by(just(Token::Semicolon).or_not())
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
+        .map(Declaration::Config)
 }
 
 #[cfg(test)]
