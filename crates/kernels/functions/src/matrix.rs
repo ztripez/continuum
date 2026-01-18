@@ -1049,6 +1049,28 @@ pub fn rotation_z(angle: f64) -> Mat4 {
     unit_out = Dimensionless
 )]
 pub fn perspective(fov_y: f64, aspect: f64, near: f64, far: f64) -> Mat4 {
+    assert!(
+        fov_y > 0.0 && fov_y < std::f64::consts::PI,
+        "perspective: fov_y must be in range (0, π), got {}",
+        fov_y
+    );
+    assert!(
+        aspect > 0.0,
+        "perspective: aspect ratio must be positive, got {}",
+        aspect
+    );
+    assert!(
+        near > 0.0,
+        "perspective: near plane must be positive, got {}",
+        near
+    );
+    assert!(
+        far > near,
+        "perspective: far plane ({}) must be greater than near plane ({})",
+        far,
+        near
+    );
+
     let f = 1.0 / (fov_y / 2.0).tan();
     let nf = 1.0 / (near - far);
 
@@ -1094,6 +1116,25 @@ pub fn perspective(fov_y: f64, aspect: f64, near: f64, far: f64) -> Mat4 {
     unit_out = Dimensionless
 )]
 pub fn orthographic(left: f64, right: f64, bottom: f64, top: f64, near: f64, far: f64) -> Mat4 {
+    assert!(
+        (left - right).abs() > f64::EPSILON,
+        "orthographic: left ({}) must not equal right ({})",
+        left,
+        right
+    );
+    assert!(
+        (bottom - top).abs() > f64::EPSILON,
+        "orthographic: bottom ({}) must not equal top ({})",
+        bottom,
+        top
+    );
+    assert!(
+        (near - far).abs() > f64::EPSILON,
+        "orthographic: near ({}) must not equal far ({})",
+        near,
+        far
+    );
+
     let lr = 1.0 / (left - right);
     let bt = 1.0 / (bottom - top);
     let nf = 1.0 / (near - far);
@@ -1892,5 +1933,53 @@ mod tests {
     fn test_look_at_parallel_up() {
         // Up and forward are parallel (both along Z axis)
         let _ = look_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "fov_y must be in range")]
+    fn test_perspective_invalid_fov_zero() {
+        let _ = perspective(0.0, 1.0, 0.1, 100.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "fov_y must be in range")]
+    fn test_perspective_invalid_fov_too_large() {
+        let _ = perspective(std::f64::consts::PI, 1.0, 0.1, 100.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "aspect ratio must be positive")]
+    fn test_perspective_invalid_aspect() {
+        let _ = perspective(1.0, -1.0, 0.1, 100.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "near plane must be positive")]
+    fn test_perspective_invalid_near() {
+        let _ = perspective(1.0, 1.0, -0.1, 100.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "far plane")]
+    fn test_perspective_near_greater_than_far() {
+        let _ = perspective(1.0, 1.0, 100.0, 0.1);
+    }
+
+    #[test]
+    #[should_panic(expected = "left")]
+    fn test_orthographic_left_equals_right() {
+        let _ = orthographic(1.0, 1.0, 0.0, 1.0, 0.1, 100.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "bottom")]
+    fn test_orthographic_bottom_equals_top() {
+        let _ = orthographic(0.0, 1.0, 1.0, 1.0, 0.1, 100.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "near")]
+    fn test_orthographic_near_equals_far() {
+        let _ = orthographic(0.0, 1.0, 0.0, 1.0, 1.0, 1.0);
     }
 }
