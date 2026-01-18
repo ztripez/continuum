@@ -759,4 +759,84 @@ mod tests {
         assert_eq!(kernel.unit.dims().length, 1);
         assert!(kernel.unit.is_multiplicative());
     }
+
+    #[test]
+    fn test_scalar_compound_unit_resolution() {
+        let type_table = TypeTable::new();
+        let span = test_span();
+
+        // Scalar<kg*m/s^2> (force unit, Newton)
+        let kg_m = UnitExpr::Multiply(
+            Box::new(UnitExpr::Base("kg".to_string())),
+            Box::new(UnitExpr::Base("m".to_string())),
+        );
+        let s2 = UnitExpr::Power(Box::new(UnitExpr::Base("s".to_string())), 2);
+        let unit = UnitExpr::Divide(Box::new(kg_m), Box::new(s2));
+        let scalar = TypeExpr::Scalar { unit: Some(unit) };
+
+        let Type::Kernel(kernel) = resolve_type_expr(&scalar, &type_table, span).unwrap() else {
+            panic!("Expected kernel type");
+        };
+        assert_eq!(kernel.shape, Shape::Scalar);
+        assert_eq!(kernel.unit.dims().mass, 1);
+        assert_eq!(kernel.unit.dims().length, 1);
+        assert_eq!(kernel.unit.dims().time, -2);
+        // Verify other dimensions remain zero
+        assert_eq!(kernel.unit.dims().temperature, 0);
+        assert_eq!(kernel.unit.dims().current, 0);
+        assert_eq!(kernel.unit.dims().amount, 0);
+        assert_eq!(kernel.unit.dims().luminosity, 0);
+        assert_eq!(kernel.unit.dims().angle, 0);
+    }
+
+    #[test]
+    fn test_unit_cancellation_and_identity() {
+        let span = test_span();
+
+        // m / m => dimensionless
+        let cancel = UnitExpr::Divide(
+            Box::new(UnitExpr::Base("m".to_string())),
+            Box::new(UnitExpr::Base("m".to_string())),
+        );
+        let resolved = resolve_unit_expr(Some(&cancel), span).unwrap();
+        assert!(resolved.is_dimensionless());
+
+        // 1 * m => m
+        let identity = UnitExpr::Multiply(
+            Box::new(UnitExpr::Dimensionless),
+            Box::new(UnitExpr::Base("m".to_string())),
+        );
+        let resolved = resolve_unit_expr(Some(&identity), span).unwrap();
+        assert_eq!(resolved.dims().length, 1);
+        assert!(resolved.is_multiplicative());
+        // Verify other dimensions remain zero
+        assert_eq!(resolved.dims().mass, 0);
+        assert_eq!(resolved.dims().time, 0);
+    }
+
+    #[test]
+    fn test_base_unit_dimensions() {
+        let span = test_span();
+
+        // Meters
+        let m = resolve_base_unit("m", span).unwrap();
+        assert_eq!(m.dims().length, 1);
+        assert_eq!(m.dims().mass, 0);
+        assert_eq!(m.dims().time, 0);
+        assert!(m.is_multiplicative());
+
+        // Kilograms
+        let kg = resolve_base_unit("kg", span).unwrap();
+        assert_eq!(kg.dims().mass, 1);
+        assert_eq!(kg.dims().length, 0);
+        assert_eq!(kg.dims().time, 0);
+        assert!(kg.is_multiplicative());
+
+        // Seconds
+        let s = resolve_base_unit("s", span).unwrap();
+        assert_eq!(s.dims().time, 1);
+        assert_eq!(s.dims().length, 0);
+        assert_eq!(s.dims().mass, 0);
+        assert!(s.is_multiplicative());
+    }
 }
