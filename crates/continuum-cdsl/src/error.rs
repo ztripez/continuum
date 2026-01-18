@@ -20,7 +20,7 @@
 //! let error = CompileError::new(
 //!     ErrorKind::DuplicateName,
 //!     span,
-//!     format!("duplicate definition of '{}'", path.display())
+//!     format!("duplicate definition of '{}'", path)
 //! );
 //! ```
 

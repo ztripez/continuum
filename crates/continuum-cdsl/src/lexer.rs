@@ -12,8 +12,9 @@
 //!
 //! ```
 //! # use continuum_cdsl::lexer::*;
+//! # use logos::Logos;
 //! let source = "signal temp : Scalar<K> { resolve { prev + 1 } }";
-//! let tokens: Vec<Token> = Token::lexer(source).collect();
+//! let tokens: Vec<Result<Token, ()>> = Token::lexer(source).collect();
 //! ```
 
 use logos::Logos;
