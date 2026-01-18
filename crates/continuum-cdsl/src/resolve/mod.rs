@@ -38,6 +38,13 @@
 //!
 //! This pass populates `validation_errors` on Node<I>.
 //!
+//! # Effect Validation (`effects`)
+//!
+//! Validates kernel purity restrictions based on execution phase:
+//! - Pure kernels allowed in all phases
+//! - Effect kernels (emit, spawn, destroy) only in effect-allowed phases (Collect, Fracture)
+//! - Validates phase purity rules for kernel calls
+//!
 //! # Pipeline Integration
 //!
 //! These passes operate on parsed AST and prepare nodes for validation:
@@ -56,6 +63,7 @@
 //!   Node<I> { type_expr: None, execution_blocks: [...], output: Some(Type) }
 //! ```
 
+pub mod effects;
 pub mod names;
 pub mod types;
 pub mod validation;
