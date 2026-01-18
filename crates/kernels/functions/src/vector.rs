@@ -599,7 +599,7 @@ pub fn faceforward(n: [f64; 3], i: [f64; 3], nref: [f64; 3]) -> [f64; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use continuum_kernel_registry::{Arity, Value, get_in_namespace, is_known_in};
+    use continuum_kernel_registry::{Arity, get_in_namespace, is_known_in};
 
     #[test]
     fn test_vec2_registered() {

@@ -2,9 +2,8 @@
 //!
 //! Functions for matrix operations: identity, transpose, determinant, inverse, eigenvalues, SVD.
 
-use continuum_foundation::{Mat2, Mat3, Mat4, Value};
+use continuum_foundation::{Mat2, Mat3, Mat4};
 use continuum_kernel_macros::kernel_fn;
-use continuum_kernel_types::prelude::*;
 use nalgebra as na;
 
 /// Identity 2x2 matrix: `identity2()`
@@ -54,283 +53,406 @@ pub fn identity4() -> Mat4 {
     ])
 }
 
-/// Transpose a matrix: `transpose(m)`
+/// Transpose a matrix: `transpose_mat2(m)`
 /// Converts column-major to row-major order (or vice versa)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn transpose(args: &[Value]) -> Value {
-    if args.len() != 1 {
-        panic!("matrix.transpose expects exactly 1 argument");
-    }
-    match &args[0] {
-        Value::Mat2(mat) => {
-            // Column-major [m00, m10, m01, m11] -> [m00, m01, m10, m11]
-            Value::Mat2([mat[0], mat[2], mat[1], mat[3]])
-        }
-        Value::Mat3(mat) => {
-            // Column-major [m00, m10, m20, m01, m11, m21, m02, m12, m22]
-            // -> [m00, m01, m02, m10, m11, m12, m20, m21, m22]
-            Value::Mat3([
-                mat[0], mat[3], mat[6], mat[1], mat[4], mat[7], mat[2], mat[5], mat[8],
-            ])
-        }
-        Value::Mat4(mat) => {
-            // Column-major to row-major transpose
-            Value::Mat4([
-                mat[0], mat[4], mat[8], mat[12], mat[1], mat[5], mat[9], mat[13], mat[2], mat[6],
-                mat[10], mat[14], mat[3], mat[7], mat[11], mat[15],
-            ])
-        }
-        _ => panic!("matrix.transpose expects Mat2, Mat3, or Mat4"),
-    }
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(2), cols: DimExact(2) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn transpose_mat2(mat: Mat2) -> Mat2 {
+    Mat2([mat.0[0], mat.0[2], mat.0[1], mat.0[3]])
 }
 
-/// Determinant of a matrix: `determinant(m)` -> Scalar
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn determinant(args: &[Value]) -> f64 {
-    if args.len() != 1 {
-        panic!("matrix.determinant expects exactly 1 argument");
-    }
-    match &args[0] {
-        Value::Mat2(mat) => {
-            // Column-major: [m00, m10, m01, m11]
-            // det = m00*m11 - m01*m10
-            mat[0] * mat[3] - mat[2] * mat[1]
-        }
-        Value::Mat3(mat) => {
-            // Column-major: [m00, m10, m20, m01, m11, m21, m02, m12, m22]
-            // Using cofactor expansion along first row
-            let m00 = mat[0];
-            let m10 = mat[1];
-            let m20 = mat[2];
-            let m01 = mat[3];
-            let m11 = mat[4];
-            let m21 = mat[5];
-            let m02 = mat[6];
-            let m12 = mat[7];
-            let m22 = mat[8];
-
-            m00 * (m11 * m22 - m21 * m12) - m01 * (m10 * m22 - m20 * m12)
-                + m02 * (m10 * m21 - m20 * m11)
-        }
-        Value::Mat4(mat) => {
-            // Column-major 4x4 determinant using cofactor expansion
-            // This is more complex, using 3x3 subdeterminants
-            let m00 = mat[0];
-            let m10 = mat[1];
-            let m20 = mat[2];
-            let m30 = mat[3];
-            let m01 = mat[4];
-            let m11 = mat[5];
-            let m21 = mat[6];
-            let m31 = mat[7];
-            let m02 = mat[8];
-            let m12 = mat[9];
-            let m22 = mat[10];
-            let m32 = mat[11];
-            let m03 = mat[12];
-            let m13 = mat[13];
-            let m23 = mat[14];
-            let m33 = mat[15];
-
-            // Cofactor expansion along first row
-            let det0 = m11 * (m22 * m33 - m32 * m23) - m21 * (m12 * m33 - m32 * m13)
-                + m31 * (m12 * m23 - m22 * m13);
-            let det1 = m10 * (m22 * m33 - m32 * m23) - m20 * (m12 * m33 - m32 * m13)
-                + m30 * (m12 * m23 - m22 * m13);
-            let det2 = m10 * (m21 * m33 - m31 * m23) - m20 * (m11 * m33 - m31 * m13)
-                + m30 * (m11 * m23 - m21 * m13);
-            let det3 = m10 * (m21 * m32 - m31 * m22) - m20 * (m11 * m32 - m31 * m12)
-                + m30 * (m11 * m22 - m21 * m12);
-
-            m00 * det0 - m01 * det1 + m02 * det2 - m03 * det3
-        }
-        _ => panic!("matrix.determinant expects Mat2, Mat3, or Mat4"),
-    }
+/// Transpose a matrix: `transpose_mat3(m)`
+/// Converts column-major to row-major order (or vice versa)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn transpose_mat3(mat: Mat3) -> Mat3 {
+    Mat3([
+        mat.0[0], mat.0[3], mat.0[6], mat.0[1], mat.0[4], mat.0[7], mat.0[2], mat.0[5], mat.0[8],
+    ])
 }
 
-/// Inverse of a matrix: `inverse(m)` -> Mat
+/// Transpose a matrix: `transpose_mat4(m)`
+/// Converts column-major to row-major order (or vice versa)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn transpose_mat4(mat: Mat4) -> Mat4 {
+    Mat4([
+        mat.0[0], mat.0[4], mat.0[8], mat.0[12], mat.0[1], mat.0[5], mat.0[9], mat.0[13], mat.0[2],
+        mat.0[6], mat.0[10], mat.0[14], mat.0[3], mat.0[7], mat.0[11], mat.0[15],
+    ])
+}
+
+/// Determinant of a matrix: `determinant_mat2(m)` -> Scalar
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = Multiply(&[0, 0])
+)]
+pub fn determinant_mat2(mat: Mat2) -> f64 {
+    mat.0[0] * mat.0[3] - mat.0[2] * mat.0[1]
+}
+
+/// Determinant of a matrix: `determinant_mat3(m)` -> Scalar
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = Multiply(&[0, 0, 0])
+)]
+pub fn determinant_mat3(mat: Mat3) -> f64 {
+    let m00 = mat.0[0];
+    let m10 = mat.0[1];
+    let m20 = mat.0[2];
+    let m01 = mat.0[3];
+    let m11 = mat.0[4];
+    let m21 = mat.0[5];
+    let m02 = mat.0[6];
+    let m12 = mat.0[7];
+    let m22 = mat.0[8];
+
+    m00 * (m11 * m22 - m21 * m12) - m01 * (m10 * m22 - m20 * m12) + m02 * (m10 * m21 - m20 * m11)
+}
+
+/// Determinant of a matrix: `determinant_mat4(m)` -> Scalar
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = Multiply(&[0, 0, 0, 0])
+)]
+pub fn determinant_mat4(mat: Mat4) -> f64 {
+    let m00 = mat.0[0];
+    let m10 = mat.0[1];
+    let m20 = mat.0[2];
+    let m30 = mat.0[3];
+    let m01 = mat.0[4];
+    let m11 = mat.0[5];
+    let m21 = mat.0[6];
+    let m31 = mat.0[7];
+    let m02 = mat.0[8];
+    let m12 = mat.0[9];
+    let m22 = mat.0[10];
+    let m32 = mat.0[11];
+    let m03 = mat.0[12];
+    let m13 = mat.0[13];
+    let m23 = mat.0[14];
+    let m33 = mat.0[15];
+
+    let det0 = m11 * (m22 * m33 - m32 * m23) - m21 * (m12 * m33 - m32 * m13)
+        + m31 * (m12 * m23 - m22 * m13);
+    let det1 = m10 * (m22 * m33 - m32 * m23) - m20 * (m12 * m33 - m32 * m13)
+        + m30 * (m12 * m23 - m22 * m13);
+    let det2 = m10 * (m21 * m33 - m31 * m23) - m20 * (m11 * m33 - m31 * m13)
+        + m30 * (m11 * m23 - m21 * m13);
+    let det3 = m10 * (m21 * m32 - m31 * m22) - m20 * (m11 * m32 - m31 * m12)
+        + m30 * (m11 * m22 - m21 * m12);
+
+    m00 * det0 - m01 * det1 + m02 * det2 - m03 * det3
+}
+
+/// Inverse of a matrix: `inverse_mat2(m)` -> Mat
 /// Panics if matrix is singular (determinant = 0)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn inverse(args: &[Value]) -> Value {
-    if args.len() != 1 {
-        panic!("matrix.inverse expects exactly 1 argument");
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(2), cols: DimExact(2) },
+    unit_out = Inverse(0)
+)]
+pub fn inverse_mat2(mat: Mat2) -> Mat2 {
+    let det = mat.0[0] * mat.0[3] - mat.0[2] * mat.0[1];
+    if det.abs() < 1e-10 {
+        panic!("matrix.inverse: matrix is singular (determinant = 0)");
     }
-    match &args[0] {
-        Value::Mat2(mat) => {
-            let det = mat[0] * mat[3] - mat[2] * mat[1];
-            if det.abs() < 1e-10 {
-                panic!("matrix.inverse: matrix is singular (determinant = 0)");
-            }
-            let inv_det = 1.0 / det;
-            // Column-major inverse of 2x2
-            Value::Mat2([
-                mat[3] * inv_det,
-                -mat[1] * inv_det,
-                -mat[2] * inv_det,
-                mat[0] * inv_det,
-            ])
-        }
-        Value::Mat3(mat) => {
-            let m00 = mat[0];
-            let m10 = mat[1];
-            let m20 = mat[2];
-            let m01 = mat[3];
-            let m11 = mat[4];
-            let m21 = mat[5];
-            let m02 = mat[6];
-            let m12 = mat[7];
-            let m22 = mat[8];
-
-            let det = m00 * (m11 * m22 - m21 * m12) - m01 * (m10 * m22 - m20 * m12)
-                + m02 * (m10 * m21 - m20 * m11);
-
-            if det.abs() < 1e-10 {
-                panic!("matrix.inverse: matrix is singular (determinant = 0)");
-            }
-
-            let inv_det = 1.0 / det;
-
-            // Compute adjugate (cofactor matrix transposed) and multiply by 1/det
-            Value::Mat3([
-                (m11 * m22 - m21 * m12) * inv_det,
-                (m20 * m12 - m10 * m22) * inv_det,
-                (m10 * m21 - m20 * m11) * inv_det,
-                (m21 * m02 - m01 * m22) * inv_det,
-                (m00 * m22 - m20 * m02) * inv_det,
-                (m20 * m01 - m00 * m21) * inv_det,
-                (m01 * m12 - m11 * m02) * inv_det,
-                (m10 * m02 - m00 * m12) * inv_det,
-                (m00 * m11 - m10 * m01) * inv_det,
-            ])
-        }
-        Value::Mat4(mat) => {
-            // 4x4 matrix inversion using adjugate method
-            // This is more complex - using the full cofactor matrix
-            let m00 = mat[0];
-            let m10 = mat[1];
-            let m20 = mat[2];
-            let m30 = mat[3];
-            let m01 = mat[4];
-            let m11 = mat[5];
-            let m21 = mat[6];
-            let m31 = mat[7];
-            let m02 = mat[8];
-            let m12 = mat[9];
-            let m22 = mat[10];
-            let m32 = mat[11];
-            let m03 = mat[12];
-            let m13 = mat[13];
-            let m23 = mat[14];
-            let m33 = mat[15];
-
-            // Calculate determinant first
-            let det0 = m11 * (m22 * m33 - m32 * m23) - m21 * (m12 * m33 - m32 * m13)
-                + m31 * (m12 * m23 - m22 * m13);
-            let det1 = m10 * (m22 * m33 - m32 * m23) - m20 * (m12 * m33 - m32 * m13)
-                + m30 * (m12 * m23 - m22 * m13);
-            let det2 = m10 * (m21 * m33 - m31 * m23) - m20 * (m11 * m33 - m31 * m13)
-                + m30 * (m11 * m23 - m21 * m13);
-            let det3 = m10 * (m21 * m32 - m31 * m22) - m20 * (m11 * m32 - m31 * m12)
-                + m30 * (m11 * m22 - m21 * m12);
-
-            let det = m00 * det0 - m01 * det1 + m02 * det2 - m03 * det3;
-
-            if det.abs() < 1e-10 {
-                panic!("matrix.inverse: matrix is singular (determinant = 0)");
-            }
-
-            let inv_det = 1.0 / det;
-
-            // Compute cofactor matrix (adjugate) elements
-            let c00 = (m11 * (m22 * m33 - m32 * m23) - m21 * (m12 * m33 - m32 * m13)
-                + m31 * (m12 * m23 - m22 * m13))
-                * inv_det;
-            let c10 = -(m10 * (m22 * m33 - m32 * m23) - m20 * (m12 * m33 - m32 * m13)
-                + m30 * (m12 * m23 - m22 * m13))
-                * inv_det;
-            let c20 = (m10 * (m21 * m33 - m31 * m23) - m20 * (m11 * m33 - m31 * m13)
-                + m30 * (m11 * m23 - m21 * m13))
-                * inv_det;
-            let c30 = -(m10 * (m21 * m32 - m31 * m22) - m20 * (m11 * m32 - m31 * m12)
-                + m30 * (m11 * m22 - m21 * m12))
-                * inv_det;
-
-            let c01 = -(m01 * (m22 * m33 - m32 * m23) - m21 * (m02 * m33 - m32 * m03)
-                + m31 * (m02 * m23 - m22 * m03))
-                * inv_det;
-            let c11 = (m00 * (m22 * m33 - m32 * m23) - m20 * (m02 * m33 - m32 * m03)
-                + m30 * (m02 * m23 - m22 * m03))
-                * inv_det;
-            let c21 = -(m00 * (m21 * m33 - m31 * m23) - m20 * (m01 * m33 - m31 * m03)
-                + m30 * (m01 * m23 - m21 * m03))
-                * inv_det;
-            let c31 = (m00 * (m21 * m32 - m31 * m22) - m20 * (m01 * m32 - m31 * m02)
-                + m30 * (m01 * m22 - m21 * m02))
-                * inv_det;
-
-            let c02 = (m01 * (m12 * m33 - m32 * m13) - m11 * (m02 * m33 - m32 * m03)
-                + m31 * (m02 * m13 - m12 * m03))
-                * inv_det;
-            let c12 = -(m00 * (m12 * m33 - m32 * m13) - m10 * (m02 * m33 - m32 * m03)
-                + m30 * (m02 * m13 - m12 * m03))
-                * inv_det;
-            let c22 = (m00 * (m11 * m33 - m31 * m13) - m10 * (m01 * m33 - m31 * m03)
-                + m30 * (m01 * m13 - m11 * m03))
-                * inv_det;
-            let c32 = -(m00 * (m11 * m32 - m31 * m12) - m10 * (m01 * m32 - m31 * m02)
-                + m30 * (m01 * m12 - m11 * m02))
-                * inv_det;
-
-            let c03 = -(m01 * (m12 * m23 - m22 * m13) - m11 * (m02 * m23 - m22 * m03)
-                + m21 * (m02 * m13 - m12 * m03))
-                * inv_det;
-            let c13 = (m00 * (m12 * m23 - m22 * m13) - m10 * (m02 * m23 - m22 * m03)
-                + m20 * (m02 * m13 - m12 * m03))
-                * inv_det;
-            let c23 = -(m00 * (m11 * m23 - m21 * m13) - m10 * (m01 * m23 - m21 * m03)
-                + m20 * (m01 * m13 - m11 * m03))
-                * inv_det;
-            let c33 = (m00 * (m11 * m22 - m21 * m12) - m10 * (m01 * m22 - m21 * m02)
-                + m20 * (m01 * m12 - m11 * m02))
-                * inv_det;
-
-            Value::Mat4([
-                c00, c10, c20, c30, c01, c11, c21, c31, c02, c12, c22, c32, c03, c13, c23, c33,
-            ])
-        }
-        _ => panic!("matrix.inverse expects Mat2, Mat3, or Mat4"),
-    }
+    let inv_det = 1.0 / det;
+    Mat2([
+        mat.0[3] * inv_det,
+        -mat.0[1] * inv_det,
+        -mat.0[2] * inv_det,
+        mat.0[0] * inv_det,
+    ])
 }
 
-/// Matrix multiply: `mul(a, b)` -> Mat
+/// Inverse of a matrix: `inverse_mat3(m)` -> Mat
+/// Panics if matrix is singular (determinant = 0)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    unit_out = Inverse(0)
+)]
+pub fn inverse_mat3(mat: Mat3) -> Mat3 {
+    let m00 = mat.0[0];
+    let m10 = mat.0[1];
+    let m20 = mat.0[2];
+    let m01 = mat.0[3];
+    let m11 = mat.0[4];
+    let m21 = mat.0[5];
+    let m02 = mat.0[6];
+    let m12 = mat.0[7];
+    let m22 = mat.0[8];
+
+    let det = m00 * (m11 * m22 - m21 * m12) - m01 * (m10 * m22 - m20 * m12)
+        + m02 * (m10 * m21 - m20 * m11);
+
+    if det.abs() < 1e-10 {
+        panic!("matrix.inverse: matrix is singular (determinant = 0)");
+    }
+
+    let inv_det = 1.0 / det;
+
+    Mat3([
+        (m11 * m22 - m21 * m12) * inv_det,
+        (m20 * m12 - m10 * m22) * inv_det,
+        (m10 * m21 - m20 * m11) * inv_det,
+        (m21 * m02 - m01 * m22) * inv_det,
+        (m00 * m22 - m20 * m02) * inv_det,
+        (m20 * m01 - m00 * m21) * inv_det,
+        (m01 * m12 - m11 * m02) * inv_det,
+        (m10 * m02 - m00 * m12) * inv_det,
+        (m00 * m11 - m10 * m01) * inv_det,
+    ])
+}
+
+/// Inverse of a matrix: `inverse_mat4(m)` -> Mat
+/// Panics if matrix is singular (determinant = 0)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Inverse(0)
+)]
+pub fn inverse_mat4(mat: Mat4) -> Mat4 {
+    let m00 = mat.0[0];
+    let m10 = mat.0[1];
+    let m20 = mat.0[2];
+    let m30 = mat.0[3];
+    let m01 = mat.0[4];
+    let m11 = mat.0[5];
+    let m21 = mat.0[6];
+    let m31 = mat.0[7];
+    let m02 = mat.0[8];
+    let m12 = mat.0[9];
+    let m22 = mat.0[10];
+    let m32 = mat.0[11];
+    let m03 = mat.0[12];
+    let m13 = mat.0[13];
+    let m23 = mat.0[14];
+    let m33 = mat.0[15];
+
+    let det0 = m11 * (m22 * m33 - m32 * m23) - m21 * (m12 * m33 - m32 * m13)
+        + m31 * (m12 * m23 - m22 * m13);
+    let det1 = m10 * (m22 * m33 - m32 * m23) - m20 * (m12 * m33 - m32 * m13)
+        + m30 * (m12 * m23 - m22 * m13);
+    let det2 = m10 * (m21 * m33 - m31 * m23) - m20 * (m11 * m33 - m31 * m13)
+        + m30 * (m11 * m23 - m21 * m13);
+    let det3 = m10 * (m21 * m32 - m31 * m22) - m20 * (m11 * m32 - m31 * m12)
+        + m30 * (m11 * m22 - m21 * m12);
+
+    let det = m00 * det0 - m01 * det1 + m02 * det2 - m03 * det3;
+
+    if det.abs() < 1e-10 {
+        panic!("matrix.inverse: matrix is singular (determinant = 0)");
+    }
+
+    let inv_det = 1.0 / det;
+
+    let c00 = (m11 * (m22 * m33 - m32 * m23) - m21 * (m12 * m33 - m32 * m13)
+        + m31 * (m12 * m23 - m22 * m13))
+        * inv_det;
+    let c10 = -(m10 * (m22 * m33 - m32 * m23) - m20 * (m12 * m33 - m32 * m13)
+        + m30 * (m12 * m23 - m22 * m13))
+        * inv_det;
+    let c20 = (m10 * (m21 * m33 - m31 * m23) - m20 * (m11 * m33 - m31 * m13)
+        + m30 * (m11 * m23 - m21 * m13))
+        * inv_det;
+    let c30 = -(m10 * (m21 * m32 - m31 * m22) - m20 * (m11 * m32 - m31 * m12)
+        + m30 * (m11 * m22 - m21 * m12))
+        * inv_det;
+
+    let c01 = -(m01 * (m22 * m33 - m32 * m23) - m21 * (m02 * m33 - m32 * m03)
+        + m31 * (m02 * m23 - m22 * m03))
+        * inv_det;
+    let c11 = (m00 * (m22 * m33 - m32 * m23) - m20 * (m02 * m33 - m32 * m03)
+        + m30 * (m02 * m23 - m22 * m03))
+        * inv_det;
+    let c21 = -(m00 * (m21 * m33 - m31 * m23) - m20 * (m01 * m33 - m31 * m03)
+        + m30 * (m01 * m23 - m21 * m03))
+        * inv_det;
+    let c31 = (m00 * (m21 * m32 - m31 * m22) - m20 * (m01 * m32 - m31 * m02)
+        + m30 * (m01 * m22 - m21 * m02))
+        * inv_det;
+
+    let c02 = (m01 * (m12 * m33 - m32 * m13) - m11 * (m02 * m33 - m32 * m03)
+        + m31 * (m02 * m13 - m12 * m03))
+        * inv_det;
+    let c12 = -(m00 * (m12 * m33 - m32 * m13) - m10 * (m02 * m33 - m32 * m03)
+        + m30 * (m02 * m13 - m12 * m03))
+        * inv_det;
+    let c22 = (m00 * (m11 * m33 - m31 * m13) - m10 * (m01 * m33 - m31 * m03)
+        + m30 * (m01 * m13 - m11 * m03))
+        * inv_det;
+    let c32 = -(m00 * (m11 * m32 - m31 * m12) - m10 * (m01 * m32 - m31 * m02)
+        + m30 * (m01 * m12 - m11 * m02))
+        * inv_det;
+
+    let c03 = -(m01 * (m12 * m23 - m22 * m13) - m11 * (m02 * m23 - m22 * m03)
+        + m21 * (m02 * m13 - m12 * m03))
+        * inv_det;
+    let c13 = (m00 * (m12 * m23 - m22 * m13) - m10 * (m02 * m23 - m22 * m03)
+        + m20 * (m02 * m13 - m12 * m03))
+        * inv_det;
+    let c23 = -(m00 * (m11 * m23 - m21 * m13) - m10 * (m01 * m23 - m21 * m03)
+        + m20 * (m01 * m13 - m11 * m03))
+        * inv_det;
+    let c33 = (m00 * (m11 * m22 - m21 * m12) - m10 * (m01 * m22 - m21 * m02)
+        + m20 * (m01 * m12 - m11 * m02))
+        * inv_det;
+
+    Mat4([
+        c00, c10, c20, c30, c01, c11, c21, c31, c02, c12, c22, c32, c03, c13, c23, c33,
+    ])
+}
+
+/// Matrix multiply: `mul_mat2(a, b)` -> Mat2
 /// Explicit function for matrix multiplication (alternative to a * b operator)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn mul(args: &[Value]) -> Value {
-    use continuum_foundation::matrix_ops::{mat2_mul, mat3_mul, mat4_mul};
-    if args.len() != 2 {
-        panic!("matrix.mul expects exactly 2 arguments");
-    }
-    match (&args[0], &args[1]) {
-        (Value::Mat2(a), Value::Mat2(b)) => Value::Mat2(mat2_mul(*a, *b)),
-        (Value::Mat3(a), Value::Mat3(b)) => Value::Mat3(mat3_mul(*a, *b)),
-        (Value::Mat4(a), Value::Mat4(b)) => Value::Mat4(mat4_mul(*a, *b)),
-        _ => panic!("matrix.mul expects two matrices of the same size"),
-    }
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [
+        MatrixDims { rows: DimExact(2), cols: DimExact(2) },
+        MatrixDims { rows: DimExact(2), cols: DimExact(2) }
+    ],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(2), cols: DimExact(2) },
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn mul_mat2(a: Mat2, b: Mat2) -> Mat2 {
+    use continuum_foundation::matrix_ops::mat2_mul;
+    Mat2(mat2_mul(a.0, b.0))
 }
 
-/// Transform vector by matrix: `transform(m, v)` -> Vec
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn transform(args: &[Value]) -> Value {
-    use continuum_foundation::matrix_ops::{mat2_transform, mat3_transform, mat4_transform};
-    if args.len() != 2 {
-        panic!("matrix.transform expects exactly 2 arguments");
-    }
-    match (&args[0], &args[1]) {
-        (Value::Mat2(m), Value::Vec2(v)) => Value::Vec2(mat2_transform(*m, *v)),
-        (Value::Mat3(m), Value::Vec3(v)) => Value::Vec3(mat3_transform(*m, *v)),
-        (Value::Mat4(m), Value::Vec4(v)) => Value::Vec4(mat4_transform(*m, *v)),
-        _ => panic!("matrix.transform expects (Mat2, Vec2), (Mat3, Vec3), or (Mat4, Vec4)"),
-    }
+/// Matrix multiply: `mul_mat3(a, b)` -> Mat3
+/// Explicit function for matrix multiplication (alternative to a * b operator)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [
+        MatrixDims { rows: DimExact(3), cols: DimExact(3) },
+        MatrixDims { rows: DimExact(3), cols: DimExact(3) }
+    ],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn mul_mat3(a: Mat3, b: Mat3) -> Mat3 {
+    use continuum_foundation::matrix_ops::mat3_mul;
+    Mat3(mat3_mul(a.0, b.0))
+}
+
+/// Matrix multiply: `mul_mat4(a, b)` -> Mat4
+/// Explicit function for matrix multiplication (alternative to a * b operator)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [
+        MatrixDims { rows: DimExact(4), cols: DimExact(4) },
+        MatrixDims { rows: DimExact(4), cols: DimExact(4) }
+    ],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn mul_mat4(a: Mat4, b: Mat4) -> Mat4 {
+    use continuum_foundation::matrix_ops::mat4_mul;
+    Mat4(mat4_mul(a.0, b.0))
+}
+
+/// Transform vector by matrix: `transform_mat2_vec2(m, v)` -> Vec2
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }, VectorDim(DimExact(2))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn transform_mat2_vec2(m: Mat2, v: [f64; 2]) -> [f64; 2] {
+    use continuum_foundation::matrix_ops::mat2_transform;
+    mat2_transform(m.0, v)
+}
+
+/// Transform vector by matrix: `transform_mat3_vec3(m, v)` -> Vec3
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }, VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn transform_mat3_vec3(m: Mat3, v: [f64; 3]) -> [f64; 3] {
+    use continuum_foundation::matrix_ops::mat3_transform;
+    mat3_transform(m.0, v)
+}
+
+/// Transform vector by matrix: `transform_mat4_vec4(m, v)` -> Vec4
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }, VectorDim(DimExact(4))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = Multiply(&[0, 1])
+)]
+pub fn transform_mat4_vec4(m: Mat4, v: [f64; 4]) -> [f64; 4] {
+    use continuum_foundation::matrix_ops::mat4_transform;
+    mat4_transform(m.0, v)
 }
 
 /// Build rotation matrix from quaternion: `from_quat(q)` -> Mat3
@@ -407,225 +529,367 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
     ])
 }
 
-/// Eigenvalues of a symmetric matrix: `eigenvalues(m)` -> Vec
+/// Eigenvalues of a symmetric matrix: `eigenvalues_mat2(m)` -> Vec2
 /// Returns eigenvalues sorted in descending order
 /// Note: Only works for symmetric matrices. Non-symmetric matrices will give incorrect results.
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn eigenvalues(args: &[Value]) -> Value {
-    if args.len() != 1 {
-        panic!("matrix.eigenvalues expects exactly 1 argument");
-    }
-    match &args[0] {
-        Value::Mat2(arr) => {
-            let mat = na::Matrix2::from_column_slice(arr);
-            let eig = mat.symmetric_eigen();
-            // Sort descending
-            let mut vals = [eig.eigenvalues[0], eig.eigenvalues[1]];
-            vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
-            Value::Vec2(vals)
-        }
-        Value::Mat3(arr) => {
-            let mat = na::Matrix3::from_column_slice(arr);
-            let eig = mat.symmetric_eigen();
-            let mut vals = [eig.eigenvalues[0], eig.eigenvalues[1], eig.eigenvalues[2]];
-            vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
-            Value::Vec3(vals)
-        }
-        Value::Mat4(arr) => {
-            let mat = na::Matrix4::from_column_slice(arr);
-            let eig = mat.symmetric_eigen();
-            let mut vals = [
-                eig.eigenvalues[0],
-                eig.eigenvalues[1],
-                eig.eigenvalues[2],
-                eig.eigenvalues[3],
-            ];
-            vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
-            Value::Vec4(vals)
-        }
-        _ => panic!("matrix.eigenvalues expects Mat2, Mat3, or Mat4"),
-    }
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn eigenvalues_mat2(arr: Mat2) -> [f64; 2] {
+    let mat = na::Matrix2::from_column_slice(&arr.0);
+    let eig = mat.symmetric_eigen();
+    let mut vals = [eig.eigenvalues[0], eig.eigenvalues[1]];
+    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    vals
 }
 
-/// Eigenvectors of a symmetric matrix: `eigenvectors(m)` -> Mat
+/// Eigenvalues of a symmetric matrix: `eigenvalues_mat3(m)` -> Vec3
+/// Returns eigenvalues sorted in descending order
+/// Note: Only works for symmetric matrices. Non-symmetric matrices will give incorrect results.
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn eigenvalues_mat3(arr: Mat3) -> [f64; 3] {
+    let mat = na::Matrix3::from_column_slice(&arr.0);
+    let eig = mat.symmetric_eigen();
+    let mut vals = [eig.eigenvalues[0], eig.eigenvalues[1], eig.eigenvalues[2]];
+    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    vals
+}
+
+/// Eigenvalues of a symmetric matrix: `eigenvalues_mat4(m)` -> Vec4
+/// Returns eigenvalues sorted in descending order
+/// Note: Only works for symmetric matrices. Non-symmetric matrices will give incorrect results.
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn eigenvalues_mat4(arr: Mat4) -> [f64; 4] {
+    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let eig = mat.symmetric_eigen();
+    let mut vals = [
+        eig.eigenvalues[0],
+        eig.eigenvalues[1],
+        eig.eigenvalues[2],
+        eig.eigenvalues[3],
+    ];
+    vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
+    vals
+}
+
+/// Eigenvectors of a symmetric matrix: `eigenvectors_mat2(m)` -> Mat2
 /// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn eigenvectors(args: &[Value]) -> Value {
-    if args.len() != 1 {
-        panic!("matrix.eigenvectors expects exactly 1 argument");
-    }
-    match &args[0] {
-        Value::Mat2(arr) => {
-            let mat = na::Matrix2::from_column_slice(arr);
-            let eig = mat.symmetric_eigen();
-            // Sort by eigenvalues descending
-            let mut pairs: Vec<_> = eig
-                .eigenvalues
-                .iter()
-                .zip(eig.eigenvectors.column_iter())
-                .collect();
-            pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(2), cols: DimExact(2) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn eigenvectors_mat2(arr: Mat2) -> Mat2 {
+    let mat = na::Matrix2::from_column_slice(&arr.0);
+    let eig = mat.symmetric_eigen();
+    let mut pairs: Vec<_> = eig
+        .eigenvalues
+        .iter()
+        .zip(eig.eigenvectors.column_iter())
+        .collect();
+    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
 
-            // Extract eigenvectors as owned vectors
-            let v0 = na::Vector2::from_iterator(pairs[0].1.iter().cloned());
-            let v1 = na::Vector2::from_iterator(pairs[1].1.iter().cloned());
-            let result = na::Matrix2::from_columns(&[v0, v1]);
-            Value::Mat2(result.as_slice().try_into().unwrap())
-        }
-        Value::Mat3(arr) => {
-            let mat = na::Matrix3::from_column_slice(arr);
-            let eig = mat.symmetric_eigen();
-            let mut pairs: Vec<_> = eig
-                .eigenvalues
-                .iter()
-                .zip(eig.eigenvectors.column_iter())
-                .collect();
-            pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
-
-            // Extract eigenvectors as owned vectors
-            let v0 = na::Vector3::from_iterator(pairs[0].1.iter().cloned());
-            let v1 = na::Vector3::from_iterator(pairs[1].1.iter().cloned());
-            let v2 = na::Vector3::from_iterator(pairs[2].1.iter().cloned());
-            let result = na::Matrix3::from_columns(&[v0, v1, v2]);
-            Value::Mat3(result.as_slice().try_into().unwrap())
-        }
-        Value::Mat4(arr) => {
-            let mat = na::Matrix4::from_column_slice(arr);
-            let eig = mat.symmetric_eigen();
-            let mut pairs: Vec<_> = eig
-                .eigenvalues
-                .iter()
-                .zip(eig.eigenvectors.column_iter())
-                .collect();
-            pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
-
-            // Extract eigenvectors as owned vectors
-            let v0 = na::Vector4::from_iterator(pairs[0].1.iter().cloned());
-            let v1 = na::Vector4::from_iterator(pairs[1].1.iter().cloned());
-            let v2 = na::Vector4::from_iterator(pairs[2].1.iter().cloned());
-            let v3 = na::Vector4::from_iterator(pairs[3].1.iter().cloned());
-            let result = na::Matrix4::from_columns(&[v0, v1, v2, v3]);
-            Value::Mat4(result.as_slice().try_into().unwrap())
-        }
-        _ => panic!("matrix.eigenvectors expects Mat2, Mat3, or Mat4"),
-    }
+    let v0 = na::Vector2::from_iterator(pairs[0].1.iter().cloned());
+    let v1 = na::Vector2::from_iterator(pairs[1].1.iter().cloned());
+    let result = na::Matrix2::from_columns(&[v0, v1]);
+    Mat2(result.as_slice().try_into().unwrap())
 }
 
-/// SVD - U matrix: `svd_u(m)` -> Mat
+/// Eigenvectors of a symmetric matrix: `eigenvectors_mat3(m)` -> Mat3
+/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn eigenvectors_mat3(arr: Mat3) -> Mat3 {
+    let mat = na::Matrix3::from_column_slice(&arr.0);
+    let eig = mat.symmetric_eigen();
+    let mut pairs: Vec<_> = eig
+        .eigenvalues
+        .iter()
+        .zip(eig.eigenvectors.column_iter())
+        .collect();
+    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+
+    let v0 = na::Vector3::from_iterator(pairs[0].1.iter().cloned());
+    let v1 = na::Vector3::from_iterator(pairs[1].1.iter().cloned());
+    let v2 = na::Vector3::from_iterator(pairs[2].1.iter().cloned());
+    let result = na::Matrix3::from_columns(&[v0, v1, v2]);
+    Mat3(result.as_slice().try_into().unwrap())
+}
+
+/// Eigenvectors of a symmetric matrix: `eigenvectors_mat4(m)` -> Mat4
+/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn eigenvectors_mat4(arr: Mat4) -> Mat4 {
+    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let eig = mat.symmetric_eigen();
+    let mut pairs: Vec<_> = eig
+        .eigenvalues
+        .iter()
+        .zip(eig.eigenvectors.column_iter())
+        .collect();
+    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+
+    let v0 = na::Vector4::from_iterator(pairs[0].1.iter().cloned());
+    let v1 = na::Vector4::from_iterator(pairs[1].1.iter().cloned());
+    let v2 = na::Vector4::from_iterator(pairs[2].1.iter().cloned());
+    let v3 = na::Vector4::from_iterator(pairs[3].1.iter().cloned());
+    let result = na::Matrix4::from_columns(&[v0, v1, v2, v3]);
+    Mat4(result.as_slice().try_into().unwrap())
+}
+
+/// SVD - U matrix: `svd_u_mat2(m)` -> Mat2
 /// Returns the left singular vectors (U in A = UΣV^T)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn svd_u(args: &[Value]) -> Value {
-    if args.len() != 1 {
-        panic!("matrix.svd_u expects exactly 1 argument");
-    }
-    match &args[0] {
-        Value::Mat2(arr) => {
-            let mat = na::Matrix2::from_column_slice(arr);
-            let svd = mat.svd(true, false);
-            let u = svd.u.unwrap();
-            Value::Mat2(u.as_slice().try_into().unwrap())
-        }
-        Value::Mat3(arr) => {
-            let mat = na::Matrix3::from_column_slice(arr);
-            let svd = mat.svd(true, false);
-            let u = svd.u.unwrap();
-            Value::Mat3(u.as_slice().try_into().unwrap())
-        }
-        Value::Mat4(arr) => {
-            let mat = na::Matrix4::from_column_slice(arr);
-            let svd = mat.svd(true, false);
-            let u = svd.u.unwrap();
-            Value::Mat4(u.as_slice().try_into().unwrap())
-        }
-        _ => panic!("matrix.svd_u expects Mat2, Mat3, or Mat4"),
-    }
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(2), cols: DimExact(2) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn svd_u_mat2(arr: Mat2) -> Mat2 {
+    let mat = na::Matrix2::from_column_slice(&arr.0);
+    let svd = mat.svd(true, false);
+    let u = svd.u.unwrap();
+    Mat2(u.as_slice().try_into().unwrap())
 }
 
-/// SVD - singular values: `svd_s(m)` -> Vec
+/// SVD - U matrix: `svd_u_mat3(m)` -> Mat3
+/// Returns the left singular vectors (U in A = UΣV^T)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn svd_u_mat3(arr: Mat3) -> Mat3 {
+    let mat = na::Matrix3::from_column_slice(&arr.0);
+    let svd = mat.svd(true, false);
+    let u = svd.u.unwrap();
+    Mat3(u.as_slice().try_into().unwrap())
+}
+
+/// SVD - U matrix: `svd_u_mat4(m)` -> Mat4
+/// Returns the left singular vectors (U in A = UΣV^T)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn svd_u_mat4(arr: Mat4) -> Mat4 {
+    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let svd = mat.svd(true, false);
+    let u = svd.u.unwrap();
+    Mat4(u.as_slice().try_into().unwrap())
+}
+
+/// SVD - singular values: `svd_s_mat2(m)` -> Vec2
 /// Returns the singular values (diagonal of Σ in A = UΣV^T)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn svd_s(args: &[Value]) -> Value {
-    if args.len() != 1 {
-        panic!("matrix.svd_s expects exactly 1 argument");
-    }
-    match &args[0] {
-        Value::Mat2(arr) => {
-            let mat = na::Matrix2::from_column_slice(arr);
-            let svd = mat.svd(false, false);
-            Value::Vec2([svd.singular_values[0], svd.singular_values[1]])
-        }
-        Value::Mat3(arr) => {
-            let mat = na::Matrix3::from_column_slice(arr);
-            let svd = mat.svd(false, false);
-            Value::Vec3([
-                svd.singular_values[0],
-                svd.singular_values[1],
-                svd.singular_values[2],
-            ])
-        }
-        Value::Mat4(arr) => {
-            let mat = na::Matrix4::from_column_slice(arr);
-            let svd = mat.svd(false, false);
-            Value::Vec4([
-                svd.singular_values[0],
-                svd.singular_values[1],
-                svd.singular_values[2],
-                svd.singular_values[3],
-            ])
-        }
-        _ => panic!("matrix.svd_s expects Mat2, Mat3, or Mat4"),
-    }
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn svd_s_mat2(arr: Mat2) -> [f64; 2] {
+    let mat = na::Matrix2::from_column_slice(&arr.0);
+    let svd = mat.svd(false, false);
+    [svd.singular_values[0], svd.singular_values[1]]
 }
 
-/// SVD - V^T matrix: `svd_vt(m)` -> Mat
+/// SVD - singular values: `svd_s_mat3(m)` -> Vec3
+/// Returns the singular values (diagonal of Σ in A = UΣV^T)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn svd_s_mat3(arr: Mat3) -> [f64; 3] {
+    let mat = na::Matrix3::from_column_slice(&arr.0);
+    let svd = mat.svd(false, false);
+    [
+        svd.singular_values[0],
+        svd.singular_values[1],
+        svd.singular_values[2],
+    ]
+}
+
+/// SVD - singular values: `svd_s_mat4(m)` -> Vec4
+/// Returns the singular values (diagonal of Σ in A = UΣV^T)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn svd_s_mat4(arr: Mat4) -> [f64; 4] {
+    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let svd = mat.svd(false, false);
+    [
+        svd.singular_values[0],
+        svd.singular_values[1],
+        svd.singular_values[2],
+        svd.singular_values[3],
+    ]
+}
+
+/// SVD - V^T matrix: `svd_vt_mat2(m)` -> Mat2
 /// Returns the transposed right singular vectors (V^T in A = UΣV^T)
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn svd_vt(args: &[Value]) -> Value {
-    if args.len() != 1 {
-        panic!("matrix.svd_vt expects exactly 1 argument");
-    }
-    match &args[0] {
-        Value::Mat2(arr) => {
-            let mat = na::Matrix2::from_column_slice(arr);
-            let svd = mat.svd(false, true);
-            let vt = svd.v_t.unwrap();
-            Value::Mat2(vt.as_slice().try_into().unwrap())
-        }
-        Value::Mat3(arr) => {
-            let mat = na::Matrix3::from_column_slice(arr);
-            let svd = mat.svd(false, true);
-            let vt = svd.v_t.unwrap();
-            Value::Mat3(vt.as_slice().try_into().unwrap())
-        }
-        Value::Mat4(arr) => {
-            let mat = na::Matrix4::from_column_slice(arr);
-            let svd = mat.svd(false, true);
-            let vt = svd.v_t.unwrap();
-            Value::Mat4(vt.as_slice().try_into().unwrap())
-        }
-        _ => panic!("matrix.svd_vt expects Mat2, Mat3, or Mat4"),
-    }
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(2), cols: DimExact(2) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn svd_vt_mat2(arr: Mat2) -> Mat2 {
+    let mat = na::Matrix2::from_column_slice(&arr.0);
+    let svd = mat.svd(false, true);
+    let vt = svd.v_t.unwrap();
+    Mat2(vt.as_slice().try_into().unwrap())
+}
+
+/// SVD - V^T matrix: `svd_vt_mat3(m)` -> Mat3
+/// Returns the transposed right singular vectors (V^T in A = UΣV^T)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn svd_vt_mat3(arr: Mat3) -> Mat3 {
+    let mat = na::Matrix3::from_column_slice(&arr.0);
+    let svd = mat.svd(false, true);
+    let vt = svd.v_t.unwrap();
+    Mat3(vt.as_slice().try_into().unwrap())
+}
+
+/// SVD - V^T matrix: `svd_vt_mat4(m)` -> Mat4
+/// Returns the transposed right singular vectors (V^T in A = UΣV^T)
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
+    unit_in = [UnitAny],
+    shape_out = ShapeMatrixDims { rows: DimExact(4), cols: DimExact(4) },
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn svd_vt_mat4(arr: Mat4) -> Mat4 {
+    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let svd = mat.svd(false, true);
+    let vt = svd.v_t.unwrap();
+    Mat4(vt.as_slice().try_into().unwrap())
 }
 
 // ============================================================================
 // Matrix Construction Functions
 // ============================================================================
 
-/// Trace of a matrix (sum of diagonal elements): `trace(m)` -> Scalar
-#[kernel_fn(namespace = "matrix", category = "matrix", variadic)]
-pub fn trace(args: &[Value]) -> f64 {
-    if args.len() != 1 {
-        panic!("matrix.trace expects exactly 1 argument");
-    }
-    match &args[0] {
-        // Column-major: Mat2 [m00, m10, m01, m11] -> diagonal is m00 + m11
-        Value::Mat2(m) => m[0] + m[3],
-        // Column-major: Mat3 [m00, m10, m20, m01, m11, m21, m02, m12, m22]
-        Value::Mat3(m) => m[0] + m[4] + m[8],
-        // Column-major: Mat4 [m00, m10, m20, m30, m01, m11, ...]
-        Value::Mat4(m) => m[0] + m[5] + m[10] + m[15],
-        _ => panic!("matrix.trace expects Mat2, Mat3, or Mat4"),
-    }
+/// Trace of a matrix (sum of diagonal elements): `trace_mat2(m)` -> Scalar
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn trace_mat2(m: Mat2) -> f64 {
+    m.0[0] + m.0[3]
+}
+
+/// Trace of a matrix (sum of diagonal elements): `trace_mat3(m)` -> Scalar
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn trace_mat3(m: Mat3) -> f64 {
+    m.0[0] + m.0[4] + m.0[8]
+}
+
+/// Trace of a matrix (sum of diagonal elements): `trace_mat4(m)` -> Scalar
+#[kernel_fn(
+    namespace = "matrix",
+    category = "matrix",
+    purity = Pure,
+    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
+    unit_in = [UnitAny],
+    shape_out = Scalar,
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn trace_mat4(m: Mat4) -> f64 {
+    m.0[0] + m.0[5] + m.0[10] + m.0[15]
 }
 
 /// Scale matrix: `scale(x, y, z)` -> Mat4
@@ -901,6 +1165,237 @@ mod tests {
     use continuum_kernel_registry::{Arity, get_in_namespace, is_known_in};
 
     #[test]
+    fn test_transpose_mat2_registered() {
+        assert!(is_known_in("matrix", "transpose_mat2"));
+        let desc = get_in_namespace("matrix", "transpose_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_transpose_mat3_registered() {
+        assert!(is_known_in("matrix", "transpose_mat3"));
+        let desc = get_in_namespace("matrix", "transpose_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_transpose_mat4_registered() {
+        assert!(is_known_in("matrix", "transpose_mat4"));
+        let desc = get_in_namespace("matrix", "transpose_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_determinant_mat2_registered() {
+        assert!(is_known_in("matrix", "determinant_mat2"));
+        let desc = get_in_namespace("matrix", "determinant_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_determinant_mat3_registered() {
+        assert!(is_known_in("matrix", "determinant_mat3"));
+        let desc = get_in_namespace("matrix", "determinant_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_determinant_mat4_registered() {
+        assert!(is_known_in("matrix", "determinant_mat4"));
+        let desc = get_in_namespace("matrix", "determinant_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_inverse_mat2_registered() {
+        assert!(is_known_in("matrix", "inverse_mat2"));
+        let desc = get_in_namespace("matrix", "inverse_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_inverse_mat3_registered() {
+        assert!(is_known_in("matrix", "inverse_mat3"));
+        let desc = get_in_namespace("matrix", "inverse_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_inverse_mat4_registered() {
+        assert!(is_known_in("matrix", "inverse_mat4"));
+        let desc = get_in_namespace("matrix", "inverse_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_mul_mat2_registered() {
+        assert!(is_known_in("matrix", "mul_mat2"));
+        let desc = get_in_namespace("matrix", "mul_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(2));
+    }
+
+    #[test]
+    fn test_mul_mat3_registered() {
+        assert!(is_known_in("matrix", "mul_mat3"));
+        let desc = get_in_namespace("matrix", "mul_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(2));
+    }
+
+    #[test]
+    fn test_mul_mat4_registered() {
+        assert!(is_known_in("matrix", "mul_mat4"));
+        let desc = get_in_namespace("matrix", "mul_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(2));
+    }
+
+    #[test]
+    fn test_transform_mat2_vec2_registered() {
+        assert!(is_known_in("matrix", "transform_mat2_vec2"));
+        let desc = get_in_namespace("matrix", "transform_mat2_vec2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(2));
+    }
+
+    #[test]
+    fn test_transform_mat3_vec3_registered() {
+        assert!(is_known_in("matrix", "transform_mat3_vec3"));
+        let desc = get_in_namespace("matrix", "transform_mat3_vec3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(2));
+    }
+
+    #[test]
+    fn test_transform_mat4_vec4_registered() {
+        assert!(is_known_in("matrix", "transform_mat4_vec4"));
+        let desc = get_in_namespace("matrix", "transform_mat4_vec4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(2));
+    }
+
+    #[test]
+    fn test_eigenvalues_mat2_registered() {
+        assert!(is_known_in("matrix", "eigenvalues_mat2"));
+        let desc = get_in_namespace("matrix", "eigenvalues_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_eigenvalues_mat3_registered() {
+        assert!(is_known_in("matrix", "eigenvalues_mat3"));
+        let desc = get_in_namespace("matrix", "eigenvalues_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_eigenvalues_mat4_registered() {
+        assert!(is_known_in("matrix", "eigenvalues_mat4"));
+        let desc = get_in_namespace("matrix", "eigenvalues_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_eigenvectors_mat2_registered() {
+        assert!(is_known_in("matrix", "eigenvectors_mat2"));
+        let desc = get_in_namespace("matrix", "eigenvectors_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_eigenvectors_mat3_registered() {
+        assert!(is_known_in("matrix", "eigenvectors_mat3"));
+        let desc = get_in_namespace("matrix", "eigenvectors_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_eigenvectors_mat4_registered() {
+        assert!(is_known_in("matrix", "eigenvectors_mat4"));
+        let desc = get_in_namespace("matrix", "eigenvectors_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_svd_u_mat2_registered() {
+        assert!(is_known_in("matrix", "svd_u_mat2"));
+        let desc = get_in_namespace("matrix", "svd_u_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_svd_u_mat3_registered() {
+        assert!(is_known_in("matrix", "svd_u_mat3"));
+        let desc = get_in_namespace("matrix", "svd_u_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_svd_u_mat4_registered() {
+        assert!(is_known_in("matrix", "svd_u_mat4"));
+        let desc = get_in_namespace("matrix", "svd_u_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_svd_s_mat2_registered() {
+        assert!(is_known_in("matrix", "svd_s_mat2"));
+        let desc = get_in_namespace("matrix", "svd_s_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_svd_s_mat3_registered() {
+        assert!(is_known_in("matrix", "svd_s_mat3"));
+        let desc = get_in_namespace("matrix", "svd_s_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_svd_s_mat4_registered() {
+        assert!(is_known_in("matrix", "svd_s_mat4"));
+        let desc = get_in_namespace("matrix", "svd_s_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_svd_vt_mat2_registered() {
+        assert!(is_known_in("matrix", "svd_vt_mat2"));
+        let desc = get_in_namespace("matrix", "svd_vt_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_svd_vt_mat3_registered() {
+        assert!(is_known_in("matrix", "svd_vt_mat3"));
+        let desc = get_in_namespace("matrix", "svd_vt_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_svd_vt_mat4_registered() {
+        assert!(is_known_in("matrix", "svd_vt_mat4"));
+        let desc = get_in_namespace("matrix", "svd_vt_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_trace_mat2_registered() {
+        assert!(is_known_in("matrix", "trace_mat2"));
+        let desc = get_in_namespace("matrix", "trace_mat2").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_trace_mat3_registered() {
+        assert!(is_known_in("matrix", "trace_mat3"));
+        let desc = get_in_namespace("matrix", "trace_mat3").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
+    fn test_trace_mat4_registered() {
+        assert!(is_known_in("matrix", "trace_mat4"));
+        let desc = get_in_namespace("matrix", "trace_mat4").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(1));
+    }
+
+    #[test]
     fn test_identity2_registered() {
         assert!(is_known_in("matrix", "identity2"));
         let desc = get_in_namespace("matrix", "identity2").unwrap();
@@ -935,115 +1430,91 @@ mod tests {
 
     #[test]
     fn test_transpose_mat2() {
-        let m = Value::Mat2([1.0, 2.0, 3.0, 4.0]);
-        let result = transpose(&[m]);
-        assert_eq!(result, Value::Mat2([1.0, 3.0, 2.0, 4.0]));
+        let m = Mat2([1.0, 2.0, 3.0, 4.0]);
+        let result = transpose_mat2(m);
+        assert_eq!(result.0, [1.0, 3.0, 2.0, 4.0]);
     }
 
     #[test]
     fn test_transpose_mat3() {
-        let m = Value::Mat3([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
-        let result = transpose(&[m]);
-        assert_eq!(
-            result,
-            Value::Mat3([1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 9.0])
-        );
+        let m = Mat3([1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0]);
+        let result = transpose_mat3(m);
+        assert_eq!(result.0, [1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 9.0]);
     }
 
     #[test]
     fn test_determinant_mat2() {
-        let m = Value::Mat2([1.0, 2.0, 3.0, 4.0]);
-        let det = determinant(&[m]);
+        let m = Mat2([1.0, 2.0, 3.0, 4.0]);
+        let det = determinant_mat2(m);
         // det = 1*4 - 3*2 = 4 - 6 = -2
         assert_eq!(det, -2.0);
     }
 
     #[test]
     fn test_determinant_mat3_identity() {
-        let m = Value::Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
-        let det = determinant(&[m]);
+        let m = Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let det = determinant_mat3(m);
         assert_eq!(det, 1.0);
     }
 
     #[test]
     fn test_inverse_mat2() {
-        let m = Value::Mat2([1.0, 0.0, 0.0, 1.0]); // Identity
-        let inv = inverse(&[m]);
-        assert_eq!(inv, Value::Mat2([1.0, 0.0, 0.0, 1.0]));
+        let m = Mat2([1.0, 0.0, 0.0, 1.0]); // Identity
+        let inv = inverse_mat2(m);
+        assert_eq!(inv.0, [1.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]
     fn test_inverse_mat2_scaled() {
-        let m = Value::Mat2([2.0, 0.0, 0.0, 2.0]); // 2*Identity
-        let inv = inverse(&[m]);
-        assert_eq!(inv, Value::Mat2([0.5, 0.0, 0.0, 0.5]));
+        let m = Mat2([2.0, 0.0, 0.0, 2.0]); // 2*Identity
+        let inv = inverse_mat2(m);
+        assert_eq!(inv.0, [0.5, 0.0, 0.0, 0.5]);
     }
 
     #[test]
     fn test_inverse_mat3_identity() {
-        let m = Value::Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
-        let inv = inverse(&[m]);
-        assert_eq!(
-            inv,
-            Value::Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
-        );
+        let m = Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        let inv = inverse_mat3(m);
+        assert_eq!(inv.0, [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
     }
 
     #[test]
     #[should_panic(expected = "singular")]
     fn test_inverse_mat2_singular() {
-        let m = Value::Mat2([1.0, 2.0, 2.0, 4.0]); // Singular matrix (rows are linearly dependent)
-        let _ = inverse(&[m]);
-    }
-
-    #[test]
-    fn test_transpose_registered() {
-        assert!(is_known_in("matrix", "transpose"));
-    }
-
-    #[test]
-    fn test_determinant_registered() {
-        assert!(is_known_in("matrix", "determinant"));
-    }
-
-    #[test]
-    fn test_inverse_registered() {
-        assert!(is_known_in("matrix", "inverse"));
+        let m = Mat2([1.0, 2.0, 2.0, 4.0]); // Singular matrix (rows are linearly dependent)
+        let _ = inverse_mat2(m);
     }
 
     #[test]
     fn test_mul_mat2_identity() {
-        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
-        let m = Value::Mat2([1.0, 2.0, 3.0, 4.0]);
-        let result = mul(&[identity, m.clone()]);
-        assert_eq!(result, m);
+        let identity = Mat2([1.0, 0.0, 0.0, 1.0]);
+        let m = Mat2([1.0, 2.0, 3.0, 4.0]);
+        let result = mul_mat2(identity, Mat2([1.0, 2.0, 3.0, 4.0]));
+        assert_eq!(result.0, m.0);
     }
 
     #[test]
     fn test_mul_mat3() {
-        let a = Value::Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]); // Identity
-        let b = Value::Mat3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]); // 2*Identity
-        let result = mul(&[a, b]);
-        assert_eq!(
-            result,
-            Value::Mat3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0])
-        );
+        let a = Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]); // Identity
+        let b = Mat3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]); // 2*Identity
+        let result = mul_mat3(a, b);
+        assert_eq!(result.0, [2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]);
     }
 
     #[test]
     fn test_transform_vec2() {
-        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
-        let v = Value::Vec2([3.0, 4.0]);
-        let result = transform(&[identity, v]);
-        assert_eq!(result, Value::Vec2([3.0, 4.0]));
+        let identity = Mat2([1.0, 0.0, 0.0, 1.0]);
+        let v = [3.0, 4.0];
+        let result = transform_mat2_vec2(identity, v);
+        assert_eq!(result, [3.0, 4.0]);
     }
 
     #[test]
     fn test_transform_vec3_scale() {
-        let scale = Value::Mat3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]);
-        let v = Value::Vec3([1.0, 2.0, 3.0]);
-        let result = transform(&[scale, v]);
-        assert_eq!(result, Value::Vec3([2.0, 4.0, 6.0]));
+        let scale = Mat3([2.0, 0.0, 0.0, 0.0, 2.0, 0.0, 0.0, 0.0, 2.0]);
+        let v = [1.0, 2.0, 3.0];
+        let result = transform_mat3_vec3(scale, v);
+        assert_eq!(result, [2.0, 4.0, 6.0]);
     }
 
     #[test]
@@ -1085,16 +1556,6 @@ mod tests {
     }
 
     #[test]
-    fn test_mul_registered() {
-        assert!(is_known_in("matrix", "mul"));
-    }
-
-    #[test]
-    fn test_transform_registered() {
-        assert!(is_known_in("matrix", "transform"));
-    }
-
-    #[test]
     fn test_from_quat_registered() {
         assert!(is_known_in("matrix", "from_quat"));
     }
@@ -1106,103 +1567,56 @@ mod tests {
 
     #[test]
     fn test_eigenvalues_mat2_identity() {
-        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
-        let result = eigenvalues(&[identity]);
-        // Identity has eigenvalues [1, 1]
-        if let Value::Vec2(vals) = result {
-            assert!((vals[0] - 1.0).abs() < 1e-10);
-            assert!((vals[1] - 1.0).abs() < 1e-10);
-        } else {
-            panic!("Expected Vec2");
-        }
+        let identity = Mat2([1.0, 0.0, 0.0, 1.0]);
+        let result = eigenvalues_mat2(identity);
+        assert!((result[0] - 1.0).abs() < 1e-10);
+        assert!((result[1] - 1.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_eigenvalues_mat3_diagonal() {
         // Diagonal matrix [[2, 0, 0], [0, 3, 0], [0, 0, 1]]
-        let m = Value::Mat3([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0]);
-        let result = eigenvalues(&[m]);
+        let m = Mat3([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0]);
+        let result = eigenvalues_mat3(m);
         // Eigenvalues should be [3, 2, 1] (sorted descending)
-        if let Value::Vec3(vals) = result {
-            assert!((vals[0] - 3.0).abs() < 1e-10);
-            assert!((vals[1] - 2.0).abs() < 1e-10);
-            assert!((vals[2] - 1.0).abs() < 1e-10);
-        } else {
-            panic!("Expected Vec3");
-        }
+        assert!((result[0] - 3.0).abs() < 1e-10);
+        assert!((result[1] - 2.0).abs() < 1e-10);
+        assert!((result[2] - 1.0).abs() < 1e-10);
     }
 
     #[test]
     fn test_eigenvectors_mat2_identity() {
-        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
-        let result = eigenvectors(&[identity]);
+        let identity = Mat2([1.0, 0.0, 0.0, 1.0]);
+        let result = eigenvectors_mat2(identity);
         // Identity matrix has any orthonormal basis as eigenvectors
         // Just check it's a valid matrix
-        if let Value::Mat2(_) = result {
-            // Success - eigenvectors returned
-        } else {
-            panic!("Expected Mat2");
-        }
+        let _ = result;
     }
 
     #[test]
     fn test_svd_identity_mat2() {
-        let identity = Value::Mat2([1.0, 0.0, 0.0, 1.0]);
+        let identity = Mat2([1.0, 0.0, 0.0, 1.0]);
 
         // Singular values should be [1, 1]
-        let s = svd_s(&[identity.clone()]);
-        if let Value::Vec2(vals) = s {
-            assert!((vals[0] - 1.0).abs() < 1e-10);
-            assert!((vals[1] - 1.0).abs() < 1e-10);
-        } else {
-            panic!("Expected Vec2");
-        }
+        let s = svd_s_mat2(identity);
+        assert!((s[0] - 1.0).abs() < 1e-10);
+        assert!((s[1] - 1.0).abs() < 1e-10);
 
         // U should be approximately identity (or a rotation)
-        let u = svd_u(&[identity.clone()]);
-        assert!(matches!(u, Value::Mat2(_)));
+        let u = svd_u_mat2(Mat2([1.0, 0.0, 0.0, 1.0]));
+        assert!(matches!(u, Mat2(_)));
     }
 
     #[test]
     fn test_svd_diagonal_mat3() {
         // Diagonal matrix [[2, 0, 0], [0, 3, 0], [0, 0, 1]]
-        let m = Value::Mat3([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0]);
+        let m = Mat3([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0]);
 
         // Singular values should be [3, 2, 1] (sorted descending by nalgebra)
-        let s = svd_s(&[m.clone()]);
-        if let Value::Vec3(vals) = s {
-            // Singular values are sorted descending
-            assert!((vals[0] - 3.0).abs() < 1e-10);
-            assert!((vals[1] - 2.0).abs() < 1e-10);
-            assert!((vals[2] - 1.0).abs() < 1e-10);
-        } else {
-            panic!("Expected Vec3");
-        }
-    }
-
-    #[test]
-    fn test_eigenvalues_registered() {
-        assert!(is_known_in("matrix", "eigenvalues"));
-    }
-
-    #[test]
-    fn test_eigenvectors_registered() {
-        assert!(is_known_in("matrix", "eigenvectors"));
-    }
-
-    #[test]
-    fn test_svd_u_registered() {
-        assert!(is_known_in("matrix", "svd_u"));
-    }
-
-    #[test]
-    fn test_svd_s_registered() {
-        assert!(is_known_in("matrix", "svd_s"));
-    }
-
-    #[test]
-    fn test_svd_vt_registered() {
-        assert!(is_known_in("matrix", "svd_vt"));
+        let s = svd_s_mat3(m);
+        assert!((s[0] - 3.0).abs() < 1e-10);
+        assert!((s[1] - 2.0).abs() < 1e-10);
+        assert!((s[2] - 1.0).abs() < 1e-10);
     }
 
     // ============================================================================
@@ -1213,27 +1627,22 @@ mod tests {
     fn test_trace_mat2() {
         // Mat2 in column-major: [m00, m10, m01, m11]
         // Diagonal: m00 + m11 = 1 + 4 = 5
-        let m = Value::Mat2([1.0, 2.0, 3.0, 4.0]);
-        assert_eq!(trace(&[m]), 5.0);
+        let m = Mat2([1.0, 2.0, 3.0, 4.0]);
+        assert_eq!(trace_mat2(m), 5.0);
     }
 
     #[test]
     fn test_trace_mat3_identity() {
-        let m = Value::Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
-        assert_eq!(trace(&[m]), 3.0);
+        let m = Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]);
+        assert_eq!(trace_mat3(m), 3.0);
     }
 
     #[test]
     fn test_trace_mat4_identity() {
-        let m = Value::Mat4([
+        let m = Mat4([
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         ]);
-        assert_eq!(trace(&[m]), 4.0);
-    }
-
-    #[test]
-    fn test_trace_registered() {
-        assert!(is_known_in("matrix", "trace"));
+        assert_eq!(trace_mat4(m), 4.0);
     }
 
     #[test]
@@ -1345,9 +1754,9 @@ mod tests {
         let fov = std::f64::consts::FRAC_PI_4; // 45 degrees
         let m = perspective(fov, 1.0, 0.1, 100.0);
         // Check that it produces a valid perspective matrix
-        // m[15] should be 0 for perspective (not 1 like affine transforms)
+        // m.0[15] should be 0 for perspective (not 1 like affine transforms)
         assert_eq!(m.0[15], 0.0);
-        // m[11] should be -1 (perspective divide flag)
+        // m.0[11] should be -1 (perspective divide flag)
         assert_eq!(m.0[11], -1.0);
     }
 
@@ -1357,7 +1766,7 @@ mod tests {
         let m1 = perspective(fov, 1.0, 0.1, 100.0);
         let m2 = perspective(fov, 2.0, 0.1, 100.0);
         // With aspect 2.0, horizontal FOV is wider
-        // m[0] (x scaling) should be smaller for wider aspect
+        // m.0[0] (x scaling) should be smaller for wider aspect
         assert!(m2.0[0] < m1.0[0]);
     }
 
@@ -1370,9 +1779,9 @@ mod tests {
     fn test_orthographic_basic() {
         let m = orthographic(-1.0, 1.0, -1.0, 1.0, 0.1, 100.0);
         // Check that it produces a valid orthographic matrix
-        // m[15] should be 1.0 for orthographic
+        // m.0[15] should be 1.0 for orthographic
         assert_eq!(m.0[15], 1.0);
-        // m[11] should be 0.0 (no perspective divide)
+        // m.0[11] should be 0.0 (no perspective divide)
         assert_eq!(m.0[11], 0.0);
     }
 
@@ -1396,7 +1805,7 @@ mod tests {
         let up = [0.0, 1.0, 0.0];
         let m = look_at(eye, target, up);
         // Looking down -Z axis from (0,0,5)
-        // m[15] should be 1.0 (view matrix is affine)
+        // m.0[15] should be 1.0 (view matrix is affine)
         assert_eq!(m.0[15], 1.0);
     }
 
