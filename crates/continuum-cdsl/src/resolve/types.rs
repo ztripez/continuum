@@ -839,4 +839,72 @@ mod tests {
         assert_eq!(s.dims().mass, 0);
         assert!(s.is_multiplicative());
     }
+
+    #[test]
+    fn test_scalar_invalid_unit_propagates_error() {
+        let type_table = TypeTable::new();
+        let span = Span::new(3, 30, 40, 2);
+
+        let scalar = TypeExpr::Scalar {
+            unit: Some(UnitExpr::Base("bad".to_string())),
+        };
+
+        let err = resolve_type_expr(&scalar, &type_table, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("Unknown base unit"));
+    }
+
+    #[test]
+    fn test_vector_invalid_unit_propagates_error() {
+        let type_table = TypeTable::new();
+        let span = Span::new(4, 50, 60, 2);
+
+        let vector = TypeExpr::Vector {
+            dim: 3,
+            unit: Some(UnitExpr::Base("invalid".to_string())),
+        };
+
+        let err = resolve_type_expr(&vector, &type_table, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("Unknown base unit"));
+    }
+
+    #[test]
+    fn test_matrix_invalid_unit_propagates_error() {
+        let type_table = TypeTable::new();
+        let span = Span::new(5, 70, 80, 2);
+
+        let matrix = TypeExpr::Matrix {
+            rows: 2,
+            cols: 2,
+            unit: Some(UnitExpr::Base("xyz".to_string())),
+        };
+
+        let err = resolve_type_expr(&matrix, &type_table, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("Unknown base unit"));
+    }
+
+    #[test]
+    fn test_overflow_errors_preserve_span() {
+        let span = Span::new(6, 90, 100, 3);
+
+        // Test multiply overflow span
+        let left = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
+        let right = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
+        let multiply = UnitExpr::Multiply(Box::new(left), Box::new(right));
+        let err = resolve_unit_expr(Some(&multiply), span).unwrap_err();
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("overflow"));
+
+        // Test power overflow span
+        let huge_power = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 127);
+        let power = UnitExpr::Power(Box::new(huge_power), 2);
+        let err = resolve_unit_expr(Some(&power), span).unwrap_err();
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("overflow"));
+    }
 }
