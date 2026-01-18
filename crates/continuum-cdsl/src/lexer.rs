@@ -34,7 +34,7 @@ use logos::Logos;
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[repr(u16)]
 #[logos(skip r"[ \t\r\n]+")] // Skip whitespace
-#[logos(skip r"//[^\n]*")] // Skip // comments
+#[logos(skip r"//[^\n]*")] // Skip // comments (non-doc)
 #[logos(skip r"#[^\n]*")] // Skip # comments
 #[logos(skip r"/\*([^*]|\*[^/])*\*/")] // Skip /* */ comments
 pub enum Token {
@@ -114,6 +114,18 @@ pub enum Token {
     /// Keyword `to`
     #[token("to")]
     To,
+    /// Keyword `for`
+    #[token("for")]
+    For,
+    /// Keyword `emit`
+    #[token("emit")]
+    Emit,
+    /// Keyword `observe`
+    #[token("observe")]
+    Observe,
+    /// Keyword `world`
+    #[token("world")]
+    World,
 
     // Expression keywords
     /// Keyword `let`
@@ -215,6 +227,15 @@ pub enum Token {
     /// Operator `!`
     #[token("!")]
     Bang,
+    /// Keyword `and` (logical and)
+    #[token("and")]
+    And,
+    /// Keyword `or` (logical or)
+    #[token("or")]
+    Or,
+    /// Keyword `not` (logical not)
+    #[token("not")]
+    Not,
 
     // Assignment & Type
     /// Operator `=`
@@ -226,6 +247,9 @@ pub enum Token {
     /// Operator `->`
     #[token("->")]
     Arrow,
+    /// Operator `<-` (signal/field assignment)
+    #[token("<-")]
+    LeftArrow,
 
     // Range
     /// Operator `..`
@@ -295,6 +319,18 @@ pub enum Token {
     /// Allows both lowercase and uppercase (for type names).
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
     Ident(String),
+
+    /// Doc comment `/// ...`
+    ///
+    /// Captures documentation comments that start with `///`.
+    /// The captured string excludes the `///` prefix and leading whitespace.
+    /// High priority ensures it's matched before `//` skip rule.
+    #[regex(r"///[^\n]*", |lex| {
+        let s = lex.slice();
+        // Strip /// prefix and trim leading/trailing whitespace
+        s.strip_prefix("///").unwrap_or(s).trim().to_string()
+    }, priority = 10)]
+    DocComment(String),
 }
 
 /// Token string lookup table.
@@ -329,7 +365,11 @@ const TOKEN_STRINGS: &[&str] = &[
     "assert",
     "transition",
     "when",
-    "to", // phases
+    "to",
+    "for",
+    "emit",
+    "observe",
+    "world", // phases & blocks
     "let",
     "in",
     "if",
@@ -358,10 +398,14 @@ const TOKEN_STRINGS: &[&str] = &[
     ">=", // comparison
     "&&",
     "||",
-    "!", // logic
+    "!",
+    "and",
+    "or",
+    "not", // logic
     "=",
     ":",
-    "->", // assignment
+    "->",
+    "<-", // assignment
     "..",
     "..=", // range
     ".",
@@ -401,6 +445,7 @@ impl std::fmt::Display for Token {
             Token::Float(x) => write!(f, "{}", x),
             Token::String(s) => write!(f, "\"{}\"", s),
             Token::Ident(id) => write!(f, "{}", id),
+            Token::DocComment(text) => write!(f, "/// {}", text),
 
             // Simple tokens (keywords, operators, delimiters)
             // Index into TOKEN_STRINGS using discriminant
@@ -780,6 +825,87 @@ mod tests {
         assert_eq!(
             tokens,
             vec![Token::Lt, Token::Ident("K".to_string()), Token::Gt]
+        );
+    }
+
+    #[test]
+    fn test_new_keywords() {
+        let tokens = lex("for emit observe world and or not");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::For,
+                Token::Emit,
+                Token::Observe,
+                Token::World,
+                Token::And,
+                Token::Or,
+                Token::Not,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_left_arrow() {
+        let tokens = lex("temp.x <- value");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("temp".to_string()),
+                Token::Dot,
+                Token::Ident("x".to_string()),
+                Token::LeftArrow,
+                Token::Ident("value".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_doc_comments() {
+        let source = "/// This is a doc comment\n///   Another line\nsignal";
+        let tokens = lex(source);
+        assert_eq!(
+            tokens,
+            vec![
+                Token::DocComment("This is a doc comment".to_string()),
+                Token::DocComment("Another line".to_string()),
+                Token::Signal,
+            ]
+        );
+    }
+
+    #[test]
+    fn test_doc_vs_regular_comments() {
+        let source = "// Regular comment\n/// Doc comment\n# Hash comment\nsignal";
+        let tokens = lex(source);
+        // Regular and hash comments are skipped, only doc comment captured
+        assert_eq!(
+            tokens,
+            vec![Token::DocComment("Doc comment".to_string()), Token::Signal,]
+        );
+    }
+
+    #[test]
+    fn test_and_or_not_vs_symbols() {
+        // Test that word forms and symbol forms both work
+        let tokens = lex("a and b && c or d || e not f ! g");
+        assert_eq!(
+            tokens,
+            vec![
+                Token::Ident("a".to_string()),
+                Token::And,
+                Token::Ident("b".to_string()),
+                Token::AndAnd,
+                Token::Ident("c".to_string()),
+                Token::Or,
+                Token::Ident("d".to_string()),
+                Token::OrOr,
+                Token::Ident("e".to_string()),
+                Token::Not,
+                Token::Ident("f".to_string()),
+                Token::Bang,
+                Token::Ident("g".to_string()),
+            ]
         );
     }
 }
