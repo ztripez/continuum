@@ -18,10 +18,10 @@
 //!
 //! As the node flows through compilation phases, fields are added and cleared:
 //!
-//! 1. **Parsed** - Has `type_expr` and `execution_exprs` from source
+//! 1. **Parsed** - Has `type_expr` and `execution_blocks` from source
 //! 2. **Resolved** - `type_expr` cleared, `output` and `inputs` set
 //! 3. **Validated** - `validation_errors` populated
-//! 4. **Compiled** - `execution_exprs` cleared, `executions` and `reads` set
+//! 4. **Compiled** - `execution_blocks` cleared, `executions` and `reads` set
 //!
 //! This makes the pipeline state explicit: you can check `is_resolved()`,
 //! `is_compiled()`, etc. to determine what phase the node has completed.
@@ -57,6 +57,7 @@
 use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, StratumId, Type};
 use std::path::PathBuf;
 
+use super::declaration::BlockBody;
 use super::expr::TypedExpr;
 use super::role::RoleData;
 
@@ -81,7 +82,7 @@ impl Index for EntityId {}
 /// - Parser produces Node<()> and Node<EntityId>
 /// - Type resolution adds `output` and clears `type_expr`
 /// - Validation adds `validation_errors`
-/// - Compilation adds `executions` and `reads`, clears `execution_exprs`
+/// - Compilation adds `executions` and `reads`, clears `execution_blocks`
 ///
 /// The Index parameter I distinguishes:
 /// - Node<()> = global primitive
@@ -166,11 +167,12 @@ pub struct Node<I: Index = ()> {
     /// Type expression from source (cleared after resolution)
     pub type_expr: Option<TypeExpr>,
 
-    /// Execution expressions from source (cleared after compilation)
+    /// Execution blocks from source (cleared after compilation)
     ///
-    /// Map from phase name to expression. Compiler converts these to
-    /// typed Execution structs with explicit phase enum values.
-    pub execution_exprs: Vec<(String, Expr)>,
+    /// Map from phase name to block body (expression or statements).
+    /// Compiler converts these to typed Execution structs with explicit phase enum values.
+    /// Statement blocks are validated to only appear in effect phases during semantic analysis.
+    pub execution_blocks: Vec<(String, BlockBody)>,
 
     /// Dependencies discovered during analysis
     ///
@@ -185,7 +187,7 @@ impl<I: Index> Node<I> {
     /// Create a new node with minimal required fields
     ///
     /// All optional fields are initialized to None/empty. Lifecycle fields
-    /// (`type_expr`, `execution_exprs`, etc) start empty - they will be
+    /// (`type_expr`, `execution_blocks`, etc) start empty - they will be
     /// populated by compilation phases.
     ///
     /// # Parameters
@@ -215,7 +217,7 @@ impl<I: Index> Node<I> {
             inputs: Vec::new(),
             index,
             type_expr: None,
-            execution_exprs: Vec::new(),
+            execution_blocks: Vec::new(),
             reads: Vec::new(),
             validation_errors: Vec::new(),
         }
@@ -246,14 +248,14 @@ impl<I: Index> Node<I> {
     /// Check if this node has been compiled
     ///
     /// A node is considered compiled when:
-    /// - `execution_exprs` have been cleared (consumed by compiler)
+    /// - `execution_blocks` have been cleared (consumed by compiler)
     /// - `executions` have been added (compiled execution blocks)
     ///
     /// # Returns
     ///
     /// `true` if compilation has completed, `false` otherwise
     pub fn is_compiled(&self) -> bool {
-        self.execution_exprs.is_empty() && !self.executions.is_empty()
+        self.execution_blocks.is_empty() && !self.executions.is_empty()
     }
 
     /// Check if this node has validation errors
@@ -289,8 +291,8 @@ impl<I: Index> Parsed for Node<I> {
         self.type_expr.as_ref()
     }
 
-    fn execution_exprs(&self) -> &[(String, Expr)] {
-        &self.execution_exprs
+    fn execution_blocks(&self) -> &[(String, BlockBody)] {
+        &self.execution_blocks
     }
 }
 
@@ -809,6 +811,8 @@ pub struct ValidationError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::declaration::BlockBody;
+    use crate::ast::expr::Expr;
     use crate::foundation::Span;
 
     #[test]
@@ -906,8 +910,8 @@ mod tests {
         assert!(node.is_resolved());
         assert!(!node.is_compiled());
 
-        // After compilation: execution_exprs cleared, executions set
-        node.execution_exprs = Vec::new();
+        // After compilation: execution_blocks cleared, executions set
+        node.execution_blocks = Vec::new();
         node.executions = vec![Execution { _placeholder: () }];
         assert!(node.is_compiled());
     }
@@ -1001,14 +1005,15 @@ mod tests {
         node.output = None;
         assert!(!node.is_resolved());
 
-        // execution_exprs empty but no executions -> not compiled
-        node.execution_exprs = Vec::new();
+        // execution_blocks empty but no executions -> not compiled
+        node.execution_blocks = Vec::new();
         node.executions = Vec::new();
         assert!(!node.is_compiled());
 
-        // executions present but execution_exprs not empty -> not compiled
+        // executions present but execution_blocks not empty -> not compiled
         let test_expr = Expr::literal(0.0, None, span);
-        node.execution_exprs = vec![("test".to_string(), test_expr)];
+        let test_block = BlockBody::Expression(test_expr);
+        node.execution_blocks = vec![("test".to_string(), test_block)];
         node.executions = vec![Execution { _placeholder: () }];
         assert!(!node.is_compiled());
     }
@@ -1031,7 +1036,7 @@ mod tests {
         assert!(node.output.is_none());
         assert!(node.inputs.is_empty());
         assert!(node.type_expr.is_none());
-        assert!(node.execution_exprs.is_empty());
+        assert!(node.execution_blocks.is_empty());
         assert!(node.reads.is_empty());
         assert!(node.validation_errors.is_empty());
     }

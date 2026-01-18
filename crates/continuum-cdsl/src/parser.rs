@@ -1074,19 +1074,10 @@ fn signal_parser<'src>()
             let mut node = Node::new(path, span, RoleData::Signal, ());
             node.type_expr = type_expr;
 
-            // Convert BlockBody to execution expressions (placeholder - needs proper conversion)
+            // Store execution blocks directly (both expressions and statements)
+            // Semantic analysis will validate that statements only appear in effect phases
             for (name, body) in blocks {
-                // For now, only handle Expression bodies
-                // TODO: Handle Statement bodies properly
-                match body {
-                    BlockBody::Expression(expr) => {
-                        node.execution_exprs.push((name, expr));
-                    }
-                    BlockBody::Statements(_stmts) => {
-                        // TODO: Convert statements to expression or handle differently
-                        // For now, skip statement blocks
-                    }
-                }
+                node.execution_blocks.push((name, body));
             }
 
             // TODO: Apply attributes (extract title, symbol, stratum, etc.)
@@ -1127,12 +1118,7 @@ fn field_parser<'src>()
             node.type_expr = type_expr;
 
             for (name, body) in blocks {
-                match body {
-                    BlockBody::Expression(expr) => {
-                        node.execution_exprs.push((name, expr));
-                    }
-                    BlockBody::Statements(_) => {}
-                }
+                node.execution_blocks.push((name, body));
             }
 
             Declaration::Node(node)
@@ -1162,12 +1148,7 @@ fn operator_parser<'src>()
             node.type_expr = type_expr;
 
             for (name, body) in blocks {
-                match body {
-                    BlockBody::Expression(expr) => {
-                        node.execution_exprs.push((name, expr));
-                    }
-                    BlockBody::Statements(_) => {}
-                }
+                node.execution_blocks.push((name, body));
             }
 
             Declaration::Node(node)
@@ -1198,12 +1179,7 @@ fn impulse_parser<'src>()
             node.type_expr = type_expr;
 
             for (name, body) in blocks {
-                match body {
-                    BlockBody::Expression(expr) => {
-                        node.execution_exprs.push((name, expr));
-                    }
-                    BlockBody::Statements(_) => {}
-                }
+                node.execution_blocks.push((name, body));
             }
 
             Declaration::Node(node)
@@ -1237,12 +1213,7 @@ fn fracture_parser<'src>()
             // TODO: Handle when block
 
             for (name, body) in blocks {
-                match body {
-                    BlockBody::Expression(expr) => {
-                        node.execution_exprs.push((name, expr));
-                    }
-                    BlockBody::Statements(_) => {}
-                }
+                node.execution_blocks.push((name, body));
             }
 
             Declaration::Node(node)
@@ -1349,12 +1320,7 @@ fn member_parser<'src>()
             node.type_expr = type_expr;
 
             for (name, body) in blocks {
-                match body {
-                    BlockBody::Expression(expr) => {
-                        node.execution_exprs.push((name, expr));
-                    }
-                    BlockBody::Statements(_) => {}
-                }
+                node.execution_blocks.push((name, body));
             }
 
             Declaration::Member(node)
@@ -2757,7 +2723,7 @@ mod tests {
             Declaration::Node(node) => match &node.role {
                 RoleData::Signal => {
                     // Signal role confirmed
-                    // resolve block is in execution_exprs
+                    // resolve block is in execution_blocks
                 }
                 _ => panic!("expected signal role"),
             },
@@ -2789,7 +2755,7 @@ mod tests {
                 match &node.role {
                     RoleData::Signal => {
                         // Signal role confirmed
-                        // resolve block is in execution_exprs
+                        // resolve block is in execution_blocks
                     }
                     _ => panic!("expected signal role"),
                 }
@@ -2867,7 +2833,7 @@ signal force : type Vector<3, N> {
             Declaration::Node(node) => match &node.role {
                 RoleData::Signal => {
                     // Signal role confirmed
-                    // collect and resolve blocks are in execution_exprs
+                    // collect and resolve blocks are in execution_blocks
                 }
                 _ => panic!("expected signal role"),
             },
@@ -2890,7 +2856,7 @@ signal force : type Vector<3, N> {
                 match &node.role {
                     RoleData::Field { .. } => {
                         // Field role confirmed
-                        // measure block is in execution_exprs, not in RoleData
+                        // measure block is in execution_blocks, not in RoleData
                     }
                     _ => panic!("expected field role"),
                 }
@@ -2939,7 +2905,7 @@ operator apply_gravity {
                 match &node.role {
                     RoleData::Operator => {
                         // Operator role confirmed
-                        // apply block is in execution_exprs
+                        // apply block is in execution_blocks
                     }
                     _ => panic!("expected operator role"),
                 }
@@ -2963,7 +2929,7 @@ operator accumulate_forces {
                 match &node.role {
                     RoleData::Operator => {
                         // Operator role confirmed
-                        // collect and apply blocks in execution_exprs
+                        // collect and apply blocks in execution_blocks
                     }
                     _ => panic!("expected operator role"),
                 }
@@ -2990,7 +2956,7 @@ impulse external_force : type Vector<3, N> {
                 match &node.role {
                     RoleData::Impulse { .. } => {
                         // Impulse role confirmed
-                        // apply block in execution_exprs
+                        // apply block in execution_blocks
                     }
                     _ => panic!("expected impulse role"),
                 }
@@ -3018,7 +2984,7 @@ fracture stress_exceeded {
                 match &node.role {
                     RoleData::Fracture => {
                         // Fracture role confirmed
-                        // when/emit blocks in execution_exprs
+                        // when/emit blocks in execution_blocks
                     }
                     _ => panic!("expected fracture role"),
                 }
