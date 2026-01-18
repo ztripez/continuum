@@ -550,6 +550,26 @@ pub enum ExprKind {
         args: Vec<Expr>,
     },
 
+    /// Kernel call (desugared from operators)
+    ///
+    /// This variant preserves kernel identity from desugaring until type resolution.
+    /// Operators desugar to KernelCall instead of generic Call to maintain the
+    /// distinction between user function calls and kernel calls.
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// a + b    // desugars to KernelCall { kernel: maths.add, args: [a, b] }
+    /// -x       // desugars to KernelCall { kernel: maths.neg, args: [x] }
+    /// if c{t}else{e}  // desugars to KernelCall { kernel: logic.select, args: [c,t,e] }
+    /// ```
+    KernelCall {
+        /// Kernel being called (preserves namespace + name identity)
+        kernel: KernelId,
+        /// Argument expressions
+        args: Vec<Expr>,
+    },
+
     /// User-defined struct construction
     ///
     /// # Examples

@@ -10,7 +10,7 @@
 //! # Design
 //!
 //! Desugaring happens **before type resolution**. It transforms `Expr` (untyped AST)
-//! into simpler `Expr` with only `Call` nodes for operations.
+//! into simpler `Expr` with only `KernelCall` nodes for operations.
 //!
 //! This separation allows:
 //! - Type resolution to work with a smaller set of expression variants
@@ -26,12 +26,12 @@
 //! // Binary operator
 //! let expr = Expr::binary(BinaryOp::Add, a, b, span);
 //! let desugared = desugar_expr(expr);
-//! // Now: Call { kernel: maths.add, args: [a, b] }
+//! // Now: KernelCall { kernel: maths.add, args: [a, b] }
 //!
 //! // If-expression
 //! let expr = Expr::if_then_else(cond, then_val, else_val, span);
 //! let desugared = desugar_expr(expr);
-//! // Now: Call { kernel: logic.select, args: [cond, then_val, else_val] }
+//! // Now: KernelCall { kernel: logic.select, args: [cond, then_val, else_val] }
 //! ```
 //!
 //! # Operator Mappings
@@ -45,7 +45,7 @@
 //! | `a * b` | `maths.mul(a, b)` |
 //! | `a / b` | `maths.div(a, b)` |
 //! | `a % b` | `maths.mod(a, b)` |
-//! | `a ^ b` | `maths.pow(a, b)` |
+//! | `a ** b` | `maths.pow(a, b)` |
 //! | `-a` | `maths.neg(a)` |
 //!
 //! ## Comparison
@@ -73,8 +73,8 @@
 //! |--------|-------------|
 //! | `if c { t } else { e }` | `logic.select(c, t, e)` |
 
-use crate::ast::{BinaryOp, Expr, UnaryOp, UntypedKind as ExprKind};
-use crate::foundation::{Path, Span};
+use crate::ast::{BinaryOp, Expr, KernelId, UnaryOp, UntypedKind as ExprKind};
+use crate::foundation::Span;
 
 /// Desugar an expression, converting operators to kernel calls
 ///
@@ -100,9 +100,9 @@ fn passthrough(kind: ExprKind, span: Span) -> Expr {
 /// Desugar an expression, converting operators to kernel calls
 ///
 /// Recursively transforms:
-/// - `Binary { op, left, right }` → `Call { kernel: op.kernel(), args: [left, right] }`
-/// - `Unary { op, operand }` → `Call { kernel: op.kernel(), args: [operand] }`
-/// - `If { condition, then_branch, else_branch }` → `Call { kernel: logic.select, args: [cond, then, else] }`
+/// - `Binary { op, left, right }` → `KernelCall { kernel: op.kernel(), args: [left, right] }`
+/// - `Unary { op, operand }` → `KernelCall { kernel: op.kernel(), args: [operand] }`
+/// - `If { condition, then_branch, else_branch }` → `KernelCall { kernel: logic.select, args: [cond, then, else] }`
 ///
 /// All other expression variants are recursively processed but not transformed.
 pub fn desugar_expr(expr: Expr) -> Expr {
@@ -113,10 +113,9 @@ pub fn desugar_expr(expr: Expr) -> Expr {
         ExprKind::Binary { op, left, right } => {
             let left = Box::new(desugar_expr(*left));
             let right = Box::new(desugar_expr(*right));
-            let kernel_id = op.kernel();
             Expr {
-                kind: ExprKind::Call {
-                    func: Path::from_str(&kernel_id.qualified_name()),
+                kind: ExprKind::KernelCall {
+                    kernel: op.kernel(),
                     args: vec![*left, *right],
                 },
                 span,
@@ -125,10 +124,9 @@ pub fn desugar_expr(expr: Expr) -> Expr {
 
         ExprKind::Unary { op, operand } => {
             let operand = Box::new(desugar_expr(*operand));
-            let kernel_id = op.kernel();
             Expr {
-                kind: ExprKind::Call {
-                    func: Path::from_str(&kernel_id.qualified_name()),
+                kind: ExprKind::KernelCall {
+                    kernel: op.kernel(),
                     args: vec![*operand],
                 },
                 span,
@@ -144,8 +142,8 @@ pub fn desugar_expr(expr: Expr) -> Expr {
             let then_branch = Box::new(desugar_expr(*then_branch));
             let else_branch = Box::new(desugar_expr(*else_branch));
             Expr {
-                kind: ExprKind::Call {
-                    func: Path::from_str("logic.select"),
+                kind: ExprKind::KernelCall {
+                    kernel: KernelId::new("logic", "select"),
                     args: vec![*condition, *then_branch, *else_branch],
                 },
                 span,
@@ -170,6 +168,14 @@ pub fn desugar_expr(expr: Expr) -> Expr {
         ExprKind::Call { func, args } => Expr {
             kind: ExprKind::Call {
                 func,
+                args: args.into_iter().map(desugar_expr).collect(),
+            },
+            span,
+        },
+
+        ExprKind::KernelCall { kernel, args } => Expr {
+            kind: ExprKind::KernelCall {
+                kernel,
                 args: args.into_iter().map(desugar_expr).collect(),
             },
             span,
@@ -270,11 +276,11 @@ mod tests {
         let desugared = desugar_expr(expr);
 
         match desugared.kind {
-            ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("maths.add"));
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("maths", "add"));
                 assert_eq!(args.len(), 2);
             }
-            _ => panic!("Expected Call, got {:?}", desugared.kind),
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
         }
     }
 
@@ -287,11 +293,11 @@ mod tests {
         let desugared = desugar_expr(expr);
 
         match desugared.kind {
-            ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("maths.mul"));
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("maths", "mul"));
                 assert_eq!(args.len(), 2);
             }
-            _ => panic!("Expected Call, got {:?}", desugared.kind),
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
         }
     }
 
@@ -304,11 +310,11 @@ mod tests {
         let desugared = desugar_expr(expr);
 
         match desugared.kind {
-            ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("compare.lt"));
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("compare", "lt"));
                 assert_eq!(args.len(), 2);
             }
-            _ => panic!("Expected Call, got {:?}", desugared.kind),
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
         }
     }
 
@@ -321,11 +327,11 @@ mod tests {
         let desugared = desugar_expr(expr);
 
         match desugared.kind {
-            ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("logic.and"));
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("logic", "and"));
                 assert_eq!(args.len(), 2);
             }
-            _ => panic!("Expected Call, got {:?}", desugared.kind),
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
         }
     }
 
@@ -337,11 +343,11 @@ mod tests {
         let desugared = desugar_expr(expr);
 
         match desugared.kind {
-            ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("maths.neg"));
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("maths", "neg"));
                 assert_eq!(args.len(), 1);
             }
-            _ => panic!("Expected Call, got {:?}", desugared.kind),
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
         }
     }
 
@@ -353,11 +359,11 @@ mod tests {
         let desugared = desugar_expr(expr);
 
         match desugared.kind {
-            ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("logic.not"));
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("logic", "not"));
                 assert_eq!(args.len(), 1);
             }
-            _ => panic!("Expected Call, got {:?}", desugared.kind),
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
         }
     }
 
@@ -378,11 +384,11 @@ mod tests {
         let desugared = desugar_expr(expr);
 
         match desugared.kind {
-            ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("logic.select"));
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("logic", "select"));
                 assert_eq!(args.len(), 3);
             }
-            _ => panic!("Expected Call, got {:?}", desugared.kind),
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
         }
     }
 
@@ -400,19 +406,19 @@ mod tests {
 
         // Outer should be mul
         match desugared.kind {
-            ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("maths.mul"));
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("maths", "mul"));
                 assert_eq!(args.len(), 2);
 
                 // First arg should be add
                 match &args[0].kind {
-                    ExprKind::Call { func, .. } => {
-                        assert_eq!(*func, Path::from_str("maths.add"));
+                    ExprKind::KernelCall { kernel, .. } => {
+                        assert_eq!(*kernel, KernelId::new("maths", "add"));
                     }
-                    _ => panic!("Expected nested Call"),
+                    _ => panic!("Expected nested KernelCall"),
                 }
             }
-            _ => panic!("Expected Call, got {:?}", desugared.kind),
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
         }
     }
 
@@ -440,12 +446,12 @@ mod tests {
         match desugared.kind {
             ExprKind::Let { name, value, .. } => {
                 assert_eq!(name, "x");
-                // Value should be desugared to Call
+                // Value should be desugared to KernelCall
                 match value.kind {
-                    ExprKind::Call { func, .. } => {
-                        assert_eq!(func, Path::from_str("maths.add"));
+                    ExprKind::KernelCall { kernel, .. } => {
+                        assert_eq!(kernel, KernelId::new("maths", "add"));
                     }
-                    _ => panic!("Expected Call in let value"),
+                    _ => panic!("Expected KernelCall in let value"),
                 }
             }
             _ => panic!("Expected Let, got {:?}", desugared.kind),
