@@ -357,7 +357,7 @@ fn expr_parser<'src>()
             },
         );
 
-        // Logical OR (lowest precedence)
+        // Logical OR
         let or = and.clone().foldl_with(
             just(Token::OrOr).to(BinaryOp::Or).then(and).repeated(),
             |left, (op, right), _e| {
@@ -373,13 +373,56 @@ fn expr_parser<'src>()
             },
         );
 
-        // TODO: Let bindings
-        // TODO: If expressions
+        // If expression: if cond { then_expr } else { else_expr }
+        let if_expr = just(Token::If)
+            .ignore_then(expr.clone())
+            .then(
+                expr.clone()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .then_ignore(just(Token::Else))
+            .then(
+                expr.clone()
+                    .delimited_by(just(Token::LBrace), just(Token::RBrace)),
+            )
+            .map_with(|((condition, then_branch), else_branch), e| {
+                Expr::new(
+                    ExprKind::If {
+                        condition: Box::new(condition),
+                        then_branch: Box::new(then_branch),
+                        else_branch: Box::new(else_branch),
+                    },
+                    token_span(e.span()),
+                )
+            });
+
+        // Let binding: let x = value in body
+        let let_expr = just(Token::Let)
+            .ignore_then(select! { Token::Ident(name) => name })
+            .then_ignore(just(Token::Eq))
+            .then(expr.clone())
+            .then_ignore(just(Token::In))
+            .then(expr.clone())
+            .map_with(|((name, value), body), e| {
+                Expr::new(
+                    ExprKind::Let {
+                        name,
+                        value: Box::new(value),
+                        body: Box::new(body),
+                    },
+                    token_span(e.span()),
+                )
+            });
+
+        // Choice between let, if, or normal expression
+        // Let and if are lower precedence than all operators
+        let base_expr = choice((let_expr, if_expr, or));
+
         // TODO: Struct construction
         // TODO: Aggregates (sum, map, fold)
 
-        // Return the lowest precedence parser (logical OR)
-        or
+        // Return the lowest precedence parser (let/if or logical OR)
+        base_expr
     })
 }
 
@@ -585,6 +628,25 @@ mod tests {
     fn lex_and_parse(source: &str) -> Expr {
         let tokens: Vec<_> = Token::lexer(source).filter_map(|r| r.ok()).collect();
         parse_expr(&tokens).unwrap()
+    }
+
+    /// Helper to lex and parse a source string, returning Result.
+    ///
+    /// # Parameters
+    ///
+    /// - `source`: CDSL source code
+    ///
+    /// # Returns
+    ///
+    /// Result with parsed expression or error count.
+    fn lex_and_parse_result(source: &str) -> Result<Expr, usize> {
+        let tokens: Vec<_> = Token::lexer(source).filter_map(|r| r.ok()).collect();
+        let result = parse_expr(&tokens);
+        if result.output().is_some() && result.errors().len() == 0 {
+            Ok(result.output().unwrap().clone())
+        } else {
+            Err(result.errors().len())
+        }
     }
 
     #[test]
@@ -1077,5 +1139,321 @@ mod tests {
             }
             _ => panic!("expected mul with add on left, got {:?}", expr.kind),
         }
+    }
+
+    // === Let Expression Tests ===
+
+    #[test]
+    fn test_let_basic() {
+        // let x = 10 in x + 1
+        let expr = lex_and_parse("let x = 10 in x + 1");
+        match expr.kind {
+            ExprKind::Let { name, value, body } => {
+                assert_eq!(name, "x");
+                assert!(matches!(value.kind, ExprKind::Literal { value: 10.0, .. }));
+                assert!(matches!(
+                    body.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Add,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected let expression, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_let_with_expression_value() {
+        // let x = 2 * 3 in x + 1
+        let expr = lex_and_parse("let x = 2 * 3 in x + 1");
+        match expr.kind {
+            ExprKind::Let { name, value, body } => {
+                assert_eq!(name, "x");
+                assert!(matches!(
+                    value.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Mul,
+                        ..
+                    }
+                ));
+                assert!(matches!(
+                    body.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Add,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected let expression, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_let_nested() {
+        // let x = 10 in let y = 20 in x + y
+        let expr = lex_and_parse("let x = 10 in let y = 20 in x + y");
+        match expr.kind {
+            ExprKind::Let { name, value, body } => {
+                assert_eq!(name, "x");
+                assert!(matches!(value.kind, ExprKind::Literal { value: 10.0, .. }));
+                // Body should be another let
+                match body.kind {
+                    ExprKind::Let {
+                        name: inner_name,
+                        value: inner_value,
+                        body: inner_body,
+                    } => {
+                        assert_eq!(inner_name, "y");
+                        assert!(matches!(
+                            inner_value.kind,
+                            ExprKind::Literal { value: 20.0, .. }
+                        ));
+                        assert!(matches!(
+                            inner_body.kind,
+                            ExprKind::Binary {
+                                op: BinaryOp::Add,
+                                ..
+                            }
+                        ));
+                    }
+                    _ => panic!("expected nested let in body, got {:?}", body.kind),
+                }
+            }
+            _ => panic!("expected let expression, got {:?}", expr.kind),
+        }
+    }
+
+    // === If Expression Tests ===
+
+    #[test]
+    fn test_if_basic() {
+        // if true { 1 } else { 2 }
+        let expr = lex_and_parse("if true { 1 } else { 2 }");
+        match expr.kind {
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(condition.kind, ExprKind::BoolLiteral(true)));
+                assert!(matches!(
+                    then_branch.kind,
+                    ExprKind::Literal { value: 1.0, .. }
+                ));
+                assert!(matches!(
+                    else_branch.kind,
+                    ExprKind::Literal { value: 2.0, .. }
+                ));
+            }
+            _ => panic!("expected if expression, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_if_with_comparison() {
+        // if x < 10 { x } else { 10 }
+        let expr = lex_and_parse("if x < 10 { x } else { 10 }");
+        match expr.kind {
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(
+                    condition.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Lt,
+                        ..
+                    }
+                ));
+                assert!(matches!(then_branch.kind, ExprKind::Local(_)));
+                assert!(matches!(
+                    else_branch.kind,
+                    ExprKind::Literal { value: 10.0, .. }
+                ));
+            }
+            _ => panic!("expected if expression, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_if_nested() {
+        // if x { if y { 1 } else { 2 } } else { 3 }
+        let expr = lex_and_parse("if x { if y { 1 } else { 2 } } else { 3 }");
+        match expr.kind {
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(condition.kind, ExprKind::Local(_)));
+                // Then branch should be another if
+                match then_branch.kind {
+                    ExprKind::If {
+                        condition: inner_cond,
+                        then_branch: inner_then,
+                        else_branch: inner_else,
+                    } => {
+                        assert!(matches!(inner_cond.kind, ExprKind::Local(_)));
+                        assert!(matches!(
+                            inner_then.kind,
+                            ExprKind::Literal { value: 1.0, .. }
+                        ));
+                        assert!(matches!(
+                            inner_else.kind,
+                            ExprKind::Literal { value: 2.0, .. }
+                        ));
+                    }
+                    _ => panic!(
+                        "expected nested if in then branch, got {:?}",
+                        then_branch.kind
+                    ),
+                }
+                assert!(matches!(
+                    else_branch.kind,
+                    ExprKind::Literal { value: 3.0, .. }
+                ));
+            }
+            _ => panic!("expected if expression, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_if_with_expressions() {
+        // if x + 1 < 10 { x * 2 } else { x / 2 }
+        let expr = lex_and_parse("if x + 1 < 10 { x * 2 } else { x / 2 }");
+        match expr.kind {
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(
+                    condition.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Lt,
+                        ..
+                    }
+                ));
+                assert!(matches!(
+                    then_branch.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Mul,
+                        ..
+                    }
+                ));
+                assert!(matches!(
+                    else_branch.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Div,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected if expression, got {:?}", expr.kind),
+        }
+    }
+
+    // === Let/If Interaction Tests ===
+
+    #[test]
+    fn test_let_inside_if() {
+        // if x { let y = 10 in y } else { 0 }
+        let expr = lex_and_parse("if x { let y = 10 in y } else { 0 }");
+        match expr.kind {
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                assert!(matches!(condition.kind, ExprKind::Local(_)));
+                assert!(matches!(then_branch.kind, ExprKind::Let { .. }));
+                assert!(matches!(
+                    else_branch.kind,
+                    ExprKind::Literal { value: 0.0, .. }
+                ));
+            }
+            _ => panic!("expected if expression, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_if_inside_let() {
+        // let x = if true { 1 } else { 2 } in x + 1
+        let expr = lex_and_parse("let x = if true { 1 } else { 2 } in x + 1");
+        match expr.kind {
+            ExprKind::Let { name, value, body } => {
+                assert_eq!(name, "x");
+                assert!(matches!(value.kind, ExprKind::If { .. }));
+                assert!(matches!(
+                    body.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Add,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected let expression, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_let_if_precedence() {
+        // let and if should be lower precedence than operators
+        // let x = 1 + 2 in x * 3  (not let x = 1 + (2 in x) * 3)
+        let expr = lex_and_parse("let x = 1 + 2 in x * 3");
+        match expr.kind {
+            ExprKind::Let { name, value, body } => {
+                assert_eq!(name, "x");
+                // Value should be 1 + 2, not just 1
+                assert!(matches!(
+                    value.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Add,
+                        ..
+                    }
+                ));
+                // Body should be x * 3, not just x
+                assert!(matches!(
+                    body.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Mul,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected let expression, got {:?}", expr.kind),
+        }
+    }
+
+    // === Error Path Tests ===
+
+    #[test]
+    fn test_let_missing_eq() {
+        // let x 10 in x  (missing =)
+        let result = lex_and_parse_result("let x 10 in x");
+        assert!(result.is_err(), "expected error for missing =");
+    }
+
+    #[test]
+    fn test_let_missing_in() {
+        // let x = 10 x  (missing 'in')
+        let result = lex_and_parse_result("let x = 10 x");
+        assert!(result.is_err(), "expected error for missing 'in'");
+    }
+
+    #[test]
+    fn test_if_missing_else() {
+        // if true { 1 }  (missing else)
+        let result = lex_and_parse_result("if true { 1 }");
+        assert!(result.is_err(), "expected error for missing else");
+    }
+
+    #[test]
+    fn test_if_missing_braces() {
+        // if true 1 else 2  (missing braces)
+        let result = lex_and_parse_result("if true 1 else 2");
+        assert!(result.is_err(), "expected error for missing braces");
     }
 }
