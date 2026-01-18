@@ -612,41 +612,68 @@ fn validate_shape_constraint(
         }
 
         ShapeConstraint::SameAs(param_index) => {
-            if *param_index < all_args.len() {
-                if let Some(expected_shape) =
-                    all_args[*param_index].ty.as_kernel().map(|k| &k.shape)
-                {
-                    if arg_shape != expected_shape {
-                        errors.push(CompileError::new(
-                            ErrorKind::InvalidKernelShape,
-                            span,
-                            format!(
-                                "kernel {} argument {} must have same shape as argument {}, expected {:?}, found {:?}",
-                                kernel.qualified_name(),
-                                arg_index,
-                                param_index,
-                                expected_shape,
-                                arg_shape
-                            ),
-                        ));
-                    }
+            if *param_index >= all_args.len() {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelShape,
+                    span,
+                    format!(
+                        "kernel {} shape constraint SameAs({}) references out-of-bounds argument (only {} args)",
+                        kernel.qualified_name(),
+                        param_index,
+                        all_args.len()
+                    ),
+                ));
+                return errors;
+            }
+
+            if let Some(expected_shape) = all_args[*param_index].ty.as_kernel().map(|k| &k.shape) {
+                if arg_shape != expected_shape {
+                    errors.push(CompileError::new(
+                        ErrorKind::InvalidKernelShape,
+                        span,
+                        format!(
+                            "kernel {} argument {} must have same shape as argument {}, expected {:?}, found {:?}",
+                            kernel.qualified_name(),
+                            arg_index,
+                            param_index,
+                            expected_shape,
+                            arg_shape
+                        ),
+                    ));
                 }
             }
         }
 
         ShapeConstraint::VectorDim(dim_constraint) => {
             if let Shape::Vector { dim } = arg_shape {
-                if !matches_dim_constraint(*dim, dim_constraint) {
-                    errors.push(CompileError::new(
-                        ErrorKind::InvalidKernelShape,
-                        span,
-                        format!(
-                            "kernel {} argument {} vector dimension does not satisfy constraint {:?}",
-                            kernel.qualified_name(),
-                            arg_index,
-                            dim_constraint
-                        ),
-                    ));
+                match matches_dim_constraint(*dim, dim_constraint) {
+                    Ok(true) => {
+                        // Constraint satisfied
+                    }
+                    Ok(false) => {
+                        errors.push(CompileError::new(
+                            ErrorKind::InvalidKernelShape,
+                            span,
+                            format!(
+                                "kernel {} argument {} vector dimension does not satisfy constraint {:?}",
+                                kernel.qualified_name(),
+                                arg_index,
+                                dim_constraint
+                            ),
+                        ));
+                    }
+                    Err(msg) => {
+                        errors.push(CompileError::new(
+                            ErrorKind::InvalidKernelShape,
+                            span,
+                            format!(
+                                "kernel {} argument {}: {}",
+                                kernel.qualified_name(),
+                                arg_index,
+                                msg
+                            ),
+                        ));
+                    }
                 }
             } else {
                 errors.push(CompileError::new(
@@ -662,9 +689,27 @@ fn validate_shape_constraint(
             }
         }
 
-        ShapeConstraint::BroadcastWith(_) | ShapeConstraint::MatrixDims { .. } => {
-            // TODO: Implement broadcast and matrix dimension validation
-            // These are more complex and can be added later
+        ShapeConstraint::BroadcastWith(param_index) => {
+            errors.push(CompileError::new(
+                ErrorKind::InvalidKernelShape,
+                span,
+                format!(
+                    "kernel {} uses unsupported BroadcastWith({}) constraint (not yet implemented)",
+                    kernel.qualified_name(),
+                    param_index
+                ),
+            ));
+        }
+
+        ShapeConstraint::MatrixDims { .. } => {
+            errors.push(CompileError::new(
+                ErrorKind::InvalidKernelShape,
+                span,
+                format!(
+                    "kernel {} uses unsupported MatrixDims constraint (not yet implemented)",
+                    kernel.qualified_name()
+                ),
+            ));
         }
     }
 
@@ -672,17 +717,21 @@ fn validate_shape_constraint(
 }
 
 /// Check if a dimension satisfies a dimension constraint.
-fn matches_dim_constraint(dim: u8, constraint: &crate::ast::DimConstraint) -> bool {
+///
+/// Returns:
+/// - `Ok(true)` if dimension satisfies constraint
+/// - `Ok(false)` if dimension does not satisfy constraint
+/// - `Err(message)` if constraint is unsupported
+fn matches_dim_constraint(dim: u8, constraint: &crate::ast::DimConstraint) -> Result<bool, String> {
     use crate::ast::DimConstraint;
 
     match constraint {
-        DimConstraint::Exact(expected) => dim == *expected,
-        DimConstraint::Any => true,
-        DimConstraint::Var(_) => {
-            // TODO: Track dimension variables across parameters
-            // For now, accept any dimension for Var constraints
-            true
-        }
+        DimConstraint::Exact(expected) => Ok(dim == *expected),
+        DimConstraint::Any => Ok(true),
+        DimConstraint::Var(var_id) => Err(format!(
+            "dimension variable constraints (Var({})) not yet supported - requires tracking dimension variables across parameters",
+            var_id
+        )),
     }
 }
 
@@ -783,23 +832,34 @@ fn validate_unit_constraint(
         }
 
         UnitConstraint::SameAs(param_index) => {
-            if *param_index < all_args.len() {
-                if let Some(expected_unit) = all_args[*param_index].ty.as_kernel().map(|k| &k.unit)
-                {
-                    if arg_unit != expected_unit {
-                        errors.push(CompileError::new(
-                            ErrorKind::InvalidKernelUnit,
-                            span,
-                            format!(
-                                "kernel {} argument {} must have same unit as argument {}, expected {:?}, found {:?}",
-                                kernel.qualified_name(),
-                                arg_index,
-                                param_index,
-                                expected_unit,
-                                arg_unit
-                            ),
-                        ));
-                    }
+            if *param_index >= all_args.len() {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "kernel {} unit constraint SameAs({}) references out-of-bounds argument (only {} args)",
+                        kernel.qualified_name(),
+                        param_index,
+                        all_args.len()
+                    ),
+                ));
+                return errors;
+            }
+
+            if let Some(expected_unit) = all_args[*param_index].ty.as_kernel().map(|k| &k.unit) {
+                if arg_unit != expected_unit {
+                    errors.push(CompileError::new(
+                        ErrorKind::InvalidKernelUnit,
+                        span,
+                        format!(
+                            "kernel {} argument {} must have same unit as argument {}, expected {:?}, found {:?}",
+                            kernel.qualified_name(),
+                            arg_index,
+                            param_index,
+                            expected_unit,
+                            arg_unit
+                        ),
+                    ));
                 }
             }
         }
