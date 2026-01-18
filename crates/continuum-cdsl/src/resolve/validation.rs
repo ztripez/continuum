@@ -108,8 +108,9 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext) -> Vec<CompileEr
     let mut errors = Vec::new();
 
     match &expr.expr {
-        ExprKind::Literal { .. } => {
-            // Literals are always valid
+        ExprKind::Literal { value, .. } => {
+            // Validate literal value against type bounds
+            errors.extend(validate_literal_bounds(*value, &expr.ty, expr.span));
         }
 
         ExprKind::Call { kernel, args } => {
@@ -122,7 +123,23 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext) -> Vec<CompileEr
             for elem in elements {
                 errors.extend(validate_expr(elem, ctx));
             }
-            // TODO: Validate all elements have same type
+
+            // Validate all elements have same type
+            if !elements.is_empty() {
+                let first_ty = &elements[0].ty;
+                for (i, elem) in elements.iter().enumerate().skip(1) {
+                    if &elem.ty != first_ty {
+                        errors.push(CompileError::new(
+                            ErrorKind::TypeMismatch,
+                            elem.span,
+                            format!(
+                                "vector element {} has type {:?}, expected {:?} (from element 0)",
+                                i, elem.ty, first_ty
+                            ),
+                        ));
+                    }
+                }
+            }
         }
 
         ExprKind::Let { value, body, .. } => {
@@ -206,6 +223,53 @@ fn validate_kernel_call(
     // TODO: Validate argument types
     // TODO: Validate argument shapes
     // TODO: Validate argument units
+
+    errors
+}
+
+/// Validates a literal value against type bounds.
+///
+/// Checks that the literal value satisfies any min/max constraints
+/// specified in the type's bounds.
+///
+/// # Parameters
+///
+/// - `value`: The literal numeric value.
+/// - `ty`: The type (must be kernel type with bounds).
+/// - `span`: Source location for error reporting.
+///
+/// # Returns
+///
+/// Vector of validation errors (empty if value is within bounds).
+fn validate_literal_bounds(value: f64, ty: &Type, span: Span) -> Vec<CompileError> {
+    let mut errors = Vec::new();
+
+    // Only kernel types have bounds
+    if let Type::Kernel(kernel_ty) = ty {
+        if let Some(bounds) = &kernel_ty.bounds {
+            // Check minimum bound
+            if let Some(min) = bounds.min {
+                if value < min {
+                    errors.push(CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        span,
+                        format!("literal value {} is below minimum bound {}", value, min),
+                    ));
+                }
+            }
+
+            // Check maximum bound
+            if let Some(max) = bounds.max {
+                if value > max {
+                    errors.push(CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        span,
+                        format!("literal value {} exceeds maximum bound {}", value, max),
+                    ));
+                }
+            }
+        }
+    }
 
     errors
 }
@@ -297,6 +361,187 @@ mod tests {
         );
 
         let errors = validate_expr(&let_expr, &ctx);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_vector_elements_type_mismatch() {
+        let ctx = ValidationContext::new();
+
+        // First element is Scalar
+        let elem1 = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        // Second element is Bool (type mismatch!)
+        let elem2 = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::Bool,
+            test_span(),
+        );
+
+        let vec_expr = TypedExpr::new(
+            ExprKind::Vector(vec![elem1, elem2]),
+            Type::kernel(Shape::Vector { dim: 2 }, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&vec_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(errors[0].message.contains("element 1"));
+    }
+
+    #[test]
+    fn test_validate_literal_below_minimum() {
+        use crate::foundation::Bounds;
+
+        let ctx = ValidationContext::new();
+
+        // Type has min bound of 0.0
+        let bounded_type = Type::kernel(
+            Shape::Scalar,
+            Unit::DIMENSIONLESS,
+            Some(Bounds {
+                min: Some(0.0),
+                max: None,
+            }),
+        );
+
+        // Literal value is -5.0 (below minimum!)
+        let expr = TypedExpr::new(
+            ExprKind::Literal {
+                value: -5.0,
+                unit: None,
+            },
+            bounded_type,
+            test_span(),
+        );
+
+        let errors = validate_expr(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(errors[0].message.contains("below minimum"));
+    }
+
+    #[test]
+    fn test_validate_literal_above_maximum() {
+        use crate::foundation::Bounds;
+
+        let ctx = ValidationContext::new();
+
+        // Type has max bound of 100.0
+        let bounded_type = Type::kernel(
+            Shape::Scalar,
+            Unit::DIMENSIONLESS,
+            Some(Bounds {
+                min: None,
+                max: Some(100.0),
+            }),
+        );
+
+        // Literal value is 200.0 (above maximum!)
+        let expr = TypedExpr::new(
+            ExprKind::Literal {
+                value: 200.0,
+                unit: None,
+            },
+            bounded_type,
+            test_span(),
+        );
+
+        let errors = validate_expr(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(errors[0].message.contains("exceeds maximum"));
+    }
+
+    #[test]
+    fn test_validate_literal_within_bounds() {
+        use crate::foundation::Bounds;
+
+        let ctx = ValidationContext::new();
+
+        // Type has bounds [0.0, 100.0]
+        let bounded_type = Type::kernel(
+            Shape::Scalar,
+            Unit::DIMENSIONLESS,
+            Some(Bounds {
+                min: Some(0.0),
+                max: Some(100.0),
+            }),
+        );
+
+        // Literal value is 50.0 (within bounds)
+        let expr = TypedExpr::new(
+            ExprKind::Literal {
+                value: 50.0,
+                unit: None,
+            },
+            bounded_type,
+            test_span(),
+        );
+
+        let errors = validate_expr(&expr, &ctx);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_vector_unit_mismatch() {
+        let ctx = ValidationContext::new();
+
+        // First element has unit m
+        let elem1 = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::meters()),
+            },
+            Type::kernel(Shape::Scalar, Unit::meters(), None),
+            test_span(),
+        );
+
+        // Second element has unit s (unit mismatch!)
+        let elem2 = TypedExpr::new(
+            ExprKind::Literal {
+                value: 2.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            test_span(),
+        );
+
+        let vec_expr = TypedExpr::new(
+            ExprKind::Vector(vec![elem1, elem2]),
+            Type::kernel(Shape::Vector { dim: 2 }, Unit::meters(), None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&vec_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(errors[0].message.contains("element 1"));
+    }
+
+    #[test]
+    fn test_validate_empty_vector() {
+        let ctx = ValidationContext::new();
+
+        // Empty vector is valid (no type conflicts possible)
+        let vec_expr = TypedExpr::new(
+            ExprKind::Vector(vec![]),
+            Type::kernel(Shape::Vector { dim: 0 }, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&vec_expr, &ctx);
         assert!(errors.is_empty());
     }
 }
