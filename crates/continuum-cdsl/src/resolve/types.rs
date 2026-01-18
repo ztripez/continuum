@@ -226,13 +226,7 @@ pub fn resolve_type_expr(
         }
 
         TypeExpr::Vector { dim, unit } => {
-            if *dim == 0 {
-                return Err(CompileError::new(
-                    ErrorKind::DimensionMismatch,
-                    span,
-                    "Vector dimension must be greater than 0".to_string(),
-                ));
-            }
+            validate_nonzero_dim(*dim, "Vector", span)?;
             let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
             Ok(Type::kernel(
                 Shape::Vector { dim: *dim },
@@ -336,6 +330,20 @@ pub fn resolve_unit_expr(unit_expr: Option<&UnitExpr>, span: Span) -> Result<Uni
     }
 }
 
+/// Validate that a dimension value is non-zero
+///
+/// Helper to reduce duplication in dimension validation.
+fn validate_nonzero_dim(dim: u8, type_name: &str, span: Span) -> Result<(), CompileError> {
+    if dim == 0 {
+        return Err(CompileError::new(
+            ErrorKind::DimensionMismatch,
+            span,
+            format!("{} dimension must be greater than 0", type_name),
+        ));
+    }
+    Ok(())
+}
+
 /// Resolve a base unit name to a Unit
 ///
 /// Maps unit symbols (m, kg, s, etc.) to their Unit definitions.
@@ -420,14 +428,26 @@ fn add_dimensions(
     span: Span,
 ) -> Result<UnitDimensions, CompileError> {
     Ok(UnitDimensions {
-        length: checked_add_i8(lhs.length, rhs.length, "length", span)?,
-        mass: checked_add_i8(lhs.mass, rhs.mass, "mass", span)?,
-        time: checked_add_i8(lhs.time, rhs.time, "time", span)?,
-        temperature: checked_add_i8(lhs.temperature, rhs.temperature, "temperature", span)?,
-        current: checked_add_i8(lhs.current, rhs.current, "current", span)?,
-        amount: checked_add_i8(lhs.amount, rhs.amount, "amount", span)?,
-        luminosity: checked_add_i8(lhs.luminosity, rhs.luminosity, "luminosity", span)?,
-        angle: checked_add_i8(lhs.angle, rhs.angle, "angle", span)?,
+        length: checked_i8_op(lhs.length, rhs.length, "length", span, i8::checked_add)?,
+        mass: checked_i8_op(lhs.mass, rhs.mass, "mass", span, i8::checked_add)?,
+        time: checked_i8_op(lhs.time, rhs.time, "time", span, i8::checked_add)?,
+        temperature: checked_i8_op(
+            lhs.temperature,
+            rhs.temperature,
+            "temperature",
+            span,
+            i8::checked_add,
+        )?,
+        current: checked_i8_op(lhs.current, rhs.current, "current", span, i8::checked_add)?,
+        amount: checked_i8_op(lhs.amount, rhs.amount, "amount", span, i8::checked_add)?,
+        luminosity: checked_i8_op(
+            lhs.luminosity,
+            rhs.luminosity,
+            "luminosity",
+            span,
+            i8::checked_add,
+        )?,
+        angle: checked_i8_op(lhs.angle, rhs.angle, "angle", span, i8::checked_add)?,
     })
 }
 
@@ -438,14 +458,26 @@ fn subtract_dimensions(
     span: Span,
 ) -> Result<UnitDimensions, CompileError> {
     Ok(UnitDimensions {
-        length: checked_sub_i8(lhs.length, rhs.length, "length", span)?,
-        mass: checked_sub_i8(lhs.mass, rhs.mass, "mass", span)?,
-        time: checked_sub_i8(lhs.time, rhs.time, "time", span)?,
-        temperature: checked_sub_i8(lhs.temperature, rhs.temperature, "temperature", span)?,
-        current: checked_sub_i8(lhs.current, rhs.current, "current", span)?,
-        amount: checked_sub_i8(lhs.amount, rhs.amount, "amount", span)?,
-        luminosity: checked_sub_i8(lhs.luminosity, rhs.luminosity, "luminosity", span)?,
-        angle: checked_sub_i8(lhs.angle, rhs.angle, "angle", span)?,
+        length: checked_i8_op(lhs.length, rhs.length, "length", span, i8::checked_sub)?,
+        mass: checked_i8_op(lhs.mass, rhs.mass, "mass", span, i8::checked_sub)?,
+        time: checked_i8_op(lhs.time, rhs.time, "time", span, i8::checked_sub)?,
+        temperature: checked_i8_op(
+            lhs.temperature,
+            rhs.temperature,
+            "temperature",
+            span,
+            i8::checked_sub,
+        )?,
+        current: checked_i8_op(lhs.current, rhs.current, "current", span, i8::checked_sub)?,
+        amount: checked_i8_op(lhs.amount, rhs.amount, "amount", span, i8::checked_sub)?,
+        luminosity: checked_i8_op(
+            lhs.luminosity,
+            rhs.luminosity,
+            "luminosity",
+            span,
+            i8::checked_sub,
+        )?,
+        angle: checked_i8_op(lhs.angle, rhs.angle, "angle", span, i8::checked_sub)?,
     })
 }
 
@@ -456,42 +488,31 @@ fn scale_dimensions(
     span: Span,
 ) -> Result<UnitDimensions, CompileError> {
     Ok(UnitDimensions {
-        length: checked_mul_i8(dims.length, scale, "length", span)?,
-        mass: checked_mul_i8(dims.mass, scale, "mass", span)?,
-        time: checked_mul_i8(dims.time, scale, "time", span)?,
-        temperature: checked_mul_i8(dims.temperature, scale, "temperature", span)?,
-        current: checked_mul_i8(dims.current, scale, "current", span)?,
-        amount: checked_mul_i8(dims.amount, scale, "amount", span)?,
-        luminosity: checked_mul_i8(dims.luminosity, scale, "luminosity", span)?,
-        angle: checked_mul_i8(dims.angle, scale, "angle", span)?,
-    })
-}
-
-/// Checked addition for i8 with dimension name in error
-fn checked_add_i8(a: i8, b: i8, dim_name: &str, span: Span) -> Result<i8, CompileError> {
-    a.checked_add(b).ok_or_else(|| {
-        CompileError::new(
-            ErrorKind::InvalidUnit,
+        length: checked_i8_op(dims.length, scale, "length", span, i8::checked_mul)?,
+        mass: checked_i8_op(dims.mass, scale, "mass", span, i8::checked_mul)?,
+        time: checked_i8_op(dims.time, scale, "time", span, i8::checked_mul)?,
+        temperature: checked_i8_op(
+            dims.temperature,
+            scale,
+            "temperature",
             span,
-            format!("Dimension exponent overflow for {}", dim_name),
-        )
+            i8::checked_mul,
+        )?,
+        current: checked_i8_op(dims.current, scale, "current", span, i8::checked_mul)?,
+        amount: checked_i8_op(dims.amount, scale, "amount", span, i8::checked_mul)?,
+        luminosity: checked_i8_op(dims.luminosity, scale, "luminosity", span, i8::checked_mul)?,
+        angle: checked_i8_op(dims.angle, scale, "angle", span, i8::checked_mul)?,
     })
 }
 
-/// Checked subtraction for i8 with dimension name in error
-fn checked_sub_i8(a: i8, b: i8, dim_name: &str, span: Span) -> Result<i8, CompileError> {
-    a.checked_sub(b).ok_or_else(|| {
-        CompileError::new(
-            ErrorKind::InvalidUnit,
-            span,
-            format!("Dimension exponent overflow for {}", dim_name),
-        )
-    })
-}
-
-/// Checked multiplication for i8 with dimension name in error
-fn checked_mul_i8(a: i8, b: i8, dim_name: &str, span: Span) -> Result<i8, CompileError> {
-    a.checked_mul(b).ok_or_else(|| {
+/// Checked i8 arithmetic with dimension name in error
+///
+/// Generic helper to reduce duplication across add/sub/mul operations.
+fn checked_i8_op<F>(a: i8, b: i8, dim_name: &str, span: Span, op: F) -> Result<i8, CompileError>
+where
+    F: FnOnce(i8, i8) -> Option<i8>,
+{
+    op(a, b).ok_or_else(|| {
         CompileError::new(
             ErrorKind::InvalidUnit,
             span,
