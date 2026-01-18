@@ -622,12 +622,94 @@ fn type_expr_parser<'src>()
             unit: Some(unit),
         });
 
+    // Vec2<unit>, Vec3<unit>, Vec4<unit> - sugar for Vector<2/3/4, unit>
+    let vec2_type = just(Token::Ident("Vec2".to_string()))
+        .ignore_then(just(Token::Lt))
+        .ignore_then(unit_expr_parser())
+        .then_ignore(just(Token::Gt))
+        .map(|unit| TypeExpr::Vector {
+            dim: 2,
+            unit: Some(unit),
+        });
+
+    let vec3_type = just(Token::Ident("Vec3".to_string()))
+        .ignore_then(just(Token::Lt))
+        .ignore_then(unit_expr_parser())
+        .then_ignore(just(Token::Gt))
+        .map(|unit| TypeExpr::Vector {
+            dim: 3,
+            unit: Some(unit),
+        });
+
+    let vec4_type = just(Token::Ident("Vec4".to_string()))
+        .ignore_then(just(Token::Lt))
+        .ignore_then(unit_expr_parser())
+        .then_ignore(just(Token::Gt))
+        .map(|unit| TypeExpr::Vector {
+            dim: 4,
+            unit: Some(unit),
+        });
+
+    // Mat2<unit>, Mat3<unit>, Mat4<unit> - sugar for Matrix<2/3/4, 2/3/4, unit>
+    let mat2_type = just(Token::Ident("Mat2".to_string()))
+        .ignore_then(just(Token::Lt))
+        .ignore_then(unit_expr_parser())
+        .then_ignore(just(Token::Gt))
+        .map(|unit| TypeExpr::Matrix {
+            rows: 2,
+            cols: 2,
+            unit: Some(unit),
+        });
+
+    let mat3_type = just(Token::Ident("Mat3".to_string()))
+        .ignore_then(just(Token::Lt))
+        .ignore_then(unit_expr_parser())
+        .then_ignore(just(Token::Gt))
+        .map(|unit| TypeExpr::Matrix {
+            rows: 3,
+            cols: 3,
+            unit: Some(unit),
+        });
+
+    let mat4_type = just(Token::Ident("Mat4".to_string()))
+        .ignore_then(just(Token::Lt))
+        .ignore_then(unit_expr_parser())
+        .then_ignore(just(Token::Gt))
+        .map(|unit| TypeExpr::Matrix {
+            rows: 4,
+            cols: 4,
+            unit: Some(unit),
+        });
+
+    // Quat or Quaternion - sugar for Vector<4, 1> (unit quaternion)
+    let quat_type = choice((
+        just(Token::Ident("Quat".to_string())),
+        just(Token::Ident("Quaternion".to_string())),
+    ))
+    .map(|_| TypeExpr::Vector {
+        dim: 4,
+        unit: None, // Quaternions are dimensionless
+    });
+
     // User types (identifiers)
     let user_type = select! {
         Token::Ident(name) => TypeExpr::User(Path::from_str(&name)),
     };
 
-    choice((bool_type, scalar_type, vector_type, matrix_type, user_type))
+    choice((
+        bool_type,
+        scalar_type,
+        vector_type,
+        matrix_type,
+        vec2_type,
+        vec3_type,
+        vec4_type,
+        mat2_type,
+        mat3_type,
+        mat4_type,
+        quat_type,
+        user_type,
+    ))
 }
 
 /// Helper to convert chumsky span to Continuum Span.
