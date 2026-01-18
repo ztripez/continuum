@@ -60,10 +60,26 @@ use std::collections::{HashMap, HashSet};
 /// Symbol table for name resolution
 ///
 /// Tracks all declared symbols in the world to validate Path references.
+/// Symbols are separated by kind to enforce observer boundary (signals vs fields).
 #[derive(Debug, Default)]
 pub struct SymbolTable {
-    /// Global symbols (world-level signals, operators, fields, etc.)
-    globals: HashSet<Path>,
+    /// Signals (authoritative state)
+    signals: HashSet<Path>,
+
+    /// Fields (observer-only)
+    fields: HashSet<Path>,
+
+    /// Operators (execution blocks)
+    operators: HashSet<Path>,
+
+    /// Impulses (external inputs)
+    impulses: HashSet<Path>,
+
+    /// Fractures (tension detectors)
+    fractures: HashSet<Path>,
+
+    /// Chronicles (observer-only recorders)
+    chronicles: HashSet<Path>,
 
     /// User-defined type names
     types: HashSet<Path>,
@@ -84,9 +100,34 @@ impl SymbolTable {
         Self::default()
     }
 
-    /// Register a global symbol (signal, operator, field, etc.)
-    pub fn register_global(&mut self, path: Path) {
-        self.globals.insert(path);
+    /// Register a signal
+    pub fn register_signal(&mut self, path: Path) {
+        self.signals.insert(path);
+    }
+
+    /// Register a field
+    pub fn register_field(&mut self, path: Path) {
+        self.fields.insert(path);
+    }
+
+    /// Register an operator
+    pub fn register_operator(&mut self, path: Path) {
+        self.operators.insert(path);
+    }
+
+    /// Register an impulse
+    pub fn register_impulse(&mut self, path: Path) {
+        self.impulses.insert(path);
+    }
+
+    /// Register a fracture
+    pub fn register_fracture(&mut self, path: Path) {
+        self.fractures.insert(path);
+    }
+
+    /// Register a chronicle
+    pub fn register_chronicle(&mut self, path: Path) {
+        self.chronicles.insert(path);
     }
 
     /// Register a user-defined type
@@ -109,9 +150,14 @@ impl SymbolTable {
         self.consts.insert(path);
     }
 
-    /// Check if a path is a declared signal or global node
-    pub fn has_global(&self, path: &Path) -> bool {
-        self.globals.contains(path)
+    /// Check if a path is a declared signal
+    pub fn has_signal(&self, path: &Path) -> bool {
+        self.signals.contains(path)
+    }
+
+    /// Check if a path is a declared field
+    pub fn has_field(&self, path: &Path) -> bool {
+        self.fields.contains(path)
     }
 
     /// Check if a path is a declared type
@@ -141,16 +187,25 @@ impl SymbolTable {
 ///
 /// # Returns
 ///
-/// Symbol table containing all declared symbols.
+/// Symbol table containing all declared symbols, separated by kind.
 pub fn build_symbol_table<I: crate::ast::Index>(
     globals: &[Node<I>],
     members: &HashMap<EntityId, Vec<Node<EntityId>>>,
 ) -> SymbolTable {
+    use crate::ast::RoleId;
+
     let mut table = SymbolTable::new();
 
-    // Register global nodes
+    // Register global nodes by role
     for node in globals {
-        table.register_global(node.path.clone());
+        match node.role_id() {
+            RoleId::Signal => table.register_signal(node.path.clone()),
+            RoleId::Field => table.register_field(node.path.clone()),
+            RoleId::Operator => table.register_operator(node.path.clone()),
+            RoleId::Impulse => table.register_impulse(node.path.clone()),
+            RoleId::Fracture => table.register_fracture(node.path.clone()),
+            RoleId::Chronicle => table.register_chronicle(node.path.clone()),
+        }
     }
 
     // Register per-entity members
@@ -185,15 +240,29 @@ impl Scope {
     }
 
     /// Pop the current scope level
+    ///
+    /// # Panics
+    ///
+    /// Panics if called with no active scope (programming error).
     fn pop(&mut self) {
+        assert!(
+            !self.locals.is_empty(),
+            "Cannot pop scope: no active scope exists"
+        );
         self.locals.pop();
     }
 
     /// Bind a local variable in the current scope
+    ///
+    /// # Panics
+    ///
+    /// Panics if called with no active scope (programming error).
     fn bind(&mut self, name: String) {
-        if let Some(current) = self.locals.last_mut() {
-            current.insert(name);
-        }
+        assert!(
+            !self.locals.is_empty(),
+            "Cannot bind variable: no active scope exists"
+        );
+        self.locals.last_mut().unwrap().insert(name);
     }
 
     /// Check if a local variable is in scope
@@ -230,7 +299,7 @@ pub fn validate_expr(
     match &expr.kind {
         // === Path references ===
         ExprKind::Signal(path) => {
-            if !table.has_global(path) {
+            if !table.has_signal(path) {
                 errors.push(CompileError::new(
                     ErrorKind::UndefinedName,
                     expr.span,
@@ -240,7 +309,7 @@ pub fn validate_expr(
         }
 
         ExprKind::Field(path) => {
-            if !table.has_global(path) {
+            if !table.has_field(path) {
                 errors.push(CompileError::new(
                     ErrorKind::UndefinedName,
                     expr.span,
@@ -395,6 +464,16 @@ pub fn validate_expr(
             validate_expr(else_branch, table, scope, errors);
         }
 
+        // === Parse errors ===
+        ExprKind::ParseError(msg) => {
+            // Parser errors should be reported during name resolution
+            errors.push(CompileError::new(
+                ErrorKind::Syntax,
+                expr.span,
+                format!("parse error: {}", msg),
+            ));
+        }
+
         // === Literals and keywords (always valid) ===
         ExprKind::Literal { .. }
         | ExprKind::BoolLiteral(_)
@@ -404,8 +483,7 @@ pub fn validate_expr(
         | ExprKind::Dt
         | ExprKind::Self_
         | ExprKind::Other
-        | ExprKind::Payload
-        | ExprKind::ParseError(_) => {
+        | ExprKind::Payload => {
             // No validation needed
         }
     }
@@ -431,12 +509,21 @@ mod tests {
     }
 
     #[test]
-    fn test_symbol_table_register_global() {
+    fn test_symbol_table_register_signal() {
         let mut table = SymbolTable::new();
-        table.register_global(make_path("temperature"));
+        table.register_signal(make_path("temperature"));
 
-        assert!(table.has_global(&make_path("temperature")));
-        assert!(!table.has_global(&make_path("pressure")));
+        assert!(table.has_signal(&make_path("temperature")));
+        assert!(!table.has_signal(&make_path("pressure")));
+    }
+
+    #[test]
+    fn test_symbol_table_register_field() {
+        let mut table = SymbolTable::new();
+        table.register_field(make_path("elevation"));
+
+        assert!(table.has_field(&make_path("elevation")));
+        assert!(!table.has_field(&make_path("temperature")));
     }
 
     #[test]
@@ -454,15 +541,15 @@ mod tests {
 
         let table = build_symbol_table(&globals, &HashMap::new());
 
-        assert!(table.has_global(&make_path("temperature")));
-        assert!(table.has_global(&make_path("pressure")));
-        assert!(!table.has_global(&make_path("velocity")));
+        assert!(table.has_signal(&make_path("temperature")));
+        assert!(table.has_signal(&make_path("pressure")));
+        assert!(!table.has_signal(&make_path("velocity")));
     }
 
     #[test]
     fn test_validate_signal_reference_valid() {
         let mut table = SymbolTable::new();
-        table.register_global(make_path("temperature"));
+        table.register_signal(make_path("temperature"));
 
         let expr = Expr::new(
             ExprKind::Signal(make_path("temperature")),
@@ -666,8 +753,7 @@ mod tests {
 
     #[test]
     fn test_validate_aggregate_binding() {
-        let mut table = SymbolTable::new();
-        table.register_global(make_path("plates"));
+        let table = SymbolTable::new();
 
         let expr = Expr::new(
             ExprKind::Aggregate {
@@ -710,5 +796,220 @@ mod tests {
             validate_expr(&expr, &table, &mut scope, &mut errors);
             assert!(errors.is_empty());
         }
+    }
+
+    #[test]
+    fn test_validate_config_reference() {
+        let mut table = SymbolTable::new();
+        table.register_config(make_path("world.gravity"));
+
+        let expr = Expr::new(
+            ExprKind::Config(make_path("world.gravity")),
+            Span::new(0, 0, 10, 1),
+        );
+
+        let mut errors = Vec::new();
+        let mut scope = Scope::new();
+        validate_expr(&expr, &table, &mut scope, &mut errors);
+
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_const_reference() {
+        let mut table = SymbolTable::new();
+        table.register_const(make_path("math.pi"));
+
+        let expr = Expr::new(
+            ExprKind::Const(make_path("math.pi")),
+            Span::new(0, 0, 10, 1),
+        );
+
+        let mut errors = Vec::new();
+        let mut scope = Scope::new();
+        validate_expr(&expr, &table, &mut scope, &mut errors);
+
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_field_reference() {
+        let mut table = SymbolTable::new();
+        table.register_field(make_path("elevation"));
+
+        let expr = Expr::new(
+            ExprKind::Field(make_path("elevation")),
+            Span::new(0, 0, 10, 1),
+        );
+
+        let mut errors = Vec::new();
+        let mut scope = Scope::new();
+        validate_expr(&expr, &table, &mut scope, &mut errors);
+
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_multiple_unresolved_paths() {
+        let table = SymbolTable::new();
+
+        let expr = Expr::new(
+            ExprKind::KernelCall {
+                kernel: continuum_kernel_types::KernelId::new("maths", "add"),
+                args: vec![
+                    Expr::new(
+                        ExprKind::Signal(make_path("missing_a")),
+                        Span::new(0, 0, 1, 1),
+                    ),
+                    Expr::new(
+                        ExprKind::Field(make_path("missing_b")),
+                        Span::new(0, 2, 3, 1),
+                    ),
+                ],
+            },
+            Span::new(0, 0, 3, 1),
+        );
+
+        let mut errors = Vec::new();
+        let mut scope = Scope::new();
+        validate_expr(&expr, &table, &mut scope, &mut errors);
+
+        assert_eq!(errors.len(), 2);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(matches!(errors[1].kind, ErrorKind::UndefinedName));
+    }
+
+    #[test]
+    fn test_validate_aggregate_scope_isolation() {
+        let table = SymbolTable::new();
+
+        // aggregate(..., p) { p }; p  (p should be undefined here)
+        let expr = Expr::new(
+            ExprKind::Let {
+                name: "x".to_string(),
+                value: Box::new(Expr::new(
+                    ExprKind::Aggregate {
+                        op: AggregateOp::Count,
+                        entity: EntityId::new("plates"),
+                        binding: "p".to_string(),
+                        body: Box::new(Expr::new(
+                            ExprKind::Local("p".to_string()),
+                            Span::new(0, 2, 3, 1),
+                        )),
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                body: Box::new(Expr::new(
+                    ExprKind::Local("p".to_string()),
+                    Span::new(0, 4, 5, 1),
+                )),
+            },
+            Span::new(0, 0, 5, 1),
+        );
+
+        let mut errors = Vec::new();
+        let mut scope = Scope::new();
+        validate_expr(&expr, &table, &mut scope, &mut errors);
+
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    }
+
+    #[test]
+    fn test_validate_fold_bindings() {
+        let table = SymbolTable::new();
+
+        // fold(init, acc, elem) { acc + elem }
+        let expr = Expr::new(
+            ExprKind::Fold {
+                entity: EntityId::new("plates"),
+                init: Box::new(Expr::new(
+                    ExprKind::Literal {
+                        value: 0.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 1, 1),
+                )),
+                acc: "acc".to_string(),
+                elem: "elem".to_string(),
+                body: Box::new(Expr::new(
+                    ExprKind::KernelCall {
+                        kernel: continuum_kernel_types::KernelId::new("maths", "add"),
+                        args: vec![
+                            Expr::new(ExprKind::Local("acc".to_string()), Span::new(0, 2, 3, 1)),
+                            Expr::new(ExprKind::Local("elem".to_string()), Span::new(0, 4, 5, 1)),
+                        ],
+                    },
+                    Span::new(0, 2, 5, 1),
+                )),
+            },
+            Span::new(0, 0, 5, 1),
+        );
+
+        let mut errors = Vec::new();
+        let mut scope = Scope::new();
+        validate_expr(&expr, &table, &mut scope, &mut errors);
+
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_fold_scope_isolation() {
+        let table = SymbolTable::new();
+
+        // let x = fold(0, acc, elem) { acc }; elem  (elem should be undefined here)
+        let expr = Expr::new(
+            ExprKind::Let {
+                name: "x".to_string(),
+                value: Box::new(Expr::new(
+                    ExprKind::Fold {
+                        entity: EntityId::new("plates"),
+                        init: Box::new(Expr::new(
+                            ExprKind::Literal {
+                                value: 0.0,
+                                unit: None,
+                            },
+                            Span::new(0, 0, 1, 1),
+                        )),
+                        acc: "acc".to_string(),
+                        elem: "elem".to_string(),
+                        body: Box::new(Expr::new(
+                            ExprKind::Local("acc".to_string()),
+                            Span::new(0, 2, 3, 1),
+                        )),
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                body: Box::new(Expr::new(
+                    ExprKind::Local("elem".to_string()),
+                    Span::new(0, 4, 5, 1),
+                )),
+            },
+            Span::new(0, 0, 5, 1),
+        );
+
+        let mut errors = Vec::new();
+        let mut scope = Scope::new();
+        validate_expr(&expr, &table, &mut scope, &mut errors);
+
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    }
+
+    #[test]
+    fn test_validate_parse_error_reported() {
+        let table = SymbolTable::new();
+
+        let expr = Expr::new(
+            ExprKind::ParseError("expected expression".to_string()),
+            Span::new(0, 0, 5, 1),
+        );
+
+        let mut errors = Vec::new();
+        let mut scope = Scope::new();
+        validate_expr(&expr, &table, &mut scope, &mut errors);
+
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::Syntax));
     }
 }
