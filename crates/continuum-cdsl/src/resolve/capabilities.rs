@@ -631,4 +631,157 @@ mod tests {
         let errors = validate_capability_access(&call, &ctx);
         assert_eq!(errors.len(), 0);
     }
+
+    #[test]
+    fn test_let_binding_with_capability_violation() {
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Dt));
+
+        // Let binding where value uses prev (not allowed) but dt is allowed
+        let expr = TypedExpr::new(
+            ExprKind::Let {
+                name: "x".to_string(),
+                value: Box::new(TypedExpr::new(
+                    ExprKind::Prev,
+                    Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                    test_span(),
+                )),
+                body: Box::new(TypedExpr::new(
+                    ExprKind::Dt,
+                    Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                    test_span(),
+                )),
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+        assert!(errors[0].message.contains("prev"));
+    }
+
+    #[test]
+    fn test_field_access_on_capability_expr() {
+        use crate::foundation::UserTypeId;
+
+        let ctx = CapabilityContext::new(CapabilitySet::empty());
+
+        // FieldAccess on payload (payload not available)
+        let expr = TypedExpr::new(
+            ExprKind::FieldAccess {
+                object: Box::new(TypedExpr::new(
+                    ExprKind::Payload,
+                    Type::User(UserTypeId::new("CollisionData")),
+                    test_span(),
+                )),
+                field: "impulse".to_string(),
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+        assert!(errors[0].message.contains("payload"));
+    }
+
+    #[test]
+    fn test_struct_field_with_capability_violation() {
+        use crate::foundation::UserTypeId;
+
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Dt));
+
+        // Struct construction with field value using inputs (not allowed)
+        let expr = TypedExpr::new(
+            ExprKind::Struct {
+                ty: UserTypeId::new("State"),
+                fields: vec![
+                    (
+                        "time".to_string(),
+                        TypedExpr::new(
+                            ExprKind::Dt,
+                            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                            test_span(),
+                        ),
+                    ),
+                    (
+                        "accumulated".to_string(),
+                        TypedExpr::new(
+                            ExprKind::Inputs,
+                            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                            test_span(),
+                        ),
+                    ),
+                ],
+            },
+            Type::User(UserTypeId::new("State")),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+        assert!(errors[0].message.contains("inputs"));
+    }
+
+    #[test]
+    fn test_all_capabilities_available() {
+        let ctx = CapabilityContext::new(
+            CapabilitySet::empty()
+                .with(Capability::Prev)
+                .with(Capability::Current)
+                .with(Capability::Inputs)
+                .with(Capability::Dt)
+                .with(Capability::Payload)
+                .with(Capability::Emit),
+        );
+
+        // All capability-requiring expressions should pass
+        let test_cases = vec![
+            ExprKind::Prev,
+            ExprKind::Current,
+            ExprKind::Inputs,
+            ExprKind::Dt,
+            ExprKind::Payload,
+        ];
+
+        for kind in test_cases {
+            let expr = TypedExpr::new(
+                kind,
+                Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                test_span(),
+            );
+            let errors = validate_capability_access(&expr, &ctx);
+            assert_eq!(errors.len(), 0, "Expected no errors for {:#?}", expr.expr);
+        }
+
+        // Test emit call
+        let emit = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("", "emit"),
+                args: vec![
+                    TypedExpr::new(
+                        ExprKind::Local("target".to_string()),
+                        Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                        test_span(),
+                    ),
+                    TypedExpr::new(
+                        ExprKind::Literal {
+                            value: 1.0,
+                            unit: None,
+                        },
+                        Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                        test_span(),
+                    ),
+                ],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_capability_access(&emit, &ctx);
+        assert_eq!(errors.len(), 0);
+    }
 }
