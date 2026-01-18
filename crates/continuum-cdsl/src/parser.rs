@@ -106,6 +106,47 @@ pub fn parse_expr(tokens: &[Token]) -> ParseResult<Expr, Rich<'_, Token>> {
     expr_parser().parse(tokens)
 }
 
+/// Parse declarations from a token stream.
+///
+/// # Parameters
+///
+/// - `tokens`: Slice of tokens to parse
+///
+/// # Returns
+///
+/// - `Ok(Vec<Declaration>)`: Successfully parsed declarations
+///
+/// # Errors
+///
+/// Returns parse errors if the token stream doesn't match the declaration grammar.
+pub fn parse_declarations(tokens: &[Token]) -> ParseResult<Vec<Declaration>, Rich<'_, Token>> {
+    declarations_parser().parse(tokens)
+}
+
+/// Main declarations parser - parses a complete CDSL file.
+fn declarations_parser<'src>()
+-> impl Parser<'src, &'src [Token], Vec<Declaration>, extra::Err<Rich<'src, Token>>> + Clone {
+    choice((
+        world_parser(),
+        type_decl_parser(),
+        const_block_parser(),
+        config_block_parser(),
+        entity_parser(),
+        member_parser(),
+        stratum_parser(),
+        era_parser(),
+        signal_parser(),
+        field_parser(),
+        operator_parser(),
+        impulse_parser(),
+        fracture_parser(),
+        chronicle_parser(),
+    ))
+    .repeated()
+    .collect::<Vec<_>>()
+    .then_ignore(end())
+}
+
 /// Main expression parser (recursive).
 ///
 /// Parses the full expression grammar with explicit precedence levels
