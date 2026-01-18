@@ -143,12 +143,11 @@ pub struct WorldDecl {
     /// Version string
     pub version: Option<String>,
 
-    /// Warmup policy for iterative equilibration (parsed from raw attributes)
+    /// Raw warmup attributes from world declaration
     ///
-    /// Stored as `WarmupPolicy` for now, but should be changed to raw attributes
-    /// and validated during semantic analysis to avoid parser/semantic boundary violation.
-    /// TODO: Change to `Option<Vec<Attribute>>` and build WarmupPolicy in analyzer
-    pub warmup: Option<WarmupPolicy>,
+    /// Semantic analysis validates these and builds a WarmupPolicy.
+    /// Parser preserves raw syntax; analyzer validates and interprets.
+    pub warmup: Option<RawWarmupPolicy>,
 
     /// Source location
     pub span: Span,
@@ -184,6 +183,23 @@ pub struct WarmupPolicy {
     ///
     /// None if `:on_timeout(...)` attribute is missing or invalid.
     pub on_timeout: Option<WarmupTimeout>,
+
+    /// Source location
+    pub span: Span,
+}
+
+/// Raw warmup attributes from world declaration.
+///
+/// Parser extracts these from `world { warmup { :attr(...) } }` blocks
+/// and stores them as raw attributes for semantic analysis to validate
+/// and convert to WarmupPolicy.
+///
+/// This preserves the parser/semantic boundary: parser handles syntax,
+/// semantic analysis validates and interprets.
+#[derive(Debug, Clone)]
+pub struct RawWarmupPolicy {
+    /// Raw attributes from warmup block
+    pub attributes: Vec<Attribute>,
 
     /// Source location
     pub span: Span,

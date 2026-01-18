@@ -58,9 +58,9 @@ use chumsky::prelude::*;
 
 use crate::ast::{
     Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, Entity, EraDecl, Expr,
-    Node, ObserveBlock, ObserveWhen, RoleData, Stmt, Stratum, StratumPolicyEntry, StratumState,
-    TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr, UntypedKind as ExprKind,
-    WarmupBlock, WarmupPolicy, WarmupTimeout, WhenBlock, WorldDecl,
+    Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData, Stmt, Stratum, StratumPolicyEntry,
+    StratumState, TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr,
+    UntypedKind as ExprKind, WarmupBlock, WhenBlock, WorldDecl,
 };
 use crate::foundation::{EntityId, Path, Span, StratumId};
 use crate::lexer::Token;
@@ -1548,45 +1548,15 @@ fn world_parser<'src>()
                 .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map_with(|attrs, e| {
-            let span = token_span(e.span());
-
-            // Extract converged expression (optional - semantic analysis will validate/default)
-            // BOUNDARY VIOLATION: Parser should preserve raw attributes, not interpret them
-            // This builds WarmupPolicy from attributes, which is semantic work
-            // TODO: Store raw attributes, build policy in semantic analysis
-            let converged = attrs
-                .iter()
-                .find(|attr| attr.name == "converged")
-                .and_then(|attr| attr.args.first().cloned());
-
-            // Extract max_iterations (no default - preserve None if missing/invalid)
-            let max_iterations = attrs
-                .iter()
-                .find(|attr| attr.name == "max_iterations")
-                .and_then(|attr| {
-                    attr.args.first().and_then(|expr| match &expr.kind {
-                        ExprKind::Literal { value, .. } => Some(*value as u32),
-                        _ => None, // Invalid type - semantic analysis will error
-                    })
-                });
-
-            // Extract on_timeout (no default - preserve None if missing/invalid)
-            let on_timeout = attrs
-                .iter()
-                .find(|attr| attr.name == "on_timeout")
-                .and_then(|attr| {
-                    attr.args.first().and_then(|expr| match &expr.kind {
-                        ExprKind::Local(id) if id == "fail" => Some(WarmupTimeout::Fail),
-                        ExprKind::Local(id) if id == "continue" => Some(WarmupTimeout::Continue),
-                        _ => None, // Invalid value - semantic analysis will error
-                    })
-                });
-
-            WarmupPolicy {
-                converged,
-                max_iterations,
-                on_timeout,
-                span,
+            // Parser preserves raw attributes for semantic analysis
+            // Semantic analyzer will:
+            //   - Validate required attributes are present
+            //   - Type-check attribute arguments
+            //   - Build WarmupPolicy with proper defaults
+            //   - Error on invalid/missing required fields
+            RawWarmupPolicy {
+                attributes: attrs,
+                span: token_span(e.span()),
             }
         });
 
@@ -1596,7 +1566,7 @@ fn world_parser<'src>()
         .then(attribute_parser().repeated().collect::<Vec<_>>())
         .then(warmup_policy.or_not())
         .then_ignore(just(Token::RBrace))
-        .map_with(|((path, attrs), warmup), e| {
+        .map_with(|((path, _attrs), warmup), e| {
             // TODO: Extract title, version from attributes
             Declaration::World(WorldDecl {
                 path,
