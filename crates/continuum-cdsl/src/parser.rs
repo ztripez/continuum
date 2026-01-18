@@ -33,7 +33,7 @@
 //! 3. Comparison (`<`, `<=`, `>`, `>=`, `==`, `!=`)
 //! 4. Addition/Subtraction (`+`, `-`)
 //! 5. Multiplication/Division/Modulo (`*`, `/`, `%`)
-//! 6. Power (`^`) - highest precedence (right-associative)
+//! 6. Power (`^`) - highest precedence (right-associative: `2 ^ 3 ^ 4` → `2 ^ (3 ^ 4)`)
 //!
 //! ## Error Recovery
 //!
@@ -70,9 +70,11 @@ use crate::lexer::Token;
 ///
 /// # Errors
 ///
-/// Returns `Err(Vec<EmptyErr>)` when parsing fails.
+/// Returns `Err(Vec<EmptyErr>)` when parsing fails. `EmptyErr` is a placeholder
+/// error type that carries no diagnostic information (no spans, no expected tokens).
 ///
-/// TODO: Implement detailed error reporting using `Rich<Token>` error type.
+/// TODO: Implement detailed error reporting using `Rich<Token>` error type for
+/// meaningful diagnostics with source locations and expected token information.
 ///
 /// # Examples
 ///
@@ -232,38 +234,39 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
         // === Binary operators with precedence ===
 
         // Power (highest precedence, right-associative)
+        // For `a ^ b ^ c`, parse as `a ^ (b ^ c)`
         let power_op = just(Token::Caret).to(BinaryOp::Pow);
         let power = unary
             .clone()
             .then(power_op.then(unary.clone()).repeated().collect::<Vec<_>>())
-            .map(|(first, rest)| {
+            .map(|(first, mut rest)| {
                 if rest.is_empty() {
                     first
                 } else {
-                    // Build right-to-left for right-associativity
-                    // For `2 ^ 3 ^ 4`, we want Binary(2, Binary(3, 4))
-                    let mut ops_vals: Vec<_> = rest;
-                    let (last_op, last_val) = ops_vals.pop().unwrap();
+                    // Build right-associatively using rfold pattern
+                    // rest[i] = (operator connecting i-1 to i, operand i)
+                    let (mut next_op, mut result) = rest.pop().unwrap();
 
-                    // Start from rightmost value and build backwards
-                    let mut result = last_val;
-                    while let Some((op, left_val)) = ops_vals.pop() {
+                    // Build from right to left: each iteration uses the operator
+                    // from the NEXT pair (which connects current operand to accumulated tree)
+                    while let Some((op, left_val)) = rest.pop() {
                         let span = left_val.span;
                         result = Expr::new(
                             ExprKind::Binary {
-                                op,
+                                op: next_op,
                                 left: Box::new(left_val),
                                 right: Box::new(result),
                             },
                             span,
                         );
+                        next_op = op;
                     }
 
                     // Combine with first operand
                     let span = first.span;
                     Expr::new(
                         ExprKind::Binary {
-                            op: last_op,
+                            op: next_op,
                             left: Box::new(first),
                             right: Box::new(result),
                         },
@@ -746,6 +749,138 @@ mod tests {
                 ));
             }
             _ => panic!("expected mul with pow on right, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_power_vs_mul_precedence_left() {
+        // Power on left: 2 ^ 3 * 4 should parse as (2 ^ 3) * 4
+        let expr = lex_and_parse("2 ^ 3 * 4");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Mul,
+                left,
+                right,
+            } => {
+                assert!(matches!(
+                    left.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Pow,
+                        ..
+                    }
+                ));
+                assert!(matches!(right.kind, ExprKind::Literal { value: 4.0, .. }));
+            }
+            _ => panic!("expected mul with pow on left, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_power_parentheses_override() {
+        // Parentheses should override right-associativity
+        // (2 ^ 3) ^ 4 should parse as left-associative Binary(Binary(2, 3), 4)
+        let expr = lex_and_parse("(2 ^ 3) ^ 4");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Pow,
+                left,
+                right,
+            } => {
+                assert!(matches!(
+                    left.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Pow,
+                        ..
+                    }
+                ));
+                assert!(matches!(right.kind, ExprKind::Literal { value: 4.0, .. }));
+            }
+            _ => panic!("expected pow with pow on left, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_power_with_unary_right() {
+        // Power with unary on right: 2 ^ -3
+        let expr = lex_and_parse("2 ^ -3");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Pow,
+                left,
+                right,
+            } => {
+                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    ExprKind::Unary {
+                        op: UnaryOp::Neg,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected pow with unary right, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_power_with_unary_left() {
+        // Power with unary on left: -2 ^ 3
+        // Unary binds to its operand first, so this is (-2) ^ 3
+        let expr = lex_and_parse("-2 ^ 3");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Pow,
+                left,
+                right,
+            } => {
+                assert!(matches!(
+                    left.kind,
+                    ExprKind::Unary {
+                        op: UnaryOp::Neg,
+                        ..
+                    }
+                ));
+                assert!(matches!(right.kind, ExprKind::Literal { value: 3.0, .. }));
+            }
+            _ => panic!("expected pow with unary left, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_power_longer_chain() {
+        // Longer chain: 2 ^ 3 ^ 4 ^ 5 should be 2 ^ (3 ^ (4 ^ 5))
+        let expr = lex_and_parse("2 ^ 3 ^ 4 ^ 5");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Pow,
+                left,
+                right,
+            } => {
+                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                // right should be 3 ^ (4 ^ 5)
+                match right.kind {
+                    ExprKind::Binary {
+                        op: BinaryOp::Pow,
+                        left: inner_left,
+                        right: inner_right,
+                    } => {
+                        assert!(matches!(
+                            inner_left.kind,
+                            ExprKind::Literal { value: 3.0, .. }
+                        ));
+                        // inner_right should be 4 ^ 5
+                        assert!(matches!(
+                            inner_right.kind,
+                            ExprKind::Binary {
+                                op: BinaryOp::Pow,
+                                ..
+                            }
+                        ));
+                    }
+                    _ => panic!("expected nested pow, got {:?}", right.kind),
+                }
+            }
+            _ => panic!("expected pow chain, got {:?}", expr.kind),
         }
     }
 
