@@ -133,3 +133,6 @@ For each file reviewed, provide:
 4. Specific improvements needed for existing docs
 
 Be thorough but focused - documentation is a critical part of the codebase and must meet the same quality standards as the implementation itself.
+
+## Compiler Manifestor
+@.opencode/plans/compiler-manifesto.md

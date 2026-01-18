@@ -128,3 +128,6 @@ Respect project-specific patterns from CLAUDE.md. For example:
 - Understand domain-specific complexity vs unnecessary complexity
 
 Your goal is to produce an actionable list that helps developers clean up their code, not to nitpick every stylistic choice.
+
+## Compiler Manifestor
+@.opencode/plans/compiler-manifesto.md

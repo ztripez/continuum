@@ -90,3 +90,6 @@ Why this matters (performance impact, correctness risk, etc.)
 - Performance claims should be justified with reasoning
 - Security-adjacent issues (parsing untrusted input) get elevated priority
 - Maintain awareness of Rust's zero-cost abstraction principles
+
+## Compiler Manifestor
+@.opencode/plans/compiler-manifesto.md

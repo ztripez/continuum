@@ -80,3 +80,7 @@ For each abstraction opportunity, provide:
 - You do not review for bugs, security, or correctness (different concern)
 - You do not suggest abstractions for single-use code
 - You do not recommend patterns that fight against the language or framework
+
+
+## Compiler Manifestor
+@.opencode/plans/compiler-manifesto.md

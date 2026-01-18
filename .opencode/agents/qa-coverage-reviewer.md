@@ -86,3 +86,6 @@ When recommending new tests, provide concrete Rust test code snippets that follo
 - Use `tracing` for any diagnostic output, never `println!`
 - Follow the project's existing test patterns and naming conventions
 - For simulation code, always verify determinism with seed-based tests
+
+## Compiler Manifestor
+@.opencode/plans/compiler-manifesto.md

@@ -21,13 +21,22 @@
 //!
 //! # Type Resolution (`types`)
 //!
-//! Resolves TypeExpr → Type and infers types where not explicit:
+//! Resolves TypeExpr → Type:
 //! - Resolve unit expressions to Unit
-//! - Infer types from context (bidirectional type inference)
-//! - Resolve kernel calls to kernel signatures
-//! - Validate type compatibility
+//! - Resolve user type names to TypeIds
+//! - Convert AST type syntax to semantic types
 //!
 //! This pass consumes `type_expr` and populates `output` on Node<I>.
+//!
+//! # Validation (`validation`)
+//!
+//! Validates typed expressions for semantic correctness:
+//! - Type compatibility checks
+//! - Kernel call signature validation
+//! - Bounds checking
+//! - Unit consistency validation
+//!
+//! This pass populates `validation_errors` on Node<I>.
 //!
 //! # Pipeline Integration
 //!
@@ -49,3 +58,4 @@
 
 pub mod names;
 pub mod types;
+pub mod validation;

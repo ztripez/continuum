@@ -853,18 +853,26 @@ pub struct Execution {
 // before type resolution transforms them into TypedExpr.
 pub use super::untyped::TypeExpr;
 
-/// Validation error from semantic analysis
+/// Validation error from semantic analysis.
 ///
-/// Structured error produced during validation passes. Contains error
-/// kind, message, source location, and hints for fixing.
+/// Type alias to [`CompileError`](crate::error::CompileError) for validation
+/// diagnostics. Validation errors are compile errors detected during the
+/// validation pass (type checking, bounds validation, unit compatibility, etc.).
 ///
-/// **Current status:** Placeholder - not yet implemented
-#[derive(Clone, Debug)]
-pub struct ValidationError {
-    // This will hold error kind, span, and hints when implemented
-    #[doc(hidden)]
-    _placeholder: (),
-}
+/// # Examples
+///
+/// ```rust,ignore
+/// use continuum_cdsl::ast::node::ValidationError;
+/// use continuum_cdsl::error::ErrorKind;
+/// use continuum_cdsl::foundation::Span;
+///
+/// let error = ValidationError::new(
+///     ErrorKind::TypeMismatch,
+///     span,
+///     "expected Scalar<m>, found Scalar<s>".to_string(),
+/// );
+/// ```
+pub type ValidationError = crate::error::CompileError;
 
 #[cfg(test)]
 mod tests {
@@ -982,8 +990,11 @@ mod tests {
 
         assert!(!node.has_errors());
 
-        node.validation_errors
-            .push(ValidationError { _placeholder: () });
+        node.validation_errors.push(ValidationError::new(
+            crate::error::ErrorKind::TypeMismatch,
+            Span::new(0, 0, 10, 1),
+            "test error".to_string(),
+        ));
         assert!(node.has_errors());
     }
 
