@@ -58,7 +58,7 @@ use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, Stratu
 use std::path::PathBuf;
 
 use super::block::BlockBody;
-use super::declaration::Attribute;
+use super::declaration::{Attribute, ObserveBlock, WarmupBlock, WhenBlock};
 use super::expr::TypedExpr;
 use super::role::RoleData;
 
@@ -175,6 +175,24 @@ pub struct Node<I: Index = ()> {
     /// Type expression from source (cleared after resolution)
     pub type_expr: Option<TypeExpr>,
 
+    /// Warmup block for signals (optional)
+    ///
+    /// Contains warmup attributes and iterate expression.
+    /// Only valid for Signal role.
+    pub warmup: Option<WarmupBlock>,
+
+    /// When block for fractures (optional)
+    ///
+    /// Contains condition expressions that trigger fracture detection.
+    /// Only valid for Fracture role.
+    pub when: Option<WhenBlock>,
+
+    /// Observe block for chronicles (optional)
+    ///
+    /// Contains when/emit pairs for pattern detection.
+    /// Only valid for Chronicle role.
+    pub observe: Option<ObserveBlock>,
+
     /// Execution blocks from source (cleared after compilation)
     ///
     /// Map from phase name to block body (expression or statements).
@@ -226,6 +244,9 @@ impl<I: Index> Node<I> {
             index,
             attributes: Vec::new(),
             type_expr: None,
+            warmup: None,
+            when: None,
+            observe: None,
             execution_blocks: Vec::new(),
             reads: Vec::new(),
             validation_errors: Vec::new(),

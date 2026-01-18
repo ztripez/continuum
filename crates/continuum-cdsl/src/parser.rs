@@ -1069,19 +1069,18 @@ fn signal_parser<'src>()
         .then(warmup_parser().or_not())
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|((((path, type_expr), attrs), _warmup), blocks), e| {
+        .map_with(|((((path, type_expr), attrs), warmup), blocks), e| {
             let span = token_span(e.span());
             let mut node = Node::new(path, span, RoleData::Signal, ());
             node.type_expr = type_expr;
             node.attributes = attrs;
+            node.warmup = warmup;
 
             // Store execution blocks directly (both expressions and statements)
             // Semantic analysis will validate that statements only appear in effect phases
             for (name, body) in blocks {
                 node.execution_blocks.push((name, body));
             }
-
-            // TODO: Handle warmup block
 
             Declaration::Node(node)
         })
@@ -1208,13 +1207,12 @@ fn fracture_parser<'src>()
         .then(when_parser().or_not())
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|((((path, type_expr), attrs), _when), blocks), e| {
+        .map_with(|((((path, type_expr), attrs), when_block), blocks), e| {
             let span = token_span(e.span());
             let mut node = Node::new(path, span, RoleData::Fracture, ());
             node.type_expr = type_expr;
             node.attributes = attrs;
-
-            // TODO: Handle when block
+            node.when = when_block;
 
             for (name, body) in blocks {
                 node.execution_blocks.push((name, body));
@@ -1245,13 +1243,12 @@ fn chronicle_parser<'src>()
         .then_ignore(just(Token::LBrace))
         .then(observe_parser().or_not())
         .then_ignore(just(Token::RBrace))
-        .map_with(|(((path, type_expr), attrs), _observe), e| {
+        .map_with(|(((path, type_expr), attrs), observe_block), e| {
             let span = token_span(e.span());
             let mut node = Node::new(path, span, RoleData::Chronicle, ());
             node.type_expr = type_expr;
             node.attributes = attrs;
-
-            // TODO: Handle observe block
+            node.observe = observe_block;
 
             Declaration::Node(node)
         })
