@@ -124,58 +124,70 @@ fn passthrough(kind: ExprKind, span: Span) -> Expr {
     Expr { kind, span }
 }
 
+/// Construct a kernel call expression
+fn kernel_call(kernel: KernelId, args: Vec<Expr>, span: Span) -> Expr {
+    Expr {
+        kind: ExprKind::KernelCall { kernel, args },
+        span,
+    }
+}
+
 /// Desugar an expression, converting operators to kernel calls
 ///
-/// Recursively transforms:
+/// Recursively transforms operator syntax into explicit kernel calls, preserving
+/// all other expression forms. This is a pure syntax transformation that does not
+/// perform type resolution or semantic validation.
+///
+/// # Parameters
+///
+/// - `expr` - Untyped expression to desugar
+///
+/// # Returns
+///
+/// Desugared expression with operators converted to `KernelCall` variants.
+/// All other expression forms are preserved and recursively processed.
+///
+/// # Invariants
+///
+/// - **Span preservation** - The returned expression preserves the original span
+/// - **No type resolution** - Works on untyped AST, does not resolve types
+/// - **No semantic validation** - Does not check kernel existence or signatures
+/// - **Recursive descent** - All nested expressions are desugared
+/// - **Idempotent** - Calling `desugar_expr` twice produces same result (no operators left)
+///
+/// # Transformations
+///
 /// - `Binary { op, left, right }` → `KernelCall { kernel: op.kernel(), args: [left, right] }`
 /// - `Unary { op, operand }` → `KernelCall { kernel: op.kernel(), args: [operand] }`
 /// - `If { condition, then_branch, else_branch }` → `KernelCall { kernel: logic.select, args: [cond, then, else] }`
-///
-/// All other expression variants are recursively processed but not transformed.
 pub fn desugar_expr(expr: Expr) -> Expr {
     let span = expr.span;
 
     match expr.kind {
         // === Operators → Kernel Calls ===
-        ExprKind::Binary { op, left, right } => {
-            let left = Box::new(desugar_expr(*left));
-            let right = Box::new(desugar_expr(*right));
-            Expr {
-                kind: ExprKind::KernelCall {
-                    kernel: op.kernel(),
-                    args: vec![*left, *right],
-                },
-                span,
-            }
-        }
+        ExprKind::Binary { op, left, right } => kernel_call(
+            op.kernel(),
+            vec![desugar_expr(*left), desugar_expr(*right)],
+            span,
+        ),
 
         ExprKind::Unary { op, operand } => {
-            let operand = Box::new(desugar_expr(*operand));
-            Expr {
-                kind: ExprKind::KernelCall {
-                    kernel: op.kernel(),
-                    args: vec![*operand],
-                },
-                span,
-            }
+            kernel_call(op.kernel(), vec![desugar_expr(*operand)], span)
         }
 
         ExprKind::If {
             condition,
             then_branch,
             else_branch,
-        } => {
-            let condition = Box::new(desugar_expr(*condition));
-            let then_branch = Box::new(desugar_expr(*then_branch));
-            let else_branch = Box::new(desugar_expr(*else_branch));
-            Expr {
-                kind: ExprKind::KernelCall {
-                    kernel: KernelId::new("logic", "select"),
-                    args: vec![*condition, *then_branch, *else_branch],
-                },
-                span,
-            }
-        }
+        } => kernel_call(
+            KernelId::new("logic", "select"),
+            vec![
+                desugar_expr(*condition),
+                desugar_expr(*then_branch),
+                desugar_expr(*else_branch),
+            ],
+            span,
+        ),
 
         // === Recursive Cases (no transformation, just recurse) ===
         ExprKind::Let { name, value, body } => Expr {
@@ -485,5 +497,284 @@ mod tests {
             }
             _ => panic!("Expected Let, got {:?}", desugared.kind),
         }
+    }
+
+    // === Comprehensive operator coverage ===
+
+    #[test]
+    fn test_desugar_arithmetic_ops() {
+        let test_cases = vec![
+            (BinaryOp::Sub, "maths", "sub"),
+            (BinaryOp::Div, "maths", "div"),
+            (BinaryOp::Mod, "maths", "mod"),
+            (BinaryOp::Pow, "maths", "pow"),
+        ];
+
+        for (op, namespace, name) in test_cases {
+            let left = make_literal(10.0);
+            let right = make_literal(3.0);
+            let expr = Expr::binary(op, left, right, make_span());
+            let desugared = desugar_expr(expr);
+
+            match desugared.kind {
+                ExprKind::KernelCall { kernel, args } => {
+                    assert_eq!(kernel, KernelId::new(namespace, name));
+                    assert_eq!(args.len(), 2);
+                    // Verify argument order preserved
+                    assert!(
+                        matches!(args[0].kind, ExprKind::Literal { value, .. } if (value - 10.0).abs() < 1e-10)
+                    );
+                    assert!(
+                        matches!(args[1].kind, ExprKind::Literal { value, .. } if (value - 3.0).abs() < 1e-10)
+                    );
+                }
+                _ => panic!("Expected KernelCall for {:?}, got {:?}", op, desugared.kind),
+            }
+        }
+    }
+
+    #[test]
+    fn test_desugar_comparison_ops() {
+        let test_cases = vec![
+            (BinaryOp::Eq, "compare", "eq"),
+            (BinaryOp::Ne, "compare", "ne"),
+            (BinaryOp::Le, "compare", "le"),
+            (BinaryOp::Gt, "compare", "gt"),
+            (BinaryOp::Ge, "compare", "ge"),
+        ];
+
+        for (op, namespace, name) in test_cases {
+            let left = make_literal(5.0);
+            let right = make_literal(10.0);
+            let expr = Expr::binary(op, left, right, make_span());
+            let desugared = desugar_expr(expr);
+
+            match desugared.kind {
+                ExprKind::KernelCall { kernel, args } => {
+                    assert_eq!(kernel, KernelId::new(namespace, name));
+                    assert_eq!(args.len(), 2);
+                    // Verify argument order preserved
+                    assert!(
+                        matches!(args[0].kind, ExprKind::Literal { value, .. } if (value - 5.0).abs() < 1e-10)
+                    );
+                    assert!(
+                        matches!(args[1].kind, ExprKind::Literal { value, .. } if (value - 10.0).abs() < 1e-10)
+                    );
+                }
+                _ => panic!("Expected KernelCall for {:?}, got {:?}", op, desugared.kind),
+            }
+        }
+    }
+
+    #[test]
+    fn test_desugar_logical_or() {
+        let left = make_literal(1.0);
+        let right = make_literal(0.0);
+        let expr = Expr::binary(BinaryOp::Or, left, right, make_span());
+
+        let desugared = desugar_expr(expr);
+
+        match desugared.kind {
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("logic", "or"));
+                assert_eq!(args.len(), 2);
+                // Verify argument order
+                assert!(
+                    matches!(args[0].kind, ExprKind::Literal { value, .. } if (value - 1.0).abs() < 1e-10)
+                );
+                assert!(
+                    matches!(args[1].kind, ExprKind::Literal { value, .. } if (value - 0.0).abs() < 1e-10)
+                );
+            }
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
+        }
+    }
+
+    // === Recursion tests ===
+
+    #[test]
+    fn test_desugar_recurses_in_vector() {
+        let elem1 = Expr::binary(
+            BinaryOp::Add,
+            make_literal(1.0),
+            make_literal(2.0),
+            make_span(),
+        );
+        let elem2 = Expr::binary(
+            BinaryOp::Mul,
+            make_literal(3.0),
+            make_literal(4.0),
+            make_span(),
+        );
+        let vector = Expr {
+            kind: ExprKind::Vector(vec![elem1, elem2]),
+            span: make_span(),
+        };
+
+        let desugared = desugar_expr(vector);
+
+        match desugared.kind {
+            ExprKind::Vector(elements) => {
+                assert_eq!(elements.len(), 2);
+                // First element should be desugared to add
+                assert!(
+                    matches!(elements[0].kind, ExprKind::KernelCall { ref kernel, .. } if *kernel == KernelId::new("maths", "add"))
+                );
+                // Second element should be desugared to mul
+                assert!(
+                    matches!(elements[1].kind, ExprKind::KernelCall { ref kernel, .. } if *kernel == KernelId::new("maths", "mul"))
+                );
+            }
+            _ => panic!("Expected Vector, got {:?}", desugared.kind),
+        }
+    }
+
+    #[test]
+    fn test_desugar_recurses_in_if_branches() {
+        let condition = Expr::binary(
+            BinaryOp::Lt,
+            make_literal(1.0),
+            make_literal(2.0),
+            make_span(),
+        );
+        let then_branch = Expr::binary(
+            BinaryOp::Add,
+            make_literal(10.0),
+            make_literal(20.0),
+            make_span(),
+        );
+        let else_branch = Expr::binary(
+            BinaryOp::Mul,
+            make_literal(30.0),
+            make_literal(40.0),
+            make_span(),
+        );
+
+        let expr = Expr {
+            kind: ExprKind::If {
+                condition: Box::new(condition),
+                then_branch: Box::new(then_branch),
+                else_branch: Box::new(else_branch),
+            },
+            span: make_span(),
+        };
+
+        let desugared = desugar_expr(expr);
+
+        match desugared.kind {
+            ExprKind::KernelCall { kernel, args } => {
+                assert_eq!(kernel, KernelId::new("logic", "select"));
+                assert_eq!(args.len(), 3);
+                // Condition should be desugared to lt
+                assert!(
+                    matches!(args[0].kind, ExprKind::KernelCall { ref kernel, .. } if *kernel == KernelId::new("compare", "lt"))
+                );
+                // Then branch should be desugared to add
+                assert!(
+                    matches!(args[1].kind, ExprKind::KernelCall { ref kernel, .. } if *kernel == KernelId::new("maths", "add"))
+                );
+                // Else branch should be desugared to mul
+                assert!(
+                    matches!(args[2].kind, ExprKind::KernelCall { ref kernel, .. } if *kernel == KernelId::new("maths", "mul"))
+                );
+            }
+            _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
+        }
+    }
+
+    #[test]
+    fn test_desugar_recurses_in_call_args() {
+        use crate::foundation::Path;
+
+        let arg1 = Expr::binary(
+            BinaryOp::Add,
+            make_literal(1.0),
+            make_literal(2.0),
+            make_span(),
+        );
+        let arg2 = make_literal(5.0);
+        let call = Expr {
+            kind: ExprKind::Call {
+                func: Path::from_str("some.function"),
+                args: vec![arg1, arg2],
+            },
+            span: make_span(),
+        };
+
+        let desugared = desugar_expr(call);
+
+        match desugared.kind {
+            ExprKind::Call { func, args } => {
+                assert_eq!(func, Path::from_str("some.function"));
+                assert_eq!(args.len(), 2);
+                // First arg should be desugared to add
+                assert!(
+                    matches!(args[0].kind, ExprKind::KernelCall { ref kernel, .. } if *kernel == KernelId::new("maths", "add"))
+                );
+                // Second arg should be literal (passthrough)
+                assert!(matches!(args[1].kind, ExprKind::Literal { .. }));
+            }
+            _ => panic!("Expected Call, got {:?}", desugared.kind),
+        }
+    }
+
+    #[test]
+    fn test_desugar_recurses_in_struct_fields() {
+        use crate::foundation::Path;
+
+        let field1_value = Expr::binary(
+            BinaryOp::Add,
+            make_literal(1.0),
+            make_literal(2.0),
+            make_span(),
+        );
+        let field2_value = make_literal(10.0);
+        let struct_expr = Expr {
+            kind: ExprKind::Struct {
+                ty: Path::from_str("MyType"),
+                fields: vec![
+                    ("x".to_string(), field1_value),
+                    ("y".to_string(), field2_value),
+                ],
+            },
+            span: make_span(),
+        };
+
+        let desugared = desugar_expr(struct_expr);
+
+        match desugared.kind {
+            ExprKind::Struct { ty, fields } => {
+                assert_eq!(ty, Path::from_str("MyType"));
+                assert_eq!(fields.len(), 2);
+                // First field value should be desugared
+                assert_eq!(fields[0].0, "x");
+                assert!(
+                    matches!(fields[0].1.kind, ExprKind::KernelCall { ref kernel, .. } if *kernel == KernelId::new("maths", "add"))
+                );
+                // Second field value should be literal (passthrough)
+                assert_eq!(fields[1].0, "y");
+                assert!(matches!(fields[1].1.kind, ExprKind::Literal { .. }));
+            }
+            _ => panic!("Expected Struct, got {:?}", desugared.kind),
+        }
+    }
+
+    #[test]
+    fn test_desugar_preserves_spans() {
+        use crate::foundation::Span;
+
+        // Create a custom span to verify preservation
+        let custom_span = Span::new(0, 42, 100, 5);
+
+        let left = make_literal(1.0);
+        let right = make_literal(2.0);
+        let expr = Expr::binary(BinaryOp::Add, left, right, custom_span);
+
+        let desugared = desugar_expr(expr);
+
+        // Outer span should be preserved
+        assert_eq!(desugared.span.start, 42);
+        assert_eq!(desugared.span.end, 100);
+        assert_eq!(desugared.span.start_line, 5);
     }
 }
