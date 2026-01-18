@@ -94,6 +94,12 @@ pub mod lexer;
 /// Implements recursive descent parsing with chumsky combinators.
 pub mod parser;
 
+/// Desugaring pass
+///
+/// Phase 10: Converts syntax sugar (operators, if-expressions) to kernel calls.
+/// Transforms Binary/Unary/If nodes into Call nodes before type resolution.
+pub mod desugar;
+
 /// Name and type resolution
 ///
 /// Phase 11 will implement resolution passes.
