@@ -218,15 +218,6 @@ pub enum Token {
     GtEq,
 
     // Logic
-    /// Operator `&&`
-    #[token("&&")]
-    AndAnd,
-    /// Operator `||`
-    #[token("||")]
-    OrOr,
-    /// Operator `!`
-    #[token("!")]
-    Bang,
     /// Keyword `and` (logical and)
     #[token("and")]
     And,
@@ -396,9 +387,6 @@ const TOKEN_STRINGS: &[&str] = &[
     "<=",
     ">",
     ">=", // comparison
-    "&&",
-    "||",
-    "!",
     "and",
     "or",
     "not", // logic
@@ -567,7 +555,7 @@ mod tests {
 
     #[test]
     fn test_operators() {
-        let tokens = lex("+ - * / == != < <= > >= && || !");
+        let tokens = lex("+ - * / == != < <= > >=");
         assert_eq!(
             tokens,
             vec![
@@ -581,9 +569,6 @@ mod tests {
                 Token::LtEq,
                 Token::Gt,
                 Token::GtEq,
-                Token::AndAnd,
-                Token::OrOr,
-                Token::Bang,
             ]
         );
     }
@@ -886,25 +871,19 @@ mod tests {
     }
 
     #[test]
-    fn test_and_or_not_vs_symbols() {
-        // Test that word forms and symbol forms both work
-        let tokens = lex("a and b && c or d || e not f ! g");
+    fn test_and_or_not_keywords() {
+        // Test that word forms work (&&, ||, ! are not valid - only and, or, not)
+        let tokens = lex("a and b or c not d");
         assert_eq!(
             tokens,
             vec![
                 Token::Ident("a".to_string()),
                 Token::And,
                 Token::Ident("b".to_string()),
-                Token::AndAnd,
-                Token::Ident("c".to_string()),
                 Token::Or,
-                Token::Ident("d".to_string()),
-                Token::OrOr,
-                Token::Ident("e".to_string()),
+                Token::Ident("c".to_string()),
                 Token::Not,
-                Token::Ident("f".to_string()),
-                Token::Bang,
-                Token::Ident("g".to_string()),
+                Token::Ident("d".to_string()),
             ]
         );
     }
