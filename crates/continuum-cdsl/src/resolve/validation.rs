@@ -626,21 +626,34 @@ fn validate_shape_constraint(
                 return errors;
             }
 
-            if let Some(expected_shape) = all_args[*param_index].ty.as_kernel().map(|k| &k.shape) {
-                if arg_shape != expected_shape {
-                    errors.push(CompileError::new(
-                        ErrorKind::InvalidKernelShape,
-                        span,
-                        format!(
-                            "kernel {} argument {} must have same shape as argument {}, expected {:?}, found {:?}",
-                            kernel.qualified_name(),
-                            arg_index,
-                            param_index,
-                            expected_shape,
-                            arg_shape
-                        ),
-                    ));
-                }
+            let Some(expected_shape) = all_args[*param_index].ty.as_kernel().map(|k| &k.shape)
+            else {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelShape,
+                    span,
+                    format!(
+                        "kernel {} shape constraint SameAs({}) references non-kernel argument type {:?}",
+                        kernel.qualified_name(),
+                        param_index,
+                        all_args[*param_index].ty
+                    ),
+                ));
+                return errors;
+            };
+
+            if arg_shape != expected_shape {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelShape,
+                    span,
+                    format!(
+                        "kernel {} argument {} must have same shape as argument {}, expected {:?}, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        param_index,
+                        expected_shape,
+                        arg_shape
+                    ),
+                ));
             }
         }
 
@@ -846,21 +859,33 @@ fn validate_unit_constraint(
                 return errors;
             }
 
-            if let Some(expected_unit) = all_args[*param_index].ty.as_kernel().map(|k| &k.unit) {
-                if arg_unit != expected_unit {
-                    errors.push(CompileError::new(
-                        ErrorKind::InvalidKernelUnit,
-                        span,
-                        format!(
-                            "kernel {} argument {} must have same unit as argument {}, expected {:?}, found {:?}",
-                            kernel.qualified_name(),
-                            arg_index,
-                            param_index,
-                            expected_unit,
-                            arg_unit
-                        ),
-                    ));
-                }
+            let Some(expected_unit) = all_args[*param_index].ty.as_kernel().map(|k| &k.unit) else {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "kernel {} unit constraint SameAs({}) references non-kernel argument type {:?}",
+                        kernel.qualified_name(),
+                        param_index,
+                        all_args[*param_index].ty
+                    ),
+                ));
+                return errors;
+            };
+
+            if arg_unit != expected_unit {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "kernel {} argument {} must have same unit as argument {}, expected {:?}, found {:?}",
+                        kernel.qualified_name(),
+                        arg_index,
+                        param_index,
+                        expected_unit,
+                        arg_unit
+                    ),
+                ));
             }
         }
     }
