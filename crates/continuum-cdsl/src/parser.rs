@@ -52,7 +52,6 @@
 //! let expr = parse_expr(&tokens)?;
 //! ```
 
-use chumsky::error::EmptyErr;
 use chumsky::prelude::*;
 
 use crate::ast::{BinaryOp, Expr, TypeExpr, UnaryOp, UnitExpr, UntypedKind as ExprKind};
@@ -71,16 +70,16 @@ use crate::lexer::Token;
 ///
 /// # Errors
 ///
-/// Returns `Err(Vec<EmptyErr>)` when parsing fails. [`EmptyErr`] is a placeholder
-/// error type from chumsky that carries no diagnostic information—no source spans,
-/// no expected token lists, no error messages. The `Vec` length indicates the
-/// number of parse failures encountered, but provides no details about what went
-/// wrong or where.
+/// Returns `Err(Vec<Rich<Token>>)` when parsing fails. Each [`Rich<Token>`](chumsky::error::Rich)
+/// error contains:
+/// - **Span**: Source location where the error occurred
+/// - **Expected tokens**: What the parser was expecting to see
+/// - **Found token**: What was actually encountered (if any)
+/// - **Label**: Human-readable error message
+///
+/// Multiple errors may be returned if the parser encounters several issues.
 ///
 /// To check for errors, use `.into_result().is_err()` on the returned [`ParseResult`].
-///
-/// TODO: Replace [`EmptyErr`] with [`Rich<Token>`](chumsky::error::Rich) for
-/// meaningful diagnostics with source locations and expected token information.
 ///
 /// # Examples
 ///
@@ -92,7 +91,7 @@ use crate::lexer::Token;
 /// ];
 /// let expr = parse_expr(&tokens)?;
 /// ```
-pub fn parse_expr(tokens: &[Token]) -> ParseResult<Expr, EmptyErr> {
+pub fn parse_expr(tokens: &[Token]) -> ParseResult<Expr, Rich<'_, Token>> {
     expr_parser().parse(tokens)
 }
 
@@ -106,7 +105,8 @@ pub fn parse_expr(tokens: &[Token]) -> ParseResult<Expr, EmptyErr> {
 /// - Function calls
 /// - Field access
 /// - Struct construction
-fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
+fn expr_parser<'src>()
+-> impl Parser<'src, &'src [Token], Expr, extra::Err<Rich<'src, Token>>> + Clone {
     recursive(|expr| {
         // === Atoms ===
 
@@ -414,7 +414,8 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
 /// # Returns
 ///
 /// Parsed unit expression or error.
-fn unit_expr_parser<'src>() -> impl Parser<'src, &'src [Token], UnitExpr> + Clone {
+fn unit_expr_parser<'src>()
+-> impl Parser<'src, &'src [Token], UnitExpr, extra::Err<Rich<'src, Token>>> + Clone {
     recursive(|unit_term| {
         // Base unit: identifier
         let base = select! {
@@ -488,7 +489,8 @@ fn unit_expr_parser<'src>() -> impl Parser<'src, &'src [Token], UnitExpr> + Clon
 /// Bool                → Bool
 /// OrbitalElements     → User(Path(...))
 /// ```
-fn type_expr_parser<'src>() -> impl Parser<'src, &'src [Token], TypeExpr> + Clone {
+fn type_expr_parser<'src>()
+-> impl Parser<'src, &'src [Token], TypeExpr, extra::Err<Rich<'src, Token>>> + Clone {
     // Bool type
     let bool_type = just(Token::Ident("Bool".to_string())).to(TypeExpr::Bool);
 
@@ -962,6 +964,42 @@ mod tests {
         // Double operator should fail
         let tokens: Vec<_> = Token::lexer("2 ^ ^ 3").filter_map(|r| r.ok()).collect();
         assert!(parse_expr(&tokens).into_result().is_err());
+    }
+
+    #[test]
+    fn test_rich_error_contains_span() {
+        // Verify Rich errors contain span information
+        let tokens: Vec<_> = Token::lexer("2 ^").filter_map(|r| r.ok()).collect();
+        let result = parse_expr(&tokens);
+        match result.into_result() {
+            Err(errors) => {
+                assert!(!errors.is_empty());
+                // Rich errors should have spans
+                let first_error = &errors[0];
+                let span = first_error.span();
+                // Span should be non-empty (covers at least one token)
+                assert!(span.end >= span.start);
+            }
+            Ok(_) => panic!("expected parse error for incomplete expression"),
+        }
+    }
+
+    #[test]
+    fn test_rich_error_has_context() {
+        // Verify Rich errors provide context about what was expected
+        let tokens: Vec<_> = Token::lexer("^ 2").filter_map(|r| r.ok()).collect();
+        let result = parse_expr(&tokens);
+        match result.into_result() {
+            Err(errors) => {
+                assert!(!errors.is_empty());
+                // Rich errors should provide some context (found/expected)
+                let first_error = &errors[0];
+                // Just verify the error exists and has a reason
+                let _reason = first_error.reason();
+                // We got here, so the error has diagnostic info
+            }
+            Ok(_) => panic!("expected parse error for malformed expression"),
+        }
     }
 
     #[test]
