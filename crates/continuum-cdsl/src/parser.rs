@@ -1063,13 +1063,13 @@ fn signal_parser<'src>()
 -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Signal)
         .ignore_then(path_parser())
-        .then_ignore(just(Token::LBrace))
         .then(type_annotation_parser().or_not())
         .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::LBrace))
         .then(warmup_parser().or_not())
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|((((path, type_expr), attrs), _warmup), blocks), e| {
+        .map_with(|((((path, type_expr), _attrs), _warmup), blocks), e| {
             let span = token_span(e.span());
             let mut node = Node::new(path, span, RoleData::Signal, ());
             node.type_expr = type_expr;
@@ -1109,9 +1109,9 @@ fn field_parser<'src>()
 -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Field)
         .ignore_then(path_parser())
-        .then_ignore(just(Token::LBrace))
         .then(type_annotation_parser().or_not())
         .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::LBrace))
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
         .map_with(|(((path, type_expr), _attrs), blocks), e| {
@@ -1151,9 +1151,9 @@ fn operator_parser<'src>()
 -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Operator)
         .ignore_then(path_parser())
-        .then_ignore(just(Token::LBrace))
         .then(type_annotation_parser().or_not())
         .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::LBrace))
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
         .map_with(|(((path, type_expr), _attrs), blocks), e| {
@@ -1187,9 +1187,9 @@ fn impulse_parser<'src>()
 -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Impulse)
         .ignore_then(path_parser())
-        .then_ignore(just(Token::LBrace))
         .then(type_annotation_parser().or_not())
         .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::LBrace))
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
         .map_with(|(((path, type_expr), _attrs), blocks), e| {
@@ -1223,9 +1223,9 @@ fn fracture_parser<'src>()
 -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Fracture)
         .ignore_then(path_parser())
-        .then_ignore(just(Token::LBrace))
         .then(type_annotation_parser().or_not())
         .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::LBrace))
         .then(when_parser().or_not())
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
@@ -1265,9 +1265,9 @@ fn chronicle_parser<'src>()
 -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Chronicle)
         .ignore_then(path_parser())
-        .then_ignore(just(Token::LBrace))
         .then(type_annotation_parser().or_not())
         .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::LBrace))
         .then(observe_parser().or_not())
         .then_ignore(just(Token::RBrace))
         .map_with(|(((path, type_expr), _attrs), _observe), e| {
@@ -1323,9 +1323,9 @@ fn member_parser<'src>()
 -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Member)
         .ignore_then(path_parser())
-        .then_ignore(just(Token::LBrace))
         .then(type_annotation_parser().or_not())
         .then(attribute_parser().repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::LBrace))
         .then(execution_block_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
         .map_with(|(((full_path, type_expr), _attrs), blocks), e| {
@@ -3113,7 +3113,7 @@ member Plate.stress
 
     #[test]
     fn test_stratum_basic() {
-        let source = "stratum physics {}";
+        let source = "strata physics {}";
         let decls = lex_and_parse_decl(source);
         assert_eq!(decls.len(), 1);
         match &decls[0] {
@@ -3202,8 +3202,8 @@ era warmup
     fn test_type_decl_basic() {
         let source = r#"
 type PlateState {
-    position: Vector<3, m>
-    velocity: Vector<3, m/s>
+    position: type Vector<3, m>
+    velocity: type Vector<3, m/s>
 }
 "#;
         let decls = lex_and_parse_decl(source);
@@ -3224,7 +3224,7 @@ type PlateState {
         let source = r#"
 /// Plate state container
 type PlateState {
-    position: Vector<3, m>
+    position: type Vector<3, m>
 }
 "#;
         let decls = lex_and_parse_decl(source);
@@ -3295,7 +3295,7 @@ const {
     fn test_config_block_basic() {
         let source = r#"
 config {
-    dt: type Scalar<s> = 1.0
+    timestep: type Scalar<s> = 1.0
     max_iterations: type Int = 1000
 }
 "#;
@@ -3304,7 +3304,7 @@ config {
         match &decls[0] {
             Declaration::Config(entries) => {
                 assert_eq!(entries.len(), 2);
-                assert_eq!(entries[0].path.to_string(), "dt");
+                assert_eq!(entries[0].path.to_string(), "timestep");
                 assert!(entries[0].default.is_some());
             }
             _ => panic!("expected config declaration"),
