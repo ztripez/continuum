@@ -594,31 +594,130 @@ pub fn wrap(value: f64, min: f64, max: f64) -> f64 {
     min + ((offset % range) + range) % range
 }
 
-// === Variadic ===
+// === Min/Max Functions ===
 
-/// Minimum: `min(a, b, ...)`
-#[kernel_fn(namespace = "maths", variadic)]
-pub fn min(args: &[f64]) -> f64 {
-    args.iter().cloned().fold(f64::INFINITY, f64::min)
+/// Minimum of two values: `min(a, b)` → min(a, b)
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn min_2(a: f64, b: f64) -> f64 {
+    a.min(b)
 }
 
-/// Maximum: `max(a, b, ...)`
-#[kernel_fn(namespace = "maths", variadic)]
-pub fn max(args: &[f64]) -> f64 {
-    args.iter().cloned().fold(f64::NEG_INFINITY, f64::max)
+/// Minimum of three values: `min(a, b, c)` → min(a, b, c)
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn min_3(a: f64, b: f64, c: f64) -> f64 {
+    a.min(b).min(c)
 }
 
-/// Sum: `sum(a, b, ...)`
-#[kernel_fn(namespace = "maths", variadic)]
-pub fn sum(args: &[f64]) -> f64 {
-    args.iter().sum()
+/// Minimum of four values: `min(a, b, c, d)` → min(a, b, c, d)
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0), SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0), UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn min_4(a: f64, b: f64, c: f64, d: f64) -> f64 {
+    a.min(b).min(c).min(d)
+}
+
+/// Maximum of two values: `max(a, b)` → max(a, b)
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn max_2(a: f64, b: f64) -> f64 {
+    a.max(b)
+}
+
+/// Maximum of three values: `max(a, b, c)` → max(a, b, c)
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn max_3(a: f64, b: f64, c: f64) -> f64 {
+    a.max(b).max(c)
+}
+
+/// Maximum of four values: `max(a, b, c, d)` → max(a, b, c, d)
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0), SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0), UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn max_4(a: f64, b: f64, c: f64, d: f64) -> f64 {
+    a.max(b).max(c).max(d)
+}
+
+// === Sum Functions ===
+
+/// Sum of two values: `sum(a, b)` → a + b
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn sum_2(a: f64, b: f64) -> f64 {
+    a + b
+}
+
+/// Sum of three values: `sum(a, b, c)` → a + b + c
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn sum_3(a: f64, b: f64, c: f64) -> f64 {
+    a + b + c
+}
+
+/// Sum of four values: `sum(a, b, c, d)` → a + b + c + d
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0), SameAs(0), SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0), UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn sum_4(a: f64, b: f64, c: f64, d: f64) -> f64 {
+    a + b + c + d
 }
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{
-        Arity, Value, eval_in_namespace, get_in_namespace, is_known_in,
-    };
+    use continuum_kernel_registry::{Value, eval_in_namespace, get_in_namespace, is_known_in};
 
     #[test]
     fn test_pure_functions_registered() {
@@ -659,23 +758,21 @@ mod tests {
     }
 
     #[test]
-    fn test_variadic_functions_registered() {
-        assert!(is_known_in("maths", "min"));
-        assert!(is_known_in("maths", "max"));
-        assert!(is_known_in("maths", "sum"));
+    fn test_min_max_sum_functions_registered() {
+        // Min overloads
+        assert!(is_known_in("maths", "min_2"));
+        assert!(is_known_in("maths", "min_3"));
+        assert!(is_known_in("maths", "min_4"));
 
-        assert_eq!(
-            get_in_namespace("maths", "min").unwrap().arity,
-            Arity::Variadic
-        );
-        assert_eq!(
-            get_in_namespace("maths", "max").unwrap().arity,
-            Arity::Variadic
-        );
-        assert_eq!(
-            get_in_namespace("maths", "sum").unwrap().arity,
-            Arity::Variadic
-        );
+        // Max overloads
+        assert!(is_known_in("maths", "max_2"));
+        assert!(is_known_in("maths", "max_3"));
+        assert!(is_known_in("maths", "max_4"));
+
+        // Sum overloads
+        assert!(is_known_in("maths", "sum_2"));
+        assert!(is_known_in("maths", "sum_3"));
+        assert!(is_known_in("maths", "sum_4"));
     }
 
     #[test]
@@ -704,7 +801,25 @@ mod tests {
     }
 
     #[test]
-    fn test_eval_sum() {
+    fn test_eval_sum_2() {
+        let args = [Value::Scalar(1.0), Value::Scalar(2.0)];
+        assert_eq!(
+            eval_in_namespace("maths", "sum_2", &args, 1.0),
+            Some(Value::Scalar(3.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_sum_3() {
+        let args = [Value::Scalar(1.0), Value::Scalar(2.0), Value::Scalar(3.0)];
+        assert_eq!(
+            eval_in_namespace("maths", "sum_3", &args, 1.0),
+            Some(Value::Scalar(6.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_sum_4() {
         let args = [
             Value::Scalar(1.0),
             Value::Scalar(2.0),
@@ -712,21 +827,72 @@ mod tests {
             Value::Scalar(4.0),
         ];
         assert_eq!(
-            eval_in_namespace("maths", "sum", &args, 1.0),
+            eval_in_namespace("maths", "sum_4", &args, 1.0),
             Some(Value::Scalar(10.0))
         );
     }
 
     #[test]
-    fn test_eval_min_max() {
-        let args = [Value::Scalar(3.0), Value::Scalar(1.0), Value::Scalar(2.0)];
+    fn test_eval_min_2() {
+        let args = [Value::Scalar(3.0), Value::Scalar(1.0)];
         assert_eq!(
-            eval_in_namespace("maths", "min", &args, 1.0),
+            eval_in_namespace("maths", "min_2", &args, 1.0),
             Some(Value::Scalar(1.0))
         );
+    }
+
+    #[test]
+    fn test_eval_min_3() {
+        let args = [Value::Scalar(3.0), Value::Scalar(1.0), Value::Scalar(2.0)];
         assert_eq!(
-            eval_in_namespace("maths", "max", &args, 1.0),
+            eval_in_namespace("maths", "min_3", &args, 1.0),
+            Some(Value::Scalar(1.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_min_4() {
+        let args = [
+            Value::Scalar(3.0),
+            Value::Scalar(1.0),
+            Value::Scalar(2.0),
+            Value::Scalar(0.5),
+        ];
+        assert_eq!(
+            eval_in_namespace("maths", "min_4", &args, 1.0),
+            Some(Value::Scalar(0.5))
+        );
+    }
+
+    #[test]
+    fn test_eval_max_2() {
+        let args = [Value::Scalar(3.0), Value::Scalar(1.0)];
+        assert_eq!(
+            eval_in_namespace("maths", "max_2", &args, 1.0),
             Some(Value::Scalar(3.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_max_3() {
+        let args = [Value::Scalar(3.0), Value::Scalar(1.0), Value::Scalar(2.0)];
+        assert_eq!(
+            eval_in_namespace("maths", "max_3", &args, 1.0),
+            Some(Value::Scalar(3.0))
+        );
+    }
+
+    #[test]
+    fn test_eval_max_4() {
+        let args = [
+            Value::Scalar(3.0),
+            Value::Scalar(1.0),
+            Value::Scalar(2.0),
+            Value::Scalar(5.0),
+        ];
+        assert_eq!(
+            eval_in_namespace("maths", "max_4", &args, 1.0),
+            Some(Value::Scalar(5.0))
         );
     }
 
