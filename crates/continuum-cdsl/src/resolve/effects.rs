@@ -188,20 +188,36 @@ fn scan_for_effect_violations(
     match &expr.expr {
         ExprKind::Call { kernel, args } => {
             // Validate this kernel call
-            if let Some(signature) = registry.get(&kernel) {
-                if !signature.purity.is_pure() && !ctx.allows_effects() {
-                    errors.push(CompileError::new(
-                        ErrorKind::EffectInPureContext,
-                        expr.span,
-                        format!(
-                            "effect kernel {} cannot be called in {:?} phase (pure-only context)",
-                            kernel.qualified_name(),
-                            ctx.phase
-                        ),
-                    ));
+            let Some(signature) = registry.get(&kernel) else {
+                // Unknown kernel - this should have been caught by type validation,
+                // but fail loudly here as a defensive check
+                errors.push(CompileError::new(
+                    ErrorKind::UnknownKernel,
+                    expr.span,
+                    format!(
+                        "unknown kernel {} in effect validation (should have been caught by type validation)",
+                        kernel.qualified_name()
+                    ),
+                ));
+                // Still validate arguments even though kernel is unknown
+                for arg in args {
+                    scan_for_effect_violations(&arg, ctx, registry, errors);
                 }
+                return;
+            };
+
+            // Check purity restrictions
+            if !signature.purity.is_pure() && !ctx.allows_effects() {
+                errors.push(CompileError::new(
+                    ErrorKind::EffectInPureContext,
+                    expr.span,
+                    format!(
+                        "effect kernel {} cannot be called in {:?} phase (pure-only context)",
+                        kernel.qualified_name(),
+                        ctx.phase
+                    ),
+                ));
             }
-            // Note: Unknown kernels are caught by type validation, not effect validation
 
             // Recursively validate arguments
             for arg in args {
