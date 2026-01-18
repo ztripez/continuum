@@ -61,6 +61,7 @@
 //! ```
 
 mod capability;
+mod declaration;
 mod expr;
 mod kernel;
 mod node;
@@ -70,6 +71,7 @@ mod untyped;
 mod warmup;
 
 pub use capability::*;
+pub use declaration::*;
 pub use expr::*;
 pub use kernel::*;
 pub use node::*;
