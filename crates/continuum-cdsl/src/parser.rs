@@ -56,7 +56,10 @@
 
 use chumsky::prelude::*;
 
-use crate::ast::{BinaryOp, Expr, TypeExpr, UnaryOp, UnitExpr, UntypedKind as ExprKind};
+use crate::ast::{
+    Attribute, BinaryOp, BlockBody, Expr, Stmt, TypeExpr, UnaryOp, UnitExpr,
+    UntypedKind as ExprKind,
+};
 use crate::foundation::{Path, Span};
 use crate::lexer::Token;
 
@@ -654,6 +657,132 @@ fn token_span(span: SimpleSpan) -> Span {
     // Placeholder span conversion until SourceMap integration is complete.
     // Returns byte offsets with file_id=0 and line=0.
     Span::new(0, span.start as u32, span.end as u32, 0)
+}
+
+// =============================================================================
+// Declaration Parsers
+// =============================================================================
+
+/// Parse a dotted path: `terra.temperature` or `plate.area`
+///
+/// Paths are sequences of identifiers separated by dots.
+/// They identify signals, fields, entities, strata, eras, etc.
+fn path_parser<'src>()
+-> impl Parser<'src, &'src [Token], Path, extra::Err<Rich<'src, Token>>> + Clone {
+    select! { Token::Ident(name) => name }
+        .separated_by(just(Token::Dot))
+        .at_least(1)
+        .collect::<Vec<_>>()
+        .map(|segments| Path::from_str(&segments.join(".")))
+}
+
+/// Parse type annotation: `: type TypeExpr`
+///
+/// Per architecture feedback, type annotations use explicit `type` keyword
+/// to disambiguate from attributes: `: type Scalar<K>` vs `: title("Temp")`
+fn type_annotation_parser<'src>()
+-> impl Parser<'src, &'src [Token], TypeExpr, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Colon)
+        .ignore_then(just(Token::Type))
+        .ignore_then(type_expr_parser())
+}
+
+/// Parse attribute: `: name(args)` or `: name`
+///
+/// Attributes are parsed generically. Validation of attribute names and
+/// argument types happens in the analyzer, not the parser.
+fn attribute_parser<'src>()
+-> impl Parser<'src, &'src [Token], Attribute, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Colon)
+        .ignore_then(select! { Token::Ident(name) => name })
+        .then(
+            expr_parser()
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LParen), just(Token::RParen))
+                .or_not(),
+        )
+        .map_with(|(name, args), e| Attribute {
+            name,
+            args: args.unwrap_or_default(),
+            span: token_span(e.span()),
+        })
+}
+
+/// Parse a statement
+///
+/// Statements appear in effect blocks (collect, apply, emit).
+/// Supported statements:
+/// - `let x = expr` - local binding
+/// - `path <- expr` - signal assignment
+/// - `path <- position, value` - field assignment
+/// - `expr` - expression statement
+fn stmt_parser<'src>(
+    expr: impl Parser<'src, &'src [Token], Expr, extra::Err<Rich<'src, Token>>> + Clone,
+) -> impl Parser<'src, &'src [Token], Stmt, extra::Err<Rich<'src, Token>>> + Clone {
+    // Let statement: `let x = expr`
+    let let_stmt = just(Token::Let)
+        .ignore_then(select! { Token::Ident(name) => name })
+        .then_ignore(just(Token::Eq))
+        .then(expr.clone())
+        .map_with(|(name, value), e| Stmt::Let {
+            name,
+            value,
+            span: token_span(e.span()),
+        });
+
+    // Assignment statement: `path <- expr` or `path <- position, value`
+    let assign_stmt = path_parser()
+        .then_ignore(just(Token::LeftArrow))
+        .then(expr.clone())
+        .then(just(Token::Comma).ignore_then(expr.clone()).or_not())
+        .map_with(|((target, first), second), e| {
+            let span = token_span(e.span());
+            match second {
+                Some(value) => Stmt::FieldAssign {
+                    target,
+                    position: first,
+                    value,
+                    span,
+                },
+                None => Stmt::SignalAssign {
+                    target,
+                    value: first,
+                    span,
+                },
+            }
+        });
+
+    // Expression statement
+    let expr_stmt = expr.map(Stmt::Expr);
+
+    choice((let_stmt, assign_stmt, expr_stmt))
+}
+
+/// Parse block body: expression or statement list
+///
+/// Per architecture feedback:
+/// - Pure phases (resolve, measure, assert) use Expression bodies
+/// - Effect phases (collect, apply, emit) use Statement bodies
+///
+/// Statements must be separated by semicolons.
+fn block_body_parser<'src>()
+-> impl Parser<'src, &'src [Token], BlockBody, extra::Err<Rich<'src, Token>>> + Clone {
+    let expr = expr_parser();
+
+    // Try to parse as statement list first (more specific)
+    let stmt_list = stmt_parser(expr.clone())
+        .separated_by(just(Token::Semicolon))
+        .at_least(1)
+        .collect::<Vec<_>>()
+        .map(BlockBody::Statements);
+
+    // Fall back to single expression
+    let single_expr = expr.map(BlockBody::Expression);
+
+    // Try statement list first, then expression
+    choice((stmt_list, single_expr))
 }
 
 #[cfg(test)]
