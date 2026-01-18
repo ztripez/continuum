@@ -489,33 +489,9 @@ pub fn from_quat(q: [f64; 4]) -> Mat3 {
     unit_out = Dimensionless
 )]
 pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
-    // Normalize axis
-    let len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
-    assert!(
-        len > f64::EPSILON,
-        "cannot create rotation matrix from zero-length axis: [{}, {}, {}]",
-        axis[0],
-        axis[1],
-        axis[2]
-    );
-    let (x, y, z) = (axis[0] / len, axis[1] / len, axis[2] / len);
-
-    let c = angle.cos();
-    let s = angle.sin();
-    let t = 1.0 - c;
-
-    // Rodrigues' rotation formula (column-major)
-    Mat3([
-        t * x * x + c,
-        t * x * y + s * z,
-        t * x * z - s * y,
-        t * x * y - s * z,
-        t * y * y + c,
-        t * y * z + s * x,
-        t * x * z + s * y,
-        t * y * z - s * x,
-        t * z * z + c,
-    ])
+    // Convert axis-angle to quaternion, then to matrix (One Truth)
+    let quat = crate::quat::from_axis_angle(axis, angle);
+    crate::quat::to_mat3(quat)
 }
 
 /// Eigenvalues of a symmetric matrix: `eigenvalues_mat2(m)` -> Vec2
@@ -1890,7 +1866,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "cannot create rotation matrix from zero-length axis")]
+    #[should_panic(expected = "quat.from_axis_angle requires non-zero axis")]
     fn test_from_axis_angle_zero() {
         let _ = from_axis_angle([0.0, 0.0, 0.0], 1.0);
     }
