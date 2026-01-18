@@ -470,6 +470,14 @@ pub fn from_quat(q: [f64; 4]) -> Mat3 {
 
     // Normalize quaternion
     let norm = (x * x + y * y + z * z + w * w).sqrt();
+    assert!(
+        norm > f64::EPSILON,
+        "cannot create rotation matrix from zero quaternion: [{}, {}, {}, {}]",
+        x,
+        y,
+        z,
+        w
+    );
     let (x, y, z, w) = (x / norm, y / norm, z / norm, w / norm);
 
     // Compute rotation matrix elements (column-major)
@@ -509,6 +517,13 @@ pub fn from_quat(q: [f64; 4]) -> Mat3 {
 pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
     // Normalize axis
     let len = (axis[0] * axis[0] + axis[1] * axis[1] + axis[2] * axis[2]).sqrt();
+    assert!(
+        len > f64::EPSILON,
+        "cannot create rotation matrix from zero-length axis: [{}, {}, {}]",
+        axis[0],
+        axis[1],
+        axis[2]
+    );
     let (x, y, z) = (axis[0] / len, axis[1] / len, axis[2] / len);
 
     let c = angle.cos();
@@ -1127,6 +1142,16 @@ pub fn look_at(eye: [f64; 3], target: [f64; 3], up: [f64; 3]) -> Mat4 {
     let fy = target[1] - eye[1];
     let fz = target[2] - eye[2];
     let f_len = (fx * fx + fy * fy + fz * fz).sqrt();
+    assert!(
+        f_len > f64::EPSILON,
+        "look_at: eye and target positions are identical or too close: eye=[{}, {}, {}], target=[{}, {}, {}]",
+        eye[0],
+        eye[1],
+        eye[2],
+        target[0],
+        target[1],
+        target[2]
+    );
     let fx = fx / f_len;
     let fy = fy / f_len;
     let fz = fz / f_len;
@@ -1136,6 +1161,16 @@ pub fn look_at(eye: [f64; 3], target: [f64; 3], up: [f64; 3]) -> Mat4 {
     let ry = fz * up[0] - fx * up[2];
     let rz = fx * up[1] - fy * up[0];
     let r_len = (rx * rx + ry * ry + rz * rz).sqrt();
+    assert!(
+        r_len > f64::EPSILON,
+        "look_at: up vector is parallel to forward direction (cannot compute right vector): up=[{}, {}, {}], forward=[{}, {}, {}]",
+        up[0],
+        up[1],
+        up[2],
+        fx,
+        fy,
+        fz
+    );
     let rx = rx / r_len;
     let ry = ry / r_len;
     let rz = rz / r_len;
@@ -1829,5 +1864,33 @@ mod tests {
     #[test]
     fn test_look_at_registered() {
         assert!(is_known_in("matrix", "look_at"));
+    }
+
+    // === Zero-Norm Guard Tests ===
+
+    #[test]
+    #[should_panic(expected = "cannot create rotation matrix from zero quaternion")]
+    fn test_from_quat_zero() {
+        let _ = from_quat([0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot create rotation matrix from zero-length axis")]
+    fn test_from_axis_angle_zero() {
+        let _ = from_axis_angle([0.0, 0.0, 0.0], 1.0);
+    }
+
+    #[test]
+    #[should_panic(expected = "eye and target positions are identical")]
+    fn test_look_at_identical_eye_target() {
+        let pos = [1.0, 2.0, 3.0];
+        let _ = look_at(pos, pos, [0.0, 1.0, 0.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "up vector is parallel to forward direction")]
+    fn test_look_at_parallel_up() {
+        // Up and forward are parallel (both along Z axis)
+        let _ = look_at([0.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 0.0, 1.0]);
     }
 }

@@ -106,11 +106,13 @@ pub fn length_scalar(s: f64) -> f64 {
 )]
 pub fn normalize_vec2(v: [f64; 2]) -> [f64; 2] {
     let mag = (v[0] * v[0] + v[1] * v[1]).sqrt();
-    if mag > 0.0 {
-        [v[0] / mag, v[1] / mag]
-    } else {
-        [0.0, 0.0]
-    }
+    assert!(
+        mag > f64::EPSILON,
+        "cannot normalize zero-length vector: [{}, {}]",
+        v[0],
+        v[1]
+    );
+    [v[0] / mag, v[1] / mag]
 }
 
 /// Normalize a Vec3 to unit length: `normalize(vec)`
@@ -124,11 +126,14 @@ pub fn normalize_vec2(v: [f64; 2]) -> [f64; 2] {
 )]
 pub fn normalize_vec3(v: [f64; 3]) -> [f64; 3] {
     let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if mag > 0.0 {
-        [v[0] / mag, v[1] / mag, v[2] / mag]
-    } else {
-        [0.0, 0.0, 0.0]
-    }
+    assert!(
+        mag > f64::EPSILON,
+        "cannot normalize zero-length vector: [{}, {}, {}]",
+        v[0],
+        v[1],
+        v[2]
+    );
+    [v[0] / mag, v[1] / mag, v[2] / mag]
 }
 
 /// Normalize a Vec4 to unit length: `normalize(vec)`
@@ -142,11 +147,15 @@ pub fn normalize_vec3(v: [f64; 3]) -> [f64; 3] {
 )]
 pub fn normalize_vec4(v: [f64; 4]) -> [f64; 4] {
     let mag = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2] + v[3] * v[3]).sqrt();
-    if mag > 0.0 {
-        [v[0] / mag, v[1] / mag, v[2] / mag, v[3] / mag]
-    } else {
-        [0.0, 0.0, 0.0, 0.0]
-    }
+    assert!(
+        mag > f64::EPSILON,
+        "cannot normalize zero-length vector: [{}, {}, {}, {}]",
+        v[0],
+        v[1],
+        v[2],
+        v[3]
+    );
+    [v[0] / mag, v[1] / mag, v[2] / mag, v[3] / mag]
 }
 
 /// Get sign of scalar: `normalize(scalar)` returns -1, 0, or 1
@@ -408,11 +417,16 @@ pub fn mix_vec4(a: [f64; 4], b: [f64; 4], t: f64) -> [f64; 4] {
 pub fn nlerp_vec2(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
     let lerped = lerp_vec2(a, b, t);
     let len = (lerped[0] * lerped[0] + lerped[1] * lerped[1]).sqrt();
-    if len > 1e-10 {
-        [lerped[0] / len, lerped[1] / len]
-    } else {
-        a // Fallback to first input if result is degenerate
-    }
+    assert!(
+        len > f64::EPSILON,
+        "nlerp produced zero-length vector: a=[{}, {}], b=[{}, {}], t={}",
+        a[0],
+        a[1],
+        b[0],
+        b[1],
+        t
+    );
+    [lerped[0] / len, lerped[1] / len]
 }
 
 /// Normalized linear interpolation for Vec3: `nlerp(a, b, t)` → normalize(lerp(a, b, t))
@@ -422,11 +436,18 @@ pub fn nlerp_vec2(a: [f64; 2], b: [f64; 2], t: f64) -> [f64; 2] {
 pub fn nlerp_vec3(a: [f64; 3], b: [f64; 3], t: f64) -> [f64; 3] {
     let lerped = lerp_vec3(a, b, t);
     let len = (lerped[0] * lerped[0] + lerped[1] * lerped[1] + lerped[2] * lerped[2]).sqrt();
-    if len > 1e-10 {
-        [lerped[0] / len, lerped[1] / len, lerped[2] / len]
-    } else {
-        a // Fallback to first input if result is degenerate
-    }
+    assert!(
+        len > f64::EPSILON,
+        "nlerp produced zero-length vector: a=[{}, {}, {}], b=[{}, {}, {}], t={}",
+        a[0],
+        a[1],
+        a[2],
+        b[0],
+        b[1],
+        b[2],
+        t
+    );
+    [lerped[0] / len, lerped[1] / len, lerped[2] / len]
 }
 
 /// Spherical linear interpolation for Vec3: `slerp(a, b, t)`
@@ -718,6 +739,7 @@ mod tests {
         assert_eq!(result, a);
     }
 
+    #[test]
     #[should_panic(expected = "zero vector")]
     fn test_project_onto_zero() {
         let a = [1.0, 2.0, 3.0];
@@ -1362,5 +1384,39 @@ mod tests {
                 t
             );
         }
+    }
+
+    // === Zero-Norm Guard Tests ===
+
+    #[test]
+    #[should_panic(expected = "cannot normalize zero-length vector")]
+    fn test_normalize_vec2_zero() {
+        let _ = normalize_vec2([0.0, 0.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot normalize zero-length vector")]
+    fn test_normalize_vec3_zero() {
+        let _ = normalize_vec3([0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "cannot normalize zero-length vector")]
+    fn test_normalize_vec4_zero() {
+        let _ = normalize_vec4([0.0, 0.0, 0.0, 0.0]);
+    }
+
+    #[test]
+    #[should_panic(expected = "nlerp produced zero-length vector")]
+    fn test_nlerp_vec2_degenerate() {
+        // Opposite vectors at t=0.5 produce zero
+        let _ = nlerp_vec2([1.0, 0.0], [-1.0, 0.0], 0.5);
+    }
+
+    #[test]
+    #[should_panic(expected = "nlerp produced zero-length vector")]
+    fn test_nlerp_vec3_degenerate() {
+        // Opposite vectors at t=0.5 produce zero
+        let _ = nlerp_vec3([1.0, 0.0, 0.0], [-1.0, 0.0, 0.0], 0.5);
     }
 }
