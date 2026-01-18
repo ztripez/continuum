@@ -1377,10 +1377,22 @@ fn stratum_parser<'src>()
         .then_ignore(just(Token::LBrace))
         .then(attribute_parser().repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::RBrace))
-        .map_with(|(path, _attrs), e| {
+        .map_with(|(path, attrs), e| {
             let span = token_span(e.span());
-            // TODO: Extract stride from attributes, default to 1
-            let cadence = 1;
+
+            // Extract stride/cadence from attributes
+            // Default to 1 if not specified (every tick)
+            let cadence = attrs
+                .iter()
+                .find(|attr| attr.name == "stride" || attr.name == "cadence")
+                .and_then(|attr| {
+                    attr.args.first().and_then(|expr| match &expr.kind {
+                        ExprKind::Literal { value, .. } => Some(*value as u32),
+                        _ => None,
+                    })
+                })
+                .unwrap_or(1);
+
             // Convert Path to FoundationPath for StratumId
             let foundation_path = FoundationPath::from_str(&path.to_string());
             let stratum = Stratum::new(StratumId(foundation_path), path, cadence, span);
@@ -1514,13 +1526,45 @@ fn world_parser<'src>()
                 .delimited_by(just(Token::LBrace), just(Token::RBrace)),
         )
         .map_with(|attrs, e| {
-            // TODO: Extract converged expression, max_iterations, on_timeout from attributes
-            // For now, create placeholder
+            let span = token_span(e.span());
+
+            // Extract converged expression (required)
+            let converged = attrs
+                .iter()
+                .find(|attr| attr.name == "converged")
+                .and_then(|attr| attr.args.first().cloned())
+                .unwrap_or_else(|| Expr::new(ExprKind::BoolLiteral(true), span));
+
+            // Extract max_iterations (required, default to 1000)
+            let max_iterations = attrs
+                .iter()
+                .find(|attr| attr.name == "max_iterations")
+                .and_then(|attr| {
+                    attr.args.first().and_then(|expr| match &expr.kind {
+                        ExprKind::Literal { value, .. } => Some(*value as u32),
+                        _ => None,
+                    })
+                })
+                .unwrap_or(1000);
+
+            // Extract on_timeout (default to Fail)
+            let on_timeout = attrs
+                .iter()
+                .find(|attr| attr.name == "on_timeout")
+                .and_then(|attr| {
+                    attr.args.first().and_then(|expr| match &expr.kind {
+                        ExprKind::Local(id) if id == "fail" => Some(WarmupTimeout::Fail),
+                        ExprKind::Local(id) if id == "continue" => Some(WarmupTimeout::Continue),
+                        _ => None,
+                    })
+                })
+                .unwrap_or(WarmupTimeout::Fail);
+
             WarmupPolicy {
-                converged: Expr::new(ExprKind::BoolLiteral(true), token_span(e.span())),
-                max_iterations: 1000,
-                on_timeout: WarmupTimeout::Fail,
-                span: token_span(e.span()),
+                converged,
+                max_iterations,
+                on_timeout,
+                span,
             }
         });
 
