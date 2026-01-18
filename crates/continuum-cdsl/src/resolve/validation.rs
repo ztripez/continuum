@@ -122,6 +122,15 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext) -> Vec<CompileEr
             // Validate all elements recursively
             for elem in elements {
                 errors.extend(validate_expr(elem, ctx));
+
+                // Seq types cannot appear in vector literals
+                if elem.ty.is_seq() {
+                    errors.push(CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        elem.span,
+                        "Seq types cannot be stored in vectors (must be immediately consumed by aggregate/fold)".to_string(),
+                    ));
+                }
             }
 
             // Validate all elements have same type
@@ -145,6 +154,15 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext) -> Vec<CompileEr
         ExprKind::Let { value, body, .. } => {
             errors.extend(validate_expr(value, ctx));
             errors.extend(validate_expr(body, ctx));
+
+            // Seq types cannot be stored in let bindings
+            if value.ty.is_seq() {
+                errors.push(CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    value.span,
+                    "Seq types cannot be stored in let bindings (must be immediately consumed by aggregate/fold)".to_string(),
+                ));
+            }
         }
 
         ExprKind::Aggregate { body, .. } => {
@@ -158,8 +176,20 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext) -> Vec<CompileEr
 
         ExprKind::Struct { fields, .. } => {
             // Validate all field expressions
-            for (_name, field_expr) in fields {
+            for (name, field_expr) in fields {
                 errors.extend(validate_expr(field_expr, ctx));
+
+                // Seq types cannot appear in struct fields
+                if field_expr.ty.is_seq() {
+                    errors.push(CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        field_expr.span,
+                        format!(
+                            "Seq types cannot be stored in struct field '{}' (must be immediately consumed by aggregate/fold)",
+                            name
+                        ),
+                    ));
+                }
             }
             // TODO: Validate field types match struct definition
         }
@@ -543,5 +573,110 @@ mod tests {
 
         let errors = validate_expr(&vec_expr, &ctx);
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_seq_in_let_binding_fails() {
+        let ctx = ValidationContext::new();
+
+        // Trying to store Seq<Scalar> in let binding (invalid!)
+        let seq_value = TypedExpr::new(
+            ExprKind::Local("some_seq".to_string()),
+            Type::Seq(Box::new(Type::kernel(
+                Shape::Scalar,
+                Unit::DIMENSIONLESS,
+                None,
+            ))),
+            test_span(),
+        );
+
+        let body = TypedExpr::new(
+            ExprKind::Literal {
+                value: 0.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let let_expr = TypedExpr::new(
+            ExprKind::Let {
+                name: "x".to_string(),
+                value: Box::new(seq_value),
+                body: Box::new(body),
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&let_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(errors[0].message.contains("Seq types cannot be stored"));
+    }
+
+    #[test]
+    fn test_validate_seq_in_vector_fails() {
+        let ctx = ValidationContext::new();
+
+        // Trying to create vector containing Seq (invalid!)
+        let seq_elem = TypedExpr::new(
+            ExprKind::Local("some_seq".to_string()),
+            Type::Seq(Box::new(Type::kernel(
+                Shape::Scalar,
+                Unit::DIMENSIONLESS,
+                None,
+            ))),
+            test_span(),
+        );
+
+        let vec_expr = TypedExpr::new(
+            ExprKind::Vector(vec![seq_elem]),
+            Type::kernel(Shape::Vector { dim: 1 }, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&vec_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(
+            errors[0]
+                .message
+                .contains("Seq types cannot be stored in vectors")
+        );
+    }
+
+    #[test]
+    fn test_validate_seq_in_struct_field_fails() {
+        let ctx = ValidationContext::new();
+
+        // Trying to store Seq in struct field (invalid!)
+        let seq_value = TypedExpr::new(
+            ExprKind::Local("some_seq".to_string()),
+            Type::Seq(Box::new(Type::kernel(
+                Shape::Scalar,
+                Unit::DIMENSIONLESS,
+                None,
+            ))),
+            test_span(),
+        );
+
+        let struct_expr = TypedExpr::new(
+            ExprKind::Struct {
+                ty: continuum_foundation::TypeId::from("SomeType"),
+                fields: vec![("bad_field".to_string(), seq_value)],
+            },
+            Type::user(continuum_foundation::TypeId::from("SomeType")),
+            test_span(),
+        );
+
+        let errors = validate_expr(&struct_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(
+            errors[0]
+                .message
+                .contains("Seq types cannot be stored in struct field")
+        );
     }
 }
