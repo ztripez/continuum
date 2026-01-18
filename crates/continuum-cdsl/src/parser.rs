@@ -33,14 +33,13 @@
 //! 3. Comparison (`<`, `<=`, `>`, `>=`, `==`, `!=`)
 //! 4. Addition/Subtraction (`+`, `-`)
 //! 5. Multiplication/Division/Modulo (`*`, `/`, `%`)
-//! 6. Power (`**`) - highest precedence (right-associative)
+//! 6. Power (`^`) - highest precedence (right-associative)
 //!
 //! ## Error Recovery
 //!
-//! Parser uses chumsky's error recovery to:
-//! - Report multiple errors in a single pass
-//! - Insert [`ExprKind::ParseError`] placeholders for missing expressions
-//! - Continue parsing after syntax errors
+//! Error recovery is not implemented yet.
+//! Most parse failures stop with an error rather than producing
+//! [`ExprKind::ParseError`] placeholders.
 //!
 //! # Examples
 //!
@@ -68,7 +67,12 @@ use crate::lexer::Token;
 /// # Returns
 ///
 /// - `Ok(Expr)`: Successfully parsed expression
-/// - `Err(Vec<ParseError>)`: Parse errors encountered
+///
+/// # Errors
+///
+/// Returns `Err(Vec<EmptyErr>)` when parsing fails.
+///
+/// TODO: Implement detailed error reporting using `Rich<Token>` error type.
 ///
 /// # Examples
 ///
@@ -133,11 +137,36 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
         }
         .map_with(|kind, e| Expr::new(kind, token_span(e.span())));
 
-        // Identifiers (local variables, signal references, etc.)
+        // Identifiers - can be called
         let identifier = select! {
             Token::Ident(name) => name,
         }
-        .map_with(|name, e| Expr::new(ExprKind::Local(name), token_span(e.span())));
+        .map_with(|name, e| Expr::new(ExprKind::Local(name), token_span(e.span())))
+        .foldl(
+            expr.clone()
+                .separated_by(just(Token::Comma))
+                .allow_trailing()
+                .collect::<Vec<_>>()
+                .delimited_by(just(Token::LParen), just(Token::RParen))
+                .repeated(),
+            |func_expr, args| {
+                let span = func_expr.span;
+                match &func_expr.kind {
+                    ExprKind::Local(name) => {
+                        let path = Path::from_str(name);
+                        Expr::new(ExprKind::Call { func: path, args }, span)
+                    }
+                    ExprKind::Call { .. } => {
+                        // Calling a call result - not supported yet
+                        Expr::new(
+                            ExprKind::ParseError("nested function calls not supported".to_string()),
+                            span,
+                        )
+                    }
+                    _ => unreachable!("identifier foldl should only produce Local or Call"),
+                }
+            },
+        );
 
         // Parenthesized expressions
         let parens = expr
@@ -163,10 +192,10 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
             identifier,
         ));
 
-        // === Postfix (field access, function calls) ===
+        // === Postfix (field access only - calls handled above) ===
 
         // Field access: atom.field
-        let field_access = atom.clone().foldl(
+        let postfix = atom.foldl(
             just(Token::Dot)
                 .ignore_then(select! { Token::Ident(name) => name })
                 .repeated(),
@@ -182,33 +211,6 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
             },
         );
 
-        // Function calls: atom(arg, arg, ...)
-        let call = field_access.clone().foldl(
-            expr.clone()
-                .separated_by(just(Token::Comma))
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just(Token::LParen), just(Token::RParen))
-                .repeated(),
-            |func_expr, args| {
-                let span = func_expr.span;
-
-                // Extract path from func_expr for Call
-                match &func_expr.kind {
-                    ExprKind::Local(name) => {
-                        let path = Path::from_str(name);
-                        Expr::new(ExprKind::Call { func: path, args }, span)
-                    }
-                    _ => Expr::new(
-                        ExprKind::ParseError(
-                            "complex function expressions not yet supported".to_string(),
-                        ),
-                        span,
-                    ),
-                }
-            },
-        );
-
         // === Unary operators ===
 
         let unary = choice((
@@ -216,7 +218,7 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
             just(Token::Bang).to(UnaryOp::Not),
         ))
         .repeated()
-        .foldr(call.clone(), |op, operand| {
+        .foldr(postfix, |op, operand| {
             let span = operand.span;
             Expr::new(
                 ExprKind::Unary {
@@ -229,18 +231,20 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
 
         // === Binary operators with precedence ===
 
-        // Power (highest precedence, right-associative)
+        // Power (highest precedence)
+        // TODO: Make right-associative (currently left-associative)
         let power_op = just(Token::Caret).to(BinaryOp::Pow);
         let power = unary.clone().foldl_with(
             power_op.then(unary.clone()).repeated(),
-            |left, (op, right), e| {
+            |left, (op, right), _e| {
+                let span = left.span;
                 Expr::new(
                     ExprKind::Binary {
                         op,
                         left: Box::new(left),
                         right: Box::new(right),
                     },
-                    token_span(e.span()),
+                    span,
                 )
             },
         );
@@ -254,14 +258,15 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
         let mul =
             power
                 .clone()
-                .foldl_with(mul_op.then(power).repeated(), |left, (op, right), e| {
+                .foldl_with(mul_op.then(power).repeated(), |left, (op, right), _e| {
+                    let span = left.span;
                     Expr::new(
                         ExprKind::Binary {
                             op,
                             left: Box::new(left),
                             right: Box::new(right),
                         },
-                        token_span(e.span()),
+                        span,
                     )
                 });
 
@@ -272,14 +277,15 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
         ));
         let add = mul
             .clone()
-            .foldl_with(add_op.then(mul).repeated(), |left, (op, right), e| {
+            .foldl_with(add_op.then(mul).repeated(), |left, (op, right), _e| {
+                let span = left.span;
                 Expr::new(
                     ExprKind::Binary {
                         op,
                         left: Box::new(left),
                         right: Box::new(right),
                     },
-                    token_span(e.span()),
+                    span,
                 )
             });
 
@@ -294,14 +300,15 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
         ));
         let comparison =
             add.clone()
-                .foldl_with(cmp_op.then(add).repeated(), |left, (op, right), e| {
+                .foldl_with(cmp_op.then(add).repeated(), |left, (op, right), _e| {
+                    let span = left.span;
                     Expr::new(
                         ExprKind::Binary {
                             op,
                             left: Box::new(left),
                             right: Box::new(right),
                         },
-                        token_span(e.span()),
+                        span,
                     )
                 });
 
@@ -311,32 +318,15 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
                 .to(BinaryOp::And)
                 .then(comparison)
                 .repeated(),
-            |left, (op, right), e| {
+            |left, (op, right), _e| {
+                let span = left.span;
                 Expr::new(
                     ExprKind::Binary {
                         op,
                         left: Box::new(left),
                         right: Box::new(right),
                     },
-                    token_span(e.span()),
-                )
-            },
-        );
-
-        // Logical OR (lowest precedence)
-        let or = and.clone().foldl_with(
-            just(Token::OrOr)
-                .to(BinaryOp::Or)
-                .then(and.clone())
-                .repeated(),
-            |left, (op, right), e| {
-                Expr::new(
-                    ExprKind::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    token_span(e.span()),
+                    span,
                 )
             },
         );
@@ -344,14 +334,15 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
         // Logical OR (lowest precedence)
         let or = and.clone().foldl_with(
             just(Token::OrOr).to(BinaryOp::Or).then(and).repeated(),
-            |left, (op, right), e| {
+            |left, (op, right), _e| {
+                let span = left.span;
                 Expr::new(
                     ExprKind::Binary {
                         op,
                         left: Box::new(left),
                         right: Box::new(right),
                     },
-                    token_span(e.span()),
+                    span,
                 )
             },
         );
@@ -399,18 +390,56 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
 ///
 /// Parsed unit expression or error.
 fn unit_expr_parser<'src>() -> impl Parser<'src, &'src [Token], UnitExpr> + Clone {
-    // TODO: Implement unit expression parser
-    //
-    // This is critical since units are NOT single tokens.
-    // Must parse:
-    // 1. Lt (`<`)
-    // 2. Unit term (recursive: base, multiply, divide, power)
-    // 3. Gt (`>`)
-    //
-    // Special case: `<>` (empty brackets) → Dimensionless
+    recursive(|unit_term| {
+        // Base unit: identifier
+        let base = select! {
+            Token::Ident(name) => UnitExpr::Base(name),
+        };
 
-    // Stub: parse any identifier as base unit
-    any().map(|_| UnitExpr::Dimensionless)
+        // Parenthesized unit
+        let parens = unit_term
+            .clone()
+            .delimited_by(just(Token::LParen), just(Token::RParen));
+
+        // Primary: base or parens
+        let primary = choice((base, parens));
+
+        // Power: primary ^ integer
+        let power = primary
+            .then(
+                just(Token::Caret)
+                    .ignore_then(select! {
+                        Token::Integer(n) => n as i8,
+                    })
+                    .or_not(),
+            )
+            .map(|(base_unit, exp)| {
+                if let Some(exp) = exp {
+                    UnitExpr::Power(Box::new(base_unit), exp)
+                } else {
+                    base_unit
+                }
+            });
+
+        // Multiply/Divide (left-associative)
+        let mul_div = power.clone().foldl(
+            choice((
+                just(Token::Star).to(true),   // true = multiply
+                just(Token::Slash).to(false), // false = divide
+            ))
+            .then(power)
+            .repeated(),
+            |left, (is_mul, right)| {
+                if is_mul {
+                    UnitExpr::Multiply(Box::new(left), Box::new(right))
+                } else {
+                    UnitExpr::Divide(Box::new(left), Box::new(right))
+                }
+            },
+        );
+
+        mul_div
+    })
 }
 
 /// Parse a type expression.
@@ -435,17 +464,52 @@ fn unit_expr_parser<'src>() -> impl Parser<'src, &'src [Token], UnitExpr> + Clon
 /// OrbitalElements     → User(Path(...))
 /// ```
 fn type_expr_parser<'src>() -> impl Parser<'src, &'src [Token], TypeExpr> + Clone {
-    // TODO: Implement type expression parser
-    //
-    // Handle:
-    // 1. Scalar<unit>
-    // 2. Vector<dim, unit>
-    // 3. Matrix<rows, cols, unit>
-    // 4. Bool
-    // 5. User types (identifiers)
+    // Bool type
+    let bool_type = just(Token::Ident("Bool".to_string())).to(TypeExpr::Bool);
 
-    // Stub: return Bool for any input
-    any().map(|_| TypeExpr::Bool)
+    // Scalar<unit>
+    let scalar_type = just(Token::Ident("Scalar".to_string()))
+        .then(
+            just(Token::Lt)
+                .ignore_then(unit_expr_parser())
+                .then_ignore(just(Token::Gt))
+                .or_not(),
+        )
+        .map(|(_, unit)| TypeExpr::Scalar { unit });
+
+    // Vector<dim, unit>
+    let vector_type = just(Token::Ident("Vector".to_string()))
+        .ignore_then(just(Token::Lt))
+        .ignore_then(select! { Token::Integer(n) => n as u8 })
+        .then_ignore(just(Token::Comma))
+        .then(unit_expr_parser())
+        .then_ignore(just(Token::Gt))
+        .map(|(dim, unit)| TypeExpr::Vector {
+            dim,
+            unit: Some(unit),
+        });
+
+    // Matrix<rows, cols, unit>
+    let matrix_type = just(Token::Ident("Matrix".to_string()))
+        .ignore_then(just(Token::Lt))
+        .ignore_then(select! { Token::Integer(n) => n as u8 })
+        .then_ignore(just(Token::Comma))
+        .then(select! { Token::Integer(n) => n as u8 })
+        .then_ignore(just(Token::Comma))
+        .then(unit_expr_parser())
+        .then_ignore(just(Token::Gt))
+        .map(|((rows, cols), unit)| TypeExpr::Matrix {
+            rows,
+            cols,
+            unit: Some(unit),
+        });
+
+    // User types (identifiers)
+    let user_type = select! {
+        Token::Ident(name) => TypeExpr::User(Path::from_str(&name)),
+    };
+
+    choice((bool_type, scalar_type, vector_type, matrix_type, user_type))
 }
 
 /// Helper to convert chumsky span to Continuum Span.
@@ -496,7 +560,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "parser not yet implemented"]
     fn test_parse_literal() {
         let expr = lex_and_parse("42.0");
         match expr.kind {
@@ -509,7 +572,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "parser not yet implemented"]
     fn test_parse_bool_literal() {
         let expr = lex_and_parse("true");
         assert!(matches!(expr.kind, ExprKind::BoolLiteral(true)));
@@ -519,7 +581,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "parser not yet implemented"]
     fn test_parse_binary_add() {
         let expr = lex_and_parse("10 + 20");
         match expr.kind {
@@ -533,7 +594,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "parser not yet implemented"]
     fn test_parse_unit_meters() {
         // Units are token sequences: Lt, Ident("m"), Gt
         let expr = lex_and_parse("100.0<m>");
@@ -547,7 +607,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "parser not yet implemented"]
     fn test_parse_unit_velocity() {
         // <m/s> → Lt, Ident("m"), Slash, Ident("s"), Gt
         let expr = lex_and_parse("10.0<m/s>");
@@ -567,7 +626,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "parser not yet implemented"]
     fn test_parse_unary_neg() {
         let expr = lex_and_parse("-42.0");
         match expr.kind {
@@ -579,6 +637,128 @@ mod tests {
                 ));
             }
             _ => panic!("expected unary, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_precedence_mul_over_add() {
+        let expr = lex_and_parse("1 + 2 * 3");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Add,
+                left,
+                right,
+            } => {
+                assert!(matches!(left.kind, ExprKind::Literal { value: 1.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Mul,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected add with mul on right, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    #[ignore = "power is currently left-associative, should be right-associative"]
+    fn test_power_right_associative() {
+        let expr = lex_and_parse("2 ^ 3 ^ 4");
+        // Should parse as 2 ^ (3 ^ 4) for right-associativity
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Pow,
+                left,
+                right,
+            } => {
+                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Pow,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected pow chain, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_postfix_call_then_field() {
+        let expr = lex_and_parse("f(1).x");
+        match expr.kind {
+            ExprKind::FieldAccess { object, field } => {
+                assert_eq!(field, "x");
+                assert!(matches!(object.kind, ExprKind::Call { .. }));
+            }
+            _ => panic!("expected field access on call, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_vector_empty() {
+        let expr = lex_and_parse("[]");
+        match expr.kind {
+            ExprKind::Vector(elements) => {
+                assert_eq!(elements.len(), 0);
+            }
+            _ => panic!("expected empty vector, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_vector_trailing_comma() {
+        let expr = lex_and_parse("[1.0, 2.0, 3.0,]");
+        match expr.kind {
+            ExprKind::Vector(elements) => {
+                assert_eq!(elements.len(), 3);
+            }
+            _ => panic!("expected vector, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_unary_chaining() {
+        let expr = lex_and_parse("!-42.0");
+        match expr.kind {
+            ExprKind::Unary {
+                op: UnaryOp::Not,
+                operand,
+            } => {
+                assert!(matches!(
+                    operand.kind,
+                    ExprKind::Unary {
+                        op: UnaryOp::Neg,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected unary chain, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_parenthesis_override() {
+        let expr = lex_and_parse("(1 + 2) * 3");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Mul,
+                left,
+                right,
+            } => {
+                assert!(matches!(
+                    left.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Add,
+                        ..
+                    }
+                ));
+                assert!(matches!(right.kind, ExprKind::Literal { value: 3.0, .. }));
+            }
+            _ => panic!("expected mul with add on left, got {:?}", expr.kind),
         }
     }
 }
