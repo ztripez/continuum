@@ -45,6 +45,14 @@
 //! - Effect kernels (emit, spawn, destroy) only in effect-allowed phases (Collect, Fracture)
 //! - Validates phase purity rules for kernel calls
 //!
+//! # Capability Validation (`capabilities`)
+//!
+//! Validates that expressions only access capabilities available in their execution context:
+//! - Prev/Current/Inputs access controlled by phase
+//! - Emit only in Collect phase and impulse handlers
+//! - Payload only in impulse handlers
+//! - Validates capability access rules for all expression kinds
+//!
 //! # Pipeline Integration
 //!
 //! These passes operate on parsed AST and prepare nodes for validation:
@@ -63,6 +71,7 @@
 //!   Node<I> { type_expr: None, execution_blocks: [...], output: Some(Type) }
 //! ```
 
+pub mod capabilities;
 pub mod effects;
 pub mod names;
 pub mod types;
