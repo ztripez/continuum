@@ -18,20 +18,20 @@
 //!
 //! # What This Pass Does
 //!
-//! 1. **Context detection** - Determines available capabilities from operator metadata
+//! 1. **Context detection** - Determines available capabilities from the current execution context
 //! 2. **Expression scanning** - Recursively finds all capability-requiring expressions
 //! 3. **Access validation** - Checks that required capabilities are available in context
 //!
 //! # What This Pass Does NOT Do
 //!
-//! - **No type checking** - Types must already be validated
-//! - **No effect validation** - Effects are validated separately
-//! - **No structure validation** - This is a separate validation pass
+//! - **No type checking** - Types must already be validated before this pass
+//! - **No effect validation** - Effect purity (emit/spawn/destroy) is validated by a separate pass
+//! - **No structure validation** - Structural checks (cycles, collisions) are separate
 //!
-//! # Pipeline Position
+//! # Validation Pipeline
 //!
-//! This pass runs after type validation and effect validation, during Phase 12.
-//! It validates that capability access is legal before proceeding to structure validation.
+//! This pass runs after type checking and effect purity validation.
+//! It ensures expressions only access runtime context that will be available during execution.
 //!
 //! # Examples
 //!
@@ -98,11 +98,30 @@ pub struct CapabilityContext {
 
 impl CapabilityContext {
     /// Create a new capability context with the given available capabilities.
+    ///
+    /// A capability context represents what runtime state is accessible during
+    /// expression execution (e.g., previous tick values, time step, accumulated inputs).
+    ///
+    /// # Parameters
+    ///
+    /// - `capabilities`: The set of capabilities available in this execution context
+    ///
+    /// # Returns
+    ///
+    /// A new `CapabilityContext` with the specified capabilities
     pub fn new(capabilities: CapabilitySet) -> Self {
         Self { capabilities }
     }
 
     /// Check if a specific capability is available in this context.
+    ///
+    /// # Parameters
+    ///
+    /// - `capability`: The capability to check (e.g., `Capability::Prev`, `Capability::Dt`)
+    ///
+    /// # Returns
+    ///
+    /// `true` if the capability is available in this context, `false` otherwise
     ///
     /// # Examples
     ///
@@ -122,24 +141,39 @@ impl CapabilityContext {
 /// Validates that an expression only accesses capabilities available in the given context.
 ///
 /// This function recursively scans the expression tree and checks that all capability-requiring
-/// operations (Prev, Current, Inputs, Dt, Payload, emit calls) are permitted in the context.
+/// operations (Prev, Current, Inputs, Dt, Payload, Self_, Other, and emit calls) are permitted
+/// in the context.
+///
+/// **Capabilities** represent what runtime context is accessible during execution:
+/// - Previous tick values, current resolved values, accumulated inputs
+/// - Time step, impulse payload data
+/// - Entity self-reference and other-entity access
+/// - Signal emission permission
+///
+/// # Parameters
+///
+/// - `expr`: The typed expression to validate
+/// - `ctx`: The capability context (available capabilities for this execution phase)
+///
+/// # Returns
+///
+/// A vector of `CompileError` with `ErrorKind::MissingCapability` for each violation.
+/// Returns empty vector if all capability access is valid.
 ///
 /// # Capability Requirements
 ///
 /// The following expression kinds require specific capabilities:
 ///
-/// - **`ExprKind::Prev`** - Requires `Capability::Prev`
-/// - **`ExprKind::Current`** - Requires `Capability::Current`
-/// - **`ExprKind::Inputs`** - Requires `Capability::Inputs`
-/// - **`ExprKind::Dt`** - Requires `Capability::Dt`
-/// - **`ExprKind::Payload`** - Requires `Capability::Payload`
-/// - **`ExprKind::Call { kernel: emit, ... }`** - Requires `Capability::Emit`
+/// - **`ExprKind::Prev`** - Requires `Capability::Prev` (previous tick value)
+/// - **`ExprKind::Current`** - Requires `Capability::Current` (just-resolved value)
+/// - **`ExprKind::Inputs`** - Requires `Capability::Inputs` (accumulated signal inputs)
+/// - **`ExprKind::Dt`** - Requires `Capability::Dt` (time step)
+/// - **`ExprKind::Payload`** - Requires `Capability::Payload` (impulse trigger data)
+/// - **`ExprKind::Self_`** - Requires `Capability::Index` (entity self-reference)
+/// - **`ExprKind::Other`** - Requires `Capability::Index` (other entity access)
+/// - **`ExprKind::Call { kernel: emit, ... }`** - Requires `Capability::Emit` (signal emission)
 ///
-/// # Error Kinds
-///
-/// Returns `Vec<CompileError>` with errors of kind:
-///
-/// - **`ErrorKind::MissingCapability`** - Required capability not available in context
+/// Note: **emit** is identified by empty namespace and name "emit" (bare kernel call).
 ///
 /// # Examples
 ///
@@ -157,6 +191,7 @@ impl CapabilityContext {
 /// let errors = validate_capability_access(&expr, &ctx);
 /// assert_eq!(errors.len(), 1);
 /// assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
+/// assert!(errors[0].message.contains("Capability::Prev"));
 /// ```
 pub fn validate_capability_access(expr: &TypedExpr, ctx: &CapabilityContext) -> Vec<CompileError> {
     let mut errors = Vec::new();
