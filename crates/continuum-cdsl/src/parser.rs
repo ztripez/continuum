@@ -59,8 +59,8 @@ use chumsky::prelude::*;
 use crate::ast::{
     Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, Entity, EraDecl, Expr,
     Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData, Stmt, Stratum, StratumPolicyEntry,
-    StratumState, TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr,
-    UntypedKind as ExprKind, WarmupBlock, WhenBlock, WorldDecl,
+    TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr, UntypedKind as ExprKind,
+    WarmupBlock, WhenBlock, WorldDecl,
 };
 use crate::foundation::{EntityId, Path, Span, StratumId};
 use crate::lexer::Token;
@@ -1338,31 +1338,32 @@ fn member_parser<'src>()
         .map_with(|(((full_path, type_expr), attrs), blocks), e| {
             let span = token_span(e.span());
 
-            // PARSER/SEMANTIC BOUNDARY ISSUE
             // Extract entity ID from member path structure
             //
             // Member paths are hierarchical: <entity>.<member> (e.g., "Plate.velocity")
             // Parser syntactically splits path to get entity portion (before last dot)
             //
-            // This is acceptable syntactic work:
-            //   - Parser handles path structure (syntax)
-            //   - Semantic analysis validates entity exists (semantics)
+            // Parser responsibility (syntax):
+            //   - Ensure path has at least one dot (entity.member structure)
+            //   - Extract entity portion
             //
-            // HOWEVER: Empty string fallback hides malformed syntax
-            //   - "member velocity" (no entity) → EntityId("")
-            //   - Should error during parsing, not defer to semantic analysis
-            //   - But Node<EntityId> constructor requires EntityId, so we need placeholder
-            //
-            // TODO: Consider making EntityId Optional in Node or error in parser
+            // Semantic analysis responsibility (semantics):
+            //   - Validate entity actually exists
+            //   - Check member name is valid
             let path_str = full_path.to_string();
             let parts: Vec<&str> = path_str.split('.').collect();
-            let entity_path_str = if parts.len() > 1 {
-                parts[..parts.len() - 1].join(".")
-            } else {
-                // FAIL-HARD VIOLATION: Hides malformed member declaration
-                // Semantic validation will catch this, but parser should error
-                String::new()
-            };
+
+            // Fail loudly on malformed member path (no dots = no entity specified)
+            // This should be caught by path_parser grammar, but if it somehow gets through,
+            // we fail immediately rather than hiding the error
+            assert!(
+                parts.len() > 1,
+                "Member declaration requires entity.member path structure, got '{}' at {:?}",
+                path_str,
+                span
+            );
+
+            let entity_path_str = parts[..parts.len() - 1].join(".");
 
             let foundation_path = FoundationPath::from_str(&entity_path_str);
             let entity_id = EntityId(foundation_path);
@@ -1397,41 +1398,16 @@ fn stratum_parser<'src>()
         .map_with(|(path, attrs), e| {
             let span = token_span(e.span());
 
-            // PARSER/SEMANTIC BOUNDARY VIOLATION
-            // Extract stride/cadence from attributes in parser
-            // This should be done in semantic analysis, not parser
-            //
-            // Current behavior (WRONG):
-            //   - Attribute absent → default 1 (OK)
-            //   - Attribute invalid → default 1 (FAIL-HARD VIOLATION: should error)
-            //
-            // Raw attributes are preserved in stratum.attributes for semantic validation
-            // TODO: Make cadence Optional<u32>, move extraction to semantic analysis
-            let cadence_attr = attrs
-                .iter()
-                .find(|attr| attr.name == "stride" || attr.name == "cadence");
-
-            let cadence = match cadence_attr {
-                Some(attr) => {
-                    // Attribute exists - extract literal value or default
-                    // WRONG: Should error on non-literal, not default
-                    attr.args
-                        .first()
-                        .and_then(|expr| match &expr.kind {
-                            ExprKind::Literal { value, .. } => Some(*value as u32),
-                            _ => None,
-                        })
-                        .unwrap_or(1) // Hides invalid attribute values
-                }
-                None => {
-                    // No attribute - default to every tick
-                    1
-                }
-            };
+            // Cadence extraction moved to semantic analysis
+            // Parser preserves raw attributes - semantic analysis will:
+            //   - Extract :stride(N) or :cadence(N) attribute
+            //   - Validate value is positive integer literal
+            //   - Default to 1 if absent
+            //   - Error if present but invalid
 
             // Convert Path to FoundationPath for StratumId
             let foundation_path = FoundationPath::from_str(&path.to_string());
-            let mut stratum = Stratum::new(StratumId(foundation_path), path, cadence, span);
+            let mut stratum = Stratum::new(StratumId(foundation_path), path, span);
             stratum.attributes = attrs;
             Declaration::Stratum(stratum)
         })
@@ -1451,15 +1427,15 @@ fn stratum_parser<'src>()
 fn era_parser<'src>()
 -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     // Strata policy entry: `path : active` or `path : gated`
+    // Parser preserves raw state identifier, semantic analysis interprets it
     let strata_entry = path_parser()
         .then_ignore(just(Token::Colon))
         .then(select! {
-            Token::Ident(s) if s == "active" => StratumState::Active,
-            Token::Ident(s) if s == "gated" => StratumState::Gated,
+            Token::Ident(s) => s.to_string(),
         })
-        .map_with(|(path, state), e| StratumPolicyEntry {
+        .map_with(|(path, state_name), e| StratumPolicyEntry {
             stratum: path,
-            state,
+            state_name,
             stride: None,
             span: token_span(e.span()),
         });
@@ -1482,14 +1458,17 @@ fn era_parser<'src>()
         .map_with(|(((path, attrs), strata_policy), transitions), e| {
             let span = token_span(e.span());
 
-            // TODO: Extract dt, is_initial, is_terminal from attributes
+            // Preserve raw attributes for semantic analysis
+            // Semantic analysis will extract:
+            //   - :initial flag
+            //   - :terminal flag
+            //   - :dt(value) expression
             let era = EraDecl {
                 path,
                 span,
                 doc: None,
                 dt: None,
-                is_initial: attrs.iter().any(|a| a.name == "initial"),
-                is_terminal: attrs.iter().any(|a| a.name == "terminal"),
+                attributes: attrs,
                 strata_policy: strata_policy.unwrap_or_default(),
                 transitions,
             };
@@ -1581,14 +1560,18 @@ fn world_parser<'src>()
         .then(attribute_parser().repeated().collect::<Vec<_>>())
         .then(warmup_policy.or_not())
         .then_ignore(just(Token::RBrace))
-        .map_with(|((path, _attrs), warmup), e| {
-            // TODO: Extract title, version from attributes
+        .map_with(|((path, attrs), warmup), e| {
+            // Preserve raw attributes for semantic analysis
+            // Semantic analysis will extract:
+            //   - :title("name") string
+            //   - :version("1.0.0") string
             Declaration::World(WorldDecl {
                 path,
                 span: token_span(e.span()),
                 title: None,
                 version: None,
                 warmup,
+                attributes: attrs,
                 doc: None,
             })
         })

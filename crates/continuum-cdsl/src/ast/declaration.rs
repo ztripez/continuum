@@ -149,6 +149,16 @@ pub struct WorldDecl {
     /// Parser preserves raw syntax; analyzer validates and interprets.
     pub warmup: Option<RawWarmupPolicy>,
 
+    /// Parsed attributes from source
+    ///
+    /// Raw attributes for semantic analysis to interpret.
+    /// Common attributes:
+    /// - :title("name") - sets human-readable title
+    /// - :version("1.0.0") - sets version string
+    ///
+    /// Semantic analysis extracts and validates these.
+    pub attributes: Vec<Attribute>,
+
     /// Source location
     pub span: Span,
 
@@ -291,17 +301,22 @@ pub struct EraDecl {
     /// Can be constant or computed. If None, inherits from parent era or world default.
     pub dt: Option<Expr>,
 
-    /// Is this the initial era (simulation starts here)?
-    pub is_initial: bool,
-
-    /// Is this a terminal era (simulation can end here)?
-    pub is_terminal: bool,
-
     /// Stratum activation policies for this era
     pub strata_policy: Vec<StratumPolicyEntry>,
 
     /// Transitions to other eras
     pub transitions: Vec<TransitionDecl>,
+
+    /// Parsed attributes from source
+    ///
+    /// Raw attributes for semantic analysis to interpret.
+    /// Common attributes:
+    /// - :initial - marks this as the starting era
+    /// - :terminal - marks this as a valid end state
+    /// - :dt(value) - sets timestep
+    ///
+    /// Semantic analysis extracts and validates these.
+    pub attributes: Vec<Attribute>,
 
     /// Source location
     pub span: Span,
@@ -319,8 +334,11 @@ pub struct StratumPolicyEntry {
     /// Stratum path
     pub stratum: Path,
 
-    /// Activation state
-    pub state: StratumState,
+    /// Activation state identifier (raw string from parser)
+    ///
+    /// Parser preserves the raw identifier string (e.g., "active", "gated").
+    /// Semantic analysis interprets this into StratumState enum.
+    pub state_name: String,
 
     /// Optional stride override for this era
     ///

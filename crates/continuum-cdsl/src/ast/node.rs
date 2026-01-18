@@ -461,17 +461,16 @@ pub struct Stratum {
 
     /// Execution cadence - execute every N ticks (1 = every tick)
     ///
-    /// **Parser/Semantic Boundary Issue:** Currently extracted from `:stride(N)` or
-    /// `:cadence(N)` attributes by parser with default of 1 if absent or invalid.
-    /// This is semantic work that should be in analyzer.
+    /// Extracted from `:stride(N)` or `:cadence(N)` attributes during semantic analysis.
+    /// - None = not yet resolved (parser stage)
+    /// - Some(n) = validated cadence value (semantic analysis stage)
     ///
-    /// Parser defaults to 1 when:
-    /// - No :stride/:cadence attribute present (valid default)
-    /// - Attribute exists but value is non-literal (SHOULD ERROR, not default)
-    ///
-    /// Semantic analysis should validate using stored `attributes` field.
-    /// Validation that cadence > 0 happens in semantic validator.
-    pub cadence: u32,
+    /// Semantic analysis will:
+    /// - Extract from attributes
+    /// - Default to 1 if absent
+    /// - Error if present but invalid (non-literal, non-positive)
+    /// - Validate cadence > 0
+    pub cadence: Option<u32>,
 
     /// Source location for error messages
     pub span: Span,
@@ -489,14 +488,15 @@ pub struct Stratum {
 impl Stratum {
     /// Create a new stratum declaration
     ///
-    /// Note: No validation is performed here. Invalid cadence values
-    /// (e.g., 0) should be caught during parsing or validation with
-    /// proper structured diagnostics.
-    pub fn new(id: StratumId, path: Path, cadence: u32, span: Span) -> Self {
+    /// Cadence is None at parser stage, will be resolved during semantic analysis.
+    /// Semantic analysis validates:
+    /// - Cadence is a positive integer literal
+    /// - Defaults to 1 if no :stride/:cadence attribute present
+    pub fn new(id: StratumId, path: Path, span: Span) -> Self {
         Self {
             id,
             path,
-            cadence,
+            cadence: None,
             span,
             doc: None,
             attributes: Vec::new(),
@@ -504,8 +504,14 @@ impl Stratum {
     }
 
     /// Check if this stratum should execute on the given tick
+    ///
+    /// Requires cadence to be resolved (semantic analysis complete).
+    /// Panics if cadence is None (indicates semantic analysis not run).
     pub fn is_eligible(&self, tick: u64) -> bool {
-        tick % (self.cadence as u64) == 0
+        let cadence = self
+            .cadence
+            .expect("Stratum cadence must be resolved before checking eligibility");
+        tick % (cadence as u64) == 0
     }
 }
 
@@ -1115,11 +1121,17 @@ mod tests {
         let path = Path::from_str("test.fast");
         let span = Span::new(0, 0, 10, 1);
         let id = StratumId::new("test.fast");
-        let stratum = Stratum::new(id.clone(), path.clone(), 1, span);
+        let mut stratum = Stratum::new(id.clone(), path.clone(), span);
+
+        // Cadence is None until semantic analysis resolves it
+        assert_eq!(stratum.cadence, None);
+
+        // Simulate semantic analysis resolving cadence
+        stratum.cadence = Some(1);
 
         assert_eq!(stratum.id, id);
         assert_eq!(stratum.path, path);
-        assert_eq!(stratum.cadence, 1);
+        assert_eq!(stratum.cadence, Some(1));
         assert!(stratum.is_eligible(0));
         assert!(stratum.is_eligible(1));
         assert!(stratum.is_eligible(100));
@@ -1128,7 +1140,10 @@ mod tests {
     #[test]
     fn test_stratum_cadence() {
         let span = Span::new(0, 0, 10, 1);
-        let slow = Stratum::new(StratumId::new("slow"), Path::from_str("slow"), 10, span);
+        let mut slow = Stratum::new(StratumId::new("slow"), Path::from_str("slow"), span);
+
+        // Simulate semantic analysis resolving cadence to 10
+        slow.cadence = Some(10);
 
         assert!(slow.is_eligible(0));
         assert!(!slow.is_eligible(1));
