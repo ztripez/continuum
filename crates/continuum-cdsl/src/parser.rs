@@ -37,8 +37,8 @@
 //!
 //! ## Error Recovery
 //!
-//! Error recovery is not implemented yet.
-//! Most parse failures stop with an error rather than producing
+//! The parser does not perform error recovery.
+//! Parse failures produce Rich<Token> errors rather than
 //! [`ExprKind::ParseError`] placeholders.
 //!
 //! # Examples
@@ -457,8 +457,8 @@ fn expr_parser<'src>()
         // Let and if are lower precedence than all operators
         let base_expr = choice((let_expr, if_expr, or));
 
-        // Note: Struct construction and aggregates (sum, map, fold) not yet implemented.
-        // These will be added in future parser extensions.
+        // Note: Struct construction and aggregates (sum, map, fold) are extension points.
+        // The parser will produce errors for these constructs until parsers are added.
 
         // Return the lowest precedence parser (let/if or logical OR)
         base_expr
