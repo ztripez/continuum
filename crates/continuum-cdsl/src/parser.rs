@@ -231,23 +231,46 @@ fn expr_parser<'src>() -> impl Parser<'src, &'src [Token], Expr> + Clone {
 
         // === Binary operators with precedence ===
 
-        // Power (highest precedence)
-        // TODO: Make right-associative (currently left-associative)
+        // Power (highest precedence, right-associative)
         let power_op = just(Token::Caret).to(BinaryOp::Pow);
-        let power = unary.clone().foldl_with(
-            power_op.then(unary.clone()).repeated(),
-            |left, (op, right), _e| {
-                let span = left.span;
-                Expr::new(
-                    ExprKind::Binary {
-                        op,
-                        left: Box::new(left),
-                        right: Box::new(right),
-                    },
-                    span,
-                )
-            },
-        );
+        let power = unary
+            .clone()
+            .then(power_op.then(unary.clone()).repeated().collect::<Vec<_>>())
+            .map(|(first, rest)| {
+                if rest.is_empty() {
+                    first
+                } else {
+                    // Build right-to-left for right-associativity
+                    // For `2 ^ 3 ^ 4`, we want Binary(2, Binary(3, 4))
+                    let mut ops_vals: Vec<_> = rest;
+                    let (last_op, last_val) = ops_vals.pop().unwrap();
+
+                    // Start from rightmost value and build backwards
+                    let mut result = last_val;
+                    while let Some((op, left_val)) = ops_vals.pop() {
+                        let span = left_val.span;
+                        result = Expr::new(
+                            ExprKind::Binary {
+                                op,
+                                left: Box::new(left_val),
+                                right: Box::new(result),
+                            },
+                            span,
+                        );
+                    }
+
+                    // Combine with first operand
+                    let span = first.span;
+                    Expr::new(
+                        ExprKind::Binary {
+                            op: last_op,
+                            left: Box::new(first),
+                            right: Box::new(result),
+                        },
+                        span,
+                    )
+                }
+            });
 
         // Multiplication, division, modulo
         let mul_op = choice((
@@ -663,7 +686,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "power is currently left-associative, should be right-associative"]
     fn test_power_right_associative() {
         let expr = lex_and_parse("2 ^ 3 ^ 4");
         // Should parse as 2 ^ (3 ^ 4) for right-associativity
@@ -683,6 +705,47 @@ mod tests {
                 ));
             }
             _ => panic!("expected pow chain, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_power_single() {
+        // Single power should just work
+        let expr = lex_and_parse("2 ^ 3");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Pow,
+                left,
+                right,
+            } => {
+                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                assert!(matches!(right.kind, ExprKind::Literal { value: 3.0, .. }));
+            }
+            _ => panic!("expected single pow, got {:?}", expr.kind),
+        }
+    }
+
+    #[test]
+    fn test_power_vs_mul_precedence() {
+        // Power should bind tighter than multiplication
+        // 2 * 3 ^ 4 should parse as 2 * (3 ^ 4)
+        let expr = lex_and_parse("2 * 3 ^ 4");
+        match expr.kind {
+            ExprKind::Binary {
+                op: BinaryOp::Mul,
+                left,
+                right,
+            } => {
+                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    ExprKind::Binary {
+                        op: BinaryOp::Pow,
+                        ..
+                    }
+                ));
+            }
+            _ => panic!("expected mul with pow on right, got {:?}", expr.kind),
         }
     }
 
