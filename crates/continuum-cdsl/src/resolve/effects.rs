@@ -468,4 +468,158 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::EffectInPureContext);
     }
+
+    #[test]
+    fn test_effect_kernel_in_fracture_phase() {
+        let registry = KernelRegistry::global();
+        let ctx = EffectContext::new(Phase::Fracture);
+
+        // emit is an effect kernel, should be allowed in Fracture
+        let signal_arg = TypedExpr::new(
+            ExprKind::Local("signal_id".to_string()),
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let value_arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let call = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("", "emit"),
+                args: vec![signal_arg, value_arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_effect_purity(&call, &ctx, registry);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_effect_kernel_in_configure_phase() {
+        let registry = KernelRegistry::global();
+        let ctx = EffectContext::new(Phase::Configure);
+
+        // emit is an effect kernel, should NOT be allowed in Configure
+        let signal_arg = TypedExpr::new(
+            ExprKind::Local("signal_id".to_string()),
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let value_arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let call = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("", "emit"),
+                args: vec![signal_arg, value_arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_effect_purity(&call, &ctx, registry);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::EffectInPureContext);
+        assert!(errors[0].message.contains("Configure"));
+    }
+
+    #[test]
+    fn test_unknown_kernel_defensive_check() {
+        let registry = KernelRegistry::global();
+        let ctx = EffectContext::new(Phase::Resolve);
+
+        // Unknown kernel should trigger defensive error
+        let arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let call = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("unknown", "bogus"),
+                args: vec![arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_effect_purity(&call, &ctx, registry);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::UnknownKernel);
+        assert!(errors[0].message.contains("unknown.bogus"));
+        assert!(
+            errors[0]
+                .message
+                .contains("should have been caught by type validation")
+        );
+    }
+
+    #[test]
+    fn test_unknown_kernel_still_scans_nested_args() {
+        let registry = KernelRegistry::global();
+        let ctx = EffectContext::new(Phase::Resolve);
+
+        // Nested effect call inside arg of unknown kernel
+        let nested_effect = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("", "emit"),
+                args: vec![
+                    TypedExpr::new(
+                        ExprKind::Local("signal_id".to_string()),
+                        Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                        test_span(),
+                    ),
+                    TypedExpr::new(
+                        ExprKind::Literal {
+                            value: 1.0,
+                            unit: None,
+                        },
+                        Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+                        test_span(),
+                    ),
+                ],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let call = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("unknown", "bogus"),
+                args: vec![nested_effect],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_effect_purity(&call, &ctx, registry);
+        // Should have both: unknown kernel AND nested effect violation
+        assert_eq!(errors.len(), 2);
+        assert!(errors.iter().any(|e| e.kind == ErrorKind::UnknownKernel));
+        assert!(
+            errors
+                .iter()
+                .any(|e| e.kind == ErrorKind::EffectInPureContext)
+        );
+    }
 }
