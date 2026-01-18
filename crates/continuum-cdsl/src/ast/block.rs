@@ -28,7 +28,7 @@ pub enum Stmt {
     /// Signal assignment: `signal.path <- expr`
     ///
     /// Emits a value to a signal's input accumulator.
-    /// Valid only in blocks with Emit capability (Collect, Apply, WarmUp).
+    /// Valid in statement blocks: collect blocks, fracture emit blocks.
     SignalAssign {
         /// Target signal path
         target: Path,
@@ -62,17 +62,19 @@ pub enum Stmt {
 /// Block body - either single expression or statement list.
 ///
 /// The body kind is determined by the block's phase capabilities:
-/// - Pure phases (Resolve, Iterate, Assert): Expression
-/// - Effect phases (Collect, Apply, Emit): Statements
+/// - Pure phases (Resolve, Measure): Expression
+/// - Effect phases (Collect, Fracture): Statements
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockBody {
     /// Single expression (pure phases)
     ///
-    /// Used in: resolve, iterate, measure (when simple), assert
+    /// Used in: resolve blocks, measure blocks (simple field emission)
+    /// Also used in: warmup iterate blocks (expression-only)
     Expression(Expr),
 
     /// Statement list (effect phases)
     ///
-    /// Used in: collect, apply, emit, when
+    /// Used in: collect blocks, fracture emit blocks
+    /// Contains: let bindings, signal assignments, field assignments
     Statements(Vec<Stmt>),
 }

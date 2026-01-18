@@ -1088,7 +1088,7 @@ fn execution_block_parser<'src>()
 /// ```cdsl
 /// signal temp {
 ///     : type Scalar<K>
-///     : strata(simulation)
+///     : stratum(simulation)
 ///     warmup { :iterations(100) iterate { prev * 0.9 } }
 ///     resolve { prev + 1 }
 /// }
@@ -1263,7 +1263,7 @@ fn fracture_parser<'src>()
 /// chronicle extinction {
 ///     observe {
 ///         when signal.diversity < -0.5 {
-///             emit event.extinction { severity: 0.8 };
+///             event.extinction <- true
 ///         }
 ///     }
 /// }
