@@ -261,86 +261,15 @@ pub fn inverse_mat3(mat: Mat3) -> Mat3 {
     unit_out = Inverse(0)
 )]
 pub fn inverse_mat4(mat: Mat4) -> Mat4 {
-    let m00 = mat.0[0];
-    let m10 = mat.0[1];
-    let m20 = mat.0[2];
-    let m30 = mat.0[3];
-    let m01 = mat.0[4];
-    let m11 = mat.0[5];
-    let m21 = mat.0[6];
-    let m31 = mat.0[7];
-    let m02 = mat.0[8];
-    let m12 = mat.0[9];
-    let m22 = mat.0[10];
-    let m32 = mat.0[11];
-    let m03 = mat.0[12];
-    let m13 = mat.0[13];
-    let m23 = mat.0[14];
-    let m33 = mat.0[15];
+    let m = na::Matrix4::from_column_slice(&mat.0);
 
-    let det = determinant_mat4(Mat4(mat.0));
-
-    if det.abs() < 1e-10 {
-        panic!("matrix.inverse: matrix is singular (determinant = 0)");
+    match m.try_inverse() {
+        Some(inv) => Mat4(inv.as_slice().try_into().unwrap()),
+        None => {
+            let det = determinant_mat4(mat);
+            panic!("matrix.inverse: matrix is singular (determinant = {})", det);
+        }
     }
-
-    let inv_det = 1.0 / det;
-
-    let c00 = (m11 * (m22 * m33 - m32 * m23) - m21 * (m12 * m33 - m32 * m13)
-        + m31 * (m12 * m23 - m22 * m13))
-        * inv_det;
-    let c10 = -(m10 * (m22 * m33 - m32 * m23) - m20 * (m12 * m33 - m32 * m13)
-        + m30 * (m12 * m23 - m22 * m13))
-        * inv_det;
-    let c20 = (m10 * (m21 * m33 - m31 * m23) - m20 * (m11 * m33 - m31 * m13)
-        + m30 * (m11 * m23 - m21 * m13))
-        * inv_det;
-    let c30 = -(m10 * (m21 * m32 - m31 * m22) - m20 * (m11 * m32 - m31 * m12)
-        + m30 * (m11 * m22 - m21 * m12))
-        * inv_det;
-
-    let c01 = -(m01 * (m22 * m33 - m32 * m23) - m21 * (m02 * m33 - m32 * m03)
-        + m31 * (m02 * m23 - m22 * m03))
-        * inv_det;
-    let c11 = (m00 * (m22 * m33 - m32 * m23) - m20 * (m02 * m33 - m32 * m03)
-        + m30 * (m02 * m23 - m22 * m03))
-        * inv_det;
-    let c21 = -(m00 * (m21 * m33 - m31 * m23) - m20 * (m01 * m33 - m31 * m03)
-        + m30 * (m01 * m23 - m21 * m03))
-        * inv_det;
-    let c31 = (m00 * (m21 * m32 - m31 * m22) - m20 * (m01 * m32 - m31 * m02)
-        + m30 * (m01 * m22 - m21 * m02))
-        * inv_det;
-
-    let c02 = (m01 * (m12 * m33 - m32 * m13) - m11 * (m02 * m33 - m32 * m03)
-        + m31 * (m02 * m13 - m12 * m03))
-        * inv_det;
-    let c12 = -(m00 * (m12 * m33 - m32 * m13) - m10 * (m02 * m33 - m32 * m03)
-        + m30 * (m02 * m13 - m12 * m03))
-        * inv_det;
-    let c22 = (m00 * (m11 * m33 - m31 * m13) - m10 * (m01 * m33 - m31 * m03)
-        + m30 * (m01 * m13 - m11 * m03))
-        * inv_det;
-    let c32 = -(m00 * (m11 * m32 - m31 * m12) - m10 * (m01 * m32 - m31 * m02)
-        + m30 * (m01 * m12 - m11 * m02))
-        * inv_det;
-
-    let c03 = -(m01 * (m12 * m23 - m22 * m13) - m11 * (m02 * m23 - m22 * m03)
-        + m21 * (m02 * m13 - m12 * m03))
-        * inv_det;
-    let c13 = (m00 * (m12 * m23 - m22 * m13) - m10 * (m02 * m23 - m22 * m03)
-        + m20 * (m02 * m13 - m12 * m03))
-        * inv_det;
-    let c23 = -(m00 * (m11 * m23 - m21 * m13) - m10 * (m01 * m23 - m21 * m03)
-        + m20 * (m01 * m13 - m11 * m03))
-        * inv_det;
-    let c33 = (m00 * (m11 * m22 - m21 * m12) - m10 * (m01 * m22 - m21 * m02)
-        + m20 * (m01 * m12 - m11 * m02))
-        * inv_det;
-
-    Mat4([
-        c00, c10, c20, c30, c01, c11, c21, c31, c02, c12, c22, c32, c03, c13, c23, c33,
-    ])
 }
 
 /// Matrix multiply: `mul_mat2(a, b)` -> Mat2
