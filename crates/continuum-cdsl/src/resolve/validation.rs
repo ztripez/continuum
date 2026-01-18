@@ -43,22 +43,30 @@ use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{Span, Type};
 use crate::resolve::types::TypeTable;
 
-/// Validation context containing type tables and registries.
+/// Context for validating typed CDSL expressions using user-defined types.
 ///
-/// Provides access to type information needed during validation:
-/// - User type definitions via TypeTable
-/// - Kernel signatures (pending kernel registry implementation)
-/// - Symbol tables (pending implementation)
+/// `ValidationContext` provides read-only access to user type definitions that
+/// expression validation needs when checking struct construction and field
+/// access.
+///
+/// # Parameters
+///
+/// - `type_table`: Reference to the [`TypeTable`] containing user-defined types.
+///
+/// # Returns
+///
+/// A `ValidationContext` that borrows the provided type table for lookups during
+/// validation.
 ///
 /// # Examples
 ///
-/// ```rust,ignore
-/// use continuum_cdsl::resolve::validation::ValidationContext;
+/// ```rust
 /// use continuum_cdsl::resolve::types::TypeTable;
+/// use continuum_cdsl::resolve::validation::ValidationContext;
 ///
 /// let type_table = TypeTable::new();
 /// let ctx = ValidationContext::new(&type_table);
-/// // Use ctx for validation...
+/// let _ = ctx;
 /// ```
 #[derive(Debug)]
 pub struct ValidationContext<'a> {
@@ -81,30 +89,44 @@ impl<'a> ValidationContext<'a> {
     }
 }
 
-/// Validates a typed expression for semantic correctness.
+/// Validates a typed CDSL expression for post-resolution semantic correctness.
 ///
-/// Checks type compatibility, kernel signatures, bounds, and unit consistency.
-/// Returns a list of validation errors (empty if expression is valid).
+/// `validate_expr` checks literal bounds, kernel call structure, unit and type
+/// consistency, and user type field access. The function assumes name and type
+/// resolution have already completed successfully and reports any validation
+/// failures as [`CompileError`] values.
 ///
 /// # Parameters
 ///
-/// - `expr`: Typed expression to validate.
-/// - `ctx`: Validation context with type tables and registries.
+/// - `expr`: Typed expression to validate, including assigned [`Type`] metadata.
+/// - `ctx`: Validation context containing user type definitions and registries.
 ///
 /// # Returns
 ///
-/// Vector of validation errors. Empty if expression passes all checks.
+/// A list of validation errors. An empty list means the expression satisfies all
+/// validation rules enforced by this pass.
 ///
 /// # Examples
 ///
-/// ```rust,ignore
+/// ```rust
+/// use continuum_cdsl::ast::{ExprKind, TypedExpr};
+/// use continuum_cdsl::foundation::{Shape, Span, Type, Unit};
+/// use continuum_cdsl::resolve::types::TypeTable;
 /// use continuum_cdsl::resolve::validation::{validate_expr, ValidationContext};
 ///
-/// let ctx = ValidationContext::new();
-/// let errors = validate_expr(&typed_expr, &ctx);
-/// for error in errors {
-///     eprintln!("{}", error);
-/// }
+/// let type_table = TypeTable::new();
+/// let ctx = ValidationContext::new(&type_table);
+/// let expr = TypedExpr::new(
+///     ExprKind::Literal {
+///         value: 1.0,
+///         unit: None,
+///     },
+///     Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+///     Span::new(0, 1, 1, 1),
+/// );
+///
+/// let errors = validate_expr(&expr, &ctx);
+/// assert!(errors.is_empty());
 /// ```
 pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<CompileError> {
     let mut errors = Vec::new();
@@ -1086,6 +1108,116 @@ mod tests {
         );
 
         let errors = validate_expr(&struct_expr, &ctx);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_call_propagates_arg_errors() {
+        use crate::foundation::Bounds;
+
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
+
+        // Argument violates bounds
+        let arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: -1.0,
+                unit: None,
+            },
+            Type::kernel(
+                Shape::Scalar,
+                Unit::DIMENSIONLESS,
+                Some(Bounds {
+                    min: Some(0.0),
+                    max: None,
+                }),
+            ),
+            test_span(),
+        );
+
+        let call_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: KernelId::new("maths", "identity"),
+                args: vec![arg],
+            },
+            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&call_expr, &ctx);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(errors[0].message.contains("below minimum"));
+    }
+
+    #[test]
+    fn test_validate_field_access_valid() {
+        use crate::foundation::{Path, UserType};
+
+        // Create type table with a user type
+        let mut type_table = TypeTable::new();
+        let type_id = continuum_foundation::TypeId::from("Vec2");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Vec2"),
+            vec![
+                (
+                    "x".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+                (
+                    "y".to_string(),
+                    Type::kernel(Shape::Scalar, Unit::meters(), None),
+                ),
+            ],
+        );
+        type_table.register(user_type);
+
+        let ctx = ValidationContext::new(&type_table);
+
+        // Valid field access
+        let object = TypedExpr::new(
+            ExprKind::Local("v".to_string()),
+            Type::user(type_id),
+            test_span(),
+        );
+
+        let field_access = TypedExpr::new(
+            ExprKind::FieldAccess {
+                object: Box::new(object),
+                field: "x".to_string(),
+            },
+            Type::kernel(Shape::Scalar, Unit::meters(), None),
+            test_span(),
+        );
+
+        let errors = validate_expr(&field_access, &ctx);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_validate_field_access_on_kernel_type() {
+        let type_table = test_type_table();
+        let ctx = ValidationContext::new(&type_table);
+
+        // Field access on kernel type (Vector) is allowed (not validated here)
+        let object = TypedExpr::new(
+            ExprKind::Local("v".to_string()),
+            Type::kernel(Shape::Vector { dim: 3 }, Unit::meters(), None),
+            test_span(),
+        );
+
+        let field_access = TypedExpr::new(
+            ExprKind::FieldAccess {
+                object: Box::new(object),
+                field: "x".to_string(),
+            },
+            Type::kernel(Shape::Scalar, Unit::meters(), None),
+            test_span(),
+        );
+
+        // No errors - kernel type field access is not validated at this level
+        let errors = validate_expr(&field_access, &ctx);
         assert!(errors.is_empty());
     }
 }
