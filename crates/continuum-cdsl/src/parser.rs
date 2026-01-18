@@ -455,8 +455,8 @@ fn expr_parser<'src>()
         // Let and if are lower precedence than all operators
         let base_expr = choice((let_expr, if_expr, or));
 
-        // TODO: Struct construction
-        // TODO: Aggregates (sum, map, fold)
+        // Note: Struct construction and aggregates (sum, map, fold) not yet implemented.
+        // These will be added in future parser extensions.
 
         // Return the lowest precedence parser (let/if or logical OR)
         base_expr
