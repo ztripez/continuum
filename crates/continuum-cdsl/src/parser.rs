@@ -48,7 +48,9 @@
 //! use continuum_cdsl::lexer::Token;
 //!
 //! let source = "10.0<m> + velocity.x";
-//! let tokens: Vec<_> = Token::lexer(source).filter_map(|r| r.ok()).collect();
+//! let tokens: Vec<_> = Token::lexer(source)
+//!     .collect::<Result<Vec<_>, _>>()
+//!     .expect("lexer should not fail on valid input");
 //! let expr = parse_expr(&tokens)?;
 //! ```
 
@@ -1098,28 +1100,30 @@ mod tests {
     #[test]
     fn test_power_missing_rhs() {
         // Missing right operand should fail
-        let tokens: Vec<_> = Token::lexer("2 ^").filter_map(|r| r.ok()).collect();
+        let tokens: Vec<_> = Token::lexer("2 ^").collect::<Result<Vec<_>, _>>().unwrap();
         assert!(parse_expr(&tokens).into_result().is_err());
     }
 
     #[test]
     fn test_power_missing_lhs() {
         // Missing left operand should fail
-        let tokens: Vec<_> = Token::lexer("^ 2").filter_map(|r| r.ok()).collect();
+        let tokens: Vec<_> = Token::lexer("^ 2").collect::<Result<Vec<_>, _>>().unwrap();
         assert!(parse_expr(&tokens).into_result().is_err());
     }
 
     #[test]
     fn test_power_double_operator() {
         // Double operator should fail
-        let tokens: Vec<_> = Token::lexer("2 ^ ^ 3").filter_map(|r| r.ok()).collect();
+        let tokens: Vec<_> = Token::lexer("2 ^ ^ 3")
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap();
         assert!(parse_expr(&tokens).into_result().is_err());
     }
 
     #[test]
     fn test_rich_error_contains_span() {
         // Verify Rich errors contain span information
-        let tokens: Vec<_> = Token::lexer("2 ^").filter_map(|r| r.ok()).collect();
+        let tokens: Vec<_> = Token::lexer("2 ^").collect::<Result<Vec<_>, _>>().unwrap();
         let result = parse_expr(&tokens);
         match result.into_result() {
             Err(errors) => {
@@ -1137,7 +1141,7 @@ mod tests {
     #[test]
     fn test_rich_error_has_context() {
         // Verify Rich errors provide context about what was expected
-        let tokens: Vec<_> = Token::lexer("^ 2").filter_map(|r| r.ok()).collect();
+        let tokens: Vec<_> = Token::lexer("^ 2").collect::<Result<Vec<_>, _>>().unwrap();
         let result = parse_expr(&tokens);
         match result.into_result() {
             Err(errors) => {
