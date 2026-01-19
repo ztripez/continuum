@@ -444,4 +444,494 @@ mod tests {
         let warnings = detect_era_cycles(&[era1, era2]);
         assert!(warnings.is_empty());
     }
+
+    // ===== Edge Case Tests =====
+
+    #[test]
+    fn test_era_with_empty_strata_policy() {
+        let span = Span::new(0, 0, 10, 1);
+
+        // Era with no strata policies (valid - era just controls dt)
+        let era = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+
+        let errors = resolve_eras(&mut [era], &[]);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_era_with_empty_transitions() {
+        let span = Span::new(0, 0, 10, 1);
+
+        // Terminal era with no transitions (valid)
+        let era = Era::new(
+            EraId::new("terminal"),
+            Path::from_str("terminal"),
+            make_time_expr(span),
+            span,
+        );
+
+        let errors = resolve_eras(&mut [era], &[]);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_era_with_multiple_strata_policies() {
+        let span = Span::new(0, 0, 10, 1);
+        let stratum1 = StratumId::new("fast");
+        let stratum2 = StratumId::new("slow");
+        let stratum3 = StratumId::new("rare");
+
+        let mut era = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+        era.strata_policy
+            .push(StratumPolicy::new(stratum1.clone(), true));
+        era.strata_policy
+            .push(StratumPolicy::new(stratum2.clone(), true));
+        era.strata_policy
+            .push(StratumPolicy::new(stratum3.clone(), false)); // gated
+
+        let errors = resolve_eras(&mut [era], &[stratum1, stratum2, stratum3]);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_era_with_multiple_transitions() {
+        let span = Span::new(0, 0, 10, 1);
+
+        let mut era = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+
+        // Multiple transitions (first matching wins)
+        era.transitions.push(EraTransition::new(
+            EraId::new("stable"),
+            make_bool_expr(span),
+            span,
+        ));
+        era.transitions.push(EraTransition::new(
+            EraId::new("decay"),
+            make_bool_expr(span),
+            span,
+        ));
+        era.transitions.push(EraTransition::new(
+            EraId::new("collapse"),
+            make_bool_expr(span),
+            span,
+        ));
+
+        let era_stable = Era::new(
+            EraId::new("stable"),
+            Path::from_str("stable"),
+            make_time_expr(span),
+            span,
+        );
+        let era_decay = Era::new(
+            EraId::new("decay"),
+            Path::from_str("decay"),
+            make_time_expr(span),
+            span,
+        );
+        let era_collapse = Era::new(
+            EraId::new("collapse"),
+            Path::from_str("collapse"),
+            make_time_expr(span),
+            span,
+        );
+
+        let errors = resolve_eras(&mut [era, era_stable, era_decay, era_collapse], &[]);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_era_with_cadence_override() {
+        let span = Span::new(0, 0, 10, 1);
+        let stratum_id = StratumId::new("fast");
+
+        let mut era = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+
+        // Stratum policy with cadence override
+        let mut policy = StratumPolicy::new(stratum_id.clone(), true);
+        policy.cadence_override = Some(10);
+        era.strata_policy.push(policy);
+
+        let errors = resolve_eras(&mut [era], &[stratum_id]);
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_era_with_gated_stratum() {
+        let span = Span::new(0, 0, 10, 1);
+        let stratum_id = StratumId::new("slow");
+
+        let mut era = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+
+        // Gated stratum (active: false)
+        era.strata_policy
+            .push(StratumPolicy::new(stratum_id.clone(), false));
+
+        let errors = resolve_eras(&mut [era], &[stratum_id]);
+        assert!(errors.is_empty());
+    }
+
+    // ===== Complex Cycle Tests =====
+
+    #[test]
+    fn test_self_transition_cycle() {
+        let span = Span::new(0, 0, 10, 1);
+
+        // Era transitions to itself
+        let mut era = Era::new(
+            EraId::new("oscillating"),
+            Path::from_str("oscillating"),
+            make_time_expr(span),
+            span,
+        );
+
+        era.transitions.push(EraTransition::new(
+            EraId::new("oscillating"),
+            make_bool_expr(span),
+            span,
+        ));
+
+        let warnings = detect_era_cycles(&[era]);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("cycle detected"));
+        assert!(warnings[0].message.contains("oscillating"));
+    }
+
+    #[test]
+    fn test_three_way_cycle() {
+        let span = Span::new(0, 0, 10, 1);
+
+        // Cycle: formation → stable → decay → formation
+        let mut era1 = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+        let mut era2 = Era::new(
+            EraId::new("stable"),
+            Path::from_str("stable"),
+            make_time_expr(span),
+            span,
+        );
+        let mut era3 = Era::new(
+            EraId::new("decay"),
+            Path::from_str("decay"),
+            make_time_expr(span),
+            span,
+        );
+
+        era1.transitions.push(EraTransition::new(
+            EraId::new("stable"),
+            make_bool_expr(span),
+            span,
+        ));
+        era2.transitions.push(EraTransition::new(
+            EraId::new("decay"),
+            make_bool_expr(span),
+            span,
+        ));
+        era3.transitions.push(EraTransition::new(
+            EraId::new("formation"),
+            make_bool_expr(span),
+            span,
+        ));
+
+        let warnings = detect_era_cycles(&[era1, era2, era3]);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].message.contains("cycle detected"));
+    }
+
+    #[test]
+    fn test_multiple_separate_cycles() {
+        let span = Span::new(0, 0, 10, 1);
+
+        // Cycle 1: A ↔ B
+        let mut era_a = Era::new(
+            EraId::new("a"),
+            Path::from_str("a"),
+            make_time_expr(span),
+            span,
+        );
+        let mut era_b = Era::new(
+            EraId::new("b"),
+            Path::from_str("b"),
+            make_time_expr(span),
+            span,
+        );
+
+        era_a.transitions.push(EraTransition::new(
+            EraId::new("b"),
+            make_bool_expr(span),
+            span,
+        ));
+        era_b.transitions.push(EraTransition::new(
+            EraId::new("a"),
+            make_bool_expr(span),
+            span,
+        ));
+
+        // Cycle 2: C ↔ D
+        let mut era_c = Era::new(
+            EraId::new("c"),
+            Path::from_str("c"),
+            make_time_expr(span),
+            span,
+        );
+        let mut era_d = Era::new(
+            EraId::new("d"),
+            Path::from_str("d"),
+            make_time_expr(span),
+            span,
+        );
+
+        era_c.transitions.push(EraTransition::new(
+            EraId::new("d"),
+            make_bool_expr(span),
+            span,
+        ));
+        era_d.transitions.push(EraTransition::new(
+            EraId::new("c"),
+            make_bool_expr(span),
+            span,
+        ));
+
+        let warnings = detect_era_cycles(&[era_a, era_b, era_c, era_d]);
+        // Should detect both cycles
+        assert_eq!(warnings.len(), 2);
+    }
+
+    #[test]
+    fn test_unreachable_era() {
+        let span = Span::new(0, 0, 10, 1);
+
+        // formation → stable, but decay is unreachable
+        let mut era_formation = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+        let era_stable = Era::new(
+            EraId::new("stable"),
+            Path::from_str("stable"),
+            make_time_expr(span),
+            span,
+        );
+        let era_decay = Era::new(
+            EraId::new("decay"),
+            Path::from_str("decay"),
+            make_time_expr(span),
+            span,
+        );
+
+        era_formation.transitions.push(EraTransition::new(
+            EraId::new("stable"),
+            make_bool_expr(span),
+            span,
+        ));
+
+        // Note: This test validates that unreachable eras don't cause errors
+        // Unreachability detection is a future enhancement (not implemented yet)
+        let errors = resolve_eras(&mut [era_formation, era_stable, era_decay], &[]);
+        assert!(errors.is_empty());
+    }
+
+    // ===== Transition Condition Type Tests =====
+
+    #[test]
+    fn test_transition_condition_with_int_type() {
+        let span = Span::new(0, 0, 10, 1);
+
+        let mut era1 = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+        let era2 = Era::new(
+            EraId::new("stable"),
+            Path::from_str("stable"),
+            make_time_expr(span),
+            span,
+        );
+
+        // Condition with Int type (invalid - must be Bool)
+        let int_condition = TypedExpr {
+            expr: ExprKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            ty: Type::Kernel(KernelType {
+                shape: Shape::Scalar,
+                unit: Unit::dimensionless(),
+                bounds: None,
+            }),
+            span,
+        };
+
+        era1.transitions.push(EraTransition::new(
+            EraId::new("stable"),
+            int_condition,
+            span,
+        ));
+
+        let errors = resolve_eras(&mut [era1, era2], &[]);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("must be Bool"));
+    }
+
+    #[test]
+    fn test_transition_condition_with_vector_type() {
+        let span = Span::new(0, 0, 10, 1);
+
+        let mut era1 = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+        let era2 = Era::new(
+            EraId::new("stable"),
+            Path::from_str("stable"),
+            make_time_expr(span),
+            span,
+        );
+
+        // Condition with Vec3 type (invalid - must be Bool)
+        let vec_condition = TypedExpr {
+            expr: ExprKind::Vector(vec![]),
+            ty: Type::Kernel(KernelType {
+                shape: Shape::vec3(),
+                unit: Unit::dimensionless(),
+                bounds: None,
+            }),
+            span,
+        };
+
+        era1.transitions.push(EraTransition::new(
+            EraId::new("stable"),
+            vec_condition,
+            span,
+        ));
+
+        let errors = resolve_eras(&mut [era1, era2], &[]);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("must be Bool"));
+    }
+
+    // ===== Multiple Error Tests =====
+
+    #[test]
+    fn test_era_with_multiple_errors() {
+        let span = Span::new(0, 0, 10, 1);
+
+        // Era with dt without time units
+        let bad_dt_expr = TypedExpr {
+            expr: ExprKind::Literal {
+                value: 1000.0,
+                unit: Some(Unit::meters()),
+            },
+            ty: Type::Kernel(KernelType {
+                shape: Shape::Scalar,
+                unit: Unit::meters(),
+                bounds: None,
+            }),
+            span,
+        };
+
+        let mut era = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            bad_dt_expr,
+            span,
+        );
+
+        // Reference undeclared stratum
+        era.strata_policy
+            .push(StratumPolicy::new(StratumId::new("nonexistent"), true));
+
+        // Transition to undeclared era with non-Bool condition
+        let int_condition = TypedExpr {
+            expr: ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            ty: Type::Kernel(KernelType {
+                shape: Shape::Scalar,
+                unit: Unit::dimensionless(),
+                bounds: None,
+            }),
+            span,
+        };
+
+        era.transitions.push(EraTransition::new(
+            EraId::new("missing_era"),
+            int_condition,
+            span,
+        ));
+
+        let errors = resolve_eras(&mut [era], &[]);
+        // Should have 3 errors: bad dt, undeclared stratum, undeclared era + non-Bool condition
+        assert!(errors.len() >= 3);
+
+        let error_messages: Vec<String> = errors.iter().map(|e| e.message.clone()).collect();
+        assert!(error_messages.iter().any(|m| m.contains("time units")));
+        assert!(error_messages.iter().any(|m| m.contains("nonexistent")));
+        assert!(
+            error_messages
+                .iter()
+                .any(|m| m.contains("missing_era") || m.contains("must be Bool"))
+        );
+    }
+
+    #[test]
+    fn test_all_strata_referenced_correctly() {
+        let span = Span::new(0, 0, 10, 1);
+        let stratum1 = StratumId::new("fast");
+        let stratum2 = StratumId::new("slow");
+        let stratum3 = StratumId::new("rare");
+
+        let mut era = Era::new(
+            EraId::new("formation"),
+            Path::from_str("formation"),
+            make_time_expr(span),
+            span,
+        );
+
+        // Reference all strata
+        era.strata_policy
+            .push(StratumPolicy::new(stratum1.clone(), true));
+        era.strata_policy
+            .push(StratumPolicy::new(stratum2.clone(), true));
+        era.strata_policy
+            .push(StratumPolicy::new(stratum3.clone(), false));
+
+        let errors = resolve_eras(&mut [era], &[stratum1, stratum2, stratum3]);
+        assert!(errors.is_empty());
+    }
 }
