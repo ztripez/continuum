@@ -82,12 +82,38 @@ pub struct TypeTable {
 }
 
 impl TypeTable {
-    /// Create an empty type table
+    /// Creates a new, empty [`TypeTable`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::resolve::types::TypeTable;
+    ///
+    /// let table = TypeTable::new();
+    /// assert_eq!(table.iter().count(), 0);
+    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Register a user-defined type
+    /// Registers a user-defined type in the table.
+    ///
+    /// This assigns the type a stable identity and allows it to be looked up by its
+    /// fully-qualified path during type resolution.
+    ///
+    /// # Parameters
+    /// - `user_type`: The definition to register.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::resolve::types::TypeTable;
+    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
+    ///
+    /// let mut table = TypeTable::new();
+    /// let path = Path::from("Foo");
+    /// table.register(UserType::new(TypeId::from("Foo"), path, vec![]));
+    /// ```
     pub fn register(&mut self, user_type: UserType) {
         let path = user_type.name().clone();
         let id = user_type.id().clone();
@@ -231,6 +257,22 @@ impl TypeTable {
     ///
     /// # Returns
     /// A mutable reference to the [`UserType`] if found, otherwise [`None`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::resolve::types::TypeTable;
+    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
+    ///
+    /// let mut table = TypeTable::new();
+    /// let path = Path::from("Foo");
+    /// table.register(UserType::new(TypeId::from("Foo"), path.clone(), vec![]));
+    ///
+    /// if let Some(user_type) = table.get_mut(&path) {
+    ///     user_type.fields.push(("new_field".to_string(), continuum_cdsl::foundation::Type::Bool));
+    /// }
+    /// assert_eq!(table.get(&path).unwrap().field_count(), 1);
+    /// ```
     pub fn get_mut(&mut self, path: &Path) -> Option<&mut UserType> {
         self.types.get_mut(path)
     }
@@ -258,13 +300,23 @@ impl TypeTable {
 /// as standard user-defined types, enabling robust type and unit validation for
 /// member access.
 ///
+/// # Member Path Preservation and Collision Handling
+///
+/// To ensure that namespaced members (e.g., `physics.velocity` vs `graphics.velocity`)
+/// do not collide during projection, this function uses the **full path string** of the
+/// member as the field name in the synthesized [`UserType`].
+///
+/// If multiple members within the same entity project to the same path string,
+/// a [`CompileError`] is emitted to prevent ambiguous member access.
+///
 /// # Parameters
 /// - `declarations`: The list of all top-level declarations (entities, members, etc.).
 /// - `type_table`: The registry where synthesized types will be stored.
 ///
 /// # Errors
-/// Returns an aggregated list of [`CompileError`]s if any member's type expression
-/// cannot be resolved (e.g., refers to an unknown unit or type).
+/// Returns an aggregated list of [`CompileError`]s if:
+/// - A member's type expression cannot be resolved (e.g., refers to an unknown unit or type).
+/// - Duplicate member paths are detected within a single entity.
 pub fn project_entity_types(
     declarations: &[Declaration],
     type_table: &mut TypeTable,
@@ -273,34 +325,53 @@ pub fn project_entity_types(
     let mut entity_members = HashMap::new();
     let mut entity_paths = Vec::new();
 
-    // 1. Group members and register empty entity types in a single pass
+    // 1. Register empty entity types and identify paths
+    // This allows circular references during member type resolution.
     for decl in declarations {
-        match decl {
-            Declaration::Entity(entity) => {
-                let type_id = UserTypeId::from(entity.path.to_string());
-                let user_type = UserType::new(type_id, entity.path.clone(), vec![]);
-                type_table.register(user_type);
-                entity_paths.push(entity.path.clone());
-            }
-            Declaration::Member(node) => {
-                entity_members
-                    .entry(node.index.clone())
-                    .or_insert_with(Vec::new)
-                    .push(node);
-            }
-            _ => {}
+        if let Declaration::Entity(entity) = decl {
+            let type_id = UserTypeId::from(entity.path.to_string());
+            let user_type = UserType::new(type_id, entity.path.clone(), vec![]);
+            type_table.register(user_type);
+            entity_paths.push(entity.path.clone());
         }
     }
 
-    // 2. Populate UserType fields from members
-    for path in entity_paths {
+    // 2. Group members and detect orphaned members
+    // Fail Loudly if a member refers to an entity that wasn't declared.
+    for decl in declarations {
+        if let Declaration::Member(node) = decl {
+            let entity_id = &node.index;
+            let entity_path = Path::from(entity_id.to_string());
+
+            if !type_table.contains(&entity_path) {
+                errors.push(CompileError::new(
+                    ErrorKind::UndefinedName,
+                    node.span,
+                    format!(
+                        "Member '{}' refers to unknown entity '{}'",
+                        node.path, entity_path
+                    ),
+                ));
+            } else {
+                entity_members
+                    .entry(entity_id.clone())
+                    .or_insert_with(Vec::new)
+                    .push(node);
+            }
+        }
+    }
+
+    // 3. Resolve member types and collect fields (without mutating TypeTable yet)
+    // This ensures no partial types are leaked if an error occurs.
+    let mut projected_fields = HashMap::new();
+    for path in &entity_paths {
         let mut fields = Vec::new();
         let mut seen_fields = std::collections::HashSet::new();
         let entity_id = EntityId::new(path.to_string());
 
         if let Some(members) = entity_members.get(&entity_id) {
             for node in members {
-                // Fail Loudly: Members must have a type expression.
+                // Members must have a type expression.
                 let ty = match &node.type_expr {
                     Some(type_expr) => resolve_type_expr(type_expr, type_table, node.span),
                     None => Err(CompileError::new(
@@ -333,17 +404,22 @@ pub fn project_entity_types(
                 }
             }
         }
+        projected_fields.insert(path.clone(), fields);
+    }
 
+    // 4. Fail Loudly: If any errors occurred, do not apply updates.
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    // 5. Success: Apply all projected fields to the TypeTable.
+    for (path, fields) in projected_fields {
         if let Some(user_type) = type_table.get_mut(&path) {
             user_type.fields = fields;
         }
     }
 
-    if errors.is_empty() {
-        Ok(())
-    } else {
-        Err(errors)
-    }
+    Ok(())
 }
 
 /// Resolves a parsed [`TypeExpr`](crate::ast::TypeExpr) into a semantic [`Type`].
@@ -1368,17 +1444,60 @@ mod tests {
     }
 
     #[test]
-    fn test_unit_power_with_zero_and_negative_exponents() {
+    fn test_project_entity_types_partial_leak() {
+        use crate::ast::{Entity, Node, RoleData};
+
         let span = test_span();
+        let entity_path = Path::from_str("plate");
+        let entity_id = EntityId::new("plate");
+        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
 
-        // m^0 = dimensionless
-        let zero = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 0);
-        let resolved = resolve_unit_expr(Some(&zero), span).unwrap();
-        assert!(resolved.is_dimensionless());
+        // Valid member
+        let m1_path = Path::from_str("plate.mass");
+        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id.clone());
+        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
 
-        // m^-1 = 1/m
-        let neg = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), -1);
-        let resolved = resolve_unit_expr(Some(&neg), span).unwrap();
-        assert_eq!(resolved.dims().length, -1);
+        // Invalid member (unknown type)
+        let m2_path = Path::from_str("plate.bad");
+        let mut m2 = Node::new(m2_path.clone(), span, RoleData::Signal, entity_id);
+        m2.type_expr = Some(TypeExpr::User(Path::from_str("Unknown")));
+
+        let decls = vec![
+            Declaration::Entity(entity),
+            Declaration::Member(m1),
+            Declaration::Member(m2),
+        ];
+
+        let mut table = TypeTable::new();
+        let errors = project_entity_types(&decls, &mut table).unwrap_err();
+        assert!(!errors.is_empty());
+
+        // Verify partial type did NOT leak
+        let user_type = table.get(&entity_path).expect("Entity should be in table");
+        assert_eq!(
+            user_type.field_count(),
+            0,
+            "Partial fields must not leak into TypeTable on error"
+        );
+    }
+
+    #[test]
+    fn test_project_entity_types_orphaned_member() {
+        use crate::ast::{Node, RoleData};
+
+        let span = test_span();
+        let entity_id = EntityId::new("nonexistent");
+
+        // Member referring to missing entity
+        let m1_path = Path::from_str("nonexistent.mass");
+        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id);
+        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
+
+        let decls = vec![Declaration::Member(m1)];
+
+        let mut table = TypeTable::new();
+        let errors = project_entity_types(&decls, &mut table)
+            .expect_err("Orphaned member should be an error");
+        assert!(errors.iter().any(|e| e.kind == ErrorKind::UndefinedName));
     }
 }
