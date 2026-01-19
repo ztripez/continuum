@@ -626,7 +626,7 @@ fn generate_kernel_registration(
         }
     };
 
-    // Build requires_uses field
+    // Build requires_uses field for runtime descriptor
     let requires_uses_value = if let (Some(key), Some(hint)) = (requires_uses, requires_uses_hint) {
         quote! {
             Some(::continuum_kernel_registry::RequiresUses {
@@ -637,6 +637,19 @@ fn generate_kernel_registration(
     } else {
         quote! { None }
     };
+
+    // Build requires_uses field for compile-time signature
+    let requires_uses_signature =
+        if let (Some(key), Some(hint)) = (requires_uses, requires_uses_hint) {
+            quote! {
+                Some(::continuum_kernel_types::RequiresUses {
+                    key: #key,
+                    hint: #hint,
+                })
+            }
+        } else {
+            quote! { None }
+        };
 
     // Structural validation for new type constraint attributes (if present)
     // When ANY constraint attribute is provided, ALL must be provided (no implicit defaults)
@@ -766,6 +779,7 @@ fn generate_kernel_registration(
                         shape: #shape_out_expr,
                         unit: #unit_out_expr,
                     },
+                    requires_uses: #requires_uses_signature,
                 }
             };
         }

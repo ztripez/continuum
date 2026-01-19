@@ -82,6 +82,31 @@
 use crate::foundation::{Shape, Unit};
 use continuum_kernel_types::{KERNEL_SIGNATURES, KernelId};
 
+/// Declares that a kernel requires explicit `: uses()` declaration
+///
+/// Dangerous functions (error masking, dt-fragile) require explicit opt-in.
+/// If a signal/member uses such a function without declaring the uses clause,
+/// compilation fails.
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::RequiresUses;
+///
+/// // maths.clamp requires : uses(maths.clamping)
+/// let req = RequiresUses {
+///     key: "clamping".to_string(),
+///     hint: "Clamping silently masks out-of-range values".to_string(),
+/// };
+/// ```
+#[derive(Debug, Clone, PartialEq)]
+pub struct RequiresUses {
+    /// The uses key (e.g., "clamping" → `: uses(maths.clamping)`)
+    pub key: String,
+    /// Hint message explaining why explicit opt-in is required
+    pub hint: String,
+}
+
 /// Kernel signature
 ///
 /// Defines the type signature and purity class of a kernel operation.
@@ -89,15 +114,16 @@ use continuum_kernel_types::{KERNEL_SIGNATURES, KernelId};
 ///
 /// # Fields
 ///
-/// - `id`: Unique kernel identifier (namespace + name)
+/// - `id`: Unique kernel identifier
 /// - `params`: Parameter type constraints
 /// - `returns`: Return type derivation
 /// - `purity`: Effect discipline (pure vs effectful)
+/// - `requires_uses`: If Some, using this kernel requires `: uses(namespace.key)` declaration
 ///
 /// # Examples
 ///
 /// ```rust
-/// use continuum_cdsl::ast::{KernelSignature, KernelParam, KernelReturn, KernelPurity};
+/// use continuum_cdsl::ast::KernelSignature;
 /// use continuum_cdsl::ast::{ShapeConstraint, UnitConstraint, ShapeDerivation, UnitDerivation};
 /// use continuum_cdsl::ast::KernelId;
 ///
@@ -113,6 +139,7 @@ use continuum_kernel_types::{KERNEL_SIGNATURES, KernelId};
 ///         unit: UnitDerivation::SameAs(0)
 ///     },
 ///     purity: KernelPurity::Pure,
+///     requires_uses: None,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -128,6 +155,9 @@ pub struct KernelSignature {
 
     /// Effect discipline
     pub purity: KernelPurity,
+
+    /// If Some, using this function requires `: uses(namespace.key)` declaration
+    pub requires_uses: Option<RequiresUses>,
 }
 
 /// Kernel parameter type constraint
@@ -692,6 +722,10 @@ impl KernelRegistry {
             params: sig.params.iter().map(Self::convert_param).collect(),
             returns: Self::convert_return(&sig.returns),
             purity: Self::convert_purity(sig.purity),
+            requires_uses: sig.requires_uses.map(|req| RequiresUses {
+                key: req.key.to_string(),
+                hint: req.hint.to_string(),
+            }),
         }
     }
 
@@ -982,6 +1016,7 @@ mod tests {
                 unit: UnitDerivation::SameAs(0),
             },
             purity: KernelPurity::Pure,
+            requires_uses: None,
         };
 
         assert_eq!(sig.params.len(), 2);

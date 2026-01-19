@@ -78,4 +78,5 @@ pub mod names;
 pub mod strata;
 pub mod structure;
 pub mod types;
+pub mod uses;
 pub mod validation;

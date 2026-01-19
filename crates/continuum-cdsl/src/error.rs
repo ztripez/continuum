@@ -124,37 +124,42 @@ pub enum ErrorKind {
     /// Cannot compile to executable form
     CompilationFailed = 20,
 
+    // Uses declaration validation
+    /// Missing uses() declaration for dangerous function
+    MissingUsesDeclaration = 21,
+
     // Generic
     /// Internal compiler error (bug in compiler)
-    Internal = 21,
+    Internal = 22,
 }
 
 /// Human-readable names for error kinds.
 ///
 /// Index matches ErrorKind discriminant.
 const ERROR_KIND_NAMES: &[&str] = &[
-    "syntax error",            // 0: Syntax
-    "undefined name",          // 1: UndefinedName
-    "duplicate name",          // 2: DuplicateName
-    "ambiguous name",          // 3: AmbiguousName
-    "type mismatch",           // 4: TypeMismatch
-    "unknown type",            // 5: UnknownType
-    "recursive type",          // 6: RecursiveType
-    "shape mismatch",          // 7: ShapeMismatch
-    "dimension mismatch",      // 8: DimensionMismatch
-    "unit mismatch",           // 9: UnitMismatch
-    "invalid unit",            // 10: InvalidUnit
-    "unknown kernel",          // 11: UnknownKernel
-    "wrong argument count",    // 12: WrongArgCount
-    "invalid kernel shape",    // 13: InvalidKernelShape
-    "invalid kernel unit",     // 14: InvalidKernelUnit
-    "missing capability",      // 15: MissingCapability
-    "invalid capability",      // 16: InvalidCapability
-    "effect in pure context",  // 17: EffectInPureContext
-    "cyclic dependency",       // 18: CyclicDependency
-    "path collision",          // 19: PathCollision
-    "compilation failed",      // 20: CompilationFailed
-    "internal compiler error", // 21: Internal
+    "syntax error",             // 0: Syntax
+    "undefined name",           // 1: UndefinedName
+    "duplicate name",           // 2: DuplicateName
+    "ambiguous name",           // 3: AmbiguousName
+    "type mismatch",            // 4: TypeMismatch
+    "unknown type",             // 5: UnknownType
+    "recursive type",           // 6: RecursiveType
+    "shape mismatch",           // 7: ShapeMismatch
+    "dimension mismatch",       // 8: DimensionMismatch
+    "unit mismatch",            // 9: UnitMismatch
+    "invalid unit",             // 10: InvalidUnit
+    "unknown kernel",           // 11: UnknownKernel
+    "wrong argument count",     // 12: WrongArgCount
+    "invalid kernel shape",     // 13: InvalidKernelShape
+    "invalid kernel unit",      // 14: InvalidKernelUnit
+    "missing capability",       // 15: MissingCapability
+    "invalid capability",       // 16: InvalidCapability
+    "effect in pure context",   // 17: EffectInPureContext
+    "cyclic dependency",        // 18: CyclicDependency
+    "path collision",           // 19: PathCollision
+    "compilation failed",       // 20: CompilationFailed
+    "missing uses declaration", // 21: MissingUsesDeclaration
+    "internal compiler error",  // 22: Internal
 ];
 
 /// Diagnostic severity level.

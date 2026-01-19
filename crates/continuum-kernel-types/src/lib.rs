@@ -176,6 +176,31 @@ impl KernelId {
     }
 }
 
+/// Declares that a kernel requires explicit `: uses()` declaration
+///
+/// Dangerous functions (error masking, dt-fragile) require explicit opt-in.
+/// If a signal/member uses such a function without declaring the uses clause,
+/// compilation fails.
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_kernel_types::RequiresUses;
+///
+/// // maths.clamp requires : uses(maths.clamping)
+/// let req = RequiresUses {
+///     key: "clamping",
+///     hint: "Clamping silently masks out-of-range values. Declare : uses(maths.clamping) if this is intended.",
+/// };
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RequiresUses {
+    /// The uses key (e.g., "clamping" → `: uses(maths.clamping)`)
+    pub key: &'static str,
+    /// Hint message explaining why explicit opt-in is required
+    pub hint: &'static str,
+}
+
 /// Kernel signature
 ///
 /// Defines the type signature and purity class of a kernel operation.
@@ -187,6 +212,7 @@ impl KernelId {
 /// - `params`: Parameter type constraints
 /// - `returns`: Return type derivation
 /// - `purity`: Effect discipline (pure vs effectful)
+/// - `requires_uses`: If Some, using this kernel requires `: uses(namespace.key)` declaration
 ///
 /// # Examples
 ///
@@ -197,7 +223,7 @@ impl KernelId {
 /// // maths.add(a, b) → same shape, same unit, pure
 /// let add_sig = KernelSignature {
 ///     id: KernelId::new("maths", "add"),
-///     params: vec![
+///     params: &[
 ///         KernelParam { name: "a", shape: ShapeConstraint::Any, unit: UnitConstraint::Any },
 ///         KernelParam { name: "b", shape: ShapeConstraint::SameAs(0), unit: UnitConstraint::SameAs(0) },
 ///     ],
@@ -206,6 +232,7 @@ impl KernelId {
 ///         unit: UnitDerivation::SameAs(0)
 ///     },
 ///     purity: KernelPurity::Pure,
+///     requires_uses: None,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -221,6 +248,9 @@ pub struct KernelSignature {
 
     /// Effect discipline
     pub purity: KernelPurity,
+
+    /// If Some, using this function requires `: uses(namespace.key)` declaration
+    pub requires_uses: Option<RequiresUses>,
 }
 
 /// Kernel parameter type constraint

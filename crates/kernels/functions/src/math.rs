@@ -110,7 +110,9 @@ pub fn pow(base: f64, exp: f64) -> f64 {
     shape_in = [AnyScalar, SameAs(0), SameAs(0)],
     unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
     shape_out = Scalar,
-    unit_out = UnitDerivSameAs(0)
+    unit_out = UnitDerivSameAs(0),
+    requires_uses = "clamping",
+    requires_uses_hint = "maths.clamp silently masks out-of-bounds errors. Use type bounds with assertions (e.g., Scalar<K, 0.0..1.0>) instead. If clamping is physically correct, declare : uses(maths.clamping)"
 )]
 pub fn clamp(value: f64, min: f64, max: f64) -> f64 {
     value.clamp(min, max)
@@ -185,7 +187,9 @@ pub fn smoothstep(edge0: f64, edge1: f64, x: f64) -> f64 {
     shape_in = [AnyScalar],
     unit_in = [UnitDimensionless],
     shape_out = Scalar,
-    unit_out = Dimensionless
+    unit_out = Dimensionless,
+    requires_uses = "clamping",
+    requires_uses_hint = "maths.saturate silently clamps values to [0,1]. Use type bounds with assertions instead. If saturation is physically correct, declare : uses(maths.clamping)"
 )]
 pub fn saturate(x: f64) -> f64 {
     x.clamp(0.0, 1.0)
@@ -577,7 +581,9 @@ pub fn modulo(a: f64, b: f64) -> f64 {
     shape_in = [AnyScalar, SameAs(0), SameAs(0)],
     unit_in = [UnitAny, UnitSameAs(0), UnitSameAs(0)],
     shape_out = Scalar,
-    unit_out = UnitDerivSameAs(0)
+    unit_out = UnitDerivSameAs(0),
+    requires_uses = "clamping",
+    requires_uses_hint = "maths.wrap silently wraps out-of-range values. This can mask accumulation errors in time-stepped simulations. Use dt-robust operators (dt.advance_phase) or add assertions. If wrapping is physically correct, declare : uses(maths.clamping)"
 )]
 pub fn wrap(value: f64, min: f64, max: f64) -> f64 {
     assert!(min.is_finite(), "wrap: min must be finite, got {}", min);
