@@ -373,7 +373,41 @@ fn derive_return_type(
             let kt = get_kernel_arg(args, *idx, span, "unit")?;
             kt.unit
         }
-        _ => {
+        UnitDerivation::Multiply(indices) => {
+            // Multiply units of all specified parameters
+            // Start with dimensionless (multiplicative identity)
+            let mut result = Unit::DIMENSIONLESS;
+            for &idx in indices {
+                let kt = get_kernel_arg(args, idx, span, "unit multiply")?;
+                result = result.multiply(&kt.unit).ok_or_else(|| {
+                    vec![CompileError::new(
+                        ErrorKind::Internal,
+                        span,
+                        format!(
+                            "cannot multiply non-multiplicative units (parameter {})",
+                            idx
+                        ),
+                    )]
+                })?;
+            }
+            result
+        }
+        UnitDerivation::Divide(a, b) => {
+            // Divide unit of parameter a by unit of parameter b
+            let kt_a = get_kernel_arg(args, *a, span, "unit divide numerator")?;
+            let kt_b = get_kernel_arg(args, *b, span, "unit divide denominator")?;
+            kt_a.unit.divide(&kt_b.unit).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    format!(
+                        "cannot divide non-multiplicative units (parameters {} / {})",
+                        a, b
+                    ),
+                )]
+            })?
+        }
+        UnitDerivation::Sqrt(idx) | UnitDerivation::Inverse(idx) => {
             return Err(vec![CompileError::new(
                 ErrorKind::Internal,
                 span,
@@ -2880,7 +2914,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires unit derivation for Multiply - tracked in continuum-e7pa"]
     fn test_type_binary_multiply_desugars() {
         let ctx = make_context();
         let expr = Expr::new(
@@ -2915,7 +2948,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires unit derivation for Divide - tracked in continuum-e7pa"]
     fn test_type_binary_divide_desugars() {
         let ctx = make_context();
         let expr = Expr::new(
