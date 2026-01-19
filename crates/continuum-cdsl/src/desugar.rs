@@ -295,7 +295,10 @@ pub fn desugar_expr(expr: Expr) -> Expr {
     }
 }
 
-/// Desugar a block body (expression or statements)
+/// Recursively transforms syntax sugar within a block body into explicit kernel calls.
+///
+/// Processes expressions within `BlockBody::Expression` and recursively desugars
+/// all statements in `BlockBody::Statements`.
 pub fn desugar_block_body(body: BlockBody) -> BlockBody {
     match body {
         BlockBody::Expression(expr) => BlockBody::Expression(desugar_expr(expr)),
@@ -306,7 +309,10 @@ pub fn desugar_block_body(body: BlockBody) -> BlockBody {
     }
 }
 
-/// Desugar a statement
+/// Transforms syntax sugar within a single statement into explicit kernel calls.
+///
+/// This includes desugaring expressions in variable bindings (`let`), signal assignments,
+/// and field assignments.
 pub fn desugar_stmt(stmt: Stmt) -> Stmt {
     match stmt {
         Stmt::Let { name, value, span } => Stmt::Let {
@@ -338,7 +344,7 @@ pub fn desugar_stmt(stmt: Stmt) -> Stmt {
     }
 }
 
-/// Desugar a warmup block
+/// Desugars the iteration expression within a warmup block.
 pub fn desugar_warmup(warmup: WarmupBlock) -> WarmupBlock {
     WarmupBlock {
         attrs: warmup.attrs,
@@ -347,7 +353,7 @@ pub fn desugar_warmup(warmup: WarmupBlock) -> WarmupBlock {
     }
 }
 
-/// Desugar a when block
+/// Desugars all activation conditions within a 'when' block.
 pub fn desugar_when(when: WhenBlock) -> WhenBlock {
     WhenBlock {
         conditions: when.conditions.into_iter().map(desugar_expr).collect(),
@@ -355,7 +361,7 @@ pub fn desugar_when(when: WhenBlock) -> WhenBlock {
     }
 }
 
-/// Desugar an observe block
+/// Desugars all conditions and emit statements within an observer block.
 pub fn desugar_observe(observe: ObserveBlock) -> ObserveBlock {
     ObserveBlock {
         when_clauses: observe
@@ -371,7 +377,10 @@ pub fn desugar_observe(observe: ObserveBlock) -> ObserveBlock {
     }
 }
 
-/// Desugar a node (signal, field, operator, etc)
+/// Desugars all expressions within a simulation node (signal, member, operator, etc.).
+///
+/// This recursively processes execution blocks, warmup conditions, activation ('when')
+/// clauses, and observer blocks within the node structure.
 pub fn desugar_node<I: Index>(mut node: Node<I>) -> Node<I> {
     node.execution_blocks = node
         .execution_blocks
@@ -386,7 +395,10 @@ pub fn desugar_node<I: Index>(mut node: Node<I>) -> Node<I> {
     node
 }
 
-/// Desugar an era declaration
+/// Desugars expressions within an era declaration.
+///
+/// This includes the time-step (`dt`) expression and all transition conditions
+/// between eras.
 pub fn desugar_era(mut era: EraDecl) -> EraDecl {
     era.dt = era.dt.map(desugar_expr);
     era.transitions = era
@@ -400,7 +412,9 @@ pub fn desugar_era(mut era: EraDecl) -> EraDecl {
     era
 }
 
-/// Desugar a world declaration
+/// Desugars expressions within a world-level declaration.
+///
+/// This includes attribute arguments and warmup policy parameters.
 pub fn desugar_world(mut world: WorldDecl) -> WorldDecl {
     if let Some(mut warmup) = world.warmup {
         warmup.attributes = warmup
@@ -424,7 +438,11 @@ pub fn desugar_world(mut world: WorldDecl) -> WorldDecl {
     world
 }
 
-/// Main entry point for desugaring all declarations in a world
+/// Performs a top-to-bottom desugaring of all declarations in a world.
+///
+/// This is the primary entry point for the desugaring pass. It iterates through all
+/// top-level declarations (nodes, eras, world policy, etc.) and recursively
+/// transforms syntax sugar into explicit kernel calls.
 pub fn desugar_declarations(decls: Vec<Declaration>) -> Vec<Declaration> {
     decls
         .into_iter()
@@ -934,5 +952,268 @@ mod tests {
         assert_eq!(desugared.span.start, 42);
         assert_eq!(desugared.span.end, 100);
         assert_eq!(desugared.span.start_line, 5);
+    }
+
+    #[test]
+    fn test_desugar_aggregate_and_fold() {
+        use crate::ast::AggregateOp;
+        use crate::foundation::EntityId;
+
+        // Aggregate: sum(entity) { a + b }
+        let body = Expr::binary(
+            BinaryOp::Add,
+            make_literal(1.0),
+            make_literal(2.0),
+            make_span(),
+        );
+        let aggregate = Expr {
+            kind: ExprKind::Aggregate {
+                op: AggregateOp::Sum,
+                entity: EntityId::new("plate"),
+                binding: "p".to_string(),
+                body: Box::new(body),
+            },
+            span: make_span(),
+        };
+
+        let desugared_agg = desugar_expr(aggregate);
+        match desugared_agg.kind {
+            ExprKind::Aggregate { body, .. } => {
+                assert!(matches!(body.kind, ExprKind::KernelCall { .. }));
+            }
+            _ => panic!("Expected Aggregate"),
+        }
+
+        // Fold: fold(entity, 0.0, acc, elem) { acc + elem }
+        let fold_body = Expr::binary(
+            BinaryOp::Add,
+            Expr::local("acc", make_span()),
+            Expr::local("elem", make_span()),
+            make_span(),
+        );
+        let fold = Expr {
+            kind: ExprKind::Fold {
+                entity: EntityId::new("plate"),
+                init: Box::new(make_literal(0.0)),
+                acc: "acc".to_string(),
+                elem: "elem".to_string(),
+                body: Box::new(fold_body),
+            },
+            span: make_span(),
+        };
+
+        let desugared_fold = desugar_expr(fold);
+        match desugared_fold.kind {
+            ExprKind::Fold { init, body, .. } => {
+                assert!(matches!(init.kind, ExprKind::Literal { .. }));
+                assert!(matches!(body.kind, ExprKind::KernelCall { .. }));
+            }
+            _ => panic!("Expected Fold"),
+        }
+    }
+
+    #[test]
+    fn test_desugar_statements() {
+        use crate::ast::Stmt;
+        use crate::foundation::Path;
+
+        // Let statement: let x = a + b;
+        let stmt = Stmt::Let {
+            name: "x".to_string(),
+            value: Expr::binary(
+                BinaryOp::Add,
+                make_literal(1.0),
+                make_literal(2.0),
+                make_span(),
+            ),
+            span: make_span(),
+        };
+        let desugared_let = desugar_stmt(stmt);
+        match desugared_let {
+            Stmt::Let { value, .. } => {
+                assert!(matches!(value.kind, ExprKind::KernelCall { .. }));
+            }
+            _ => panic!("Expected Let stmt"),
+        }
+
+        // SignalAssign: signal = a + b;
+        let assign = Stmt::SignalAssign {
+            target: Path::from_str("temp"),
+            value: Expr::binary(
+                BinaryOp::Add,
+                make_literal(1.0),
+                make_literal(2.0),
+                make_span(),
+            ),
+            span: make_span(),
+        };
+        let desugared_assign = desugar_stmt(assign);
+        match desugared_assign {
+            Stmt::SignalAssign { value, .. } => {
+                assert!(matches!(value.kind, ExprKind::KernelCall { .. }));
+            }
+            _ => panic!("Expected SignalAssign"),
+        }
+
+        // FieldAssign: field[pos] = value;
+        let field_assign = Stmt::FieldAssign {
+            target: Path::from_str("pressure"),
+            position: Expr::binary(
+                BinaryOp::Add,
+                make_literal(1.0),
+                make_literal(2.0),
+                make_span(),
+            ),
+            value: Expr::binary(
+                BinaryOp::Mul,
+                make_literal(3.0),
+                make_literal(4.0),
+                make_span(),
+            ),
+            span: make_span(),
+        };
+        let desugared_field = desugar_stmt(field_assign);
+        match desugared_field {
+            Stmt::FieldAssign {
+                position, value, ..
+            } => {
+                assert!(matches!(position.kind, ExprKind::KernelCall { .. }));
+                assert!(matches!(value.kind, ExprKind::KernelCall { .. }));
+            }
+            _ => panic!("Expected FieldAssign"),
+        }
+    }
+
+    #[test]
+    fn test_desugar_node_structure() {
+        use crate::ast::{BlockBody, Node, RoleData};
+        use crate::foundation::Path;
+
+        let mut node = Node::new(Path::from_str("test"), make_span(), RoleData::Signal, ());
+
+        // Add an execution block: resolve { a + b }
+        let expr = Expr::binary(
+            BinaryOp::Add,
+            make_literal(1.0),
+            make_literal(2.0),
+            make_span(),
+        );
+        node.execution_blocks
+            .push(("resolve".to_string(), BlockBody::Expression(expr)));
+
+        let desugared = desugar_node(node);
+        assert_eq!(desugared.execution_blocks.len(), 1);
+        match &desugared.execution_blocks[0].1 {
+            BlockBody::Expression(e) => {
+                assert!(matches!(e.kind, ExprKind::KernelCall { .. }));
+            }
+            _ => panic!("Expected Expression block"),
+        }
+    }
+
+    #[test]
+    fn test_desugar_era_and_world() {
+        use crate::ast::{EraDecl, TransitionDecl, WorldDecl};
+        use crate::foundation::Path;
+
+        // Era: dt = a + b
+        let era = EraDecl {
+            path: Path::from_str("test"),
+            dt: Some(Expr::binary(
+                BinaryOp::Add,
+                make_literal(1.0),
+                make_literal(2.0),
+                make_span(),
+            )),
+            strata_policy: vec![],
+            transitions: vec![TransitionDecl {
+                target: Path::from_str("next"),
+                conditions: vec![Expr::binary(
+                    BinaryOp::Lt,
+                    make_literal(1.0),
+                    make_literal(2.0),
+                    make_span(),
+                )],
+                span: make_span(),
+            }],
+            attributes: vec![],
+            span: make_span(),
+            doc: None,
+        };
+
+        let desugared_era = desugar_era(era);
+        assert!(matches!(
+            desugared_era.dt.unwrap().kind,
+            ExprKind::KernelCall { .. }
+        ));
+        assert!(matches!(
+            desugared_era.transitions[0].conditions[0].kind,
+            ExprKind::KernelCall { .. }
+        ));
+
+        // World with attributes
+        let mut world = WorldDecl {
+            path: Path::from_str("terra"),
+            title: None,
+            version: None,
+            warmup: None,
+            attributes: vec![],
+            span: make_span(),
+            doc: None,
+        };
+        // Add attribute with expression arg
+        use crate::ast::Attribute;
+        world.attributes.push(Attribute {
+            name: "test".to_string(),
+            args: vec![Expr::binary(
+                BinaryOp::Add,
+                make_literal(1.0),
+                make_literal(2.0),
+                make_span(),
+            )],
+            span: make_span(),
+        });
+
+        let desugared_world = desugar_world(world);
+        assert!(matches!(
+            desugared_world.attributes[0].args[0].kind,
+            ExprKind::KernelCall { .. }
+        ));
+    }
+
+    #[test]
+    fn test_desugar_declarations_mix() {
+        use crate::ast::{ConstEntry, Declaration, Node, RoleData, TypeExpr};
+        use crate::foundation::Path;
+
+        let decls = vec![
+            Declaration::Node(Node::new(
+                Path::from_str("s1"),
+                make_span(),
+                RoleData::Signal,
+                (),
+            )),
+            Declaration::Const(vec![ConstEntry {
+                path: Path::from_str("C"),
+                value: Expr::binary(
+                    BinaryOp::Add,
+                    make_literal(1.0),
+                    make_literal(2.0),
+                    make_span(),
+                ),
+                type_expr: TypeExpr::Scalar { unit: None },
+                span: make_span(),
+                doc: None,
+            }]),
+        ];
+
+        let desugared = desugar_declarations(decls);
+        assert_eq!(desugared.len(), 2);
+        match &desugared[1] {
+            Declaration::Const(entries) => {
+                assert!(matches!(entries[0].value.kind, ExprKind::KernelCall { .. }));
+            }
+            _ => panic!("Expected Const declaration"),
+        }
     }
 }
