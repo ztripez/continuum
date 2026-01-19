@@ -135,6 +135,49 @@ impl<'a> TypingContext<'a> {
     }
 }
 
+/// Get kernel type from argument at index
+///
+/// Helper for SameAs derivation that extracts kernel type from an argument.
+///
+/// # Parameters
+///
+/// - `args`: Typed arguments
+/// - `idx`: Parameter index to extract from
+/// - `span`: Source span for error reporting
+/// - `derivation_kind`: Description for error messages ("shape" or "unit")
+///
+/// # Returns
+///
+/// Reference to the kernel type at the specified index.
+///
+/// # Errors
+///
+/// - `Internal` - Index out of bounds or argument is not a kernel type
+fn get_kernel_arg<'a>(
+    args: &'a [TypedExpr],
+    idx: usize,
+    span: crate::foundation::Span,
+    derivation_kind: &str,
+) -> Result<&'a KernelType, Vec<CompileError>> {
+    let arg = args.get(idx).ok_or_else(|| {
+        vec![CompileError::new(
+            ErrorKind::Internal,
+            span,
+            format!(
+                "invalid parameter index {} in {} derivation",
+                idx, derivation_kind
+            ),
+        )]
+    })?;
+    arg.ty.as_kernel().ok_or_else(|| {
+        vec![CompileError::new(
+            ErrorKind::Internal,
+            span,
+            format!("parameter {} is not a kernel type", idx),
+        )]
+    })
+}
+
 /// Derive return type from kernel signature and typed arguments
 ///
 /// # Parameters
@@ -149,8 +192,10 @@ impl<'a> TypingContext<'a> {
 ///
 /// # Bounds Derivation
 ///
-/// - **SameAs(idx) shape derivation**: Copies bounds from argument at idx
-/// - **Other derivations**: Returns unbounded (None)
+/// - **Exact(shape)**: Returns unbounded (None)
+/// - **Scalar**: Returns unbounded (None)
+/// - **SameAs(idx)**: Copies bounds from argument at idx
+/// - **FromBroadcast, VectorDim, MatrixDims**: Not yet implemented (errors)
 /// - **Complex operations** (multiply, clamp, etc.): Require constraint
 ///   propagation (Phase 14/15)
 ///
@@ -169,23 +214,8 @@ fn derive_return_type(
         ShapeDerivation::Exact(s) => (s.clone(), None),
         ShapeDerivation::Scalar => (Shape::Scalar, None),
         ShapeDerivation::SameAs(idx) => {
-            let arg = args.get(*idx).ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    format!("invalid parameter index {} in shape derivation", idx),
-                )]
-            })?;
-            match arg.ty.as_kernel() {
-                Some(kt) => (kt.shape.clone(), kt.bounds.clone()),
-                None => {
-                    return Err(vec![CompileError::new(
-                        ErrorKind::Internal,
-                        span,
-                        format!("parameter {} is not a kernel type", idx),
-                    )]);
-                }
-            }
+            let kt = get_kernel_arg(args, *idx, span, "shape")?;
+            (kt.shape.clone(), kt.bounds.clone())
         }
         _ => {
             return Err(vec![CompileError::new(
@@ -204,23 +234,8 @@ fn derive_return_type(
         UnitDerivation::Exact(u) => *u,
         UnitDerivation::Dimensionless => Unit::DIMENSIONLESS,
         UnitDerivation::SameAs(idx) => {
-            let arg = args.get(*idx).ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    format!("invalid parameter index {} in unit derivation", idx),
-                )]
-            })?;
-            match arg.ty.as_kernel() {
-                Some(kt) => kt.unit,
-                None => {
-                    return Err(vec![CompileError::new(
-                        ErrorKind::Internal,
-                        span,
-                        format!("parameter {} is not a kernel type", idx),
-                    )]);
-                }
-            }
+            let kt = get_kernel_arg(args, *idx, span, "unit")?;
+            kt.unit
         }
         _ => {
             return Err(vec![CompileError::new(
