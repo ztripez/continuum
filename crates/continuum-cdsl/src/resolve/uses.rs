@@ -26,12 +26,8 @@
 //! This pass runs after type resolution (so we have TypedExpr) and before
 //! execution DAG construction.
 //!
-//! # Known Limitations
-//!
-//! **Untyped blocks not validated** (tracked in continuum-bq4v):
-//! - `warmup`, `when`, and `observe` blocks contain untyped `Expr` (not yet compiled to `TypedExpr`)
-//! - Dangerous functions in these blocks bypass validation
-//! - This is a known gap - validation will be extended when these blocks are compiled earlier
+//! Validates both compiled execution blocks (TypedExpr) and untyped blocks
+//! (warmup, when, observe) using parallel traversal logic.
 //!
 //! # Examples
 //!
@@ -236,6 +232,152 @@ fn collect_required_uses(
     }
 }
 
+/// Walk untyped expression tree collecting required uses from kernel calls and dt usage
+///
+/// Similar to `collect_required_uses` but works on untyped `Expr` from parser.
+/// Used for warmup, when, and observe blocks that haven't been compiled to TypedExpr yet.
+///
+/// Recursively scans the expression tree for:
+/// - Explicit kernel calls (Call with namespaced function)
+/// - KernelCall nodes (desugared operators)
+/// - Raw `dt` access
+fn collect_required_uses_untyped(
+    expr: &crate::ast::Expr,
+    registry: &KernelRegistry,
+    required: &mut Vec<RequiredUse>,
+) {
+    use crate::ast::UntypedKind;
+
+    match &expr.kind {
+        // Explicit call - might be a kernel call like maths.clamp(...)
+        UntypedKind::Call { func, args } => {
+            // Check if this is a namespaced kernel call
+            let path_str = func.to_string();
+            if let Some((namespace, name)) = path_str.split_once('.') {
+                // Need to iterate through registry to find matching kernel
+                // (can't use KernelId::new since it requires &'static str)
+                for kernel_id in registry.ids() {
+                    if kernel_id.namespace == namespace && kernel_id.name == name {
+                        if let Some(signature) = registry.get(kernel_id) {
+                            if let Some(req) = &signature.requires_uses {
+                                required.push(RequiredUse {
+                                    key: format!("{}.{}", signature.id.namespace, req.key),
+                                    span: expr.span,
+                                    source: signature.id.qualified_name(),
+                                    hint: req.hint.clone(),
+                                });
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            // Recurse into arguments
+            for arg in args {
+                collect_required_uses_untyped(arg, registry, required);
+            }
+        }
+
+        // KernelCall - desugared operators (Binary/Unary → KernelCall)
+        UntypedKind::KernelCall { kernel, args } => {
+            if let Some(signature) = registry.get(kernel) {
+                if let Some(req) = &signature.requires_uses {
+                    required.push(RequiredUse {
+                        key: format!("{}.{}", signature.id.namespace, req.key),
+                        span: expr.span,
+                        source: signature.id.qualified_name(),
+                        hint: req.hint.clone(),
+                    });
+                }
+            }
+
+            // Recurse into arguments
+            for arg in args {
+                collect_required_uses_untyped(arg, registry, required);
+            }
+        }
+
+        // Binary/Unary operators - these desugar to kernel calls
+        // We need to check them even though they're not yet desugared
+        UntypedKind::Binary { left, right, .. } => {
+            collect_required_uses_untyped(left, registry, required);
+            collect_required_uses_untyped(right, registry, required);
+        }
+
+        UntypedKind::Unary { operand, .. } => {
+            collect_required_uses_untyped(operand, registry, required);
+        }
+
+        // Raw dt access - requires dt.raw declaration
+        UntypedKind::Dt => {
+            required.push(RequiredUse {
+                key: "dt.raw".to_string(),
+                span: expr.span,
+                source: "dt".to_string(),
+                hint: "Raw dt access makes code dt-fragile. Use dt-robust operators (dt.integrate, dt.decay, dt.relax) instead. If raw dt is physically correct (e.g., Energy = Power × dt), declare : uses(dt.raw)".to_string(),
+            });
+        }
+
+        // Recurse into subexpressions
+        UntypedKind::Let { value, body, .. } => {
+            collect_required_uses_untyped(value, registry, required);
+            collect_required_uses_untyped(body, registry, required);
+        }
+
+        UntypedKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_required_uses_untyped(condition, registry, required);
+            collect_required_uses_untyped(then_branch, registry, required);
+            collect_required_uses_untyped(else_branch, registry, required);
+        }
+
+        UntypedKind::Struct { fields, .. } => {
+            for (_, field_expr) in fields {
+                collect_required_uses_untyped(field_expr, registry, required);
+            }
+        }
+
+        UntypedKind::FieldAccess { object, .. } => {
+            collect_required_uses_untyped(object, registry, required);
+        }
+
+        UntypedKind::Vector(elements) => {
+            for elem in elements {
+                collect_required_uses_untyped(elem, registry, required);
+            }
+        }
+
+        UntypedKind::Aggregate { body, .. } => {
+            collect_required_uses_untyped(body, registry, required);
+        }
+
+        UntypedKind::Fold { init, body, .. } => {
+            collect_required_uses_untyped(init, registry, required);
+            collect_required_uses_untyped(body, registry, required);
+        }
+
+        // Leaf nodes - no recursion needed
+        UntypedKind::Literal { .. }
+        | UntypedKind::BoolLiteral(_)
+        | UntypedKind::Signal(_)
+        | UntypedKind::Field(_)
+        | UntypedKind::Config(_)
+        | UntypedKind::Const(_)
+        | UntypedKind::Local(_)
+        | UntypedKind::Prev
+        | UntypedKind::Current
+        | UntypedKind::Inputs
+        | UntypedKind::Self_
+        | UntypedKind::Other
+        | UntypedKind::Payload
+        | UntypedKind::ParseError(_) => {}
+    }
+}
+
 /// Validate uses declarations for a single node
 ///
 /// Checks all execution blocks (resolve, collect, warmup, when, observe, assertions)
@@ -255,13 +397,29 @@ fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Ve
         collect_required_uses(&execution.body, registry, &mut required);
     }
 
-    // LIMITATION (tracked in continuum-bq4v):
-    // Warmup, When, Observe blocks contain untyped Expr and are NOT validated.
-    // Dangerous functions can be used in these blocks without : uses() declarations.
-    // This is a known gap - these blocks need either:
-    //   1. Compilation to TypedExpr earlier in the pipeline, or
-    //   2. Separate untyped Expr traversal logic
-    // Currently only compiled execution blocks (with TypedExpr) are validated.
+    // 2. Warmup block (iterate expression)
+    //    Contains untyped Expr - use untyped traversal
+    if let Some(warmup) = &node.warmup {
+        collect_required_uses_untyped(&warmup.iterate, registry, &mut required);
+    }
+
+    // 3. When block (condition expressions for fractures)
+    //    Contains untyped Expr - use untyped traversal
+    if let Some(when) = &node.when {
+        for condition in &when.conditions {
+            collect_required_uses_untyped(condition, registry, &mut required);
+        }
+    }
+
+    // 4. Observe block (when clauses for chronicles)
+    //    Contains untyped Expr in conditions - use untyped traversal
+    if let Some(observe) = &node.observe {
+        for when_clause in &observe.when_clauses {
+            collect_required_uses_untyped(&when_clause.condition, registry, &mut required);
+            // Note: emit_block contains Stmt, which we don't validate yet
+            // (would need to extract expressions from statements)
+        }
+    }
 
     // Validate: for each required use, check if it's declared
     for req in required {
@@ -696,5 +854,192 @@ mod tests {
             "Expected error about maths.clamping, got: {:?}",
             error_messages
         );
+    }
+
+    #[test]
+    fn test_warmup_block_missing_dt_raw() {
+        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+
+        let span = make_span();
+        let path = Path::from_str("test.signal");
+
+        // Create node with warmup block using dt
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // warmup { iterate { prev + dt } }
+        let prev_expr = Expr::new(UntypedKind::Prev, span);
+        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let add_expr = Expr::binary(crate::ast::BinaryOp::Add, prev_expr, dt_expr, span);
+
+        node.warmup = Some(WarmupBlock {
+            attrs: vec![],
+            iterate: add_expr,
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
+        assert!(errors[0].message.contains("dt.raw"));
+    }
+
+    #[test]
+    fn test_warmup_block_with_dt_raw_declared() {
+        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+
+        let span = make_span();
+        let path = Path::from_str("test.signal");
+
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+        node.attributes.push(make_attr_uses(vec!["dt.raw"]));
+
+        // warmup { iterate { prev + dt } }
+        let prev_expr = Expr::new(UntypedKind::Prev, span);
+        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let add_expr = Expr::binary(crate::ast::BinaryOp::Add, prev_expr, dt_expr, span);
+
+        node.warmup = Some(WarmupBlock {
+            attrs: vec![],
+            iterate: add_expr,
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_warmup_block_missing_maths_clamping() {
+        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+
+        let span = make_span();
+        let path = Path::from_str("test.signal");
+
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // warmup { iterate { maths.clamp(prev, 0.0, 1.0) } }
+        let clamp_path = Path::from_str("maths.clamp");
+        let prev_expr = Expr::new(UntypedKind::Prev, span);
+        let min_expr = Expr::new(
+            UntypedKind::Literal {
+                value: 0.0,
+                unit: None,
+            },
+            span,
+        );
+        let max_expr = Expr::new(
+            UntypedKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            span,
+        );
+        let clamp_call = Expr::new(
+            UntypedKind::Call {
+                func: clamp_path,
+                args: vec![prev_expr, min_expr, max_expr],
+            },
+            span,
+        );
+
+        node.warmup = Some(WarmupBlock {
+            attrs: vec![],
+            iterate: clamp_call,
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
+        assert!(errors[0].message.contains("maths.clamping"));
+    }
+
+    #[test]
+    fn test_when_block_missing_dt_raw() {
+        use crate::ast::{Expr, UntypedKind, WhenBlock};
+
+        let span = make_span();
+        let path = Path::from_str("test.fracture");
+
+        let mut node = Node::new(path, span, RoleData::Fracture, ());
+
+        // when { dt > 0.1 }
+        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let threshold = Expr::new(
+            UntypedKind::Literal {
+                value: 0.1,
+                unit: None,
+            },
+            span,
+        );
+        let condition = Expr::binary(crate::ast::BinaryOp::Gt, dt_expr, threshold, span);
+
+        node.when = Some(WhenBlock {
+            conditions: vec![condition],
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
+        assert!(errors[0].message.contains("dt.raw"));
+    }
+
+    #[test]
+    fn test_observe_block_missing_maths_clamping() {
+        use crate::ast::{Expr, ObserveBlock, ObserveWhen, UntypedKind};
+
+        let span = make_span();
+        let path = Path::from_str("test.chronicle");
+
+        let mut node = Node::new(path, span, RoleData::Chronicle, ());
+
+        // observe {
+        //     when maths.saturate(signal.value) > 0.9 {
+        //         emit event.high_value
+        //     }
+        // }
+        let signal_path = Path::from_str("signal.value");
+        let signal_expr = Expr::new(UntypedKind::Signal(signal_path), span);
+        let saturate_path = Path::from_str("maths.saturate");
+        let saturate_call = Expr::new(
+            UntypedKind::Call {
+                func: saturate_path,
+                args: vec![signal_expr],
+            },
+            span,
+        );
+        let threshold = Expr::new(
+            UntypedKind::Literal {
+                value: 0.9,
+                unit: None,
+            },
+            span,
+        );
+        let condition = Expr::binary(crate::ast::BinaryOp::Gt, saturate_call, threshold, span);
+
+        node.observe = Some(ObserveBlock {
+            when_clauses: vec![ObserveWhen {
+                condition,
+                emit_block: vec![],
+                span,
+            }],
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
+        assert!(errors[0].message.contains("maths.clamping"));
     }
 }
