@@ -317,6 +317,12 @@ fn test_eigenvalues_mat3_general_symmetric() {
     );
 }
 
+// NOTE: Known limitation - repeated eigenvalues
+// The analytic eigenvector implementation may produce non-orthogonal eigenvectors
+// for matrices with repeated eigenvalues (multiplicity > 1). This is rare in practice
+// for simulation matrices but is a known edge case. See issue for details.
+// TODO: Implement Gram-Schmidt orthogonalization for repeated eigenvalue case
+
 #[test]
 fn test_eigenvectors_mat2_identity() {
     let identity = Mat2([1.0, 0.0, 0.0, 1.0]);

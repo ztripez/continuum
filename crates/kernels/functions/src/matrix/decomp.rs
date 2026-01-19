@@ -232,7 +232,7 @@ pub fn eigenvectors_mat2(arr: Mat2) -> Mat2 {
     let lambda2 = eigenvals[1]; // smaller eigenvalue
 
     // Handle diagonal matrix case (b ≈ 0)
-    const B_THRESHOLD: f64 = 1e-14;
+    const B_THRESHOLD: f64 = 1e-12;
     if b.abs() < B_THRESHOLD {
         // Matrix is (nearly) diagonal - eigenvectors are standard basis
         // Order by eigenvalue magnitude
@@ -340,7 +340,7 @@ fn eigenvector_from_null_space_mat3(
     let row1 = [d, b11, f];
     let row2 = [e, f, b22];
 
-    const NORM_THRESHOLD: f64 = 1e-14;
+    const NORM_THRESHOLD: f64 = 1e-12;
 
     // Try cross product of row0 × row1
     let v = cross3(row0, row1);
