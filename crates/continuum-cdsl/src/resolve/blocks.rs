@@ -21,25 +21,38 @@
 //! ```
 
 use crate::ast::{
-    BlockBody, Execution, ExecutionBody, Expr, ExprKind, ExpressionVisitor, Index, KernelRegistry,
-    Node, RoleId, Stmt, TypedExpr, TypedStmt,
+    BlockBody, Execution, ExecutionBody, Expr, ExprKind, ExpressionVisitor, Index, Node, RoleId,
+    Stmt, TypedExpr, TypedStmt,
 };
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{Path, Phase, Type};
 use crate::resolve::expr_typing::{TypingContext, type_expression};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
-/// Compile a list of untyped statements into typed statements.
+/// Compiles a sequence of untyped statements into a type-validated IR representation.
 ///
-/// This pass performs:
-/// - Expression typing for all expressions within statements.
-/// - Local scope management for `let` bindings within the statement block.
-/// - Validation of assignment targets (signals and fields).
+/// This pass transforms [`Stmt<Expr>`] (parser output) into [`TypedStmt`] (IR),
+/// performing the following operations:
+///
+/// 1. **Expression Typing**: Recursively invokes [`type_expression`] on all expressions
+///    within each statement (e.g., let-values, assignment sources).
+/// 2. **Local Scoping**: Manages the local symbol table for `let` bindings. Variable
+///    types are registered as they are encountered, allowing subsequent statements
+///    in the same block to reference them.
+/// 3. **Effect Validation**: Verifies that assignment targets (signals and fields)
+///    are valid within the current [`Phase`] context.
+///
+/// # Dependency Extraction
+///
+/// After compilation, the resulting [`TypedStmt`] list is used by Phase 13 (DAG Construction)
+/// to extract:
+/// - **Read Dependencies**: All signals, fields, and entities referenced in expressions.
+/// - **Emissions (Side Effects)**: All signals or fields targeted by assignments.
 ///
 /// # Errors
 ///
-/// Returns a list of compilation errors if any expression fails typing or
-/// any assignment target is invalid.
+/// Returns an aggregated list of [`CompileError`]s if any expression fails typing,
+/// a variable is undefined, or an assignment target is invalid.
 pub fn compile_statements(
     stmts: &[Stmt<Expr>],
     ctx: &TypingContext,
@@ -79,29 +92,97 @@ pub fn compile_statements(
                 target,
                 value,
                 span,
-            } => match type_expression(value, &current_ctx) {
-                Ok(typed_value) => {
-                    // TODO: Validate target signal exists and matches type
-                    typed_stmts.push(TypedStmt::SignalAssign {
-                        target: target.clone(),
-                        value: typed_value,
-                        span: *span,
-                    });
+            } => {
+                // Phase boundary enforcement: Signals only in Collect phase
+                if let Some(phase) = current_ctx.phase {
+                    if phase != Phase::Collect {
+                        errors.push(CompileError::new(
+                            ErrorKind::PhaseBoundaryViolation,
+                            *span,
+                            format!(
+                                "signal '{}' cannot be assigned in {:?} phase (signals are only assignable in Collect phase)",
+                                target, phase
+                            ),
+                        ));
+                    }
                 }
-                Err(mut e) => errors.append(&mut e),
-            },
+
+                match type_expression(value, &current_ctx) {
+                    Ok(typed_value) => {
+                        // Validate target signal exists and matches type
+                        if let Some(expected_ty) = current_ctx.signal_types.get(target) {
+                            if &typed_value.ty != expected_ty {
+                                errors.push(CompileError::new(
+                                    ErrorKind::TypeMismatch,
+                                    *span,
+                                    format!(
+                                        "target signal '{}' has type {:?}, but assigned value has type {:?}",
+                                        target, expected_ty, typed_value.ty
+                                    ),
+                                ));
+                            }
+                        } else {
+                            errors.push(CompileError::new(
+                                ErrorKind::UndefinedName,
+                                *span,
+                                format!("target signal '{}' not found", target),
+                            ));
+                        }
+
+                        typed_stmts.push(TypedStmt::SignalAssign {
+                            target: target.clone(),
+                            value: typed_value,
+                            span: *span,
+                        });
+                    }
+                    Err(mut e) => errors.append(&mut e),
+                }
+            }
             Stmt::FieldAssign {
                 target,
                 position,
                 value,
                 span,
             } => {
+                // Phase boundary enforcement: Fields only in Measure phase
+                if let Some(phase) = current_ctx.phase {
+                    if phase != Phase::Measure {
+                        errors.push(CompileError::new(
+                            ErrorKind::PhaseBoundaryViolation,
+                            *span,
+                            format!(
+                                "field '{}' cannot be assigned in {:?} phase (fields are only assignable in Measure phase)",
+                                target, phase
+                            ),
+                        ));
+                    }
+                }
+
                 let typed_pos = type_expression(position, &current_ctx);
                 let typed_val = type_expression(value, &current_ctx);
 
                 match (typed_pos, typed_val) {
                     (Ok(p), Ok(v)) => {
-                        // TODO: Validate target field exists and matches type
+                        // Validate target field exists and matches type
+                        if let Some(expected_ty) = current_ctx.field_types.get(target) {
+                            if &v.ty != expected_ty {
+                                errors.push(CompileError::new(
+                                    ErrorKind::TypeMismatch,
+                                    *span,
+                                    format!(
+                                        "target field '{}' has type {:?}, but assigned value has type {:?}",
+                                        target, expected_ty, v.ty
+                                    ),
+                                ));
+                            }
+                        } else {
+                            errors.push(CompileError::new(
+                                ErrorKind::UndefinedName,
+                                *span,
+                                format!("target field '{}' not found", target),
+                            ));
+                        }
+
                         typed_stmts.push(TypedStmt::FieldAssign {
                             target: target.clone(),
                             position: p,
@@ -214,9 +295,13 @@ impl ExpressionVisitor for DependencyVisitor {
     }
 }
 
-/// Extracts signal and field paths from a statement.
+/// Extracts side effects and read dependencies from a compiled statement.
 ///
-/// Returns (reads, emits)
+/// This function identifies:
+/// - **Reads**: Any signals, fields, or config values read within the statement's expressions.
+/// - **Emissions (Side Effects)**: The target signal or field path if the statement is an assignment.
+///
+/// Returns a tuple of `(reads, emits)` used to build the [`Execution`] IR.
 fn extract_stmt_dependencies(stmt: &TypedStmt) -> (Vec<Path>, Vec<Path>) {
     let mut reads = Vec::new();
     let mut emits = Vec::new();
@@ -340,7 +425,11 @@ pub fn compile_execution_blocks<I: Index>(
         }
 
         // 3. Validate block body type matches phase purity
-        let is_pure_phase = matches!(phase, Phase::Resolve | Phase::Measure | Phase::Assert);
+        //
+        // Resolve and Assert phases are strictly pure and must use single expressions.
+        // Measure phase is theoretically pure (no side effects on authoritative state)
+        // but can contain FieldAssign statements to emit observations.
+        let is_pure_phase = matches!(phase, Phase::Resolve | Phase::Assert);
         let has_statements = matches!(block_body, BlockBody::Statements(_));
 
         if is_pure_phase && has_statements {
@@ -452,7 +541,9 @@ pub fn compile_execution_blocks<I: Index>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::{KernelRegistry, RoleData};
     use crate::foundation::{KernelType, Shape, Span, Type, Unit};
+    use std::collections::HashMap;
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)
@@ -487,20 +578,27 @@ mod tests {
     #[test]
     fn test_compile_statements_basic() {
         let registry = KernelRegistry::global();
-        let signal_types = HashMap::new();
+        let mut signal_types = HashMap::new();
+        signal_types.insert(Path::from_str("signal.target"), scalar_type());
+
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
 
-        let ctx = make_test_context(
-            &type_table,
-            &registry,
-            &signal_types,
-            &field_types,
-            &config_types,
-            &const_types,
-        );
+        let ctx = TypingContext {
+            type_table: &type_table,
+            kernel_registry: &registry,
+            signal_types: &signal_types,
+            field_types: &field_types,
+            config_types: &config_types,
+            const_types: &const_types,
+            local_bindings: HashMap::new(),
+            node_output: None,
+            inputs_type: None,
+            payload_type: None,
+            phase: Some(Phase::Collect),
+        };
 
         let span = test_span();
         let stmts = vec![
@@ -532,6 +630,91 @@ mod tests {
         } else {
             panic!("Expected SignalAssign statement");
         }
+    }
+
+    #[test]
+    fn test_compile_statements_nested_let() {
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+
+        let ctx = TypingContext {
+            type_table: &type_table,
+            kernel_registry: &registry,
+            signal_types: &signal_types,
+            field_types: &field_types,
+            config_types: &config_types,
+            const_types: &const_types,
+            local_bindings: HashMap::new(),
+            node_output: None,
+            inputs_type: None,
+            payload_type: None,
+            phase: Some(Phase::Collect),
+        };
+
+        let span = test_span();
+        let stmts = vec![
+            Stmt::Let {
+                name: "x".to_string(),
+                value: Expr::literal(1.0, None, span),
+                span,
+            },
+            Stmt::Let {
+                name: "y".to_string(),
+                value: Expr::local("x".to_string(), span),
+                span,
+            },
+        ];
+
+        let result = compile_statements(&stmts, &ctx).unwrap();
+        assert_eq!(result.len(), 2);
+
+        if let TypedStmt::Let { name, value, .. } = &result[1] {
+            assert_eq!(name, "y");
+            assert!(matches!(value.expr, ExprKind::Local(ref n) if n == "x"));
+        } else {
+            panic!("Expected second Let statement to reference first");
+        }
+    }
+
+    #[test]
+    fn test_extract_stmt_dependencies_field_assign() {
+        let span = test_span();
+        let ty = scalar_type();
+        let path_field = Path::from_str("field.temperature");
+        let path_pos = Path::from_str("signal.pos");
+        let path_val = Path::from_str("signal.val");
+
+        let stmt = TypedStmt::FieldAssign {
+            target: path_field.clone(),
+            position: TypedExpr::new(ExprKind::Signal(path_pos.clone()), ty.clone(), span),
+            value: TypedExpr::new(ExprKind::Signal(path_val.clone()), ty, span),
+            span,
+        };
+
+        let (reads, emits) = extract_stmt_dependencies(&stmt);
+        assert_eq!(emits.len(), 1);
+        assert_eq!(emits[0], path_field);
+        assert_eq!(reads.len(), 2);
+        assert!(reads.contains(&path_pos));
+        assert!(reads.contains(&path_val));
+    }
+
+    #[test]
+    fn test_extract_stmt_dependencies_expr() {
+        let span = test_span();
+        let ty = scalar_type();
+        let path = Path::from_str("signal.test");
+
+        let stmt = TypedStmt::Expr(TypedExpr::new(ExprKind::Signal(path.clone()), ty, span));
+
+        let (reads, emits) = extract_stmt_dependencies(&stmt);
+        assert_eq!(emits.len(), 0);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0], path);
     }
 
     #[test]

@@ -7,13 +7,18 @@ use crate::ast::TypedExpr;
 use crate::ast::untyped::Expr;
 use crate::foundation::{Path, Span};
 
-/// Statement in a block body.
+/// A single simulation statement within a procedural block body.
 ///
-/// Statements appear in blocks with effect capabilities (Collect, Apply, Emit).
-/// Blocks in pure phases (Resolve, Measure, Assert) use expression bodies.
+/// Statements represent effectful operations or local bindings. They are exclusively
+/// permitted in blocks with effect capabilities (e.g., [`Phase::Collect`][crate::foundation::Phase::Collect]
+/// or [`Phase::Fracture`][crate::foundation::Phase::Fracture]). Pure blocks
+/// (e.g., [`Phase::Resolve`][crate::foundation::Phase::Resolve] or
+/// [`Phase::Measure`][crate::foundation::Phase::Measure] with expression bodies)
+/// may not contain statements.
 ///
-/// The type parameter `E` represents the expression type (typically [`Expr`]
-/// for untyped AST or [`TypedExpr`] for compiled IR).
+/// The type parameter `E` defines the expression representation used within the statement,
+/// allowing the same structure to represent both untyped parser output ([`Expr`][crate::ast::untyped::Expr])
+/// and compiled IR ([`TypedExpr`][crate::ast::TypedExpr]).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt<E = Expr> {
     /// Let binding: `let x = expr`
@@ -63,13 +68,18 @@ pub enum Stmt<E = Expr> {
     Expr(E),
 }
 
-/// Alias for a compiled, typed statement.
+/// A compiled and type-validated simulation statement.
+///
+/// `TypedStmt` is the IR representation of a statement after it has passed through
+/// [`compile_statements`][crate::resolve::blocks::compile_statements]. It contains
+/// [`TypedExpr`][crate::ast::TypedExpr] nodes which include fully resolved type metadata
+/// and source span information.
 pub type TypedStmt = Stmt<TypedExpr>;
 
 /// Block body - either single expression or statement list.
 ///
 /// The body kind is determined by the block's phase capabilities:
-/// - Pure phases (Resolve, Measure): Expression or TypedExpression
+/// - Pure phases (Resolve, Measure, Assert): Expression or TypedExpression
 /// - Effect phases (Collect, Fracture): Statements or TypedStatements
 ///
 /// # Lifecycle
@@ -89,6 +99,10 @@ pub enum BlockBody {
     /// Untyped statement list (effect phases, from parser)
     Statements(Vec<Stmt<Expr>>),
 
-    /// Typed statement list (effect phases, after statement compilation)
+    /// A list of compiled, type-validated statements.
+    ///
+    /// This variant represents the final IR state of an effectful execution block.
+    /// It is produced during the statement compilation pass and is used during
+    /// Phase 13 DAG construction to extract side effects ([`Execution::emits`][crate::ast::Execution::emits]).
     TypedStatements(Vec<TypedStmt>),
 }
