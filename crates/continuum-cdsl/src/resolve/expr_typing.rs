@@ -135,6 +135,105 @@ impl<'a> TypingContext<'a> {
     }
 }
 
+/// Derive return type from kernel signature and typed arguments
+///
+/// # Parameters
+///
+/// - `sig`: Kernel signature with return type derivation rules
+/// - `args`: Typed arguments
+/// - `span`: Source span for error reporting
+///
+/// # Returns
+///
+/// `Ok(Type)` if derivation succeeds, `Err` with errors otherwise.
+///
+/// # Errors
+///
+/// - `Internal` - Invalid parameter index in derivation
+fn derive_return_type(
+    sig: &crate::ast::KernelSignature,
+    args: &[TypedExpr],
+    span: crate::foundation::Span,
+) -> Result<Type, Vec<CompileError>> {
+    use crate::ast::{ShapeDerivation, UnitDerivation};
+
+    // Derive shape
+    let shape = match &sig.returns.shape {
+        ShapeDerivation::Exact(s) => s.clone(),
+        ShapeDerivation::Scalar => Shape::Scalar,
+        ShapeDerivation::SameAs(idx) => {
+            let arg = args.get(*idx).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    format!("invalid parameter index {} in shape derivation", idx),
+                )]
+            })?;
+            match arg.ty.as_kernel() {
+                Some(kt) => kt.shape.clone(),
+                None => {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::Internal,
+                        span,
+                        format!("parameter {} is not a kernel type", idx),
+                    )]);
+                }
+            }
+        }
+        _ => {
+            return Err(vec![CompileError::new(
+                ErrorKind::Internal,
+                span,
+                format!(
+                    "shape derivation not yet implemented: {:?}",
+                    sig.returns.shape
+                ),
+            )]);
+        }
+    };
+
+    // Derive unit
+    let unit = match &sig.returns.unit {
+        UnitDerivation::Exact(u) => *u,
+        UnitDerivation::Dimensionless => Unit::DIMENSIONLESS,
+        UnitDerivation::SameAs(idx) => {
+            let arg = args.get(*idx).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    format!("invalid parameter index {} in unit derivation", idx),
+                )]
+            })?;
+            match arg.ty.as_kernel() {
+                Some(kt) => kt.unit,
+                None => {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::Internal,
+                        span,
+                        format!("parameter {} is not a kernel type", idx),
+                    )]);
+                }
+            }
+        }
+        _ => {
+            return Err(vec![CompileError::new(
+                ErrorKind::Internal,
+                span,
+                format!(
+                    "unit derivation not yet implemented: {:?}",
+                    sig.returns.unit
+                ),
+            )]);
+        }
+    };
+
+    Ok(Type::Kernel(KernelType {
+        shape,
+        unit,
+        bounds: None, // TODO: Derive bounds from constraints
+    }))
+}
+
 /// Type an untyped expression
 ///
 /// Assigns types to all subexpressions by:
@@ -250,6 +349,36 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             (ExprKind::Dt, Type::Kernel(kernel_type))
         }
 
+        // === Kernel calls ===
+        UntypedKind::KernelCall { kernel, args } => {
+            // Type each argument
+            let typed_args: Vec<TypedExpr> = args
+                .iter()
+                .map(|arg| type_expression(arg, ctx))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            // Lookup kernel signature
+            let sig = ctx.kernel_registry.get(kernel).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    format!("unknown kernel: {:?}", kernel),
+                )]
+            })?;
+
+            // Derive return type from signature + arg types
+            // For MVP: just use the signature's return type derivation
+            let return_type = derive_return_type(sig, &typed_args, span)?;
+
+            (
+                ExprKind::Call {
+                    kernel: kernel.clone(),
+                    args: typed_args,
+                },
+                return_type,
+            )
+        }
+
         // === Not yet implemented ===
         UntypedKind::Vector(_)
         | UntypedKind::Config(_)
@@ -267,7 +396,6 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         | UntypedKind::Aggregate { .. }
         | UntypedKind::Fold { .. }
         | UntypedKind::Call { .. }
-        | UntypedKind::KernelCall { .. }
         | UntypedKind::Struct { .. }
         | UntypedKind::FieldAccess { .. }
         | UntypedKind::ParseError(_) => {
