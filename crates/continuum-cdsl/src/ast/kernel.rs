@@ -346,28 +346,32 @@ pub enum UnitConstraint {
 ///
 /// Defines how the return type is derived from parameter types.
 /// The return type is computed during type checking based on
-/// the actual argument types.
+/// the actual argument types and declared value category.
 ///
 /// # Fields
 ///
 /// - `shape`: Shape derivation rule
 /// - `unit`: Unit derivation rule
+/// - `value_type`: Rust value category (numeric vs boolean)
 ///
 /// # Examples
 ///
 /// ```rust
 /// use continuum_cdsl::ast::{KernelReturn, ShapeDerivation, UnitDerivation};
+/// use continuum_kernel_types::ValueType;
 ///
 /// // Returns same shape and unit as parameter 0
 /// let same_as = KernelReturn {
 ///     shape: ShapeDerivation::SameAs(0),
-///     unit: UnitDerivation::SameAs(0)
+///     unit: UnitDerivation::SameAs(0),
+///     value_type: ValueType::F64,
 /// };
 ///
 /// // Returns scalar with product of parameter units
 /// let dot_product = KernelReturn {
 ///     shape: ShapeDerivation::Scalar,
-///     unit: UnitDerivation::Multiply(vec![0, 1])
+///     unit: UnitDerivation::Multiply(vec![0, 1]),
+///     value_type: ValueType::F64,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -378,7 +382,10 @@ pub struct KernelReturn {
     /// Unit derivation
     pub unit: UnitDerivation,
 
-    /// Value type (Rust type)
+    /// Rust value type returned by the kernel.
+    ///
+    /// Boolean returns produce `Type::Bool` directly instead of deriving
+    /// a kernel type with shape/unit.
     pub value_type: continuum_kernel_types::ValueType,
 }
 
@@ -940,12 +947,12 @@ mod tests {
         let ret = KernelReturn {
             shape: ShapeDerivation::Scalar,
             unit: UnitDerivation::Dimensionless,
-            value_type: continuum_kernel_types::ValueType::F64,
+            value_type: continuum_kernel_types::ValueType::Scalar,
         };
 
         assert_eq!(ret.shape, ShapeDerivation::Scalar);
         assert_eq!(ret.unit, UnitDerivation::Dimensionless);
-        assert_eq!(ret.value_type, continuum_kernel_types::ValueType::F64);
+        assert_eq!(ret.value_type, continuum_kernel_types::ValueType::Scalar);
     }
 
     #[test]
@@ -1020,7 +1027,7 @@ mod tests {
             returns: KernelReturn {
                 shape: ShapeDerivation::SameAs(0),
                 unit: UnitDerivation::SameAs(0),
-                value_type: continuum_kernel_types::ValueType::F64,
+                value_type: continuum_kernel_types::ValueType::Scalar,
             },
             purity: KernelPurity::Pure,
             requires_uses: None,
@@ -1152,6 +1159,20 @@ mod tests {
             assert!(registry.contains(&id), "compare.{} not found", name);
             assert_eq!(registry.get(&id).unwrap().purity, KernelPurity::Pure);
         }
+    }
+
+    #[test]
+    fn registry_compare_returns_bool_value_type() {
+        use continuum_kernel_types::ValueType;
+
+        let registry = KernelRegistry::global();
+        let sig = registry
+            .get(&KernelId::new("compare", "eq"))
+            .expect("compare.eq not found");
+
+        assert_eq!(sig.returns.value_type, ValueType::Bool);
+        assert_eq!(sig.returns.shape, ShapeDerivation::SameAs(0));
+        assert_eq!(sig.returns.unit, UnitDerivation::Dimensionless);
     }
 
     #[test]

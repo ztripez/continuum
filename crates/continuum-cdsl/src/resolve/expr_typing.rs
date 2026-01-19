@@ -335,6 +335,17 @@ fn derive_return_type(
         return Ok(Type::Bool);
     }
 
+    if !sig.returns.value_type.is_numeric() {
+        return Err(vec![CompileError::new(
+            ErrorKind::Internal,
+            span,
+            format!(
+                "non-boolean kernel return should be numeric, got {:?}",
+                sig.returns.value_type
+            ),
+        )]);
+    }
+
     // Derive shape and optionally bounds (when shape is SameAs)
     let (shape, bounds_from_shape) = match &sig.returns.shape {
         ShapeDerivation::Exact(s) => (s.clone(), None),
@@ -1335,7 +1346,7 @@ mod tests {
             returns: KernelReturn {
                 shape: ShapeDerivation::SameAs(0),
                 unit: UnitDerivation::SameAs(0),
-                value_type: continuum_kernel_types::ValueType::F64,
+                value_type: continuum_kernel_types::ValueType::Scalar,
             },
             purity: crate::ast::KernelPurity::Pure,
             requires_uses: None,
@@ -1380,6 +1391,27 @@ mod tests {
     }
 
     #[test]
+    fn test_derive_return_type_bool_value_type() {
+        use crate::ast::{KernelReturn, KernelSignature, ShapeDerivation, UnitDerivation};
+        use continuum_kernel_types::{KernelId, ValueType};
+
+        let sig = KernelSignature {
+            id: KernelId::new("test", "is_equal"),
+            params: vec![],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Scalar,
+                unit: UnitDerivation::Dimensionless,
+                value_type: ValueType::Bool,
+            },
+            purity: crate::ast::KernelPurity::Pure,
+            requires_uses: None,
+        };
+
+        let result = derive_return_type(&sig, &[], Span::new(0, 0, 10, 1)).unwrap();
+        assert!(matches!(result, Type::Bool));
+    }
+
+    #[test]
     fn test_derive_return_type_no_bounds_for_exact_shape() {
         use crate::ast::{KernelReturn, KernelSignature, ShapeDerivation, UnitDerivation};
         use crate::foundation::Bounds;
@@ -1392,7 +1424,7 @@ mod tests {
             returns: KernelReturn {
                 shape: ShapeDerivation::Exact(Shape::Scalar),
                 unit: UnitDerivation::Dimensionless,
-                value_type: continuum_kernel_types::ValueType::F64,
+                value_type: continuum_kernel_types::ValueType::Scalar,
             },
             purity: crate::ast::KernelPurity::Pure,
             requires_uses: None,

@@ -34,6 +34,97 @@ use syn::{
     punctuated::Punctuated,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KernelReturnValueType {
+    Scalar,
+    Vec2,
+    Vec3,
+    Vec4,
+    Quat,
+    Mat2,
+    Mat3,
+    Mat4,
+    Tensor,
+    Bool,
+}
+
+fn parse_return_value_type(ty: &syn::Type) -> syn::Result<KernelReturnValueType> {
+    match ty {
+        syn::Type::Path(type_path) => {
+            let ident = type_path
+                .path
+                .segments
+                .last()
+                .map(|segment| segment.ident.to_string());
+            match ident.as_deref() {
+                Some("bool") => Ok(KernelReturnValueType::Bool),
+                Some("f64") | Some("i64") | Some("Dt") => Ok(KernelReturnValueType::Scalar),
+                Some("Quat") => Ok(KernelReturnValueType::Quat),
+                Some("Mat2") => Ok(KernelReturnValueType::Mat2),
+                Some("Mat3") => Ok(KernelReturnValueType::Mat3),
+                Some("Mat4") => Ok(KernelReturnValueType::Mat4),
+                Some("TensorData") => Ok(KernelReturnValueType::Tensor),
+                _ => Err(syn::Error::new_spanned(
+                    ty,
+                    format!(
+                        "unsupported kernel return type `{}`; expected scalar, vector, matrix, tensor, or bool",
+                        quote! { #ty }
+                    ),
+                )),
+            }
+        }
+        syn::Type::Group(group) => parse_return_value_type(&group.elem),
+        syn::Type::Paren(paren) => parse_return_value_type(&paren.elem),
+        syn::Type::Reference(reference) => parse_return_value_type(&reference.elem),
+        syn::Type::Array(array) => match &array.len {
+            syn::Expr::Lit(expr) => {
+                if let syn::Lit::Int(int) = &expr.lit {
+                    match int.base10_parse::<usize>().map_err(|err| {
+                        syn::Error::new_spanned(int, format!("invalid array length: {}", err))
+                    })? {
+                        2 => Ok(KernelReturnValueType::Vec2),
+                        3 => Ok(KernelReturnValueType::Vec3),
+                        4 => Ok(KernelReturnValueType::Vec4),
+                        _ => Err(syn::Error::new_spanned(
+                            ty,
+                            "unsupported array length for kernel return (expected 2, 3, or 4)",
+                        )),
+                    }
+                } else {
+                    Err(syn::Error::new_spanned(
+                        ty,
+                        "kernel return arrays must use literal lengths",
+                    ))
+                }
+            }
+            _ => Err(syn::Error::new_spanned(
+                ty,
+                "kernel return arrays must use literal lengths",
+            )),
+        },
+        syn::Type::Slice(_) | syn::Type::Tuple(_) => Err(syn::Error::new_spanned(
+            ty,
+            "unsupported kernel return type; use fixed-size arrays for vectors",
+        )),
+        syn::Type::Verbatim(tokens) => {
+            let parsed = syn::parse2::<syn::Type>(tokens.clone()).map_err(|err| {
+                syn::Error::new_spanned(
+                    ty,
+                    format!("unsupported kernel return type `{}`: {}", tokens, err),
+                )
+            })?;
+            parse_return_value_type(&parsed)
+        }
+        _ => Err(syn::Error::new_spanned(
+            ty,
+            format!(
+                "unsupported kernel return type `{}`; expected scalar, vector, matrix, tensor, or bool",
+                quote! { #ty }
+            ),
+        )),
+    }
+}
+
 /// Arguments to the kernel_fn attribute
 struct KernelFnArgs {
     name: Option<String>,
@@ -578,9 +669,9 @@ fn generate_kernel_registration(
         }
     };
 
-    // Determine vectorized implementation (placeholder for now - will be set by separate macro)
+    // Determine vectorized implementation (registered separately by vectorized_kernel_fn)
     let vectorized_impl = if vectorized {
-        quote! { None } // TODO: Update when we add vectorized_kernel_fn macro
+        quote! { None }
     } else {
         quote! { None }
     };
@@ -761,19 +852,48 @@ fn generate_kernel_registration(
         let unit_out_expr = args.unit_out.as_ref().unwrap();
 
         // Derive value type from function return type
-        // We can't reliably parse the type AST from declarative macro expansions,
-        // so we convert to string and check the token representation
         let value_type_expr = match &func.sig.output {
             syn::ReturnType::Type(_, ty) => {
-                let ty_str = quote! { #ty }.to_string();
-                if ty_str.trim() == "bool" {
-                    quote! { ::continuum_kernel_types::ValueType::Bool }
-                } else {
-                    // Default to F64 for f64, f32, or other numeric types
-                    quote! { ::continuum_kernel_types::ValueType::F64 }
+                let value_type = parse_return_value_type(ty)?;
+                match value_type {
+                    KernelReturnValueType::Scalar => {
+                        quote! { ::continuum_kernel_types::ValueType::Scalar }
+                    }
+                    KernelReturnValueType::Vec2 => {
+                        quote! { ::continuum_kernel_types::ValueType::Vec2 }
+                    }
+                    KernelReturnValueType::Vec3 => {
+                        quote! { ::continuum_kernel_types::ValueType::Vec3 }
+                    }
+                    KernelReturnValueType::Vec4 => {
+                        quote! { ::continuum_kernel_types::ValueType::Vec4 }
+                    }
+                    KernelReturnValueType::Quat => {
+                        quote! { ::continuum_kernel_types::ValueType::Quat }
+                    }
+                    KernelReturnValueType::Mat2 => {
+                        quote! { ::continuum_kernel_types::ValueType::Mat2 }
+                    }
+                    KernelReturnValueType::Mat3 => {
+                        quote! { ::continuum_kernel_types::ValueType::Mat3 }
+                    }
+                    KernelReturnValueType::Mat4 => {
+                        quote! { ::continuum_kernel_types::ValueType::Mat4 }
+                    }
+                    KernelReturnValueType::Tensor => {
+                        quote! { ::continuum_kernel_types::ValueType::Tensor }
+                    }
+                    KernelReturnValueType::Bool => {
+                        quote! { ::continuum_kernel_types::ValueType::Bool }
+                    }
                 }
             }
-            _ => quote! { ::continuum_kernel_types::ValueType::F64 },
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    &func.sig.ident,
+                    "kernel functions must declare a return type",
+                ));
+            }
         };
 
         quote! {

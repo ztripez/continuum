@@ -354,21 +354,67 @@ pub struct KernelReturn {
     /// Unit derivation
     pub unit: UnitDerivation,
 
-    /// Value type (Rust type)
+    /// Rust value type returned by the kernel.
+    ///
+    /// This distinguishes numeric returns from boolean returns during
+    /// expression typing. Boolean returns produce `Type::Bool` directly
+    /// without shape or unit derivation.
     pub value_type: ValueType,
 }
 
-/// Value type for kernel returns
+/// Value type for kernel returns.
 ///
-/// Represents the Rust value type returned by a kernel function.
-/// Used during type resolution to distinguish between numeric and boolean returns.
+/// Distinguishes numeric returns from boolean returns during expression typing.
+/// Numeric returns map to kernel types with shape and unit derivation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ValueType {
-    /// Floating-point numeric value (f64)
-    F64,
+    /// Scalar numeric return (f64 or i64)
+    Scalar,
 
-    /// Boolean value (bool)
+    /// Two-component numeric vector
+    Vec2,
+
+    /// Three-component numeric vector
+    Vec3,
+
+    /// Four-component numeric vector
+    Vec4,
+
+    /// Quaternion value
+    Quat,
+
+    /// 2x2 matrix value
+    Mat2,
+
+    /// 3x3 matrix value
+    Mat3,
+
+    /// 4x4 matrix value
+    Mat4,
+
+    /// Tensor data value
+    Tensor,
+
+    /// Boolean return value
     Bool,
+}
+
+impl ValueType {
+    /// Returns true if this value type represents a numeric kernel return.
+    pub fn is_numeric(self) -> bool {
+        matches!(
+            self,
+            ValueType::Scalar
+                | ValueType::Vec2
+                | ValueType::Vec3
+                | ValueType::Vec4
+                | ValueType::Quat
+                | ValueType::Mat2
+                | ValueType::Mat3
+                | ValueType::Mat4
+                | ValueType::Tensor
+        )
+    }
 }
 
 /// Shape derivation for kernel return type
