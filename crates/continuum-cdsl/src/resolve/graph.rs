@@ -11,11 +11,10 @@
 //! 4. **Topological Order** - Nodes are sorted into levels for parallel execution.
 //! 5. **Cycle Detection** - Circular dependencies are detected and reported as errors.
 
-use crate::ast::World;
+use crate::ast::{RoleId, World};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{Path, Phase, StratumId};
+use crate::foundation::{Path, Phase, Span, StratumId};
 use indexmap::IndexMap;
-use std::collections::HashMap;
 
 /// An execution graph for a specific phase and stratum.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -85,27 +84,104 @@ pub fn compile_graphs(world: &World) -> Result<DagSet, Vec<CompileError>> {
     }
 }
 
+/// Traces a concrete dependency path through a cycle.
+///
+/// Given a set of nodes known to be in a cycle and an adjacency list,
+/// this function performs DFS to find one complete cycle path.
+///
+/// # Returns
+/// A path like `[a, b, c, a]` showing the dependency chain.
+fn trace_cycle_path(cycle_nodes: &[Path], adj: &IndexMap<Path, Vec<Path>>) -> Vec<Path> {
+    use std::collections::HashSet;
+
+    if cycle_nodes.is_empty() {
+        return Vec::new();
+    }
+
+    let cycle_set: HashSet<_> = cycle_nodes.iter().cloned().collect();
+    let start = &cycle_nodes[0];
+    let mut path = vec![start.clone()];
+    let mut visited = HashSet::new();
+    visited.insert(start.clone());
+
+    let mut current = start;
+    loop {
+        // Find the next node in the cycle by looking at adjacency list
+        if let Some(neighbors) = adj.get(current) {
+            // Find a neighbor that's in the cycle
+            if let Some(next) = neighbors.iter().find(|n| cycle_set.contains(n)) {
+                if visited.contains(next) {
+                    // Found the cycle completion
+                    path.push(next.clone());
+                    break;
+                } else {
+                    // Continue tracing
+                    visited.insert(next.clone());
+                    path.push(next.clone());
+                    current = next;
+                }
+            } else {
+                // Dead end, shouldn't happen but defend against it
+                break;
+            }
+        } else {
+            // No neighbors, shouldn't happen
+            break;
+        }
+    }
+
+    path
+}
+
 /// Builds a DAG for a specific phase and stratum.
 fn build_dag(
     world: &World,
     phase: Phase,
     stratum: &StratumId,
 ) -> Result<Option<ExecutionDag>, Vec<CompileError>> {
+    // Store (Path, Execution, Span) to enable accurate error reporting
     let mut nodes = Vec::new();
+    let mut node_spans: IndexMap<Path, Span> = IndexMap::new();
 
     // 1. Collect all nodes that execute in this phase and stratum
     for node in world.globals.values() {
         if node.stratum.as_ref() == Some(stratum) {
+            // Observer boundary enforcement: Fields may only execute in Measure phase
+            if node.role_id() == RoleId::Field && phase != Phase::Measure {
+                return Err(vec![CompileError::new(
+                    ErrorKind::PhaseBoundaryViolation,
+                    node.span,
+                    format!(
+                        "Field '{}' has execution in {:?} phase. Fields are observation-only and may only execute in Measure phase.",
+                        node.path, phase
+                    ),
+                )]);
+            }
+
             if let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
                 nodes.push((node.path.clone(), exec));
+                node_spans.insert(node.path.clone(), exec.span);
             }
         }
     }
 
     for node in world.members.values() {
         if node.stratum.as_ref() == Some(stratum) {
+            // Observer boundary enforcement: Fields may only execute in Measure phase
+            if node.role_id() == RoleId::Field && phase != Phase::Measure {
+                return Err(vec![CompileError::new(
+                    ErrorKind::PhaseBoundaryViolation,
+                    node.span,
+                    format!(
+                        "Field '{}' has execution in {:?} phase. Fields are observation-only and may only execute in Measure phase.",
+                        node.path, phase
+                    ),
+                )]);
+            }
+
             if let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
                 nodes.push((node.path.clone(), exec));
+                node_spans.insert(node.path.clone(), exec.span);
             }
         }
     }
@@ -119,7 +195,7 @@ fn build_dag(
     // In Resolve phase, a signal node produces itself.
     // In Collect phase, operators produce signal inputs.
 
-    let mut producers: HashMap<Path, Path> = HashMap::new();
+    let mut producers: IndexMap<Path, Path> = IndexMap::new();
     for (path, exec) in &nodes {
         if phase == Phase::Resolve {
             // Signal nodes produce themselves in Resolve phase
@@ -133,8 +209,8 @@ fn build_dag(
     }
 
     // Adjacency list: node -> [nodes it depends on]
-    let mut adj: HashMap<Path, Vec<Path>> = HashMap::new();
-    let mut in_degree: HashMap<Path, usize> = HashMap::new();
+    let mut adj: IndexMap<Path, Vec<Path>> = IndexMap::new();
+    let mut in_degree: IndexMap<Path, usize> = IndexMap::new();
 
     for (path, _) in &nodes {
         in_degree.insert(path.clone(), 0);
@@ -144,11 +220,32 @@ fn build_dag(
     for (path, exec) in &nodes {
         for read in &exec.reads {
             if let Some(producer_path) = producers.get(read) {
-                // Self-dependency is allowed if it's 'prev', but extract_dependencies
-                // should have filtered that out or marked it as such.
-                // For now, if producer is same as current, it's either a bug in CDSL
-                // or a valid intra-block dependency (not an edge in the DAG).
-                if producer_path != path {
+                if producer_path == path {
+                    // Self-dependency detected: node reads from itself
+                    // This should only happen via temporal access (prev), which should have
+                    // been filtered out during dependency extraction. If we see it here,
+                    // it's a non-temporal self-read, which is a circular dependency.
+                    let span = node_spans
+                        .get(path)
+                        .copied()
+                        .unwrap_or_else(|| Span::new(0, 0, 0, 0));
+                    return Err(vec![CompileError::new(
+                        ErrorKind::CyclicDependency,
+                        span,
+                        format!(
+                            "Node '{}' reads from itself in {:?} phase. \
+                             Self-dependencies are only allowed via temporal access (prev). \
+                             This appears to be a non-temporal circular dependency.",
+                            path, phase
+                        ),
+                    )
+                    .with_note(
+                        "If you intended to read the previous tick's value, use 'prev' context. \
+                         Otherwise, this is a circular dependency that must be broken."
+                            .to_string(),
+                    )]);
+                } else {
+                    // Normal dependency: add edge
                     adj.entry(producer_path.clone())
                         .or_default()
                         .push(path.clone());
@@ -200,14 +297,51 @@ fn build_dag(
             .collect();
         cycle_nodes.sort();
 
-        return Err(vec![CompileError::new(
+        // Trace the actual dependency path through the cycle
+        let cycle_path = trace_cycle_path(&cycle_nodes, &adj);
+
+        // Use the span of the first node in the cycle
+        let first_node_span = cycle_path
+            .first()
+            .and_then(|p| node_spans.get(p))
+            .copied()
+            .unwrap_or_else(|| Span::new(0, 0, 0, 0));
+
+        // Format the cycle as a dependency chain: a → b → c → a
+        let cycle_description = cycle_path
+            .iter()
+            .map(|p| p.to_string())
+            .collect::<Vec<_>>()
+            .join(" → ");
+
+        let mut error = CompileError::new(
             ErrorKind::CyclicDependency,
-            crate::foundation::Span::new(0, 0, 0, 0), // Should ideally find a better span
-            format!(
-                "Circular dependency detected in {:?} phase, stratum {}: {:?}",
-                phase, stratum, cycle_nodes
-            ),
-        )]);
+            first_node_span,
+            format!("Circular dependency: {}", cycle_description),
+        );
+
+        // Add labels for each step in the cycle
+        for (i, node_path) in cycle_path.iter().enumerate() {
+            if let Some(&span) = node_spans.get(node_path) {
+                if i == 0 {
+                    error = error.with_label(span, "cycle starts here".to_string());
+                } else if i == cycle_path.len() - 1 {
+                    error = error.with_label(span, "cycle completes here".to_string());
+                } else {
+                    error = error.with_label(
+                        span,
+                        format!("depends on '{}'", cycle_path.get(i + 1).unwrap()),
+                    );
+                }
+            }
+        }
+
+        error = error.with_note(
+            "Break the cycle by removing one of these dependencies or using temporal access (prev)"
+                .to_string(),
+        );
+
+        return Err(vec![error]);
     }
 
     Ok(Some(ExecutionDag {
@@ -351,5 +485,191 @@ mod tests {
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert_eq!(errors[0].kind, ErrorKind::CyclicDependency);
+    }
+
+    #[test]
+    fn test_field_isolation_in_kernel_phases() {
+        let span = test_span();
+        let metadata = crate::ast::WorldDecl {
+            path: Path::from_str("world"),
+            title: None,
+            version: None,
+            warmup: None,
+            attributes: vec![],
+            span,
+            doc: None,
+        };
+
+        // field temperature { resolve { 1.0 } }  // INVALID: Fields can't execute in Resolve
+        let mut field_node = Node::new(
+            Path::from_str("temperature"),
+            span,
+            RoleData::Field {
+                reconstruction: None,
+            },
+            (),
+        );
+        field_node.stratum = Some(StratumId::new("default"));
+        field_node.executions = vec![Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(crate::ast::TypedExpr::new(
+                crate::ast::ExprKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                crate::foundation::Type::Bool,
+                span,
+            )),
+            vec![],
+            vec![],
+            span,
+        )];
+
+        let mut world = World::new(metadata);
+        world.strata.insert(
+            Path::from_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+        );
+        world.globals.insert(field_node.path.clone(), field_node);
+
+        // Should fail: Fields are observer-only, can't execute in Resolve phase
+        let result = compile_graphs(&world);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].kind, ErrorKind::PhaseBoundaryViolation);
+        assert!(
+            errors[0]
+                .message
+                .contains("Fields are observation-only and may only execute in Measure phase")
+        );
+    }
+
+    #[test]
+    fn test_parallel_node_deterministic_ordering() {
+        let span = test_span();
+        let metadata = crate::ast::WorldDecl {
+            path: Path::from_str("world"),
+            title: None,
+            version: None,
+            warmup: None,
+            attributes: vec![],
+            span,
+            doc: None,
+        };
+
+        // Three signals with no dependencies - should sort alphabetically in same level
+        // signal zebra { resolve { 1.0 } }
+        // signal apple { resolve { 2.0 } }
+        // signal banana { resolve { 3.0 } }
+
+        let mut node_zebra = Node::new(Path::from_str("zebra"), span, RoleData::Signal, ());
+        node_zebra.stratum = Some(StratumId::new("default"));
+        node_zebra.executions = vec![Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(crate::ast::TypedExpr::new(
+                crate::ast::ExprKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                crate::foundation::Type::Bool,
+                span,
+            )),
+            vec![],
+            vec![],
+            span,
+        )];
+
+        let mut node_apple = Node::new(Path::from_str("apple"), span, RoleData::Signal, ());
+        node_apple.stratum = Some(StratumId::new("default"));
+        node_apple.executions = vec![Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(crate::ast::TypedExpr::new(
+                crate::ast::ExprKind::Literal {
+                    value: 2.0,
+                    unit: None,
+                },
+                crate::foundation::Type::Bool,
+                span,
+            )),
+            vec![],
+            vec![],
+            span,
+        )];
+
+        let mut node_banana = Node::new(Path::from_str("banana"), span, RoleData::Signal, ());
+        node_banana.stratum = Some(StratumId::new("default"));
+        node_banana.executions = vec![Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(crate::ast::TypedExpr::new(
+                crate::ast::ExprKind::Literal {
+                    value: 3.0,
+                    unit: None,
+                },
+                crate::foundation::Type::Bool,
+                span,
+            )),
+            vec![],
+            vec![],
+            span,
+        )];
+
+        let mut world = World::new(metadata);
+        world.strata.insert(
+            Path::from_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+        );
+
+        // Insert in non-alphabetical order to verify sorting
+        world.globals.insert(node_zebra.path.clone(), node_zebra);
+        world.globals.insert(node_apple.path.clone(), node_apple);
+        world.globals.insert(node_banana.path.clone(), node_banana);
+
+        let dag_set = compile_graphs(&world).expect("Failed to compile graphs");
+        let dag = dag_set
+            .dags
+            .get(&(Phase::Resolve, StratumId::new("default")))
+            .expect("DAG not found");
+
+        // All three should be in the same level (no dependencies)
+        assert_eq!(dag.levels.len(), 1);
+        // Nodes should be sorted alphabetically for determinism
+        assert_eq!(
+            dag.levels[0].nodes,
+            vec![
+                Path::from_str("apple"),
+                Path::from_str("banana"),
+                Path::from_str("zebra")
+            ]
+        );
+    }
+
+    #[test]
+    fn test_empty_dag_handling() {
+        let span = test_span();
+        let metadata = crate::ast::WorldDecl {
+            path: Path::from_str("world"),
+            title: None,
+            version: None,
+            warmup: None,
+            attributes: vec![],
+            span,
+            doc: None,
+        };
+
+        let mut world = World::new(metadata);
+        world.strata.insert(
+            Path::from_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+        );
+
+        // No nodes in the world - all DAGs should be empty (None)
+        let dag_set = compile_graphs(&world).expect("Failed to compile graphs");
+
+        // Should have no DAGs for empty world
+        assert!(dag_set.dags.is_empty());
     }
 }
