@@ -339,34 +339,51 @@ pub fn project_entity_types(
         if let Declaration::Entity(entity) = decl {
             let mut fields = Vec::new();
 
+            let mut entity_errors = Vec::new();
             if let Some(members) = entity_members.get(&entity.id) {
                 for node in members {
-                    if let Some(type_expr) = &node.type_expr {
-                        match resolve_type_expr(type_expr, type_table, node.span) {
-                            Ok(ty) => {
-                                let field_name = node.path.to_string();
-                                if fields.iter().any(|(name, _)| name == &field_name) {
-                                    errors.push(CompileError::new(
-                                        ErrorKind::TypeMismatch,
-                                        node.span,
-                                        format!(
-                                            "duplicate member name '{}' in entity projection",
-                                            field_name
-                                        ),
-                                    ));
-                                } else {
-                                    fields.push((field_name, ty));
-                                }
+                    // Fail Loudly: Members must have a type expression.
+                    // Silently skipping them leads to incomplete UserTypes and phantom success.
+                    let ty = match &node.type_expr {
+                        Some(type_expr) => resolve_type_expr(type_expr, type_table, node.span),
+                        None => Err(CompileError::new(
+                            ErrorKind::UnknownType,
+                            node.span,
+                            format!("Member '{}' is missing a type expression", node.path),
+                        )),
+                    };
+
+                    match ty {
+                        Ok(ty) => {
+                            // Use path relative to entity for field name to avoid collisions
+                            // and preserve hierarchy. e.g. "physics.velocity"
+                            let field_name = node.path.segments()[entity.path.len()..].join(".");
+                            if fields.iter().any(|(name, _)| name == &field_name) {
+                                entity_errors.push(CompileError::new(
+                                    ErrorKind::TypeMismatch,
+                                    node.span,
+                                    format!(
+                                        "duplicate member name '{}' in entity projection",
+                                        field_name
+                                    ),
+                                ));
+                            } else {
+                                fields.push((field_name, ty));
                             }
-                            Err(e) => errors.push(e),
                         }
+                        Err(e) => entity_errors.push(e),
                     }
                 }
             }
 
-            // Update the registered UserType with collected fields
-            if let Some(user_type) = type_table.get_mut(&entity.path) {
-                user_type.fields = fields;
+            // Fail Loudly: Only update the TypeTable if all members resolved successfully.
+            // This prevents partial/corrupted types from leaking into later passes.
+            if entity_errors.is_empty() {
+                if let Some(user_type) = type_table.get_mut(&entity.path) {
+                    user_type.fields = fields;
+                }
+            } else {
+                errors.extend(entity_errors);
             }
         }
     }
