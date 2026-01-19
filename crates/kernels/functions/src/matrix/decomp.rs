@@ -44,10 +44,11 @@ pub fn eigenvalues_mat2(arr: Mat2) -> [f64; 2] {
     let c = arr.0[3];
 
     // Characteristic polynomial: λ² - (a+c)λ + (ac-b²) = 0
-    // Eigenvalues: λ = (a+c)/2 ± sqrt((a+c)²/4 - (ac-b²))
+    // Eigenvalues: λ = (a+c)/2 ± sqrt((a-c)²/4 + b²)
+    // Use stable form to avoid catastrophic cancellation when eigenvalues are nearly equal
     let trace = a + c;
-    let det = a * c - b * b;
-    let disc_raw = trace * trace / 4.0 - det;
+    let half_diff = (a - c) / 2.0;
+    let disc_raw = half_diff * half_diff + b * b;
 
     // Fail loudly if discriminant is significantly negative (indicates non-symmetric input or numerical error)
     const DISC_TOL: f64 = 1e-12;
