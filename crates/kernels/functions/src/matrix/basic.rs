@@ -6,6 +6,18 @@ use continuum_foundation::{Mat2, Mat3, Mat4};
 use continuum_kernel_macros::kernel_fn;
 use nalgebra as na;
 
+/// Compute Frobenius norm of a 2x2 matrix (sqrt of sum of squares of all elements)
+/// Used for scale-invariant singularity checks
+fn frobenius_norm_mat2(m: &Mat2) -> f64 {
+    m.0.iter().map(|x| x * x).sum::<f64>().sqrt()
+}
+
+/// Compute Frobenius norm of a 3x3 matrix (sqrt of sum of squares of all elements)
+/// Used for scale-invariant singularity checks
+fn frobenius_norm_mat3(m: &Mat3) -> f64 {
+    m.0.iter().map(|x| x * x).sum::<f64>().sqrt()
+}
+
 /// Identity 2x2 matrix: `identity2()`
 /// Returns column-major: [1, 0, 0, 1]
 #[kernel_fn(
@@ -194,8 +206,14 @@ pub fn determinant_mat4(mat: Mat4) -> f64 {
 )]
 pub fn inverse_mat2(mat: Mat2) -> Mat2 {
     let det = determinant_mat2(Mat2(mat.0));
-    if det.abs() < 1e-10 {
-        panic!("matrix.inverse: matrix is singular (determinant = 0)");
+    let norm = frobenius_norm_mat2(&mat);
+    let eps = f64::EPSILON * 100.0 * norm;
+
+    if det.abs() < eps {
+        panic!(
+            "matrix.inverse: matrix is singular (determinant = {}, tolerance = {})",
+            det, eps
+        );
     }
     let inv_det = 1.0 / det;
     Mat2([
@@ -229,9 +247,14 @@ pub fn inverse_mat3(mat: Mat3) -> Mat3 {
     let m22 = mat.0[8];
 
     let det = determinant_mat3(Mat3(mat.0));
+    let norm = frobenius_norm_mat3(&mat);
+    let eps = f64::EPSILON * 100.0 * norm;
 
-    if det.abs() < 1e-10 {
-        panic!("matrix.inverse: matrix is singular (determinant = 0)");
+    if det.abs() < eps {
+        panic!(
+            "matrix.inverse: matrix is singular (determinant = {}, tolerance = {})",
+            det, eps
+        );
     }
 
     let inv_det = 1.0 / det;
