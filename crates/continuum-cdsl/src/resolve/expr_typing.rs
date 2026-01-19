@@ -595,6 +595,13 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Config lookup ===
+        //
+        // Resolves a reference to a world-level configuration value.
+        // Config values are read-only constants defined in world.yaml
+        // and accessible from any execution block.
+        //
+        // Type derivation: Looks up path in ctx.config_types
+        // Error: UndefinedName if path not found in config registry
         UntypedKind::Config(path) => {
             let ty = ctx.config_types.get(path).cloned().ok_or_else(|| {
                 vec![CompileError::new(
@@ -608,6 +615,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Const lookup ===
+        //
+        // Resolves a reference to a CDSL-defined constant.
+        // Constants are compile-time values declared in the DSL.
+        //
+        // Type derivation: Looks up path in ctx.const_types
+        // Error: UndefinedName if path not found in const registry
         UntypedKind::Const(path) => {
             let ty = ctx.const_types.get(path).cloned().ok_or_else(|| {
                 vec![CompileError::new(
@@ -621,6 +634,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Prev (previous tick value) ===
+        //
+        // References the value from the previous execution tick.
+        // Only valid in resolve phase operators with node_output context.
+        //
+        // Type derivation: Returns ctx.node_output type
+        // Error: Internal if node_output not set in context
         UntypedKind::Prev => {
             let ty = ctx.node_output.clone().ok_or_else(|| {
                 vec![CompileError::new(
@@ -634,6 +653,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Current (just-resolved value) ===
+        //
+        // References the just-computed value in the current tick.
+        // Only valid in resolve phase operators with node_output context.
+        //
+        // Type derivation: Returns ctx.node_output type
+        // Error: Internal if node_output not set in context
         UntypedKind::Current => {
             let ty = ctx.node_output.clone().ok_or_else(|| {
                 vec![CompileError::new(
@@ -647,6 +672,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Inputs (accumulated inputs) ===
+        //
+        // References accumulated signal inputs collected during this tick.
+        // Only valid in resolve phase operators with inputs_type context.
+        //
+        // Type derivation: Returns ctx.inputs_type
+        // Error: Internal if inputs_type not set in context
         UntypedKind::Inputs => {
             let ty = ctx.inputs_type.clone().ok_or_else(|| {
                 vec![CompileError::new(
@@ -660,6 +691,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Payload (impulse payload) ===
+        //
+        // References the payload data carried by an impulse.
+        // Only valid in impulse handler operators with payload_type context.
+        //
+        // Type derivation: Returns ctx.payload_type
+        // Error: Internal if payload_type not set in context
         UntypedKind::Payload => {
             let ty = ctx.payload_type.clone().ok_or_else(|| {
                 vec![CompileError::new(
@@ -673,6 +710,15 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Vector literal ===
+        //
+        // Constructs a vector from 2-4 scalar elements.
+        // All elements must have the same unit.
+        //
+        // Type derivation: Vector<dim> with unit from first element
+        // Errors:
+        // - TypeMismatch if empty or >4 elements
+        // - TypeMismatch if elements not all scalar
+        // - TypeMismatch if elements have different units
         UntypedKind::Vector(elements) => {
             if elements.is_empty() {
                 return Err(vec![CompileError::new(
@@ -756,6 +802,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Let binding ===
+        //
+        // Creates a local binding for use in the body expression.
+        // The binding is scoped to the body only.
+        //
+        // Type derivation: Body's type becomes result type
+        // The value is typed first, then body is typed with binding in scope
         UntypedKind::Let { name, value, body } => {
             // Type the value expression
             let typed_value = type_expression(value, ctx)?;
@@ -780,6 +832,17 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Struct literal ===
+        //
+        // Constructs an instance of a user-defined type.
+        // All fields must be provided exactly once with correct types.
+        //
+        // Type derivation: Returns Type::User(type_id)
+        // Errors:
+        // - UndefinedName if type not found
+        // - UndefinedName if field not in type definition
+        // - TypeMismatch if field type doesn't match definition
+        // - TypeMismatch if missing fields
+        // - TypeMismatch if duplicate fields
         UntypedKind::Struct {
             ty: ty_path,
             fields,
@@ -869,6 +932,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Binary operator (desugar to kernel call) ===
+        //
+        // Desugars binary operators (+, -, *, /, <, >, &&, ||, etc.)
+        // to their corresponding kernel calls (maths.*, compare.*, logic.*).
+        //
+        // Type derivation: Determined by kernel signature
+        // Error: UndefinedName if kernel not found for operator
         UntypedKind::Binary { op, left, right } => {
             let kernel_id = op.kernel();
 
@@ -902,6 +971,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Unary operator (desugar to kernel call) ===
+        //
+        // Desugars unary operators (-, !) to their corresponding
+        // kernel calls (maths.neg, logic.not).
+        //
+        // Type derivation: Determined by kernel signature
+        // Error: UndefinedName if kernel not found for operator
         UntypedKind::Unary { op, operand } => {
             let kernel_id = op.kernel();
 
@@ -933,6 +1008,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === If-then-else (desugar to logic.select) ===
+        //
+        // Desugars if-then-else to logic.select(condition, then, else) kernel call.
+        // Condition must be Bool, branches must have compatible types.
+        //
+        // Type derivation: Determined by kernel signature (typically matches branch types)
+        // Error: Internal if logic.select kernel not found
         UntypedKind::If {
             condition,
             then_branch,
@@ -996,6 +1077,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::{BinaryOp, UnaryOp};
     use crate::foundation::{Path, Span, UserType};
     use continuum_foundation::TypeId;
 
