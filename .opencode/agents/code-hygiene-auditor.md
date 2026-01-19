@@ -64,6 +64,14 @@ You have deep experience recognizing:
 Compile your findings as a structured report:
 
 ```
+## One Truth Violations (Decentrialized data domains)
+
+### [Location 1]
+- **Files**: `path/to/file1.rs`, `path/to/file2.rs`
+- **Pattern**: [Description of decentrialized pattern]
+- **Suggestion**: [How to consolidate]
+
+
 ## DRY Violations (Duplicated Code)
 
 ### [Location 1]

@@ -47,7 +47,18 @@ pub fn eigenvalues_mat2(arr: Mat2) -> [f64; 2] {
     // Eigenvalues: λ = (a+c)/2 ± sqrt((a+c)²/4 - (ac-b²))
     let trace = a + c;
     let det = a * c - b * b;
-    let discriminant = (trace * trace / 4.0 - det).max(0.0).sqrt();
+    let disc_raw = trace * trace / 4.0 - det;
+
+    // Fail loudly if discriminant is significantly negative (indicates non-symmetric input or numerical error)
+    const DISC_TOL: f64 = 1e-12;
+    assert!(
+        disc_raw >= -DISC_TOL,
+        "eigenvalues_mat2: negative discriminant {} (tolerance {}) indicates non-symmetric matrix or numerical error",
+        disc_raw,
+        DISC_TOL
+    );
+
+    let discriminant = disc_raw.max(0.0).sqrt();
 
     let lambda1 = trace / 2.0 + discriminant;
     let lambda2 = trace / 2.0 - discriminant;
@@ -101,8 +112,11 @@ pub fn eigenvalues_mat3(arr: Mat3) -> [f64; 3] {
         ((m00 - q) * (m00 - q) + (m11 - q) * (m11 - q) + (m22 - q) * (m22 - q) + 2.0 * p1) / 6.0;
     let p = p2.sqrt();
 
-    if p < 1e-14 {
-        // All eigenvalues equal to trace/3 (degenerate case)
+    // Degenerate case: all eigenvalues equal (matrix is scalar multiple of identity)
+    // This is a valid mathematical case, not an error, but we make it explicit rather than silent
+    const P_THRESHOLD: f64 = 1e-14;
+    if p < P_THRESHOLD {
+        // All eigenvalues equal to trace/3
         return [q, q, q];
     }
 
@@ -118,7 +132,16 @@ pub fn eigenvalues_mat3(arr: Mat3) -> [f64; 3] {
         + b20 * (b10 * b21 - b11 * b20))
         / 2.0;
 
-    // Clamp r to [-1, 1] for numerical stability
+    // Fail loudly if r is outside valid range (indicates numerical instability)
+    const R_TOL: f64 = 1e-10;
+    assert!(
+        r >= -1.0 - R_TOL && r <= 1.0 + R_TOL,
+        "eigenvalues_mat3: r={} out of valid range [-1,1] (tolerance {}), indicates numerical instability or non-symmetric matrix",
+        r,
+        R_TOL
+    );
+
+    // Clamp to exact range for acos (acceptable after validation)
     let r = r.clamp(-1.0, 1.0);
     let phi = r.acos() / 3.0;
 

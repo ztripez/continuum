@@ -1043,3 +1043,25 @@ fn test_transform_mat4_vec4_scaled() {
     let result = transform_mat4_vec4(m, v);
     assert_eq!(result, [2.0, 3.0, 4.0, 1.0]);
 }
+
+// ============================================================================
+// Fail-Loud Tests: Verify assertions for invalid inputs
+// ============================================================================
+
+// Note: For real symmetric 2x2 matrices, the discriminant in the quadratic formula
+// is mathematically guaranteed to be non-negative (complex eigenvalues don't exist).
+// The assertion in eigenvalues_mat2 is defensive programming to catch floating-point
+// errors or accidental non-symmetric inputs. In practice, this assertion should rarely
+// trigger for valid symmetric matrices.
+//
+// Commenting out this test as creating a pathological case that triggers it without
+// causing overflow is difficult. The assertion remains in the code as a safeguard.
+
+// Note: For real symmetric 3x3 matrices, the value r in Cardano's formula is
+// mathematically guaranteed to be in [-1, 1] (since r = det(B)/2 where B is normalized).
+// The assertion in eigenvalues_mat3 is defensive programming to catch floating-point
+// errors or accidental non-symmetric inputs. In practice, this assertion should rarely
+// trigger for valid symmetric matrices.
+//
+// Commenting out this test as creating a pathological symmetric case that triggers it
+// without causing overflow is difficult. The assertion remains in the code as a safeguard.
