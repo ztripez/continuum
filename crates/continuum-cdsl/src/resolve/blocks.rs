@@ -54,7 +54,7 @@
 //! // Ready for Phase 13: DAG construction
 //! ```
 
-use crate::ast::{BlockBody, Execution, ExprKind, Index, Node, RoleId, TypedExpr};
+use crate::ast::{BlockBody, Execution, ExecutionBody, ExprKind, Index, Node, RoleId, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{Path, Phase};
 use std::collections::HashSet;
@@ -270,8 +270,8 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
         }
 
         // 4. Extract body as TypedExpr
-        let typed_expr = match block_body {
-            BlockBody::TypedExpression(typed_expr) => typed_expr.clone(),
+        let body = match block_body {
+            BlockBody::TypedExpression(typed_expr) => ExecutionBody::Expr(typed_expr.clone()),
             BlockBody::Expression(_) => {
                 // Should never happen if expression typing ran first
                 errors.push(CompileError::new(
@@ -301,10 +301,13 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
         };
 
         // 5. Extract dependencies
-        let reads = extract_dependencies(&typed_expr);
+        let reads = match &body {
+            ExecutionBody::Expr(expr) => extract_dependencies(expr),
+            ExecutionBody::Statements(_) => Vec::new(), // Not yet implemented
+        };
 
         // 6. Create Execution
-        let execution = Execution::new(phase, typed_expr, reads, node.span);
+        let execution = Execution::new(phase_name.clone(), phase, body, reads, node.span);
         executions.push(execution);
     }
 
@@ -480,7 +483,14 @@ mod tests {
 
         // Verify executions populated
         assert_eq!(node.executions.len(), 1, "Should have 1 execution");
+        assert_eq!(node.executions[0].name, "resolve");
         assert_eq!(node.executions[0].phase, Phase::Resolve);
+        match &node.executions[0].body {
+            ExecutionBody::Expr(e) => {
+                assert!(matches!(e.expr, ExprKind::Literal { .. }));
+            }
+            _ => panic!("Expected Expr body"),
+        }
 
         // Verify execution_blocks cleared
         assert!(

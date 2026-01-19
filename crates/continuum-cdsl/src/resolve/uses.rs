@@ -47,7 +47,9 @@
 //! }
 //! ```
 
-use crate::ast::{Attribute, ExprKind, Index, KernelRegistry, Node, TypedExpr};
+use crate::ast::{
+    Attribute, Execution, ExecutionBody, ExprKind, Index, KernelRegistry, Node, TypedExpr,
+};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::Span;
 use std::collections::HashSet;
@@ -414,7 +416,12 @@ fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Ve
     // 1. Execution blocks (resolve, collect, measure, etc.)
     //    These are compiled TypedExpr after Phase 12.5-D
     for execution in &node.executions {
-        collect_required_uses(&execution.body, registry, &mut required);
+        match &execution.body {
+            ExecutionBody::Expr(expr) => collect_required_uses(expr, registry, &mut required),
+            ExecutionBody::Statements(_) => {
+                // Statement validation not yet implemented
+            }
+        }
     }
 
     // 2. Warmup block (iterate expression)
@@ -614,8 +621,13 @@ mod tests {
             span,
         );
 
-        node.executions
-            .push(Execution::new(Phase::Resolve, clamp_call, vec![], span));
+        node.executions.push(Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(clamp_call),
+            vec![],
+            span,
+        ));
 
         let registry = KernelRegistry::global();
         let errors = validate_node_uses(&node, &registry);
@@ -662,8 +674,13 @@ mod tests {
             span,
         );
 
-        node.executions
-            .push(Execution::new(Phase::Resolve, clamp_call, vec![], span));
+        node.executions.push(Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(clamp_call),
+            vec![],
+            span,
+        ));
 
         let registry = KernelRegistry::global();
         let errors = validate_node_uses(&node, &registry);
@@ -845,8 +862,13 @@ mod tests {
             span,
         );
 
-        node.executions
-            .push(Execution::new(Phase::Resolve, clamp_call, vec![], span));
+        node.executions.push(Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(clamp_call),
+            vec![],
+            span,
+        ));
 
         let registry = KernelRegistry::global();
         let errors = validate_node_uses(&node, &registry);
