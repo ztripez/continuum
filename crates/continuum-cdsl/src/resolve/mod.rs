@@ -122,6 +122,7 @@
 //!   Ready for execution block compilation and DAG construction
 //! ```
 
+pub mod blocks;
 pub mod capabilities;
 pub mod effects;
 pub mod eras;
