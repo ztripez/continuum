@@ -147,6 +147,11 @@ impl<'a> TypingContext<'a> {
 ///
 /// `Ok(Type)` if derivation succeeds, `Err` with errors otherwise.
 ///
+/// # Limitations
+///
+/// Bounds derivation is not implemented until Phase 14/15 (constraint
+/// propagation analysis). Validation pass checks bounds violations.
+///
 /// # Errors
 ///
 /// - `Internal` - Invalid parameter index in derivation
@@ -227,10 +232,12 @@ fn derive_return_type(
         }
     };
 
+    // Bounds derivation is deferred to Phase 14/15 (constraint propagation).
+    // Validation pass checks bounds violations for literal values.
     Ok(Type::Kernel(KernelType {
         shape,
         unit,
-        bounds: None, // TODO: Derive bounds from constraints
+        bounds: None,
     }))
 }
 
