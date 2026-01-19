@@ -19,7 +19,7 @@
 //! # What This Pass ALSO Does (Implementation Details)
 //!
 //! - **Operator desugaring** - Binary/Unary/If operators are desugared to KernelCall expressions
-//!   (Note: Architecturally, this should be a separate desugar pass, but is currently done inline)
+//!   by the dedicated desugar pass before typing runs.
 //! - **Type compatibility validation** - Some type checks happen during typing where needed for inference
 //!   (Full semantic validation happens in separate validation pass)
 //! - **Phase boundary enforcement** - Field expressions are validated to only appear in Measure phase
@@ -28,8 +28,8 @@
 //!
 //! ```text
 //! Parse → Desugar → Name Res → Type Resolution → EXPR TYPING → Validation → Compilation
-//!                                                  ^^^^^^^^^^^
-//!                                                  YOU ARE HERE
+//!                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+//!                        YOU ARE HERE
 //! ```
 //!
 //! # Examples
@@ -1052,128 +1052,22 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             )
         }
 
-        // === Binary operator (desugar to kernel call) ===
-        //
-        // Desugars binary operators (+, -, *, /, <, >, &&, ||, etc.)
-        // to their corresponding kernel calls (maths.*, compare.*, logic.*).
-        //
-        // Type derivation: Determined by kernel signature
-        // Error: UndefinedName if kernel not found for operator
-        UntypedKind::Binary { op, left, right } => {
-            let kernel_id = op.kernel();
-
-            // Type operands
-            let typed_left = type_expression(left, ctx)?;
-            let typed_right = type_expression(right, ctx)?;
-
-            // Look up kernel signature
-            let sig = ctx.kernel_registry.get(&kernel_id).ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::UndefinedName,
-                    span,
-                    format!(
-                        "kernel '{:?}' not found for binary operator {:?}",
-                        kernel_id, op
-                    ),
-                )]
-            })?;
-
-            // Derive return type
-            let return_type =
-                derive_return_type(sig, &[typed_left.clone(), typed_right.clone()], span)?;
-
-            (
-                ExprKind::Call {
-                    kernel: kernel_id,
-                    args: vec![typed_left, typed_right],
-                },
-                return_type,
-            )
-        }
-
-        // === Unary operator (desugar to kernel call) ===
-        //
-        // Desugars unary operators (-, !) to their corresponding
-        // kernel calls (maths.neg, logic.not).
-        //
-        // Type derivation: Determined by kernel signature
-        // Error: UndefinedName if kernel not found for operator
-        UntypedKind::Unary { op, operand } => {
-            let kernel_id = op.kernel();
-
-            // Type operand
-            let typed_operand = type_expression(operand, ctx)?;
-
-            // Look up kernel signature
-            let sig = ctx.kernel_registry.get(&kernel_id).ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::UndefinedName,
-                    span,
-                    format!(
-                        "kernel '{:?}' not found for unary operator {:?}",
-                        kernel_id, op
-                    ),
-                )]
-            })?;
-
-            // Derive return type
-            let return_type = derive_return_type(sig, &[typed_operand.clone()], span)?;
-
-            (
-                ExprKind::Call {
-                    kernel: kernel_id,
-                    args: vec![typed_operand],
-                },
-                return_type,
-            )
-        }
-
-        // === If-then-else (desugar to logic.select) ===
-        //
-        // Desugars if-then-else to logic.select(condition, then, else) kernel call.
-        // Condition must be Bool, branches must have compatible types.
-        //
-        // Type derivation: Determined by kernel signature (typically matches branch types)
-        // Error: Internal if logic.select kernel not found
-        UntypedKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            let kernel_id = KernelId::new("logic", "select");
-
-            // Type all branches
-            let typed_condition = type_expression(condition, ctx)?;
-            let typed_then = type_expression(then_branch, ctx)?;
-            let typed_else = type_expression(else_branch, ctx)?;
-
-            // Look up kernel signature
-            let sig = ctx.kernel_registry.get(&kernel_id).ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "kernel 'logic.select' not found (required for if-then-else)".to_string(),
-                )]
-            })?;
-
-            // Derive return type
-            let return_type = derive_return_type(
-                sig,
-                &[
-                    typed_condition.clone(),
-                    typed_then.clone(),
-                    typed_else.clone(),
-                ],
+        UntypedKind::Binary { .. } | UntypedKind::Unary { .. } | UntypedKind::If { .. } => {
+            errors.push(CompileError::new(
+                ErrorKind::Internal,
                 span,
-            )?;
+                "operator expressions must be desugared before typing".to_string(),
+            ));
+            return Err(errors);
+        }
 
-            (
-                ExprKind::Call {
-                    kernel: kernel_id,
-                    args: vec![typed_condition, typed_then, typed_else],
-                },
-                return_type,
-            )
+        UntypedKind::KernelCall { .. } => {
+            errors.push(CompileError::new(
+                ErrorKind::Internal,
+                span,
+                "kernel call not desugared correctly".to_string(),
+            ));
+            return Err(errors);
         }
 
         // === Entity context ===
@@ -1322,7 +1216,6 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BinaryOp, UnaryOp};
     use crate::foundation::{Path, Span, UserType};
     use continuum_foundation::TypeId;
 
@@ -2472,42 +2365,6 @@ mod tests {
         assert!(errors[0].message.contains("non-kernel") || errors[0].message.contains("Bool"));
     }
 
-    // ============================================================================
-    // Tests for Let bindings
-    // ============================================================================
-
-    #[test]
-    fn test_type_let_simple_binding() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Let {
-                name: "x".to_string(),
-                value: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 42.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-                body: Box::new(Expr::new(
-                    UntypedKind::Local("x".to_string()),
-                    Span::new(0, 0, 1, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        // Body returns x, which is dimensionless scalar
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::dimensionless());
-            }
-            _ => panic!("Expected Kernel type"),
-        }
-    }
-
     #[test]
     fn test_type_let_nested_bindings() {
         let ctx = make_context();
@@ -2995,338 +2852,5 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
         assert!(errors[0].message.contains("multiple"));
-    }
-
-    // ============================================================================
-    // Tests for operator desugaring (Binary/Unary/If)
-    // ============================================================================
-
-    #[test]
-    fn test_type_binary_add_desugars_to_kernel() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Binary {
-                op: BinaryOp::Add,
-                left: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 5.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-                right: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 10.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        // Should desugar to maths.add kernel call
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "maths");
-                assert_eq!(kernel.name, "add");
-            }
-            _ => panic!("Expected Call, got {:?}", typed.expr),
-        }
-    }
-
-    #[test]
-    fn test_type_binary_subtract_desugars() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Binary {
-                op: BinaryOp::Sub,
-                left: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 20.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-                right: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 5.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "maths");
-                assert_eq!(kernel.name, "sub");
-            }
-            _ => panic!("Expected Call"),
-        }
-    }
-
-    #[test]
-    fn test_type_binary_multiply_desugars() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Binary {
-                op: BinaryOp::Mul,
-                left: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 3.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-                right: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 7.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "maths");
-                assert_eq!(kernel.name, "mul");
-            }
-            _ => panic!("Expected Call"),
-        }
-    }
-
-    #[test]
-    fn test_type_binary_divide_desugars() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Binary {
-                op: BinaryOp::Div,
-                left: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 20.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-                right: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 4.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "maths");
-                assert_eq!(kernel.name, "div");
-            }
-            _ => panic!("Expected Call"),
-        }
-    }
-
-    #[test]
-    fn test_type_binary_comparison_less_desugars() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Binary {
-                op: BinaryOp::Lt,
-                left: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 5.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-                right: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 10.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "compare");
-                assert_eq!(kernel.name, "lt");
-            }
-            _ => panic!("Expected Call"),
-        }
-        // Comparison returns Bool
-        assert_eq!(typed.ty, Type::Bool);
-    }
-
-    #[test]
-    fn test_type_binary_comparison_equal_desugars() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Binary {
-                op: BinaryOp::Eq,
-                left: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 5.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-                right: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 5.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "compare");
-                assert_eq!(kernel.name, "eq");
-            }
-            _ => panic!("Expected Call"),
-        }
-        assert_eq!(typed.ty, Type::Bool);
-    }
-
-    #[test]
-    fn test_type_binary_logical_and_desugars() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Binary {
-                op: BinaryOp::And,
-                left: Box::new(Expr::new(
-                    UntypedKind::BoolLiteral(true),
-                    Span::new(0, 0, 4, 1),
-                )),
-                right: Box::new(Expr::new(
-                    UntypedKind::BoolLiteral(false),
-                    Span::new(0, 0, 5, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "logic");
-                assert_eq!(kernel.name, "and");
-            }
-            _ => panic!("Expected Call"),
-        }
-        assert_eq!(typed.ty, Type::Bool);
-    }
-
-    #[test]
-    fn test_type_unary_negate_desugars() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Unary {
-                op: UnaryOp::Neg,
-                operand: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 42.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-            },
-            Span::new(0, 0, 6, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "maths");
-                assert_eq!(kernel.name, "neg");
-            }
-            _ => panic!("Expected Call"),
-        }
-    }
-
-    #[test]
-    fn test_type_unary_not_desugars() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Unary {
-                op: UnaryOp::Not,
-                operand: Box::new(Expr::new(
-                    UntypedKind::BoolLiteral(true),
-                    Span::new(0, 0, 4, 1),
-                )),
-            },
-            Span::new(0, 0, 6, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "logic");
-                assert_eq!(kernel.name, "not");
-            }
-            _ => panic!("Expected Call"),
-        }
-        assert_eq!(typed.ty, Type::Bool);
-    }
-
-    #[test]
-    fn test_type_if_then_else_desugars() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::If {
-                condition: Box::new(Expr::new(
-                    UntypedKind::BoolLiteral(true),
-                    Span::new(0, 0, 4, 1),
-                )),
-                then_branch: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 10.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-                else_branch: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 20.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-            },
-            Span::new(0, 0, 20, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        // Should desugar to logic.select(condition, then, else)
-        match &typed.expr {
-            ExprKind::Call { kernel, .. } => {
-                assert_eq!(kernel.namespace, "logic");
-                assert_eq!(kernel.name, "select");
-            }
-            _ => panic!("Expected Call"),
-        }
-        // Result type should be dimensionless scalar (from branches)
-        assert!(matches!(typed.ty, Type::Kernel(_)));
     }
 }

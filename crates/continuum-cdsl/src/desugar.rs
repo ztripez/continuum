@@ -25,12 +25,11 @@
 //!           YOU ARE HERE
 //! ```
 //!
-//! **Integration status:** Not yet wired into compilation pipeline (Phase 11 work).
-//! When integrated, desugaring must run:
+//! **Integration status:** Not yet wired into the compilation pipeline.
+//! Desugaring must run:
 //! - **After:** Parser produces untyped AST
-//! - **Before:** Name resolution begins
-//!
-//! See: Phase 11 name resolution task (continuum-q7e5)
+//! - **Before:** name resolution and typing
+//! - **Before:** uses validation on typed expressions
 //!
 //! # Examples
 //!
@@ -100,7 +99,11 @@
 //! |--------|-------------|
 //! | `if c { t } else { e }` | `logic.select(c, t, e)` |
 
-use crate::ast::{BinaryOp, Expr, KernelId, UnaryOp, UntypedKind as ExprKind};
+use crate::ast::{
+    BinaryOp, BlockBody, Declaration, EraDecl, Expr, Index, KernelId, Node, ObserveBlock,
+    ObserveWhen, Stmt, UnaryOp, UntypedKind as ExprKind, WarmupBlock, WhenBlock, WorldDecl,
+};
+
 use crate::foundation::Span;
 
 /// Desugar an expression, converting operators to kernel calls
@@ -290,6 +293,161 @@ pub fn desugar_expr(expr: Expr) -> Expr {
         ExprKind::Payload => passthrough(ExprKind::Payload, span),
         ExprKind::ParseError(msg) => passthrough(ExprKind::ParseError(msg), span),
     }
+}
+
+/// Desugar a block body (expression or statements)
+pub fn desugar_block_body(body: BlockBody) -> BlockBody {
+    match body {
+        BlockBody::Expression(expr) => BlockBody::Expression(desugar_expr(expr)),
+        BlockBody::TypedExpression(expr) => BlockBody::TypedExpression(expr),
+        BlockBody::Statements(stmts) => {
+            BlockBody::Statements(stmts.into_iter().map(desugar_stmt).collect())
+        }
+    }
+}
+
+/// Desugar a statement
+pub fn desugar_stmt(stmt: Stmt) -> Stmt {
+    match stmt {
+        Stmt::Let { name, value, span } => Stmt::Let {
+            name,
+            value: desugar_expr(value),
+            span,
+        },
+        Stmt::SignalAssign {
+            target,
+            value,
+            span,
+        } => Stmt::SignalAssign {
+            target,
+            value: desugar_expr(value),
+            span,
+        },
+        Stmt::FieldAssign {
+            target,
+            position,
+            value,
+            span,
+        } => Stmt::FieldAssign {
+            target,
+            position: desugar_expr(position),
+            value: desugar_expr(value),
+            span,
+        },
+        Stmt::Expr(expr) => Stmt::Expr(desugar_expr(expr)),
+    }
+}
+
+/// Desugar a warmup block
+pub fn desugar_warmup(warmup: WarmupBlock) -> WarmupBlock {
+    WarmupBlock {
+        attrs: warmup.attrs,
+        iterate: desugar_expr(warmup.iterate),
+        span: warmup.span,
+    }
+}
+
+/// Desugar a when block
+pub fn desugar_when(when: WhenBlock) -> WhenBlock {
+    WhenBlock {
+        conditions: when.conditions.into_iter().map(desugar_expr).collect(),
+        span: when.span,
+    }
+}
+
+/// Desugar an observe block
+pub fn desugar_observe(observe: ObserveBlock) -> ObserveBlock {
+    ObserveBlock {
+        when_clauses: observe
+            .when_clauses
+            .into_iter()
+            .map(|when| ObserveWhen {
+                condition: desugar_expr(when.condition),
+                emit_block: when.emit_block.into_iter().map(desugar_stmt).collect(),
+                span: when.span,
+            })
+            .collect(),
+        span: observe.span,
+    }
+}
+
+/// Desugar a node (signal, field, operator, etc)
+pub fn desugar_node<I: Index>(mut node: Node<I>) -> Node<I> {
+    node.execution_blocks = node
+        .execution_blocks
+        .into_iter()
+        .map(|(name, body)| (name, desugar_block_body(body)))
+        .collect();
+
+    node.warmup = node.warmup.map(desugar_warmup);
+    node.when = node.when.map(desugar_when);
+    node.observe = node.observe.map(desugar_observe);
+
+    node
+}
+
+/// Desugar an era declaration
+pub fn desugar_era(mut era: EraDecl) -> EraDecl {
+    era.dt = era.dt.map(desugar_expr);
+    era.transitions = era
+        .transitions
+        .into_iter()
+        .map(|mut t| {
+            t.conditions = t.conditions.into_iter().map(desugar_expr).collect();
+            t
+        })
+        .collect();
+    era
+}
+
+/// Desugar a world declaration
+pub fn desugar_world(mut world: WorldDecl) -> WorldDecl {
+    if let Some(mut warmup) = world.warmup {
+        warmup.attributes = warmup
+            .attributes
+            .into_iter()
+            .map(|mut attr| {
+                attr.args = attr.args.into_iter().map(desugar_expr).collect();
+                attr
+            })
+            .collect();
+        world.warmup = Some(warmup);
+    }
+    world.attributes = world
+        .attributes
+        .into_iter()
+        .map(|mut attr| {
+            attr.args = attr.args.into_iter().map(desugar_expr).collect();
+            attr
+        })
+        .collect();
+    world
+}
+
+/// Main entry point for desugaring all declarations in a world
+pub fn desugar_declarations(decls: Vec<Declaration>) -> Vec<Declaration> {
+    decls
+        .into_iter()
+        .map(|decl| match decl {
+            Declaration::Node(node) => Declaration::Node(desugar_node(node)),
+            Declaration::Member(node) => Declaration::Member(desugar_node(node)),
+            Declaration::Era(era) => Declaration::Era(desugar_era(era)),
+            Declaration::World(world) => Declaration::World(desugar_world(world)),
+            Declaration::Const(mut entries) => {
+                for entry in &mut entries {
+                    entry.value = desugar_expr(entry.value.clone());
+                }
+                Declaration::Const(entries)
+            }
+            Declaration::Config(mut entries) => {
+                for entry in &mut entries {
+                    entry.default = entry.default.clone().map(desugar_expr);
+                }
+                Declaration::Config(entries)
+            }
+            _ => decl,
+        })
+        .collect()
 }
 
 #[cfg(test)]

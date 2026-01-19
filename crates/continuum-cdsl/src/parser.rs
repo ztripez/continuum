@@ -39,7 +39,7 @@
 //!
 //! The parser does not perform error recovery.
 //! Parse failures produce Rich<Token> errors rather than
-//! [`ExprKind::ParseError`] placeholders.
+//! [`UntypedKind::ParseError`] placeholders.
 //!
 //! # Examples
 //!
@@ -57,16 +57,14 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, Entity, EraDecl, Expr,
-    Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData, Stmt, Stratum, StratumPolicyEntry,
-    TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr, UntypedKind as ExprKind,
-    WarmupBlock, WhenBlock, WorldDecl,
+    AggregateOp, Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, Entity,
+    EraDecl, Expr, Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData, Stmt, Stratum,
+    StratumPolicyEntry, TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr,
+    UntypedKind, WarmupBlock, WhenBlock, WorldDecl,
 };
+
 use crate::foundation::{EntityId, Path, Span, StratumId};
 use crate::lexer::Token;
-
-// Need continuum_foundation::Path for EntityId/StratumId
-use continuum_foundation::Path as FoundationPath;
 
 /// Parse an expression from a token stream.
 ///
@@ -204,8 +202,8 @@ fn expr_parser<'src>()
 
         // Boolean literals
         let bool_literal = select! {
-            Token::True => ExprKind::BoolLiteral(true),
-            Token::False => ExprKind::BoolLiteral(false),
+            Token::True => UntypedKind::BoolLiteral(true),
+            Token::False => UntypedKind::BoolLiteral(false),
         }
         .map_with(|kind, e| Expr::new(kind, token_span(e.span())));
 
@@ -222,18 +220,18 @@ fn expr_parser<'src>()
                 .or_not(),
         )
         .map_with(|(value, unit), e| {
-            Expr::new(ExprKind::Literal { value, unit }, token_span(e.span()))
+            Expr::new(UntypedKind::Literal { value, unit }, token_span(e.span()))
         });
 
         // Context values (prev, current, inputs, dt, self, other, payload)
         let context_value = select! {
-            Token::Prev => ExprKind::Prev,
-            Token::Current => ExprKind::Current,
-            Token::Inputs => ExprKind::Inputs,
-            Token::Dt => ExprKind::Dt,
-            Token::Self_ => ExprKind::Self_,
-            Token::Other => ExprKind::Other,
-            Token::Payload => ExprKind::Payload,
+            Token::Prev => UntypedKind::Prev,
+            Token::Current => UntypedKind::Current,
+            Token::Inputs => UntypedKind::Inputs,
+            Token::Dt => UntypedKind::Dt,
+            Token::Self_ => UntypedKind::Self_,
+            Token::Other => UntypedKind::Other,
+            Token::Payload => UntypedKind::Payload,
         }
         .map_with(|kind, e| Expr::new(kind, token_span(e.span())));
 
@@ -241,7 +239,7 @@ fn expr_parser<'src>()
         let identifier = select! {
             Token::Ident(name) => name,
         }
-        .map_with(|name, e| Expr::new(ExprKind::Local(name), token_span(e.span())))
+        .map_with(|name, e| Expr::new(UntypedKind::Local(name), token_span(e.span())))
         .foldl(
             expr.clone()
                 .separated_by(just(Token::Comma))
@@ -252,14 +250,16 @@ fn expr_parser<'src>()
             |func_expr, args| {
                 let span = func_expr.span;
                 match &func_expr.kind {
-                    ExprKind::Local(name) => {
+                    UntypedKind::Local(name) => {
                         let path = Path::from_str(name);
-                        Expr::new(ExprKind::Call { func: path, args }, span)
+                        Expr::new(UntypedKind::Call { func: path, args }, span)
                     }
-                    ExprKind::Call { .. } => {
+                    UntypedKind::Call { .. } => {
                         // Calling a call result - not supported yet
                         Expr::new(
-                            ExprKind::ParseError("nested function calls not supported".to_string()),
+                            UntypedKind::ParseError(
+                                "nested function calls not supported".to_string(),
+                            ),
                             span,
                         )
                     }
@@ -280,7 +280,7 @@ fn expr_parser<'src>()
             .allow_trailing()
             .collect::<Vec<_>>()
             .delimited_by(just(Token::LBracket), just(Token::RBracket))
-            .map_with(|elements, e| Expr::new(ExprKind::Vector(elements), token_span(e.span())));
+            .map_with(|elements, e| Expr::new(UntypedKind::Vector(elements), token_span(e.span())));
 
         // Atom: any of the above
         let atom = choice((
@@ -302,7 +302,7 @@ fn expr_parser<'src>()
             |object, field| {
                 let span = object.span;
                 Expr::new(
-                    ExprKind::FieldAccess {
+                    UntypedKind::FieldAccess {
                         object: Box::new(object),
                         field,
                     },
@@ -321,7 +321,7 @@ fn expr_parser<'src>()
         .foldr(postfix, |op, operand| {
             let span = operand.span;
             Expr::new(
-                ExprKind::Unary {
+                UntypedKind::Unary {
                     op,
                     operand: Box::new(operand),
                 },
@@ -346,7 +346,7 @@ fn expr_parser<'src>()
                 let make_pow = |left: Expr, right: Expr| {
                     let span = left.span;
                     Expr::new(
-                        ExprKind::Binary {
+                        UntypedKind::Binary {
                             op: BinaryOp::Pow,
                             left: Box::new(left),
                             right: Box::new(right),
@@ -378,7 +378,7 @@ fn expr_parser<'src>()
                 .foldl_with(mul_op.then(power).repeated(), |left, (op, right), _e| {
                     let span = left.span;
                     Expr::new(
-                        ExprKind::Binary {
+                        UntypedKind::Binary {
                             op,
                             left: Box::new(left),
                             right: Box::new(right),
@@ -397,7 +397,7 @@ fn expr_parser<'src>()
             .foldl_with(add_op.then(mul).repeated(), |left, (op, right), _e| {
                 let span = left.span;
                 Expr::new(
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op,
                         left: Box::new(left),
                         right: Box::new(right),
@@ -420,7 +420,7 @@ fn expr_parser<'src>()
                 .foldl_with(cmp_op.then(add).repeated(), |left, (op, right), _e| {
                     let span = left.span;
                     Expr::new(
-                        ExprKind::Binary {
+                        UntypedKind::Binary {
                             op,
                             left: Box::new(left),
                             right: Box::new(right),
@@ -438,7 +438,7 @@ fn expr_parser<'src>()
             |left, (op, right), _e| {
                 let span = left.span;
                 Expr::new(
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op,
                         left: Box::new(left),
                         right: Box::new(right),
@@ -454,7 +454,7 @@ fn expr_parser<'src>()
             |left, (op, right), _e| {
                 let span = left.span;
                 Expr::new(
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op,
                         left: Box::new(left),
                         right: Box::new(right),
@@ -475,7 +475,7 @@ fn expr_parser<'src>()
             .then(braced_expr)
             .map_with(|((condition, then_branch), else_branch), e| {
                 Expr::new(
-                    ExprKind::If {
+                    UntypedKind::If {
                         condition: Box::new(condition),
                         then_branch: Box::new(then_branch),
                         else_branch: Box::new(else_branch),
@@ -493,7 +493,7 @@ fn expr_parser<'src>()
             .then(expr.clone())
             .map_with(|((name, value), body), e| {
                 Expr::new(
-                    ExprKind::Let {
+                    UntypedKind::Let {
                         name,
                         value: Box::new(value),
                         body: Box::new(body),
@@ -895,6 +895,7 @@ fn stmt_parser<'src>(
 /// - Effect phases (collect, apply, emit) use Statement bodies
 ///
 /// Statements must be separated by semicolons.
+
 fn block_body_parser<'src>()
 -> impl Parser<'src, &'src [Token], BlockBody, extra::Err<Rich<'src, Token>>> + Clone {
     let expr = expr_parser();
@@ -1309,9 +1310,7 @@ fn entity_parser<'src>()
         .then_ignore(just(Token::RBrace))
         .map_with(|(path, attrs), e| {
             let span = token_span(e.span());
-            // Convert Path to FoundationPath for EntityId
-            let foundation_path = FoundationPath::from_str(&path.to_string());
-            let mut entity = Entity::new(EntityId(foundation_path), path, span);
+            let mut entity = Entity::new(EntityId::new(path.to_string()), path, span);
             entity.attributes = attrs;
             Declaration::Entity(entity)
         })
@@ -1365,8 +1364,7 @@ fn member_parser<'src>()
 
             let entity_path_str = parts[..parts.len() - 1].join(".");
 
-            let foundation_path = FoundationPath::from_str(&entity_path_str);
-            let entity_id = EntityId(foundation_path);
+            let entity_id = EntityId::new(entity_path_str);
             let mut node = Node::new(full_path, span, RoleData::Signal, entity_id);
             node.type_expr = type_expr;
             node.attributes = attrs;
@@ -1405,9 +1403,8 @@ fn stratum_parser<'src>()
             //   - Default to 1 if absent
             //   - Error if present but invalid
 
-            // Convert Path to FoundationPath for StratumId
-            let foundation_path = FoundationPath::from_str(&path.to_string());
-            let mut stratum = Stratum::new(StratumId(foundation_path), path, span);
+            // Create StratumId
+            let mut stratum = Stratum::new(StratumId::new(path.to_string()), path, span);
             stratum.attributes = attrs;
             Declaration::Stratum(stratum)
         })
@@ -1730,7 +1727,7 @@ mod tests {
     fn test_parse_literal() {
         let expr = lex_and_parse("42.0");
         match expr.kind {
-            ExprKind::Literal { value, unit } => {
+            UntypedKind::Literal { value, unit } => {
                 assert_eq!(value, 42.0);
                 assert_eq!(unit, None);
             }
@@ -1741,20 +1738,26 @@ mod tests {
     #[test]
     fn test_parse_bool_literal() {
         let expr = lex_and_parse("true");
-        assert!(matches!(expr.kind, ExprKind::BoolLiteral(true)));
+        assert!(matches!(expr.kind, UntypedKind::BoolLiteral(true)));
 
         let expr = lex_and_parse("false");
-        assert!(matches!(expr.kind, ExprKind::BoolLiteral(false)));
+        assert!(matches!(expr.kind, UntypedKind::BoolLiteral(false)));
     }
 
     #[test]
     fn test_parse_binary_add() {
         let expr = lex_and_parse("10 + 20");
         match expr.kind {
-            ExprKind::Binary { op, left, right } => {
+            UntypedKind::Binary { op, left, right } => {
                 assert_eq!(op, BinaryOp::Add);
-                assert!(matches!(left.kind, ExprKind::Literal { value: 10.0, .. }));
-                assert!(matches!(right.kind, ExprKind::Literal { value: 20.0, .. }));
+                assert!(matches!(
+                    left.kind,
+                    UntypedKind::Literal { value: 10.0, .. }
+                ));
+                assert!(matches!(
+                    right.kind,
+                    UntypedKind::Literal { value: 20.0, .. }
+                ));
             }
             _ => panic!("expected binary, got {:?}", expr.kind),
         }
@@ -1765,7 +1768,7 @@ mod tests {
         // Units are token sequences: Lt, Ident("m"), Gt
         let expr = lex_and_parse("100.0<m>");
         match expr.kind {
-            ExprKind::Literal { value, unit } => {
+            UntypedKind::Literal { value, unit } => {
                 assert_eq!(value, 100.0);
                 assert_eq!(unit, Some(UnitExpr::Base("m".to_string())));
             }
@@ -1778,7 +1781,7 @@ mod tests {
         // <m/s> → Lt, Ident("m"), Slash, Ident("s"), Gt
         let expr = lex_and_parse("10.0<m/s>");
         match expr.kind {
-            ExprKind::Literal { value, unit } => {
+            UntypedKind::Literal { value, unit } => {
                 assert_eq!(value, 10.0);
                 match unit {
                     Some(UnitExpr::Divide(num, denom)) => {
@@ -1796,11 +1799,11 @@ mod tests {
     fn test_parse_unary_neg() {
         let expr = lex_and_parse("-42.0");
         match expr.kind {
-            ExprKind::Unary { op, operand } => {
+            UntypedKind::Unary { op, operand } => {
                 assert_eq!(op, UnaryOp::Neg);
                 assert!(matches!(
                     operand.kind,
-                    ExprKind::Literal { value: 42.0, .. }
+                    UntypedKind::Literal { value: 42.0, .. }
                 ));
             }
             _ => panic!("expected unary, got {:?}", expr.kind),
@@ -1811,15 +1814,15 @@ mod tests {
     fn test_precedence_mul_over_add() {
         let expr = lex_and_parse("1 + 2 * 3");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Add,
                 left,
                 right,
             } => {
-                assert!(matches!(left.kind, ExprKind::Literal { value: 1.0, .. }));
+                assert!(matches!(left.kind, UntypedKind::Literal { value: 1.0, .. }));
                 assert!(matches!(
                     right.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Mul,
                         ..
                     }
@@ -1834,15 +1837,15 @@ mod tests {
         let expr = lex_and_parse("2 ^ 3 ^ 4");
         // Should parse as 2 ^ (3 ^ 4) for right-associativity
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Pow,
                 left,
                 right,
             } => {
-                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                assert!(matches!(left.kind, UntypedKind::Literal { value: 2.0, .. }));
                 assert!(matches!(
                     right.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Pow,
                         ..
                     }
@@ -1857,13 +1860,16 @@ mod tests {
         // Single power should just work
         let expr = lex_and_parse("2 ^ 3");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Pow,
                 left,
                 right,
             } => {
-                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
-                assert!(matches!(right.kind, ExprKind::Literal { value: 3.0, .. }));
+                assert!(matches!(left.kind, UntypedKind::Literal { value: 2.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    UntypedKind::Literal { value: 3.0, .. }
+                ));
             }
             _ => panic!("expected single pow, got {:?}", expr.kind),
         }
@@ -1875,15 +1881,15 @@ mod tests {
         // 2 * 3 ^ 4 should parse as 2 * (3 ^ 4)
         let expr = lex_and_parse("2 * 3 ^ 4");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Mul,
                 left,
                 right,
             } => {
-                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                assert!(matches!(left.kind, UntypedKind::Literal { value: 2.0, .. }));
                 assert!(matches!(
                     right.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Pow,
                         ..
                     }
@@ -1898,19 +1904,22 @@ mod tests {
         // Power on left: 2 ^ 3 * 4 should parse as (2 ^ 3) * 4
         let expr = lex_and_parse("2 ^ 3 * 4");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Mul,
                 left,
                 right,
             } => {
                 assert!(matches!(
                     left.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Pow,
                         ..
                     }
                 ));
-                assert!(matches!(right.kind, ExprKind::Literal { value: 4.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    UntypedKind::Literal { value: 4.0, .. }
+                ));
             }
             _ => panic!("expected mul with pow on left, got {:?}", expr.kind),
         }
@@ -1922,19 +1931,22 @@ mod tests {
         // (2 ^ 3) ^ 4 should parse as left-associative Binary(Binary(2, 3), 4)
         let expr = lex_and_parse("(2 ^ 3) ^ 4");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Pow,
                 left,
                 right,
             } => {
                 assert!(matches!(
                     left.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Pow,
                         ..
                     }
                 ));
-                assert!(matches!(right.kind, ExprKind::Literal { value: 4.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    UntypedKind::Literal { value: 4.0, .. }
+                ));
             }
             _ => panic!("expected pow with pow on left, got {:?}", expr.kind),
         }
@@ -1945,15 +1957,15 @@ mod tests {
         // Power with unary on right: 2 ^ -3
         let expr = lex_and_parse("2 ^ -3");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Pow,
                 left,
                 right,
             } => {
-                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                assert!(matches!(left.kind, UntypedKind::Literal { value: 2.0, .. }));
                 assert!(matches!(
                     right.kind,
-                    ExprKind::Unary {
+                    UntypedKind::Unary {
                         op: UnaryOp::Neg,
                         ..
                     }
@@ -1969,19 +1981,22 @@ mod tests {
         // Unary binds to its operand first, so this is (-2) ^ 3
         let expr = lex_and_parse("-2 ^ 3");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Pow,
                 left,
                 right,
             } => {
                 assert!(matches!(
                     left.kind,
-                    ExprKind::Unary {
+                    UntypedKind::Unary {
                         op: UnaryOp::Neg,
                         ..
                     }
                 ));
-                assert!(matches!(right.kind, ExprKind::Literal { value: 3.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    UntypedKind::Literal { value: 3.0, .. }
+                ));
             }
             _ => panic!("expected pow with unary left, got {:?}", expr.kind),
         }
@@ -1992,37 +2007,37 @@ mod tests {
         // Longer chain: 2 ^ 3 ^ 4 ^ 5 should be 2 ^ (3 ^ (4 ^ 5))
         let expr = lex_and_parse("2 ^ 3 ^ 4 ^ 5");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Pow,
                 left,
                 right,
             } => {
-                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                assert!(matches!(left.kind, UntypedKind::Literal { value: 2.0, .. }));
                 // right should be 3 ^ (4 ^ 5)
                 match right.kind {
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Pow,
                         left: inner_left,
                         right: inner_right,
                     } => {
                         assert!(matches!(
                             inner_left.kind,
-                            ExprKind::Literal { value: 3.0, .. }
+                            UntypedKind::Literal { value: 3.0, .. }
                         ));
                         // inner_right should be 4 ^ 5 with full leaves verified
                         match inner_right.kind {
-                            ExprKind::Binary {
+                            UntypedKind::Binary {
                                 op: BinaryOp::Pow,
                                 left: leaf_left,
                                 right: leaf_right,
                             } => {
                                 assert!(matches!(
                                     leaf_left.kind,
-                                    ExprKind::Literal { value: 4.0, .. }
+                                    UntypedKind::Literal { value: 4.0, .. }
                                 ));
                                 assert!(matches!(
                                     leaf_right.kind,
-                                    ExprKind::Literal { value: 5.0, .. }
+                                    UntypedKind::Literal { value: 5.0, .. }
                                 ));
                             }
                             _ => panic!("expected innermost pow, got {:?}", inner_right.kind),
@@ -2040,20 +2055,26 @@ mod tests {
         // Explicit parentheses on right: 2 ^ (3 ^ 4)
         let expr = lex_and_parse("2 ^ (3 ^ 4)");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Pow,
                 left,
                 right,
             } => {
-                assert!(matches!(left.kind, ExprKind::Literal { value: 2.0, .. }));
+                assert!(matches!(left.kind, UntypedKind::Literal { value: 2.0, .. }));
                 match right.kind {
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Pow,
                         left: rleft,
                         right: rright,
                     } => {
-                        assert!(matches!(rleft.kind, ExprKind::Literal { value: 3.0, .. }));
-                        assert!(matches!(rright.kind, ExprKind::Literal { value: 4.0, .. }));
+                        assert!(matches!(
+                            rleft.kind,
+                            UntypedKind::Literal { value: 3.0, .. }
+                        ));
+                        assert!(matches!(
+                            rright.kind,
+                            UntypedKind::Literal { value: 4.0, .. }
+                        ));
                     }
                     _ => panic!("expected parenthesized pow on right, got {:?}", right.kind),
                 }
@@ -2067,15 +2088,15 @@ mod tests {
         // Power should bind tighter than comparison: 1 < 2 ^ 3 is 1 < (2 ^ 3)
         let expr = lex_and_parse("1 < 2 ^ 3");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Lt,
                 left,
                 right,
             } => {
-                assert!(matches!(left.kind, ExprKind::Literal { value: 1.0, .. }));
+                assert!(matches!(left.kind, UntypedKind::Literal { value: 1.0, .. }));
                 assert!(matches!(
                     right.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Pow,
                         ..
                     }
@@ -2148,9 +2169,9 @@ mod tests {
     fn test_postfix_call_then_field() {
         let expr = lex_and_parse("f(1).x");
         match expr.kind {
-            ExprKind::FieldAccess { object, field } => {
+            UntypedKind::FieldAccess { object, field } => {
                 assert_eq!(field, "x");
-                assert!(matches!(object.kind, ExprKind::Call { .. }));
+                assert!(matches!(object.kind, UntypedKind::Call { .. }));
             }
             _ => panic!("expected field access on call, got {:?}", expr.kind),
         }
@@ -2160,7 +2181,7 @@ mod tests {
     fn test_vector_empty() {
         let expr = lex_and_parse("[]");
         match expr.kind {
-            ExprKind::Vector(elements) => {
+            UntypedKind::Vector(elements) => {
                 assert_eq!(elements.len(), 0);
             }
             _ => panic!("expected empty vector, got {:?}", expr.kind),
@@ -2171,7 +2192,7 @@ mod tests {
     fn test_vector_trailing_comma() {
         let expr = lex_and_parse("[1.0, 2.0, 3.0,]");
         match expr.kind {
-            ExprKind::Vector(elements) => {
+            UntypedKind::Vector(elements) => {
                 assert_eq!(elements.len(), 3);
             }
             _ => panic!("expected vector, got {:?}", expr.kind),
@@ -2182,13 +2203,13 @@ mod tests {
     fn test_unary_chaining() {
         let expr = lex_and_parse("not -42.0");
         match expr.kind {
-            ExprKind::Unary {
+            UntypedKind::Unary {
                 op: UnaryOp::Not,
                 operand,
             } => {
                 assert!(matches!(
                     operand.kind,
-                    ExprKind::Unary {
+                    UntypedKind::Unary {
                         op: UnaryOp::Neg,
                         ..
                     }
@@ -2202,19 +2223,22 @@ mod tests {
     fn test_parenthesis_override() {
         let expr = lex_and_parse("(1 + 2) * 3");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Mul,
                 left,
                 right,
             } => {
                 assert!(matches!(
                     left.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Add,
                         ..
                     }
                 ));
-                assert!(matches!(right.kind, ExprKind::Literal { value: 3.0, .. }));
+                assert!(matches!(
+                    right.kind,
+                    UntypedKind::Literal { value: 3.0, .. }
+                ));
             }
             _ => panic!("expected mul with add on left, got {:?}", expr.kind),
         }
@@ -2227,12 +2251,15 @@ mod tests {
         // let x = 10 in x + 1
         let expr = lex_and_parse("let x = 10 in x + 1");
         match expr.kind {
-            ExprKind::Let { name, value, body } => {
+            UntypedKind::Let { name, value, body } => {
                 assert_eq!(name, "x");
-                assert!(matches!(value.kind, ExprKind::Literal { value: 10.0, .. }));
+                assert!(matches!(
+                    value.kind,
+                    UntypedKind::Literal { value: 10.0, .. }
+                ));
                 assert!(matches!(
                     body.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Add,
                         ..
                     }
@@ -2247,18 +2274,18 @@ mod tests {
         // let x = 2 * 3 in x + 1
         let expr = lex_and_parse("let x = 2 * 3 in x + 1");
         match expr.kind {
-            ExprKind::Let { name, value, body } => {
+            UntypedKind::Let { name, value, body } => {
                 assert_eq!(name, "x");
                 assert!(matches!(
                     value.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Mul,
                         ..
                     }
                 ));
                 assert!(matches!(
                     body.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Add,
                         ..
                     }
@@ -2273,12 +2300,15 @@ mod tests {
         // let x = 10 in let y = 20 in x + y
         let expr = lex_and_parse("let x = 10 in let y = 20 in x + y");
         match expr.kind {
-            ExprKind::Let { name, value, body } => {
+            UntypedKind::Let { name, value, body } => {
                 assert_eq!(name, "x");
-                assert!(matches!(value.kind, ExprKind::Literal { value: 10.0, .. }));
+                assert!(matches!(
+                    value.kind,
+                    UntypedKind::Literal { value: 10.0, .. }
+                ));
                 // Body should be another let
                 match body.kind {
-                    ExprKind::Let {
+                    UntypedKind::Let {
                         name: inner_name,
                         value: inner_value,
                         body: inner_body,
@@ -2286,11 +2316,11 @@ mod tests {
                         assert_eq!(inner_name, "y");
                         assert!(matches!(
                             inner_value.kind,
-                            ExprKind::Literal { value: 20.0, .. }
+                            UntypedKind::Literal { value: 20.0, .. }
                         ));
                         assert!(matches!(
                             inner_body.kind,
-                            ExprKind::Binary {
+                            UntypedKind::Binary {
                                 op: BinaryOp::Add,
                                 ..
                             }
@@ -2310,19 +2340,19 @@ mod tests {
         // if true { 1 } else { 2 }
         let expr = lex_and_parse("if true { 1 } else { 2 }");
         match expr.kind {
-            ExprKind::If {
+            UntypedKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                assert!(matches!(condition.kind, ExprKind::BoolLiteral(true)));
+                assert!(matches!(condition.kind, UntypedKind::BoolLiteral(true)));
                 assert!(matches!(
                     then_branch.kind,
-                    ExprKind::Literal { value: 1.0, .. }
+                    UntypedKind::Literal { value: 1.0, .. }
                 ));
                 assert!(matches!(
                     else_branch.kind,
-                    ExprKind::Literal { value: 2.0, .. }
+                    UntypedKind::Literal { value: 2.0, .. }
                 ));
             }
             _ => panic!("expected if expression, got {:?}", expr.kind),
@@ -2334,22 +2364,22 @@ mod tests {
         // if x < 10 { x } else { 10 }
         let expr = lex_and_parse("if x < 10 { x } else { 10 }");
         match expr.kind {
-            ExprKind::If {
+            UntypedKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
                 assert!(matches!(
                     condition.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Lt,
                         ..
                     }
                 ));
-                assert!(matches!(then_branch.kind, ExprKind::Local(_)));
+                assert!(matches!(then_branch.kind, UntypedKind::Local(_)));
                 assert!(matches!(
                     else_branch.kind,
-                    ExprKind::Literal { value: 10.0, .. }
+                    UntypedKind::Literal { value: 10.0, .. }
                 ));
             }
             _ => panic!("expected if expression, got {:?}", expr.kind),
@@ -2361,27 +2391,27 @@ mod tests {
         // if x { if y { 1 } else { 2 } } else { 3 }
         let expr = lex_and_parse("if x { if y { 1 } else { 2 } } else { 3 }");
         match expr.kind {
-            ExprKind::If {
+            UntypedKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                assert!(matches!(condition.kind, ExprKind::Local(_)));
+                assert!(matches!(condition.kind, UntypedKind::Local(_)));
                 // Then branch should be another if
                 match then_branch.kind {
-                    ExprKind::If {
+                    UntypedKind::If {
                         condition: inner_cond,
                         then_branch: inner_then,
                         else_branch: inner_else,
                     } => {
-                        assert!(matches!(inner_cond.kind, ExprKind::Local(_)));
+                        assert!(matches!(inner_cond.kind, UntypedKind::Local(_)));
                         assert!(matches!(
                             inner_then.kind,
-                            ExprKind::Literal { value: 1.0, .. }
+                            UntypedKind::Literal { value: 1.0, .. }
                         ));
                         assert!(matches!(
                             inner_else.kind,
-                            ExprKind::Literal { value: 2.0, .. }
+                            UntypedKind::Literal { value: 2.0, .. }
                         ));
                     }
                     _ => panic!(
@@ -2391,7 +2421,7 @@ mod tests {
                 }
                 assert!(matches!(
                     else_branch.kind,
-                    ExprKind::Literal { value: 3.0, .. }
+                    UntypedKind::Literal { value: 3.0, .. }
                 ));
             }
             _ => panic!("expected if expression, got {:?}", expr.kind),
@@ -2403,28 +2433,28 @@ mod tests {
         // if x + 1 < 10 { x * 2 } else { x / 2 }
         let expr = lex_and_parse("if x + 1 < 10 { x * 2 } else { x / 2 }");
         match expr.kind {
-            ExprKind::If {
+            UntypedKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
                 assert!(matches!(
                     condition.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Lt,
                         ..
                     }
                 ));
                 assert!(matches!(
                     then_branch.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Mul,
                         ..
                     }
                 ));
                 assert!(matches!(
                     else_branch.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Div,
                         ..
                     }
@@ -2441,16 +2471,16 @@ mod tests {
         // if x { let y = 10 in y } else { 0 }
         let expr = lex_and_parse("if x { let y = 10 in y } else { 0 }");
         match expr.kind {
-            ExprKind::If {
+            UntypedKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                assert!(matches!(condition.kind, ExprKind::Local(_)));
-                assert!(matches!(then_branch.kind, ExprKind::Let { .. }));
+                assert!(matches!(condition.kind, UntypedKind::Local(_)));
+                assert!(matches!(then_branch.kind, UntypedKind::Let { .. }));
                 assert!(matches!(
                     else_branch.kind,
-                    ExprKind::Literal { value: 0.0, .. }
+                    UntypedKind::Literal { value: 0.0, .. }
                 ));
             }
             _ => panic!("expected if expression, got {:?}", expr.kind),
@@ -2462,12 +2492,12 @@ mod tests {
         // let x = if true { 1 } else { 2 } in x + 1
         let expr = lex_and_parse("let x = if true { 1 } else { 2 } in x + 1");
         match expr.kind {
-            ExprKind::Let { name, value, body } => {
+            UntypedKind::Let { name, value, body } => {
                 assert_eq!(name, "x");
-                assert!(matches!(value.kind, ExprKind::If { .. }));
+                assert!(matches!(value.kind, UntypedKind::If { .. }));
                 assert!(matches!(
                     body.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Add,
                         ..
                     }
@@ -2483,12 +2513,12 @@ mod tests {
         // let x = 1 + 2 in x * 3  (not let x = 1 + (2 in x) * 3)
         let expr = lex_and_parse("let x = 1 + 2 in x * 3");
         match expr.kind {
-            ExprKind::Let { name, value, body } => {
+            UntypedKind::Let { name, value, body } => {
                 assert_eq!(name, "x");
                 // Value should be 1 + 2, not just 1
                 assert!(matches!(
                     value.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Add,
                         ..
                     }
@@ -2496,7 +2526,7 @@ mod tests {
                 // Body should be x * 3, not just x
                 assert!(matches!(
                     body.kind,
-                    ExprKind::Binary {
+                    UntypedKind::Binary {
                         op: BinaryOp::Mul,
                         ..
                     }
@@ -2602,15 +2632,15 @@ mod tests {
         // 1 + (if true { 2 } else { 3 }) should parse
         let expr = lex_and_parse("1 + (if true { 2 } else { 3 })");
         match expr.kind {
-            ExprKind::Binary {
+            UntypedKind::Binary {
                 op: BinaryOp::Add,
                 left,
                 right,
             } => {
                 // Left should be 1
-                assert!(matches!(left.kind, ExprKind::Literal { value: 1.0, .. }));
+                assert!(matches!(left.kind, UntypedKind::Literal { value: 1.0, .. }));
                 // Right should be if expression
-                assert!(matches!(right.kind, ExprKind::If { .. }));
+                assert!(matches!(right.kind, UntypedKind::If { .. }));
             }
             _ => panic!(
                 "expected Add with parenthesized if on right, got {:?}",
