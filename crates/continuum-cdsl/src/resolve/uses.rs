@@ -26,6 +26,13 @@
 //! This pass runs after type resolution (so we have TypedExpr) and before
 //! execution DAG construction.
 //!
+//! # Known Limitations
+//!
+//! **Untyped blocks not validated** (tracked in continuum-bq4v):
+//! - `warmup`, `when`, and `observe` blocks contain untyped `Expr` (not yet compiled to `TypedExpr`)
+//! - Dangerous functions in these blocks bypass validation
+//! - This is a known gap - validation will be extended when these blocks are compiled earlier
+//!
 //! # Examples
 //!
 //! ```cdsl
@@ -65,6 +72,7 @@ struct RequiredUse {
 /// Extract uses declarations from node attributes
 ///
 /// Parses `: uses(maths.clamping, dt.raw)` into a set of keys.
+/// Emits errors for invalid arguments that cannot be parsed.
 ///
 /// # Example
 ///
@@ -80,19 +88,37 @@ struct RequiredUse {
 ///         span,
 ///     },
 /// ];
-/// let uses = extract_uses_declarations(&attrs);
+/// let mut errors = Vec::new();
+/// let uses = extract_uses_declarations(&attrs, &mut errors);
 /// assert!(uses.contains("maths.clamping"));
 /// assert!(uses.contains("dt.raw"));
+/// assert!(errors.is_empty());
 /// ```
-fn extract_uses_declarations(attrs: &[Attribute]) -> HashSet<String> {
+fn extract_uses_declarations(
+    attrs: &[Attribute],
+    errors: &mut Vec<CompileError>,
+) -> HashSet<String> {
     let mut uses = HashSet::new();
 
     for attr in attrs {
         if attr.name == "uses" {
             // Each arg should be a path like maths.clamping or dt.raw
             for arg in &attr.args {
-                if let Some(key) = extract_uses_key_from_expr(arg) {
-                    uses.insert(key);
+                match extract_uses_key_from_expr(arg) {
+                    Some(key) => {
+                        uses.insert(key);
+                    }
+                    None => {
+                        // Invalid argument - emit error
+                        errors.push(CompileError::new(
+                            ErrorKind::Internal,
+                            arg.span,
+                            format!(
+                                "invalid uses() argument: expected path like 'maths.clamping' or 'dt.raw', got {:?}",
+                                arg.kind
+                            ),
+                        ));
+                    }
                 }
             }
         }
@@ -217,8 +243,8 @@ fn collect_required_uses(
 fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
-    // Extract declared uses from attributes
-    let declared = extract_uses_declarations(&node.attributes);
+    // Extract declared uses from attributes (emits errors for invalid arguments)
+    let declared = extract_uses_declarations(&node.attributes, &mut errors);
 
     // Collect required uses from all execution-related blocks
     let mut required = Vec::new();
@@ -229,9 +255,13 @@ fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Ve
         collect_required_uses(&execution.body, registry, &mut required);
     }
 
-    // TODO: Warmup, When, Observe blocks contain untyped Expr
-    // They need to be compiled to TypedExpr first, then we can validate them
-    // For now, we only validate compiled execution blocks
+    // LIMITATION (tracked in continuum-bq4v):
+    // Warmup, When, Observe blocks contain untyped Expr and are NOT validated.
+    // Dangerous functions can be used in these blocks without : uses() declarations.
+    // This is a known gap - these blocks need either:
+    //   1. Compilation to TypedExpr earlier in the pipeline, or
+    //   2. Separate untyped Expr traversal logic
+    // Currently only compiled execution blocks (with TypedExpr) are validated.
 
     // Validate: for each required use, check if it's declared
     for req in required {
@@ -300,28 +330,61 @@ mod tests {
     #[test]
     fn test_extract_uses_declarations_single() {
         let attrs = vec![make_attr_uses(vec!["maths.clamping"])];
-        let uses = extract_uses_declarations(&attrs);
+        let mut errors = Vec::new();
+        let uses = extract_uses_declarations(&attrs, &mut errors);
 
         assert_eq!(uses.len(), 1);
         assert!(uses.contains("maths.clamping"));
+        assert!(errors.is_empty());
     }
 
     #[test]
     fn test_extract_uses_declarations_multiple() {
         let attrs = vec![make_attr_uses(vec!["maths.clamping", "dt.raw"])];
-        let uses = extract_uses_declarations(&attrs);
+        let mut errors = Vec::new();
+        let uses = extract_uses_declarations(&attrs, &mut errors);
 
         assert_eq!(uses.len(), 2);
         assert!(uses.contains("maths.clamping"));
         assert!(uses.contains("dt.raw"));
+        assert!(errors.is_empty());
     }
 
     #[test]
     fn test_extract_uses_declarations_empty() {
         let attrs = vec![];
-        let uses = extract_uses_declarations(&attrs);
+        let mut errors = Vec::new();
+        let uses = extract_uses_declarations(&attrs, &mut errors);
 
         assert!(uses.is_empty());
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_extract_uses_declarations_invalid_argument() {
+        use crate::ast::{Expr, UntypedKind};
+
+        // : uses(42) - invalid, not a path
+        let attrs = vec![Attribute {
+            name: "uses".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Literal {
+                    value: 42.0,
+                    unit: None,
+                },
+                make_span(),
+            )],
+            span: make_span(),
+        }];
+
+        let mut errors = Vec::new();
+        let uses = extract_uses_declarations(&attrs, &mut errors);
+
+        // Invalid argument should be ignored but error emitted
+        assert!(uses.is_empty());
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::Internal);
+        assert!(errors[0].message.contains("invalid uses() argument"));
     }
 
     #[test]
@@ -496,5 +559,142 @@ mod tests {
         assert_eq!(required[0].key, "maths.clamping");
         assert_eq!(required[0].source, "maths.clamp");
         assert!(required[0].hint.contains("out-of-bounds"));
+    }
+
+    #[test]
+    fn test_saturate_requires_maths_clamping() {
+        let span = make_span();
+
+        // maths.saturate(value) call
+        let value = TypedExpr::new(ExprKind::Prev, Type::Bool, span);
+
+        let saturate_call = TypedExpr::new(
+            ExprKind::Call {
+                kernel: crate::ast::KernelId::new("maths", "saturate"),
+                args: vec![value],
+            },
+            Type::Bool,
+            span,
+        );
+
+        let registry = KernelRegistry::global();
+        let mut required = Vec::new();
+        collect_required_uses(&saturate_call, &registry, &mut required);
+
+        // Should require maths.clamping
+        assert_eq!(required.len(), 1);
+        assert_eq!(required[0].key, "maths.clamping");
+        assert_eq!(required[0].source, "maths.saturate");
+        assert!(required[0].hint.contains("silently clamps"));
+    }
+
+    #[test]
+    fn test_wrap_requires_maths_clamping() {
+        let span = make_span();
+
+        // maths.wrap(value, min, max) call
+        let value = TypedExpr::new(ExprKind::Prev, Type::Bool, span);
+        let min = TypedExpr::new(
+            ExprKind::Literal {
+                value: 0.0,
+                unit: None,
+            },
+            Type::Bool,
+            span,
+        );
+        let max = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::Bool,
+            span,
+        );
+
+        let wrap_call = TypedExpr::new(
+            ExprKind::Call {
+                kernel: crate::ast::KernelId::new("maths", "wrap"),
+                args: vec![value, min, max],
+            },
+            Type::Bool,
+            span,
+        );
+
+        let registry = KernelRegistry::global();
+        let mut required = Vec::new();
+        collect_required_uses(&wrap_call, &registry, &mut required);
+
+        // Should require maths.clamping
+        assert_eq!(required.len(), 1);
+        assert_eq!(required[0].key, "maths.clamping");
+        assert_eq!(required[0].source, "maths.wrap");
+        assert!(required[0].hint.contains("wraps out-of-range"));
+    }
+
+    #[test]
+    fn test_multiple_violations_all_reported() {
+        let span = make_span();
+        let path = Path::from_str("test.signal");
+
+        // Create node with BOTH clamp AND dt usage but NO declarations
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // clamp(dt, 0.0, 1.0) - triggers both maths.clamping AND dt.raw
+        let dt_expr = TypedExpr::new(ExprKind::Dt, Type::Bool, span);
+        let min = TypedExpr::new(
+            ExprKind::Literal {
+                value: 0.0,
+                unit: None,
+            },
+            Type::Bool,
+            span,
+        );
+        let max = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::Bool,
+            span,
+        );
+
+        let clamp_call = TypedExpr::new(
+            ExprKind::Call {
+                kernel: crate::ast::KernelId::new("maths", "clamp"),
+                args: vec![dt_expr, min, max],
+            },
+            Type::Bool,
+            span,
+        );
+
+        node.executions
+            .push(Execution::new(Phase::Resolve, clamp_call, vec![], span));
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        // Should report BOTH violations
+        assert_eq!(
+            errors.len(),
+            2,
+            "Expected 2 errors: dt.raw + maths.clamping"
+        );
+
+        let error_messages: Vec<_> = errors.iter().map(|e| e.message.as_str()).collect();
+
+        // Check that both violations are present
+        let has_dt_raw = error_messages.iter().any(|m| m.contains("dt.raw"));
+        let has_maths_clamping = error_messages.iter().any(|m| m.contains("maths.clamping"));
+
+        assert!(
+            has_dt_raw,
+            "Expected error about dt.raw, got: {:?}",
+            error_messages
+        );
+        assert!(
+            has_maths_clamping,
+            "Expected error about maths.clamping, got: {:?}",
+            error_messages
+        );
     }
 }
