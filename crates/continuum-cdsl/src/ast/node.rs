@@ -839,12 +839,99 @@ pub struct Assertion {
 /// An execution block contains the compiled code for a specific phase,
 /// along with metadata about what it reads and emits.
 ///
-/// **Current status:** Placeholder - not yet implemented
+/// # Lifecycle
+///
+/// `Execution` is created during the execution block compilation pass (Phase 12.5):
+/// 1. Parser produces `Node.execution_blocks: Vec<(String, BlockBody)>`
+/// 2. Execution compilation pass converts each block:
+///    - Validates phase name against role's allowed phases
+///    - Type-checks the block body
+///    - Extracts signal/field reads as dependencies
+///    - Creates `Execution` struct
+/// 3. `Node.execution_blocks` is cleared, `Node.executions` populated
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use continuum_cdsl::ast::Execution;
+/// use continuum_cdsl::foundation::{Phase, Path, Span};
+///
+/// // Signal resolve block
+/// let execution = Execution::new(
+///     Phase::Resolve,
+///     typed_expr,
+///     vec![Path::from("signal.temperature")],
+///     span,
+/// );
+///
+/// assert_eq!(execution.phase, Phase::Resolve);
+/// assert_eq!(execution.reads.len(), 1);
+/// ```
 #[derive(Clone, Debug)]
 pub struct Execution {
-    // This will hold phase, body, and dependency info when implemented
-    #[doc(hidden)]
-    _placeholder: (),
+    /// Which phase this block executes in
+    ///
+    /// Determines when this execution runs relative to other operations.
+    /// Must be one of the phases allowed by the node's role (see `RoleSpec::allowed_phases`).
+    pub phase: crate::foundation::Phase,
+
+    /// Compiled typed expression
+    ///
+    /// The body of the execution block after type resolution.
+    /// Contains the actual computation to perform when this block executes.
+    pub body: TypedExpr,
+
+    /// Signal/field dependencies
+    ///
+    /// Paths to signals and fields that this execution reads.
+    /// Used for DAG construction to determine execution ordering.
+    /// Extracted by analyzing the body expression tree.
+    pub reads: Vec<Path>,
+
+    /// Source location for error reporting
+    ///
+    /// Points to the execution block declaration in source code.
+    /// Used for diagnostic messages when execution fails or validation errors occur.
+    pub span: Span,
+}
+
+impl Execution {
+    /// Create a new execution block
+    ///
+    /// # Parameters
+    ///
+    /// - `phase`: Which phase this executes in (Resolve, Collect, etc.)
+    /// - `body`: The compiled typed expression
+    /// - `reads`: Dependencies extracted from the body
+    /// - `span`: Source location for error messages
+    ///
+    /// # Returns
+    ///
+    /// New execution block ready for DAG construction.
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let execution = Execution::new(
+    ///     Phase::Resolve,
+    ///     typed_expr,
+    ///     vec![Path::from("signal.prev_temp")],
+    ///     span,
+    /// );
+    /// ```
+    pub fn new(
+        phase: crate::foundation::Phase,
+        body: TypedExpr,
+        reads: Vec<Path>,
+        span: Span,
+    ) -> Self {
+        Self {
+            phase,
+            body,
+            reads,
+            span,
+        }
+    }
 }
 
 // Re-export untyped AST types for use in Node
@@ -878,6 +965,7 @@ pub type ValidationError = crate::error::CompileError;
 mod tests {
     use super::*;
     use crate::ast::block::BlockBody;
+    use crate::ast::expr::{ExprKind, TypedExpr};
     use crate::ast::untyped::Expr;
     use crate::foundation::Span;
 
@@ -978,7 +1066,20 @@ mod tests {
 
         // After compilation: execution_blocks cleared, executions set
         node.execution_blocks = Vec::new();
-        node.executions = vec![Execution { _placeholder: () }];
+        let test_body = TypedExpr::new(
+            ExprKind::Literal {
+                value: 0.0,
+                unit: None,
+            },
+            Type::Bool,
+            span,
+        );
+        node.executions = vec![Execution::new(
+            crate::foundation::Phase::Resolve,
+            test_body,
+            vec![],
+            span,
+        )];
         assert!(node.is_compiled());
     }
 
@@ -1083,7 +1184,20 @@ mod tests {
         let test_expr = Expr::literal(0.0, None, span);
         let test_block = BlockBody::Expression(test_expr);
         node.execution_blocks = vec![("test".to_string(), test_block)];
-        node.executions = vec![Execution { _placeholder: () }];
+        let test_body = TypedExpr::new(
+            ExprKind::Literal {
+                value: 0.0,
+                unit: None,
+            },
+            Type::Bool,
+            span,
+        );
+        node.executions = vec![Execution::new(
+            crate::foundation::Phase::Resolve,
+            test_body,
+            vec![],
+            span,
+        )];
         assert!(!node.is_compiled());
     }
 
@@ -1289,5 +1403,79 @@ mod tests {
         assert_ne!(ValidationSeverity::Warn, ValidationSeverity::Error);
         assert_ne!(ValidationSeverity::Error, ValidationSeverity::Fatal);
         assert_ne!(ValidationSeverity::Warn, ValidationSeverity::Fatal);
+    }
+
+    #[test]
+    fn test_execution_creation() {
+        use crate::ast::expr::{ExprKind, TypedExpr};
+        use crate::foundation::{Phase, Type};
+
+        let span = Span::new(0, 0, 10, 1);
+        let body = TypedExpr::new(
+            ExprKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            Type::Bool, // Simplified for test
+            span,
+        );
+        let reads = vec![Path::from_str("signal.temp"), Path::from_str("signal.prev")];
+
+        let execution = Execution::new(Phase::Resolve, body.clone(), reads.clone(), span);
+
+        assert_eq!(execution.phase, Phase::Resolve);
+        assert_eq!(execution.span, span);
+        assert_eq!(execution.reads.len(), 2);
+        assert_eq!(execution.reads[0], Path::from_str("signal.temp"));
+        assert_eq!(execution.reads[1], Path::from_str("signal.prev"));
+    }
+
+    #[test]
+    fn test_execution_phases() {
+        use crate::ast::expr::{ExprKind, TypedExpr};
+        use crate::foundation::{Phase, Type};
+
+        let span = Span::new(0, 0, 10, 1);
+        let body = TypedExpr::new(
+            ExprKind::Literal {
+                value: 0.0,
+                unit: None,
+            },
+            Type::Bool,
+            span,
+        );
+
+        let phases = vec![
+            Phase::Configure,
+            Phase::Collect,
+            Phase::Resolve,
+            Phase::Fracture,
+            Phase::Measure,
+        ];
+
+        for phase in phases {
+            let execution = Execution::new(phase, body.clone(), vec![], span);
+            assert_eq!(execution.phase, phase);
+        }
+    }
+
+    #[test]
+    fn test_execution_no_dependencies() {
+        use crate::ast::expr::{ExprKind, TypedExpr};
+        use crate::foundation::{Phase, Type};
+
+        let span = Span::new(0, 0, 10, 1);
+        let body = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::Bool,
+            span,
+        );
+
+        let execution = Execution::new(Phase::Resolve, body, vec![], span);
+
+        assert!(execution.reads.is_empty());
     }
 }
