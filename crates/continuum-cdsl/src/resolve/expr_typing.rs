@@ -1158,6 +1158,77 @@ mod tests {
         )
     }
 
+    /// Create a typing context with pre-registered user types
+    ///
+    /// Reduces test boilerplate by encapsulating TypeTable construction and leaking.
+    ///
+    /// # Parameters
+    ///
+    /// - `types`: Array of (type_name, fields) tuples where fields is array of (field_name, field_type) tuples
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let ctx = make_context_with_types(&[(
+    ///     "Position",
+    ///     &[
+    ///         ("x", Type::Kernel(KernelType { shape: Shape::Scalar, unit: Unit::meters(), bounds: None })),
+    ///         ("y", Type::Kernel(KernelType { shape: Shape::Scalar, unit: Unit::meters(), bounds: None })),
+    ///     ],
+    /// )]);
+    /// ```
+    fn make_context_with_types<'a>(types: &[(&str, &[(&str, Type)])]) -> TypingContext<'a> {
+        let type_table = Box::leak(Box::new({
+            let mut table = TypeTable::new();
+            for (type_name, fields) in types {
+                let type_id = TypeId::from(*type_name);
+                let user_type = UserType::new(
+                    type_id.clone(),
+                    Path::from(*type_name),
+                    fields
+                        .iter()
+                        .map(|(name, ty)| (name.to_string(), ty.clone()))
+                        .collect(),
+                );
+                table.register(user_type);
+            }
+            table
+        }));
+
+        let kernel_registry = KernelRegistry::global();
+        let signal_types = Box::leak(Box::new(HashMap::new()));
+        let field_types = Box::leak(Box::new(HashMap::new()));
+        let config_types = Box::leak(Box::new(HashMap::new()));
+        let const_types = Box::leak(Box::new(HashMap::new()));
+
+        TypingContext::new(
+            type_table,
+            kernel_registry,
+            signal_types,
+            field_types,
+            config_types,
+            const_types,
+        )
+    }
+
+    /// Create a dimensionless scalar literal expression for testing
+    ///
+    /// Reduces boilerplate in vector literal tests where multiple literals are constructed.
+    ///
+    /// # Parameters
+    ///
+    /// - `value`: Numeric value for the literal
+    ///
+    /// # Returns
+    ///
+    /// Untyped expression with dummy span
+    fn test_literal(value: f64) -> Expr {
+        Expr::new(
+            UntypedKind::Literal { value, unit: None },
+            Span::new(0, 0, 3, 1),
+        )
+    }
+
     #[test]
     fn test_type_literal_dimensionless() {
         let ctx = make_context();
@@ -2174,6 +2245,24 @@ mod tests {
         assert!(errors[0].message.contains("scalar") || errors[0].message.contains("Scalar"));
     }
 
+    #[test]
+    fn test_type_vector_bool_element_fails() {
+        let ctx = make_context();
+        // Try to create a vector containing a boolean
+        let expr = Expr::new(
+            UntypedKind::Vector(vec![Expr::new(
+                UntypedKind::BoolLiteral(true),
+                Span::new(0, 0, 4, 1),
+            )]),
+            Span::new(0, 0, 6, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("non-kernel") || errors[0].message.contains("Bool"));
+    }
+
     // ============================================================================
     // Tests for Let bindings
     // ============================================================================
@@ -2293,11 +2382,9 @@ mod tests {
     }
 
     #[test]
-    fn test_type_let_variable_not_in_scope_outside_body() {
+    fn test_type_let_binding_available_in_body() {
         let ctx = make_context();
-        // This should fail: the binding is not available outside the let body
-        // But we can't directly test that without context manipulation
-        // Instead, verify that binding correctly extends scope in body
+        // Verify that let binding is correctly available within the let body
         let expr = Expr::new(
             UntypedKind::Let {
                 name: "temp".to_string(),
@@ -2319,6 +2406,62 @@ mod tests {
         // This should succeed - temp is in scope within body
         let typed = type_expression(&expr, &ctx).unwrap();
         assert!(matches!(typed.ty, Type::Kernel(_)));
+    }
+
+    #[test]
+    fn test_type_let_value_error_propagates() {
+        let ctx = make_context();
+        // Let binding value expression fails - error should propagate
+        let expr = Expr::new(
+            UntypedKind::Let {
+                name: "x".to_string(),
+                value: Box::new(Expr::new(
+                    UntypedKind::Local("undefined_var".to_string()),
+                    Span::new(0, 0, 13, 1),
+                )),
+                body: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 1.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(errors[0].message.contains("undefined_var"));
+    }
+
+    #[test]
+    fn test_type_let_body_error_propagates() {
+        let ctx = make_context();
+        // Let binding body expression fails - error should propagate
+        let expr = Expr::new(
+            UntypedKind::Let {
+                name: "x".to_string(),
+                value: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 42.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+                body: Box::new(Expr::new(
+                    UntypedKind::Local("undefined_var".to_string()),
+                    Span::new(0, 0, 13, 1),
+                )),
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(errors[0].message.contains("undefined_var"));
     }
 
     // ============================================================================

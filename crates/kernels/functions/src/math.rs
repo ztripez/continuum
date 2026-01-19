@@ -767,6 +767,7 @@ mod tests {
         "min_2",
         "min_3",
         "min_4",
+        "neg",
         "mix",
         "pow",
         "round",
