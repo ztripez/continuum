@@ -405,7 +405,30 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Field access ===
+        // === Field access ===
+        //
+        // Handles two distinct access patterns:
+        //
+        // 1. **User-defined struct field access**: `signal.position` → looks up field type
+        //    - Requires TypeTable lookup by UserTypeId (currently O(n) via iter().find())
+        //    - Returns the declared field type with its bounds
+        //    - Errors if field doesn't exist on the user type
+        //
+        // 2. **Vector component access**: `velocity.x` → returns Scalar with same unit
+        //    - Component names (x, y, z, w) map to indices (0, 1, 2, 3) within dimension
+        //    - Returns Scalar shape with the vector's unit
+        //    - Bounds are NOT propagated from vector to component (returns None)
+        //    - Errors if component index >= vector dimension
+        //
+        // The bounds behavior differs between the two paths:
+        // - Struct fields inherit their declared bounds from the type definition
+        // - Vector components don't inherit vector bounds (semantically distinct values)
         UntypedKind::FieldAccess { object, field } => {
+            // Helper to construct field access errors
+            let err = |kind: ErrorKind, msg: String| -> Vec<CompileError> {
+                vec![CompileError::new(kind, span, msg)]
+            };
+
             // Type the object first
             let typed_object = type_expression(object, ctx)?;
 
@@ -420,20 +443,18 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
                         .iter()
                         .find(|ut| ut.id() == type_id)
                         .ok_or_else(|| {
-                            vec![CompileError::new(
+                            err(
                                 ErrorKind::Internal,
-                                span,
                                 format!("user type {:?} not found in type table", type_id),
-                            )]
+                            )
                         })?;
 
                     // Look up field in user type
                     user_type.field(field).cloned().ok_or_else(|| {
-                        vec![CompileError::new(
+                        err(
                             ErrorKind::UndefinedName,
-                            span,
                             format!("field '{}' not found on type '{}'", field, user_type.name()),
-                        )]
+                        )
                     })?
                 }
                 Type::Kernel(kt) => {
@@ -458,39 +479,35 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
                                     })
                                 }
                                 Some(_) => {
-                                    return Err(vec![CompileError::new(
+                                    return Err(err(
                                         ErrorKind::UndefinedName,
-                                        span,
                                         format!(
                                             "component '{}' out of bounds for vector of dimension {}",
                                             field, dim
                                         ),
-                                    )]);
+                                    ));
                                 }
                                 None => {
-                                    return Err(vec![CompileError::new(
+                                    return Err(err(
                                         ErrorKind::UndefinedName,
-                                        span,
                                         format!("invalid vector component '{}'", field),
-                                    )]);
+                                    ));
                                 }
                             }
                         }
                         _ => {
-                            return Err(vec![CompileError::new(
+                            return Err(err(
                                 ErrorKind::TypeMismatch,
-                                span,
                                 format!("field access on non-struct, non-vector type"),
-                            )]);
+                            ));
                         }
                     }
                 }
                 _ => {
-                    return Err(vec![CompileError::new(
+                    return Err(err(
                         ErrorKind::TypeMismatch,
-                        span,
                         format!("field access not supported on type {:?}", typed_object.ty),
-                    )]);
+                    ));
                 }
             };
 
@@ -537,7 +554,8 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::Span;
+    use crate::foundation::{Path, Span, UserType};
+    use continuum_foundation::TypeId;
 
     fn make_context<'a>() -> TypingContext<'a> {
         let type_table = Box::leak(Box::new(TypeTable::new()));
@@ -700,6 +718,436 @@ mod tests {
             Type::Kernel(kt) => {
                 assert_eq!(kt.shape, Shape::Scalar);
                 assert_eq!(kt.unit, Unit::DIMENSIONLESS);
+                assert_eq!(kt.bounds, None);
+            }
+            _ => panic!("Expected Kernel type"),
+        }
+    }
+
+    // === FieldAccess Tests ===
+
+    #[test]
+    fn test_type_field_access_vector_component_x() {
+        let mut ctx = make_context();
+
+        // Create a Vec3 with velocity unit (m/s)
+        let velocity_unit = Unit::meters().divide(&Unit::seconds()).unwrap();
+        ctx.local_bindings.insert(
+            "velocity".to_string(),
+            Type::Kernel(KernelType {
+                shape: Shape::Vector { dim: 3 },
+                unit: velocity_unit,
+                bounds: None,
+            }),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("velocity".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "x".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+
+        // Should return Scalar with same unit
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, velocity_unit);
+                assert_eq!(kt.bounds, None);
+            }
+            _ => panic!("Expected Kernel type, got {:?}", typed.ty),
+        }
+    }
+
+    #[test]
+    fn test_type_field_access_vector_component_y_on_vec2() {
+        let mut ctx = make_context();
+
+        ctx.local_bindings.insert(
+            "pos".to_string(),
+            Type::Kernel(KernelType {
+                shape: Shape::Vector { dim: 2 },
+                unit: Unit::meters(),
+                bounds: None,
+            }),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("pos".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "y".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+
+        // Should return Scalar with meters unit
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::meters());
+                assert_eq!(kt.bounds, None);
+            }
+            _ => panic!("Expected Kernel type, got {:?}", typed.ty),
+        }
+    }
+
+    #[test]
+    fn test_type_field_access_w_on_vec4() {
+        let mut ctx = make_context();
+
+        ctx.local_bindings.insert(
+            "quaternion".to_string(),
+            Type::Kernel(KernelType {
+                shape: Shape::Vector { dim: 4 },
+                unit: Unit::DIMENSIONLESS,
+                bounds: None,
+            }),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("quaternion".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "w".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::DIMENSIONLESS);
+            }
+            _ => panic!("Expected Kernel type"),
+        }
+    }
+
+    #[test]
+    fn test_type_field_access_w_on_vec3_fails() {
+        let mut ctx = make_context();
+
+        ctx.local_bindings.insert(
+            "vec3".to_string(),
+            Type::Kernel(KernelType {
+                shape: Shape::Vector { dim: 3 },
+                unit: Unit::meters(),
+                bounds: None,
+            }),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("vec3".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "w".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let result = type_expression(&expr, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(errors[0].message.contains("out of bounds"));
+        assert!(errors[0].message.contains("dimension 3"));
+    }
+
+    #[test]
+    fn test_type_field_access_z_on_vec2_fails() {
+        let mut ctx = make_context();
+
+        ctx.local_bindings.insert(
+            "vec2".to_string(),
+            Type::Kernel(KernelType {
+                shape: Shape::Vector { dim: 2 },
+                unit: Unit::meters(),
+                bounds: None,
+            }),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("vec2".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "z".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let result = type_expression(&expr, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    }
+
+    #[test]
+    fn test_type_field_access_invalid_component_name() {
+        let mut ctx = make_context();
+
+        ctx.local_bindings.insert(
+            "vec3".to_string(),
+            Type::Kernel(KernelType {
+                shape: Shape::Vector { dim: 3 },
+                unit: Unit::meters(),
+                bounds: None,
+            }),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("vec3".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "foo".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let result = type_expression(&expr, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(errors[0].message.contains("invalid vector component"));
+    }
+
+    #[test]
+    fn test_type_field_access_on_scalar_fails() {
+        let mut ctx = make_context();
+
+        ctx.local_bindings.insert(
+            "scalar".to_string(),
+            Type::Kernel(KernelType {
+                shape: Shape::Scalar,
+                unit: Unit::meters(),
+                bounds: None,
+            }),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("scalar".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "x".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let result = type_expression(&expr, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("non-struct, non-vector"));
+    }
+
+    #[test]
+    fn test_type_field_access_on_bool_fails() {
+        let mut ctx = make_context();
+
+        ctx.local_bindings.insert("flag".to_string(), Type::Bool);
+
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("flag".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "x".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let result = type_expression(&expr, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("not supported"));
+    }
+
+    #[test]
+    fn test_type_field_access_user_struct() {
+        let type_table = Box::leak(Box::new({
+            let mut table = TypeTable::new();
+
+            // Create a user type "Position" with fields x, y
+            let type_id = TypeId::from("Position");
+            let user_type = UserType::new(
+                type_id.clone(),
+                Path::from("Position"),
+                vec![
+                    (
+                        "x".to_string(),
+                        Type::Kernel(KernelType {
+                            shape: Shape::Scalar,
+                            unit: Unit::meters(),
+                            bounds: None,
+                        }),
+                    ),
+                    (
+                        "y".to_string(),
+                        Type::Kernel(KernelType {
+                            shape: Shape::Scalar,
+                            unit: Unit::meters(),
+                            bounds: None,
+                        }),
+                    ),
+                ],
+            );
+            table.register(user_type);
+            table
+        }));
+
+        let kernel_registry = KernelRegistry::global();
+        let signal_types = Box::leak(Box::new(HashMap::new()));
+        let field_types = Box::leak(Box::new(HashMap::new()));
+        let mut ctx = TypingContext::new(type_table, kernel_registry, signal_types, field_types);
+
+        // Create a local variable of type Position
+        let type_id = TypeId::from("Position");
+        ctx.local_bindings
+            .insert("pos".to_string(), Type::User(type_id));
+
+        // Access pos.x
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("pos".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "x".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+
+        // Should return the field type
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::meters());
+            }
+            _ => panic!("Expected Kernel type, got {:?}", typed.ty),
+        }
+    }
+
+    #[test]
+    fn test_type_field_access_unknown_struct_field() {
+        let type_table = Box::leak(Box::new({
+            let mut table = TypeTable::new();
+
+            let type_id = TypeId::from("Position");
+            let user_type = UserType::new(
+                type_id.clone(),
+                Path::from("Position"),
+                vec![(
+                    "x".to_string(),
+                    Type::Kernel(KernelType {
+                        shape: Shape::Scalar,
+                        unit: Unit::meters(),
+                        bounds: None,
+                    }),
+                )],
+            );
+            table.register(user_type);
+            table
+        }));
+
+        let kernel_registry = KernelRegistry::global();
+        let signal_types = Box::leak(Box::new(HashMap::new()));
+        let field_types = Box::leak(Box::new(HashMap::new()));
+        let mut ctx = TypingContext::new(type_table, kernel_registry, signal_types, field_types);
+
+        let type_id = TypeId::from("Position");
+        ctx.local_bindings
+            .insert("pos".to_string(), Type::User(type_id));
+
+        // Try to access non-existent field pos.z
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("pos".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "z".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let result = type_expression(&expr, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(errors[0].message.contains("field 'z' not found"));
+    }
+
+    #[test]
+    fn test_type_field_access_vector_component_preserves_unit() {
+        let mut ctx = make_context();
+
+        // Create a vector with a custom unit (force = kg·m/s²)
+        let newton = Unit::kilograms()
+            .multiply(&Unit::meters())
+            .unwrap()
+            .divide(&Unit::seconds())
+            .unwrap()
+            .divide(&Unit::seconds())
+            .unwrap();
+
+        ctx.local_bindings.insert(
+            "force".to_string(),
+            Type::Kernel(KernelType {
+                shape: Shape::Vector { dim: 3 },
+                unit: newton,
+                bounds: None,
+            }),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(
+                    UntypedKind::Local("force".to_string()),
+                    Span::new(0, 0, 5, 1),
+                )),
+                field: "z".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+
+        // Component should have same unit as vector
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, newton);
                 assert_eq!(kt.bounds, None);
             }
             _ => panic!("Expected Kernel type"),
