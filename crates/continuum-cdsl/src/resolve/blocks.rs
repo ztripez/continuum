@@ -285,7 +285,17 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
                 continue;
             }
             BlockBody::Statements(_) => {
-                // Already validated above - statements not allowed in pure phases
+                // Statement blocks are valid in effect phases (Collect, Fracture)
+                // but statement compilation is not yet implemented.
+                // Fail loudly instead of silently dropping.
+                errors.push(CompileError::new(
+                    ErrorKind::Internal,
+                    node.span,
+                    format!(
+                        "statement block compilation not yet implemented for '{}' phase (effect phases require statement support)",
+                        phase_name
+                    ),
+                ));
                 continue;
             }
         };
@@ -506,5 +516,45 @@ mod tests {
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("not typed"));
+    }
+
+    #[test]
+    fn test_compile_execution_blocks_statement_block_error() {
+        use crate::ast::{Expr, RoleData, Stmt, UntypedKind};
+
+        let span = Span::new(0, 0, 10, 1);
+        let path = Path::from("test.operator");
+
+        // Create a statement block (for effect phase)
+        let stmt = Stmt::Expr(Expr::new(
+            UntypedKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            span,
+        ));
+
+        // Create node with collect block containing statements
+        // Operators are allowed to have collect phase
+        let mut node = Node::new(path.clone(), span, RoleData::Operator, ());
+        node.execution_blocks = vec![("collect".to_string(), BlockBody::Statements(vec![stmt]))];
+
+        // Compile execution blocks - should fail with "not yet implemented"
+        let result = compile_execution_blocks(&mut node);
+        assert!(
+            result.is_err(),
+            "Should fail with statement blocks not implemented"
+        );
+
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::Internal));
+        assert!(
+            errors[0]
+                .message
+                .contains("statement block compilation not yet implemented"),
+            "Error message: {}",
+            errors[0].message
+        );
     }
 }
