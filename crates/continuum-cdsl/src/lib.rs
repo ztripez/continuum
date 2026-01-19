@@ -109,11 +109,11 @@ pub mod resolve;
 
 /// Validation passes
 ///
-/// Phase 12 will implement validation:
-/// - Type validation
-/// - Effect validation
-/// - Capability validation
-/// - Structure validation (cycles, collisions)
+/// Phase 12: Validation complete ✅
+/// - Type validation (resolve/validation.rs)
+/// - Effect validation (resolve/effects.rs)
+/// - Capability validation (resolve/capabilities.rs)
+/// - Structure validation (resolve/structure.rs) - cycles and collisions
 pub mod validate {
     //! Multi-pass validation and linting.
 }
