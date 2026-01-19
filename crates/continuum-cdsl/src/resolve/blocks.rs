@@ -433,4 +433,78 @@ mod tests {
         assert!(deps.contains(&path1));
         assert!(deps.contains(&path2));
     }
+
+    #[test]
+    fn test_compile_execution_blocks_with_typed_expression() {
+        use crate::ast::RoleData;
+        use crate::foundation::{KernelType, Shape, Unit};
+
+        let span = Span::new(0, 0, 10, 1);
+        let path = Path::from("test.signal");
+
+        // Create a typed expression (simple literal)
+        let ty = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::DIMENSIONLESS,
+            bounds: None,
+        });
+        let typed_expr = TypedExpr::new(
+            ExprKind::Literal {
+                value: 42.0,
+                unit: Some(Unit::DIMENSIONLESS),
+            },
+            ty,
+            span,
+        );
+
+        // Create node with resolve block containing typed expression
+        let mut node = Node::new(path.clone(), span, RoleData::Signal, ());
+        node.execution_blocks = vec![(
+            "resolve".to_string(),
+            BlockBody::TypedExpression(typed_expr),
+        )];
+
+        // Compile execution blocks
+        let result = compile_execution_blocks(&mut node);
+        assert!(result.is_ok(), "Compilation should succeed: {:?}", result);
+
+        // Verify executions populated
+        assert_eq!(node.executions.len(), 1, "Should have 1 execution");
+        assert_eq!(node.executions[0].phase, Phase::Resolve);
+
+        // Verify execution_blocks cleared
+        assert!(
+            node.execution_blocks.is_empty(),
+            "execution_blocks should be cleared"
+        );
+    }
+
+    #[test]
+    fn test_compile_execution_blocks_untyped_expression_error() {
+        use crate::ast::{Expr, RoleData, UntypedKind};
+
+        let span = Span::new(0, 0, 10, 1);
+        let path = Path::from("test.signal");
+
+        // Create untyped expression
+        let untyped_expr = Expr::new(
+            UntypedKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            span,
+        );
+
+        // Create node with resolve block containing UNTYPED expression
+        let mut node = Node::new(path.clone(), span, RoleData::Signal, ());
+        node.execution_blocks = vec![("resolve".to_string(), BlockBody::Expression(untyped_expr))];
+
+        // Compile execution blocks - should fail
+        let result = compile_execution_blocks(&mut node);
+        assert!(result.is_err(), "Should fail with untyped expression");
+
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("not typed"));
+    }
 }
