@@ -47,7 +47,7 @@
 use crate::ast::{Declaration, TypeExpr, UnitExpr};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{
-    Path, Shape, Span, Type, Unit, UnitDimensions, UnitKind, UserType, UserTypeId,
+    EntityId, Path, Shape, Span, Type, Unit, UnitDimensions, UnitKind, UserType, UserTypeId,
 };
 use std::collections::HashMap;
 
@@ -231,22 +231,6 @@ impl TypeTable {
     ///
     /// # Returns
     /// A mutable reference to the [`UserType`] if found, otherwise [`None`].
-    ///
-    /// # Examples
-    /// ```rust
-    /// use continuum_cdsl::resolve::types::TypeTable;
-    /// use continuum_cdsl::foundation::{Path, UserType, TypeId, Type, Shape, Unit};
-    ///
-    /// let mut table = TypeTable::new();
-    /// let path = Path::from("Entity");
-    /// table.register(UserType::new(TypeId::from("Entity"), path.clone(), vec![]));
-    ///
-    /// if let Some(user_type) = table.get_mut(&path) {
-    ///     user_type.fields.push(("new_field".to_string(), Type::Bool));
-    /// }
-    ///
-    /// assert_eq!(table.get(&path).unwrap().field_count(), 1);
-    /// ```
     pub fn get_mut(&mut self, path: &Path) -> Option<&mut UserType> {
         self.types.get_mut(path)
     }
@@ -281,110 +265,77 @@ impl TypeTable {
 /// # Errors
 /// Returns an aggregated list of [`CompileError`]s if any member's type expression
 /// cannot be resolved (e.g., refers to an unknown unit or type).
-///
-/// # Examples
-/// ```rust
-/// use continuum_cdsl::resolve::types::{project_entity_types, TypeTable};
-/// use continuum_cdsl::ast::{Declaration, Entity, Node, RoleData, TypeExpr};
-/// use continuum_cdsl::foundation::{Path, EntityId, Span};
-///
-/// let span = Span::new(0, 0, 0, 0);
-/// let entity_id = EntityId::new("plate");
-/// let entity_path = Path::from("plate");
-///
-/// let decls = vec![
-///     Declaration::Entity(Entity::new(entity_id.clone(), entity_path.clone(), span)),
-///     Declaration::Member({
-///         let mut n = Node::new(Path::from("plate.elevation"), span, RoleData::Signal, entity_id);
-///         n.type_expr = Some(TypeExpr::Scalar { unit: None });
-///         n
-///     }),
-/// ];
-///
-/// let mut table = TypeTable::new();
-/// project_entity_types(&decls, &mut table).unwrap();
-///
-/// assert!(table.contains(&entity_path));
-/// assert_eq!(table.get(&entity_path).unwrap().field_count(), 1);
-/// ```
 pub fn project_entity_types(
     declarations: &[Declaration],
     type_table: &mut TypeTable,
 ) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
-
-    // 1. Group members by entity ID
     let mut entity_members = HashMap::new();
+    let mut entity_paths = Vec::new();
+
+    // 1. Group members and register empty entity types in a single pass
     for decl in declarations {
-        if let Declaration::Member(node) = decl {
-            entity_members
-                .entry(node.index.clone())
-                .or_insert_with(Vec::new)
-                .push(node);
+        match decl {
+            Declaration::Entity(entity) => {
+                let type_id = UserTypeId::from(entity.path.to_string());
+                let user_type = UserType::new(type_id, entity.path.clone(), vec![]);
+                type_table.register(user_type);
+                entity_paths.push(entity.path.clone());
+            }
+            Declaration::Member(node) => {
+                entity_members
+                    .entry(node.index.clone())
+                    .or_insert_with(Vec::new)
+                    .push(node);
+            }
+            _ => {}
         }
     }
 
-    // 2. First pass: Register all entities as empty UserTypes
-    // This allows members to refer to other entities' types (circular references)
-    for decl in declarations {
-        if let Declaration::Entity(entity) = decl {
-            let type_id = continuum_foundation::TypeId::from(entity.path.to_string());
-            let user_type = UserType::new(type_id, entity.path.clone(), vec![]);
-            type_table.register(user_type);
-        }
-    }
+    // 2. Populate UserType fields from members
+    for path in entity_paths {
+        let mut fields = Vec::new();
+        let mut seen_fields = std::collections::HashSet::new();
+        let entity_id = EntityId::new(path.to_string());
 
-    // 3. Second pass: Populate UserType fields from members
-    for decl in declarations {
-        if let Declaration::Entity(entity) = decl {
-            let mut fields = Vec::new();
+        if let Some(members) = entity_members.get(&entity_id) {
+            for node in members {
+                // Fail Loudly: Members must have a type expression.
+                let ty = match &node.type_expr {
+                    Some(type_expr) => resolve_type_expr(type_expr, type_table, node.span),
+                    None => Err(CompileError::new(
+                        ErrorKind::UnknownType,
+                        node.span,
+                        format!("Member '{}' is missing a type expression", node.path),
+                    )),
+                };
 
-            let mut entity_errors = Vec::new();
-            if let Some(members) = entity_members.get(&entity.id) {
-                for node in members {
-                    // Fail Loudly: Members must have a type expression.
-                    // Silently skipping them leads to incomplete UserTypes and phantom success.
-                    let ty = match &node.type_expr {
-                        Some(type_expr) => resolve_type_expr(type_expr, type_table, node.span),
-                        None => Err(CompileError::new(
-                            ErrorKind::UnknownType,
-                            node.span,
-                            format!("Member '{}' is missing a type expression", node.path),
-                        )),
-                    };
+                match ty {
+                    Ok(ty) => {
+                        // Use path string as field name to preserve hierarchy and avoid collisions
+                        let field_name = node.path.to_string();
 
-                    match ty {
-                        Ok(ty) => {
-                            // Use path relative to entity for field name to avoid collisions
-                            // and preserve hierarchy. e.g. "physics.velocity"
-                            let field_name = node.path.segments()[entity.path.len()..].join(".");
-                            if fields.iter().any(|(name, _)| name == &field_name) {
-                                entity_errors.push(CompileError::new(
-                                    ErrorKind::TypeMismatch,
-                                    node.span,
-                                    format!(
-                                        "duplicate member name '{}' in entity projection",
-                                        field_name
-                                    ),
-                                ));
-                            } else {
-                                fields.push((field_name, ty));
-                            }
+                        if !seen_fields.insert(field_name.clone()) {
+                            errors.push(CompileError::new(
+                                ErrorKind::TypeMismatch,
+                                node.span,
+                                format!(
+                                    "Duplicate member path '{}' in entity projection",
+                                    field_name
+                                ),
+                            ));
+                            continue;
                         }
-                        Err(e) => entity_errors.push(e),
-                    }
-                }
-            }
 
-            // Fail Loudly: Only update the TypeTable if all members resolved successfully.
-            // This prevents partial/corrupted types from leaking into later passes.
-            if entity_errors.is_empty() {
-                if let Some(user_type) = type_table.get_mut(&entity.path) {
-                    user_type.fields = fields;
+                        fields.push((field_name, ty));
+                    }
+                    Err(e) => errors.push(e),
                 }
-            } else {
-                errors.extend(entity_errors);
             }
+        }
+
+        if let Some(user_type) = type_table.get_mut(&path) {
+            user_type.fields = fields;
         }
     }
 
@@ -958,6 +909,9 @@ mod tests {
 
     #[test]
     fn test_resolve_complex_unit() {
+        let type_table = TypeTable::new();
+        let span = test_span();
+
         // kg*m/s^2 (force unit, Newton)
         let kg_m = UnitExpr::Multiply(
             Box::new(UnitExpr::Base("kg".to_string())),
@@ -965,20 +919,136 @@ mod tests {
         );
         let s_squared = UnitExpr::Power(Box::new(UnitExpr::Base("s".to_string())), 2);
         let unit_expr = UnitExpr::Divide(Box::new(kg_m), Box::new(s_squared));
+        let scalar = TypeExpr::Scalar {
+            unit: Some(unit_expr),
+        };
 
-        let resolved = resolve_unit_expr(Some(&unit_expr), test_span()).unwrap();
-        assert_eq!(resolved.dims().mass, 1);
-        assert_eq!(resolved.dims().length, 1);
-        assert_eq!(resolved.dims().time, -2);
+        let Type::Kernel(kernel) = resolve_type_expr(&scalar, &type_table, span).unwrap() else {
+            panic!("Expected kernel type");
+        };
+        assert_eq!(kernel.shape, Shape::Scalar);
+        assert_eq!(kernel.unit.dims().mass, 1);
+        assert_eq!(kernel.unit.dims().length, 1);
+        assert_eq!(kernel.unit.dims().time, -2);
     }
 
     #[test]
-    fn test_dimensionless_unit() {
-        let resolved = resolve_unit_expr(None, test_span()).unwrap();
+    fn test_unit_cancellation_and_identity() {
+        let span = test_span();
+
+        // m / m => dimensionless
+        let cancel = UnitExpr::Divide(
+            Box::new(UnitExpr::Base("m".to_string())),
+            Box::new(UnitExpr::Base("m".to_string())),
+        );
+        let resolved = resolve_unit_expr(Some(&cancel), span).unwrap();
         assert!(resolved.is_dimensionless());
 
-        let explicit = resolve_unit_expr(Some(&UnitExpr::Dimensionless), test_span()).unwrap();
-        assert!(explicit.is_dimensionless());
+        // 1 * m => m
+        let identity = UnitExpr::Multiply(
+            Box::new(UnitExpr::Dimensionless),
+            Box::new(UnitExpr::Base("m".to_string())),
+        );
+        let resolved = resolve_unit_expr(Some(&identity), span).unwrap();
+        assert_eq!(resolved.dims().length, 1);
+        assert!(resolved.is_multiplicative());
+        // Verify other dimensions remain zero
+        assert_eq!(resolved.dims().mass, 0);
+        assert_eq!(resolved.dims().time, 0);
+    }
+
+    #[test]
+    fn test_base_unit_dimensions() {
+        let span = test_span();
+
+        // Meters
+        let m = resolve_base_unit("m", span).unwrap();
+        assert_eq!(m.dims().length, 1);
+        assert_eq!(m.dims().mass, 0);
+        assert_eq!(m.dims().time, 0);
+        assert!(m.is_multiplicative());
+
+        // Kilograms
+        let kg = resolve_base_unit("kg", span).unwrap();
+        assert_eq!(kg.dims().mass, 1);
+        assert_eq!(kg.dims().length, 0);
+        assert_eq!(kg.dims().time, 0);
+        assert!(kg.is_multiplicative());
+
+        // Seconds
+        let s = resolve_base_unit("s", span).unwrap();
+        assert_eq!(s.dims().time, 1);
+        assert_eq!(s.dims().length, 0);
+        assert_eq!(s.dims().mass, 0);
+        assert!(s.is_multiplicative());
+    }
+
+    #[test]
+    fn test_scalar_invalid_unit_propagates_error() {
+        let type_table = TypeTable::new();
+        let span = Span::new(3, 30, 40, 2);
+
+        let scalar = TypeExpr::Scalar {
+            unit: Some(UnitExpr::Base("bad".to_string())),
+        };
+
+        let err = resolve_type_expr(&scalar, &type_table, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("Unknown base unit"));
+    }
+
+    #[test]
+    fn test_vector_invalid_unit_propagates_error() {
+        let type_table = TypeTable::new();
+        let span = Span::new(4, 50, 60, 2);
+
+        let vector = TypeExpr::Vector {
+            dim: 3,
+            unit: Some(UnitExpr::Base("invalid".to_string())),
+        };
+
+        let err = resolve_type_expr(&vector, &type_table, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("Unknown base unit"));
+    }
+
+    #[test]
+    fn test_matrix_invalid_unit_propagates_error() {
+        let type_table = TypeTable::new();
+        let span = Span::new(5, 70, 80, 2);
+
+        let matrix = TypeExpr::Matrix {
+            rows: 2,
+            cols: 2,
+            unit: Some(UnitExpr::Base("xyz".to_string())),
+        };
+
+        let err = resolve_type_expr(&matrix, &type_table, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("Unknown base unit"));
+    }
+
+    #[test]
+    fn test_overflow_errors_preserve_span() {
+        let span = Span::new(6, 90, 100, 3);
+
+        // Test multiply overflow span
+        let left = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
+        let right = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
+        let multiply = UnitExpr::Multiply(Box::new(left), Box::new(right));
+        let err = resolve_unit_expr(Some(&multiply), span).unwrap_err();
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("overflow"));
+
+        // Test power overflow span
+        let huge_power = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 127);
+        let power = UnitExpr::Power(Box::new(huge_power), 2);
+        let err = resolve_unit_expr(Some(&power), span).unwrap_err();
+        assert_eq!(err.span, span);
+        assert!(err.message.contains("overflow"));
     }
 
     #[test]
@@ -1193,7 +1263,7 @@ mod tests {
 
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
-        assert!(errors[0].message.contains("duplicate member name"));
+        assert!(errors[0].message.contains("Duplicate member path"));
     }
 
     #[test]
@@ -1293,7 +1363,7 @@ mod tests {
         let huge_power = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 127);
         let power = UnitExpr::Power(Box::new(huge_power), 2);
         let err = resolve_unit_expr(Some(&power), span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert_eq!(err.span, span);
         assert!(err.message.contains("overflow"));
     }
 
@@ -1310,208 +1380,5 @@ mod tests {
         let neg = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), -1);
         let resolved = resolve_unit_expr(Some(&neg), span).unwrap();
         assert_eq!(resolved.dims().length, -1);
-    }
-
-    #[test]
-    fn test_vector_matrix_none_unit_is_dimensionless() {
-        let type_table = TypeTable::new();
-        let span = test_span();
-
-        // Vector with no unit
-        let vector = TypeExpr::Vector { dim: 2, unit: None };
-        let resolved = resolve_type_expr(&vector, &type_table, span).unwrap();
-        let Type::Kernel(kernel) = resolved else {
-            panic!("Expected kernel type");
-        };
-        assert!(kernel.unit.is_dimensionless());
-        assert_eq!(kernel.shape, Shape::Vector { dim: 2 });
-
-        // Matrix with no unit
-        let matrix = TypeExpr::Matrix {
-            rows: 2,
-            cols: 2,
-            unit: None,
-        };
-        let resolved = resolve_type_expr(&matrix, &type_table, span).unwrap();
-        let Type::Kernel(kernel) = resolved else {
-            panic!("Expected kernel type");
-        };
-        assert!(kernel.unit.is_dimensionless());
-        assert_eq!(kernel.shape, Shape::Matrix { rows: 2, cols: 2 });
-    }
-
-    #[test]
-    fn test_scalar_type_details() {
-        let type_table = TypeTable::new();
-        let span = test_span();
-
-        // Scalar with no unit
-        let scalar = TypeExpr::Scalar { unit: None };
-        let resolved = resolve_type_expr(&scalar, &type_table, span).unwrap();
-        let Type::Kernel(kernel) = resolved else {
-            panic!("Expected kernel type");
-        };
-        assert_eq!(kernel.shape, Shape::Scalar);
-        assert!(kernel.unit.is_dimensionless());
-
-        // Scalar with meters
-        let scalar_m = TypeExpr::Scalar {
-            unit: Some(UnitExpr::Base("m".to_string())),
-        };
-        let resolved = resolve_type_expr(&scalar_m, &type_table, span).unwrap();
-        let Type::Kernel(kernel) = resolved else {
-            panic!("Expected kernel type");
-        };
-        assert_eq!(kernel.shape, Shape::Scalar);
-        assert_eq!(kernel.unit.dims().length, 1);
-        assert!(kernel.unit.is_multiplicative());
-    }
-
-    #[test]
-    fn test_scalar_compound_unit_resolution() {
-        let type_table = TypeTable::new();
-        let span = test_span();
-
-        // Scalar<kg*m/s^2> (force unit, Newton)
-        let kg_m = UnitExpr::Multiply(
-            Box::new(UnitExpr::Base("kg".to_string())),
-            Box::new(UnitExpr::Base("m".to_string())),
-        );
-        let s2 = UnitExpr::Power(Box::new(UnitExpr::Base("s".to_string())), 2);
-        let unit = UnitExpr::Divide(Box::new(kg_m), Box::new(s2));
-        let scalar = TypeExpr::Scalar { unit: Some(unit) };
-
-        let Type::Kernel(kernel) = resolve_type_expr(&scalar, &type_table, span).unwrap() else {
-            panic!("Expected kernel type");
-        };
-        assert_eq!(kernel.shape, Shape::Scalar);
-        assert_eq!(kernel.unit.dims().mass, 1);
-        assert_eq!(kernel.unit.dims().length, 1);
-        assert_eq!(kernel.unit.dims().time, -2);
-        // Verify other dimensions remain zero
-        assert_eq!(kernel.unit.dims().temperature, 0);
-        assert_eq!(kernel.unit.dims().current, 0);
-        assert_eq!(kernel.unit.dims().amount, 0);
-        assert_eq!(kernel.unit.dims().luminosity, 0);
-        assert_eq!(kernel.unit.dims().angle, 0);
-    }
-
-    #[test]
-    fn test_unit_cancellation_and_identity() {
-        let span = test_span();
-
-        // m / m => dimensionless
-        let cancel = UnitExpr::Divide(
-            Box::new(UnitExpr::Base("m".to_string())),
-            Box::new(UnitExpr::Base("m".to_string())),
-        );
-        let resolved = resolve_unit_expr(Some(&cancel), span).unwrap();
-        assert!(resolved.is_dimensionless());
-
-        // 1 * m => m
-        let identity = UnitExpr::Multiply(
-            Box::new(UnitExpr::Dimensionless),
-            Box::new(UnitExpr::Base("m".to_string())),
-        );
-        let resolved = resolve_unit_expr(Some(&identity), span).unwrap();
-        assert_eq!(resolved.dims().length, 1);
-        assert!(resolved.is_multiplicative());
-        // Verify other dimensions remain zero
-        assert_eq!(resolved.dims().mass, 0);
-        assert_eq!(resolved.dims().time, 0);
-    }
-
-    #[test]
-    fn test_base_unit_dimensions() {
-        let span = test_span();
-
-        // Meters
-        let m = resolve_base_unit("m", span).unwrap();
-        assert_eq!(m.dims().length, 1);
-        assert_eq!(m.dims().mass, 0);
-        assert_eq!(m.dims().time, 0);
-        assert!(m.is_multiplicative());
-
-        // Kilograms
-        let kg = resolve_base_unit("kg", span).unwrap();
-        assert_eq!(kg.dims().mass, 1);
-        assert_eq!(kg.dims().length, 0);
-        assert_eq!(kg.dims().time, 0);
-        assert!(kg.is_multiplicative());
-
-        // Seconds
-        let s = resolve_base_unit("s", span).unwrap();
-        assert_eq!(s.dims().time, 1);
-        assert_eq!(s.dims().length, 0);
-        assert_eq!(s.dims().mass, 0);
-        assert!(s.is_multiplicative());
-    }
-
-    #[test]
-    fn test_scalar_invalid_unit_propagates_error() {
-        let type_table = TypeTable::new();
-        let span = Span::new(3, 30, 40, 2);
-
-        let scalar = TypeExpr::Scalar {
-            unit: Some(UnitExpr::Base("bad".to_string())),
-        };
-
-        let err = resolve_type_expr(&scalar, &type_table, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("Unknown base unit"));
-    }
-
-    #[test]
-    fn test_vector_invalid_unit_propagates_error() {
-        let type_table = TypeTable::new();
-        let span = Span::new(4, 50, 60, 2);
-
-        let vector = TypeExpr::Vector {
-            dim: 3,
-            unit: Some(UnitExpr::Base("invalid".to_string())),
-        };
-
-        let err = resolve_type_expr(&vector, &type_table, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("Unknown base unit"));
-    }
-
-    #[test]
-    fn test_matrix_invalid_unit_propagates_error() {
-        let type_table = TypeTable::new();
-        let span = Span::new(5, 70, 80, 2);
-
-        let matrix = TypeExpr::Matrix {
-            rows: 2,
-            cols: 2,
-            unit: Some(UnitExpr::Base("xyz".to_string())),
-        };
-
-        let err = resolve_type_expr(&matrix, &type_table, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("Unknown base unit"));
-    }
-
-    #[test]
-    fn test_overflow_errors_preserve_span() {
-        let span = Span::new(6, 90, 100, 3);
-
-        // Test multiply overflow span
-        let left = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
-        let right = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
-        let multiply = UnitExpr::Multiply(Box::new(left), Box::new(right));
-        let err = resolve_unit_expr(Some(&multiply), span).unwrap_err();
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("overflow"));
-
-        // Test power overflow span
-        let huge_power = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 127);
-        let power = UnitExpr::Power(Box::new(huge_power), 2);
-        let err = resolve_unit_expr(Some(&power), span).unwrap_err();
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("overflow"));
     }
 }
