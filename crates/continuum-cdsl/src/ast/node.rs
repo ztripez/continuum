@@ -203,12 +203,16 @@ pub struct Node<I: Index = ()> {
     /// Statement blocks are validated to only appear in effect phases during semantic analysis.
     pub execution_blocks: Vec<(String, BlockBody)>,
 
-    /// Signal/field dependencies across all execution blocks.
+    /// Aggregate signal and field dependencies for this node.
     ///
-    /// Represents the union of all paths found in the `reads` field of all
-    /// [`Execution`] blocks within the node. These aggregate dependencies
-    /// are used during structure validation (Phase 12) for high-level cycle
-    /// detection in the simulation graph.
+    /// Represents the union of all paths read by this node across all its
+    /// execution contexts:
+    /// 1. The `reads` list from every [`Execution`] block (e.g., `resolve`, `collect`).
+    /// 2. All dependencies extracted from the condition expressions of [`Assertion`]s.
+    ///
+    /// These aggregate dependencies are used during structure validation (Phase 12)
+    /// to build the high-level simulation graph and detect causal cycles between
+    /// signals, members, and operators.
     ///
     /// Set during the execution block compilation pass ([`compile_execution_blocks`]).
     pub reads: Vec<Path>,

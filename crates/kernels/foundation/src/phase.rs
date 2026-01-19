@@ -84,15 +84,21 @@ pub enum Phase {
     Assert = 8,
 }
 
-/// Severity of an assertion failure.
+/// Severity level for simulation assertions.
+///
+/// Determines the deterministic response of the simulation engine when an
+/// assertion condition evaluates to `false`.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum AssertionSeverity {
-    /// Warning only, execution continues.
+    /// Non-fatal violation. The failure is logged as a warning, but
+    /// simulation execution continues normally.
     Warn = 0,
-    /// Error, may halt based on policy.
+    /// Standard error. Simulation may continue or halt depending on the
+    /// global fault policy defined in the world manifest.
     Error = 1,
-    /// Fatal, always halts.
+    /// Critical failure. Simulation execution is immediately halted to
+    /// prevent cascading causal instability or non-deterministic outcomes.
     Fatal = 2,
 }
 

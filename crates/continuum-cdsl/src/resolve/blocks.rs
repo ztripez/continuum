@@ -25,7 +25,7 @@ use crate::ast::{
     TypedExpr,
 };
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{Path, Phase};
+use crate::foundation::{Path, Phase, Type};
 use std::collections::HashSet;
 
 /// Parses a string phase name into a Phase enum value.
@@ -89,12 +89,23 @@ struct DependencyVisitor {
 impl ExpressionVisitor for DependencyVisitor {
     fn visit_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
-            ExprKind::Signal(path) | ExprKind::Field(path) => {
+            ExprKind::Signal(path)
+            | ExprKind::Field(path)
+            | ExprKind::Config(path)
+            | ExprKind::Const(path) => {
                 self.paths.insert(path.clone());
             }
             ExprKind::Aggregate { entity, .. } | ExprKind::Fold { entity, .. } => {
                 // Iterating over an entity set is a read dependency on the entity's lifetime
                 self.paths.insert(Path::from_str(&entity.0.to_string()));
+            }
+            ExprKind::FieldAccess { object, field } => {
+                if let Type::User(type_id) = &object.ty {
+                    // Accessing a member on a user type (entity or struct)
+                    // In CDSL, members are identified by Entity.Member
+                    self.paths
+                        .insert(Path::from_str(&type_id.to_string()).append(field));
+                }
             }
             _ => {}
         }
@@ -138,10 +149,17 @@ fn validate_phase_for_role(
     }
 }
 
-/// Compile execution blocks for a node.
+/// Compile execution blocks for a node and aggregate dependencies.
 ///
-/// Converts raw `execution_blocks` into typed `Execution` structs.
-/// Populates `node.executions` and clears `node.execution_blocks`.
+/// Converts raw `execution_blocks` from the parser into typed [`Execution`] structs.
+/// This pass performs:
+/// - Phase name validation and role compatibility checks.
+/// - Purity enforcement (pure phases cannot contain statements).
+/// - Recursive dependency extraction from expression trees.
+/// - Aggregation of all read dependencies (from both executions and assertions)
+///   into [`Node::reads`].
+///
+/// Populates `node.executions` and `node.reads`, and clears `node.execution_blocks`.
 ///
 /// # Errors
 ///
@@ -506,6 +524,77 @@ mod tests {
     }
 
     #[test]
+    fn test_compile_execution_blocks_union_multiple_blocks() {
+        use crate::ast::RoleData;
+        use crate::foundation::{KernelType, Shape, Unit};
+
+        let span = Span::new(0, 0, 10, 1);
+        let path = Path::from("test.signal");
+        let path_a = Path::from_str("signal.a");
+        let path_b = Path::from_str("signal.b");
+
+        let ty = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::DIMENSIONLESS,
+            bounds: None,
+        });
+
+        let mut node = Node::new(path, span, RoleData::Operator, ());
+        // Block 1 reads 'signal.b'
+        node.execution_blocks.push((
+            "collect".to_string(),
+            BlockBody::TypedExpression(TypedExpr::new(
+                ExprKind::Signal(path_b.clone()),
+                ty.clone(),
+                span,
+            )),
+        ));
+        // Block 2 reads 'signal.a'
+        node.execution_blocks.push((
+            "resolve".to_string(),
+            BlockBody::TypedExpression(TypedExpr::new(ExprKind::Signal(path_a.clone()), ty, span)),
+        ));
+
+        compile_execution_blocks(&mut node).unwrap();
+
+        // Verify union is sorted: [signal.a, signal.b]
+        assert_eq!(node.reads.len(), 2);
+        assert_eq!(node.reads[0], path_a);
+        assert_eq!(node.reads[1], path_b);
+    }
+
+    #[test]
+    fn test_compile_execution_blocks_includes_assertions() {
+        use crate::ast::{Assertion, RoleData};
+        use crate::foundation::{AssertionSeverity, KernelType, Shape, Unit};
+
+        let span = Span::new(0, 0, 10, 1);
+        let path = Path::from("test.signal");
+        let assert_path = Path::from_str("signal.limit");
+
+        let ty = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::DIMENSIONLESS,
+            bounds: None,
+        });
+
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // Add an assertion that reads 'signal.limit'
+        node.assertions.push(Assertion::new(
+            TypedExpr::new(ExprKind::Signal(assert_path.clone()), ty, span),
+            None,
+            AssertionSeverity::Error,
+            span,
+        ));
+
+        compile_execution_blocks(&mut node).unwrap();
+
+        // Verify assertion dependency is in node.reads
+        assert!(node.reads.contains(&assert_path));
+    }
+
+    #[test]
     fn test_compile_execution_blocks_untyped_expression_error() {
         use crate::ast::{Expr, RoleData, UntypedKind};
 
@@ -535,42 +624,208 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_execution_blocks_statement_block_error() {
-        use crate::ast::{Expr, RoleData, Stmt, UntypedKind};
+    fn test_extract_dependencies_aggregate() {
+        use crate::ast::AggregateOp;
+        use crate::foundation::EntityId;
 
-        let span = Span::new(0, 0, 10, 1);
-        let path = Path::from("test.operator");
+        let span = test_span();
+        let ty = scalar_type();
+        let entity = EntityId::new("plate");
 
-        // Create a statement block (for effect phase)
-        let stmt = Stmt::Expr(Expr::new(
-            UntypedKind::Literal {
-                value: 42.0,
+        let body = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
                 unit: None,
             },
+            ty.clone(),
+            span,
+        );
+
+        let expr = TypedExpr::new(
+            ExprKind::Aggregate {
+                op: AggregateOp::Sum,
+                entity: entity.clone(),
+                binding: "p".to_string(),
+                body: Box::new(body),
+            },
+            ty,
+            span,
+        );
+
+        let deps = extract_dependencies(&expr);
+        assert_eq!(deps.len(), 1);
+        // Entity set dependency is captured
+        assert_eq!(deps[0], Path::from_str("plate"));
+    }
+
+    #[test]
+    fn test_extract_dependencies_fold() {
+        use crate::foundation::EntityId;
+
+        let span = test_span();
+        let ty = scalar_type();
+        let entity = EntityId::new("plate");
+
+        let init = TypedExpr::new(
+            ExprKind::Literal {
+                value: 0.0,
+                unit: None,
+            },
+            ty.clone(),
+            span,
+        );
+        let body = TypedExpr::new(
+            ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            ty.clone(),
+            span,
+        );
+
+        let expr = TypedExpr::new(
+            ExprKind::Fold {
+                entity: entity.clone(),
+                init: Box::new(init),
+                acc: "acc".to_string(),
+                elem: "p".to_string(),
+                body: Box::new(body),
+            },
+            ty,
+            span,
+        );
+
+        let deps = extract_dependencies(&expr);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0], Path::from_str("plate"));
+    }
+
+    #[test]
+    fn test_compile_execution_blocks_union_duplicates() {
+        use crate::ast::{Assertion, RoleData};
+        use crate::foundation::{AssertionSeverity, KernelType, Shape, Unit};
+
+        let span = Span::new(0, 0, 10, 1);
+        let path = Path::from("test.signal");
+        let path_a = Path::from_str("signal.a");
+
+        let ty = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::DIMENSIONLESS,
+            bounds: None,
+        });
+
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // Block reads 'signal.a'
+        node.execution_blocks.push((
+            "resolve".to_string(),
+            BlockBody::TypedExpression(TypedExpr::new(
+                ExprKind::Signal(path_a.clone()),
+                ty.clone(),
+                span,
+            )),
+        ));
+
+        // Assertion also reads 'signal.a'
+        node.assertions.push(Assertion::new(
+            TypedExpr::new(ExprKind::Signal(path_a.clone()), ty, span),
+            None,
+            AssertionSeverity::Error,
             span,
         ));
 
-        // Create node with collect block containing statements
-        // Operators are allowed to have collect phase
-        let mut node = Node::new(path.clone(), span, RoleData::Operator, ());
-        node.execution_blocks = vec![("collect".to_string(), BlockBody::Statements(vec![stmt]))];
+        compile_execution_blocks(&mut node).unwrap();
 
-        // Compile execution blocks - should fail with "not yet implemented"
-        let result = compile_execution_blocks(&mut node);
-        assert!(
-            result.is_err(),
-            "Should fail with statement blocks not implemented"
+        // Verify union has only one entry
+        assert_eq!(node.reads.len(), 1);
+        assert_eq!(node.reads[0], path_a);
+    }
+
+    #[test]
+    fn test_compile_execution_blocks_multiple_assertions() {
+        use crate::ast::{Assertion, RoleData};
+        use crate::foundation::{AssertionSeverity, KernelType, Shape, Unit};
+
+        let span = Span::new(0, 0, 10, 1);
+        let path = Path::from("test.signal");
+        let path_1 = Path::from_str("signal.1");
+        let path_2 = Path::from_str("signal.2");
+
+        let ty = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::DIMENSIONLESS,
+            bounds: None,
+        });
+
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        node.assertions.push(Assertion::new(
+            TypedExpr::new(ExprKind::Signal(path_1.clone()), ty.clone(), span),
+            None,
+            AssertionSeverity::Error,
+            span,
+        ));
+
+        node.assertions.push(Assertion::new(
+            TypedExpr::new(ExprKind::Signal(path_2.clone()), ty, span),
+            None,
+            AssertionSeverity::Error,
+            span,
+        ));
+
+        compile_execution_blocks(&mut node).unwrap();
+
+        // Verify both assertion dependencies are in node.reads
+        assert_eq!(node.reads.len(), 2);
+        assert!(node.reads.contains(&path_1));
+        assert!(node.reads.contains(&path_2));
+    }
+
+    #[test]
+    fn test_extract_dependencies_field_access_member() {
+        use crate::foundation::TypeId;
+
+        let span = test_span();
+        let scalar_ty = scalar_type();
+        let plate_ty_id = TypeId::from("plate");
+        let plate_ty = Type::User(plate_ty_id.clone());
+
+        // Local variable 'p' of type 'plate'
+        let object = TypedExpr::new(ExprKind::Local("p".to_string()), plate_ty, span);
+
+        // p.mass
+        let expr = TypedExpr::new(
+            ExprKind::FieldAccess {
+                object: Box::new(object),
+                field: "mass".to_string(),
+            },
+            scalar_ty,
+            span,
         );
 
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::Internal));
-        assert!(
-            errors[0]
-                .message
-                .contains("statement block compilation not yet implemented"),
-            "Error message: {}",
-            errors[0].message
-        );
+        let deps = extract_dependencies(&expr);
+        assert_eq!(deps.len(), 1);
+        // Member dependency 'plate.mass' should be captured
+        assert_eq!(deps[0], Path::from_str("plate.mass"));
+    }
+
+    #[test]
+    fn test_extract_dependencies_config_const() {
+        let span = test_span();
+        let ty = scalar_type();
+        let config_path = Path::from_str("config.max_temp");
+        let const_path = Path::from_str("const.PI");
+
+        let config_expr = TypedExpr::new(ExprKind::Config(config_path.clone()), ty.clone(), span);
+        let const_expr = TypedExpr::new(ExprKind::Const(const_path.clone()), ty, span);
+
+        let deps_config = extract_dependencies(&config_expr);
+        assert_eq!(deps_config.len(), 1);
+        assert_eq!(deps_config[0], config_path);
+
+        let deps_const = extract_dependencies(&const_expr);
+        assert_eq!(deps_const.len(), 1);
+        assert_eq!(deps_const[0], const_path);
     }
 }
