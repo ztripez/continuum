@@ -1199,4 +1199,101 @@ mod tests {
         assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
         assert!(errors[0].message.contains("maths.clamping"));
     }
+
+    #[test]
+    fn test_untyped_kernel_call_with_dt() {
+        use crate::ast::{Expr, KernelId, UntypedKind, WarmupBlock};
+
+        let span = make_span();
+        let path = Path::from_str("test.signal");
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // Desugared form: maths.add(prev, dt) as KernelCall
+        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let prev_expr = Expr::new(UntypedKind::Prev, span);
+        let kernel_call = Expr::new(
+            UntypedKind::KernelCall {
+                kernel: KernelId::new("maths", "add"),
+                args: vec![prev_expr, dt_expr],
+            },
+            span,
+        );
+
+        node.warmup = Some(WarmupBlock {
+            attrs: vec![],
+            iterate: kernel_call,
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        // Should detect dt.raw in KernelCall args
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
+        assert!(errors[0].message.contains("dt.raw"));
+    }
+
+    #[test]
+    fn test_unary_operator_with_dt() {
+        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+
+        let span = make_span();
+        let path = Path::from_str("test.signal");
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // -dt
+        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let neg_expr = Expr::unary(crate::ast::UnaryOp::Neg, dt_expr, span);
+
+        node.warmup = Some(WarmupBlock {
+            attrs: vec![],
+            iterate: neg_expr,
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        // Should detect dt.raw in Unary operand
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
+        assert!(errors[0].message.contains("dt.raw"));
+    }
+
+    #[test]
+    fn test_typed_let_with_nested_dt() {
+        let span = make_span();
+
+        // let x = dt in x + prev (TypedExpr form)
+        let dt_expr = TypedExpr::new(ExprKind::Dt, Type::Bool, span);
+        let local_x = TypedExpr::new(ExprKind::Local("x".to_string()), Type::Bool, span);
+        let prev_expr = TypedExpr::new(ExprKind::Prev, Type::Bool, span);
+        let kernel_id = crate::ast::KernelId::new("maths", "add");
+        let body = TypedExpr::new(
+            ExprKind::Call {
+                kernel: kernel_id,
+                args: vec![local_x, prev_expr],
+            },
+            Type::Bool,
+            span,
+        );
+        let let_expr = TypedExpr::new(
+            ExprKind::Let {
+                name: "x".to_string(),
+                value: Box::new(dt_expr),
+                body: Box::new(body),
+            },
+            Type::Bool,
+            span,
+        );
+
+        let registry = KernelRegistry::global();
+        let mut required = Vec::new();
+        collect_required_uses(&let_expr, &registry, &mut required);
+
+        // Should detect dt.raw in Let value
+        assert_eq!(required.len(), 1);
+        assert_eq!(required[0].key, "dt.raw");
+    }
 }
