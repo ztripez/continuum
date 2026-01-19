@@ -40,6 +40,7 @@ use crate::ast::{Expr, ExprKind, KernelRegistry, TypedExpr, UntypedKind};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{KernelType, Path, Shape, Type, Unit};
 use crate::resolve::types::{TypeTable, resolve_unit_expr};
+use continuum_kernel_types::KernelId;
 use std::collections::HashMap;
 
 /// Context for expression typing
@@ -853,12 +854,115 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             )
         }
 
+        // === Binary operator (desugar to kernel call) ===
+        UntypedKind::Binary { op, left, right } => {
+            let kernel_id = op.kernel();
+
+            // Type operands
+            let typed_left = type_expression(left, ctx)?;
+            let typed_right = type_expression(right, ctx)?;
+
+            // Look up kernel signature
+            let sig = ctx.kernel_registry.get(&kernel_id).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::UndefinedName,
+                    span,
+                    format!(
+                        "kernel '{:?}' not found for unary operator {:?}",
+                        kernel_id, op
+                    ),
+                )]
+            })?;
+
+            // Derive return type
+            let return_type =
+                derive_return_type(sig, &[typed_left.clone(), typed_right.clone()], span)?;
+
+            (
+                ExprKind::Call {
+                    kernel: kernel_id,
+                    args: vec![typed_left, typed_right],
+                },
+                return_type,
+            )
+        }
+
+        // === Unary operator (desugar to kernel call) ===
+        UntypedKind::Unary { op, operand } => {
+            let kernel_id = op.kernel();
+
+            // Type operand
+            let typed_operand = type_expression(operand, ctx)?;
+
+            // Look up kernel signature
+            let sig = ctx.kernel_registry.get(&kernel_id).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::UndefinedName,
+                    span,
+                    format!(
+                        "kernel '{:?}' not found for unary operator {:?}",
+                        kernel_id, op
+                    ),
+                )]
+            })?;
+
+            // Derive return type
+            let return_type = derive_return_type(sig, &[typed_operand.clone()], span)?;
+
+            (
+                ExprKind::Call {
+                    kernel: kernel_id,
+                    args: vec![typed_operand],
+                },
+                return_type,
+            )
+        }
+
+        // === If-then-else (desugar to logic.select) ===
+        UntypedKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            let kernel_id = KernelId::new("logic", "select");
+
+            // Type all branches
+            let typed_condition = type_expression(condition, ctx)?;
+            let typed_then = type_expression(then_branch, ctx)?;
+            let typed_else = type_expression(else_branch, ctx)?;
+
+            // Look up kernel signature
+            let sig = ctx.kernel_registry.get(&kernel_id).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "kernel 'logic.select' not found (required for if-then-else)".to_string(),
+                )]
+            })?;
+
+            // Derive return type
+            let return_type = derive_return_type(
+                sig,
+                &[
+                    typed_condition.clone(),
+                    typed_then.clone(),
+                    typed_else.clone(),
+                ],
+                span,
+            )?;
+
+            (
+                ExprKind::Call {
+                    kernel: kernel_id,
+                    args: vec![typed_condition, typed_then, typed_else],
+                },
+                return_type,
+            )
+        }
+
         // === Not yet implemented ===
         UntypedKind::Self_
         | UntypedKind::Other
-        | UntypedKind::Binary { .. }
-        | UntypedKind::Unary { .. }
-        | UntypedKind::If { .. }
         | UntypedKind::Aggregate { .. }
         | UntypedKind::Fold { .. }
         | UntypedKind::Call { .. }
