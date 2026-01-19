@@ -109,6 +109,8 @@ pub enum ErrorKind {
     MissingCapability = 15,
     /// Invalid use of capability (e.g., emit with wrong target)
     InvalidCapability = 16,
+    /// Phase boundary violation (e.g., field read in kernel execution)
+    PhaseBoundaryViolation = 23,
 
     // Effect validation
     /// Effect (emit) used in pure phase
@@ -130,7 +132,7 @@ pub enum ErrorKind {
 
     // Generic
     /// Internal compiler error (bug in compiler)
-    Internal = 22,
+    Internal = 24,
 }
 
 /// Human-readable names for error kinds.
@@ -159,7 +161,9 @@ const ERROR_KIND_NAMES: &[&str] = &[
     "path collision",           // 19: PathCollision
     "compilation failed",       // 20: CompilationFailed
     "missing uses declaration", // 21: MissingUsesDeclaration
-    "internal compiler error",  // 22: Internal
+    "reserved",                 // 22: (reserved)
+    "phase boundary violation", // 23: PhaseBoundaryViolation
+    "internal compiler error",  // 24: Internal
 ];
 
 /// Diagnostic severity level.

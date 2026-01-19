@@ -14,9 +14,15 @@
 //!
 //! # What This Pass Does NOT Do
 //!
-//! - **No desugaring** - Binary/Unary/If should already be desugared to KernelCall
-//! - **No validation** - Type compatibility checking happens in validation pass
 //! - **No code generation** - Produces typed AST, not bytecode
+//!
+//! # What This Pass ALSO Does (Implementation Details)
+//!
+//! - **Operator desugaring** - Binary/Unary/If operators are desugared to KernelCall expressions
+//!   (Note: Architecturally, this should be a separate desugar pass, but is currently done inline)
+//! - **Type compatibility validation** - Some type checks happen during typing where needed for inference
+//!   (Full semantic validation happens in separate validation pass)
+//! - **Phase boundary enforcement** - Field expressions are validated to only appear in Measure phase
 //!
 //! # Pipeline Position
 //!
@@ -40,6 +46,7 @@ use crate::ast::{Expr, ExprKind, KernelRegistry, TypedExpr, UntypedKind};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{KernelType, Path, Shape, Type, Unit};
 use crate::resolve::types::{TypeTable, resolve_unit_expr};
+use continuum_foundation::Phase;
 use continuum_kernel_types::KernelId;
 use std::collections::HashMap;
 
@@ -105,6 +112,13 @@ pub struct TypingContext<'a> {
     /// When typing impulse handler blocks, this is set to the impulse's declared
     /// payload type.
     pub payload_type: Option<Type>,
+
+    /// Current execution phase (for phase boundary enforcement)
+    ///
+    /// When typing execution blocks, this is set to the phase in which the block
+    /// executes. Used to enforce that fields can only be read in Measure phase.
+    /// None indicates context-free typing (e.g., tests without phase constraints).
+    pub phase: Option<Phase>,
 }
 
 impl<'a> TypingContext<'a> {
@@ -141,6 +155,7 @@ impl<'a> TypingContext<'a> {
             node_output: None,
             inputs_type: None,
             payload_type: None,
+            phase: None,
         }
     }
 
@@ -169,6 +184,7 @@ impl<'a> TypingContext<'a> {
             node_output: self.node_output.clone(),
             inputs_type: self.inputs_type.clone(),
             payload_type: self.payload_type.clone(),
+            phase: self.phase,
         };
         ctx.local_bindings.insert(name, ty);
         ctx
@@ -205,6 +221,35 @@ impl<'a> TypingContext<'a> {
             node_output,
             inputs_type,
             payload_type,
+            phase: self.phase,
+        }
+    }
+
+    /// Set phase context for boundary enforcement
+    ///
+    /// Creates a new context with the specified execution phase.
+    /// Used to enforce phase boundaries (e.g., fields only in Measure).
+    ///
+    /// # Parameters
+    ///
+    /// - `phase`: The execution phase
+    ///
+    /// # Returns
+    ///
+    /// New context with phase set
+    pub fn with_phase(&self, phase: Phase) -> Self {
+        Self {
+            type_table: self.type_table,
+            kernel_registry: self.kernel_registry,
+            signal_types: self.signal_types,
+            field_types: self.field_types,
+            config_types: self.config_types,
+            const_types: self.const_types,
+            local_bindings: self.local_bindings.clone(),
+            node_output: self.node_output.clone(),
+            inputs_type: self.inputs_type.clone(),
+            payload_type: self.payload_type.clone(),
+            phase: Some(phase),
         }
     }
 }
@@ -427,6 +472,20 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         UntypedKind::Field(path) => {
+            // Phase boundary enforcement: Fields can only be read in Measure phase
+            if let Some(phase) = ctx.phase {
+                if phase != Phase::Measure {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::PhaseBoundaryViolation,
+                        span,
+                        format!(
+                            "field '{}' cannot be read in {:?} phase (fields are only accessible in Measure phase)",
+                            path, phase
+                        ),
+                    )]);
+                }
+            }
+
             let ty = ctx.field_types.get(path).cloned().ok_or_else(|| {
                 vec![CompileError::new(
                     ErrorKind::UndefinedName,
