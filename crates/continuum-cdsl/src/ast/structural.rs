@@ -25,9 +25,9 @@ use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, Stratu
 /// Entities declare a type of thing that can have multiple instances.
 /// Examples: plate, planet, star, person, city
 ///
-/// An Entity creates an index type that parameterizes Node<I>:
-/// - Node<()> — global primitive
-/// - Node<EntityId> — per-entity primitive (member)
+/// An Entity creates an index type that parameterizes `Node<I>`:
+/// - `Node<()>` — global primitive
+/// - `Node<EntityId>` — per-entity primitive (member)
 ///
 /// Any Role can be per-entity: Signal, Field, Fracture, Operator.
 /// Impulse and Chronicle are always global.
@@ -644,5 +644,99 @@ mod tests {
         assert_ne!(ValidationSeverity::Warn, ValidationSeverity::Error);
         assert_ne!(ValidationSeverity::Error, ValidationSeverity::Fatal);
         assert_ne!(ValidationSeverity::Warn, ValidationSeverity::Fatal);
+    }
+
+    #[test]
+    #[should_panic(expected = "cadence must be resolved")]
+    fn test_stratum_is_eligible_panics_without_cadence() {
+        let span = Span::new(0, 0, 10, 1);
+        let stratum = Stratum::new(StratumId::new("test"), Path::from_str("test"), span);
+        // cadence is None - documented to panic
+        stratum.is_eligible(0);
+    }
+
+    #[test]
+    fn test_era_is_not_terminal_with_transitions() {
+        use crate::ast::expr::{ExprKind, TypedExpr};
+        use crate::foundation::{KernelType, Shape, Type, Unit};
+
+        let span = Span::new(0, 0, 10, 1);
+        let id = EraId::new("test.formation");
+        let dt_expr = TypedExpr {
+            expr: ExprKind::Literal {
+                value: 1000.0,
+                unit: Some(Unit::seconds()),
+            },
+            ty: Type::Kernel(KernelType {
+                shape: Shape::Scalar,
+                unit: Unit::seconds(),
+                bounds: None,
+            }),
+            span,
+        };
+
+        let mut era = Era::new(id, Path::from_str("test"), dt_expr, span);
+
+        // Add a transition - era should not be terminal
+        let condition = TypedExpr {
+            expr: ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            ty: Type::Bool,
+            span,
+        };
+        era.transitions
+            .push(EraTransition::new(EraId::new("stable"), condition, span));
+
+        assert!(!era.is_terminal());
+    }
+
+    #[test]
+    fn test_analyzer_validation_error_severity() {
+        use crate::ast::expr::{ExprKind, TypedExpr};
+        use crate::foundation::Type;
+
+        let span = Span::new(0, 0, 10, 1);
+        let condition = TypedExpr {
+            expr: ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            ty: Type::Bool,
+            span,
+        };
+
+        let validation = AnalyzerValidation::new(
+            condition.clone(),
+            ValidationSeverity::Error,
+            "error message",
+            span,
+        );
+
+        assert_eq!(validation.severity, ValidationSeverity::Error);
+        assert_eq!(validation.message, "error message");
+    }
+
+    #[test]
+    fn test_analyzer_validation_fatal_severity() {
+        use crate::ast::expr::{ExprKind, TypedExpr};
+        use crate::foundation::Type;
+
+        let span = Span::new(0, 0, 10, 1);
+        let condition = TypedExpr {
+            expr: ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            ty: Type::Bool,
+            span,
+        };
+
+        let validation =
+            AnalyzerValidation::new(condition, ValidationSeverity::Fatal, "fatal message", span);
+
+        assert_eq!(validation.severity, ValidationSeverity::Fatal);
+        assert_eq!(validation.message, "fatal message");
     }
 }
