@@ -404,6 +404,105 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             )
         }
 
+        // === Field access ===
+        UntypedKind::FieldAccess { object, field } => {
+            // Type the object first
+            let typed_object = type_expression(object, ctx)?;
+
+            // Extract field type based on object type
+            let field_type = match &typed_object.ty {
+                Type::User(type_id) => {
+                    // Look up user type in type table
+                    // Note: TypeTable doesn't have direct UserTypeId -> UserType lookup,
+                    // so we iterate to find it. TODO: Add get_by_id method to TypeTable
+                    let user_type = ctx
+                        .type_table
+                        .iter()
+                        .find(|ut| ut.id() == type_id)
+                        .ok_or_else(|| {
+                            vec![CompileError::new(
+                                ErrorKind::Internal,
+                                span,
+                                format!("user type {:?} not found in type table", type_id),
+                            )]
+                        })?;
+
+                    // Look up field in user type
+                    user_type.field(field).cloned().ok_or_else(|| {
+                        vec![CompileError::new(
+                            ErrorKind::UndefinedName,
+                            span,
+                            format!("field '{}' not found on type '{}'", field, user_type.name()),
+                        )]
+                    })?
+                }
+                Type::Kernel(kt) => {
+                    // Vector component access (.x, .y, .z, .w)
+                    match &kt.shape {
+                        Shape::Vector { dim } => {
+                            let component_index = match field.as_str() {
+                                "x" => Some(0),
+                                "y" => Some(1),
+                                "z" => Some(2),
+                                "w" => Some(3),
+                                _ => None,
+                            };
+
+                            match component_index {
+                                Some(idx) if idx < *dim as usize => {
+                                    // Return scalar with same unit as vector
+                                    Type::Kernel(KernelType {
+                                        shape: Shape::Scalar,
+                                        unit: kt.unit,
+                                        bounds: None, // Component bounds not derived from vector bounds
+                                    })
+                                }
+                                Some(_) => {
+                                    return Err(vec![CompileError::new(
+                                        ErrorKind::UndefinedName,
+                                        span,
+                                        format!(
+                                            "component '{}' out of bounds for vector of dimension {}",
+                                            field, dim
+                                        ),
+                                    )]);
+                                }
+                                None => {
+                                    return Err(vec![CompileError::new(
+                                        ErrorKind::UndefinedName,
+                                        span,
+                                        format!("invalid vector component '{}'", field),
+                                    )]);
+                                }
+                            }
+                        }
+                        _ => {
+                            return Err(vec![CompileError::new(
+                                ErrorKind::TypeMismatch,
+                                span,
+                                format!("field access on non-struct, non-vector type"),
+                            )]);
+                        }
+                    }
+                }
+                _ => {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        span,
+                        format!("field access not supported on type {:?}", typed_object.ty),
+                    )]);
+                }
+            };
+
+            (
+                ExprKind::FieldAccess {
+                    object: Box::new(typed_object),
+                    field: field.clone(),
+                },
+                field_type,
+            )
+        }
+
         // === Not yet implemented ===
         UntypedKind::Vector(_)
         | UntypedKind::Config(_)
@@ -422,7 +521,6 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         | UntypedKind::Fold { .. }
         | UntypedKind::Call { .. }
         | UntypedKind::Struct { .. }
-        | UntypedKind::FieldAccess { .. }
         | UntypedKind::ParseError(_) => {
             errors.push(CompileError::new(
                 ErrorKind::Internal,

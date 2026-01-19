@@ -173,6 +173,27 @@ impl TypeTable {
     pub fn contains(&self, path: &Path) -> bool {
         self.types.contains_key(path)
     }
+
+    /// Iterate over all registered user types.
+    ///
+    /// # Returns
+    ///
+    /// Iterator over references to all [`UserType`] definitions.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::resolve::types::TypeTable;
+    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
+    ///
+    /// let mut table = TypeTable::new();
+    /// table.register(UserType::new(TypeId::from("Foo"), Path::from("Foo"), vec![]));
+    ///
+    /// assert_eq!(table.iter().count(), 1);
+    /// ```
+    pub fn iter(&self) -> impl Iterator<Item = &UserType> {
+        self.types.values()
+    }
 }
 
 /// Resolves a parsed [`TypeExpr`](crate::ast::TypeExpr) into a semantic [`Type`].
