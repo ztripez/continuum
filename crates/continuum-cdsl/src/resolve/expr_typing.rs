@@ -55,84 +55,70 @@ use std::collections::HashMap;
 /// Provides access to type registries and tracks local bindings and execution
 /// context during typing.
 ///
-/// # Parameters
-///
-/// - `type_table`: User-defined types for struct construction and field access
-/// - `kernel_registry`: Kernel signatures for resolving call return types
-/// - `signal_types`: Map from signal path to output type
-/// - `field_types`: Map from field path to output type
-/// - `config_types`: Map from config path to output type
-/// - `const_types`: Map from const path to output type
-/// - `local_bindings`: Currently in-scope let bindings
-/// - `node_output`: Node output type for `prev`, `current`, aggregates, and folds
-/// - `inputs_type`: Inputs type for `inputs` expressions
-/// - `payload_type`: Payload type for `payload` expressions
-/// - `phase`: Execution phase for boundary enforcement
+/// The context carries:
+/// - **Global Registries**: Type definitions and kernel signatures
+/// - **Authoritative State**: Declared types for signals, fields, configs, and constants
+/// - **Local Scope**: Types for variables bound in `let` expressions
+/// - **Execution Context**: Types for context-dependent values like `self`, `inputs`, or `node_output`
 ///
 /// # Examples
 ///
 /// ```rust,ignore
+/// use continuum_cdsl::resolve::expr_typing::TypingContext;
+///
 /// let ctx = TypingContext::new(
 ///     &type_table,
-///     kernel_registry,
-///     signal_types,
-///     field_types,
-///     config_types,
-///     const_types,
+///     &kernel_registry,
+///     &signal_types,
+///     &field_types,
+///     &config_types,
+///     &const_types,
 /// );
 /// ```
 pub struct TypingContext<'a> {
-    /// User-defined type definitions
+    /// User-defined type definitions for struct construction and field access.
     pub type_table: &'a TypeTable,
 
-    /// Kernel signatures for call resolution
+    /// Kernel signatures used to resolve function calls and derive return types.
     pub kernel_registry: &'a KernelRegistry,
 
-    /// Signal path → output type mapping
+    /// Mapping from signal path to its authoritative resolved type.
     pub signal_types: &'a HashMap<Path, Type>,
 
-    /// Field path → output type mapping
+    /// Mapping from field path to its authoritative observation type.
     pub field_types: &'a HashMap<Path, Type>,
 
-    /// Config path → type mapping
+    /// Mapping from world configuration path to its value type.
     pub config_types: &'a HashMap<Path, Type>,
 
-    /// Const path → type mapping
+    /// Mapping from CDSL constant path to its declared type.
     pub const_types: &'a HashMap<Path, Type>,
 
-    /// Local let-bound variables (name → type)
+    /// Currently in-scope local variable bindings (name → type).
     pub local_bindings: HashMap<String, Type>,
 
-    /// Type of 'self' entity instance
+    /// The type of the `self` entity instance in the current execution block.
     pub self_type: Option<Type>,
 
-    /// Type of 'other' entity instance (for n-body)
+    /// The type of the `other` entity instance (used in n-body interaction blocks).
     pub other_type: Option<Type>,
 
-    /// Current node output type (for `prev`, `current`, aggregates, and folds)
+    /// The output type of the node being typed (for `prev`, `current`, and aggregates).
     ///
-    /// When typing execution blocks for a signal/field/operator, this is set
-    /// to the node's output type. Expressions using `prev`, `current`, aggregate
-    /// bindings, or fold element bindings resolve to this type.
+    /// When typing a signal or field's execution block, this is set to the node's
+    /// own output type.
     pub node_output: Option<Type>,
 
-    /// Inputs type (for `inputs` expression)
-    ///
-    /// When typing execution blocks for a signal/member with inputs, this is set
-    /// to the declared inputs type.
+    /// The type of the inputs struct (for the `inputs` expression).
     pub inputs_type: Option<Type>,
 
-    /// Payload type (for `payload` expression)
-    ///
-    /// When typing impulse handler blocks, this is set to the impulse's declared
-    /// payload type.
+    /// The type of the impulse payload (for `payload` expressions in impulse handlers).
     pub payload_type: Option<Type>,
 
-    /// Current execution phase (for phase boundary enforcement)
+    /// The execution phase for phase-based boundary enforcement.
     ///
-    /// When typing execution blocks, this is set to the phase in which the block
-    /// executes. Used to enforce that fields can only be read in Measure phase.
-    /// None indicates context-free typing (e.g., tests without phase constraints).
+    /// Used to ensure that `Field` expressions are only accessed in the `Measure` phase,
+    /// preserving the absolute observer boundary.
     pub phase: Option<Phase>,
 }
 
@@ -457,40 +443,41 @@ fn derive_return_type(
     }))
 }
 
-/// Type an untyped expression
+/// Type an untyped expression tree.
 ///
-/// Assigns types to all subexpressions by:
-/// - Looking up signal/field/config/const types from registries
-/// - Resolving kernel signatures for explicit function calls
-/// - Parsing kernel paths as `namespace.name` or bare `name`
-/// - Propagating types through let bindings and aggregate/fold bindings
-/// - Inferring literal types from syntax
+/// This function performs the core typing pass in the Continuum CDSL compiler.
+/// It transforms an untyped [`Expr`] tree into a [`TypedExpr`] tree by:
+/// 1.  **Name Resolution**: Looking up paths in the provided registries (signals, fields, etc.).
+/// 2.  **Kernel Derivation**: Resolving kernel calls and deriving return types using registered signatures.
+/// 3.  **Type Propagation**: Propagating types through `let` bindings, aggregates, and folds.
+/// 4.  **Literal Inference**: Inferring types for numeric and boolean literals.
+/// 5.  **Context Validation**: Ensuring context-dependent values (e.g., `prev`, `self`, `inputs`) are available.
+/// 6.  **Boundary Enforcement**: Validating that field access only occurs in the `Measure` phase.
 ///
 /// # Parameters
 ///
-/// - `expr`: Untyped expression to type
-/// - `ctx`: Typing context with registries and bindings
+/// - `expr`: The root of the untyped expression tree to type.
+/// - `ctx`: The typing context providing registries, bindings, and execution state.
 ///
 /// # Returns
 ///
-/// `Ok(TypedExpr)` if typing succeeds, `Err` with list of errors otherwise.
+/// - `Ok(TypedExpr)`: The successfully typed expression tree.
+/// - `Err(Vec<CompileError>)`: A list of typing errors encountered during traversal.
 ///
 /// # Errors
 ///
-/// - `UndefinedName` - Signal/Field/Config/Const path not found, or kernel not registered
-/// - `PhaseBoundaryViolation` - Field read outside Measure phase
-/// - `Internal` - Missing execution context or invalid kernel path
-/// - `TypeMismatch` - Structural mismatches detected during typing
+/// - [`ErrorKind::UndefinedName`]: A signal, field, config, constant, or kernel was not found in the registries.
+/// - [`ErrorKind::PhaseBoundaryViolation`]: A field was accessed outside of the `Measure` phase.
+/// - [`ErrorKind::TypeMismatch`]: Structural or type-level conflicts (e.g., mismatched struct fields, non-scalar vector elements).
+/// - [`ErrorKind::Internal`]: Required context (like `node_output` for `prev`) was missing when requested.
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// use continuum_cdsl::ast::untyped::{Expr, ExprKind};
-/// use continuum_cdsl::resolve::expr_typing::{type_expression, TypingContext};
+/// use continuum_cdsl::resolve::expr_typing::type_expression;
 ///
-/// let expr = Expr::new(ExprKind::Dt, span);
-/// let typed_expr = type_expression(&expr, &ctx)?;
-/// assert!(matches!(typed_expr.ty, Type::Kernel(_)));
+/// let typed_expr = type_expression(&untyped_expr, &ctx)?;
+/// println!("Expression type: {:?}", typed_expr.ty);
 /// ```
 pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Vec<CompileError>> {
     let span = expr.span;
@@ -553,17 +540,17 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
 
         UntypedKind::Field(path) => {
             // Phase boundary enforcement: Fields can only be read in Measure phase
-            if let Some(phase) = ctx.phase {
-                if phase != Phase::Measure {
-                    return Err(vec![CompileError::new(
-                        ErrorKind::PhaseBoundaryViolation,
-                        span,
-                        format!(
-                            "field '{}' cannot be read in {:?} phase (fields are only accessible in Measure phase)",
-                            path, phase
-                        ),
-                    )]);
-                }
+            if let Some(phase) = ctx.phase
+                && phase != Phase::Measure
+            {
+                return Err(vec![CompileError::new(
+                    ErrorKind::PhaseBoundaryViolation,
+                    span,
+                    format!(
+                        "field '{}' cannot be read in {:?} phase (fields are only accessible in Measure phase)",
+                        path, phase
+                    ),
+                )]);
             }
 
             let ty = ctx.field_types.get(path).cloned().ok_or_else(|| {
@@ -2891,5 +2878,296 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0].kind, ErrorKind::Internal));
         assert!(errors[0].message.contains("self"));
+    }
+
+    #[test]
+    fn test_type_aggregate_map() {
+        let ctx = make_context();
+        let entity = continuum_foundation::EntityId::new("Plate");
+        let expr = Expr::new(
+            UntypedKind::Aggregate {
+                op: crate::ast::AggregateOp::Map,
+                entity: entity.clone(),
+                binding: "p".to_string(),
+                body: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 1.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.ty {
+            Type::Seq(inner) => {
+                assert!(matches!(**inner, Type::Kernel(_)));
+            }
+            _ => panic!("Expected Seq type, got {:?}", typed.ty),
+        }
+    }
+
+    #[test]
+    fn test_type_aggregate_sum() {
+        let ctx = make_context();
+        let entity = continuum_foundation::EntityId::new("Plate");
+        let expr = Expr::new(
+            UntypedKind::Aggregate {
+                op: crate::ast::AggregateOp::Sum,
+                entity: entity.clone(),
+                binding: "p".to_string(),
+                body: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 1.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert!(matches!(typed.ty, Type::Kernel(_)));
+    }
+
+    #[test]
+    fn test_type_aggregate_count() {
+        let ctx = make_context();
+        let entity = continuum_foundation::EntityId::new("Plate");
+        let expr = Expr::new(
+            UntypedKind::Aggregate {
+                op: crate::ast::AggregateOp::Count,
+                entity: entity.clone(),
+                binding: "p".to_string(),
+                body: Box::new(Expr::new(
+                    UntypedKind::BoolLiteral(true),
+                    Span::new(0, 0, 4, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::DIMENSIONLESS);
+            }
+            _ => panic!("Expected dimensionless Scalar for Count"),
+        }
+    }
+
+    #[test]
+    fn test_type_aggregate_any() {
+        let ctx = make_context();
+        let entity = continuum_foundation::EntityId::new("Plate");
+        let expr = Expr::new(
+            UntypedKind::Aggregate {
+                op: crate::ast::AggregateOp::Any,
+                entity: entity.clone(),
+                binding: "p".to_string(),
+                body: Box::new(Expr::new(
+                    UntypedKind::BoolLiteral(true),
+                    Span::new(0, 0, 4, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert!(matches!(typed.ty, Type::Bool));
+    }
+
+    #[test]
+    fn test_type_fold_valid() {
+        let ctx = make_context();
+        let entity = continuum_foundation::EntityId::new("Plate");
+        let expr = Expr::new(
+            UntypedKind::Fold {
+                entity: entity.clone(),
+                init: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 0.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                acc: "acc".to_string(),
+                elem: "p".to_string(),
+                body: Box::new(Expr::new(
+                    UntypedKind::Local("acc".to_string()),
+                    Span::new(0, 0, 3, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert!(matches!(typed.ty, Type::Kernel(_)));
+    }
+
+    #[test]
+    fn test_type_fold_mismatch_fails() {
+        let ctx = make_context();
+        let entity = continuum_foundation::EntityId::new("Plate");
+        let expr = Expr::new(
+            UntypedKind::Fold {
+                entity: entity.clone(),
+                init: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 0.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                acc: "acc".to_string(),
+                elem: "p".to_string(),
+                body: Box::new(Expr::new(
+                    UntypedKind::BoolLiteral(true),
+                    Span::new(0, 0, 4, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let result = type_expression(&expr, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+    }
+
+    #[test]
+    fn test_type_nested_aggregates() {
+        let ctx = make_context();
+        let entity1 = continuum_foundation::EntityId::new("Plate");
+        let entity2 = continuum_foundation::EntityId::new("Point");
+
+        // aggregate(Plate, p) { aggregate(Point, pt) { 1.0 } }
+        let expr = Expr::new(
+            UntypedKind::Aggregate {
+                op: crate::ast::AggregateOp::Map,
+                entity: entity1,
+                binding: "p".to_string(),
+                body: Box::new(Expr::new(
+                    UntypedKind::Aggregate {
+                        op: crate::ast::AggregateOp::Map,
+                        entity: entity2,
+                        binding: "pt".to_string(),
+                        body: Box::new(Expr::new(
+                            UntypedKind::Literal {
+                                value: 1.0,
+                                unit: None,
+                            },
+                            Span::new(0, 0, 3, 1),
+                        )),
+                    },
+                    Span::new(0, 0, 10, 1),
+                )),
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        // Result should be Seq(Seq(Scalar))
+        match &typed.ty {
+            Type::Seq(inner1) => match &**inner1 {
+                Type::Seq(inner2) => {
+                    assert!(matches!(**inner2, Type::Kernel(_)));
+                }
+                _ => panic!("Expected nested Seq type, got {:?}", inner1),
+            },
+            _ => panic!("Expected Seq type, got {:?}", typed.ty),
+        }
+    }
+
+    #[test]
+    fn test_type_self_other_field_access() {
+        let type_name = "Plate";
+        let ctx = make_context_with_types(&[(
+            type_name,
+            &[(
+                "mass",
+                Type::Kernel(KernelType {
+                    shape: Shape::Scalar,
+                    unit: Unit::kilograms(),
+                    bounds: None,
+                }),
+            )],
+        )]);
+
+        let mut ctx = ctx;
+        let plate_ty = Type::User(TypeId::from(type_name));
+        ctx.self_type = Some(plate_ty.clone());
+        ctx.other_type = Some(plate_ty);
+
+        // self.mass
+        let expr_self = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(UntypedKind::Self_, Span::new(0, 0, 4, 1))),
+                field: "mass".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed_self = type_expression(&expr_self, &ctx).unwrap();
+        assert!(matches!(typed_self.ty, Type::Kernel(ref kt) if kt.unit == Unit::kilograms()));
+
+        // other.mass
+        let expr_other = Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(Expr::new(UntypedKind::Other, Span::new(0, 0, 5, 1))),
+                field: "mass".to_string(),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed_other = type_expression(&expr_other, &ctx).unwrap();
+        assert!(matches!(typed_other.ty, Type::Kernel(ref kt) if kt.unit == Unit::kilograms()));
+    }
+
+    #[test]
+    fn test_type_fold_with_nested_aggregate() {
+        let ctx = make_context();
+        let entity1 = continuum_foundation::EntityId::new("Plate");
+        let entity2 = continuum_foundation::EntityId::new("Point");
+
+        // fold(Plate, 0.0, |acc, p| acc + sum(Point, |pt| 1.0))
+        let expr = Expr::new(
+            UntypedKind::Fold {
+                entity: entity1,
+                init: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 0.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                acc: "acc".to_string(),
+                elem: "p".to_string(),
+                body: Box::new(Expr::new(
+                    UntypedKind::Aggregate {
+                        op: crate::ast::AggregateOp::Sum,
+                        entity: entity2,
+                        binding: "pt".to_string(),
+                        body: Box::new(Expr::new(
+                            UntypedKind::Literal {
+                                value: 1.0,
+                                unit: None,
+                            },
+                            Span::new(0, 0, 3, 1),
+                        )),
+                    },
+                    Span::new(0, 0, 10, 1),
+                )),
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert!(matches!(typed.ty, Type::Kernel(_)));
     }
 }
