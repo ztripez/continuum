@@ -123,9 +123,10 @@ pub struct RequiresUses {
 /// # Examples
 ///
 /// ```rust
-/// use continuum_cdsl::ast::KernelSignature;
+/// use continuum_cdsl::ast::{KernelSignature, KernelParam, KernelReturn, KernelPurity};
 /// use continuum_cdsl::ast::{ShapeConstraint, UnitConstraint, ShapeDerivation, UnitDerivation};
 /// use continuum_cdsl::ast::KernelId;
+/// use continuum_kernel_types::ValueType;
 ///
 /// // maths.add(a, b) → same shape, same unit, pure
 /// let add_sig = KernelSignature {
@@ -136,7 +137,8 @@ pub struct RequiresUses {
 ///     ],
 ///     returns: KernelReturn {
 ///         shape: ShapeDerivation::SameAs(0),
-///         unit: UnitDerivation::SameAs(0)
+///         unit: UnitDerivation::SameAs(0),
+///         value_type: ValueType::Scalar,
 ///     },
 ///     purity: KernelPurity::Pure,
 ///     requires_uses: None,
@@ -364,14 +366,14 @@ pub enum UnitConstraint {
 /// let same_as = KernelReturn {
 ///     shape: ShapeDerivation::SameAs(0),
 ///     unit: UnitDerivation::SameAs(0),
-///     value_type: ValueType::F64,
+///     value_type: ValueType::Scalar,
 /// };
 ///
 /// // Returns scalar with product of parameter units
 /// let dot_product = KernelReturn {
 ///     shape: ShapeDerivation::Scalar,
 ///     unit: UnitDerivation::Multiply(vec![0, 1]),
-///     value_type: ValueType::F64,
+///     value_type: ValueType::Scalar,
 /// };
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -745,7 +747,7 @@ impl KernelRegistry {
     /// Convert compile-time KernelSignature to AST KernelSignature
     fn convert_signature(sig: &continuum_kernel_types::KernelSignature) -> KernelSignature {
         KernelSignature {
-            id: KernelId::new(sig.id.namespace, sig.id.name),
+            id: sig.id.clone(),
             params: sig.params.iter().map(Self::convert_param).collect(),
             returns: Self::convert_return(&sig.returns),
             purity: Self::convert_purity(sig.purity),

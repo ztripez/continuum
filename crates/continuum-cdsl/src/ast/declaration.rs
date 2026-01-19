@@ -30,7 +30,7 @@ use crate::foundation::{EntityId, Path, Span};
 /// declaration types from a single `declarations_parser()` function.
 /// Each variant contains the fully-constructed declaration with all
 /// metadata preserved.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum Declaration {
     /// Global primitive (signal, field, operator, impulse, fracture, chronicle)
     Node(Node<()>),
@@ -66,7 +66,7 @@ pub enum Declaration {
 /// Validation of attribute names and argument types happens in the analyzer,
 /// not the parser. This keeps the parser simple and allows for future
 /// attribute additions without parser changes.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Attribute {
     /// Attribute name (e.g., "title", "strata", "dt")
     pub name: String,
@@ -89,7 +89,7 @@ pub struct Attribute {
 ///     location: Vec2<rad>
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TypeDecl {
     /// Type name (unqualified identifier)
     pub name: String,
@@ -105,7 +105,7 @@ pub struct TypeDecl {
 }
 
 /// Field in a custom type declaration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TypeField {
     /// Field name
     pub name: String,
@@ -132,7 +132,7 @@ pub struct TypeField {
 ///     }
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WorldDecl {
     /// World path
     pub path: Path,
@@ -175,7 +175,7 @@ pub struct WorldDecl {
 /// from raw attributes. Should be moved to semantic analysis phase.
 /// Fields are Optional to avoid silent defaults when attributes are missing/invalid.
 /// Semantic analysis validates required fields and applies proper defaults.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WarmupPolicy {
     /// Expression that evaluates to true when converged.
     ///
@@ -206,7 +206,7 @@ pub struct WarmupPolicy {
 ///
 /// This preserves the parser/semantic boundary: parser handles syntax,
 /// semantic analysis validates and interprets.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct RawWarmupPolicy {
     /// Raw attributes from warmup block
     pub attributes: Vec<Attribute>,
@@ -216,7 +216,7 @@ pub struct RawWarmupPolicy {
 }
 
 /// Behavior when warmup times out without converging.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WarmupTimeout {
     /// Emit error diagnostic and abort compilation
     Fail,
@@ -235,7 +235,7 @@ impl Default for WarmupTimeout {
 ///
 /// Per architect feedback: type annotations must be required for const entries.
 /// No `Option<TypeExpr>` - types are explicit.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConstEntry {
     /// Constant path
     pub path: Path,
@@ -256,7 +256,7 @@ pub struct ConstEntry {
 /// Config entry with full metadata.
 ///
 /// Config entries have required types and optional defaults.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConfigEntry {
     /// Config path
     pub path: Path,
@@ -291,7 +291,7 @@ pub struct ConfigEntry {
 ///     }
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct EraDecl {
     /// Era path
     pub path: Path,
@@ -329,7 +329,7 @@ pub struct EraDecl {
 ///
 /// Defines how a stratum behaves in this era (active, gated)
 /// and optionally overrides its cadence.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct StratumPolicyEntry {
     /// Stratum path
     pub stratum: Path,
@@ -350,7 +350,7 @@ pub struct StratumPolicyEntry {
 }
 
 /// Stratum activation state within an era.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum StratumState {
     /// Stratum executes in this era
     Active,
@@ -369,7 +369,7 @@ pub enum StratumState {
 ///     signal.time > 1e9<s>
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TransitionDecl {
     /// Target era path
     pub target: Path,
@@ -395,7 +395,7 @@ pub struct TransitionDecl {
 ///     iterate { prev * 0.9 }
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WarmupBlock {
     /// Warmup attributes (iterations, convergence, etc.)
     pub attrs: Vec<Attribute>,
@@ -417,7 +417,7 @@ pub struct WarmupBlock {
 ///     signal.pressure > 100<atm>
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WhenBlock {
     /// Condition expressions (all must be true for when block to fire)
     pub conditions: Vec<Expr>,
@@ -437,7 +437,7 @@ pub struct WhenBlock {
 ///     }
 /// }
 /// ```
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ObserveBlock {
     /// When clauses with associated emit blocks
     pub when_clauses: Vec<ObserveWhen>,
@@ -447,7 +447,7 @@ pub struct ObserveBlock {
 }
 
 /// When clause within an observe block.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ObserveWhen {
     /// Condition expression
     pub condition: Expr,

@@ -35,7 +35,7 @@ use std::fmt;
 /// - Message (human-readable explanation)
 /// - Optional secondary labels (related code locations)
 /// - Optional notes (additional context or suggestions)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct CompileError {
     /// Category of this error
     pub kind: ErrorKind,
@@ -59,7 +59,7 @@ pub struct CompileError {
 /// # Invariant
 ///
 /// The discriminant values must match the ERROR_KIND_NAMES array indices.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
 pub enum ErrorKind {
     // Parse phase
@@ -167,7 +167,9 @@ const ERROR_KIND_NAMES: &[&str] = &[
 ];
 
 /// Diagnostic severity level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 pub enum Severity {
     /// Informational note (not an error)
     Note,
@@ -180,7 +182,7 @@ pub enum Severity {
 /// Secondary labeled span in a diagnostic.
 ///
 /// Used to point to related code locations (e.g., "first defined here").
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Label {
     /// Source location
     pub span: Span,

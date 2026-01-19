@@ -19,7 +19,7 @@ use crate::foundation::{Path, Span};
 /// The type parameter `E` defines the expression representation used within the statement,
 /// allowing the same structure to represent both untyped parser output ([`Expr`][crate::ast::untyped::Expr])
 /// and compiled IR ([`TypedExpr`][crate::ast::TypedExpr]).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Stmt<E = Expr> {
     /// Let binding: `let x = expr`
     ///
@@ -88,7 +88,7 @@ pub type TypedStmt = Stmt<TypedExpr>;
 /// 2. Expression typing pass converts `Expression` to `TypedExpression`.
 /// 3. Statement compilation pass (Phase 12.5-S) converts `Statements` to `TypedStatements`.
 /// 4. Execution block compilation expects either `TypedExpression` or `TypedStatements`.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BlockBody {
     /// Single untyped expression (pure phases, from parser)
     Expression(Expr),

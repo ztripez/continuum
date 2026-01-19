@@ -1210,7 +1210,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
                     )]
                 })?;
 
-            let kernel_id = KernelId::new(sig.id.namespace, sig.id.name);
+            let kernel_id = sig.id.clone();
             let return_type = derive_return_type(sig, &typed_args, span)?;
 
             (

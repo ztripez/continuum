@@ -50,7 +50,7 @@ use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, Stratu
 ///     operator apply_friction { ... } // Operator per plate
 /// }
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Entity {
     /// Unique identifier for this entity type
     pub id: EntityId,
@@ -113,7 +113,7 @@ impl Entity {
 ///     resolve { ... }
 /// }
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Stratum {
     /// Unique identifier for this stratum
     pub id: StratumId,
@@ -212,7 +212,7 @@ impl Stratum {
 ///     : strata(tectonics: active, climate: active)
 /// }
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Era {
     /// Unique identifier for this era
     pub id: EraId,
@@ -263,7 +263,7 @@ impl Era {
 /// Stratum activation policy within an era
 ///
 /// Controls whether a stratum executes during an era and at what cadence.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct StratumPolicy {
     /// Which stratum this policy applies to
     pub stratum: StratumId,
@@ -308,7 +308,7 @@ impl StratumPolicy {
 ///
 /// Defines when and how to transition from one era to another.
 /// Transitions are signal-driven and deterministic.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct EraTransition {
     /// Target era to transition to
     pub target: EraId,
@@ -372,7 +372,7 @@ impl EraTransition {
 ///     }
 /// }
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Analyzer {
     /// Unique identifier for this analyzer
     pub id: AnalyzerId,
@@ -418,7 +418,7 @@ impl Analyzer {
 ///
 /// Defines a condition that should be checked against field data,
 /// with configurable severity (warn, error, fatal).
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct AnalyzerValidation {
     /// Validation condition (Bool-typed expression over field statistics)
     pub condition: TypedExpr,
@@ -451,7 +451,7 @@ impl AnalyzerValidation {
 }
 
 /// Validation severity levels
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ValidationSeverity {
     /// Warning - logged but execution continues
     Warn,

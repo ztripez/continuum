@@ -237,7 +237,7 @@ pub enum AggregateOp {
 /// # Examples
 ///
 /// See individual variant documentation for usage examples.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExprKind {
     // === Literals ===
     /// Numeric literal with optional unit
@@ -674,7 +674,7 @@ pub enum ExprKind {
 ///     span,
 /// };
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct TypedExpr {
     /// Expression variant
     pub expr: ExprKind,

@@ -54,7 +54,7 @@ use continuum_foundation::{Capability, CapabilitySet, Phase, PhaseSet};
 /// - Which phases the node can execute in
 /// - Which capabilities are available in each phase
 /// - Whether reconstruction hints are allowed
-#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash)]
+#[derive(Copy, Clone, Eq, PartialEq, Debug, Hash, serde::Serialize, serde::Deserialize)]
 #[repr(u8)]
 pub enum RoleId {
     /// Signal - authoritative state resolution
@@ -99,7 +99,7 @@ impl RoleId {
 /// - Signals can't have reconstruction hints (only Fields have them)
 /// - Impulses explicitly declare payload types
 /// - Invalid combinations are compile errors
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum RoleData {
     /// Signal - authoritative state resolution
     Signal,
@@ -171,7 +171,7 @@ impl RoleData {
 ///     conservative: false,
 /// }
 /// ```
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ReconstructionHint {
     /// Distance metric and coordinate system
     pub domain: Domain,
@@ -187,7 +187,7 @@ pub struct ReconstructionHint {
 }
 
 /// Domain determines distance metric and coordinate handling
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Domain {
     /// Euclidean distance in R^n
     Cartesian,
@@ -200,7 +200,7 @@ pub enum Domain {
 }
 
 /// Interpolation kernel applied using domain's distance metric
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum InterpolationMethod {
     // === Basic ===
     /// Closest sample (C0 discontinuous)
@@ -251,7 +251,7 @@ pub enum InterpolationMethod {
 }
 
 /// RBF kernel types for radial basis function interpolation
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum RbfKernel {
     /// Gaussian kernel: exp(-r²/ε²)
     Gaussian {
@@ -282,7 +282,7 @@ pub enum RbfKernel {
 }
 
 /// Variogram model for kriging interpolation
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Variogram {
     /// Exponential variogram
     Exponential {
@@ -310,7 +310,7 @@ pub enum Variogram {
 }
 
 /// Boundary condition for queries outside sample domain
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum BoundaryCondition {
     // === Coordinate-based ===
     /// Clamp to nearest edge value
@@ -350,6 +350,8 @@ pub enum BoundaryCondition {
         alpha: f64,
         /// Coefficient β
         beta: f64,
+        /// Coefficient γ
+        gamma: f64,
     },
 }
 

@@ -127,6 +127,7 @@ pub mod capabilities;
 pub mod effects;
 pub mod eras;
 pub mod expr_typing;
+pub mod graph;
 pub mod names;
 pub mod pipeline;
 pub mod strata;

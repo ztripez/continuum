@@ -3,13 +3,14 @@
 //! This module orchestrates the various resolution and validation passes
 //! to transform raw parsed declarations into a fully resolved [`World`].
 
-use crate::ast::{Declaration, Era, KernelRegistry, Node, World};
+use crate::ast::{CompiledWorld, Declaration, Era, KernelRegistry, Node, World};
 use crate::desugar::desugar_declarations;
 use crate::error::CompileError;
 use crate::foundation::{EntityId, Path, Type};
 use crate::resolve::blocks::compile_execution_blocks;
 use crate::resolve::eras::resolve_eras;
 use crate::resolve::expr_typing::{TypingContext, type_expression};
+use crate::resolve::graph::compile_graphs;
 use crate::resolve::names::{Scope, build_symbol_table, validate_expr};
 use crate::resolve::strata::{resolve_cadences, resolve_strata};
 use crate::resolve::types::{
@@ -19,7 +20,7 @@ use crate::resolve::uses::validate_uses;
 use crate::resolve::validation::{validate_node, validate_seq_escape};
 use std::collections::HashMap;
 
-/// Compiles a list of raw declarations into a resolved [`World`].
+/// Compiles a list of raw declarations into a resolved [`CompiledWorld`].
 ///
 /// This is the main entry point for the CDSL compiler. It runs all
 /// resolution and validation passes in the correct order.
@@ -33,7 +34,8 @@ use std::collections::HashMap;
 /// 6. **Era Resolution** - Validate eras and transition graph.
 /// 7. **Block Compilation** - Type-check and compile execution blocks.
 /// 8. **Validation** - Final semantic validation (purity, bounds, uses).
-pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError>> {
+/// 9. **Graph Compilation** - Build deterministic execution DAGs.
+pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<CompileError>> {
     let mut errors = Vec::new();
 
     // 1. Desugar
@@ -275,7 +277,16 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError
     world.strata = strata_map;
     world.eras = resolved_eras;
 
-    Ok(world)
+    // 9. Graph Compilation
+    let dag_set = match compile_graphs(&world) {
+        Ok(ds) => ds,
+        Err(mut e) => {
+            errors.append(&mut e);
+            return Err(errors);
+        }
+    };
+
+    Ok(CompiledWorld::new(world, dag_set))
 }
 
 fn collect_node_types(globals: &[Node<()>], members: &[Node<EntityId>]) -> HashMap<Path, Type> {
@@ -350,11 +361,20 @@ mod tests {
 
         let world = compile(decls).expect("Compilation failed");
 
-        assert_eq!(world.metadata.path, world_path);
-        assert!(world.entities.contains_key(&Path::from_str("plate")));
-        assert!(world.members.contains_key(&Path::from_str("plate.mass")));
+        assert_eq!(world.world.metadata.path, world_path);
+        assert!(world.world.entities.contains_key(&Path::from_str("plate")));
+        assert!(
+            world
+                .world
+                .members
+                .contains_key(&Path::from_str("plate.mass"))
+        );
 
-        let mass_node = world.members.get(&Path::from_str("plate.mass")).unwrap();
+        let mass_node = world
+            .world
+            .members
+            .get(&Path::from_str("plate.mass"))
+            .unwrap();
         assert!(mass_node.output.is_some());
         assert_eq!(mass_node.executions.len(), 1);
     }

@@ -91,7 +91,7 @@ impl Index for EntityId {}
 /// The Index parameter I distinguishes:
 /// - Node<()> = global primitive
 /// - Node<EntityId> = per-entity primitive (member)
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Node<I: Index = ()> {
     // =========================================================================
     // Identity
@@ -383,7 +383,7 @@ impl<I: Index> Compiled for Node<I> {
 /// Will be implemented when the resolution phase is added.
 ///
 /// **Current status:** Placeholder - not yet implemented
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Scoping {
     // This will hold config/const lookups when implemented
     #[doc(hidden)]
@@ -418,7 +418,7 @@ pub struct Scoping {
 ///     span
 /// );
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Assertion {
     /// The condition expression to validate.
     ///
@@ -483,7 +483,7 @@ impl Assertion {
 /// // An effectful statement body for a Collect phase
 /// let body = ExecutionBody::Statements(vec![stmt1, stmt2]);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub enum ExecutionBody {
     /// Pure computation (Resolve, Measure, Assert, Fracture)
     Expr(TypedExpr),
@@ -529,7 +529,7 @@ pub enum ExecutionBody {
 /// assert_eq!(execution.phase, Phase::Resolve);
 /// assert_eq!(execution.reads.len(), 1);
 /// ```
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Execution {
     /// Name of the execution block (usually the phase name)
     pub name: String,

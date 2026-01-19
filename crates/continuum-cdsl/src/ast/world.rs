@@ -8,13 +8,14 @@ use crate::ast::declaration::{Declaration, WorldDecl};
 use crate::ast::node::Node;
 use crate::ast::structural::{Entity, Era, Stratum};
 use crate::foundation::{EntityId, Path};
+use crate::resolve::graph::DagSet;
 use std::collections::HashMap;
 
 /// A compiled and resolved Continuum world.
 ///
 /// Contains all primitives (signals, fields, operators) and structural
 /// definitions (entities, strata, eras) ready for DAG construction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct World {
     /// World metadata and warmup policy
     pub metadata: WorldDecl,
@@ -50,5 +51,26 @@ impl World {
             eras: HashMap::new(),
             declarations: Vec::new(),
         }
+    }
+}
+
+/// A fully compiled Continuum world, including execution graphs.
+///
+/// This is the final output of the compiler pipeline, ready to be
+/// consumed by the runtime.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CompiledWorld {
+    /// The resolved world structure
+    // Note: We might want to optimize what we include here for serialization
+    pub world: World,
+
+    /// The compiled execution DAGs
+    pub dag_set: DagSet,
+}
+
+impl CompiledWorld {
+    /// Create a new compiled world from a resolved world and its DAGs.
+    pub fn new(world: World, dag_set: DagSet) -> Self {
+        Self { world, dag_set }
     }
 }

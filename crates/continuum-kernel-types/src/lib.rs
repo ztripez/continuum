@@ -81,6 +81,7 @@ pub use shape::Shape;
 pub use unit::{Unit, UnitDimensions, UnitKind};
 
 use linkme::distributed_slice;
+use serde::{Deserialize, Serialize};
 
 /// Distributed slice for kernel signatures
 ///
@@ -127,10 +128,10 @@ pub static KERNEL_SIGNATURES: [KernelSignature];
 /// let emit = KernelId::new("", "emit");
 /// assert_eq!(emit.qualified_name(), "emit");  // Bare name
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct KernelId {
-    pub namespace: &'static str,
-    pub name: &'static str,
+    pub namespace: std::borrow::Cow<'static, str>,
+    pub name: std::borrow::Cow<'static, str>,
 }
 
 impl KernelId {
@@ -149,7 +150,10 @@ impl KernelId {
     /// let id = KernelId::new("maths", "add");
     /// ```
     pub const fn new(namespace: &'static str, name: &'static str) -> Self {
-        Self { namespace, name }
+        Self {
+            namespace: std::borrow::Cow::Borrowed(namespace),
+            name: std::borrow::Cow::Borrowed(name),
+        }
     }
 
     /// Get the qualified name (namespace.name)

@@ -91,7 +91,7 @@ use continuum_kernel_types::KernelId;
 /// // Binary operator (desugars to kernel call)
 /// let add = Expr::binary(BinaryOp::Add, a, b, span);
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Expr {
     /// Expression kind (what kind of expression this is)
     pub kind: ExprKind,
@@ -259,7 +259,7 @@ impl Expr {
 ///
 /// `Let`, `Aggregate`, and `Fold` introduce variable bindings and are preserved
 /// as special forms (not desugared to calls).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ExprKind {
     // === Literals ===
     /// Numeric literal with optional unit syntax
@@ -663,7 +663,7 @@ pub enum ExprKind {
 /// | `>=` | `compare.ge` |
 /// | `&&` | `logic.and` |
 /// | `\|\|` | `logic.or` |
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum BinaryOp {
     // Arithmetic
     /// Addition: `a + b` → `maths.add(a, b)`
@@ -742,7 +742,7 @@ impl BinaryOp {
 /// |----------|--------|
 /// | `-` | `maths.neg` |
 /// | `!` | `logic.not` |
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum UnaryOp {
     /// Negation: `-x` → `maths.neg(x)`
     Neg,
@@ -791,7 +791,7 @@ impl UnaryOp {
 /// - **Matrix types:** `Matrix<rows, cols, unit>`
 /// - **User types:** Just the type name (e.g., `OrbitalElements`)
 /// - **Bool:** The keyword `Bool`
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TypeExpr {
     /// Scalar type: `Scalar<m/s>` or `Scalar<>` or just `Scalar`
     ///
@@ -884,7 +884,7 @@ pub enum TypeExpr {
 /// <>          // Dimensionless
 /// K           // Base("K")
 /// ```
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum UnitExpr {
     /// Base unit: `m`, `kg`, `s`, `K`, etc.
     ///
