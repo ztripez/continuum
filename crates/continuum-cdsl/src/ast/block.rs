@@ -3,6 +3,7 @@
 //! This module defines block body types used in execution blocks.
 //! These types are shared between declaration.rs and node.rs.
 
+use crate::ast::TypedExpr;
 use crate::ast::untyped::Expr;
 use crate::foundation::{Path, Span};
 
@@ -62,15 +63,29 @@ pub enum Stmt {
 /// Block body - either single expression or statement list.
 ///
 /// The body kind is determined by the block's phase capabilities:
-/// - Pure phases (Resolve, Measure): Expression
+/// - Pure phases (Resolve, Measure): Expression or TypedExpression
 /// - Effect phases (Collect, Fracture): Statements
+///
+/// # Lifecycle
+///
+/// Parser produces `Expression(Expr)` (untyped).
+/// Expression typing pass converts to `TypedExpression(TypedExpr)`.
+/// Execution block compilation expects `TypedExpression`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockBody {
-    /// Single expression (pure phases)
+    /// Single untyped expression (pure phases, from parser)
     ///
     /// Used in: resolve blocks, measure blocks (simple field emission)
     /// Also used in: warmup iterate blocks (expression-only)
+    ///
+    /// Cleared by expression typing pass, replaced with TypedExpression.
     Expression(Expr),
+
+    /// Single typed expression (pure phases, after type resolution)
+    ///
+    /// Produced by expression typing pass from Expression variant.
+    /// Consumed by execution block compilation to create Execution structs.
+    TypedExpression(TypedExpr),
 
     /// Statement list (effect phases)
     ///
