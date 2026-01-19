@@ -54,7 +54,7 @@
 //! // Ready for Phase 13: DAG construction
 //! ```
 
-use crate::ast::{BlockBody, ExprKind, Index, Node, RoleId, TypedExpr};
+use crate::ast::{BlockBody, Execution, ExprKind, Index, Node, RoleId, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{Path, Phase};
 use std::collections::HashSet;
@@ -232,7 +232,7 @@ fn validate_phase_for_role(
 /// ```
 pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
-    let executions = Vec::new();
+    let mut executions = Vec::new();
 
     let role_id = node.role.id();
 
@@ -270,33 +270,32 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
         }
 
         // 4. Extract body as TypedExpr
-        //
-        // TODO: Type resolution integration needed
-        //
-        // Current blocker: BlockBody contains Expr (untyped), but Execution needs TypedExpr.
-        // Type resolution pass (resolve/types.rs) converts Expr → TypedExpr.
-        //
-        // Options for integration:
-        // A) Type resolution populates a separate typed_execution_blocks field
-        // B) This pass calls type resolution internally on each block body
-        // C) Type resolution runs before this and modifies execution_blocks in place
-        //
-        // For now, return error indicating this integration is pending.
-        // All helper functions (parse_phase_name, extract_dependencies, validate_phase_for_role)
-        // are tested and working correctly.
-        errors.push(CompileError::new(
-            ErrorKind::Internal,
-            node.span,
-            "execution block compilation requires type resolution integration (pending)"
-                .to_string(),
-        ));
-        continue;
+        let typed_expr = match block_body {
+            BlockBody::TypedExpression(typed_expr) => typed_expr.clone(),
+            BlockBody::Expression(_) => {
+                // Should never happen if expression typing ran first
+                errors.push(CompileError::new(
+                    ErrorKind::Internal,
+                    node.span,
+                    format!(
+                        "execution block '{}' not typed (expression typing should run before block compilation)",
+                        phase_name
+                    ),
+                ));
+                continue;
+            }
+            BlockBody::Statements(_) => {
+                // Already validated above - statements not allowed in pure phases
+                continue;
+            }
+        };
 
         // 5. Extract dependencies
-        // let reads = extract_dependencies(&body);
+        let reads = extract_dependencies(&typed_expr);
 
         // 6. Create Execution
-        // executions.push(Execution::new(phase, body, reads, node.span));
+        let execution = Execution::new(phase, typed_expr, reads, node.span);
+        executions.push(execution);
     }
 
     if !errors.is_empty() {
