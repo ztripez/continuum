@@ -61,11 +61,32 @@ These rules must remain true regardless of implementation details.
 - Observers may be removed entirely without changing outcomes.
 - Lens, chronicles, and analysis are strictly non-causal.
 
-### One Truth
+### One Truth Doctrine
+
 - One source of truth
 - Any conversion/normalization/mapping logic (DTO↔domain, schema↔model, unit conversions, enum translations, field renames) must exist in exactly one dedicated module. Call sites may not duplicate conversion logic.
 - Large conversions must be centralized: If a conversion touches >5 fields or is >15 LOC, it must be extracted to a conversions (or the repo’s chosen location) and reused.
 - Refactor-first: If a similar conversion exists, extend/refactor it. Creating a second converter for the same conceptual transformation is forbidden.
+
+#### **Canonical Truth Law**
+
+* Every concept has exactly **one canonical representation**.
+* Parallel models, DTO variants, shadow types, or “equivalent” shapes are forbidden.
+* All other shapes are **boundary-only adapters** to/from the canonical one.
+* Any transformation between shapes must go through a **single, named converter**.
+
+---
+
+#### **Refactor-or-Die Rule**
+
+* Discovering a second representation or conversion for the same concept is a **hard refactor trigger**.
+* Inline mapping, partial copying, or “temporary” parallel types are not allowed.
+* Lossy transformations must be explicit and named.
+
+
+
+
+
 ### Fail Loudly
 - No hidden clamps.
 - No silent correction.
