@@ -77,8 +77,33 @@ pub struct TypingContext<'a> {
     /// Field path → output type mapping
     pub field_types: &'a HashMap<Path, Type>,
 
+    /// Config path → type mapping
+    pub config_types: &'a HashMap<Path, Type>,
+
+    /// Const path → type mapping
+    pub const_types: &'a HashMap<Path, Type>,
+
     /// Local let-bound variables (name → type)
     pub local_bindings: HashMap<String, Type>,
+
+    /// Current node output type (for `prev` and `current`)
+    ///
+    /// When typing execution blocks for a signal/field/operator, this is set
+    /// to the node's output type. Expressions using `prev` or `current` resolve
+    /// to this type.
+    pub node_output: Option<Type>,
+
+    /// Inputs type (for `inputs` expression)
+    ///
+    /// When typing execution blocks for a signal/member with inputs, this is set
+    /// to the declared inputs type.
+    pub inputs_type: Option<Type>,
+
+    /// Payload type (for `payload` expression)
+    ///
+    /// When typing impulse handler blocks, this is set to the impulse's declared
+    /// payload type.
+    pub payload_type: Option<Type>,
 }
 
 impl<'a> TypingContext<'a> {
@@ -90,22 +115,31 @@ impl<'a> TypingContext<'a> {
     /// - `kernel_registry`: Kernel signatures
     /// - `signal_types`: Signal path → type mapping
     /// - `field_types`: Field path → type mapping
+    /// - `config_types`: Config path → type mapping
+    /// - `const_types`: Const path → type mapping
     ///
     /// # Returns
     ///
-    /// A new typing context ready for use
+    /// A new typing context ready for use with no execution context
     pub fn new(
         type_table: &'a TypeTable,
         kernel_registry: &'a KernelRegistry,
         signal_types: &'a HashMap<Path, Type>,
         field_types: &'a HashMap<Path, Type>,
+        config_types: &'a HashMap<Path, Type>,
+        const_types: &'a HashMap<Path, Type>,
     ) -> Self {
         Self {
             type_table,
             kernel_registry,
             signal_types,
             field_types,
+            config_types,
+            const_types,
             local_bindings: HashMap::new(),
+            node_output: None,
+            inputs_type: None,
+            payload_type: None,
         }
     }
 
@@ -128,10 +162,49 @@ impl<'a> TypingContext<'a> {
             kernel_registry: self.kernel_registry,
             signal_types: self.signal_types,
             field_types: self.field_types,
+            config_types: self.config_types,
+            const_types: self.const_types,
             local_bindings: self.local_bindings.clone(),
+            node_output: self.node_output.clone(),
+            inputs_type: self.inputs_type.clone(),
+            payload_type: self.payload_type.clone(),
         };
         ctx.local_bindings.insert(name, ty);
         ctx
+    }
+
+    /// Set execution context for a node
+    ///
+    /// Creates a new context with the same registries but updated execution context.
+    /// Used when typing execution blocks for a specific node.
+    ///
+    /// # Parameters
+    ///
+    /// - `node_output`: The node's output type (for `prev`/`current`)
+    /// - `inputs_type`: The node's inputs type (for `inputs`)
+    /// - `payload_type`: The impulse's payload type (for `payload`)
+    ///
+    /// # Returns
+    ///
+    /// New context with execution context set
+    pub fn with_execution_context(
+        &self,
+        node_output: Option<Type>,
+        inputs_type: Option<Type>,
+        payload_type: Option<Type>,
+    ) -> Self {
+        Self {
+            type_table: self.type_table,
+            kernel_registry: self.kernel_registry,
+            signal_types: self.signal_types,
+            field_types: self.field_types,
+            config_types: self.config_types,
+            const_types: self.const_types,
+            local_bindings: self.local_bindings.clone(),
+            node_output,
+            inputs_type,
+            payload_type,
+        }
     }
 }
 
@@ -520,24 +593,275 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             )
         }
 
+        // === Config lookup ===
+        UntypedKind::Config(path) => {
+            let ty = ctx.config_types.get(path).cloned().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::UndefinedName,
+                    span,
+                    format!("config path '{}' not found", path),
+                )]
+            })?;
+
+            (ExprKind::Config(path.clone()), ty)
+        }
+
+        // === Const lookup ===
+        UntypedKind::Const(path) => {
+            let ty = ctx.const_types.get(path).cloned().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::UndefinedName,
+                    span,
+                    format!("const path '{}' not found", path),
+                )]
+            })?;
+
+            (ExprKind::Const(path.clone()), ty)
+        }
+
+        // === Prev (previous tick value) ===
+        UntypedKind::Prev => {
+            let ty = ctx.node_output.clone().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "prev not available: no node output type in context".to_string(),
+                )]
+            })?;
+
+            (ExprKind::Prev, ty)
+        }
+
+        // === Current (just-resolved value) ===
+        UntypedKind::Current => {
+            let ty = ctx.node_output.clone().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "current not available: no node output type in context".to_string(),
+                )]
+            })?;
+
+            (ExprKind::Current, ty)
+        }
+
+        // === Inputs (accumulated inputs) ===
+        UntypedKind::Inputs => {
+            let ty = ctx.inputs_type.clone().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "inputs not available: no inputs type in context".to_string(),
+                )]
+            })?;
+
+            (ExprKind::Inputs, ty)
+        }
+
+        // === Payload (impulse payload) ===
+        UntypedKind::Payload => {
+            let ty = ctx.payload_type.clone().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "payload not available: no payload type in context".to_string(),
+                )]
+            })?;
+
+            (ExprKind::Payload, ty)
+        }
+
+        // === Vector literal ===
+        UntypedKind::Vector(elements) => {
+            if elements.is_empty() {
+                return Err(vec![CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    span,
+                    "vector literal cannot be empty".to_string(),
+                )]);
+            }
+
+            if elements.len() > 4 {
+                return Err(vec![CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    span,
+                    format!(
+                        "vector literal has {} elements, maximum is 4",
+                        elements.len()
+                    ),
+                )]);
+            }
+
+            // Type all elements
+            let typed_elements: Result<Vec<_>, _> = elements
+                .iter()
+                .map(|elem| type_expression(elem, ctx))
+                .collect();
+            let typed_elements = typed_elements?;
+
+            // All elements must be Kernel types
+            let mut unit = None;
+            for (i, elem) in typed_elements.iter().enumerate() {
+                match &elem.ty {
+                    Type::Kernel(kt) => {
+                        if kt.shape != Shape::Scalar {
+                            return Err(vec![CompileError::new(
+                                ErrorKind::TypeMismatch,
+                                elem.span,
+                                format!(
+                                    "vector element {} has shape {:?}, expected Scalar",
+                                    i, kt.shape
+                                ),
+                            )]);
+                        }
+
+                        // All elements must have the same unit
+                        if let Some(ref expected_unit) = unit {
+                            if kt.unit != *expected_unit {
+                                return Err(vec![CompileError::new(
+                                    ErrorKind::TypeMismatch,
+                                    elem.span,
+                                    format!(
+                                        "vector element {} has unit {}, expected {}",
+                                        i, kt.unit, expected_unit
+                                    ),
+                                )]);
+                            }
+                        } else {
+                            unit = Some(kt.unit);
+                        }
+                    }
+                    _ => {
+                        return Err(vec![CompileError::new(
+                            ErrorKind::TypeMismatch,
+                            elem.span,
+                            format!("vector element {} has non-kernel type {:?}", i, elem.ty),
+                        )]);
+                    }
+                }
+            }
+
+            let dim = elements.len() as u8;
+            let unit = unit.unwrap(); // Safe: verified non-empty above
+
+            (
+                ExprKind::Vector(typed_elements),
+                Type::Kernel(KernelType {
+                    shape: Shape::Vector { dim },
+                    unit,
+                    bounds: None, // Vector bounds not derived from element bounds
+                }),
+            )
+        }
+
+        // === Let binding ===
+        UntypedKind::Let { name, value, body } => {
+            // Type the value expression
+            let typed_value = type_expression(value, ctx)?;
+
+            // Create extended context with the binding
+            let extended_ctx = ctx.with_binding(name.clone(), typed_value.ty.clone());
+
+            // Type the body in the extended context
+            let typed_body = type_expression(body, &extended_ctx)?;
+
+            // Result type is the body's type
+            let ty = typed_body.ty.clone();
+
+            (
+                ExprKind::Let {
+                    name: name.clone(),
+                    value: Box::new(typed_value),
+                    body: Box::new(typed_body),
+                },
+                ty,
+            )
+        }
+
+        // === Struct literal ===
+        UntypedKind::Struct {
+            ty: ty_path,
+            fields,
+        } => {
+            // Look up the user type
+            let type_id = ctx
+                .type_table
+                .get_id(ty_path)
+                .ok_or_else(|| {
+                    vec![CompileError::new(
+                        ErrorKind::UndefinedName,
+                        span,
+                        format!("unknown type '{}'", ty_path),
+                    )]
+                })?
+                .clone();
+
+            let user_type = ctx.type_table.get(ty_path).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    format!("type '{}' not found in type table", ty_path),
+                )]
+            })?;
+
+            // Type all field expressions
+            let mut typed_fields = Vec::new();
+            for (field_name, field_expr) in fields {
+                let typed_expr = type_expression(field_expr, ctx)?;
+
+                // Verify field exists in type
+                let expected_type = user_type.field(field_name).ok_or_else(|| {
+                    vec![CompileError::new(
+                        ErrorKind::UndefinedName,
+                        field_expr.span,
+                        format!("field '{}' not found on type '{}'", field_name, ty_path),
+                    )]
+                })?;
+
+                // Verify type matches
+                if &typed_expr.ty != expected_type {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        field_expr.span,
+                        format!(
+                            "field '{}' has type {:?}, expected {:?}",
+                            field_name, typed_expr.ty, expected_type
+                        ),
+                    )]);
+                }
+
+                typed_fields.push((field_name.clone(), typed_expr));
+            }
+
+            // Verify all declared fields are provided
+            for (declared_field, _) in user_type.fields() {
+                if !fields.iter().any(|(name, _)| name == declared_field) {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        span,
+                        format!("missing field '{}' in struct literal", declared_field),
+                    )]);
+                }
+            }
+
+            (
+                ExprKind::Struct {
+                    ty: type_id.clone(),
+                    fields: typed_fields,
+                },
+                Type::User(type_id),
+            )
+        }
+
         // === Not yet implemented ===
-        UntypedKind::Vector(_)
-        | UntypedKind::Config(_)
-        | UntypedKind::Const(_)
-        | UntypedKind::Prev
-        | UntypedKind::Current
-        | UntypedKind::Inputs
-        | UntypedKind::Self_
+        UntypedKind::Self_
         | UntypedKind::Other
-        | UntypedKind::Payload
         | UntypedKind::Binary { .. }
         | UntypedKind::Unary { .. }
         | UntypedKind::If { .. }
-        | UntypedKind::Let { .. }
         | UntypedKind::Aggregate { .. }
         | UntypedKind::Fold { .. }
         | UntypedKind::Call { .. }
-        | UntypedKind::Struct { .. }
         | UntypedKind::ParseError(_) => {
             errors.push(CompileError::new(
                 ErrorKind::Internal,
@@ -562,8 +886,17 @@ mod tests {
         let kernel_registry = KernelRegistry::global();
         let signal_types = Box::leak(Box::new(HashMap::new()));
         let field_types = Box::leak(Box::new(HashMap::new()));
+        let config_types = Box::leak(Box::new(HashMap::new()));
+        let const_types = Box::leak(Box::new(HashMap::new()));
 
-        TypingContext::new(type_table, kernel_registry, signal_types, field_types)
+        TypingContext::new(
+            type_table,
+            kernel_registry,
+            signal_types,
+            field_types,
+            config_types,
+            const_types,
+        )
     }
 
     #[test]
@@ -1026,7 +1359,16 @@ mod tests {
         let kernel_registry = KernelRegistry::global();
         let signal_types = Box::leak(Box::new(HashMap::new()));
         let field_types = Box::leak(Box::new(HashMap::new()));
-        let mut ctx = TypingContext::new(type_table, kernel_registry, signal_types, field_types);
+        let config_types = Box::leak(Box::new(HashMap::new()));
+        let const_types = Box::leak(Box::new(HashMap::new()));
+        let mut ctx = TypingContext::new(
+            type_table,
+            kernel_registry,
+            signal_types,
+            field_types,
+            config_types,
+            const_types,
+        );
 
         // Create a local variable of type Position
         let type_id = TypeId::from("Position");
@@ -1082,7 +1424,16 @@ mod tests {
         let kernel_registry = KernelRegistry::global();
         let signal_types = Box::leak(Box::new(HashMap::new()));
         let field_types = Box::leak(Box::new(HashMap::new()));
-        let mut ctx = TypingContext::new(type_table, kernel_registry, signal_types, field_types);
+        let config_types = Box::leak(Box::new(HashMap::new()));
+        let const_types = Box::leak(Box::new(HashMap::new()));
+        let mut ctx = TypingContext::new(
+            type_table,
+            kernel_registry,
+            signal_types,
+            field_types,
+            config_types,
+            const_types,
+        );
 
         let type_id = TypeId::from("Position");
         ctx.local_bindings
