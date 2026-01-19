@@ -1,0 +1,5 @@
+error: unsupported kernel return type `String`; expected scalar, vector, matrix, tensor, or bool
+  --> tests/ui/unsupported_return_type.rs:11:30
+   |
+11 | pub fn bad_return(x: f64) -> String {
+   |                              ^^^^^^

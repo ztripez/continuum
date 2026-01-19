@@ -120,3 +120,26 @@ fn test_representative_signatures() {
     // Should have vector constraints (implementation may vary)
     assert!(dot_sig.params.len() >= 2);
 }
+
+#[test]
+fn test_value_type_mapping_for_representative_kernels() {
+    use continuum_kernel_types::ValueType;
+
+    let find_value_type = |namespace: &str, name: &str| {
+        KERNEL_SIGNATURES
+            .iter()
+            .find(|sig| sig.id.namespace == namespace && sig.id.name == name)
+            .unwrap_or_else(|| panic!("kernel signature not found: {}.{}", namespace, name))
+            .returns
+            .value_type
+    };
+
+    assert_eq!(find_value_type("vector", "normalize_vec3"), ValueType::Vec3);
+    assert_eq!(find_value_type("matrix", "mul_mat2"), ValueType::Mat2);
+    assert_eq!(find_value_type("matrix", "mul_mat3"), ValueType::Mat3);
+    assert_eq!(find_value_type("matrix", "mul_mat4"), ValueType::Mat4);
+    assert_eq!(find_value_type("quat", "mul"), ValueType::Quat);
+    assert_eq!(find_value_type("tensor", "transpose"), ValueType::Tensor);
+    assert_eq!(find_value_type("compare", "eq"), ValueType::Bool);
+    assert_eq!(find_value_type("rng", "uniform"), ValueType::Scalar);
+}

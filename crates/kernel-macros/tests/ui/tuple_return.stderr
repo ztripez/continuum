@@ -1,0 +1,5 @@
+error: unsupported kernel return type; use fixed-size arrays for vectors
+  --> tests/ui/tuple_return.rs:11:30
+   |
+11 | pub fn bad_return(x: f64) -> (f64, f64) {
+   |                              ^^^^^^^^^^

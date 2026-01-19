@@ -1,0 +1,5 @@
+error: kernel return arrays must use literal lengths
+  --> tests/ui/array_length_not_literal.rs:13:30
+   |
+13 | pub fn bad_return(x: f64) -> [f64; N] {
+   |                              ^^^^^^^^

@@ -1,0 +1,5 @@
+error: unsupported array length for kernel return (expected 2, 3, or 4)
+  --> tests/ui/array_length_invalid.rs:11:30
+   |
+11 | pub fn bad_return(x: f64) -> [f64; 5] {
+   |                              ^^^^^^^^
