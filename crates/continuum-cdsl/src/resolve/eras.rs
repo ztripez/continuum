@@ -28,6 +28,39 @@
 //! This pass runs after stratum resolution (Phase 12.5-B) and before execution
 //! block compilation (Phase 12.5-D). It's part of Phase 12.5 prerequisites for
 //! execution DAG construction.
+//!
+//! # Usage Example
+//!
+//! ```rust,ignore
+//! use continuum_cdsl::resolve::{strata, eras};
+//! use continuum_cdsl::ast::{Era, Stratum};
+//!
+//! // After parsing and type resolution
+//! let mut eras: Vec<Era> = parsed_ast.eras;
+//! let strata: Vec<Stratum> = parsed_ast.strata;
+//!
+//! // Phase 12.5-A: Resolve strata
+//! let stratum_ids: Vec<StratumId> = strata.iter().map(|s| s.id.clone()).collect();
+//! let stratum_errors = strata::resolve_strata(&mut nodes, &stratum_ids);
+//!
+//! // Phase 12.5-B: Resolve eras
+//! let era_errors = eras::resolve_eras(&mut eras, &stratum_ids);
+//!
+//! // Phase 12.5-C: Detect era cycles (warnings)
+//! let cycle_warnings = eras::detect_era_cycles(&eras);
+//!
+//! // Collect all errors and warnings
+//! let mut all_errors = Vec::new();
+//! all_errors.extend(stratum_errors);
+//! all_errors.extend(era_errors);
+//! all_errors.extend(cycle_warnings);  // Optional: treat as warnings or errors
+//!
+//! if !all_errors.is_empty() {
+//!     return Err(all_errors);
+//! }
+//!
+//! // Ready for Phase 12.5-D: Execution block compilation
+//! ```
 
 use crate::ast::Era;
 use crate::error::{CompileError, ErrorKind};
