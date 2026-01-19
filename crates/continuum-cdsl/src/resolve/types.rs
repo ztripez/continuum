@@ -44,7 +44,7 @@
 //! assert!(resolved.is_kernel());
 //! ```
 
-use crate::ast::{TypeExpr, UnitExpr};
+use crate::ast::{Declaration, TypeExpr, UnitExpr};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{
     Path, Shape, Span, Type, Unit, UnitDimensions, UnitKind, UserType, UserTypeId,
@@ -219,6 +219,162 @@ impl TypeTable {
     /// ```
     pub fn get_by_id(&self, id: &UserTypeId) -> Option<&UserType> {
         self.types.values().find(|user_type| user_type.id() == id)
+    }
+
+    /// Retrieves a mutable reference to a registered [`UserType`] by its [`Path`].
+    ///
+    /// This method is primarily used during the entity projection pass to update
+    /// synthesized user types as their member types are resolved.
+    ///
+    /// # Parameters
+    /// - `path`: The fully-qualified path of the user type to retrieve.
+    ///
+    /// # Returns
+    /// A mutable reference to the [`UserType`] if found, otherwise [`None`].
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::resolve::types::TypeTable;
+    /// use continuum_cdsl::foundation::{Path, UserType, TypeId, Type, Shape, Unit};
+    ///
+    /// let mut table = TypeTable::new();
+    /// let path = Path::from("Entity");
+    /// table.register(UserType::new(TypeId::from("Entity"), path.clone(), vec![]));
+    ///
+    /// if let Some(user_type) = table.get_mut(&path) {
+    ///     user_type.fields.push(("new_field".to_string(), Type::Bool));
+    /// }
+    ///
+    /// assert_eq!(table.get(&path).unwrap().field_count(), 1);
+    /// ```
+    pub fn get_mut(&mut self, path: &Path) -> Option<&mut UserType> {
+        self.types.get_mut(path)
+    }
+}
+
+/// Synthesizes [`UserType`] definitions from [`Entity`] and [`Member`] declarations.
+///
+/// This function performs a two-pass projection of entity declarations into the [`TypeTable`].
+/// It is a critical bridge between the entity-oriented simulation model and the
+/// field-oriented expression typing system.
+///
+/// # Unblocking Entity Context Typing
+///
+/// In the CDSL, kernels execute in the context of an entity (e.g., `self`) or interact with
+/// neighboring entities (e.g., `other`). To type-check expressions like `self.elevation`
+/// or `other.velocity`, the typing pass requires a structural representation of the
+/// entity's state.
+///
+/// `project_entity_types` provides this by:
+/// 1. Identifying all members belonging to an entity.
+/// 2. Constructing a [`UserType`] where each member becomes a named field.
+/// 3. Mapping the entity's path to this synthesized type in the [`TypeTable`].
+///
+/// This projection ensures that the expression typing pass can treat `self` and `other`
+/// as standard user-defined types, enabling robust type and unit validation for
+/// member access.
+///
+/// # Parameters
+/// - `declarations`: The list of all top-level declarations (entities, members, etc.).
+/// - `type_table`: The registry where synthesized types will be stored.
+///
+/// # Errors
+/// Returns an aggregated list of [`CompileError`]s if any member's type expression
+/// cannot be resolved (e.g., refers to an unknown unit or type).
+///
+/// # Examples
+/// ```rust
+/// use continuum_cdsl::resolve::types::{project_entity_types, TypeTable};
+/// use continuum_cdsl::ast::{Declaration, Entity, Node, RoleData, TypeExpr};
+/// use continuum_cdsl::foundation::{Path, EntityId, Span};
+///
+/// let span = Span::new(0, 0, 0, 0);
+/// let entity_id = EntityId::new("plate");
+/// let entity_path = Path::from("plate");
+///
+/// let decls = vec![
+///     Declaration::Entity(Entity::new(entity_id.clone(), entity_path.clone(), span)),
+///     Declaration::Member({
+///         let mut n = Node::new(Path::from("plate.elevation"), span, RoleData::Signal, entity_id);
+///         n.type_expr = Some(TypeExpr::Scalar { unit: None });
+///         n
+///     }),
+/// ];
+///
+/// let mut table = TypeTable::new();
+/// project_entity_types(&decls, &mut table).unwrap();
+///
+/// assert!(table.contains(&entity_path));
+/// assert_eq!(table.get(&entity_path).unwrap().field_count(), 1);
+/// ```
+pub fn project_entity_types(
+    declarations: &[Declaration],
+    type_table: &mut TypeTable,
+) -> Result<(), Vec<CompileError>> {
+    let mut errors = Vec::new();
+
+    // 1. Group members by entity ID
+    let mut entity_members = HashMap::new();
+    for decl in declarations {
+        if let Declaration::Member(node) = decl {
+            entity_members
+                .entry(node.index.clone())
+                .or_insert_with(Vec::new)
+                .push(node);
+        }
+    }
+
+    // 2. First pass: Register all entities as empty UserTypes
+    // This allows members to refer to other entities' types (circular references)
+    for decl in declarations {
+        if let Declaration::Entity(entity) = decl {
+            let type_id = continuum_foundation::TypeId::from(entity.path.to_string());
+            let user_type = UserType::new(type_id, entity.path.clone(), vec![]);
+            type_table.register(user_type);
+        }
+    }
+
+    // 3. Second pass: Populate UserType fields from members
+    for decl in declarations {
+        if let Declaration::Entity(entity) = decl {
+            let mut fields = Vec::new();
+
+            if let Some(members) = entity_members.get(&entity.id) {
+                for node in members {
+                    if let Some(type_expr) = &node.type_expr {
+                        match resolve_type_expr(type_expr, type_table, node.span) {
+                            Ok(ty) => {
+                                let field_name = node.path.to_string();
+                                if fields.iter().any(|(name, _)| name == &field_name) {
+                                    errors.push(CompileError::new(
+                                        ErrorKind::TypeMismatch,
+                                        node.span,
+                                        format!(
+                                            "duplicate member name '{}' in entity projection",
+                                            field_name
+                                        ),
+                                    ));
+                                } else {
+                                    fields.push((field_name, ty));
+                                }
+                            }
+                            Err(e) => errors.push(e),
+                        }
+                    }
+                }
+            }
+
+            // Update the registered UserType with collected fields
+            if let Some(user_type) = type_table.get_mut(&entity.path) {
+                user_type.fields = fields;
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
     }
 }
 
@@ -571,7 +727,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::TypeId;
+    use crate::foundation::{EntityId, TypeId};
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)
@@ -806,6 +962,221 @@ mod tests {
 
         let explicit = resolve_unit_expr(Some(&UnitExpr::Dimensionless), test_span()).unwrap();
         assert!(explicit.is_dimensionless());
+    }
+
+    #[test]
+    fn test_project_entity_types() {
+        use crate::ast::{Entity, Node, RoleData};
+
+        let span = test_span();
+        let entity_path = Path::from_str("plate");
+        let entity_id = EntityId::new("plate");
+        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
+
+        let member_path = Path::from_str("plate.mass");
+        let mut member = Node::new(member_path.clone(), span, RoleData::Signal, entity_id);
+        member.type_expr = Some(TypeExpr::Scalar { unit: None });
+
+        let decls = vec![Declaration::Entity(entity), Declaration::Member(member)];
+
+        let mut table = TypeTable::new();
+        project_entity_types(&decls, &mut table).unwrap();
+
+        // Verify entity projected as UserType
+        assert!(table.contains(&entity_path));
+        let user_type = table.get(&entity_path).unwrap();
+        assert_eq!(user_type.field_count(), 1);
+        // Fields now use full path string as name
+        assert_eq!(user_type.fields[0].0, "plate.mass");
+        assert!(user_type.fields[0].1.is_kernel());
+    }
+
+    #[test]
+    fn test_project_entity_types_multiple_members() {
+        use crate::ast::{Entity, Node, RoleData};
+
+        let span = test_span();
+        let entity_id = EntityId::new("plate");
+        let entity_path = Path::from_str("plate");
+        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
+
+        let m1_path = Path::from_str("plate.mass");
+        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id.clone());
+        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
+
+        let m2_path = Path::from_str("plate.velocity");
+        let mut m2 = Node::new(m2_path.clone(), span, RoleData::Signal, entity_id);
+        m2.type_expr = Some(TypeExpr::Vector { dim: 3, unit: None });
+
+        let decls = vec![
+            Declaration::Entity(entity),
+            Declaration::Member(m1),
+            Declaration::Member(m2),
+        ];
+
+        let mut table = TypeTable::new();
+        project_entity_types(&decls, &mut table).unwrap();
+
+        let user_type = table.get(&entity_path).unwrap();
+        assert_eq!(user_type.field_count(), 2);
+        assert!(user_type.field("plate.mass").is_some());
+        assert!(user_type.field("plate.velocity").is_some());
+    }
+
+    #[test]
+    fn test_project_entity_types_zero_members() {
+        use crate::ast::Entity;
+
+        let span = test_span();
+        let entity_path = Path::from_str("empty");
+        let entity = Entity::new(EntityId::new("empty"), entity_path.clone(), span);
+
+        let decls = vec![Declaration::Entity(entity)];
+
+        let mut table = TypeTable::new();
+        project_entity_types(&decls, &mut table).unwrap();
+
+        assert!(table.contains(&entity_path));
+        let user_type = table.get(&entity_path).unwrap();
+        assert_eq!(user_type.field_count(), 0);
+    }
+
+    #[test]
+    fn test_project_entity_types_circular_references() {
+        use crate::ast::{Entity, Node, RoleData};
+
+        let span = test_span();
+
+        // Entity A
+        let id_a = EntityId::new("A");
+        let path_a = Path::from_str("A");
+        let entity_a = Entity::new(id_a.clone(), path_a.clone(), span);
+
+        // Member A.b : B
+        let path_ab = Path::from_str("A.b");
+        let mut member_ab = Node::new(path_ab, span, RoleData::Signal, id_a);
+        member_ab.type_expr = Some(TypeExpr::User(Path::from_str("B")));
+
+        // Entity B
+        let id_b = EntityId::new("B");
+        let path_b = Path::from_str("B");
+        let entity_b = Entity::new(id_b.clone(), path_b.clone(), span);
+
+        // Member B.a : A
+        let path_ba = Path::from_str("B.a");
+        let mut member_ba = Node::new(path_ba, span, RoleData::Signal, id_b);
+        member_ba.type_expr = Some(TypeExpr::User(Path::from_str("A")));
+
+        let decls = vec![
+            Declaration::Entity(entity_a),
+            Declaration::Member(member_ab),
+            Declaration::Entity(entity_b),
+            Declaration::Member(member_ba),
+        ];
+
+        let mut table = TypeTable::new();
+        project_entity_types(&decls, &mut table).expect("Circular references should resolve");
+
+        // Verify A has field "A.b" with type B
+        let type_a = table.get(&path_a).unwrap();
+        let field_b = type_a.field("A.b").unwrap();
+        assert!(field_b.is_user());
+
+        // Verify B has field "B.a" with type A
+        let type_b = table.get(&path_b).unwrap();
+        let field_a = type_b.field("B.a").unwrap();
+        assert!(field_a.is_user());
+    }
+
+    #[test]
+    fn test_project_entity_types_error_propagation() {
+        use crate::ast::{Entity, Node, RoleData};
+
+        let span = test_span();
+        let entity_id = EntityId::new("plate");
+        let entity_path = Path::from_str("plate");
+        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
+
+        let member_path = Path::from_str("plate.bad");
+        let mut member = Node::new(member_path, span, RoleData::Signal, entity_id);
+        // Reference to unknown type
+        member.type_expr = Some(TypeExpr::User(Path::from_str("Unknown")));
+
+        let decls = vec![Declaration::Entity(entity), Declaration::Member(member)];
+
+        let mut table = TypeTable::new();
+        let errors = project_entity_types(&decls, &mut table).unwrap_err();
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::UnknownType);
+    }
+
+    #[test]
+    fn test_project_entity_types_full_path_preservation() {
+        use crate::ast::{Entity, Node, RoleData};
+
+        let span = test_span();
+        let entity_id = EntityId::new("plate");
+        let entity_path = Path::from_str("plate");
+        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
+
+        // physics.velocity
+        let m1_path = Path::from_str("physics.velocity");
+        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id.clone());
+        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
+
+        // graphics.velocity
+        let m2_path = Path::from_str("graphics.velocity");
+        let mut m2 = Node::new(m2_path.clone(), span, RoleData::Signal, entity_id);
+        m2.type_expr = Some(TypeExpr::Vector { dim: 3, unit: None });
+
+        let decls = vec![
+            Declaration::Entity(entity),
+            Declaration::Member(m1),
+            Declaration::Member(m2),
+        ];
+
+        let mut table = TypeTable::new();
+        project_entity_types(&decls, &mut table).unwrap();
+
+        let user_type = table.get(&entity_path).unwrap();
+
+        // Should have 2 fields with full path names
+        assert_eq!(user_type.field_count(), 2);
+        assert!(user_type.field("physics.velocity").is_some());
+        assert!(user_type.field("graphics.velocity").is_some());
+    }
+
+    #[test]
+    fn test_project_entity_types_duplicate_member_error() {
+        use crate::ast::{Entity, Node, RoleData};
+
+        let span = test_span();
+        let entity_id = EntityId::new("plate");
+        let entity_path = Path::from_str("plate");
+        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
+
+        // Two members with EXACT SAME path
+        let m1_path = Path::from_str("plate.mass");
+        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id.clone());
+        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
+
+        let m2_path = Path::from_str("plate.mass");
+        let mut m2 = Node::new(m2_path.clone(), span, RoleData::Signal, entity_id);
+        m2.type_expr = Some(TypeExpr::Scalar { unit: None });
+
+        let decls = vec![
+            Declaration::Entity(entity),
+            Declaration::Member(m1),
+            Declaration::Member(m2),
+        ];
+
+        let mut table = TypeTable::new();
+        let errors = project_entity_types(&decls, &mut table).unwrap_err();
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(errors[0].message.contains("duplicate member name"));
     }
 
     #[test]
