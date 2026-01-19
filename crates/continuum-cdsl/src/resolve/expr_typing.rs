@@ -743,7 +743,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             }
 
             let dim = elements.len() as u8;
-            let unit = unit.unwrap(); // Safe: verified non-empty above
+            let unit = unit.expect("invariant: non-empty vector must have unit set");
 
             (
                 ExprKind::Vector(typed_elements),
@@ -807,7 +807,21 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
 
             // Type all field expressions
             let mut typed_fields = Vec::new();
+            let mut seen_fields = std::collections::HashSet::new();
+
             for (field_name, field_expr) in fields {
+                // Check for duplicate fields
+                if !seen_fields.insert(field_name.clone()) {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        field_expr.span,
+                        format!(
+                            "field '{}' specified multiple times in struct literal",
+                            field_name
+                        ),
+                    )]);
+                }
+
                 let typed_expr = type_expression(field_expr, ctx)?;
 
                 // Verify field exists in type
@@ -868,7 +882,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
                     ErrorKind::UndefinedName,
                     span,
                     format!(
-                        "kernel '{:?}' not found for unary operator {:?}",
+                        "kernel '{:?}' not found for binary operator {:?}",
                         kernel_id, op
                     ),
                 )]
