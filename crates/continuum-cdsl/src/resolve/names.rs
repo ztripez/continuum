@@ -52,7 +52,7 @@
 //! }
 //! ```
 
-use crate::ast::{AggregateOp, Expr, Node, UntypedKind as ExprKind};
+use crate::ast::{AggregateOp, Declaration, Expr, Node, UntypedKind as ExprKind};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{EntityId, Path};
 use std::collections::{HashMap, HashSet};
@@ -176,42 +176,47 @@ impl SymbolTable {
     }
 }
 
-/// Build symbol table from world declarations
+/// Build symbol table from world declarations.
 ///
-/// Collects all Node<I> declarations into a symbol table for name resolution.
+/// Collects all declared symbols from the list of top-level declarations.
 ///
 /// # Parameters
-///
-/// - `globals`: Global nodes (world-level signals, operators, fields, etc.)
-/// - `members`: Per-entity member nodes
+/// - `declarations`: The list of all top-level declarations from the parser.
 ///
 /// # Returns
-///
 /// Symbol table containing all declared symbols, separated by kind.
-pub fn build_symbol_table<I: crate::ast::Index>(
-    globals: &[Node<I>],
-    members: &HashMap<EntityId, Vec<Node<EntityId>>>,
-) -> SymbolTable {
+pub fn build_symbol_table(declarations: &[Declaration]) -> SymbolTable {
     use crate::ast::RoleId;
 
     let mut table = SymbolTable::new();
 
-    // Register global nodes by role
-    for node in globals {
-        match node.role_id() {
-            RoleId::Signal => table.register_signal(node.path.clone()),
-            RoleId::Field => table.register_field(node.path.clone()),
-            RoleId::Operator => table.register_operator(node.path.clone()),
-            RoleId::Impulse => table.register_impulse(node.path.clone()),
-            RoleId::Fracture => table.register_fracture(node.path.clone()),
-            RoleId::Chronicle => table.register_chronicle(node.path.clone()),
-        }
-    }
-
-    // Register per-entity members
-    for (entity_id, entity_members) in members {
-        for member in entity_members {
-            table.register_member(entity_id.clone(), member.path.clone());
+    for decl in declarations {
+        match decl {
+            Declaration::Node(node) => match node.role_id() {
+                RoleId::Signal => table.register_signal(node.path.clone()),
+                RoleId::Field => table.register_field(node.path.clone()),
+                RoleId::Operator => table.register_operator(node.path.clone()),
+                RoleId::Impulse => table.register_impulse(node.path.clone()),
+                RoleId::Fracture => table.register_fracture(node.path.clone()),
+                RoleId::Chronicle => table.register_chronicle(node.path.clone()),
+            },
+            Declaration::Member(node) => {
+                table.register_member(node.index.clone(), node.path.clone());
+            }
+            Declaration::Type(type_decl) => {
+                table.register_type(Path::from_str(&type_decl.name));
+            }
+            Declaration::Const(entries) => {
+                for entry in entries {
+                    table.register_const(entry.path.clone());
+                }
+            }
+            Declaration::Config(entries) => {
+                for entry in entries {
+                    table.register_config(entry.path.clone());
+                }
+            }
+            _ => {}
         }
     }
 
@@ -537,9 +542,12 @@ mod tests {
 
     #[test]
     fn test_build_symbol_table() {
-        let globals = vec![make_node("temperature"), make_node("pressure")];
+        let globals = vec![
+            Declaration::Node(make_node("temperature")),
+            Declaration::Node(make_node("pressure")),
+        ];
 
-        let table = build_symbol_table(&globals, &HashMap::new());
+        let table = build_symbol_table(&globals);
 
         assert!(table.has_signal(&make_path("temperature")));
         assert!(table.has_signal(&make_path("pressure")));

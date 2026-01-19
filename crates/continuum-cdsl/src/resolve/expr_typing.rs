@@ -45,7 +45,8 @@
 use crate::ast::{Expr, ExprKind, KernelRegistry, TypedExpr, UntypedKind};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{KernelType, Path, Shape, Type, Unit};
-use crate::resolve::types::{TypeTable, resolve_unit_expr};
+use crate::resolve::types::TypeTable;
+use crate::resolve::units::resolve_unit_expr;
 use continuum_foundation::Phase;
 use continuum_kernel_types::KernelId;
 use std::collections::HashMap;

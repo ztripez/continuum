@@ -72,6 +72,7 @@ mod structural;
 mod untyped;
 mod walk;
 mod warmup;
+mod world;
 
 pub use block::*;
 pub use capability::*;
@@ -84,6 +85,7 @@ pub use role::*;
 pub use structural::*;
 pub use walk::*;
 pub use warmup::*;
+pub use world::*;
 
 // Re-export KernelId from kernel-types (single source of truth)
 pub use continuum_kernel_types::KernelId;

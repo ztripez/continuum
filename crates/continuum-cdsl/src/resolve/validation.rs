@@ -137,6 +137,89 @@ impl<'a> ValidationContext<'a> {
 /// let errors = validate_expr(&expr, &ctx);
 /// assert!(errors.is_empty());
 /// ```
+/// Validates that `Type::Seq` never escapes an aggregate boundary.
+///
+/// Seq types are intermediate results of `map` operations and must be
+/// consumed by an aggregate (sum, max, etc.) or fold. They cannot be
+/// stored in signals, fields, constants, or configurations.
+pub fn validate_seq_escape<I: crate::ast::Index>(
+    nodes: &[crate::ast::Node<I>],
+) -> Vec<CompileError> {
+    let mut errors = Vec::new();
+
+    for node in nodes {
+        if let Some(ty) = &node.output {
+            if ty.is_seq() {
+                errors.push(CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    node.span,
+                    format!(
+                        "node '{}' has forbidden Seq type. Seq types must be consumed by an aggregate.",
+                        node.path
+                    ),
+                ));
+            }
+        }
+    }
+
+    errors
+}
+///
+/// This includes execution blocks, warmup logic, fracture conditions,
+/// and chronicle observers.
+pub fn validate_node<I: crate::ast::Index>(
+    node: &crate::ast::Node<I>,
+    type_table: &TypeTable,
+    registry: &KernelRegistry,
+) -> Result<(), Vec<CompileError>> {
+    let mut errors = Vec::new();
+    let ctx = ValidationContext::new(type_table, registry);
+
+    // 1. Execution blocks
+    for execution in &node.executions {
+        match &execution.body {
+            crate::ast::ExecutionBody::Expr(expr) => errors.extend(validate_expr(expr, &ctx)),
+            crate::ast::ExecutionBody::Statements(stmts) => {
+                for stmt in stmts {
+                    match stmt {
+                        crate::ast::TypedStmt::Let { value, .. } => {
+                            errors.extend(validate_expr(value, &ctx))
+                        }
+                        crate::ast::TypedStmt::SignalAssign { value, .. } => {
+                            errors.extend(validate_expr(value, &ctx))
+                        }
+                        crate::ast::TypedStmt::FieldAssign {
+                            position, value, ..
+                        } => {
+                            errors.extend(validate_expr(position, &ctx));
+                            errors.extend(validate_expr(value, &ctx));
+                        }
+                        crate::ast::TypedStmt::Expr(expr) => {
+                            errors.extend(validate_expr(expr, &ctx))
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Assertions
+    for assertion in &node.assertions {
+        errors.extend(validate_expr(&assertion.condition, &ctx));
+    }
+
+    // Note: Warmup, When, and Observe blocks currently contain UNTYPED Expr.
+    // Full semantic validation for these is deferred until they are typed
+    // or handled via untyped validation helpers.
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Validates a typed CDSL expression for post-resolution semantic correctness.
 pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<CompileError> {
     let mut errors = Vec::new();
 

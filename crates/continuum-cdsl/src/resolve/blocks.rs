@@ -484,17 +484,16 @@ pub fn compile_execution_blocks<I: Index>(
             BlockBody::TypedStatements(typed_stmts) => {
                 ExecutionBody::Statements(typed_stmts.clone())
             }
-            BlockBody::Expression(_) => {
-                // Should never happen if expression typing ran first
-                errors.push(CompileError::new(
-                    ErrorKind::Internal,
-                    node.span,
-                    format!(
-                        "execution block '{}' not typed (expression typing should run before block compilation)",
-                        phase_name
-                    ),
-                ));
-                continue;
+            BlockBody::Expression(expr) => {
+                // Type untyped expression
+                let block_ctx = ctx.with_phase(phase);
+                match type_expression(expr, &block_ctx) {
+                    Ok(typed_expr) => ExecutionBody::Expr(typed_expr),
+                    Err(mut e) => {
+                        errors.append(&mut e);
+                        continue;
+                    }
+                }
             }
             BlockBody::Statements(stmts) => {
                 // Compile untyped statements
@@ -1264,8 +1263,8 @@ mod tests {
     }
 
     #[test]
-    fn test_compile_execution_blocks_untyped_expression_error() {
-        use crate::ast::{RoleData, UntypedKind};
+    fn test_compile_execution_blocks_untyped_expression_success() {
+        use crate::ast::{Expr, RoleData, UntypedKind};
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1283,7 +1282,7 @@ mod tests {
         let mut node = Node::new(path.clone(), span, RoleData::Signal, ());
         node.execution_blocks = vec![("resolve".to_string(), BlockBody::Expression(untyped_expr))];
 
-        // Compile execution blocks - should fail
+        // Compile execution blocks - should now succeed (types on the fly)
         let registry = KernelRegistry::global();
         let signal_types = HashMap::new();
         let field_types = HashMap::new();
@@ -1300,11 +1299,8 @@ mod tests {
         );
 
         let result = compile_execution_blocks(&mut node, &ctx);
-        assert!(result.is_err(), "Should fail with untyped expression");
-
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("not typed"));
+        assert!(result.is_ok(), "Should now succeed with untyped expression");
+        assert_eq!(node.executions.len(), 1);
     }
 
     #[test]

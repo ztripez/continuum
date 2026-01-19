@@ -1,21 +1,7 @@
 //! Type resolution for CDSL type and unit syntax.
 //!
-//! Translates parsed [`TypeExpr`](crate::ast::TypeExpr) and
-//! [`UnitExpr`](crate::ast::UnitExpr) nodes into semantic [`Type`] and [`Unit`]
-//! values used by later validation passes.
-//!
-//! # What This Pass Does
-//!
-//! 1. **TypeExpr → Type** - Resolves untyped type syntax to semantic types
-//! 2. **UnitExpr → Unit** - Resolves unit syntax to dimensional units
-//! 3. **User type lookup** - Resolves type names to TypeIds via [`TypeTable`]
-//! 4. **Dimensional analysis** - Validates and computes unit arithmetic
-//!
-//! # What This Pass Does NOT Do
-//!
-//! - **No full type inference** - Complex bidirectional inference deferred to validation
-//! - **No type checking** - Compatibility validation happens in later passes
-//! - **No kernel call resolution** - Return types resolved during validation
+//! Translates parsed [`TypeExpr`] and [`UnitExpr`] nodes into semantic [`Type`]
+//! and [`Unit`] values used by later validation passes.
 //!
 //! # Pipeline Position
 //!
@@ -24,54 +10,14 @@
 //!                                         ^^^^^^
 //!                                      YOU ARE HERE
 //! ```
-//!
-//! # Examples
-//!
-//! ```rust
-//! use continuum_cdsl::resolve::types::{resolve_type_expr, TypeTable};
-//! use continuum_cdsl::ast::{TypeExpr, UnitExpr};
-//! use continuum_cdsl::foundation::Span;
-//!
-//! let table = TypeTable::new();
-//! let span = Span::new(0, 0, 10, 1);
-//!
-//! // Resolve Vector<3, m>
-//! let ty = TypeExpr::Vector {
-//!     dim: 3,
-//!     unit: Some(UnitExpr::Base("m".into())),
-//! };
-//! let resolved = resolve_type_expr(&ty, &table, span).unwrap();
-//! assert!(resolved.is_kernel());
-//! ```
 
-use crate::ast::{Declaration, TypeExpr, UnitExpr};
+use crate::ast::{Declaration, TypeExpr};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{
-    EntityId, Path, Shape, Span, Type, Unit, UnitDimensions, UnitKind, UserType, UserTypeId,
-};
+use crate::foundation::{EntityId, Path, Shape, Span, Type, UserType, UserTypeId};
+use crate::resolve::units::resolve_unit_expr;
 use std::collections::HashMap;
 
-/// Registry of user-defined types keyed by fully-qualified [`Path`](crate::foundation::Path).
-///
-/// `TypeTable` assigns stable [`UserTypeId`](crate::foundation::TypeId) values and supports
-/// lookup by name during type resolution. The table does not perform validation;
-/// it only stores declarations.
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::resolve::types::TypeTable;
-/// use continuum_cdsl::foundation::{Path, UserType, TypeId};
-///
-/// let mut table = TypeTable::new();
-/// let path = Path::from("Vec3");
-/// let type_id = TypeId::from("Vec3");
-/// let user_type = UserType::new(type_id.clone(), path.clone(), vec![]);
-/// table.register(user_type);
-///
-/// assert!(table.contains(&path));
-/// assert_eq!(table.get_id(&path), Some(type_id));
-/// ```
+/// Registry of user-defined types keyed by fully-qualified [`Path`].
 #[derive(Debug, Default)]
 pub struct TypeTable {
     /// Map from type path to UserType definition
@@ -83,37 +29,11 @@ pub struct TypeTable {
 
 impl TypeTable {
     /// Creates a new, empty [`TypeTable`].
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::resolve::types::TypeTable;
-    ///
-    /// let table = TypeTable::new();
-    /// assert_eq!(table.iter().count(), 0);
-    /// ```
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Registers a user-defined type in the table.
-    ///
-    /// This assigns the type a stable identity and allows it to be looked up by its
-    /// fully-qualified path during type resolution.
-    ///
-    /// # Parameters
-    /// - `user_type`: The definition to register.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::resolve::types::TypeTable;
-    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
-    ///
-    /// let mut table = TypeTable::new();
-    /// let path = Path::from("Foo");
-    /// table.register(UserType::new(TypeId::from("Foo"), path, vec![]));
-    /// ```
     pub fn register(&mut self, user_type: UserType) {
         let path = user_type.name().clone();
         let id = user_type.id().clone();
@@ -121,202 +41,50 @@ impl TypeTable {
         self.type_ids.insert(path, id);
     }
 
-    /// Looks up a user type by [`Path`](crate::foundation::Path).
-    ///
-    /// # Parameters
-    ///
-    /// - `path`: Fully-qualified type name.
-    ///
-    /// # Returns
-    ///
-    /// The stored [`UserType`] if present; otherwise `None`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::resolve::types::TypeTable;
-    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
-    ///
-    /// let mut table = TypeTable::new();
-    /// let path = Path::from("Foo");
-    /// table.register(UserType::new(TypeId::from("Foo"), path.clone(), vec![]));
-    ///
-    /// assert!(table.get(&path).is_some());
-    /// ```
+    /// Looks up a user type by [`Path`].
     pub fn get(&self, path: &Path) -> Option<&UserType> {
         self.types.get(path)
     }
 
-    /// Looks up a user type identifier by [`Path`](crate::foundation::Path).
-    ///
-    /// # Parameters
-    ///
-    /// - `path`: Fully-qualified type name.
-    ///
-    /// # Returns
-    ///
-    /// The [`UserTypeId`](crate::foundation::TypeId) if present; otherwise `None`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::resolve::types::TypeTable;
-    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
-    ///
-    /// let mut table = TypeTable::new();
-    /// let path = Path::from("Foo");
-    /// let id = TypeId::from("Foo");
-    /// table.register(UserType::new(id.clone(), path.clone(), vec![]));
-    ///
-    /// assert_eq!(table.get_id(&path), Some(id));
-    /// ```
+    /// Looks up a user type identifier by [`Path`].
     pub fn get_id(&self, path: &Path) -> Option<UserTypeId> {
         self.type_ids.get(path).cloned()
     }
 
     /// Tests whether a user type exists in the table.
-    ///
-    /// # Parameters
-    ///
-    /// - `path`: Fully-qualified type name.
-    ///
-    /// # Returns
-    ///
-    /// `true` if the type is registered, otherwise `false`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::resolve::types::TypeTable;
-    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
-    ///
-    /// let mut table = TypeTable::new();
-    /// let path = Path::from("Foo");
-    /// table.register(UserType::new(TypeId::from("Foo"), path.clone(), vec![]));
-    ///
-    /// assert!(table.contains(&path));
-    /// ```
     pub fn contains(&self, path: &Path) -> bool {
         self.types.contains_key(path)
     }
 
     /// Iterate over all registered user types.
-    ///
-    /// # Returns
-    ///
-    /// Iterator over references to all [`UserType`] definitions.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::resolve::types::TypeTable;
-    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
-    ///
-    /// let mut table = TypeTable::new();
-    /// table.register(UserType::new(TypeId::from("Foo"), Path::from("Foo"), vec![]));
-    ///
-    /// assert_eq!(table.iter().count(), 1);
-    /// ```
     pub fn iter(&self) -> impl Iterator<Item = &UserType> {
         self.types.values()
     }
 
     /// Look up a user type by its [`UserTypeId`].
-    ///
-    /// # Parameters
-    ///
-    /// - `id`: The type identifier to look up.
-    ///
-    /// # Returns
-    ///
-    /// The [`UserType`] if present; otherwise `None`.
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::resolve::types::TypeTable;
-    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
-    ///
-    /// let mut table = TypeTable::new();
-    /// let id = TypeId::from("Foo");
-    /// table.register(UserType::new(id.clone(), Path::from("Foo"), vec![]));
-    ///
-    /// assert!(table.get_by_id(&id).is_some());
-    /// ```
     pub fn get_by_id(&self, id: &UserTypeId) -> Option<&UserType> {
         self.types.values().find(|user_type| user_type.id() == id)
     }
 
     /// Retrieves a mutable reference to a registered [`UserType`] by its [`Path`].
-    ///
-    /// This method is primarily used during the entity projection pass to update
-    /// synthesized user types as their member types are resolved.
-    ///
-    /// # Parameters
-    /// - `path`: The fully-qualified path of the user type to retrieve.
-    ///
-    /// # Returns
-    /// A mutable reference to the [`UserType`] if found, otherwise [`None`].
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::resolve::types::TypeTable;
-    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
-    ///
-    /// let mut table = TypeTable::new();
-    /// let path = Path::from("Foo");
-    /// table.register(UserType::new(TypeId::from("Foo"), path.clone(), vec![]));
-    ///
-    /// if let Some(user_type) = table.get_mut(&path) {
-    ///     user_type.fields.push(("new_field".to_string(), continuum_cdsl::foundation::Type::Bool));
-    /// }
-    /// assert_eq!(table.get(&path).unwrap().field_count(), 1);
-    /// ```
     pub fn get_mut(&mut self, path: &Path) -> Option<&mut UserType> {
         self.types.get_mut(path)
     }
 }
 
-/// Synthesizes [`UserType`] definitions from [`Entity`] and [`Member`] declarations.
+/// Synthesizes [`UserType`] definitions from [`Entity`](crate::ast::Entity) and
+/// [`Member`](crate::ast::Declaration::Member) declarations.
 ///
-/// This function performs a two-pass projection of entity declarations into the [`TypeTable`].
-/// It is a critical bridge between the entity-oriented simulation model and the
-/// field-oriented expression typing system.
+/// This pass performs hierarchical projection:
+/// 1. Group members by entity.
+/// 2. For each entity, recursively build nested [`UserType`]s for hierarchical paths.
+/// 3. Use relative names for fields (e.g., `self.velocity` instead of `self.plate.velocity`).
 ///
-/// # Unblocking Entity Context Typing
+/// # Example
 ///
-/// In the CDSL, kernels execute in the context of an entity (e.g., `self`) or interact with
-/// neighboring entities (e.g., `other`). To type-check expressions like `self.elevation`
-/// or `other.velocity`, the typing pass requires a structural representation of the
-/// entity's state.
-///
-/// `project_entity_types` provides this by:
-/// 1. Identifying all members belonging to an entity.
-/// 2. Constructing a [`UserType`] where each member becomes a named field.
-/// 3. Mapping the entity's path to this synthesized type in the [`TypeTable`].
-///
-/// This projection ensures that the expression typing pass can treat `self` and `other`
-/// as standard user-defined types, enabling robust type and unit validation for
-/// member access.
-///
-/// # Member Path Preservation and Collision Handling
-///
-/// To ensure that namespaced members (e.g., `physics.velocity` vs `graphics.velocity`)
-/// do not collide during projection, this function uses the **full path string** of the
-/// member as the field name in the synthesized [`UserType`].
-///
-/// If multiple members within the same entity project to the same path string,
-/// a [`CompileError`] is emitted to prevent ambiguous member access.
-///
-/// # Parameters
-/// - `declarations`: The list of all top-level declarations (entities, members, etc.).
-/// - `type_table`: The registry where synthesized types will be stored.
-///
-/// # Errors
-/// Returns an aggregated list of [`CompileError`]s if:
-/// - A member's type expression cannot be resolved (e.g., refers to an unknown unit or type).
-/// - Duplicate member paths are detected within a single entity.
+/// Member `plate.physics.velocity` projects to:
+/// - `UserType("plate")` with field `physics: UserType("plate.physics")`
+/// - `UserType("plate.physics")` with field `velocity: Vector<3, m/s>`
 pub fn project_entity_types(
     declarations: &[Declaration],
     type_table: &mut TypeTable,
@@ -325,142 +93,211 @@ pub fn project_entity_types(
     let mut entity_members = HashMap::new();
     let mut entity_paths = Vec::new();
 
-    // 1. Register empty entity types and identify paths
-    // This allows circular references during member type resolution.
+    // 1. Identify entities and register empty UserTypes
+    // This unblocks circular references during member type resolution
     for decl in declarations {
-        if let Declaration::Entity(entity) = decl {
-            let type_id = UserTypeId::from(entity.path.to_string());
-            let user_type = UserType::new(type_id, entity.path.clone(), vec![]);
-            type_table.register(user_type);
-            entity_paths.push(entity.path.clone());
-        }
-    }
-
-    // 2. Group members and detect orphaned members
-    // Fail Loudly if a member refers to an entity that wasn't declared.
-    for decl in declarations {
-        if let Declaration::Member(node) = decl {
-            let entity_id = &node.index;
-            let entity_path = Path::from(entity_id.to_string());
-
-            if !type_table.contains(&entity_path) {
-                errors.push(CompileError::new(
-                    ErrorKind::UndefinedName,
-                    node.span,
-                    format!(
-                        "Member '{}' refers to unknown entity '{}'",
-                        node.path, entity_path
-                    ),
-                ));
-            } else {
+        match decl {
+            Declaration::Entity(entity) => {
+                entity_paths.push(entity.path.clone());
+                let type_id = UserTypeId::from(entity.path.to_string());
+                type_table.register(UserType::new(type_id, entity.path.clone(), vec![]));
+            }
+            Declaration::Member(node) => {
                 entity_members
-                    .entry(entity_id.clone())
+                    .entry(node.index.clone())
                     .or_insert_with(Vec::new)
                     .push(node);
             }
+            _ => {}
         }
     }
 
-    // 3. Resolve member types and collect fields (without mutating TypeTable yet)
-    // This ensures no partial types are leaked if an error occurs.
-    let mut projected_fields = HashMap::new();
-    for path in &entity_paths {
-        let mut fields = Vec::new();
-        let mut seen_fields = std::collections::HashSet::new();
+    // 2. Hierarchical projection for each entity
+    for path in entity_paths {
         let entity_id = EntityId::new(path.to_string());
-
         if let Some(members) = entity_members.get(&entity_id) {
-            for node in members {
-                // Members must have a type expression.
-                let ty = match &node.type_expr {
-                    Some(type_expr) => resolve_type_expr(type_expr, type_table, node.span),
-                    None => Err(CompileError::new(
-                        ErrorKind::UnknownType,
-                        node.span,
-                        format!("Member '{}' is missing a type expression", node.path),
-                    )),
-                };
-
-                match ty {
-                    Ok(ty) => {
-                        // Use path string as field name to preserve hierarchy and avoid collisions
-                        let field_name = node.path.to_string();
-
-                        if !seen_fields.insert(field_name.clone()) {
-                            errors.push(CompileError::new(
-                                ErrorKind::TypeMismatch,
-                                node.span,
-                                format!(
-                                    "Duplicate member path '{}' in entity projection",
-                                    field_name
-                                ),
-                            ));
-                            continue;
-                        }
-
-                        fields.push((field_name, ty));
-                    }
-                    Err(e) => errors.push(e),
-                }
+            if let Err(mut e) = project_hierarchical_entity(&path, members, type_table) {
+                errors.append(&mut e);
             }
         }
-        projected_fields.insert(path.clone(), fields);
     }
 
-    // 4. Fail Loudly: If any errors occurred, do not apply updates.
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Recursively build nested types for an entity's hierarchical members.
+fn project_hierarchical_entity<I: crate::ast::Index>(
+    root_path: &Path,
+    members: &[&crate::ast::Node<I>],
+    type_table: &mut TypeTable,
+) -> Result<(), Vec<CompileError>> {
+    let mut errors = Vec::new();
+
+    // Map from type path -> list of fields (field_name, field_type)
+    let mut type_fields: HashMap<Path, Vec<(String, Type)>> = HashMap::new();
+
+    for node in members {
+        let mut current_path = root_path.clone();
+
+        // The member path segments after the entity root
+        // e.g. plate.physics.velocity -> ["physics", "velocity"]
+        let relative_segments = &node.path.segments()[root_path.len()..];
+
+        if relative_segments.is_empty() {
+            errors.push(CompileError::new(
+                ErrorKind::Internal,
+                node.span,
+                format!(
+                    "Member path '{}' does not start with entity path '{}'",
+                    node.path, root_path
+                ),
+            ));
+            continue;
+        }
+
+        // Traverse segments to build nested types
+        for i in 0..relative_segments.len() {
+            let segment_name = &relative_segments[i];
+            let is_leaf = i == relative_segments.len() - 1;
+
+            if is_leaf {
+                // Resolve member type
+                let ty = match &node.type_expr {
+                    Some(expr) => match resolve_type_expr(expr, type_table, node.span) {
+                        Ok(ty) => ty,
+                        Err(e) => {
+                            errors.push(e);
+                            continue;
+                        }
+                    },
+                    None => {
+                        errors.push(CompileError::new(
+                            ErrorKind::UnknownType,
+                            node.span,
+                            format!("Member '{}' is missing a type expression", node.path),
+                        ));
+                        continue;
+                    }
+                };
+
+                // Add leaf field to its parent type
+                let fields = type_fields.entry(current_path.clone()).or_default();
+                if fields.iter().any(|(name, _)| name == segment_name) {
+                    errors.push(CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        node.span,
+                        format!(
+                            "Duplicate member name '{}' at path '{}'",
+                            segment_name, current_path
+                        ),
+                    ));
+                } else {
+                    fields.push((segment_name.clone(), ty));
+                }
+            } else {
+                // Internal segment -> nested UserType
+                let parent_path = current_path.clone();
+                current_path = current_path.append(segment_name);
+
+                // Add the nested type as a field to its parent if not already added
+                let parent_fields = type_fields.entry(parent_path).or_default();
+                if !parent_fields.iter().any(|(name, _)| name == segment_name) {
+                    parent_fields.push((
+                        segment_name.clone(),
+                        Type::User(UserTypeId::from(current_path.to_string())),
+                    ));
+                }
+
+                // Ensure the nested type itself exists in the map
+                type_fields.entry(current_path.clone()).or_default();
+            }
+        }
+    }
+
     if !errors.is_empty() {
         return Err(errors);
     }
 
-    // 5. Success: Apply all projected fields to the TypeTable.
-    for (path, fields) in projected_fields {
-        if let Some(user_type) = type_table.get_mut(&path) {
-            user_type.fields = fields;
-        }
+    // Register all identified types in the table
+    // Sort keys for deterministic registration order
+    let mut sorted_paths: Vec<_> = type_fields.keys().cloned().collect();
+    sorted_paths.sort();
+
+    for path in sorted_paths {
+        let fields = type_fields.remove(&path).unwrap();
+        let type_id = UserTypeId::from(path.to_string());
+        type_table.register(UserType::new(type_id, path, fields));
     }
 
     Ok(())
 }
 
-/// Resolves a parsed [`TypeExpr`](crate::ast::TypeExpr) into a semantic [`Type`].
-///
-/// Converts untyped type syntax from the CDSL AST into semantic type values,
-/// including resolving unit expressions and looking up user-defined types.
-///
-/// # Parameters
-///
-/// - `type_expr`: Parsed type syntax from the CDSL AST.
-/// - `type_table`: Registry of user-defined types for name lookup.
-/// - `span`: Source location for error reporting.
-///
-/// # Returns
-///
-/// A resolved [`Type`] suitable for later validation and IR lowering.
-///
-/// # Errors
-///
-/// Returns [`CompileError`](crate::error::CompileError) if:
-/// - Unit expression syntax is invalid
-/// - A user type name is unknown
-/// - Vector or matrix dimensions are zero
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::resolve::types::{resolve_type_expr, TypeTable};
-/// use continuum_cdsl::ast::{TypeExpr, UnitExpr};
-/// use continuum_cdsl::foundation::Span;
-///
-/// let table = TypeTable::new();
-/// let span = Span::new(0, 10, 20, 1);
-///
-/// // Resolve Scalar<m>
-/// let expr = TypeExpr::Scalar {
-///     unit: Some(UnitExpr::Base("m".into())),
-/// };
-/// let ty = resolve_type_expr(&expr, &table, span).unwrap();
-/// assert!(ty.is_kernel());
-/// ```
+/// Resolves `type_expr` into `output` for all nodes in the world.
+pub fn resolve_node_types<I: crate::ast::Index>(
+    nodes: &mut [crate::ast::Node<I>],
+    type_table: &TypeTable,
+) -> Result<(), Vec<CompileError>> {
+    let mut errors = Vec::new();
+
+    for node in nodes {
+        if let Some(type_expr) = &node.type_expr {
+            match resolve_type_expr(type_expr, type_table, node.span) {
+                Ok(ty) => {
+                    node.output = Some(ty);
+                    node.type_expr = None; // Clear as consumed
+                }
+                Err(e) => errors.push(e),
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
+/// Resolves types for all constants and configurations.
+pub fn resolve_const_config_types(
+    declarations: &mut [Declaration],
+    type_table: &TypeTable,
+) -> Result<(), Vec<CompileError>> {
+    let mut errors = Vec::new();
+
+    for decl in declarations {
+        match decl {
+            Declaration::Const(entries) => {
+                for entry in entries {
+                    match resolve_type_expr(&entry.type_expr, type_table, entry.span) {
+                        Ok(_) => {} // Validation only for now
+                        Err(e) => errors.push(e),
+                    }
+                }
+            }
+            Declaration::Config(entries) => {
+                for entry in entries {
+                    match resolve_type_expr(&entry.type_expr, type_table, entry.span) {
+                        Ok(_) => {} // Validation only for now
+                        Err(e) => errors.push(e),
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+/// Resolves a parsed [`TypeExpr`] into a semantic [`Type`].
 pub fn resolve_type_expr(
     type_expr: &TypeExpr,
     type_table: &TypeTable,
@@ -473,7 +310,13 @@ pub fn resolve_type_expr(
         }
 
         TypeExpr::Vector { dim, unit } => {
-            validate_nonzero_dim(*dim, "Vector", span)?;
+            if *dim == 0 {
+                return Err(CompileError::new(
+                    ErrorKind::DimensionMismatch,
+                    span,
+                    "Vector dimension must be greater than 0".to_string(),
+                ));
+            }
             let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
             Ok(Type::kernel(
                 Shape::Vector { dim: *dim },
@@ -516,262 +359,10 @@ pub fn resolve_type_expr(
     }
 }
 
-/// Resolves a parsed [`UnitExpr`](crate::ast::UnitExpr) into a semantic [`Unit`].
-///
-/// Converts unit syntax to dimensional unit values with dimensional exponents.
-/// Handles unit arithmetic (multiply, divide, power) and validates kind compatibility.
-///
-/// # Parameters
-///
-/// - `unit_expr`: Optional unit syntax; `None` yields dimensionless units.
-/// - `span`: Source location for error reporting.
-///
-/// # Returns
-///
-/// A resolved [`Unit`] with dimensional exponents computed from the expression.
-///
-/// # Errors
-///
-/// Returns [`CompileError`](crate::error::CompileError) if:
-/// - A base unit name is unrecognized
-/// - Unit arithmetic is invalid for affine or logarithmic units
-/// - Dimensional exponent math overflows `i8` bounds
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::resolve::types::resolve_unit_expr;
-/// use continuum_cdsl::ast::UnitExpr;
-/// use continuum_cdsl::foundation::Span;
-///
-/// let span = Span::new(0, 10, 20, 1);
-///
-/// // Resolve m/s
-/// let expr = UnitExpr::Divide(
-///     Box::new(UnitExpr::Base("m".into())),
-///     Box::new(UnitExpr::Base("s".into())),
-/// );
-/// let unit = resolve_unit_expr(Some(&expr), span).unwrap();
-/// assert_eq!(unit.dims().length, 1);
-/// assert_eq!(unit.dims().time, -1);
-/// ```
-pub fn resolve_unit_expr(unit_expr: Option<&UnitExpr>, span: Span) -> Result<Unit, CompileError> {
-    match unit_expr {
-        None => Ok(Unit::DIMENSIONLESS),
-        Some(UnitExpr::Dimensionless) => Ok(Unit::DIMENSIONLESS),
-        Some(UnitExpr::Base(name)) => resolve_base_unit(name, span),
-        Some(UnitExpr::Multiply(lhs, rhs)) => {
-            let lhs_unit = resolve_unit_expr(Some(lhs), span)?;
-            let rhs_unit = resolve_unit_expr(Some(rhs), span)?;
-            multiply_units(&lhs_unit, &rhs_unit, span)
-        }
-        Some(UnitExpr::Divide(numerator, denominator)) => {
-            let num_unit = resolve_unit_expr(Some(numerator), span)?;
-            let den_unit = resolve_unit_expr(Some(denominator), span)?;
-            divide_units(&num_unit, &den_unit, span)
-        }
-        Some(UnitExpr::Power(base, exponent)) => {
-            let base_unit = resolve_unit_expr(Some(base), span)?;
-            power_unit(&base_unit, *exponent, span)
-        }
-    }
-}
-
-/// Validate that a dimension value is non-zero
-///
-/// Helper to reduce duplication in dimension validation.
-fn validate_nonzero_dim(dim: u8, type_name: &str, span: Span) -> Result<(), CompileError> {
-    if dim == 0 {
-        return Err(CompileError::new(
-            ErrorKind::DimensionMismatch,
-            span,
-            format!("{} dimension must be greater than 0", type_name),
-        ));
-    }
-    Ok(())
-}
-
-/// Resolve a base unit name to a Unit
-///
-/// Maps unit symbols (m, kg, s, etc.) to their Unit definitions.
-fn resolve_base_unit(name: &str, span: Span) -> Result<Unit, CompileError> {
-    let unit = match name {
-        // SI base units
-        "m" => Unit::meters(),
-        "kg" => Unit::kilograms(),
-        "s" => Unit::seconds(),
-        "K" => Unit::kelvin(),
-        "A" => Unit::amperes(),
-        "mol" => Unit::moles(),
-        "cd" => Unit::candelas(),
-        "rad" => Unit::radians(),
-
-        _ => {
-            return Err(CompileError::new(
-                ErrorKind::InvalidUnit,
-                span,
-                format!("Unknown base unit: {}", name),
-            ));
-        }
-    };
-    Ok(unit)
-}
-
-/// Multiply two units
-///
-/// Combines dimensional exponents and validates kind compatibility.
-fn multiply_units(lhs: &Unit, rhs: &Unit, span: Span) -> Result<Unit, CompileError> {
-    // Only multiplicative units can be multiplied
-    if !lhs.is_multiplicative() || !rhs.is_multiplicative() {
-        return Err(CompileError::new(
-            ErrorKind::InvalidUnit,
-            span,
-            "Cannot multiply non-multiplicative units (affine/logarithmic)".to_string(),
-        ));
-    }
-
-    let dims = add_dimensions(lhs.dims(), rhs.dims(), span)?;
-    Ok(Unit::new(UnitKind::Multiplicative, dims))
-}
-
-/// Divide two units
-///
-/// Subtracts dimensional exponents and validates kind compatibility.
-fn divide_units(numerator: &Unit, denominator: &Unit, span: Span) -> Result<Unit, CompileError> {
-    // Only multiplicative units can be divided
-    if !numerator.is_multiplicative() || !denominator.is_multiplicative() {
-        return Err(CompileError::new(
-            ErrorKind::InvalidUnit,
-            span,
-            "Cannot divide non-multiplicative units (affine/logarithmic)".to_string(),
-        ));
-    }
-
-    let dims = subtract_dimensions(numerator.dims(), denominator.dims(), span)?;
-    Ok(Unit::new(UnitKind::Multiplicative, dims))
-}
-
-/// Raise a unit to a power
-///
-/// Multiplies all dimensional exponents by the exponent.
-fn power_unit(base: &Unit, exponent: i8, span: Span) -> Result<Unit, CompileError> {
-    // Only multiplicative units can be raised to powers
-    if !base.is_multiplicative() {
-        return Err(CompileError::new(
-            ErrorKind::InvalidUnit,
-            span,
-            "Cannot raise non-multiplicative units to powers (affine/logarithmic)".to_string(),
-        ));
-    }
-
-    let dims = scale_dimensions(base.dims(), exponent, span)?;
-    Ok(Unit::new(UnitKind::Multiplicative, dims))
-}
-
-/// Add dimensional exponents (for multiplication)
-fn add_dimensions(
-    lhs: &UnitDimensions,
-    rhs: &UnitDimensions,
-    span: Span,
-) -> Result<UnitDimensions, CompileError> {
-    Ok(UnitDimensions {
-        length: checked_i8_op(lhs.length, rhs.length, "length", span, i8::checked_add)?,
-        mass: checked_i8_op(lhs.mass, rhs.mass, "mass", span, i8::checked_add)?,
-        time: checked_i8_op(lhs.time, rhs.time, "time", span, i8::checked_add)?,
-        temperature: checked_i8_op(
-            lhs.temperature,
-            rhs.temperature,
-            "temperature",
-            span,
-            i8::checked_add,
-        )?,
-        current: checked_i8_op(lhs.current, rhs.current, "current", span, i8::checked_add)?,
-        amount: checked_i8_op(lhs.amount, rhs.amount, "amount", span, i8::checked_add)?,
-        luminosity: checked_i8_op(
-            lhs.luminosity,
-            rhs.luminosity,
-            "luminosity",
-            span,
-            i8::checked_add,
-        )?,
-        angle: checked_i8_op(lhs.angle, rhs.angle, "angle", span, i8::checked_add)?,
-    })
-}
-
-/// Subtract dimensional exponents (for division)
-fn subtract_dimensions(
-    lhs: &UnitDimensions,
-    rhs: &UnitDimensions,
-    span: Span,
-) -> Result<UnitDimensions, CompileError> {
-    Ok(UnitDimensions {
-        length: checked_i8_op(lhs.length, rhs.length, "length", span, i8::checked_sub)?,
-        mass: checked_i8_op(lhs.mass, rhs.mass, "mass", span, i8::checked_sub)?,
-        time: checked_i8_op(lhs.time, rhs.time, "time", span, i8::checked_sub)?,
-        temperature: checked_i8_op(
-            lhs.temperature,
-            rhs.temperature,
-            "temperature",
-            span,
-            i8::checked_sub,
-        )?,
-        current: checked_i8_op(lhs.current, rhs.current, "current", span, i8::checked_sub)?,
-        amount: checked_i8_op(lhs.amount, rhs.amount, "amount", span, i8::checked_sub)?,
-        luminosity: checked_i8_op(
-            lhs.luminosity,
-            rhs.luminosity,
-            "luminosity",
-            span,
-            i8::checked_sub,
-        )?,
-        angle: checked_i8_op(lhs.angle, rhs.angle, "angle", span, i8::checked_sub)?,
-    })
-}
-
-/// Scale dimensional exponents (for power)
-fn scale_dimensions(
-    dims: &UnitDimensions,
-    scale: i8,
-    span: Span,
-) -> Result<UnitDimensions, CompileError> {
-    Ok(UnitDimensions {
-        length: checked_i8_op(dims.length, scale, "length", span, i8::checked_mul)?,
-        mass: checked_i8_op(dims.mass, scale, "mass", span, i8::checked_mul)?,
-        time: checked_i8_op(dims.time, scale, "time", span, i8::checked_mul)?,
-        temperature: checked_i8_op(
-            dims.temperature,
-            scale,
-            "temperature",
-            span,
-            i8::checked_mul,
-        )?,
-        current: checked_i8_op(dims.current, scale, "current", span, i8::checked_mul)?,
-        amount: checked_i8_op(dims.amount, scale, "amount", span, i8::checked_mul)?,
-        luminosity: checked_i8_op(dims.luminosity, scale, "luminosity", span, i8::checked_mul)?,
-        angle: checked_i8_op(dims.angle, scale, "angle", span, i8::checked_mul)?,
-    })
-}
-
-/// Checked i8 arithmetic with dimension name in error
-///
-/// Generic helper to reduce duplication across add/sub/mul operations.
-fn checked_i8_op<F>(a: i8, b: i8, dim_name: &str, span: Span, op: F) -> Result<i8, CompileError>
-where
-    F: FnOnce(i8, i8) -> Option<i8>,
-{
-    op(a, b).ok_or_else(|| {
-        CompileError::new(
-            ErrorKind::InvalidUnit,
-            span,
-            format!("Dimension exponent overflow for {}", dim_name),
-        )
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::{EntityId, TypeId};
+    use crate::foundation::TypeId;
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)
@@ -780,428 +371,49 @@ mod tests {
     #[test]
     fn test_resolve_scalar_type() {
         let type_table = TypeTable::new();
-
-        // Scalar with no unit (dimensionless)
         let scalar_type = TypeExpr::Scalar { unit: None };
         let resolved = resolve_type_expr(&scalar_type, &type_table, test_span()).unwrap();
         assert!(resolved.is_kernel());
-
-        // Scalar with meters
-        let scalar_m = TypeExpr::Scalar {
-            unit: Some(UnitExpr::Base("m".to_string())),
-        };
-        let resolved = resolve_type_expr(&scalar_m, &type_table, test_span()).unwrap();
-        assert!(resolved.is_kernel());
     }
 
     #[test]
-    fn test_resolve_vector_type() {
-        let type_table = TypeTable::new();
-
-        // Vector<3, m>
-        let vector_type = TypeExpr::Vector {
-            dim: 3,
-            unit: Some(UnitExpr::Base("m".to_string())),
-        };
-        let resolved = resolve_type_expr(&vector_type, &type_table, test_span()).unwrap();
-
-        // Verify it's a kernel type with correct shape
-        let Type::Kernel(kernel) = resolved else {
-            panic!("Expected kernel type");
-        };
-        assert_eq!(kernel.shape, Shape::Vector { dim: 3 });
-        assert_eq!(kernel.unit.dims().length, 1);
-        assert!(kernel.unit.is_multiplicative());
-    }
-
-    #[test]
-    fn test_resolve_vector_zero_dim_fails() {
-        let type_table = TypeTable::new();
-
-        // Vector<0, m> should fail
-        let vector_type = TypeExpr::Vector {
-            dim: 0,
-            unit: Some(UnitExpr::Base("m".to_string())),
-        };
-        let err = resolve_type_expr(&vector_type, &type_table, test_span()).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::DimensionMismatch);
-        assert!(err.message.contains("Vector dimension"));
-    }
-
-    #[test]
-    fn test_resolve_matrix_type() {
-        let type_table = TypeTable::new();
-
-        // Matrix<3, 3, kg>
-        let matrix_type = TypeExpr::Matrix {
-            rows: 3,
-            cols: 3,
-            unit: Some(UnitExpr::Base("kg".to_string())),
-        };
-        let resolved = resolve_type_expr(&matrix_type, &type_table, test_span()).unwrap();
-
-        // Verify it's a kernel type with correct shape
-        let Type::Kernel(kernel) = resolved else {
-            panic!("Expected kernel type");
-        };
-        assert_eq!(kernel.shape, Shape::Matrix { rows: 3, cols: 3 });
-        assert_eq!(kernel.unit.dims().mass, 1);
-        assert!(kernel.unit.is_multiplicative());
-    }
-
-    #[test]
-    fn test_matrix_zero_rows_or_cols_fails() {
-        let type_table = TypeTable::new();
-
-        // Matrix with zero rows
-        let zero_rows = TypeExpr::Matrix {
-            rows: 0,
-            cols: 3,
-            unit: Some(UnitExpr::Base("kg".to_string())),
-        };
-        let err = resolve_type_expr(&zero_rows, &type_table, test_span()).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::DimensionMismatch);
-        assert!(err.message.contains("Matrix dimensions"));
-
-        // Matrix with zero cols
-        let zero_cols = TypeExpr::Matrix {
-            rows: 3,
-            cols: 0,
-            unit: Some(UnitExpr::Base("kg".to_string())),
-        };
-        let err = resolve_type_expr(&zero_cols, &type_table, test_span()).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::DimensionMismatch);
-        assert!(err.message.contains("Matrix dimensions"));
-    }
-
-    #[test]
-    fn test_resolve_bool_type() {
-        let type_table = TypeTable::new();
-
-        let bool_type = TypeExpr::Bool;
-        let resolved = resolve_type_expr(&bool_type, &type_table, test_span()).unwrap();
-        assert!(resolved.is_bool());
-    }
-
-    #[test]
-    fn test_resolve_user_type() {
-        let mut type_table = TypeTable::new();
-
-        // Register a user type
-        let path = Path::from("Vec3");
-        let type_id = TypeId::from("Vec3");
-        let user_type = UserType::new(type_id.clone(), path.clone(), vec![]);
-        type_table.register(user_type);
-
-        // Resolve reference to it
-        let user_type_expr = TypeExpr::User(path);
-        let resolved = resolve_type_expr(&user_type_expr, &type_table, test_span()).unwrap();
-
-        // Verify it's a user type with correct ID
-        assert!(resolved.is_user());
-        if let Type::User(resolved_id) = resolved {
-            assert_eq!(resolved_id, type_id);
-        } else {
-            panic!("Expected user type");
-        }
-    }
-
-    #[test]
-    fn test_resolve_unknown_user_type_fails() {
-        let type_table = TypeTable::new();
-
-        // Try to resolve unknown type
-        let user_type_expr = TypeExpr::User(Path::from("UnknownType"));
-        let err = resolve_type_expr(&user_type_expr, &type_table, test_span()).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::UnknownType);
-        assert!(err.message.contains("Unknown user type"));
-    }
-
-    #[test]
-    fn test_resolve_base_units() {
-        let span = test_span();
-        assert!(resolve_base_unit("m", span).is_ok());
-        assert!(resolve_base_unit("kg", span).is_ok());
-        assert!(resolve_base_unit("s", span).is_ok());
-        assert!(resolve_base_unit("K", span).is_ok());
-        assert!(resolve_base_unit("A", span).is_ok());
-        assert!(resolve_base_unit("mol", span).is_ok());
-        assert!(resolve_base_unit("cd", span).is_ok());
-        assert!(resolve_base_unit("rad", span).is_ok());
-
-        // Unknown unit should fail with proper error
-        let err = resolve_base_unit("xyz", span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert!(err.message.contains("Unknown base unit"));
-    }
-
-    #[test]
-    fn test_unknown_unit_via_unit_expr() {
-        let unit_expr = UnitExpr::Base("nope".to_string());
-        let err = resolve_unit_expr(Some(&unit_expr), test_span()).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert!(err.message.contains("Unknown base unit"));
-    }
-
-    #[test]
-    fn test_unit_multiplication() {
-        // m * s = m·s
-        let m = Unit::meters();
-        let s = Unit::seconds();
-        let result = multiply_units(&m, &s, test_span()).unwrap();
-        assert_eq!(result.dims().length, 1);
-        assert_eq!(result.dims().time, 1);
-    }
-
-    #[test]
-    fn test_unit_division() {
-        // m / s = m/s
-        let m = Unit::meters();
-        let s = Unit::seconds();
-        let result = divide_units(&m, &s, test_span()).unwrap();
-        assert_eq!(result.dims().length, 1);
-        assert_eq!(result.dims().time, -1);
-    }
-
-    #[test]
-    fn test_unit_power() {
-        // m^2
-        let m = Unit::meters();
-        let result = power_unit(&m, 2, test_span()).unwrap();
-        assert_eq!(result.dims().length, 2);
-    }
-
-    #[test]
-    fn test_resolve_compound_unit() {
-        // m/s
-        let unit_expr = UnitExpr::Divide(
-            Box::new(UnitExpr::Base("m".to_string())),
-            Box::new(UnitExpr::Base("s".to_string())),
-        );
-        let resolved = resolve_unit_expr(Some(&unit_expr), test_span()).unwrap();
-        assert_eq!(resolved.dims().length, 1);
-        assert_eq!(resolved.dims().time, -1);
-    }
-
-    #[test]
-    fn test_resolve_complex_unit() {
-        let type_table = TypeTable::new();
-        let span = test_span();
-
-        // kg*m/s^2 (force unit, Newton)
-        let kg_m = UnitExpr::Multiply(
-            Box::new(UnitExpr::Base("kg".to_string())),
-            Box::new(UnitExpr::Base("m".to_string())),
-        );
-        let s_squared = UnitExpr::Power(Box::new(UnitExpr::Base("s".to_string())), 2);
-        let unit_expr = UnitExpr::Divide(Box::new(kg_m), Box::new(s_squared));
-        let scalar = TypeExpr::Scalar {
-            unit: Some(unit_expr),
-        };
-
-        let Type::Kernel(kernel) = resolve_type_expr(&scalar, &type_table, span).unwrap() else {
-            panic!("Expected kernel type");
-        };
-        assert_eq!(kernel.shape, Shape::Scalar);
-        assert_eq!(kernel.unit.dims().mass, 1);
-        assert_eq!(kernel.unit.dims().length, 1);
-        assert_eq!(kernel.unit.dims().time, -2);
-    }
-
-    #[test]
-    fn test_unit_cancellation_and_identity() {
-        let span = test_span();
-
-        // m / m => dimensionless
-        let cancel = UnitExpr::Divide(
-            Box::new(UnitExpr::Base("m".to_string())),
-            Box::new(UnitExpr::Base("m".to_string())),
-        );
-        let resolved = resolve_unit_expr(Some(&cancel), span).unwrap();
-        assert!(resolved.is_dimensionless());
-
-        // 1 * m => m
-        let identity = UnitExpr::Multiply(
-            Box::new(UnitExpr::Dimensionless),
-            Box::new(UnitExpr::Base("m".to_string())),
-        );
-        let resolved = resolve_unit_expr(Some(&identity), span).unwrap();
-        assert_eq!(resolved.dims().length, 1);
-        assert!(resolved.is_multiplicative());
-        // Verify other dimensions remain zero
-        assert_eq!(resolved.dims().mass, 0);
-        assert_eq!(resolved.dims().time, 0);
-    }
-
-    #[test]
-    fn test_base_unit_dimensions() {
-        let span = test_span();
-
-        // Meters
-        let m = resolve_base_unit("m", span).unwrap();
-        assert_eq!(m.dims().length, 1);
-        assert_eq!(m.dims().mass, 0);
-        assert_eq!(m.dims().time, 0);
-        assert!(m.is_multiplicative());
-
-        // Kilograms
-        let kg = resolve_base_unit("kg", span).unwrap();
-        assert_eq!(kg.dims().mass, 1);
-        assert_eq!(kg.dims().length, 0);
-        assert_eq!(kg.dims().time, 0);
-        assert!(kg.is_multiplicative());
-
-        // Seconds
-        let s = resolve_base_unit("s", span).unwrap();
-        assert_eq!(s.dims().time, 1);
-        assert_eq!(s.dims().length, 0);
-        assert_eq!(s.dims().mass, 0);
-        assert!(s.is_multiplicative());
-    }
-
-    #[test]
-    fn test_scalar_invalid_unit_propagates_error() {
-        let type_table = TypeTable::new();
-        let span = Span::new(3, 30, 40, 2);
-
-        let scalar = TypeExpr::Scalar {
-            unit: Some(UnitExpr::Base("bad".to_string())),
-        };
-
-        let err = resolve_type_expr(&scalar, &type_table, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("Unknown base unit"));
-    }
-
-    #[test]
-    fn test_vector_invalid_unit_propagates_error() {
-        let type_table = TypeTable::new();
-        let span = Span::new(4, 50, 60, 2);
-
-        let vector = TypeExpr::Vector {
-            dim: 3,
-            unit: Some(UnitExpr::Base("invalid".to_string())),
-        };
-
-        let err = resolve_type_expr(&vector, &type_table, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("Unknown base unit"));
-    }
-
-    #[test]
-    fn test_matrix_invalid_unit_propagates_error() {
-        let type_table = TypeTable::new();
-        let span = Span::new(5, 70, 80, 2);
-
-        let matrix = TypeExpr::Matrix {
-            rows: 2,
-            cols: 2,
-            unit: Some(UnitExpr::Base("xyz".to_string())),
-        };
-
-        let err = resolve_type_expr(&matrix, &type_table, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("Unknown base unit"));
-    }
-
-    #[test]
-    fn test_overflow_errors_preserve_span() {
-        let span = Span::new(6, 90, 100, 3);
-
-        // Test multiply overflow span
-        let left = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
-        let right = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
-        let multiply = UnitExpr::Multiply(Box::new(left), Box::new(right));
-        let err = resolve_unit_expr(Some(&multiply), span).unwrap_err();
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("overflow"));
-
-        // Test power overflow span
-        let huge_power = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 127);
-        let power = UnitExpr::Power(Box::new(huge_power), 2);
-        let err = resolve_unit_expr(Some(&power), span).unwrap_err();
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("overflow"));
-    }
-
-    #[test]
-    fn test_project_entity_types() {
+    fn test_project_entity_types_nested() {
         use crate::ast::{Entity, Node, RoleData};
 
         let span = test_span();
-        let entity_path = Path::from_str("plate");
         let entity_id = EntityId::new("plate");
+        let entity_path = Path::from_str("plate");
         let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
 
-        let member_path = Path::from_str("plate.mass");
-        let mut member = Node::new(member_path.clone(), span, RoleData::Signal, entity_id);
-        member.type_expr = Some(TypeExpr::Scalar { unit: None });
+        // plate.physics.velocity
+        let member_path = Path::from_str("plate.physics.velocity");
+        let mut member = Node::new(member_path, span, RoleData::Signal, entity_id);
+        member.type_expr = Some(TypeExpr::Vector { dim: 3, unit: None });
 
         let decls = vec![Declaration::Entity(entity), Declaration::Member(member)];
 
         let mut table = TypeTable::new();
         project_entity_types(&decls, &mut table).unwrap();
 
-        // Verify entity projected as UserType
-        assert!(table.contains(&entity_path));
-        let user_type = table.get(&entity_path).unwrap();
-        assert_eq!(user_type.field_count(), 1);
-        // Fields now use full path string as name
-        assert_eq!(user_type.fields[0].0, "plate.mass");
-        assert!(user_type.fields[0].1.is_kernel());
-    }
+        // plate should have field "physics"
+        let plate_type = table.get(&entity_path).expect("plate type missing");
+        assert_eq!(plate_type.field_count(), 1);
+        let physics_field = plate_type.fields().first().unwrap();
+        assert_eq!(physics_field.0, "physics");
 
-    #[test]
-    fn test_project_entity_types_multiple_members() {
-        use crate::ast::{Entity, Node, RoleData};
+        // physics should be a UserType
+        if let Type::User(physics_id) = &physics_field.1 {
+            let physics_type = table.get_by_id(physics_id).expect("physics type missing");
+            assert_eq!(physics_type.name().to_string(), "plate.physics");
 
-        let span = test_span();
-        let entity_id = EntityId::new("plate");
-        let entity_path = Path::from_str("plate");
-        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
-
-        let m1_path = Path::from_str("plate.mass");
-        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id.clone());
-        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
-
-        let m2_path = Path::from_str("plate.velocity");
-        let mut m2 = Node::new(m2_path.clone(), span, RoleData::Signal, entity_id);
-        m2.type_expr = Some(TypeExpr::Vector { dim: 3, unit: None });
-
-        let decls = vec![
-            Declaration::Entity(entity),
-            Declaration::Member(m1),
-            Declaration::Member(m2),
-        ];
-
-        let mut table = TypeTable::new();
-        project_entity_types(&decls, &mut table).unwrap();
-
-        let user_type = table.get(&entity_path).unwrap();
-        assert_eq!(user_type.field_count(), 2);
-        assert!(user_type.field("plate.mass").is_some());
-        assert!(user_type.field("plate.velocity").is_some());
-    }
-
-    #[test]
-    fn test_project_entity_types_zero_members() {
-        use crate::ast::Entity;
-
-        let span = test_span();
-        let entity_path = Path::from_str("empty");
-        let entity = Entity::new(EntityId::new("empty"), entity_path.clone(), span);
-
-        let decls = vec![Declaration::Entity(entity)];
-
-        let mut table = TypeTable::new();
-        project_entity_types(&decls, &mut table).unwrap();
-
-        assert!(table.contains(&entity_path));
-        let user_type = table.get(&entity_path).unwrap();
-        assert_eq!(user_type.field_count(), 0);
+            // physics should have field "velocity"
+            assert_eq!(physics_type.field_count(), 1);
+            let velocity_field = physics_type.fields().first().unwrap();
+            assert_eq!(velocity_field.0, "velocity");
+            assert!(velocity_field.1.is_kernel());
+        } else {
+            panic!("Expected User type for physics field");
+        }
     }
 
     #[test]
@@ -1216,8 +428,7 @@ mod tests {
         let entity_a = Entity::new(id_a.clone(), path_a.clone(), span);
 
         // Member A.b : B
-        let path_ab = Path::from_str("A.b");
-        let mut member_ab = Node::new(path_ab, span, RoleData::Signal, id_a);
+        let mut member_ab = Node::new(Path::from_str("A.b"), span, RoleData::Signal, id_a);
         member_ab.type_expr = Some(TypeExpr::User(Path::from_str("B")));
 
         // Entity B
@@ -1226,8 +437,7 @@ mod tests {
         let entity_b = Entity::new(id_b.clone(), path_b.clone(), span);
 
         // Member B.a : A
-        let path_ba = Path::from_str("B.a");
-        let mut member_ba = Node::new(path_ba, span, RoleData::Signal, id_b);
+        let mut member_ba = Node::new(Path::from_str("B.a"), span, RoleData::Signal, id_b);
         member_ba.type_expr = Some(TypeExpr::User(Path::from_str("A")));
 
         let decls = vec![
@@ -1240,264 +450,7 @@ mod tests {
         let mut table = TypeTable::new();
         project_entity_types(&decls, &mut table).expect("Circular references should resolve");
 
-        // Verify A has field "A.b" with type B
         let type_a = table.get(&path_a).unwrap();
-        let field_b = type_a.field("A.b").unwrap();
-        assert!(field_b.is_user());
-
-        // Verify B has field "B.a" with type A
-        let type_b = table.get(&path_b).unwrap();
-        let field_a = type_b.field("B.a").unwrap();
-        assert!(field_a.is_user());
-    }
-
-    #[test]
-    fn test_project_entity_types_error_propagation() {
-        use crate::ast::{Entity, Node, RoleData};
-
-        let span = test_span();
-        let entity_id = EntityId::new("plate");
-        let entity_path = Path::from_str("plate");
-        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
-
-        let member_path = Path::from_str("plate.bad");
-        let mut member = Node::new(member_path, span, RoleData::Signal, entity_id);
-        // Reference to unknown type
-        member.type_expr = Some(TypeExpr::User(Path::from_str("Unknown")));
-
-        let decls = vec![Declaration::Entity(entity), Declaration::Member(member)];
-
-        let mut table = TypeTable::new();
-        let errors = project_entity_types(&decls, &mut table).unwrap_err();
-
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::UnknownType);
-    }
-
-    #[test]
-    fn test_project_entity_types_full_path_preservation() {
-        use crate::ast::{Entity, Node, RoleData};
-
-        let span = test_span();
-        let entity_id = EntityId::new("plate");
-        let entity_path = Path::from_str("plate");
-        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
-
-        // physics.velocity
-        let m1_path = Path::from_str("physics.velocity");
-        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id.clone());
-        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
-
-        // graphics.velocity
-        let m2_path = Path::from_str("graphics.velocity");
-        let mut m2 = Node::new(m2_path.clone(), span, RoleData::Signal, entity_id);
-        m2.type_expr = Some(TypeExpr::Vector { dim: 3, unit: None });
-
-        let decls = vec![
-            Declaration::Entity(entity),
-            Declaration::Member(m1),
-            Declaration::Member(m2),
-        ];
-
-        let mut table = TypeTable::new();
-        project_entity_types(&decls, &mut table).unwrap();
-
-        let user_type = table.get(&entity_path).unwrap();
-
-        // Should have 2 fields with full path names
-        assert_eq!(user_type.field_count(), 2);
-        assert!(user_type.field("physics.velocity").is_some());
-        assert!(user_type.field("graphics.velocity").is_some());
-    }
-
-    #[test]
-    fn test_project_entity_types_duplicate_member_error() {
-        use crate::ast::{Entity, Node, RoleData};
-
-        let span = test_span();
-        let entity_id = EntityId::new("plate");
-        let entity_path = Path::from_str("plate");
-        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
-
-        // Two members with EXACT SAME path
-        let m1_path = Path::from_str("plate.mass");
-        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id.clone());
-        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
-
-        let m2_path = Path::from_str("plate.mass");
-        let mut m2 = Node::new(m2_path.clone(), span, RoleData::Signal, entity_id);
-        m2.type_expr = Some(TypeExpr::Scalar { unit: None });
-
-        let decls = vec![
-            Declaration::Entity(entity),
-            Declaration::Member(m1),
-            Declaration::Member(m2),
-        ];
-
-        let mut table = TypeTable::new();
-        let errors = project_entity_types(&decls, &mut table).unwrap_err();
-
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
-        assert!(errors[0].message.contains("Duplicate member path"));
-    }
-
-    #[test]
-    fn test_type_table_operations() {
-        let mut table = TypeTable::new();
-
-        let path = Path::from("TestType");
-        let type_id = TypeId::from("TestType");
-        let user_type = UserType::new(type_id.clone(), path.clone(), vec![]);
-
-        assert!(!table.contains(&path));
-
-        table.register(user_type);
-
-        assert!(table.contains(&path));
-        assert_eq!(table.get_id(&path), Some(type_id));
-        assert!(table.get(&path).is_some());
-    }
-
-    #[test]
-    fn test_error_spans_are_preserved() {
-        let type_table = TypeTable::new();
-        let span = Span::new(1, 100, 200, 10);
-
-        // Test vector zero dimension error preserves span
-        let vector_type = TypeExpr::Vector {
-            dim: 0,
-            unit: Some(UnitExpr::Base("m".to_string())),
-        };
-        let err = resolve_type_expr(&vector_type, &type_table, span).unwrap_err();
-        assert_eq!(err.span, span);
-        assert_eq!(err.kind, ErrorKind::DimensionMismatch);
-
-        // Test unknown user type error preserves span
-        let user_type_expr = TypeExpr::User(Path::from("UnknownType"));
-        let err = resolve_type_expr(&user_type_expr, &type_table, span).unwrap_err();
-        assert_eq!(err.span, span);
-        assert_eq!(err.kind, ErrorKind::UnknownType);
-
-        // Test unknown unit error preserves span
-        let unit_expr = UnitExpr::Base("xyz".to_string());
-        let err = resolve_unit_expr(Some(&unit_expr), span).unwrap_err();
-        assert_eq!(err.span, span);
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-
-        // Test non-multiplicative unit multiplication error preserves span
-        let celsius = Unit::celsius();
-        let kelvin = Unit::kelvin();
-        let err = multiply_units(&celsius, &kelvin, span).unwrap_err();
-        assert_eq!(err.span, span);
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-    }
-
-    #[test]
-    fn test_non_multiplicative_unit_arithmetic_fails() {
-        let span = test_span();
-        let celsius = Unit::celsius();
-        let kelvin = Unit::kelvin();
-
-        // Cannot multiply affine units
-        let err = multiply_units(&celsius, &kelvin, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert!(err.message.contains("Cannot multiply non-multiplicative"));
-
-        // Cannot divide affine units
-        let err = divide_units(&celsius, &kelvin, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert!(err.message.contains("Cannot divide non-multiplicative"));
-
-        // Cannot raise affine units to powers
-        let err = power_unit(&celsius, 2, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert!(err.message.contains("Cannot raise non-multiplicative"));
-    }
-
-    #[test]
-    fn test_dimension_overflow_fails() {
-        let span = test_span();
-
-        // Multiply overflow
-        let left = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
-        let right = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 100);
-        let unit_expr = UnitExpr::Multiply(Box::new(left), Box::new(right));
-        let err = resolve_unit_expr(Some(&unit_expr), span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert!(err.message.contains("overflow"));
-
-        // Divide overflow (subtraction)
-        let big = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 120);
-        let tiny = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), -120);
-        let divide = UnitExpr::Divide(Box::new(big), Box::new(tiny));
-        let err = resolve_unit_expr(Some(&divide), span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert!(err.message.contains("overflow"));
-
-        // Power overflow (scaling)
-        let huge_power = UnitExpr::Power(Box::new(UnitExpr::Base("m".to_string())), 127);
-        let power = UnitExpr::Power(Box::new(huge_power), 2);
-        let err = resolve_unit_expr(Some(&power), span).unwrap_err();
-        assert_eq!(err.span, span);
-        assert!(err.message.contains("overflow"));
-    }
-
-    #[test]
-    fn test_project_entity_types_partial_leak() {
-        use crate::ast::{Entity, Node, RoleData};
-
-        let span = test_span();
-        let entity_path = Path::from_str("plate");
-        let entity_id = EntityId::new("plate");
-        let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
-
-        // Valid member
-        let m1_path = Path::from_str("plate.mass");
-        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id.clone());
-        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
-
-        // Invalid member (unknown type)
-        let m2_path = Path::from_str("plate.bad");
-        let mut m2 = Node::new(m2_path.clone(), span, RoleData::Signal, entity_id);
-        m2.type_expr = Some(TypeExpr::User(Path::from_str("Unknown")));
-
-        let decls = vec![
-            Declaration::Entity(entity),
-            Declaration::Member(m1),
-            Declaration::Member(m2),
-        ];
-
-        let mut table = TypeTable::new();
-        let errors = project_entity_types(&decls, &mut table).unwrap_err();
-        assert!(!errors.is_empty());
-
-        // Verify partial type did NOT leak
-        let user_type = table.get(&entity_path).expect("Entity should be in table");
-        assert_eq!(
-            user_type.field_count(),
-            0,
-            "Partial fields must not leak into TypeTable on error"
-        );
-    }
-
-    #[test]
-    fn test_project_entity_types_orphaned_member() {
-        use crate::ast::{Node, RoleData};
-
-        let span = test_span();
-        let entity_id = EntityId::new("nonexistent");
-
-        // Member referring to missing entity
-        let m1_path = Path::from_str("nonexistent.mass");
-        let mut m1 = Node::new(m1_path.clone(), span, RoleData::Signal, entity_id);
-        m1.type_expr = Some(TypeExpr::Scalar { unit: None });
-
-        let decls = vec![Declaration::Member(m1)];
-
-        let mut table = TypeTable::new();
-        let errors = project_entity_types(&decls, &mut table)
-            .expect_err("Orphaned member should be an error");
-        assert!(errors.iter().any(|e| e.kind == ErrorKind::UndefinedName));
+        assert!(type_a.field("b").unwrap().is_user());
     }
 }
