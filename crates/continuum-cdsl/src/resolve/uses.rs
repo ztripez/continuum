@@ -49,8 +49,13 @@
 
 use crate::ast::{Attribute, ExprKind, Index, KernelRegistry, Node, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{Path, Span};
+use crate::foundation::Span;
 use std::collections::HashSet;
+
+/// Hint message for raw dt usage violations
+const DT_RAW_HINT: &str = "Raw dt access makes code dt-fragile. Use dt-robust operators \
+    (dt.integrate, dt.decay, dt.relax) instead. If raw dt is physically correct \
+    (e.g., Energy = Power × dt), declare : uses(dt.raw)";
 
 /// Information about a required uses declaration
 #[derive(Debug, Clone)]
@@ -158,6 +163,10 @@ fn collect_required_uses(
         // Kernel call - check if it requires uses
         ExprKind::Call { kernel, args } => {
             // Look up kernel signature in registry
+            // Note: If registry.get() returns None, it means the kernel doesn't exist in the
+            // registry, which is acceptable here. Type resolution has already validated that
+            // all kernel calls reference valid kernels, so any unknown kernel would have been
+            // caught in an earlier compilation pass. Only registered kernels can reach this point.
             if let Some(signature) = registry.get(kernel) {
                 if let Some(req) = &signature.requires_uses {
                     required.push(RequiredUse {
@@ -181,7 +190,7 @@ fn collect_required_uses(
                 key: "dt.raw".to_string(),
                 span: expr.span,
                 source: "dt".to_string(),
-                hint: "Raw dt access makes code dt-fragile. Use dt-robust operators (dt.integrate, dt.decay, dt.relax) instead. If raw dt is physically correct (e.g., Energy = Power × dt), declare : uses(dt.raw)".to_string(),
+                hint: DT_RAW_HINT.to_string(),
             });
         }
 
@@ -252,6 +261,8 @@ fn collect_required_uses_untyped(
         // Explicit call - might be a kernel call like maths.clamp(...)
         UntypedKind::Call { func, args } => {
             // Check if this is a namespaced kernel call
+            // Note: Non-kernel calls (user-defined functions) won't match any kernel_id,
+            // which is expected behavior. Only built-in kernels have requires_uses constraints.
             let path_str = func.to_string();
             if let Some((namespace, name)) = path_str.split_once('.') {
                 // Need to iterate through registry to find matching kernel
@@ -299,7 +310,10 @@ fn collect_required_uses_untyped(
         }
 
         // Binary/Unary operators - these desugar to kernel calls
-        // We need to check them even though they're not yet desugared
+        // Note: Currently, Binary and Unary operators don't have requires_uses constraints
+        // (only explicit kernel calls do). We recurse into operands but don't validate the
+        // operator itself. If future operators need validation (e.g., a hypothetical `clamp`
+        // operator), they should be desugared to KernelCall form before this pass runs.
         UntypedKind::Binary { left, right, .. } => {
             collect_required_uses_untyped(left, registry, required);
             collect_required_uses_untyped(right, registry, required);
@@ -315,7 +329,7 @@ fn collect_required_uses_untyped(
                 key: "dt.raw".to_string(),
                 span: expr.span,
                 source: "dt".to_string(),
-                hint: "Raw dt access makes code dt-fragile. Use dt-robust operators (dt.integrate, dt.decay, dt.relax) instead. If raw dt is physically correct (e.g., Energy = Power × dt), declare : uses(dt.raw)".to_string(),
+                hint: DT_RAW_HINT.to_string(),
             });
         }
 
@@ -325,6 +339,9 @@ fn collect_required_uses_untyped(
             collect_required_uses_untyped(body, registry, required);
         }
 
+        // Note: TypedExpr doesn't have an If variant - it's desugared to logic.select during
+        // type resolution. Untyped traversal handles If because warmup/when/observe blocks
+        // are validated before desugaring occurs.
         UntypedKind::If {
             condition,
             then_branch,
@@ -361,6 +378,9 @@ fn collect_required_uses_untyped(
         }
 
         // Leaf nodes - no recursion needed
+        // Note: ParseError nodes represent parser failures and generate their own errors in
+        // a prior parsing pass. They are treated as leaf nodes here since validation can't
+        // proceed on malformed AST.
         UntypedKind::Literal { .. }
         | UntypedKind::BoolLiteral(_)
         | UntypedKind::Signal(_)
@@ -466,7 +486,7 @@ pub fn validate_uses<I: Index>(nodes: &[Node<I>], registry: &KernelRegistry) -> 
 mod tests {
     use super::*;
     use crate::ast::{Execution, RoleData};
-    use crate::foundation::{Phase, Type};
+    use crate::foundation::{Path, Phase, Type};
 
     fn make_span() -> Span {
         Span::new(0, 0, 10, 1)
@@ -1038,6 +1058,143 @@ mod tests {
         let registry = KernelRegistry::global();
         let errors = validate_node_uses(&node, &registry);
 
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
+        assert!(errors[0].message.contains("maths.clamping"));
+    }
+
+    #[test]
+    fn test_warmup_nested_let_with_dt() {
+        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+
+        let span = make_span();
+        let path = Path::from_str("test.signal");
+
+        // Create node with warmup block using nested let with dt
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // warmup { iterate { let x = dt in x + prev } }
+        let dt_value = Expr::new(UntypedKind::Dt, span);
+        let x_local = Expr::new(UntypedKind::Local("x".to_string()), span);
+        let prev_expr = Expr::new(UntypedKind::Prev, span);
+        let body = Expr::binary(crate::ast::BinaryOp::Add, x_local, prev_expr, span);
+        let let_expr = Expr::new(
+            UntypedKind::Let {
+                name: "x".to_string(),
+                value: Box::new(dt_value),
+                body: Box::new(body),
+            },
+            span,
+        );
+
+        node.warmup = Some(WarmupBlock {
+            attrs: vec![],
+            iterate: let_expr,
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        // Should detect dt.raw required in nested Let value
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
+        assert!(errors[0].message.contains("dt.raw"));
+    }
+
+    #[test]
+    fn test_when_if_with_dt_in_condition() {
+        use crate::ast::{Expr, UntypedKind, WhenBlock};
+
+        let span = make_span();
+        let path = Path::from_str("test.fracture");
+
+        // Create node with when block using if expression with dt
+        let mut node = Node::new(path, span, RoleData::Fracture, ());
+
+        // when { if dt > 0.1 { true } else { false } }
+        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let threshold = Expr::new(
+            UntypedKind::Literal {
+                value: 0.1,
+                unit: None,
+            },
+            span,
+        );
+        let condition = Expr::binary(crate::ast::BinaryOp::Gt, dt_expr, threshold, span);
+        let true_branch = Expr::new(UntypedKind::BoolLiteral(true), span);
+        let false_branch = Expr::new(UntypedKind::BoolLiteral(false), span);
+
+        let if_expr = Expr::new(
+            UntypedKind::If {
+                condition: Box::new(condition),
+                then_branch: Box::new(true_branch),
+                else_branch: Box::new(false_branch),
+            },
+            span,
+        );
+
+        node.when = Some(WhenBlock {
+            conditions: vec![if_expr],
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        // Should detect dt.raw required in If condition
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
+        assert!(errors[0].message.contains("dt.raw"));
+    }
+
+    #[test]
+    fn test_warmup_nested_clamp_in_binary() {
+        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+
+        let span = make_span();
+        let path = Path::from_str("test.signal");
+
+        // Create node with warmup block using clamp nested in binary expression
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        // warmup { iterate { prev + maths.clamp(delta, -1, 1) } }
+        let prev_expr = Expr::new(UntypedKind::Prev, span);
+        let delta = Expr::new(UntypedKind::Local("delta".to_string()), span);
+        let min = Expr::new(
+            UntypedKind::Literal {
+                value: -1.0,
+                unit: None,
+            },
+            span,
+        );
+        let max = Expr::new(
+            UntypedKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            span,
+        );
+        let clamp_path = Path::from_str("maths.clamp");
+        let clamp_call = Expr::new(
+            UntypedKind::Call {
+                func: clamp_path,
+                args: vec![delta, min, max],
+            },
+            span,
+        );
+        let add_expr = Expr::binary(crate::ast::BinaryOp::Add, prev_expr, clamp_call, span);
+
+        node.warmup = Some(WarmupBlock {
+            attrs: vec![],
+            iterate: add_expr,
+            span,
+        });
+
+        let registry = KernelRegistry::global();
+        let errors = validate_node_uses(&node, &registry);
+
+        // Should detect maths.clamping required in nested clamp call
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::MissingUsesDeclaration);
         assert!(errors[0].message.contains("maths.clamping"));
