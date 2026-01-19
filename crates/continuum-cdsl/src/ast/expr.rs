@@ -163,6 +163,7 @@
 
 use crate::foundation::{Path, Span, Type, UserTypeId};
 use continuum_kernel_types::KernelId;
+use serde::{Deserialize, Serialize};
 
 use crate::foundation::EntityId;
 
@@ -173,29 +174,7 @@ use crate::foundation::EntityId;
 /// are bare names (`emit`, `spawn`, `destroy`, `log`).
 ///
 /// **NOTE:** KernelId is now imported from `continuum_kernel_types` (single source of truth)
-
-/// Aggregate operations for entity iteration
-///
-/// Aggregates iterate over entity instances and combine values. All aggregates
-/// produce a single result from a collection, except [`Map`] which produces
-/// [`Type::Seq`] (must be consumed by another aggregate).
-///
-/// # Determinism
-///
-/// - **Iteration order** - Always lexical `InstanceId` order (deterministic)
-/// - **Floating-point reductions** - Use fixed-tree reduction for bitwise stability
-/// - **Fold with non-commutative function** - Order = InstanceId order
-///
-/// # Examples
-///
-/// ```cdsl
-/// // Sum: sum(plates, |p| p.mass) → Scalar<kg>
-/// // Map: map(plates, |p| p.velocity) → Seq<Vector<3, m/s>>
-/// // Max: max(plates, |p| p.temperature) → Scalar<K>
-/// // Count: count(plates, |p| p.active) → Scalar<>
-/// // Any: any(plates, |p| p.fractured) → Bool
-/// ```
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum AggregateOp {
     /// Sum all values - requires numeric type with addition
     ///

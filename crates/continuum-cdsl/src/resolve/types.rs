@@ -159,7 +159,7 @@ fn project_hierarchical_entity<I: crate::ast::Index>(
             continue;
         }
 
-        // Traverse segments to build nested types
+        // Traverse segments
         for i in 0..relative_segments.len() {
             let segment_name = &relative_segments[i];
             let is_leaf = i == relative_segments.len() - 1;
@@ -234,6 +234,48 @@ fn project_hierarchical_entity<I: crate::ast::Index>(
     }
 
     Ok(())
+}
+
+/// Registers all explicit `type` declarations in the [`TypeTable`].
+pub fn resolve_user_types(
+    declarations: &[Declaration],
+    type_table: &mut TypeTable,
+) -> Result<(), Vec<CompileError>> {
+    let mut errors = Vec::new();
+
+    // 1. First pass: Register all type names
+    for decl in declarations {
+        if let Declaration::Type(type_decl) = decl {
+            let path = Path::from_str(&type_decl.name);
+            let type_id = UserTypeId::from(path.to_string());
+            type_table.register(UserType::new(type_id, path, vec![]));
+        }
+    }
+
+    // 2. Second pass: Resolve field types
+    for decl in declarations {
+        if let Declaration::Type(type_decl) = decl {
+            let path = Path::from_str(&type_decl.name);
+            let mut fields = Vec::new();
+
+            for field in &type_decl.fields {
+                match resolve_type_expr(&field.type_expr, type_table, field.span) {
+                    Ok(ty) => fields.push((field.name.clone(), ty)),
+                    Err(e) => errors.push(e),
+                }
+            }
+
+            if let Some(user_type) = type_table.get_mut(&path) {
+                user_type.fields = fields;
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 /// Resolves `type_expr` into `output` for all nodes in the world.

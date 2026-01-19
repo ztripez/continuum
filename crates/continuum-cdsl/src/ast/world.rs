@@ -1,7 +1,7 @@
 //! World container for a compiled simulation.
 //!
 //! A [`World`] represents the complete, resolved, and verified state of a
-//! simulation definition. it is produced by the compiler pipeline after
+//! simulation definition. It is produced by the compiler pipeline after
 //! all resolution and validation passes have completed.
 
 use crate::ast::declaration::{Declaration, WorldDecl};

@@ -4,14 +4,17 @@
 //! to transform raw parsed declarations into a fully resolved [`World`].
 
 use crate::ast::{Declaration, Era, KernelRegistry, Node, World};
+use crate::desugar::desugar_declarations;
 use crate::error::CompileError;
 use crate::foundation::{EntityId, Path, Type};
 use crate::resolve::blocks::compile_execution_blocks;
 use crate::resolve::eras::resolve_eras;
 use crate::resolve::expr_typing::{TypingContext, type_expression};
-use crate::resolve::names::build_symbol_table;
+use crate::resolve::names::{Scope, build_symbol_table, validate_expr};
 use crate::resolve::strata::{resolve_cadences, resolve_strata};
-use crate::resolve::types::{TypeTable, project_entity_types, resolve_node_types};
+use crate::resolve::types::{
+    TypeTable, project_entity_types, resolve_node_types, resolve_user_types,
+};
 use crate::resolve::uses::validate_uses;
 use crate::resolve::validation::{validate_node, validate_seq_escape};
 use std::collections::HashMap;
@@ -33,16 +36,19 @@ use std::collections::HashMap;
 pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError>> {
     let mut errors = Vec::new();
 
-    // 1. Group declarations by kind
+    // 1. Desugar
+    let declarations = desugar_declarations(declarations);
+
+    // 2. Group declarations by kind
     let mut world_decl = None;
     let mut global_nodes = Vec::new();
     let mut member_nodes = Vec::new();
     let mut entities = HashMap::new();
     let mut strata = Vec::new();
     let mut era_decls = Vec::new();
-    let mut type_decls = Vec::new();
-    let mut const_entries = Vec::new();
-    let mut config_entries = Vec::new();
+    let mut _type_decls = Vec::new();
+    let mut _const_entries = Vec::new();
+    let mut _config_entries = Vec::new();
 
     for decl in &declarations {
         match decl {
@@ -54,9 +60,9 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError
             }
             Declaration::Stratum(s) => strata.push(s.clone()),
             Declaration::Era(e) => era_decls.push(e.clone()),
-            Declaration::Type(t) => type_decls.push(t.clone()),
-            Declaration::Const(c) => const_entries.extend(c.clone()),
-            Declaration::Config(c) => config_entries.extend(c.clone()),
+            Declaration::Type(t) => _type_decls.push(t.clone()),
+            Declaration::Const(c) => _const_entries.extend(c.clone()),
+            Declaration::Config(c) => _config_entries.extend(c.clone()),
         }
     }
 
@@ -71,13 +77,24 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError
     let mut world = World::new(metadata);
     world.declarations = declarations;
 
-    // 2. Name Resolution (Symbol Table)
-    let _symbol_table = build_symbol_table(&world.declarations);
+    // 3. Name Resolution (Symbol Table Building)
+    let symbol_table = build_symbol_table(&world.declarations);
 
-    // 3. Type Resolution
+    // 4. Type Resolution
     let mut type_table = TypeTable::new();
+
+    // Register explicit user types
+    if let Err(mut e) = resolve_user_types(&world.declarations, &mut type_table) {
+        errors.append(&mut e);
+    }
+
+    // Synthesize hierarchical entity types
     if let Err(mut e) = project_entity_types(&world.declarations, &mut type_table) {
         errors.append(&mut e);
+    }
+
+    if !errors.is_empty() {
+        return Err(errors);
     }
 
     // Resolve node types (TypeExpr -> Type)
@@ -88,15 +105,23 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError
         errors.append(&mut e);
     }
 
-    // 4. Stratum Resolution
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    // 5. Stratum Resolution
     if let Err(mut e) = resolve_cadences(&mut strata) {
         errors.append(&mut e);
     }
 
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
     // Convert Strata list to Map for easier lookup
     let mut strata_map = HashMap::new();
-    for s in strata {
-        strata_map.insert(s.path.clone(), s);
+    for s in &strata {
+        strata_map.insert(s.path.clone(), s.clone());
     }
 
     let strata_vec: Vec<_> = strata_map.values().cloned().collect();
@@ -107,11 +132,15 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError
         errors.append(&mut e);
     }
 
-    // 5. Era Resolution
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    // 6. Era Resolution
     let registry = KernelRegistry::global();
     let signal_types = collect_node_types(&global_nodes, &member_nodes);
 
-    // Empty maps for context
+    // Context maps for typing
     let field_types = HashMap::new();
     let config_types = HashMap::new();
     let const_types = HashMap::new();
@@ -126,7 +155,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError
     );
 
     let mut resolved_eras = HashMap::new();
-    for era_decl in era_decls {
+    for era_decl in &era_decls {
         let dt = match &era_decl.dt {
             Some(expr) => match type_expression(expr, &ctx) {
                 Ok(typed) => typed,
@@ -151,8 +180,12 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError
             dt,
             era_decl.span,
         );
-        era.doc = era_decl.doc;
+        era.doc = era_decl.doc.clone();
         resolved_eras.insert(era.path.clone(), era);
+    }
+
+    if !errors.is_empty() {
+        return Err(errors);
     }
 
     let mut eras_vec: Vec<_> = resolved_eras.values().cloned().collect();
@@ -160,12 +193,16 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError
     let era_errors = resolve_eras(&mut eras_vec, &stratum_ids);
     errors.extend(era_errors);
 
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
     // Update resolved eras back into map
     for era in eras_vec {
         resolved_eras.insert(era.path.clone(), era);
     }
 
-    // 6. Block Compilation
+    // 7. Block Compilation
     for node in &mut global_nodes {
         if let Err(mut e) = compile_execution_blocks(node, &ctx) {
             errors.append(&mut e);
@@ -177,7 +214,33 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<World, Vec<CompileError
         }
     }
 
-    // 7. Validation
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+
+    // 8. Validation
+    // dedicated Name Validation (uses SymbolTable)
+    let mut scope = Scope::default();
+    for decl in &world.declarations {
+        match decl {
+            Declaration::Node(node) => {
+                for (_, body) in &node.execution_blocks {
+                    if let crate::ast::BlockBody::Expression(expr) = body {
+                        validate_expr(expr, &symbol_table, &mut scope, &mut errors);
+                    }
+                }
+            }
+            Declaration::Member(node) => {
+                for (_, body) in &node.execution_blocks {
+                    if let crate::ast::BlockBody::Expression(expr) = body {
+                        validate_expr(expr, &symbol_table, &mut scope, &mut errors);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
     errors.extend(validate_uses(&global_nodes, &registry));
     errors.extend(validate_uses(&member_nodes, &registry));
 
@@ -236,7 +299,7 @@ fn collect_node_types(globals: &[Node<()>], members: &[Node<EntityId>]) -> HashM
 mod tests {
     use super::*;
     use crate::ast::{Attribute, BlockBody, Entity, Expr, Node, RoleData, Stratum, WorldDecl};
-    use crate::foundation::{Span, StratumId};
+    use crate::foundation::{EntityId, Span, StratumId};
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)

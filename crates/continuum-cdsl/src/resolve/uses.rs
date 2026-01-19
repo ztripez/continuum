@@ -215,7 +215,25 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
                 });
             }
 
-            _ => {}
+            // Other leaf nodes and containers that don't require specific uses
+            ExprKind::Literal { .. }
+            | ExprKind::Vector(_)
+            | ExprKind::Local(_)
+            | ExprKind::Signal(_)
+            | ExprKind::Field(_)
+            | ExprKind::Config(_)
+            | ExprKind::Const(_)
+            | ExprKind::Prev
+            | ExprKind::Current
+            | ExprKind::Inputs
+            | ExprKind::Self_
+            | ExprKind::Other
+            | ExprKind::Payload
+            | ExprKind::Let { .. }
+            | ExprKind::Aggregate { .. }
+            | ExprKind::Fold { .. }
+            | ExprKind::Struct { .. }
+            | ExprKind::FieldAccess { .. } => {}
         }
     }
 }

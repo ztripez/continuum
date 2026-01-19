@@ -186,11 +186,25 @@ pub fn validate_node<I: crate::ast::Index>(
                             errors.extend(validate_expr(value, &ctx))
                         }
                         crate::ast::TypedStmt::SignalAssign { value, .. } => {
+                            if value.ty.is_seq() {
+                                errors.push(CompileError::new(
+                                    ErrorKind::TypeMismatch,
+                                    value.span,
+                                    "Seq types cannot be assigned to signals".to_string(),
+                                ));
+                            }
                             errors.extend(validate_expr(value, &ctx))
                         }
                         crate::ast::TypedStmt::FieldAssign {
                             position, value, ..
                         } => {
+                            if value.ty.is_seq() {
+                                errors.push(CompileError::new(
+                                    ErrorKind::TypeMismatch,
+                                    value.span,
+                                    "Seq types cannot be assigned to fields".to_string(),
+                                ));
+                            }
                             errors.extend(validate_expr(position, &ctx));
                             errors.extend(validate_expr(value, &ctx));
                         }
