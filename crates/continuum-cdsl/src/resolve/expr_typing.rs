@@ -1061,15 +1061,6 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             return Err(errors);
         }
 
-        UntypedKind::KernelCall { .. } => {
-            errors.push(CompileError::new(
-                ErrorKind::Internal,
-                span,
-                "kernel call not desugared correctly".to_string(),
-            ));
-            return Err(errors);
-        }
-
         // === Entity context ===
         UntypedKind::Self_ | UntypedKind::Other => {
             errors.push(CompileError::new(

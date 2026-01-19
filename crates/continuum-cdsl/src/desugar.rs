@@ -30,102 +30,13 @@
 //! - **After:** Parser produces untyped AST
 //! - **Before:** name resolution and typing
 //! - **Before:** uses validation on typed expressions
-//!
-//! # Examples
-//!
-//! ```rust,ignore
-//! use continuum_cdsl::ast::{Expr, BinaryOp};
-//! use continuum_cdsl::desugar::desugar_expr;
-//!
-//! // Binary operator
-//! let expr = Expr::binary(BinaryOp::Add, a, b, span);
-//! let desugared = desugar_expr(expr);
-//! // Now: KernelCall { kernel: maths.add, args: [a, b] }
-//!
-//! // If-expression
-//! let expr = Expr::if_then_else(cond, then_val, else_val, span);
-//! let desugared = desugar_expr(expr);
-//! // Now: KernelCall { kernel: logic.select, args: [cond, then_val, else_val] }
-//! ```
-//!
-//! # Scope
-//!
-//! This module handles **syntax desugaring** - transformations that don't require type information:
-//! - Operators (`+`, `-`, `*`, etc.) → kernel calls (we know the operator syntax)
-//! - If-expressions → `logic.select` (we know the control flow syntax)
-//!
-//! **Not in scope:** Type-directed desugaring that requires type information:
-//! - Vector component access (`.x`, `.y`, `.at(i)`) → `vector.get()` kernel calls
-//!   - Handled during type resolution when we know if `obj.x` is a vector or user type
-//! - Unit conversions, shape broadcasts, etc.
-//!   - Handled during type checking
-//!
-//! # Operator Mappings
-//!
-//! ## Arithmetic
-//!
-//! | Syntax | Desugars To |
-//! |--------|-------------|
-//! | `a + b` | `maths.add(a, b)` |
-//! | `a - b` | `maths.sub(a, b)` |
-//! | `a * b` | `maths.mul(a, b)` |
-//! | `a / b` | `maths.div(a, b)` |
-//! | `a % b` | `maths.mod(a, b)` |
-//! | `a ** b` | `maths.pow(a, b)` |
-//! | `-a` | `maths.neg(a)` |
-//!
-//! ## Comparison
-//!
-//! | Syntax | Desugars To |
-//! |--------|-------------|
-//! | `a == b` | `compare.eq(a, b)` |
-//! | `a != b` | `compare.ne(a, b)` |
-//! | `a < b` | `compare.lt(a, b)` |
-//! | `a <= b` | `compare.le(a, b)` |
-//! | `a > b` | `compare.gt(a, b)` |
-//! | `a >= b` | `compare.ge(a, b)` |
-//!
-//! ## Logic
-//!
-//! | Syntax | Desugars To |
-//! |--------|-------------|
-//! | `a && b` | `logic.and(a, b)` |
-//! | `a \|\| b` | `logic.or(a, b)` |
-//! | `!a` | `logic.not(a)` |
-//!
-//! ## Control Flow
-//!
-//! | Syntax | Desugars To |
-//! |--------|-------------|
-//! | `if c { t } else { e }` | `logic.select(c, t, e)` |
 
 use crate::ast::{
-    BinaryOp, BlockBody, Declaration, EraDecl, Expr, Index, KernelId, Node, ObserveBlock,
-    ObserveWhen, Stmt, UnaryOp, UntypedKind as ExprKind, WarmupBlock, WhenBlock, WorldDecl,
+    Attribute, BinaryOp, BlockBody, Declaration, Entity, EraDecl, Expr, Index, KernelId, Node,
+    ObserveBlock, ObserveWhen, Stmt, Stratum, UnaryOp, UntypedKind as ExprKind, WarmupBlock,
+    WhenBlock, WorldDecl,
 };
-
 use crate::foundation::Span;
-
-/// Desugar an expression, converting operators to kernel calls
-///
-/// Recursively transforms:
-/// - `Binary { op, left, right }` → `Call { kernel: op.kernel(), args: [left, right] }`
-/// - `Unary { op, operand }` → `Call { kernel: op.kernel(), args: [operand] }`
-/// - `If { condition, then_branch, else_branch }` → `Call { kernel: logic.select, args: [cond, then, else] }`
-///
-/// All other expression variants are recursively processed but not transformed.
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// let expr = Expr::binary(BinaryOp::Add, a, b, span);
-/// let desugared = desugar_expr(expr);
-/// // desugared.kind == ExprKind::Call { kernel: maths.add, args: [a, b] }
-/// ```
-/// Reconstruct leaf expression variants without transformation
-fn passthrough(kind: ExprKind, span: Span) -> Expr {
-    Expr { kind, span }
-}
 
 /// Construct a kernel call expression
 fn kernel_call(kernel: KernelId, args: Vec<Expr>, span: Span) -> Expr {
@@ -140,15 +51,6 @@ fn kernel_call(kernel: KernelId, args: Vec<Expr>, span: Span) -> Expr {
 /// Recursively transforms operator syntax into explicit kernel calls, preserving
 /// all other expression forms. This is a pure syntax transformation that does not
 /// perform type resolution or semantic validation.
-///
-/// # Parameters
-///
-/// - `expr` - Untyped expression to desugar
-///
-/// # Returns
-///
-/// Desugared expression with operators converted to `KernelCall` variants.
-/// All other expression forms are preserved and recursively processed.
 ///
 /// # Invariants
 ///
@@ -167,7 +69,6 @@ pub fn desugar_expr(expr: Expr) -> Expr {
     let span = expr.span;
 
     match expr.kind {
-        // === Operators → Kernel Calls ===
         ExprKind::Binary { op, left, right } => kernel_call(
             op.kernel(),
             vec![desugar_expr(*left), desugar_expr(*right)],
@@ -192,7 +93,6 @@ pub fn desugar_expr(expr: Expr) -> Expr {
             span,
         ),
 
-        // === Recursive Cases (no transformation, just recurse) ===
         ExprKind::Let { name, value, body } => Expr {
             kind: ExprKind::Let {
                 name,
@@ -266,8 +166,6 @@ pub fn desugar_expr(expr: Expr) -> Expr {
             span,
         },
 
-        // FieldAccess preserved - vector component desugaring requires type info
-        // (can't tell if obj.x is a vector component or user type field until type resolution)
         ExprKind::FieldAccess { object, field } => Expr {
             kind: ExprKind::FieldAccess {
                 object: Box::new(desugar_expr(*object)),
@@ -276,43 +174,38 @@ pub fn desugar_expr(expr: Expr) -> Expr {
             span,
         },
 
-        // === Leaf Cases (no recursion needed) ===
-        ExprKind::Literal { value, unit } => passthrough(ExprKind::Literal { value, unit }, span),
-        ExprKind::BoolLiteral(value) => passthrough(ExprKind::BoolLiteral(value), span),
-        ExprKind::Local(name) => passthrough(ExprKind::Local(name), span),
-        ExprKind::Signal(path) => passthrough(ExprKind::Signal(path), span),
-        ExprKind::Field(path) => passthrough(ExprKind::Field(path), span),
-        ExprKind::Config(path) => passthrough(ExprKind::Config(path), span),
-        ExprKind::Const(path) => passthrough(ExprKind::Const(path), span),
-        ExprKind::Prev => passthrough(ExprKind::Prev, span),
-        ExprKind::Current => passthrough(ExprKind::Current, span),
-        ExprKind::Inputs => passthrough(ExprKind::Inputs, span),
-        ExprKind::Dt => passthrough(ExprKind::Dt, span),
-        ExprKind::Self_ => passthrough(ExprKind::Self_, span),
-        ExprKind::Other => passthrough(ExprKind::Other, span),
-        ExprKind::Payload => passthrough(ExprKind::Payload, span),
-        ExprKind::ParseError(msg) => passthrough(ExprKind::ParseError(msg), span),
+        // Leaf cases
+        _ => expr,
     }
 }
 
-/// Recursively transforms syntax sugar within a block body into explicit kernel calls.
-///
-/// Processes expressions within `BlockBody::Expression` and recursively desugars
-/// all statements in `BlockBody::Statements`.
+/// Desugar a list of attributes
+pub fn desugar_attributes(attrs: Vec<Attribute>) -> Vec<Attribute> {
+    attrs
+        .into_iter()
+        .map(|mut attr| {
+            attr.args = attr.args.into_iter().map(desugar_expr).collect();
+            attr
+        })
+        .collect()
+}
+
+/// Desugar a block body (expression or statements)
 pub fn desugar_block_body(body: BlockBody) -> BlockBody {
     match body {
         BlockBody::Expression(expr) => BlockBody::Expression(desugar_expr(expr)),
-        BlockBody::TypedExpression(expr) => BlockBody::TypedExpression(expr),
+        BlockBody::TypedExpression(_) => {
+            panic!(
+                "TypedExpression encountered during desugar pass: desugaring must happen before typing"
+            )
+        }
         BlockBody::Statements(stmts) => {
             BlockBody::Statements(stmts.into_iter().map(desugar_stmt).collect())
         }
     }
 }
 
-/// Transforms syntax sugar within a single statement into explicit kernel calls.
-///
-/// This includes desugaring expressions in variable bindings (`let`), signal assignments,
-/// and field assignments.
+/// Desugar a statement
 pub fn desugar_stmt(stmt: Stmt) -> Stmt {
     match stmt {
         Stmt::Let { name, value, span } => Stmt::Let {
@@ -344,16 +237,16 @@ pub fn desugar_stmt(stmt: Stmt) -> Stmt {
     }
 }
 
-/// Desugars the iteration expression within a warmup block.
+/// Desugar a warmup block
 pub fn desugar_warmup(warmup: WarmupBlock) -> WarmupBlock {
     WarmupBlock {
-        attrs: warmup.attrs,
+        attrs: desugar_attributes(warmup.attrs),
         iterate: desugar_expr(warmup.iterate),
         span: warmup.span,
     }
 }
 
-/// Desugars all activation conditions within a 'when' block.
+/// Desugar a when block
 pub fn desugar_when(when: WhenBlock) -> WhenBlock {
     WhenBlock {
         conditions: when.conditions.into_iter().map(desugar_expr).collect(),
@@ -361,7 +254,7 @@ pub fn desugar_when(when: WhenBlock) -> WhenBlock {
     }
 }
 
-/// Desugars all conditions and emit statements within an observer block.
+/// Desugar an observe block
 pub fn desugar_observe(observe: ObserveBlock) -> ObserveBlock {
     ObserveBlock {
         when_clauses: observe
@@ -377,11 +270,9 @@ pub fn desugar_observe(observe: ObserveBlock) -> ObserveBlock {
     }
 }
 
-/// Desugars all expressions within a simulation node (signal, member, operator, etc.).
-///
-/// This recursively processes execution blocks, warmup conditions, activation ('when')
-/// clauses, and observer blocks within the node structure.
+/// Desugar a node (signal, field, operator, etc)
 pub fn desugar_node<I: Index>(mut node: Node<I>) -> Node<I> {
+    node.attributes = desugar_attributes(node.attributes);
     node.execution_blocks = node
         .execution_blocks
         .into_iter()
@@ -395,11 +286,21 @@ pub fn desugar_node<I: Index>(mut node: Node<I>) -> Node<I> {
     node
 }
 
-/// Desugars expressions within an era declaration.
-///
-/// This includes the time-step (`dt`) expression and all transition conditions
-/// between eras.
+/// Desugar an entity declaration
+pub fn desugar_entity(mut entity: Entity) -> Entity {
+    entity.attributes = desugar_attributes(entity.attributes);
+    entity
+}
+
+/// Desugar a stratum declaration
+pub fn desugar_stratum(mut stratum: Stratum) -> Stratum {
+    stratum.attributes = desugar_attributes(stratum.attributes);
+    stratum
+}
+
+/// Desugar an era declaration
 pub fn desugar_era(mut era: EraDecl) -> EraDecl {
+    era.attributes = desugar_attributes(era.attributes);
     era.dt = era.dt.map(desugar_expr);
     era.transitions = era
         .transitions
@@ -412,43 +313,25 @@ pub fn desugar_era(mut era: EraDecl) -> EraDecl {
     era
 }
 
-/// Desugars expressions within a world-level declaration.
-///
-/// This includes attribute arguments and warmup policy parameters.
+/// Desugar a world declaration
 pub fn desugar_world(mut world: WorldDecl) -> WorldDecl {
     if let Some(mut warmup) = world.warmup {
-        warmup.attributes = warmup
-            .attributes
-            .into_iter()
-            .map(|mut attr| {
-                attr.args = attr.args.into_iter().map(desugar_expr).collect();
-                attr
-            })
-            .collect();
+        warmup.attributes = desugar_attributes(warmup.attributes);
         world.warmup = Some(warmup);
     }
-    world.attributes = world
-        .attributes
-        .into_iter()
-        .map(|mut attr| {
-            attr.args = attr.args.into_iter().map(desugar_expr).collect();
-            attr
-        })
-        .collect();
+    world.attributes = desugar_attributes(world.attributes);
     world
 }
 
-/// Performs a top-to-bottom desugaring of all declarations in a world.
-///
-/// This is the primary entry point for the desugaring pass. It iterates through all
-/// top-level declarations (nodes, eras, world policy, etc.) and recursively
-/// transforms syntax sugar into explicit kernel calls.
+/// Main entry point for desugaring all declarations in a world
 pub fn desugar_declarations(decls: Vec<Declaration>) -> Vec<Declaration> {
     decls
         .into_iter()
         .map(|decl| match decl {
             Declaration::Node(node) => Declaration::Node(desugar_node(node)),
             Declaration::Member(node) => Declaration::Member(desugar_node(node)),
+            Declaration::Entity(entity) => Declaration::Entity(desugar_entity(entity)),
+            Declaration::Stratum(stratum) => Declaration::Stratum(desugar_stratum(stratum)),
             Declaration::Era(era) => Declaration::Era(desugar_era(era)),
             Declaration::World(world) => Declaration::World(desugar_world(world)),
             Declaration::Const(mut entries) => {
@@ -463,7 +346,7 @@ pub fn desugar_declarations(decls: Vec<Declaration>) -> Vec<Declaration> {
                 }
                 Declaration::Config(entries)
             }
-            _ => decl,
+            Declaration::Type(_) => decl,
         })
         .collect()
 }
@@ -675,8 +558,6 @@ mod tests {
         }
     }
 
-    // === Comprehensive operator coverage ===
-
     #[test]
     fn test_desugar_arithmetic_ops() {
         let test_cases = vec![
@@ -765,8 +646,6 @@ mod tests {
             _ => panic!("Expected KernelCall, got {:?}", desugared.kind),
         }
     }
-
-    // === Recursion tests ===
 
     #[test]
     fn test_desugar_recurses_in_vector() {
@@ -887,7 +766,7 @@ mod tests {
                 assert!(
                     matches!(args[0].kind, ExprKind::KernelCall { ref kernel, .. } if *kernel == KernelId::new("maths", "add"))
                 );
-                // Second arg should be literal (passthrough)
+                // Second arg should be literal
                 assert!(matches!(args[1].kind, ExprKind::Literal { .. }));
             }
             _ => panic!("Expected Call, got {:?}", desugared.kind),
@@ -927,7 +806,7 @@ mod tests {
                 assert!(
                     matches!(fields[0].1.kind, ExprKind::KernelCall { ref kernel, .. } if *kernel == KernelId::new("maths", "add"))
                 );
-                // Second field value should be literal (passthrough)
+                // Second field value should be literal
                 assert_eq!(fields[1].0, "y");
                 assert!(matches!(fields[1].1.kind, ExprKind::Literal { .. }));
             }
