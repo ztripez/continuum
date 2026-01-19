@@ -207,7 +207,8 @@ pub fn determinant_mat4(mat: Mat4) -> f64 {
 pub fn inverse_mat2(mat: Mat2) -> Mat2 {
     let det = determinant_mat2(Mat2(mat.0));
     let norm = frobenius_norm_mat2(&mat);
-    let eps = f64::EPSILON * 100.0 * norm;
+    // Epsilon must scale as norm^n where n=dimension, since det(cA) = c^n * det(A)
+    let eps = f64::EPSILON * 100.0 * norm * norm;
 
     if det.abs() < eps {
         panic!(
@@ -248,7 +249,8 @@ pub fn inverse_mat3(mat: Mat3) -> Mat3 {
 
     let det = determinant_mat3(Mat3(mat.0));
     let norm = frobenius_norm_mat3(&mat);
-    let eps = f64::EPSILON * 100.0 * norm;
+    // Epsilon must scale as norm^n where n=dimension, since det(cA) = c^n * det(A)
+    let eps = f64::EPSILON * 100.0 * norm * norm * norm;
 
     if det.abs() < eps {
         panic!(
