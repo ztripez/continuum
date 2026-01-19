@@ -194,6 +194,32 @@ impl TypeTable {
     pub fn iter(&self) -> impl Iterator<Item = &UserType> {
         self.types.values()
     }
+
+    /// Look up a user type by its [`UserTypeId`].
+    ///
+    /// # Parameters
+    ///
+    /// - `id`: The type identifier to look up.
+    ///
+    /// # Returns
+    ///
+    /// The [`UserType`] if present; otherwise `None`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_cdsl::resolve::types::TypeTable;
+    /// use continuum_cdsl::foundation::{Path, UserType, TypeId};
+    ///
+    /// let mut table = TypeTable::new();
+    /// let id = TypeId::from("Foo");
+    /// table.register(UserType::new(id.clone(), Path::from("Foo"), vec![]));
+    ///
+    /// assert!(table.get_by_id(&id).is_some());
+    /// ```
+    pub fn get_by_id(&self, id: &UserTypeId) -> Option<&UserType> {
+        self.types.values().find(|user_type| user_type.id() == id)
+    }
 }
 
 /// Resolves a parsed [`TypeExpr`](crate::ast::TypeExpr) into a semantic [`Type`].

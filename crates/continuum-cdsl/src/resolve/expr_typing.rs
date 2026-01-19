@@ -52,7 +52,8 @@ use std::collections::HashMap;
 
 /// Context for expression typing
 ///
-/// Provides access to type registries and tracks local bindings during typing.
+/// Provides access to type registries and tracks local bindings and execution
+/// context during typing.
 ///
 /// # Parameters
 ///
@@ -60,7 +61,13 @@ use std::collections::HashMap;
 /// - `kernel_registry`: Kernel signatures for resolving call return types
 /// - `signal_types`: Map from signal path to output type
 /// - `field_types`: Map from field path to output type
+/// - `config_types`: Map from config path to output type
+/// - `const_types`: Map from const path to output type
 /// - `local_bindings`: Currently in-scope let bindings
+/// - `node_output`: Node output type for `prev`, `current`, aggregates, and folds
+/// - `inputs_type`: Inputs type for `inputs` expressions
+/// - `payload_type`: Payload type for `payload` expressions
+/// - `phase`: Execution phase for boundary enforcement
 ///
 /// # Examples
 ///
@@ -70,6 +77,8 @@ use std::collections::HashMap;
 ///     kernel_registry,
 ///     signal_types,
 ///     field_types,
+///     config_types,
+///     const_types,
 /// );
 /// ```
 pub struct TypingContext<'a> {
@@ -94,11 +103,11 @@ pub struct TypingContext<'a> {
     /// Local let-bound variables (name → type)
     pub local_bindings: HashMap<String, Type>,
 
-    /// Current node output type (for `prev` and `current`)
+    /// Current node output type (for `prev`, `current`, aggregates, and folds)
     ///
     /// When typing execution blocks for a signal/field/operator, this is set
-    /// to the node's output type. Expressions using `prev` or `current` resolve
-    /// to this type.
+    /// to the node's output type. Expressions using `prev`, `current`, aggregate
+    /// bindings, or fold element bindings resolve to this type.
     pub node_output: Option<Type>,
 
     /// Inputs type (for `inputs` expression)
@@ -433,9 +442,10 @@ fn derive_return_type(
 /// Type an untyped expression
 ///
 /// Assigns types to all subexpressions by:
-/// - Looking up signal/field types from registries
-/// - Resolving kernel signatures for calls
-/// - Propagating types through let bindings
+/// - Looking up signal/field/config/const types from registries
+/// - Resolving kernel signatures for explicit function calls
+/// - Parsing kernel paths as `namespace.name` or bare `name`
+/// - Propagating types through let bindings and aggregate/fold bindings
 /// - Inferring literal types from syntax
 ///
 /// # Parameters
@@ -449,9 +459,10 @@ fn derive_return_type(
 ///
 /// # Errors
 ///
-/// - `UnresolvedPath` - Signal/Field/Config/Const path not found
-/// - `UnknownKernel` - Kernel call to unregistered kernel
-/// - `TypeMismatch` - Incompatible types (checked in validation pass)
+/// - `UndefinedName` - Signal/Field/Config/Const path not found, or kernel not registered
+/// - `PhaseBoundaryViolation` - Field read outside Measure phase
+/// - `Internal` - Missing execution context or invalid kernel path
+/// - `TypeMismatch` - Structural mismatches detected during typing
 ///
 /// # Examples
 ///
@@ -620,19 +631,12 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             // Extract field type based on object type
             let field_type = match &typed_object.ty {
                 Type::User(type_id) => {
-                    // Look up user type in type table
-                    // Note: TypeTable doesn't have direct UserTypeId -> UserType lookup,
-                    // so we iterate to find it. TODO: Add get_by_id method to TypeTable
-                    let user_type = ctx
-                        .type_table
-                        .iter()
-                        .find(|ut| ut.id() == type_id)
-                        .ok_or_else(|| {
-                            err(
-                                ErrorKind::Internal,
-                                format!("user type {:?} not found in type table", type_id),
-                            )
-                        })?;
+                    let user_type = ctx.type_table.get_by_id(type_id).ok_or_else(|| {
+                        err(
+                            ErrorKind::Internal,
+                            format!("user type {:?} not found in type table", type_id),
+                        )
+                    })?;
 
                     // Look up field in user type
                     user_type.field(field).cloned().ok_or_else(|| {
@@ -900,7 +904,13 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             }
 
             let dim = elements.len() as u8;
-            let unit = unit.expect("invariant: non-empty vector must have unit set");
+            let unit = unit.ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "vector literal unit resolution failed".to_string(),
+                )]
+            })?;
 
             (
                 ExprKind::Vector(typed_elements),
@@ -1166,17 +1176,141 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             )
         }
 
-        // === Not yet implemented ===
-        UntypedKind::Self_
-        | UntypedKind::Other
-        | UntypedKind::Aggregate { .. }
-        | UntypedKind::Fold { .. }
-        | UntypedKind::Call { .. }
-        | UntypedKind::ParseError(_) => {
+        // === Entity context ===
+        UntypedKind::Self_ | UntypedKind::Other => {
             errors.push(CompileError::new(
                 ErrorKind::Internal,
                 span,
-                format!("expression typing not yet implemented for {:?}", expr.kind),
+                "entity context expressions (self/other) are not yet supported in typing"
+                    .to_string(),
+            ));
+            return Err(errors);
+        }
+
+        // === Aggregate operations ===
+        UntypedKind::Aggregate {
+            op,
+            entity,
+            binding,
+            body,
+        } => {
+            let ty = ctx.node_output.clone().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "aggregate typing requires node output context".to_string(),
+                )]
+            })?;
+
+            let extended_ctx = ctx.with_binding(binding.clone(), ty.clone());
+            let typed_body = type_expression(body, &extended_ctx)?;
+
+            let aggregate_ty = match op {
+                crate::ast::AggregateOp::Map => Type::Seq(Box::new(typed_body.ty.clone())),
+                _ => typed_body.ty.clone(),
+            };
+
+            (
+                ExprKind::Aggregate {
+                    op: *op,
+                    entity: entity.clone(),
+                    binding: binding.clone(),
+                    body: Box::new(typed_body.clone()),
+                },
+                aggregate_ty,
+            )
+        }
+
+        UntypedKind::Fold {
+            entity,
+            init,
+            acc,
+            elem,
+            body,
+        } => {
+            let typed_init = type_expression(init, ctx)?;
+            let mut extended_ctx = ctx.with_binding(acc.clone(), typed_init.ty.clone());
+            let elem_ty = ctx.node_output.clone().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "fold typing requires node output context".to_string(),
+                )]
+            })?;
+            extended_ctx.local_bindings.insert(elem.clone(), elem_ty);
+
+            let typed_body = type_expression(body, &extended_ctx)?;
+
+            (
+                ExprKind::Fold {
+                    entity: entity.clone(),
+                    init: Box::new(typed_init),
+                    acc: acc.clone(),
+                    elem: elem.clone(),
+                    body: Box::new(typed_body.clone()),
+                },
+                typed_body.ty.clone(),
+            )
+        }
+
+        // === Function/kernel call ===
+        UntypedKind::Call { func, args } => {
+            let typed_args: Vec<TypedExpr> = args
+                .iter()
+                .map(|arg| type_expression(arg, ctx))
+                .collect::<Result<Vec<_>, _>>()?;
+
+            let segments = func.segments();
+            if segments.is_empty() {
+                return Err(vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "kernel path is empty".to_string(),
+                )]);
+            }
+
+            if segments.len() > 2 {
+                return Err(vec![CompileError::new(
+                    ErrorKind::UndefinedName,
+                    span,
+                    format!("kernel path '{}' must be namespace.name or bare name", func),
+                )]);
+            }
+
+            let (namespace, name) = if segments.len() == 1 {
+                ("", segments[0].as_str())
+            } else {
+                (segments[0].as_str(), segments[1].as_str())
+            };
+
+            let sig = ctx
+                .kernel_registry
+                .get_by_name(namespace, name)
+                .ok_or_else(|| {
+                    vec![CompileError::new(
+                        ErrorKind::UndefinedName,
+                        span,
+                        format!("kernel '{}' not found", func),
+                    )]
+                })?;
+
+            let kernel_id = KernelId::new(sig.id.namespace, sig.id.name);
+            let return_type = derive_return_type(sig, &typed_args, span)?;
+
+            (
+                ExprKind::Call {
+                    kernel: kernel_id,
+                    args: typed_args,
+                },
+                return_type,
+            )
+        }
+
+        UntypedKind::ParseError(_) => {
+            errors.push(CompileError::new(
+                ErrorKind::Internal,
+                span,
+                "expression parse error placeholder cannot be typed".to_string(),
             ));
             return Err(errors);
         }

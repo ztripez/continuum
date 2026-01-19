@@ -656,6 +656,23 @@ impl KernelRegistry {
         self.signatures.contains_key(id)
     }
 
+    /// Get a kernel signature by namespace and name.
+    ///
+    /// # Parameters
+    ///
+    /// - `namespace`: Kernel namespace (empty string for bare names)
+    /// - `name`: Kernel name
+    ///
+    /// # Returns
+    ///
+    /// Kernel signature if found, None otherwise.
+    pub fn get_by_name(&self, namespace: &str, name: &str) -> Option<&KernelSignature> {
+        self.signatures
+            .iter()
+            .find(|(id, _)| id.namespace == namespace && id.name == name)
+            .map(|(_, sig)| sig)
+    }
+
     /// Get all registered kernel IDs
     ///
     /// # Parameters
