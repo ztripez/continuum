@@ -244,14 +244,33 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         UntypedKind::Dt => {
             let kernel_type = KernelType {
                 shape: Shape::Scalar,
-                unit: Unit::DIMENSIONLESS, // TODO: Should be Time unit
+                unit: Unit::seconds(),
                 bounds: None,
             };
             (ExprKind::Dt, Type::Kernel(kernel_type))
         }
 
         // === Not yet implemented ===
-        _ => {
+        UntypedKind::Vector(_)
+        | UntypedKind::Config(_)
+        | UntypedKind::Const(_)
+        | UntypedKind::Prev
+        | UntypedKind::Current
+        | UntypedKind::Inputs
+        | UntypedKind::Self_
+        | UntypedKind::Other
+        | UntypedKind::Payload
+        | UntypedKind::Binary { .. }
+        | UntypedKind::Unary { .. }
+        | UntypedKind::If { .. }
+        | UntypedKind::Let { .. }
+        | UntypedKind::Aggregate { .. }
+        | UntypedKind::Fold { .. }
+        | UntypedKind::Call { .. }
+        | UntypedKind::KernelCall { .. }
+        | UntypedKind::Struct { .. }
+        | UntypedKind::FieldAccess { .. }
+        | UntypedKind::ParseError(_) => {
             errors.push(CompileError::new(
                 ErrorKind::Internal,
                 span,
@@ -260,10 +279,6 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             return Err(errors);
         }
     };
-
-    if !errors.is_empty() {
-        return Err(errors);
-    }
 
     Ok(TypedExpr::new(kind, ty, span))
 }
@@ -312,7 +327,14 @@ mod tests {
         let expr = Expr::new(UntypedKind::Dt, Span::new(0, 0, 10, 1));
 
         let typed = type_expression(&expr, &ctx).unwrap();
-        assert!(matches!(typed.ty, Type::Kernel(_)));
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::seconds());
+                assert_eq!(kt.bounds, None);
+            }
+            _ => panic!("Expected Kernel type, got {:?}", typed.ty),
+        }
     }
 
     #[test]
