@@ -147,10 +147,12 @@ impl<'a> TypingContext<'a> {
 ///
 /// `Ok(Type)` if derivation succeeds, `Err` with errors otherwise.
 ///
-/// # Limitations
+/// # Bounds Derivation
 ///
-/// Bounds derivation is not implemented until Phase 14/15 (constraint
-/// propagation analysis). Validation pass checks bounds violations.
+/// - **SameAs(idx) shape derivation**: Copies bounds from argument at idx
+/// - **Other derivations**: Returns unbounded (None)
+/// - **Complex operations** (multiply, clamp, etc.): Require constraint
+///   propagation (Phase 14/15)
 ///
 /// # Errors
 ///
@@ -162,10 +164,10 @@ fn derive_return_type(
 ) -> Result<Type, Vec<CompileError>> {
     use crate::ast::{ShapeDerivation, UnitDerivation};
 
-    // Derive shape
-    let shape = match &sig.returns.shape {
-        ShapeDerivation::Exact(s) => s.clone(),
-        ShapeDerivation::Scalar => Shape::Scalar,
+    // Derive shape and optionally bounds (when shape is SameAs)
+    let (shape, bounds_from_shape) = match &sig.returns.shape {
+        ShapeDerivation::Exact(s) => (s.clone(), None),
+        ShapeDerivation::Scalar => (Shape::Scalar, None),
         ShapeDerivation::SameAs(idx) => {
             let arg = args.get(*idx).ok_or_else(|| {
                 vec![CompileError::new(
@@ -175,7 +177,7 @@ fn derive_return_type(
                 )]
             })?;
             match arg.ty.as_kernel() {
-                Some(kt) => kt.shape.clone(),
+                Some(kt) => (kt.shape.clone(), kt.bounds.clone()),
                 None => {
                     return Err(vec![CompileError::new(
                         ErrorKind::Internal,
@@ -232,12 +234,13 @@ fn derive_return_type(
         }
     };
 
-    // Bounds derivation is deferred to Phase 14/15 (constraint propagation).
-    // Validation pass checks bounds violations for literal values.
+    // Bounds are derived from shape argument when using SameAs derivation.
+    // For operations that transform values (multiply, clamp, etc.),
+    // bounds derivation requires constraint propagation (Phase 14/15).
     Ok(Type::Kernel(KernelType {
         shape,
         unit,
-        bounds: None,
+        bounds: bounds_from_shape,
     }))
 }
 
@@ -482,5 +485,111 @@ mod tests {
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    }
+
+    #[test]
+    fn test_derive_return_type_copies_bounds_from_same_as() {
+        use crate::ast::{KernelReturn, KernelSignature, ShapeDerivation, UnitDerivation};
+        use crate::foundation::Bounds;
+        use continuum_kernel_types::KernelId;
+
+        // Create a signature with SameAs shape derivation
+        let sig = KernelSignature {
+            id: KernelId::new("test", "identity"),
+            params: vec![],
+            returns: KernelReturn {
+                shape: ShapeDerivation::SameAs(0),
+                unit: UnitDerivation::SameAs(0),
+            },
+            purity: crate::ast::KernelPurity::Pure,
+            requires_uses: None,
+        };
+
+        // Create a typed argument with bounds
+        let arg_ty = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::meters(),
+            bounds: Some(Bounds {
+                min: Some(0.0),
+                max: Some(100.0),
+            }),
+        });
+        let arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 50.0,
+                unit: Some(Unit::meters()),
+            },
+            arg_ty,
+            Span::new(0, 0, 10, 1),
+        );
+
+        // Derive return type
+        let result = derive_return_type(&sig, &[arg], Span::new(0, 0, 10, 1)).unwrap();
+
+        // Verify bounds are copied
+        match result {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::meters());
+                assert_eq!(
+                    kt.bounds,
+                    Some(Bounds {
+                        min: Some(0.0),
+                        max: Some(100.0),
+                    })
+                );
+            }
+            _ => panic!("Expected Kernel type"),
+        }
+    }
+
+    #[test]
+    fn test_derive_return_type_no_bounds_for_exact_shape() {
+        use crate::ast::{KernelReturn, KernelSignature, ShapeDerivation, UnitDerivation};
+        use crate::foundation::Bounds;
+        use continuum_kernel_types::KernelId;
+
+        // Create a signature with Exact shape derivation
+        let sig = KernelSignature {
+            id: KernelId::new("test", "const"),
+            params: vec![],
+            returns: KernelReturn {
+                shape: ShapeDerivation::Exact(Shape::Scalar),
+                unit: UnitDerivation::Dimensionless,
+            },
+            purity: crate::ast::KernelPurity::Pure,
+            requires_uses: None,
+        };
+
+        // Create a typed argument with bounds (should NOT be copied)
+        let arg_ty = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::meters(),
+            bounds: Some(Bounds {
+                min: Some(0.0),
+                max: Some(100.0),
+            }),
+        });
+        let arg = TypedExpr::new(
+            ExprKind::Literal {
+                value: 50.0,
+                unit: Some(Unit::meters()),
+            },
+            arg_ty,
+            Span::new(0, 0, 10, 1),
+        );
+
+        // Derive return type
+        let result = derive_return_type(&sig, &[arg], Span::new(0, 0, 10, 1)).unwrap();
+
+        // Verify bounds are NOT copied (Exact shape doesn't inherit bounds)
+        match result {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::DIMENSIONLESS);
+                assert_eq!(kt.bounds, None);
+            }
+            _ => panic!("Expected Kernel type"),
+        }
     }
 }
