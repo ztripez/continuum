@@ -103,6 +103,12 @@ pub struct TypingContext<'a> {
     /// Local let-bound variables (name → type)
     pub local_bindings: HashMap<String, Type>,
 
+    /// Type of 'self' entity instance
+    pub self_type: Option<Type>,
+
+    /// Type of 'other' entity instance (for n-body)
+    pub other_type: Option<Type>,
+
     /// Current node output type (for `prev`, `current`, aggregates, and folds)
     ///
     /// When typing execution blocks for a signal/field/operator, this is set
@@ -161,6 +167,8 @@ impl<'a> TypingContext<'a> {
             config_types,
             const_types,
             local_bindings: HashMap::new(),
+            self_type: None,
+            other_type: None,
             node_output: None,
             inputs_type: None,
             payload_type: None,
@@ -181,7 +189,7 @@ impl<'a> TypingContext<'a> {
     /// # Returns
     ///
     /// New context with extended local bindings
-    fn with_binding(&self, name: String, ty: Type) -> Self {
+    pub fn with_binding(&self, name: String, ty: Type) -> Self {
         let mut ctx = Self {
             type_table: self.type_table,
             kernel_registry: self.kernel_registry,
@@ -190,6 +198,8 @@ impl<'a> TypingContext<'a> {
             config_types: self.config_types,
             const_types: self.const_types,
             local_bindings: self.local_bindings.clone(),
+            self_type: self.self_type.clone(),
+            other_type: self.other_type.clone(),
             node_output: self.node_output.clone(),
             inputs_type: self.inputs_type.clone(),
             payload_type: self.payload_type.clone(),
@@ -206,6 +216,8 @@ impl<'a> TypingContext<'a> {
     ///
     /// # Parameters
     ///
+    /// - `self_type`: The type of the 'self' entity
+    /// - `other_type`: The type of the 'other' entity
     /// - `node_output`: The node's output type (for `prev`/`current`)
     /// - `inputs_type`: The node's inputs type (for `inputs`)
     /// - `payload_type`: The impulse's payload type (for `payload`)
@@ -215,6 +227,8 @@ impl<'a> TypingContext<'a> {
     /// New context with execution context set
     pub fn with_execution_context(
         &self,
+        self_type: Option<Type>,
+        other_type: Option<Type>,
         node_output: Option<Type>,
         inputs_type: Option<Type>,
         payload_type: Option<Type>,
@@ -227,6 +241,8 @@ impl<'a> TypingContext<'a> {
             config_types: self.config_types,
             const_types: self.const_types,
             local_bindings: self.local_bindings.clone(),
+            self_type,
+            other_type,
             node_output,
             inputs_type,
             payload_type,
@@ -255,6 +271,8 @@ impl<'a> TypingContext<'a> {
             config_types: self.config_types,
             const_types: self.const_types,
             local_bindings: self.local_bindings.clone(),
+            self_type: self.self_type.clone(),
+            other_type: self.other_type.clone(),
             node_output: self.node_output.clone(),
             inputs_type: self.inputs_type.clone(),
             payload_type: self.payload_type.clone(),
@@ -417,7 +435,7 @@ fn derive_return_type(
                 )]
             })?
         }
-        UnitDerivation::Sqrt(idx) | UnitDerivation::Inverse(idx) => {
+        UnitDerivation::Sqrt(_idx) | UnitDerivation::Inverse(_idx) => {
             return Err(vec![CompileError::new(
                 ErrorKind::Internal,
                 span,
@@ -476,7 +494,6 @@ fn derive_return_type(
 /// ```
 pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Vec<CompileError>> {
     let span = expr.span;
-    let mut errors = Vec::new();
 
     let (kind, ty) = match &expr.kind {
         // === Literals ===
@@ -1052,24 +1069,39 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             )
         }
 
+        // === Operator desugaring guard ===
+        // These must be desugared to KernelCall variants before typing
         UntypedKind::Binary { .. } | UntypedKind::Unary { .. } | UntypedKind::If { .. } => {
-            errors.push(CompileError::new(
+            return Err(vec![CompileError::new(
                 ErrorKind::Internal,
                 span,
                 "operator expressions must be desugared before typing".to_string(),
-            ));
-            return Err(errors);
+            )]);
         }
 
         // === Entity context ===
-        UntypedKind::Self_ | UntypedKind::Other => {
-            errors.push(CompileError::new(
-                ErrorKind::Internal,
-                span,
-                "entity context expressions (self/other) are not yet supported in typing"
-                    .to_string(),
-            ));
-            return Err(errors);
+        UntypedKind::Self_ => {
+            let ty = ctx.self_type.clone().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "self not available: no entity type in context".to_string(),
+                )]
+            })?;
+
+            (ExprKind::Self_, ty)
+        }
+
+        UntypedKind::Other => {
+            let ty = ctx.other_type.clone().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    "other not available: no entity type in context".to_string(),
+                )]
+            })?;
+
+            (ExprKind::Other, ty)
         }
 
         // === Aggregate operations ===
@@ -1079,20 +1111,24 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             binding,
             body,
         } => {
-            let ty = ctx.node_output.clone().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "aggregate typing requires node output context".to_string(),
-                )]
-            })?;
+            // Binding represents an instance of the target entity
+            let element_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
 
-            let extended_ctx = ctx.with_binding(binding.clone(), ty.clone());
+            let extended_ctx = ctx.with_binding(binding.clone(), element_ty);
             let typed_body = type_expression(body, &extended_ctx)?;
 
             let aggregate_ty = match op {
                 crate::ast::AggregateOp::Map => Type::Seq(Box::new(typed_body.ty.clone())),
-                _ => typed_body.ty.clone(),
+                crate::ast::AggregateOp::Sum => typed_body.ty.clone(),
+                crate::ast::AggregateOp::Max | crate::ast::AggregateOp::Min => {
+                    typed_body.ty.clone()
+                }
+                crate::ast::AggregateOp::Count => Type::Kernel(KernelType {
+                    shape: Shape::Scalar,
+                    unit: Unit::DIMENSIONLESS,
+                    bounds: None,
+                }),
+                crate::ast::AggregateOp::Any | crate::ast::AggregateOp::All => Type::Bool,
             };
 
             (
@@ -1100,7 +1136,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
                     op: *op,
                     entity: entity.clone(),
                     binding: binding.clone(),
-                    body: Box::new(typed_body.clone()),
+                    body: Box::new(typed_body),
                 },
                 aggregate_ty,
             )
@@ -1114,17 +1150,24 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             body,
         } => {
             let typed_init = type_expression(init, ctx)?;
+            let elem_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
+
             let mut extended_ctx = ctx.with_binding(acc.clone(), typed_init.ty.clone());
-            let elem_ty = ctx.node_output.clone().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "fold typing requires node output context".to_string(),
-                )]
-            })?;
             extended_ctx.local_bindings.insert(elem.clone(), elem_ty);
 
             let typed_body = type_expression(body, &extended_ctx)?;
+
+            // In a fold, the body must match the accumulator/init type
+            if typed_body.ty != typed_init.ty {
+                return Err(vec![CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    span,
+                    format!(
+                        "fold body type {:?} does not match accumulator type {:?}",
+                        typed_body.ty, typed_init.ty
+                    ),
+                )]);
+            }
 
             (
                 ExprKind::Fold {
@@ -1134,7 +1177,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
                     elem: elem.clone(),
                     body: Box::new(typed_body.clone()),
                 },
-                typed_body.ty.clone(),
+                typed_body.ty,
             )
         }
 
@@ -1192,12 +1235,11 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         UntypedKind::ParseError(_) => {
-            errors.push(CompileError::new(
+            return Err(vec![CompileError::new(
                 ErrorKind::Internal,
                 span,
                 "expression parse error placeholder cannot be typed".to_string(),
-            ));
-            return Err(errors);
+            )]);
         }
     };
 
@@ -1229,24 +1271,7 @@ mod tests {
     }
 
     /// Create a typing context with pre-registered user types
-    ///
-    /// Reduces test boilerplate by encapsulating TypeTable construction and leaking.
-    ///
-    /// # Parameters
-    ///
-    /// - `types`: Array of (type_name, fields) tuples where fields is array of (field_name, field_type) tuples
-    ///
-    /// # Example
-    ///
-    /// ```rust,ignore
-    /// let ctx = make_context_with_types(&[(
-    ///     "Position",
-    ///     &[
-    ///         ("x", Type::Kernel(KernelType { shape: Shape::Scalar, unit: Unit::meters(), bounds: None })),
-    ///         ("y", Type::Kernel(KernelType { shape: Shape::Scalar, unit: Unit::meters(), bounds: None })),
-    ///     ],
-    /// )]);
-    /// ```
+    #[allow(dead_code)]
     fn make_context_with_types<'a>(types: &[(&str, &[(&str, Type)])]) -> TypingContext<'a> {
         let type_table = Box::leak(Box::new({
             let mut table = TypeTable::new();
@@ -1282,16 +1307,7 @@ mod tests {
     }
 
     /// Create a dimensionless scalar literal expression for testing
-    ///
-    /// Reduces boilerplate in vector literal tests where multiple literals are constructed.
-    ///
-    /// # Parameters
-    ///
-    /// - `value`: Numeric value for the literal
-    ///
-    /// # Returns
-    ///
-    /// Untyped expression with dummy span
+    #[allow(dead_code)]
     fn test_literal(value: f64) -> Expr {
         Expr::new(
             UntypedKind::Literal { value, unit: None },
@@ -1940,7 +1956,7 @@ mod tests {
             unit: Unit::meters(),
             bounds: None,
         });
-        let ctx = ctx.with_execution_context(Some(output_type.clone()), None, None);
+        let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
 
         let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
         let typed = type_expression(&expr, &ctx).unwrap();
@@ -1965,7 +1981,7 @@ mod tests {
             unit: Unit::seconds(),
             bounds: None,
         });
-        let ctx = ctx.with_execution_context(Some(output_type.clone()), None, None);
+        let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
 
         let expr = Expr::new(UntypedKind::Current, Span::new(0, 0, 7, 1));
         let typed = type_expression(&expr, &ctx).unwrap();
@@ -1990,7 +2006,7 @@ mod tests {
             unit: Unit::kilograms(),
             bounds: None,
         });
-        let ctx = ctx.with_execution_context(None, Some(inputs_type.clone()), None);
+        let ctx = ctx.with_execution_context(None, None, None, Some(inputs_type.clone()), None);
 
         let expr = Expr::new(UntypedKind::Inputs, Span::new(0, 0, 6, 1));
         let typed = type_expression(&expr, &ctx).unwrap();
@@ -2011,7 +2027,7 @@ mod tests {
     fn test_type_payload_with_payload_type() {
         let ctx = make_context();
         let payload_type = Type::User(TypeId::from("ImpulseData"));
-        let ctx = ctx.with_execution_context(None, None, Some(payload_type.clone()));
+        let ctx = ctx.with_execution_context(None, None, None, None, Some(payload_type.clone()));
 
         let expr = Expr::new(UntypedKind::Payload, Span::new(0, 0, 7, 1));
         let typed = type_expression(&expr, &ctx).unwrap();
@@ -2843,5 +2859,37 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
         assert!(errors[0].message.contains("multiple"));
+    }
+
+    #[test]
+    fn test_type_self_found() {
+        let mut ctx = make_context();
+        let entity_type = Type::User(TypeId::from("Plate"));
+        ctx.self_type = Some(entity_type.clone());
+
+        let expr = Expr::new(UntypedKind::Self_, Span::new(0, 0, 4, 1));
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert_eq!(typed.ty, entity_type);
+    }
+
+    #[test]
+    fn test_type_other_found() {
+        let mut ctx = make_context();
+        let entity_type = Type::User(TypeId::from("Plate"));
+        ctx.other_type = Some(entity_type.clone());
+
+        let expr = Expr::new(UntypedKind::Other, Span::new(0, 0, 5, 1));
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert_eq!(typed.ty, entity_type);
+    }
+
+    #[test]
+    fn test_type_self_not_found() {
+        let ctx = make_context();
+        let expr = Expr::new(UntypedKind::Self_, Span::new(0, 0, 4, 1));
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::Internal));
+        assert!(errors[0].message.contains("self"));
     }
 }

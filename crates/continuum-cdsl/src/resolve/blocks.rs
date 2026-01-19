@@ -68,6 +68,8 @@ pub fn compile_statements(
         config_types: ctx.config_types,
         const_types: ctx.const_types,
         local_bindings: ctx.local_bindings.clone(),
+        self_type: ctx.self_type.clone(),
+        other_type: ctx.other_type.clone(),
         node_output: ctx.node_output.clone(),
         inputs_type: ctx.inputs_type.clone(),
         payload_type: ctx.payload_type.clone(),
@@ -573,7 +575,7 @@ pub fn compile_execution_blocks<I: Index>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{KernelRegistry, RoleData};
+    use crate::ast::KernelRegistry;
     use crate::foundation::{KernelType, Shape, Span, Type, Unit};
     use std::collections::HashMap;
 
@@ -626,6 +628,8 @@ mod tests {
             config_types: &config_types,
             const_types: &const_types,
             local_bindings: HashMap::new(),
+            self_type: None,
+            other_type: None,
             node_output: None,
             inputs_type: None,
             payload_type: None,
@@ -681,6 +685,8 @@ mod tests {
             config_types: &config_types,
             const_types: &const_types,
             local_bindings: HashMap::new(),
+            self_type: None,
+            other_type: None,
             node_output: None,
             inputs_type: None,
             payload_type: None,
@@ -731,6 +737,8 @@ mod tests {
             config_types: &config_types,
             const_types: &const_types,
             local_bindings: HashMap::new(),
+            self_type: None,
+            other_type: None,
             node_output: None,
             inputs_type: None,
             payload_type: None,
@@ -773,6 +781,8 @@ mod tests {
             config_types: &config_types,
             const_types: &const_types,
             local_bindings: HashMap::new(),
+            self_type: None,
+            other_type: None,
             node_output: None,
             inputs_type: None,
             payload_type: None,
@@ -817,10 +827,12 @@ mod tests {
             config_types: &config_types,
             const_types: &const_types,
             local_bindings: HashMap::new(),
+            self_type: None,
+            other_type: None,
             node_output: None,
             inputs_type: None,
             payload_type: None,
-            phase: Some(Phase::Resolve), // Signals only in Collect or Fracture
+            phase: Some(Phase::Resolve),
         };
 
         let span = test_span();
