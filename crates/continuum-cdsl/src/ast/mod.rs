@@ -68,6 +68,7 @@ mod kernel;
 mod node;
 mod pipeline;
 mod role;
+mod structural;
 mod untyped;
 mod walk;
 mod warmup;
@@ -80,6 +81,7 @@ pub use kernel::*;
 pub use node::*;
 pub use pipeline::*;
 pub use role::*;
+pub use structural::*;
 pub use walk::*;
 pub use warmup::*;
 

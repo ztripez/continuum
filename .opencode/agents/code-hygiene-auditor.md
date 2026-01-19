@@ -66,6 +66,7 @@ You have deep experience recognizing:
    - **Cognitive load**: Files requiring extensive scrolling to understand
    - Check line counts with: `wc -l *.rs | sort -n`
    - Look for functions that span multiple screens
+   -- **Priority**  This is NOT a low priority issue, it should be flagged high even critical. Large files eat agent context or create large mental strain and create a state of lots of seeking and looking for the correct place in a file.
 
 ## Output Format
 
