@@ -377,6 +377,9 @@ pub struct KernelReturn {
 
     /// Unit derivation
     pub unit: UnitDerivation,
+
+    /// Value type (Rust type)
+    pub value_type: continuum_kernel_types::ValueType,
 }
 
 /// Shape derivation for kernel return type
@@ -790,6 +793,7 @@ impl KernelRegistry {
         KernelReturn {
             shape: Self::convert_shape_derivation(&ret.shape),
             unit: Self::convert_unit_derivation(&ret.unit),
+            value_type: ret.value_type,
         }
     }
 
@@ -936,10 +940,12 @@ mod tests {
         let ret = KernelReturn {
             shape: ShapeDerivation::Scalar,
             unit: UnitDerivation::Dimensionless,
+            value_type: continuum_kernel_types::ValueType::F64,
         };
 
         assert_eq!(ret.shape, ShapeDerivation::Scalar);
         assert_eq!(ret.unit, UnitDerivation::Dimensionless);
+        assert_eq!(ret.value_type, continuum_kernel_types::ValueType::F64);
     }
 
     #[test]
@@ -1014,6 +1020,7 @@ mod tests {
             returns: KernelReturn {
                 shape: ShapeDerivation::SameAs(0),
                 unit: UnitDerivation::SameAs(0),
+                value_type: continuum_kernel_types::ValueType::F64,
             },
             purity: KernelPurity::Pure,
             requires_uses: None,

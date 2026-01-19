@@ -760,6 +760,22 @@ fn generate_kernel_registration(
         let shape_out_expr = args.shape_out.as_ref().unwrap();
         let unit_out_expr = args.unit_out.as_ref().unwrap();
 
+        // Derive value type from function return type
+        // We can't reliably parse the type AST from declarative macro expansions,
+        // so we convert to string and check the token representation
+        let value_type_expr = match &func.sig.output {
+            syn::ReturnType::Type(_, ty) => {
+                let ty_str = quote! { #ty }.to_string();
+                if ty_str.trim() == "bool" {
+                    quote! { ::continuum_kernel_types::ValueType::Bool }
+                } else {
+                    // Default to F64 for f64, f32, or other numeric types
+                    quote! { ::continuum_kernel_types::ValueType::F64 }
+                }
+            }
+            _ => quote! { ::continuum_kernel_types::ValueType::F64 },
+        };
+
         quote! {
             #[allow(non_upper_case_globals)]
             #[::continuum_kernel_registry::linkme::distributed_slice(::continuum_kernel_types::KERNEL_SIGNATURES)]
@@ -778,6 +794,7 @@ fn generate_kernel_registration(
                     returns: ::continuum_kernel_types::KernelReturn {
                         shape: #shape_out_expr,
                         unit: #unit_out_expr,
+                        value_type: #value_type_expr,
                     },
                     requires_uses: #requires_uses_signature,
                 }

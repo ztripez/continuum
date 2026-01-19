@@ -353,6 +353,22 @@ pub struct KernelReturn {
 
     /// Unit derivation
     pub unit: UnitDerivation,
+
+    /// Value type (Rust type)
+    pub value_type: ValueType,
+}
+
+/// Value type for kernel returns
+///
+/// Represents the Rust value type returned by a kernel function.
+/// Used during type resolution to distinguish between numeric and boolean returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ValueType {
+    /// Floating-point numeric value (f64)
+    F64,
+
+    /// Boolean value (bool)
+    Bool,
 }
 
 /// Shape derivation for kernel return type

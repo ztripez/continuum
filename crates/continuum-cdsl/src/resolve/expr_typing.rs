@@ -328,20 +328,10 @@ fn derive_return_type(
 ) -> Result<Type, Vec<CompileError>> {
     use crate::ast::{ShapeDerivation, UnitDerivation};
 
-    // HACK: Detect boolean return types early
-    // The kernel signature system doesn't track Rust value types (bool vs f64),
-    // so we use a heuristic: comparison and logical operators return bool.
-    // Boolean kernels don't have meaningful shape/unit, so skip derivation.
-    // TODO: Add explicit value type to KernelReturn (continuum-kernel-types)
-    let is_bool_kernel = matches!(
-        (sig.id.namespace, sig.id.name),
-        // All comparison operators return bool
-        ("compare", "eq" | "ne" | "lt" | "le" | "gt" | "ge") |
-        // Logical operators except select return bool
-        ("logic", "and" | "or" | "not")
-    );
-
-    if is_bool_kernel {
+    // Check value type to distinguish between boolean and numeric returns
+    // Boolean kernels return Type::Bool directly without shape/unit derivation
+    use continuum_kernel_types::ValueType;
+    if sig.returns.value_type == ValueType::Bool {
         return Ok(Type::Bool);
     }
 
@@ -1345,6 +1335,7 @@ mod tests {
             returns: KernelReturn {
                 shape: ShapeDerivation::SameAs(0),
                 unit: UnitDerivation::SameAs(0),
+                value_type: continuum_kernel_types::ValueType::F64,
             },
             purity: crate::ast::KernelPurity::Pure,
             requires_uses: None,
@@ -1401,6 +1392,7 @@ mod tests {
             returns: KernelReturn {
                 shape: ShapeDerivation::Exact(Shape::Scalar),
                 unit: UnitDerivation::Dimensionless,
+                value_type: continuum_kernel_types::ValueType::F64,
             },
             purity: crate::ast::KernelPurity::Pure,
             requires_uses: None,
