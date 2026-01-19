@@ -221,19 +221,46 @@ pub fn eigenvalues_mat4(arr: Mat4) -> [f64; 4] {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn eigenvectors_mat2(arr: Mat2) -> Mat2 {
-    let mat = na::Matrix2::from_column_slice(&arr.0);
-    let eig = mat.symmetric_eigen();
-    let mut pairs: Vec<_> = eig
-        .eigenvalues
-        .iter()
-        .zip(eig.eigenvectors.column_iter())
-        .collect();
-    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+    // Matrix [[a, b], [b, c]] in column-major: [a, b, b, c]
+    let a = arr.0[0];
+    let b = arr.0[1]; // off-diagonal
+    let c = arr.0[3];
 
-    let v0 = na::Vector2::from_iterator(pairs[0].1.iter().cloned());
-    let v1 = na::Vector2::from_iterator(pairs[1].1.iter().cloned());
-    let result = na::Matrix2::from_columns(&[v0, v1]);
-    Mat2(result.as_slice().try_into().unwrap())
+    // Get eigenvalues (already sorted descending)
+    let eigenvals = eigenvalues_mat2(arr);
+    let lambda1 = eigenvals[0]; // larger eigenvalue
+    let lambda2 = eigenvals[1]; // smaller eigenvalue
+
+    // Handle diagonal matrix case (b ≈ 0)
+    const B_THRESHOLD: f64 = 1e-14;
+    if b.abs() < B_THRESHOLD {
+        // Matrix is (nearly) diagonal - eigenvectors are standard basis
+        // Order by eigenvalue magnitude
+        if a >= c {
+            // λ₁ ≈ a, λ₂ ≈ c → v₁ = [1,0], v₂ = [0,1]
+            return Mat2([1.0, 0.0, 0.0, 1.0]);
+        } else {
+            // λ₁ ≈ c, λ₂ ≈ a → v₁ = [0,1], v₂ = [1,0]
+            return Mat2([0.0, 1.0, 1.0, 0.0]);
+        }
+    }
+
+    // For eigenvector of eigenvalue λ: (A - λI)v = 0
+    // From first row: (a - λ)v₁ + b*v₂ = 0 → v₁ = b/(λ - a)
+    // Set v₂ = 1, then normalize
+
+    // Eigenvector for λ₁
+    let v1_x = b / (lambda1 - a);
+    let v1_norm = (v1_x * v1_x + 1.0).sqrt();
+    let v1 = [v1_x / v1_norm, 1.0 / v1_norm];
+
+    // Eigenvector for λ₂
+    let v2_x = b / (lambda2 - a);
+    let v2_norm = (v2_x * v2_x + 1.0).sqrt();
+    let v2 = [v2_x / v2_norm, 1.0 / v2_norm];
+
+    // Return as column-major matrix: [col0_row0, col0_row1, col1_row0, col1_row1]
+    Mat2([v1[0], v1[1], v2[0], v2[1]])
 }
 
 /// Eigenvectors of a symmetric matrix: `eigenvectors_mat3(m)` -> Mat3
@@ -246,13 +273,14 @@ pub fn eigenvectors_mat2(arr: Mat2) -> Mat2 {
 ///   Non-symmetric matrices will produce incorrect results without error.
 ///   No runtime validation is performed for performance reasons.
 ///
-/// # Determinism Warning
-/// - **Sign ambiguity**: Both v and -v are valid eigenvectors for eigenvalue λ.
-///   The returned sign is nalgebra implementation-defined and may change between versions.
-/// - **Ordering**: Eigenvectors are sorted by eigenvalue magnitude (descending).
-///   While stable within a nalgebra version, ordering may change between versions.
-/// - For deterministic simulations requiring stable signs/ordering, consider
-///   implementing canonical normalization (e.g., first non-zero component positive).
+/// # Implementation
+/// Uses analytic null space calculation via cross product method.
+/// O(1) complexity with no iterations or allocations.
+///
+/// # Sign Convention
+/// Sign is determined by the cross product computation order.
+/// Both v and -v are mathematically valid eigenvectors for eigenvalue λ.
+/// The sign is deterministic but may differ from other implementations.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -263,20 +291,94 @@ pub fn eigenvectors_mat2(arr: Mat2) -> Mat2 {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn eigenvectors_mat3(arr: Mat3) -> Mat3 {
-    let mat = na::Matrix3::from_column_slice(&arr.0);
-    let eig = mat.symmetric_eigen();
-    let mut pairs: Vec<_> = eig
-        .eigenvalues
-        .iter()
-        .zip(eig.eigenvectors.column_iter())
-        .collect();
-    pairs.sort_by(|a, b| b.0.partial_cmp(a.0).unwrap());
+    // Matrix [[a, d, e], [d, b, f], [e, f, c]] in column-major order
+    // Column 0: [a, d, e], Column 1: [d, b, f], Column 2: [e, f, c]
+    let a = arr.0[0];
+    let d = arr.0[1];
+    let e = arr.0[2];
+    let b = arr.0[4];
+    let f = arr.0[5];
+    let c = arr.0[8];
 
-    let v0 = na::Vector3::from_iterator(pairs[0].1.iter().cloned());
-    let v1 = na::Vector3::from_iterator(pairs[1].1.iter().cloned());
-    let v2 = na::Vector3::from_iterator(pairs[2].1.iter().cloned());
-    let result = na::Matrix3::from_columns(&[v0, v1, v2]);
-    Mat3(result.as_slice().try_into().unwrap())
+    // Get eigenvalues (already sorted descending)
+    let eigenvals = eigenvalues_mat3(arr);
+
+    // Compute eigenvector for each eigenvalue using null space method
+    let v1 = eigenvector_from_null_space_mat3(a, d, e, b, f, c, eigenvals[0]);
+    let v2 = eigenvector_from_null_space_mat3(a, d, e, b, f, c, eigenvals[1]);
+    let v3 = eigenvector_from_null_space_mat3(a, d, e, b, f, c, eigenvals[2]);
+
+    // Return as column-major matrix
+    Mat3([
+        v1[0], v1[1], v1[2], // col 0
+        v2[0], v2[1], v2[2], // col 1
+        v3[0], v3[1], v3[2], // col 2
+    ])
+}
+
+/// Compute eigenvector for symmetric 3x3 matrix using null space method.
+///
+/// For eigenvalue λ, solves (A - λI)v = 0 by finding the null space
+/// via cross product of two rows of (A - λI).
+#[inline]
+fn eigenvector_from_null_space_mat3(
+    a: f64,
+    d: f64,
+    e: f64,
+    b: f64,
+    f: f64,
+    c: f64,
+    lambda: f64,
+) -> [f64; 3] {
+    // Form B = A - λI
+    let b00 = a - lambda;
+    let b11 = b - lambda;
+    let b22 = c - lambda;
+
+    // Rows of B = A - λI
+    let row0 = [b00, d, e];
+    let row1 = [d, b11, f];
+    let row2 = [e, f, b22];
+
+    const NORM_THRESHOLD: f64 = 1e-14;
+
+    // Try cross product of row0 × row1
+    let v = cross3(row0, row1);
+    let norm_sq = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    if norm_sq > NORM_THRESHOLD * NORM_THRESHOLD {
+        let norm = norm_sq.sqrt();
+        return [v[0] / norm, v[1] / norm, v[2] / norm];
+    }
+
+    // Rows 0,1 parallel - try row0 × row2
+    let v = cross3(row0, row2);
+    let norm_sq = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    if norm_sq > NORM_THRESHOLD * NORM_THRESHOLD {
+        let norm = norm_sq.sqrt();
+        return [v[0] / norm, v[1] / norm, v[2] / norm];
+    }
+
+    // Rows 0,2 also parallel - try row1 × row2
+    let v = cross3(row1, row2);
+    let norm_sq = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+    if norm_sq > NORM_THRESHOLD * NORM_THRESHOLD {
+        let norm = norm_sq.sqrt();
+        return [v[0] / norm, v[1] / norm, v[2] / norm];
+    }
+
+    // All rows parallel - matrix is scalar multiple of identity
+    // Any unit vector is an eigenvector; return standard basis
+    [1.0, 0.0, 0.0]
+}
+
+/// Cross product of two 3D vectors
+#[inline]
+fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [
+        a[1] * b[2] - a[2] * b[1],
+        a[2] * b[0] - a[0] * b[2],
+        a[0] * b[1] - a[1] * b[0],
+    ]
 }
 
 /// Eigenvectors of a symmetric matrix: `eigenvectors_mat4(m)` -> Mat4
