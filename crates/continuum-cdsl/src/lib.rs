@@ -9,13 +9,25 @@
 //!     ↓
 //! Parser (chumsky) → Untyped AST
 //!     ↓
+//! Desugar → Normalized AST
+//!     ↓
 //! Name Resolution → Resolved AST
 //!     ↓
 //! Type Resolution → Typed AST
 //!     ↓
-//! Validation Passes
+//! Validation Passes → Validated AST
+//!   ├─ Type validation
+//!   ├─ Effect validation
+//!   ├─ Capability validation
+//!   └─ Structure validation
 //!     ↓
-//! Bytecode Compiler → Bytecode
+//! Stratum Resolution → Stratum-assigned AST
+//!     ↓
+//! Era Resolution → Era-validated AST
+//!     ↓
+//! Uses Validation → Safety-validated AST
+//!     ↓
+//! Execution Block Compilation → Compiled Execution DAG
 //!     ↓
 //! CompiledWorld (ready for runtime)
 //! ```
@@ -105,17 +117,27 @@ pub mod desugar;
 /// Phase 11: Resolution passes
 /// - Name resolution: Validates Path references (Phase 11)
 /// - Type resolution: Resolves TypeExpr to Type (Phase 11)
-pub mod resolve;
-
-/// Validation passes
 ///
-/// Phase 12: Validation complete ✅
+/// Phase 12: Validation passes
 /// - Type validation (resolve/validation.rs)
 /// - Effect validation (resolve/effects.rs)
 /// - Capability validation (resolve/capabilities.rs)
-/// - Structure validation (resolve/structure.rs) - cycles and collisions
+/// - Structure validation (resolve/structure.rs)
+///
+/// Phase 12.5: Execution prerequisites
+/// - Stratum resolution (resolve/strata.rs) - assigns strata to nodes
+/// - Era resolution (resolve/eras.rs) - validates eras and transitions
+/// - Uses validation (resolve/uses.rs) - enforces dangerous function declarations
+pub mod resolve;
+
+/// Validation passes (re-export for backward compatibility)
+///
+/// Validation modules now live under `resolve::` but are re-exported here.
 pub mod validate {
     //! Multi-pass validation and linting.
+    //!
+    //! Note: Core validation modules are now in `resolve::validation`,
+    //! `resolve::effects`, `resolve::capabilities`, and `resolve::structure`.
 }
 
 /// Bytecode structures and compiler
