@@ -162,6 +162,26 @@ fn collect_required_uses(
     expr.walk(&mut visitor);
 }
 
+/// Walk compiled statement collecting required uses from its expressions
+fn collect_required_uses_typed_stmt(
+    stmt: &crate::ast::TypedStmt,
+    registry: &KernelRegistry,
+    required: &mut Vec<RequiredUse>,
+) {
+    use crate::ast::TypedStmt;
+    match stmt {
+        TypedStmt::Let { value, .. } => collect_required_uses(value, registry, required),
+        TypedStmt::SignalAssign { value, .. } => collect_required_uses(value, registry, required),
+        TypedStmt::FieldAssign {
+            position, value, ..
+        } => {
+            collect_required_uses(position, registry, required);
+            collect_required_uses(value, registry, required);
+        }
+        TypedStmt::Expr(expr) => collect_required_uses(expr, registry, required),
+    }
+}
+
 /// Visitor that collects required uses from a typed expression tree
 struct RequiredUsesVisitor<'a> {
     registry: &'a KernelRegistry,
@@ -197,6 +217,28 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
 
             _ => {}
         }
+    }
+}
+
+/// Walk untyped statement collecting required uses from its expressions
+fn collect_required_uses_untyped_stmt(
+    stmt: &crate::ast::Stmt<crate::ast::Expr>,
+    registry: &KernelRegistry,
+    required: &mut Vec<RequiredUse>,
+) {
+    use crate::ast::Stmt;
+    match stmt {
+        Stmt::Let { value, .. } => collect_required_uses_untyped(value, registry, required),
+        Stmt::SignalAssign { value, .. } => {
+            collect_required_uses_untyped(value, registry, required)
+        }
+        Stmt::FieldAssign {
+            position, value, ..
+        } => {
+            collect_required_uses_untyped(position, registry, required);
+            collect_required_uses_untyped(value, registry, required);
+        }
+        Stmt::Expr(expr) => collect_required_uses_untyped(expr, registry, required),
     }
 }
 
@@ -376,8 +418,10 @@ fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Ve
     for execution in &node.executions {
         match &execution.body {
             ExecutionBody::Expr(expr) => collect_required_uses(expr, registry, &mut required),
-            ExecutionBody::Statements(_) => {
-                // Statement validation not yet implemented
+            ExecutionBody::Statements(stmts) => {
+                for stmt in stmts {
+                    collect_required_uses_typed_stmt(stmt, registry, &mut required);
+                }
             }
         }
     }
@@ -401,8 +445,9 @@ fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Ve
     if let Some(observe) = &node.observe {
         for when_clause in &observe.when_clauses {
             collect_required_uses_untyped(&when_clause.condition, registry, &mut required);
-            // Note: emit_block contains Stmt, which we don't validate yet
-            // (would need to extract expressions from statements)
+            for stmt in &when_clause.emit_block {
+                collect_required_uses_untyped_stmt(stmt, registry, &mut required);
+            }
         }
     }
 

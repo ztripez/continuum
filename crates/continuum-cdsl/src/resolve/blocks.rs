@@ -22,7 +22,7 @@
 
 use crate::ast::{
     BlockBody, Execution, ExecutionBody, Expr, ExprKind, ExpressionVisitor, Index, Node, RoleId,
-    Stmt, TypedExpr, TypedStmt,
+    Stmt, TypedExpr, TypedStmt, UntypedKind,
 };
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{Path, Phase, Type};
@@ -31,23 +31,24 @@ use std::collections::HashSet;
 
 /// Compiles a sequence of untyped statements into a type-validated IR representation.
 ///
-/// This pass transforms [`Stmt<Expr>`] (parser output) into [`TypedStmt`] (IR),
-/// performing the following operations:
+/// This pass transforms procedural simulation logic ([`Stmt<Expr>`]) into a typed
+/// execution IR ([`TypedStmt`]), performing the following operations:
 ///
 /// 1. **Expression Typing**: Recursively invokes [`type_expression`] on all expressions
 ///    within each statement (e.g., let-values, assignment sources).
-/// 2. **Local Scoping**: Manages the local symbol table for `let` bindings. Variable
+/// 2. **Local Scoping**: Manages a block-local symbol table for `let` bindings. Variable
 ///    types are registered as they are encountered, allowing subsequent statements
 ///    in the same block to reference them.
 /// 3. **Effect Validation**: Verifies that assignment targets (signals and fields)
 ///    are valid within the current [`Phase`] context.
 ///
-/// # Dependency Extraction
+/// # Emissions and Causality
 ///
-/// After compilation, the resulting [`TypedStmt`] list is used by Phase 13 (DAG Construction)
-/// to extract:
+/// The resulting [`TypedStmt`] list is used by Phase 13 (DAG Construction) to extract:
 /// - **Read Dependencies**: All signals, fields, and entities referenced in expressions.
+///   These form the incoming edges in the execution DAG.
 /// - **Emissions (Side Effects)**: All signals or fields targeted by assignments.
+///   These form the outgoing edges and define the causality boundary.
 ///
 /// # Errors
 ///
@@ -93,18 +94,19 @@ pub fn compile_statements(
                 value,
                 span,
             } => {
-                // Phase boundary enforcement: Signals only in Collect phase
-                if let Some(phase) = current_ctx.phase {
-                    if phase != Phase::Collect {
-                        errors.push(CompileError::new(
-                            ErrorKind::PhaseBoundaryViolation,
-                            *span,
-                            format!(
-                                "signal '{}' cannot be assigned in {:?} phase (signals are only assignable in Collect phase)",
-                                target, phase
-                            ),
-                        ));
-                    }
+                // Phase boundary enforcement: Signals in Collect or Fracture phase
+                if let Some(phase) = current_ctx.phase
+                    && phase != Phase::Collect
+                    && phase != Phase::Fracture
+                {
+                    errors.push(CompileError::new(
+                        ErrorKind::PhaseBoundaryViolation,
+                        *span,
+                        format!(
+                            "signal '{}' cannot be assigned in {:?} phase (signals are only assignable in Collect or Fracture phases)",
+                            target, phase
+                        ),
+                    ));
                 }
 
                 match type_expression(value, &current_ctx) {
@@ -145,17 +147,17 @@ pub fn compile_statements(
                 span,
             } => {
                 // Phase boundary enforcement: Fields only in Measure phase
-                if let Some(phase) = current_ctx.phase {
-                    if phase != Phase::Measure {
-                        errors.push(CompileError::new(
-                            ErrorKind::PhaseBoundaryViolation,
-                            *span,
-                            format!(
-                                "field '{}' cannot be assigned in {:?} phase (fields are only assignable in Measure phase)",
-                                target, phase
-                            ),
-                        ));
-                    }
+                if let Some(phase) = current_ctx.phase
+                    && phase != Phase::Measure
+                {
+                    errors.push(CompileError::new(
+                        ErrorKind::PhaseBoundaryViolation,
+                        *span,
+                        format!(
+                            "field '{}' cannot be assigned in {:?} phase (fields are only assignable in Measure phase)",
+                            target, phase
+                        ),
+                    ));
                 }
 
                 let typed_pos = type_expression(position, &current_ctx);
@@ -249,10 +251,14 @@ pub fn parse_phase_name(name: &str, span: crate::foundation::Span) -> Result<Pha
 
 /// Extracts signal and field paths from an expression tree.
 ///
-/// Recursively walks the expression tree to find all `Signal` and `Field` path references.
-/// These become the `reads` for the execution block, used for DAG dependency analysis.
+/// Recursively walks the expression tree using [`DependencyVisitor`] to find all
+/// path references that represent data reads. These paths are used during
+/// Phase 13 (DAG Construction) to determine execution order and detect cycles.
 ///
-/// Returns paths in **deterministic sorted order** to satisfy the determinism invariant.
+/// # Determinism
+///
+/// Returns paths in **deterministic sorted order** to satisfy the engine's core
+/// determinism invariant.
 fn extract_dependencies(expr: &TypedExpr) -> Vec<Path> {
     let mut visitor = DependencyVisitor::default();
     expr.walk(&mut visitor);
@@ -264,8 +270,13 @@ fn extract_dependencies(expr: &TypedExpr) -> Vec<Path> {
 }
 
 /// Visitor that collects signal and field paths from an expression tree.
+///
+/// This visitor performs a deep traversal of a [`TypedExpr`] tree to identify
+/// all external data dependencies (signals, fields, config, constants) and
+/// structural dependencies (entity set references for aggregations).
 #[derive(Default)]
 struct DependencyVisitor {
+    /// Accumulated set of unique dependency paths.
     paths: HashSet<Path>,
 }
 
@@ -290,16 +301,37 @@ impl ExpressionVisitor for DependencyVisitor {
                         .insert(Path::from_str(&type_id.to_string()).append(field));
                 }
             }
-            _ => {}
+            // Leaf values and binding structures that don't directly introduce
+            // new path dependencies (dependencies are extracted from their sub-expressions
+            // during the recursive walk)
+            ExprKind::Literal { .. }
+            | ExprKind::Vector(_)
+            | ExprKind::Local(_)
+            | ExprKind::Prev
+            | ExprKind::Current
+            | ExprKind::Inputs
+            | ExprKind::Dt
+            | ExprKind::Self_
+            | ExprKind::Other
+            | ExprKind::Payload
+            | ExprKind::Let { .. }
+            | ExprKind::Call { .. }
+            | ExprKind::Struct { .. } => {}
         }
     }
 }
 
 /// Extracts side effects and read dependencies from a compiled statement.
 ///
-/// This function identifies:
+/// This function performs the critical mapping between procedural IR ([`TypedStmt`])
+/// and declarative execution metadata ([`Execution`]).
+///
+/// # Identified Metadata
+///
 /// - **Reads**: Any signals, fields, or config values read within the statement's expressions.
+///   These form the incoming edges in the execution DAG.
 /// - **Emissions (Side Effects)**: The target signal or field path if the statement is an assignment.
+///   These form the outgoing edges and define the causality boundary for the execution block.
 ///
 /// Returns a tuple of `(reads, emits)` used to build the [`Execution`] IR.
 fn extract_stmt_dependencies(stmt: &TypedStmt) -> (Vec<Path>, Vec<Path>) {
@@ -678,6 +710,154 @@ mod tests {
         } else {
             panic!("Expected second Let statement to reference first");
         }
+    }
+
+    #[test]
+    fn test_compile_statements_type_mismatch() {
+        let registry = KernelRegistry::global();
+        let mut signal_types = HashMap::new();
+        signal_types.insert(Path::from_str("signal.target"), scalar_type());
+
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+
+        let ctx = TypingContext {
+            type_table: &type_table,
+            kernel_registry: &registry,
+            signal_types: &signal_types,
+            field_types: &field_types,
+            config_types: &config_types,
+            const_types: &const_types,
+            local_bindings: HashMap::new(),
+            node_output: None,
+            inputs_type: None,
+            payload_type: None,
+            phase: Some(Phase::Collect),
+        };
+
+        let span = test_span();
+        let stmts = vec![Stmt::SignalAssign {
+            target: Path::from_str("signal.target"),
+            value: Expr::new(UntypedKind::BoolLiteral(true), span), // Boolean instead of Scalar
+            span,
+        }];
+
+        let result = compile_statements(&stmts, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+        assert!(
+            errors[0]
+                .message
+                .contains("target signal 'signal.target' has type")
+        );
+    }
+
+    #[test]
+    fn test_compile_statements_undefined_signal() {
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new(); // Empty
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+
+        let ctx = TypingContext {
+            type_table: &type_table,
+            kernel_registry: &registry,
+            signal_types: &signal_types,
+            field_types: &field_types,
+            config_types: &config_types,
+            const_types: &const_types,
+            local_bindings: HashMap::new(),
+            node_output: None,
+            inputs_type: None,
+            payload_type: None,
+            phase: Some(Phase::Collect),
+        };
+
+        let span = test_span();
+        let stmts = vec![Stmt::SignalAssign {
+            target: Path::from_str("signal.missing"),
+            value: Expr::literal(1.0, None, span),
+            span,
+        }];
+
+        let result = compile_statements(&stmts, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::UndefinedName);
+        assert!(
+            errors[0]
+                .message
+                .contains("signal 'signal.missing' not found")
+        );
+    }
+
+    #[test]
+    fn test_compile_statements_phase_boundary_violation() {
+        let registry = KernelRegistry::global();
+        let mut signal_types = HashMap::new();
+        signal_types.insert(Path::from_str("signal.target"), scalar_type());
+
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+
+        let ctx = TypingContext {
+            type_table: &type_table,
+            kernel_registry: &registry,
+            signal_types: &signal_types,
+            field_types: &field_types,
+            config_types: &config_types,
+            const_types: &const_types,
+            local_bindings: HashMap::new(),
+            node_output: None,
+            inputs_type: None,
+            payload_type: None,
+            phase: Some(Phase::Resolve), // Signals only in Collect or Fracture
+        };
+
+        let span = test_span();
+        let stmts = vec![Stmt::SignalAssign {
+            target: Path::from_str("signal.target"),
+            value: Expr::literal(1.0, None, span),
+            span,
+        }];
+
+        let result = compile_statements(&stmts, &ctx);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::PhaseBoundaryViolation);
+        assert!(
+            errors[0]
+                .message
+                .contains("cannot be assigned in Resolve phase")
+        );
+    }
+
+    #[test]
+    fn test_extract_stmt_dependencies_let() {
+        let span = test_span();
+        let ty = scalar_type();
+        let path = Path::from_str("signal.test");
+
+        let stmt = TypedStmt::Let {
+            name: "x".to_string(),
+            value: TypedExpr::new(ExprKind::Signal(path.clone()), ty, span),
+            span,
+        };
+
+        let (reads, emits) = extract_stmt_dependencies(&stmt);
+        assert_eq!(emits.len(), 0);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0], path);
     }
 
     #[test]

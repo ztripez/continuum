@@ -560,9 +560,7 @@ pub struct Execution {
     /// These are used for DAG construction to determine causal links and
     /// output dependencies.
     ///
-    /// **Status:** This field is currently a placeholder. Dependency extraction
-    /// for emission statements (e.g., `emit(target, value)`) is scheduled for
-    /// implementation in Phase 13.
+    /// Set during the execution block compilation pass ([`compile_execution_blocks`][crate::resolve::blocks::compile_execution_blocks]).
     pub emits: Vec<Path>,
 
     /// Source location for error reporting
