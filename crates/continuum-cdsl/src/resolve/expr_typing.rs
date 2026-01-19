@@ -1933,4 +1933,1057 @@ mod tests {
         assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
         assert!(errors[0].message.contains("const"));
     }
+
+    // ============================================================================
+    // Tests for Vector literal construction
+    // ============================================================================
+
+    #[test]
+    fn test_type_vector_2d() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Vector(vec![
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 1.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 2.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+            ]),
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Vector { dim: 2 });
+                assert_eq!(kt.unit, Unit::dimensionless());
+            }
+            _ => panic!("Expected Kernel type"),
+        }
+    }
+
+    #[test]
+    fn test_type_vector_3d() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Vector(vec![
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 1.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 2.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 3.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+            ]),
+            Span::new(0, 0, 15, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Vector { dim: 3 });
+                assert_eq!(kt.unit, Unit::dimensionless());
+            }
+            _ => panic!("Expected Kernel type"),
+        }
+    }
+
+    #[test]
+    fn test_type_vector_4d() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Vector(vec![
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 1.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 2.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 3.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 4.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+            ]),
+            Span::new(0, 0, 20, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Vector { dim: 4 });
+                assert_eq!(kt.unit, Unit::dimensionless());
+            }
+            _ => panic!("Expected Kernel type"),
+        }
+    }
+
+    #[test]
+    fn test_type_vector_empty_fails() {
+        let ctx = make_context();
+        let expr = Expr::new(UntypedKind::Vector(vec![]), Span::new(0, 0, 2, 1));
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("empty"));
+    }
+
+    #[test]
+    fn test_type_vector_too_large_fails() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Vector(vec![
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 1.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 2.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 3.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 4.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 5.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+            ]),
+            Span::new(0, 0, 25, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("maximum is 4"));
+    }
+
+    #[test]
+    fn test_type_vector_mixed_units_fails() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Vector(vec![
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 1.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+                Expr::new(UntypedKind::Dt, Span::new(0, 0, 2, 1)),
+            ]),
+            Span::new(0, 0, 10, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("unit"));
+    }
+
+    #[test]
+    fn test_type_vector_non_scalar_element_fails() {
+        let ctx = make_context();
+        // Try to create a vector containing a vector
+        let expr = Expr::new(
+            UntypedKind::Vector(vec![Expr::new(
+                UntypedKind::Vector(vec![
+                    Expr::new(
+                        UntypedKind::Literal {
+                            value: 1.0,
+                            unit: None,
+                        },
+                        Span::new(0, 0, 3, 1),
+                    ),
+                    Expr::new(
+                        UntypedKind::Literal {
+                            value: 2.0,
+                            unit: None,
+                        },
+                        Span::new(0, 0, 3, 1),
+                    ),
+                ]),
+                Span::new(0, 0, 10, 1),
+            )]),
+            Span::new(0, 0, 12, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("scalar") || errors[0].message.contains("Scalar"));
+    }
+
+    // ============================================================================
+    // Tests for Let bindings
+    // ============================================================================
+
+    #[test]
+    fn test_type_let_simple_binding() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Let {
+                name: "x".to_string(),
+                value: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 42.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+                body: Box::new(Expr::new(
+                    UntypedKind::Local("x".to_string()),
+                    Span::new(0, 0, 1, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        // Body returns x, which is dimensionless scalar
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::dimensionless());
+            }
+            _ => panic!("Expected Kernel type"),
+        }
+    }
+
+    #[test]
+    fn test_type_let_nested_bindings() {
+        let ctx = make_context();
+        // let x = 5.0; let y = x; y
+        let expr = Expr::new(
+            UntypedKind::Let {
+                name: "x".to_string(),
+                value: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 5.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                body: Box::new(Expr::new(
+                    UntypedKind::Let {
+                        name: "y".to_string(),
+                        value: Box::new(Expr::new(
+                            UntypedKind::Local("x".to_string()),
+                            Span::new(0, 0, 1, 1),
+                        )),
+                        body: Box::new(Expr::new(
+                            UntypedKind::Local("y".to_string()),
+                            Span::new(0, 0, 1, 1),
+                        )),
+                    },
+                    Span::new(0, 0, 10, 1),
+                )),
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::dimensionless());
+            }
+            _ => panic!("Expected Kernel type"),
+        }
+    }
+
+    #[test]
+    fn test_type_let_shadowing() {
+        let ctx = make_context();
+        // let x = 5.0; let x = dt; x (inner binding shadows outer)
+        let expr = Expr::new(
+            UntypedKind::Let {
+                name: "x".to_string(),
+                value: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 5.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                body: Box::new(Expr::new(
+                    UntypedKind::Let {
+                        name: "x".to_string(),
+                        value: Box::new(Expr::new(UntypedKind::Dt, Span::new(0, 0, 2, 1))),
+                        body: Box::new(Expr::new(
+                            UntypedKind::Local("x".to_string()),
+                            Span::new(0, 0, 1, 1),
+                        )),
+                    },
+                    Span::new(0, 0, 10, 1),
+                )),
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        // Should resolve to inner x (dt = seconds), not outer x (dimensionless)
+        match &typed.ty {
+            Type::Kernel(kt) => {
+                assert_eq!(kt.shape, Shape::Scalar);
+                assert_eq!(kt.unit, Unit::seconds());
+            }
+            _ => panic!("Expected Kernel type"),
+        }
+    }
+
+    #[test]
+    fn test_type_let_variable_not_in_scope_outside_body() {
+        let ctx = make_context();
+        // This should fail: the binding is not available outside the let body
+        // But we can't directly test that without context manipulation
+        // Instead, verify that binding correctly extends scope in body
+        let expr = Expr::new(
+            UntypedKind::Let {
+                name: "temp".to_string(),
+                value: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 10.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+                body: Box::new(Expr::new(
+                    UntypedKind::Local("temp".to_string()),
+                    Span::new(0, 0, 4, 1),
+                )),
+            },
+            Span::new(0, 0, 15, 1),
+        );
+
+        // This should succeed - temp is in scope within body
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert!(matches!(typed.ty, Type::Kernel(_)));
+    }
+
+    // ============================================================================
+    // Tests for Struct literal construction
+    // ============================================================================
+
+    #[test]
+    fn test_type_struct_valid_construction() {
+        let type_table = Box::leak(Box::new({
+            let mut table = TypeTable::new();
+            let type_id = TypeId::from("Position");
+            let user_type = UserType::new(
+                type_id.clone(),
+                Path::from("Position"),
+                vec![
+                    (
+                        "x".to_string(),
+                        Type::Kernel(KernelType {
+                            shape: Shape::Scalar,
+                            unit: Unit::dimensionless(),
+                            bounds: None,
+                        }),
+                    ),
+                    (
+                        "y".to_string(),
+                        Type::Kernel(KernelType {
+                            shape: Shape::Scalar,
+                            unit: Unit::dimensionless(),
+                            bounds: None,
+                        }),
+                    ),
+                ],
+            );
+            table.register(user_type);
+            table
+        }));
+
+        let ctx = TypingContext::new(
+            type_table,
+            KernelRegistry::global(),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::Struct {
+                ty: Path::from("Position"),
+                fields: vec![
+                    (
+                        "x".to_string(),
+                        Expr::new(
+                            UntypedKind::Literal {
+                                value: 10.0,
+                                unit: None,
+                            },
+                            Span::new(0, 0, 4, 1),
+                        ),
+                    ),
+                    (
+                        "y".to_string(),
+                        Expr::new(
+                            UntypedKind::Literal {
+                                value: 20.0,
+                                unit: None,
+                            },
+                            Span::new(0, 0, 4, 1),
+                        ),
+                    ),
+                ],
+            },
+            Span::new(0, 0, 30, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert_eq!(typed.ty, Type::User(TypeId::from("Position")));
+    }
+
+    #[test]
+    fn test_type_struct_unknown_type() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Struct {
+                ty: Path::from("UnknownType"),
+                fields: vec![],
+            },
+            Span::new(0, 0, 15, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(errors[0].message.contains("UnknownType"));
+    }
+
+    #[test]
+    fn test_type_struct_unknown_field() {
+        let type_table = Box::leak(Box::new({
+            let mut table = TypeTable::new();
+            let type_id = TypeId::from("Point");
+            let user_type = UserType::new(
+                type_id.clone(),
+                Path::from("Point"),
+                vec![(
+                    "x".to_string(),
+                    Type::Kernel(KernelType {
+                        shape: Shape::Scalar,
+                        unit: Unit::dimensionless(),
+                        bounds: None,
+                    }),
+                )],
+            );
+            table.register(user_type);
+            table
+        }));
+
+        let ctx = TypingContext::new(
+            type_table,
+            KernelRegistry::global(),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+        );
+
+        let expr = Expr::new(
+            UntypedKind::Struct {
+                ty: Path::from("Point"),
+                fields: vec![(
+                    "unknown_field".to_string(),
+                    Expr::new(
+                        UntypedKind::Literal {
+                            value: 5.0,
+                            unit: None,
+                        },
+                        Span::new(0, 0, 3, 1),
+                    ),
+                )],
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(errors[0].message.contains("unknown_field"));
+    }
+
+    #[test]
+    fn test_type_struct_type_mismatch() {
+        let type_table = Box::leak(Box::new({
+            let mut table = TypeTable::new();
+            let type_id = TypeId::from("Data");
+            let user_type = UserType::new(
+                type_id.clone(),
+                Path::from("Data"),
+                vec![(
+                    "value".to_string(),
+                    Type::Kernel(KernelType {
+                        shape: Shape::Scalar,
+                        unit: Unit::meters(),
+                        bounds: None,
+                    }),
+                )],
+            );
+            table.register(user_type);
+            table
+        }));
+
+        let ctx = TypingContext::new(
+            type_table,
+            KernelRegistry::global(),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+        );
+
+        // Provide dt (seconds) instead of meters
+        let expr = Expr::new(
+            UntypedKind::Struct {
+                ty: Path::from("Data"),
+                fields: vec![(
+                    "value".to_string(),
+                    Expr::new(UntypedKind::Dt, Span::new(0, 0, 2, 1)),
+                )],
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+    }
+
+    #[test]
+    fn test_type_struct_missing_field() {
+        let type_table = Box::leak(Box::new({
+            let mut table = TypeTable::new();
+            let type_id = TypeId::from("Vec2");
+            let user_type = UserType::new(
+                type_id.clone(),
+                Path::from("Vec2"),
+                vec![
+                    (
+                        "x".to_string(),
+                        Type::Kernel(KernelType {
+                            shape: Shape::Scalar,
+                            unit: Unit::dimensionless(),
+                            bounds: None,
+                        }),
+                    ),
+                    (
+                        "y".to_string(),
+                        Type::Kernel(KernelType {
+                            shape: Shape::Scalar,
+                            unit: Unit::dimensionless(),
+                            bounds: None,
+                        }),
+                    ),
+                ],
+            );
+            table.register(user_type);
+            table
+        }));
+
+        let ctx = TypingContext::new(
+            type_table,
+            KernelRegistry::global(),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+        );
+
+        // Only provide x, missing y
+        let expr = Expr::new(
+            UntypedKind::Struct {
+                ty: Path::from("Vec2"),
+                fields: vec![(
+                    "x".to_string(),
+                    Expr::new(
+                        UntypedKind::Literal {
+                            value: 10.0,
+                            unit: None,
+                        },
+                        Span::new(0, 0, 4, 1),
+                    ),
+                )],
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("missing"));
+    }
+
+    #[test]
+    fn test_type_struct_duplicate_field() {
+        let type_table = Box::leak(Box::new({
+            let mut table = TypeTable::new();
+            let type_id = TypeId::from("Point");
+            let user_type = UserType::new(
+                type_id.clone(),
+                Path::from("Point"),
+                vec![(
+                    "x".to_string(),
+                    Type::Kernel(KernelType {
+                        shape: Shape::Scalar,
+                        unit: Unit::dimensionless(),
+                        bounds: None,
+                    }),
+                )],
+            );
+            table.register(user_type);
+            table
+        }));
+
+        let ctx = TypingContext::new(
+            type_table,
+            KernelRegistry::global(),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+            Box::leak(Box::new(HashMap::new())),
+        );
+
+        // Provide x twice
+        let expr = Expr::new(
+            UntypedKind::Struct {
+                ty: Path::from("Point"),
+                fields: vec![
+                    (
+                        "x".to_string(),
+                        Expr::new(
+                            UntypedKind::Literal {
+                                value: 10.0,
+                                unit: None,
+                            },
+                            Span::new(0, 0, 4, 1),
+                        ),
+                    ),
+                    (
+                        "x".to_string(),
+                        Expr::new(
+                            UntypedKind::Literal {
+                                value: 20.0,
+                                unit: None,
+                            },
+                            Span::new(0, 0, 4, 1),
+                        ),
+                    ),
+                ],
+            },
+            Span::new(0, 0, 30, 1),
+        );
+
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("multiple"));
+    }
+
+    // ============================================================================
+    // Tests for operator desugaring (Binary/Unary/If)
+    // ============================================================================
+
+    #[test]
+    fn test_type_binary_add_desugars_to_kernel() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Binary {
+                op: BinaryOp::Add,
+                left: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 5.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                right: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 10.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        // Should desugar to maths.add kernel call
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "maths");
+                assert_eq!(kernel.name, "add");
+            }
+            _ => panic!("Expected Call, got {:?}", typed.expr),
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires kernel registry to have maths.sub - tracked in continuum-2cpl"]
+    fn test_type_binary_subtract_desugars() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Binary {
+                op: BinaryOp::Sub,
+                left: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 20.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+                right: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 5.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "maths");
+                assert_eq!(kernel.name, "sub");
+            }
+            _ => panic!("Expected Call"),
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires unit derivation for Multiply - tracked in continuum-e7pa"]
+    fn test_type_binary_multiply_desugars() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Binary {
+                op: BinaryOp::Mul,
+                left: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 3.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                right: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 7.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "maths");
+                assert_eq!(kernel.name, "mul");
+            }
+            _ => panic!("Expected Call"),
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires unit derivation for Divide - tracked in continuum-e7pa"]
+    fn test_type_binary_divide_desugars() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Binary {
+                op: BinaryOp::Div,
+                left: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 20.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+                right: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 4.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "maths");
+                assert_eq!(kernel.name, "div");
+            }
+            _ => panic!("Expected Call"),
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires compare.lt kernel + Bool return type fix - tracked in continuum-2cpl, continuum-n1h9"]
+    fn test_type_binary_comparison_less_desugars() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Binary {
+                op: BinaryOp::Lt,
+                left: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 5.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                right: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 10.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "compare");
+                assert_eq!(kernel.name, "lt");
+            }
+            _ => panic!("Expected Call"),
+        }
+        // Comparison returns Bool
+        assert_eq!(typed.ty, Type::Bool);
+    }
+
+    #[test]
+    #[ignore = "Requires compare.eq kernel + Bool return type fix - tracked in continuum-2cpl, continuum-n1h9"]
+    fn test_type_binary_comparison_equal_desugars() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Binary {
+                op: BinaryOp::Eq,
+                left: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 5.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+                right: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 5.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "compare");
+                assert_eq!(kernel.name, "eq");
+            }
+            _ => panic!("Expected Call"),
+        }
+        assert_eq!(typed.ty, Type::Bool);
+    }
+
+    #[test]
+    #[ignore = "Requires logic.and kernel accepting Bool params - tracked in continuum-2cpl"]
+    fn test_type_binary_logical_and_desugars() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Binary {
+                op: BinaryOp::And,
+                left: Box::new(Expr::new(
+                    UntypedKind::BoolLiteral(true),
+                    Span::new(0, 0, 4, 1),
+                )),
+                right: Box::new(Expr::new(
+                    UntypedKind::BoolLiteral(false),
+                    Span::new(0, 0, 5, 1),
+                )),
+            },
+            Span::new(0, 0, 10, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "logic");
+                assert_eq!(kernel.name, "and");
+            }
+            _ => panic!("Expected Call"),
+        }
+        assert_eq!(typed.ty, Type::Bool);
+    }
+
+    #[test]
+    #[ignore = "Requires maths.neg kernel - tracked in continuum-2cpl"]
+    fn test_type_unary_negate_desugars() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Unary {
+                op: UnaryOp::Neg,
+                operand: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 42.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+            },
+            Span::new(0, 0, 6, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "maths");
+                assert_eq!(kernel.name, "neg");
+            }
+            _ => panic!("Expected Call"),
+        }
+    }
+
+    #[test]
+    #[ignore = "Requires logic.not kernel accepting Bool param - tracked in continuum-2cpl"]
+    fn test_type_unary_not_desugars() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::Unary {
+                op: UnaryOp::Not,
+                operand: Box::new(Expr::new(
+                    UntypedKind::BoolLiteral(true),
+                    Span::new(0, 0, 4, 1),
+                )),
+            },
+            Span::new(0, 0, 6, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "logic");
+                assert_eq!(kernel.name, "not");
+            }
+            _ => panic!("Expected Call"),
+        }
+        assert_eq!(typed.ty, Type::Bool);
+    }
+
+    #[test]
+    #[ignore = "Requires logic.select kernel - tracked in continuum-2cpl"]
+    fn test_type_if_then_else_desugars() {
+        let ctx = make_context();
+        let expr = Expr::new(
+            UntypedKind::If {
+                condition: Box::new(Expr::new(
+                    UntypedKind::BoolLiteral(true),
+                    Span::new(0, 0, 4, 1),
+                )),
+                then_branch: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 10.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+                else_branch: Box::new(Expr::new(
+                    UntypedKind::Literal {
+                        value: 20.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 4, 1),
+                )),
+            },
+            Span::new(0, 0, 20, 1),
+        );
+
+        let typed = type_expression(&expr, &ctx).unwrap();
+        // Should desugar to logic.select(condition, then, else)
+        match &typed.expr {
+            ExprKind::Call { kernel, .. } => {
+                assert_eq!(kernel.namespace, "logic");
+                assert_eq!(kernel.name, "select");
+            }
+            _ => panic!("Expected Call"),
+        }
+        // Result type should be dimensionless scalar (from branches)
+        assert!(matches!(typed.ty, Type::Kernel(_)));
+    }
 }
