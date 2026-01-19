@@ -102,17 +102,21 @@ fn parse_phase_name(name: &str, span: crate::foundation::Span) -> Result<Phase, 
 /// Recursively walks the expression tree to find all `Signal` and `Field` path references.
 /// These become the `reads` for the execution block, used for DAG dependency analysis.
 ///
+/// Returns paths in **deterministic sorted order** to satisfy the determinism invariant.
+///
 /// # Examples
 ///
 /// ```rust,ignore
 /// // Expression: prev + field.temperature
 /// let deps = extract_dependencies(&typed_expr);
-/// // deps contains: current signal path (from prev), field.temperature
+/// // deps contains: current signal path (from prev), field.temperature (sorted)
 /// ```
 fn extract_dependencies(expr: &TypedExpr) -> Vec<Path> {
     let mut paths = HashSet::new();
     collect_paths(expr, &mut paths);
-    paths.into_iter().collect()
+    let mut paths: Vec<_> = paths.into_iter().collect();
+    paths.sort(); // Ensure deterministic ordering (AGENTS.md: "All ordering is explicit and stable")
+    paths
 }
 
 /// Recursively collect all signal/field paths from expression tree.
