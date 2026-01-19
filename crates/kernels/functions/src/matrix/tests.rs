@@ -4,26 +4,18 @@ use super::*;
 use continuum_foundation::{Mat2, Mat3, Mat4};
 use continuum_kernel_registry::is_known_in;
 
-// Helper functions for matrix-vector multiplication (used in correctness tests)
+// Matrix-vector multiplication helpers - use actual kernel functions to avoid duplication
+// This also tests the transform_mat*_vec* kernels indirectly
 fn mat2_times_vec2(m: Mat2, v: [f64; 2]) -> [f64; 2] {
-    [m.0[0] * v[0] + m.0[2] * v[1], m.0[1] * v[0] + m.0[3] * v[1]]
+    transform_mat2_vec2(m, v)
 }
 
 fn mat3_times_vec3(m: Mat3, v: [f64; 3]) -> [f64; 3] {
-    [
-        m.0[0] * v[0] + m.0[3] * v[1] + m.0[6] * v[2],
-        m.0[1] * v[0] + m.0[4] * v[1] + m.0[7] * v[2],
-        m.0[2] * v[0] + m.0[5] * v[1] + m.0[8] * v[2],
-    ]
+    transform_mat3_vec3(m, v)
 }
 
 fn mat4_times_vec4(m: Mat4, v: [f64; 4]) -> [f64; 4] {
-    [
-        m.0[0] * v[0] + m.0[4] * v[1] + m.0[8] * v[2] + m.0[12] * v[3],
-        m.0[1] * v[0] + m.0[5] * v[1] + m.0[9] * v[2] + m.0[13] * v[3],
-        m.0[2] * v[0] + m.0[6] * v[1] + m.0[10] * v[2] + m.0[14] * v[3],
-        m.0[3] * v[0] + m.0[7] * v[1] + m.0[11] * v[2] + m.0[15] * v[3],
-    ]
+    transform_mat4_vec4(m, v)
 }
 
 /// Table of all matrix kernels that should be registered
