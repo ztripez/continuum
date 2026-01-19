@@ -23,14 +23,59 @@
 //! # Pipeline Position
 //!
 //! ```text
-//! Parse → Name Res → Type Res → Validation → Stratum Resolution → Block Compilation
+//! Parse → Name Res → Type Res → Validation → Stratum Resolution → Era Resolution → Block Compilation
 //!                                                 ^^^^^^^^^^^^^^^^^
 //!                                                  YOU ARE HERE
 //! ```
 //!
-//! This pass runs after validation (Phase 12) and before execution block
-//! compilation (Phase 12.5-D). It's part of Phase 12.5 prerequisites for
-//! execution DAG construction.
+//! This pass runs after validation (Phase 12) and before era resolution (Phase 12.5-B).
+//! It's part of Phase 12.5 execution prerequisites for execution DAG construction.
+//!
+//! # Usage Example
+//!
+//! ```rust,ignore
+//! use continuum_cdsl::resolve::strata;
+//! use continuum_cdsl::ast::{Node, Stratum};
+//!
+//! // After parsing and type resolution
+//! let mut nodes: Vec<Node<_>> = parsed_ast.nodes;
+//! let mut strata: Vec<Stratum> = parsed_ast.strata;
+//!
+//! // Phase 12.5-A: Resolve stratum assignments and cadences
+//!
+//! // Step 1: Resolve cadences for all strata
+//! match strata::resolve_cadences(&mut strata) {
+//!     Ok(()) => {
+//!         // All strata have cadence assigned (default 1 or explicit)
+//!         for stratum in &strata {
+//!             assert!(stratum.cadence.is_some());
+//!             assert!(stratum.cadence.unwrap() > 0);
+//!         }
+//!     }
+//!     Err(cadence_errors) => {
+//!         // Handle invalid cadence values (zero, negative, non-integer)
+//!         return Err(cadence_errors);
+//!     }
+//! }
+//!
+//! // Step 2: Resolve stratum assignments for all nodes
+//! match strata::resolve_strata(&mut nodes, &strata) {
+//!     Ok(()) => {
+//!         // All nodes have stratum assigned
+//!         for node in &nodes {
+//!             assert!(node.stratum.is_some());
+//!         }
+//!     }
+//!     Err(stratum_errors) => {
+//!         // Handle undefined strata, ambiguous assignments, invalid attributes
+//!         return Err(stratum_errors);
+//!     }
+//! }
+//!
+//! // Ready for Phase 12.5-B: Era resolution
+//! let stratum_ids: Vec<StratumId> = strata.iter().map(|s| s.id.clone()).collect();
+//! // Pass stratum_ids to era resolution for validation...
+//! ```
 
 use crate::ast::{Expr, Node, Stratum, UntypedKind};
 use crate::error::{CompileError, ErrorKind};
@@ -410,5 +455,313 @@ mod tests {
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+    }
+
+    // ===== Edge Case Tests =====
+
+    #[test]
+    fn test_resolve_no_strata_no_nodes() {
+        let mut nodes: Vec<Node<()>> = vec![];
+        let strata: Vec<Stratum> = vec![];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_resolve_no_nodes_with_strata() {
+        let mut nodes: Vec<Node<()>> = vec![];
+        let strata = vec![make_stratum("fast", vec![])];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_resolve_multiple_nodes_single_stratum() {
+        let strata = vec![make_stratum("default", vec![])];
+        let mut nodes = vec![
+            make_node("signal1", vec![]),
+            make_node("signal2", vec![]),
+            make_node("signal3", vec![]),
+        ];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_ok());
+
+        // All nodes should have the default stratum assigned
+        for node in &nodes {
+            assert_eq!(node.stratum, Some(StratumId::new("default")));
+        }
+    }
+
+    #[test]
+    fn test_resolve_multiple_nodes_multiple_strata_explicit() {
+        let strata = vec![make_stratum("fast", vec![]), make_stratum("slow", vec![])];
+
+        let mut nodes = vec![
+            make_node("signal1", vec![make_attr("stratum", vec!["fast"])]),
+            make_node("signal2", vec![make_attr("stratum", vec!["slow"])]),
+            make_node("signal3", vec![make_attr("stratum", vec!["fast"])]),
+        ];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_ok());
+
+        assert_eq!(nodes[0].stratum, Some(StratumId::new("fast")));
+        assert_eq!(nodes[1].stratum, Some(StratumId::new("slow")));
+        assert_eq!(nodes[2].stratum, Some(StratumId::new("fast")));
+    }
+
+    #[test]
+    fn test_resolve_stratum_attribute_wrong_arg_count_zero() {
+        let strata = vec![make_stratum("fast", vec![])];
+        let mut nodes = vec![make_node("signal1", vec![make_attr("stratum", vec![])])];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+        assert!(errors[0].message.contains("exactly one argument"));
+    }
+
+    #[test]
+    fn test_resolve_stratum_attribute_wrong_arg_count_multiple() {
+        let strata = vec![make_stratum("fast", vec![])];
+        let mut nodes = vec![make_node(
+            "signal1",
+            vec![make_attr("stratum", vec!["fast", "slow"])],
+        )];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+        assert!(errors[0].message.contains("exactly one argument"));
+    }
+
+    #[test]
+    fn test_resolve_stratum_attribute_non_identifier() {
+        use crate::ast::UntypedKind;
+
+        let strata = vec![make_stratum("fast", vec![])];
+
+        // Create attribute with literal expression (not an identifier)
+        let span = test_span();
+        let invalid_arg = Expr::new(
+            UntypedKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            span,
+        );
+        let attr = Attribute {
+            name: "stratum".to_string(),
+            args: vec![invalid_arg],
+            span,
+        };
+
+        let mut nodes = vec![make_node("signal1", vec![attr])];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+        assert!(errors[0].message.contains("must be an identifier"));
+    }
+
+    // ===== Cadence Edge Case Tests =====
+
+    #[test]
+    fn test_resolve_cadence_negative() {
+        let mut strata = vec![make_stratum(
+            "bad",
+            vec![make_attr_numeric("cadence", -5.0)],
+        )];
+
+        let result = resolve_cadences(&mut strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+        assert!(errors[0].message.contains("positive integer"));
+    }
+
+    #[test]
+    fn test_resolve_cadence_float() {
+        let mut strata = vec![make_stratum("bad", vec![make_attr_numeric("cadence", 1.5)])];
+
+        let result = resolve_cadences(&mut strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+        assert!(errors[0].message.contains("positive integer"));
+    }
+
+    #[test]
+    fn test_resolve_cadence_large_value() {
+        let mut strata = vec![make_stratum(
+            "slow",
+            vec![make_attr_numeric("stride", 1000.0)],
+        )];
+
+        let result = resolve_cadences(&mut strata);
+        assert!(result.is_ok());
+        assert_eq!(strata[0].cadence, Some(1000));
+    }
+
+    #[test]
+    fn test_resolve_cadence_multiple_strata_mixed() {
+        let mut strata = vec![
+            make_stratum("fast", vec![]), // default 1
+            make_stratum("medium", vec![make_attr_numeric("stride", 5.0)]), // explicit 5
+            make_stratum("slow", vec![make_attr_numeric("cadence", 10.0)]), // explicit 10
+        ];
+
+        let result = resolve_cadences(&mut strata);
+        assert!(result.is_ok());
+        assert_eq!(strata[0].cadence, Some(1));
+        assert_eq!(strata[1].cadence, Some(5));
+        assert_eq!(strata[2].cadence, Some(10));
+    }
+
+    #[test]
+    fn test_resolve_cadence_stride_vs_cadence_same_behavior() {
+        let mut strata_stride = vec![make_stratum("test", vec![make_attr_numeric("stride", 7.0)])];
+        let mut strata_cadence = vec![make_stratum(
+            "test",
+            vec![make_attr_numeric("cadence", 7.0)],
+        )];
+
+        let result1 = resolve_cadences(&mut strata_stride);
+        let result2 = resolve_cadences(&mut strata_cadence);
+
+        assert!(result1.is_ok());
+        assert!(result2.is_ok());
+        assert_eq!(strata_stride[0].cadence, strata_cadence[0].cadence);
+        assert_eq!(strata_stride[0].cadence, Some(7));
+    }
+
+    #[test]
+    fn test_resolve_cadence_attribute_wrong_arg_count() {
+        let mut strata = vec![make_stratum(
+            "bad",
+            vec![make_attr("cadence", vec!["arg1", "arg2"])],
+        )];
+
+        let result = resolve_cadences(&mut strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+        assert!(errors[0].message.contains("exactly one argument"));
+    }
+
+    // ===== Error Accumulation Tests =====
+
+    #[test]
+    fn test_resolve_multiple_undefined_strata() {
+        let strata = vec![make_stratum("valid", vec![])];
+        let mut nodes = vec![
+            make_node("signal1", vec![make_attr("stratum", vec!["missing1"])]),
+            make_node("signal2", vec![make_attr("stratum", vec!["missing2"])]),
+            make_node("signal3", vec![make_attr("stratum", vec!["missing3"])]),
+        ];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 3);
+
+        for error in &errors {
+            assert_eq!(error.kind, ErrorKind::UndefinedName);
+            assert!(error.message.contains("undefined stratum"));
+            assert!(error.notes.iter().any(|n| n.contains("available strata")));
+        }
+    }
+
+    #[test]
+    fn test_resolve_multiple_nodes_missing_stratum() {
+        let strata = vec![make_stratum("fast", vec![]), make_stratum("slow", vec![])];
+        let mut nodes = vec![
+            make_node("signal1", vec![]),
+            make_node("signal2", vec![]),
+            make_node("signal3", vec![]),
+        ];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 3);
+
+        for error in &errors {
+            assert_eq!(error.kind, ErrorKind::AmbiguousName);
+            assert!(error.message.contains("must specify stratum"));
+            assert!(error.notes.iter().any(|n| n.contains("add :stratum(name)")));
+        }
+    }
+
+    #[test]
+    fn test_resolve_cadence_multiple_errors() {
+        let mut strata = vec![
+            make_stratum("bad1", vec![make_attr_numeric("stride", 0.0)]), // zero
+            make_stratum("bad2", vec![make_attr_numeric("cadence", -1.0)]), // negative
+            make_stratum("bad3", vec![make_attr("stride", vec!["not_num"])]), // non-literal
+        ];
+
+        let result = resolve_cadences(&mut strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 3);
+
+        for error in &errors {
+            assert_eq!(error.kind, ErrorKind::InvalidCapability);
+        }
+    }
+
+    // ===== Mixed Valid and Invalid Cases =====
+
+    #[test]
+    fn test_resolve_mixed_valid_invalid_nodes() {
+        let strata = vec![make_stratum("fast", vec![]), make_stratum("slow", vec![])];
+        let mut nodes = vec![
+            make_node("signal1", vec![make_attr("stratum", vec!["fast"])]), // valid
+            make_node("signal2", vec![make_attr("stratum", vec!["missing"])]), // invalid
+            make_node("signal3", vec![make_attr("stratum", vec!["slow"])]), // valid
+        ];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        // Only signal2 should have an error
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("missing"));
+
+        // Valid nodes should still be assigned
+        assert_eq!(nodes[0].stratum, Some(StratumId::new("fast")));
+        assert_eq!(nodes[2].stratum, Some(StratumId::new("slow")));
+    }
+
+    #[test]
+    fn test_resolve_mixed_valid_invalid_cadences() {
+        let mut strata = vec![
+            make_stratum("good", vec![make_attr_numeric("stride", 5.0)]), // valid
+            make_stratum("bad", vec![make_attr_numeric("cadence", 0.0)]), // invalid
+            make_stratum("default", vec![]),                              // valid (default)
+        ];
+
+        let result = resolve_cadences(&mut strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("positive integer"));
+
+        // Valid strata should still have cadence assigned
+        assert_eq!(strata[0].cadence, Some(5));
+        assert_eq!(strata[2].cadence, Some(1));
     }
 }
