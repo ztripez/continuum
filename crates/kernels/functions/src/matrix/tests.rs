@@ -149,6 +149,38 @@ fn test_inverse_mat2_singular() {
 }
 
 #[test]
+fn test_inverse_mat2_large_scale() {
+    // Test numerical stability with large values (1e8 scale)
+    let scale = 1e8;
+    let m = Mat2([scale, 0.0, 0.0, scale]);
+    let inv = inverse_mat2(m);
+    let expected = 1.0 / scale;
+    assert!((inv.0[0] - expected).abs() < 1e-10 * expected.abs());
+    assert!((inv.0[3] - expected).abs() < 1e-10 * expected.abs());
+
+    // Verify M·M⁻¹ = I
+    let m2 = Mat2([scale, 0.0, 0.0, scale]);
+    let product = mul_mat2(m2, inv);
+    assert!(
+        (product.0[0] - 1.0).abs() < 1e-6,
+        "M·M⁻¹ should be identity"
+    );
+    assert!((product.0[3] - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn test_inverse_mat3_large_scale() {
+    // Test numerical stability with large values
+    let scale = 1e8;
+    let m = Mat3([scale, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, scale]);
+    let inv = inverse_mat3(m);
+    let expected = 1.0 / scale;
+    assert!((inv.0[0] - expected).abs() < 1e-10 * expected.abs());
+    assert!((inv.0[4] - expected).abs() < 1e-10 * expected.abs());
+    assert!((inv.0[8] - expected).abs() < 1e-10 * expected.abs());
+}
+
+#[test]
 fn test_mul_mat2_identity() {
     let identity = Mat2([1.0, 0.0, 0.0, 1.0]);
     let m = Mat2([1.0, 2.0, 3.0, 4.0]);
@@ -227,6 +259,25 @@ fn test_eigenvalues_mat2_identity() {
 }
 
 #[test]
+fn test_eigenvalues_mat2_off_diagonal() {
+    // Symmetric matrix [[3, 1], [1, 3]] - off-diagonal elements test analytic formula
+    let m = Mat2([3.0, 1.0, 1.0, 3.0]);
+    let result = eigenvalues_mat2(m);
+    // Eigenvalues: (3+3 ± √((3-3)² + 4·1²)) / 2 = (6 ± 2) / 2 = 4, 2
+    assert!((result[0] - 4.0).abs() < 1e-10, "λ₁ should be 4");
+    assert!((result[1] - 2.0).abs() < 1e-10, "λ₂ should be 2");
+}
+
+#[test]
+fn test_eigenvalues_mat2_diagonal() {
+    // Diagonal matrix [[5, 0], [0, 2]] - tests b ≈ 0 branch
+    let m = Mat2([5.0, 0.0, 0.0, 2.0]);
+    let result = eigenvalues_mat2(m);
+    assert!((result[0] - 5.0).abs() < 1e-10, "λ₁ should be 5");
+    assert!((result[1] - 2.0).abs() < 1e-10, "λ₂ should be 2");
+}
+
+#[test]
 fn test_eigenvalues_mat3_diagonal() {
     // Diagonal matrix [[2, 0, 0], [0, 3, 0], [0, 0, 1]]
     let m = Mat3([2.0, 0.0, 0.0, 0.0, 3.0, 0.0, 0.0, 0.0, 1.0]);
@@ -238,12 +289,53 @@ fn test_eigenvalues_mat3_diagonal() {
 }
 
 #[test]
+fn test_eigenvalues_mat3_degenerate_scalar_multiple() {
+    // Scalar multiple of identity: 5·I = [[5, 0, 0], [0, 5, 0], [0, 0, 5]]
+    // Tests p < P_THRESHOLD branch (all eigenvalues equal)
+    let m = Mat3([5.0, 0.0, 0.0, 0.0, 5.0, 0.0, 0.0, 0.0, 5.0]);
+    let result = eigenvalues_mat3(m);
+    // All eigenvalues should be 5.0
+    assert!((result[0] - 5.0).abs() < 1e-10, "λ₁ should be 5");
+    assert!((result[1] - 5.0).abs() < 1e-10, "λ₂ should be 5");
+    assert!((result[2] - 5.0).abs() < 1e-10, "λ₃ should be 5");
+}
+
+#[test]
+fn test_eigenvalues_mat3_general_symmetric() {
+    // General symmetric matrix [[4, 1, 0], [1, 4, 1], [0, 1, 4]]
+    // Tests Cardano formula with non-degenerate case
+    let m = Mat3([4.0, 1.0, 0.0, 1.0, 4.0, 1.0, 0.0, 1.0, 4.0]);
+    let result = eigenvalues_mat3(m);
+    // Verify sorted descending
+    assert!(result[0] >= result[1], "λ₁ should be >= λ₂");
+    assert!(result[1] >= result[2], "λ₂ should be >= λ₃");
+    // Verify trace = sum of eigenvalues (12 = 4+4+4)
+    let trace_sum = result[0] + result[1] + result[2];
+    assert!(
+        (trace_sum - 12.0).abs() < 1e-10,
+        "Sum of eigenvalues should equal trace"
+    );
+}
+
+#[test]
 fn test_eigenvectors_mat2_identity() {
     let identity = Mat2([1.0, 0.0, 0.0, 1.0]);
     let result = eigenvectors_mat2(identity);
+
     // Identity matrix has any orthonormal basis as eigenvectors
-    // Just check it's a valid matrix
-    let _ = result;
+    // Verify columns are orthonormal
+    let v0 = [result.0[0], result.0[1]];
+    let v1 = [result.0[2], result.0[3]];
+
+    // Check unit length
+    let norm0 = (v0[0] * v0[0] + v0[1] * v0[1]).sqrt();
+    let norm1 = (v1[0] * v1[0] + v1[1] * v1[1]).sqrt();
+    assert!((norm0 - 1.0).abs() < 1e-10, "Column 0 not unit length");
+    assert!((norm1 - 1.0).abs() < 1e-10, "Column 1 not unit length");
+
+    // Check orthogonality
+    let dot = v0[0] * v1[0] + v0[1] * v1[1];
+    assert!(dot.abs() < 1e-10, "Columns not orthogonal");
 }
 
 #[test]
@@ -593,6 +685,67 @@ fn test_svd_mat4_reconstruction() {
             "SVD reconstruction failed at index {}",
             i
         );
+    }
+}
+
+#[test]
+fn test_svd_u_orthonormality_mat4() {
+    let u = svd_u_mat4(Mat4([
+        5.0, 1.0, 0.0, 0.0, 1.0, 4.0, 1.0, 0.0, 0.0, 1.0, 3.0, 1.0, 0.0, 0.0, 1.0, 2.0,
+    ]));
+
+    // Check columns are orthonormal
+    for i in 0..4 {
+        let col = [u.0[i * 4], u.0[i * 4 + 1], u.0[i * 4 + 2], u.0[i * 4 + 3]];
+
+        // Check unit length
+        let norm = (col[0] * col[0] + col[1] * col[1] + col[2] * col[2] + col[3] * col[3]).sqrt();
+        assert!((norm - 1.0).abs() < 1e-10, "U column {} not unit length", i);
+
+        // Check orthogonality with other columns
+        for j in (i + 1)..4 {
+            let other = [u.0[j * 4], u.0[j * 4 + 1], u.0[j * 4 + 2], u.0[j * 4 + 3]];
+            let dot = col[0] * other[0] + col[1] * other[1] + col[2] * other[2] + col[3] * other[3];
+            assert!(
+                dot.abs() < 1e-10,
+                "U columns {} and {} not orthogonal",
+                i,
+                j
+            );
+        }
+    }
+}
+
+#[test]
+fn test_svd_vt_orthonormality_mat4() {
+    let vt = svd_vt_mat4(Mat4([
+        5.0, 1.0, 0.0, 0.0, 1.0, 4.0, 1.0, 0.0, 0.0, 1.0, 3.0, 1.0, 0.0, 0.0, 1.0, 2.0,
+    ]));
+
+    // V^T rows should be orthonormal
+    for i in 0..4 {
+        let row = [
+            vt.0[i * 4],
+            vt.0[i * 4 + 1],
+            vt.0[i * 4 + 2],
+            vt.0[i * 4 + 3],
+        ];
+
+        // Check unit length
+        let norm = (row[0] * row[0] + row[1] * row[1] + row[2] * row[2] + row[3] * row[3]).sqrt();
+        assert!((norm - 1.0).abs() < 1e-10, "V^T row {} not unit length", i);
+
+        // Check orthogonality with other rows
+        for j in (i + 1)..4 {
+            let other = [
+                vt.0[j * 4],
+                vt.0[j * 4 + 1],
+                vt.0[j * 4 + 2],
+                vt.0[j * 4 + 3],
+            ];
+            let dot = row[0] * other[0] + row[1] * other[1] + row[2] * other[2] + row[3] * other[3];
+            assert!(dot.abs() < 1e-10, "V^T rows {} and {} not orthogonal", i, j);
+        }
     }
 }
 
