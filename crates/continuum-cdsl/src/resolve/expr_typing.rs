@@ -328,6 +328,23 @@ fn derive_return_type(
 ) -> Result<Type, Vec<CompileError>> {
     use crate::ast::{ShapeDerivation, UnitDerivation};
 
+    // HACK: Detect boolean return types early
+    // The kernel signature system doesn't track Rust value types (bool vs f64),
+    // so we use a heuristic: comparison and logical operators return bool.
+    // Boolean kernels don't have meaningful shape/unit, so skip derivation.
+    // TODO: Add explicit value type to KernelReturn (continuum-kernel-types)
+    let is_bool_kernel = matches!(
+        (sig.id.namespace, sig.id.name),
+        // All comparison operators return bool
+        ("compare", "eq" | "ne" | "lt" | "le" | "gt" | "ge") |
+        // Logical operators except select return bool
+        ("logic", "and" | "or" | "not")
+    );
+
+    if is_bool_kernel {
+        return Ok(Type::Bool);
+    }
+
     // Derive shape and optionally bounds (when shape is SameAs)
     let (shape, bounds_from_shape) = match &sig.returns.shape {
         ShapeDerivation::Exact(s) => (s.clone(), None),
@@ -2933,7 +2950,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires compare.lt kernel + Bool return type fix - tracked in continuum-2cpl, continuum-n1h9"]
     fn test_type_binary_comparison_less_desugars() {
         let ctx = make_context();
         let expr = Expr::new(
@@ -2970,7 +2986,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires compare.eq kernel + Bool return type fix - tracked in continuum-2cpl, continuum-n1h9"]
     fn test_type_binary_comparison_equal_desugars() {
         let ctx = make_context();
         let expr = Expr::new(
@@ -3006,7 +3021,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires logic.and kernel accepting Bool params - tracked in continuum-2cpl"]
     fn test_type_binary_logical_and_desugars() {
         let ctx = make_context();
         let expr = Expr::new(
@@ -3063,7 +3077,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires logic.not kernel accepting Bool param - tracked in continuum-2cpl"]
     fn test_type_unary_not_desugars() {
         let ctx = make_context();
         let expr = Expr::new(
