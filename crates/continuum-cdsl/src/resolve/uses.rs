@@ -626,6 +626,7 @@ mod tests {
             Phase::Resolve,
             ExecutionBody::Expr(clamp_call),
             vec![],
+            vec![],
             span,
         ));
 
@@ -678,6 +679,7 @@ mod tests {
             "resolve".to_string(),
             Phase::Resolve,
             ExecutionBody::Expr(clamp_call),
+            vec![],
             vec![],
             span,
         ));
@@ -866,6 +868,7 @@ mod tests {
             "resolve".to_string(),
             Phase::Resolve,
             ExecutionBody::Expr(clamp_call),
+            vec![],
             vec![],
             span,
         ));

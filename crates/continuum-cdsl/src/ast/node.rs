@@ -54,7 +54,7 @@
 //! assert_eq!(member.index, EntityId(Path::from_str("plate")));
 //! ```
 
-use crate::foundation::{EntityId, Path, Span, StratumId, Type};
+use crate::foundation::{AssertionSeverity, EntityId, Path, Span, StratumId, Type};
 use std::path::PathBuf;
 
 use super::block::{BlockBody, Stmt};
@@ -63,10 +63,7 @@ use super::expr::TypedExpr;
 use super::role::RoleData;
 
 // Re-export structural declarations from structural module
-pub use super::structural::{
-    Analyzer, AnalyzerValidation, Entity, Era, EraTransition, Stratum, StratumPolicy,
-    ValidationSeverity,
-};
+pub use super::structural::{Entity, Stratum};
 
 /// Index trait - marker for node indexing types
 ///
@@ -384,17 +381,40 @@ pub struct Scoping {
     _placeholder: (),
 }
 
-/// Assertion to validate invariants
+/// Assertion to validate invariants within the simulation.
 ///
-/// Assertions validate conditions after execution completes.
-/// Each assertion has a condition expression and an optional error message.
+/// Assertions are non-causal checks that validate conditions after execution
+/// completes (typically during the [`Phase::Measure`] phase). Each assertion
+/// consists of a boolean condition expression and an optional error message.
+///
+/// If an assertion fails, it emits a structured fault. The simulation policy
+/// determines if failure is fatal, causes a halt, or allows continuation.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use continuum_cdsl::ast::Assertion;
+/// use continuum_cdsl::ast::expr::TypedExpr;
+/// use continuum_cdsl::foundation::Span;
+///
+/// // Create a simple assertion: temperature must be positive
+/// let condition = ...; // TypedExpr evaluating to Bool
+/// let assertion = Assertion::new(
+///     condition,
+///     Some("Temperature must be positive".to_string()),
+///     span
+/// );
+/// ```
 #[derive(Clone, Debug)]
 pub struct Assertion {
-    /// The condition expression to validate (must evaluate to Bool)
+    /// The condition expression to validate (must evaluate to [`Type::Bool`])
     pub condition: TypedExpr,
 
     /// Optional custom message to show when assertion fails
     pub message: Option<String>,
+
+    /// Severity of the assertion failure
+    pub severity: AssertionSeverity,
 
     /// Source location for error reporting
     pub span: Span,
@@ -402,18 +422,46 @@ pub struct Assertion {
 
 impl Assertion {
     /// Create a new assertion
-    pub fn new(condition: TypedExpr, message: Option<String>, span: Span) -> Self {
+    pub fn new(
+        condition: TypedExpr,
+        message: Option<String>,
+        severity: AssertionSeverity,
+        span: Span,
+    ) -> Self {
         Self {
             condition,
             message,
+            severity,
             span,
         }
     }
 }
 
-/// Body of an execution block
+/// Body of an execution block in the Execution IR.
 ///
-/// Differentiates between pure blocks (single expression) and effect blocks (statements).
+/// Differentiates between pure blocks (single expression) and effectful
+/// blocks (statements). This distinction is critical for identifying
+/// which phases an execution block can belong to (e.g., [`Phase::Resolve`]
+/// blocks must be pure expressions).
+///
+/// # Variants
+///
+/// - [`ExecutionBody::Expr`]: A pure computation representing a single [`TypedExpr`].
+///   Used in [`Phase::Resolve`], [`Phase::Measure`], [`Phase::Assert`], and [`Phase::Fracture`].
+/// - [`ExecutionBody::Statements`]: An effectful computation containing a list of [`Stmt`].
+///   Used in [`Phase::Collect`] and [`Phase::Apply`].
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use continuum_cdsl::ast::{ExecutionBody, TypedExpr, Stmt};
+///
+/// // A pure expression body for a Resolve phase
+/// let body = ExecutionBody::Expr(typed_expr);
+///
+/// // An effectful statement body for a Collect phase
+/// let body = ExecutionBody::Statements(vec![stmt1, stmt2]);
+/// ```
 #[derive(Clone, Debug)]
 pub enum ExecutionBody {
     /// Pure computation (Resolve, Measure, Assert, Fracture)
@@ -426,20 +474,21 @@ pub enum ExecutionBody {
     Statements(Vec<Stmt>),
 }
 
-/// Compiled execution block
+/// Compiled execution block in the Execution IR.
 ///
 /// An execution block contains the compiled code for a specific phase,
-/// along with metadata about what it reads and emits.
+/// along with metadata about what it reads and emits. These blocks are
+/// the primary input to the deterministic execution graph (DAG) builder.
 ///
 /// # Lifecycle
 ///
 /// `Execution` is created during the execution block compilation pass (Phase 12.5):
 /// 1. Parser produces `Node.execution_blocks: Vec<(String, BlockBody)>`
 /// 2. Execution compilation pass converts each block:
-///    - Validates phase name against role's allowed phases
-///    - Type-checks the block body
-///    - Extracts signal/field reads as dependencies
-///    - Creates `Execution` struct
+///    - Validates phase name against role's allowed phases (see [`RoleSpec::allowed_phases`])
+///    - Type-checks the block body into an [`ExecutionBody`]
+///    - Extracts signal/field reads as dependencies ([`Path`]s)
+///    - Creates an [`Execution`] struct
 /// 3. `Node.execution_blocks` is cleared, `Node.executions` populated
 ///
 /// # Examples
@@ -468,7 +517,7 @@ pub struct Execution {
     /// Which phase this block executes in
     ///
     /// Determines when this execution runs relative to other operations.
-    /// Must be one of the phases allowed by the node's role (see `RoleSpec::allowed_phases`).
+    /// Must be one of the phases allowed by the node's role (see [`RoleSpec::allowed_phases`]).
     pub phase: crate::foundation::Phase,
 
     /// Compiled body of the execution block
@@ -480,6 +529,13 @@ pub struct Execution {
     /// Used for DAG construction to determine execution ordering.
     /// Extracted by analyzing the body expression tree.
     pub reads: Vec<Path>,
+
+    /// Signal/field emission targets
+    ///
+    /// Paths to signals and fields that this execution emits to.
+    /// Used for DAG construction to determine causal links.
+    /// Extracted by analyzing emission statements in the body.
+    pub emits: Vec<Path>,
 
     /// Source location for error reporting
     ///
@@ -494,9 +550,10 @@ impl Execution {
     /// # Parameters
     ///
     /// - `name`: Name of the block
-    /// - `phase`: Which phase this executes in (Resolve, Collect, etc.)
-    /// - `body`: The compiled body
+    /// - `phase`: Which phase this executes in ([`Phase::Resolve`], [`Phase::Collect`], etc.)
+    /// - `body`: The compiled [`ExecutionBody`]
     /// - `reads`: Dependencies extracted from the body
+    /// - `emits`: Emission targets extracted from the body
     /// - `span`: Source location for error messages
     ///
     /// # Returns
@@ -507,6 +564,7 @@ impl Execution {
         phase: crate::foundation::Phase,
         body: ExecutionBody,
         reads: Vec<Path>,
+        emits: Vec<Path>,
         span: Span,
     ) -> Self {
         Self {
@@ -514,6 +572,7 @@ impl Execution {
             phase,
             body,
             reads,
+            emits,
             span,
         }
     }
@@ -664,6 +723,7 @@ mod tests {
             crate::foundation::Phase::Resolve,
             ExecutionBody::Expr(test_body),
             vec![],
+            vec![],
             span,
         )];
         assert!(node.is_compiled());
@@ -783,6 +843,7 @@ mod tests {
             crate::foundation::Phase::Resolve,
             ExecutionBody::Expr(test_body),
             vec![],
+            vec![],
             span,
         )];
         assert!(!node.is_compiled());
@@ -833,6 +894,7 @@ mod tests {
             Phase::Resolve,
             body,
             reads.clone(),
+            vec![],
             span,
         );
 
@@ -869,7 +931,7 @@ mod tests {
 
         for phase in phases {
             let body = ExecutionBody::Expr(body_expr.clone());
-            let execution = Execution::new("test".to_string(), phase, body, vec![], span);
+            let execution = Execution::new("test".to_string(), phase, body, vec![], vec![], span);
             assert_eq!(execution.phase, phase);
         }
     }
@@ -890,7 +952,14 @@ mod tests {
         );
         let body = ExecutionBody::Expr(body_expr);
 
-        let execution = Execution::new("test".to_string(), Phase::Resolve, body, vec![], span);
+        let execution = Execution::new(
+            "test".to_string(),
+            Phase::Resolve,
+            body,
+            vec![],
+            vec![],
+            span,
+        );
 
         assert!(execution.reads.is_empty());
     }

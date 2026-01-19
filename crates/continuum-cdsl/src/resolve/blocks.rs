@@ -1,173 +1,99 @@
-//! Execution block compilation
+//! Execution block compilation pass.
 //!
-//! Compiles raw execution blocks from source into typed `Execution` structs for DAG construction.
+//! Converts raw execution blocks from the parser into compiled `Execution` structures.
+//! Validates that phases are appropriate for the node's role and extracts
+//! signal/field dependencies for DAG construction.
 //!
 //! # What This Pass Does
 //!
-//! ## Execution Block Compilation
-//!
-//! Converts raw execution blocks stored in `Node.execution_blocks` into compiled
-//! `Execution` structs:
-//!
-//! 1. **Phase Name Parsing** - Convert "resolve"/"collect"/etc to `Phase` enum
-//! 2. **Role Validation** - Verify phase is allowed for node's role
-//! 3. **Dependency Extraction** - Walk TypedExpr tree to find Path references
-//! 4. **Execution Creation** - Build `Execution` structs with phase, body, reads
-//! 5. **Statement Validation** - Ensure statements only in effect phases
-//! 6. **Cleanup** - Clear `execution_blocks` after compilation
+//! 1. **Phase Validation** - Verifies phase names and role compatibility.
+//! 2. **Purity Enforcement** - Ensures pure phases don't have statement blocks.
+//! 3. **Dependency Extraction** - Walks expression trees to find read dependencies.
+//! 4. **Execution Creation** - Populates the `executions` list on the node.
+//! 5. **Lifecycle Management** - Clears `execution_blocks` after successful compilation.
 //!
 //! # Pipeline Position
 //!
 //! ```text
-//! Parse → Name Res → Type Res → Validation → Stratum → Era → Uses → Block Compilation
-//!                                                                      ^^^^^^^^^^^^^^^^^
-//!                                                                       YOU ARE HERE
-//! ```
-//!
-//! This pass runs after uses validation (Phase 12.5-C) and before execution DAG
-//! construction (Phase 13). It's the final part of Phase 12.5 execution prerequisites.
-//!
-//! # Usage Example
-//!
-//! ```rust,ignore
-//! use continuum_cdsl::resolve::blocks;
-//! use continuum_cdsl::ast::Node;
-//!
-//! // After type resolution, nodes have execution_blocks populated
-//! let mut nodes: Vec<Node<_>> = parsed_ast.nodes;
-//!
-//! // Phase 12.5-D: Compile execution blocks
-//! for node in &mut nodes {
-//!     match blocks::compile_execution_blocks(node) {
-//!         Ok(()) => {
-//!             // node.executions now populated, execution_blocks cleared
-//!             assert!(node.executions.len() > 0);
-//!             assert!(node.execution_blocks.is_empty());
-//!         }
-//!         Err(errors) => {
-//!             // Invalid phase for role, statements in pure phase, etc.
-//!             return Err(errors);
-//!         }
-//!     }
-//! }
-//!
-//! // Ready for Phase 13: DAG construction
+//! Parse → Desugar → Name Resolution → Type Resolution → Block Compilation → Validation
+//!                                                         ^^^^^^^^^^^^
+//!                                                         YOU ARE HERE
 //! ```
 
-use crate::ast::{BlockBody, Execution, ExecutionBody, ExprKind, Index, Node, RoleId, TypedExpr};
+use crate::ast::{
+    BlockBody, Execution, ExecutionBody, ExprKind, ExpressionVisitor, Index, Node, RoleId,
+    TypedExpr,
+};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{Path, Phase};
 use std::collections::HashSet;
 
-/// Parse phase name string to Phase enum.
-///
-/// Converts execution block phase names ("resolve", "collect", etc.) to Phase enum values.
+/// Parses a string phase name into a Phase enum value.
 ///
 /// # Errors
 ///
-/// Returns [`ErrorKind::InvalidCapability`] for unknown phase names.
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// let phase = parse_phase_name("resolve", node.span)?;
-/// assert_eq!(phase, Phase::Resolve);
-/// ```
-fn parse_phase_name(name: &str, span: crate::foundation::Span) -> Result<Phase, CompileError> {
-    match name {
+/// Returns [`ErrorKind::InvalidCapability`] if the name is unrecognized or
+/// is a legacy name like "apply" or "emit".
+pub fn parse_phase_name(name: &str, span: crate::foundation::Span) -> Result<Phase, CompileError> {
+    match name.to_lowercase().as_str() {
         "resolve" => Ok(Phase::Resolve),
         "collect" => Ok(Phase::Collect),
         "fracture" => Ok(Phase::Fracture),
         "measure" => Ok(Phase::Measure),
         "assert" => Ok(Phase::Assert),
-        // Legacy/alternative names (not used in Phase enum but accepted by parser)
+        "configure" => Ok(Phase::Configure),
+
+        // Handle legacy names with helpful error messages
         "apply" | "emit" => Err(CompileError::new(
             ErrorKind::InvalidCapability,
             span,
             format!(
-                "execution phase '{}' is not supported (use collect, resolve, fracture, measure, or assert)",
+                "legacy execution phase '{}' is no longer supported. Use 'collect' for signal inputs or 'measure' for observations.",
                 name
             ),
         )),
+
         _ => Err(CompileError::new(
             ErrorKind::InvalidCapability,
             span,
-            format!("unknown execution phase '{}'", name),
+            format!(
+                "unknown execution phase '{}'. Valid phases are: resolve, collect, fracture, measure, assert, configure",
+                name
+            ),
         )),
     }
 }
 
-/// Extract dependencies (signal/field paths) from a typed expression.
+/// Extracts signal and field paths from an expression tree.
 ///
 /// Recursively walks the expression tree to find all `Signal` and `Field` path references.
 /// These become the `reads` for the execution block, used for DAG dependency analysis.
 ///
 /// Returns paths in **deterministic sorted order** to satisfy the determinism invariant.
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// // Expression: prev + field.temperature
-/// let deps = extract_dependencies(&typed_expr);
-/// // deps contains: current signal path (from prev), field.temperature (sorted)
-/// ```
 fn extract_dependencies(expr: &TypedExpr) -> Vec<Path> {
-    let mut paths = HashSet::new();
-    collect_paths(expr, &mut paths);
-    let mut paths: Vec<_> = paths.into_iter().collect();
-    paths.sort(); // Ensure deterministic ordering (AGENTS.md: "All ordering is explicit and stable")
+    let mut visitor = DependencyVisitor::default();
+    expr.walk(&mut visitor);
+
+    // Sort for determinism (satisfies hard invariant)
+    let mut paths: Vec<_> = visitor.paths.into_iter().collect();
+    paths.sort();
     paths
 }
 
-/// Recursively collect all signal/field paths from expression tree.
-fn collect_paths(expr: &TypedExpr, paths: &mut HashSet<Path>) {
-    match &expr.expr {
-        ExprKind::Signal(path) | ExprKind::Field(path) => {
-            paths.insert(path.clone());
-        }
-        ExprKind::Prev | ExprKind::Current => {
-            // These reference the current signal - handled by DAG construction
-        }
-        ExprKind::Let { value, body, .. } => {
-            collect_paths(value, paths);
-            collect_paths(body, paths);
-        }
-        ExprKind::Call { args, .. } => {
-            // Binary/Unary/If all desugar to Call
-            for arg in args {
-                collect_paths(arg, paths);
+/// Visitor that collects signal and field paths from an expression tree.
+#[derive(Default)]
+struct DependencyVisitor {
+    paths: HashSet<Path>,
+}
+
+impl ExpressionVisitor for DependencyVisitor {
+    fn visit_expr(&mut self, expr: &TypedExpr) {
+        match &expr.expr {
+            ExprKind::Signal(path) | ExprKind::Field(path) => {
+                self.paths.insert(path.clone());
             }
+            _ => {}
         }
-        ExprKind::Aggregate { body, .. } => {
-            collect_paths(body, paths);
-        }
-        ExprKind::Fold { init, body, .. } => {
-            collect_paths(init, paths);
-            collect_paths(body, paths);
-        }
-        ExprKind::Vector(elements) => {
-            for elem in elements {
-                collect_paths(elem, paths);
-            }
-        }
-        ExprKind::Struct { fields, .. } => {
-            for (_, expr) in fields {
-                collect_paths(expr, paths);
-            }
-        }
-        ExprKind::FieldAccess { object, .. } => {
-            collect_paths(object, paths);
-        }
-        // Leaf nodes
-        ExprKind::Literal { .. }
-        | ExprKind::Dt
-        | ExprKind::Config(_)
-        | ExprKind::Const(_)
-        | ExprKind::Local(_)
-        | ExprKind::Payload
-        | ExprKind::Inputs
-        | ExprKind::Self_
-        | ExprKind::Other => {}
     }
 }
 
@@ -307,7 +233,14 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
         };
 
         // 6. Create Execution
-        let execution = Execution::new(phase_name.clone(), phase, body, reads, node.span);
+        let execution = Execution::new(
+            phase_name.clone(),
+            phase,
+            body,
+            reads,
+            vec![], // Emits extraction for statements not yet implemented
+            node.span,
+        );
         executions.push(execution);
     }
 
@@ -318,6 +251,18 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
     // 7. Update node
     node.executions = executions;
     node.execution_blocks.clear();
+
+    // 8. Populate node-level reads for cycle detection (Phase 12 structure validation)
+    // Union of all per-execution reads
+    let mut all_reads = std::collections::HashSet::new();
+    for execution in &node.executions {
+        for read in &execution.reads {
+            all_reads.insert(read.clone());
+        }
+    }
+    let mut sorted_reads: Vec<_> = all_reads.into_iter().collect();
+    sorted_reads.sort();
+    node.reads = sorted_reads;
 
     Ok(())
 }
@@ -347,6 +292,10 @@ mod tests {
         assert_eq!(parse_phase_name("fracture", span).unwrap(), Phase::Fracture);
         assert_eq!(parse_phase_name("measure", span).unwrap(), Phase::Measure);
         assert_eq!(parse_phase_name("assert", span).unwrap(), Phase::Assert);
+        assert_eq!(
+            parse_phase_name("configure", span).unwrap(),
+            Phase::Configure
+        );
     }
 
     #[test]
@@ -497,6 +446,45 @@ mod tests {
             node.execution_blocks.is_empty(),
             "execution_blocks should be cleared"
         );
+
+        // Verify node-level reads populated (from typed_expr, which is empty literal here)
+        assert!(
+            node.reads.is_empty(),
+            "node.reads should be empty for literal-only execution"
+        );
+    }
+
+    #[test]
+    fn test_compile_execution_blocks_populates_node_reads() {
+        use crate::ast::RoleData;
+        use crate::foundation::{KernelType, Shape, Unit};
+
+        let span = Span::new(0, 0, 10, 1);
+        let path = Path::from("test.signal");
+        let signal_path = Path::from_str("other.signal");
+
+        // Create a typed expression that reads a signal
+        let ty = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::DIMENSIONLESS,
+            bounds: None,
+        });
+        let typed_expr = TypedExpr::new(ExprKind::Signal(signal_path.clone()), ty, span);
+
+        // Create node with resolve block
+        let mut node = Node::new(path.clone(), span, RoleData::Signal, ());
+        node.execution_blocks = vec![(
+            "resolve".to_string(),
+            BlockBody::TypedExpression(typed_expr),
+        )];
+
+        // Compile execution blocks
+        let result = compile_execution_blocks(&mut node);
+        assert!(result.is_ok());
+
+        // Verify node.reads contains the signal
+        assert_eq!(node.reads.len(), 1);
+        assert_eq!(node.reads[0], signal_path);
     }
 
     #[test]

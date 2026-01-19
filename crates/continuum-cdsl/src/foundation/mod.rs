@@ -19,6 +19,7 @@ pub use continuum_foundation::{
     // Typed IDs
     AnalyzerId,
     // Execution phases and capabilities
+    AssertionSeverity,
     Capability,
     CapabilitySet,
     ChronicleId,

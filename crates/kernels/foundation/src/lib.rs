@@ -26,7 +26,7 @@ pub use ids::{
 pub use coercion::{TypeCheckOp, TypeCheckResult, can_operate, type_shape};
 pub use field::FieldSample;
 pub use operators::{AggregateOp, BinaryOp, UnaryOp};
-pub use phase::{Capability, CapabilitySet, Phase, PhaseSet};
+pub use phase::{AssertionSeverity, Capability, CapabilitySet, Phase, PhaseSet};
 pub use primitives::{
     PRIMITIVE_TYPES, PrimitiveParamKind, PrimitiveParamSpec, PrimitiveShape, PrimitiveStorageClass,
     PrimitiveTypeDef, PrimitiveTypeId, primitive_type_by_name,

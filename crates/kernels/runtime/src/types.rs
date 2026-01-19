@@ -18,8 +18,8 @@
 
 // Re-export foundational ID types and StratumState
 pub use continuum_foundation::{
-    EntityId, EraId, FieldId, FractureId, ImpulseId, InstanceId, OperatorId, SignalId, StratumId,
-    StratumState, Value,
+    AssertionSeverity, EntityId, EraId, FieldId, FractureId, ImpulseId, InstanceId, OperatorId,
+    SignalId, StratumId, StratumState, Value,
 };
 
 use serde::{Deserialize, Serialize};

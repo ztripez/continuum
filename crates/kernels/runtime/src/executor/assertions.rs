@@ -6,40 +6,12 @@ use tracing::{debug, error, warn};
 
 use crate::error::{Error, Result};
 use crate::storage::{EntityStorage, SignalStorage};
-use crate::types::{Dt, SignalId, Value};
+use crate::types::{AssertionSeverity, Dt, SignalId, Value};
 
 use super::context::AssertContext;
 
-/// Severity of an assertion
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AssertionSeverity {
-    /// Warning only, execution continues
-    Warn,
-    /// Error, may halt based on policy
-    Error,
-    /// Fatal, always halts
-    Fatal,
-}
-
-impl Default for AssertionSeverity {
-    fn default() -> Self {
-        Self::Error
-    }
-}
-
-/// A registered assertion for a signal
-pub struct SignalAssertion {
-    /// The signal this assertion belongs to
-    pub signal: SignalId,
-    /// Function that evaluates the assertion condition
-    pub condition: AssertionFn,
-    /// Severity of the assertion
-    pub severity: AssertionSeverity,
-    /// Optional message for failure
-    pub message: Option<String>,
-}
-
 /// Function that evaluates an assertion condition
+
 pub type AssertionFn = Box<dyn Fn(&AssertContext) -> bool + Send + Sync>;
 
 /// Record of an assertion failure

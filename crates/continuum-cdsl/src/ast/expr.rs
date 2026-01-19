@@ -849,6 +849,56 @@ impl TypedExpr {
             ExprKind::FieldAccess { object, .. } => object.is_pure(),
         }
     }
+
+    /// Walk the expression tree recursively
+    ///
+    /// This is a generic visitor that traverses the entire `TypedExpr` tree.
+    /// It ensures that any logic that needs to inspect the tree (like dependency
+    /// extraction or capability validation) is centralized and doesn't miss
+    /// any variants when `ExprKind` is expanded.
+    pub fn walk<V: ExpressionVisitor>(&self, visitor: &mut V) {
+        visitor.visit_expr(self);
+
+        match &self.expr {
+            ExprKind::Vector(exprs) => {
+                for expr in exprs {
+                    expr.walk(visitor);
+                }
+            }
+            ExprKind::Let { value, body, .. } => {
+                value.walk(visitor);
+                body.walk(visitor);
+            }
+            ExprKind::Aggregate { body, .. } => {
+                body.walk(visitor);
+            }
+            ExprKind::Fold { init, body, .. } => {
+                init.walk(visitor);
+                body.walk(visitor);
+            }
+            ExprKind::Call { args, .. } => {
+                for arg in args {
+                    arg.walk(visitor);
+                }
+            }
+            ExprKind::Struct { fields, .. } => {
+                for (_, expr) in fields {
+                    expr.walk(visitor);
+                }
+            }
+            ExprKind::FieldAccess { object, .. } => {
+                object.walk(visitor);
+            }
+            // Leaf nodes
+            _ => {}
+        }
+    }
+}
+
+/// Visitor trait for traversing typed expressions
+pub trait ExpressionVisitor {
+    /// Visit a typed expression node
+    fn visit_expr(&mut self, expr: &TypedExpr);
 }
 
 #[cfg(test)]

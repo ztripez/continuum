@@ -84,6 +84,24 @@ pub enum Phase {
     Assert = 8,
 }
 
+/// Severity of an assertion failure.
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[repr(u8)]
+pub enum AssertionSeverity {
+    /// Warning only, execution continues.
+    Warn = 0,
+    /// Error, may halt based on policy.
+    Error = 1,
+    /// Fatal, always halts.
+    Fatal = 2,
+}
+
+impl Default for AssertionSeverity {
+    fn default() -> Self {
+        Self::Error
+    }
+}
+
 /// Context capability available during execution.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
