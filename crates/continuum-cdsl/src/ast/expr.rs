@@ -172,44 +172,6 @@ use crate::foundation::EntityId;
 /// (`maths.*`, `vector.*`, `logic.*`, `compare.*`), but effect operations
 /// are bare names (`emit`, `spawn`, `destroy`, `log`).
 ///
-/// # Structure
-///
-/// - **namespace** - Category of operation (e.g., "maths", "vector", "logic", or "" for bare names)
-/// - **name** - Specific operation (e.g., "add", "dot", "select", "emit")
-///
-/// Both fields are `&'static str` because kernel IDs are statically known at
-/// compile time and come from a fixed registry.
-///
-/// # Examples
-///
-/// ```rust
-/// use continuum_cdsl::ast::KernelId;
-///
-/// // Arithmetic: a + b → maths.add(a, b)
-/// let add = KernelId { namespace: "maths", name: "add" };
-///
-/// // Vector operations: dot(a, b) → vector.dot(a, b)
-/// let dot = KernelId { namespace: "vector", name: "dot" };
-///
-/// // Conditional: if c { t } else { e } → logic.select(c, t, e)
-/// let select = KernelId { namespace: "logic", name: "select" };
-///
-/// // Effects: emit(target, value) - bare name, no namespace
-/// let emit = KernelId { namespace: "", name: "emit" };
-/// ```
-///
-/// # Namespaces
-///
-/// | Namespace | Operations | Purity |
-/// |-----------|------------|--------|
-/// | `maths` | add, sub, mul, div, sin, cos, sqrt, etc. | Pure |
-/// | `vector` | dot, cross, norm, normalize, etc. | Pure |
-/// | `matrix` | mul, transpose, determinant, etc. | Pure |
-/// | `logic` | and, or, not, select | Pure |
-/// | `compare` | lt, le, gt, ge, eq, ne | Pure |
-/// | `rng` | uniform, normal, etc. (seeded) | Pure |
-/// | *(bare)* | emit, spawn, destroy, log | Effect |
-///
 /// **NOTE:** KernelId is now imported from `continuum_kernel_types` (single source of truth)
 
 /// Aggregate operations for entity iteration
@@ -839,7 +801,7 @@ impl TypedExpr {
                 let kernel_is_pure = KernelRegistry::global()
                     .get(kernel)
                     .map(|sig| sig.purity.is_pure())
-                    .unwrap_or(true); // Unknown kernels assumed pure (conservative)
+                    .unwrap_or(false); // Unknown kernels assumed impure (conservative)
 
                 kernel_is_pure && args.iter().all(|arg| arg.is_pure())
             }
@@ -850,12 +812,19 @@ impl TypedExpr {
         }
     }
 
-    /// Walk the expression tree recursively
+    /// Walk the expression tree recursively using a visitor.
     ///
-    /// This is a generic visitor that traverses the entire `TypedExpr` tree.
-    /// It ensures that any logic that needs to inspect the tree (like dependency
-    /// extraction or capability validation) is centralized and doesn't miss
-    /// any variants when `ExprKind` is expanded.
+    /// This method implements a generic traversal of the `TypedExpr` tree,
+    /// enabling centralized logic for tree inspection (e.g., dependency extraction,
+    /// capability validation, or optimization passes). By using this method,
+    /// traversal logic is kept in sync with the [`ExprKind`] enum definition.
+    ///
+    /// Traversal is depth-first: the visitor's [`ExpressionVisitor::visit_expr`]
+    /// is called for the current node, then `walk` is called recursively for
+    /// all child expressions.
+    ///
+    /// # Parameters
+    /// - `visitor`: An implementation of [`ExpressionVisitor`] to apply to each node.
     pub fn walk<V: ExpressionVisitor>(&self, visitor: &mut V) {
         visitor.visit_expr(self);
 
@@ -889,15 +858,50 @@ impl TypedExpr {
             ExprKind::FieldAccess { object, .. } => {
                 object.walk(visitor);
             }
-            // Leaf nodes
-            _ => {}
+
+            // Leaf nodes (explicitly listed to ensure exhaustiveness)
+            ExprKind::Literal { .. }
+            | ExprKind::Local(_)
+            | ExprKind::Signal(_)
+            | ExprKind::Field(_)
+            | ExprKind::Config(_)
+            | ExprKind::Const(_)
+            | ExprKind::Prev
+            | ExprKind::Current
+            | ExprKind::Inputs
+            | ExprKind::Dt
+            | ExprKind::Self_
+            | ExprKind::Other
+            | ExprKind::Payload => {}
         }
     }
 }
 
-/// Visitor trait for traversing typed expressions
+/// Visitor trait for traversing typed expression trees.
+///
+/// Implement this trait to perform analysis or transformations on the
+/// [`TypedExpr`] tree. Combined with [`TypedExpr::walk`], this provides
+/// a standard way to inspect expressions without duplicating traversal logic.
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_cdsl::ast::{TypedExpr, ExpressionVisitor};
+///
+/// #[derive(Default)]
+/// struct Counter { count: usize }
+///
+/// impl ExpressionVisitor for Counter {
+///     fn visit_expr(&mut self, _expr: &TypedExpr) {
+///         self.count += 1;
+///     }
+/// }
+/// ```
 pub trait ExpressionVisitor {
-    /// Visit a typed expression node
+    /// Visit a typed expression node.
+    ///
+    /// This method is called for every [`TypedExpr`] node encountered during
+    /// the traversal initiated by [`TypedExpr::walk`].
     fn visit_expr(&mut self, expr: &TypedExpr);
 }
 

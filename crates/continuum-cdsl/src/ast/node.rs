@@ -203,9 +203,14 @@ pub struct Node<I: Index = ()> {
     /// Statement blocks are validated to only appear in effect phases during semantic analysis.
     pub execution_blocks: Vec<(String, BlockBody)>,
 
-    /// Dependencies discovered during analysis
+    /// Signal/field dependencies across all execution blocks.
     ///
-    /// Paths this node reads from. Set during compilation for DAG construction.
+    /// Represents the union of all paths found in the `reads` field of all
+    /// [`Execution`] blocks within the node. These aggregate dependencies
+    /// are used during structure validation (Phase 12) for high-level cycle
+    /// detection in the simulation graph.
+    ///
+    /// Set during the execution block compilation pass ([`compile_execution_blocks`]).
     pub reads: Vec<Path>,
 
     /// Validation errors found during semantic analysis
@@ -381,42 +386,54 @@ pub struct Scoping {
     _placeholder: (),
 }
 
-/// Assertion to validate invariants within the simulation.
+/// Assertion to validate simulation invariants.
 ///
-/// Assertions are non-causal checks that validate conditions after execution
-/// completes (typically during the [`Phase::Measure`] phase). Each assertion
-/// consists of a boolean condition expression and an optional error message.
+/// Assertions are non-causal checks that validate conditions during the
+/// simulation lifecycle. They are typically executed during the [`Phase::Measure`]
+/// phase but may also be checked during [`Phase::Resolve`] or [`Phase::Fracture`]
+/// depending on their definition.
 ///
+/// Each assertion consists of a boolean condition and metadata for error reporting.
 /// If an assertion fails, it emits a structured fault. The simulation policy
-/// determines if failure is fatal, causes a halt, or allows continuation.
+/// determines if the failure is fatal, causes a halt, or allows continuation
+/// based on the [`AssertionSeverity`].
 ///
 /// # Examples
 ///
 /// ```rust,ignore
-/// use continuum_cdsl::ast::Assertion;
+/// use continuum_cdsl::ast::{Assertion, AssertionSeverity};
 /// use continuum_cdsl::ast::expr::TypedExpr;
 /// use continuum_cdsl::foundation::Span;
 ///
 /// // Create a simple assertion: temperature must be positive
-/// let condition = ...; // TypedExpr evaluating to Bool
+/// let condition = ...; // TypedExpr evaluating to Type::Bool
 /// let assertion = Assertion::new(
 ///     condition,
 ///     Some("Temperature must be positive".to_string()),
+///     AssertionSeverity::Error,
 ///     span
 /// );
 /// ```
 #[derive(Clone, Debug)]
 pub struct Assertion {
-    /// The condition expression to validate (must evaluate to [`Type::Bool`])
+    /// The condition expression to validate.
+    ///
+    /// Must evaluate to [`Type::Bool`]. If the expression evaluates to `false`,
+    /// the assertion is considered failed.
     pub condition: TypedExpr,
 
-    /// Optional custom message to show when assertion fails
+    /// Optional custom message to show when the assertion fails.
+    ///
+    /// This message is included in the structured fault emitted by the simulation.
     pub message: Option<String>,
 
-    /// Severity of the assertion failure
+    /// Severity level of the assertion failure.
+    ///
+    /// Determines the simulation's response to failure (e.g., warning, error,
+    /// or fatal halt).
     pub severity: AssertionSeverity,
 
-    /// Source location for error reporting
+    /// Source location for error reporting and diagnostics.
     pub span: Span,
 }
 
@@ -523,18 +540,26 @@ pub struct Execution {
     /// Compiled body of the execution block
     pub body: ExecutionBody,
 
-    /// Signal/field dependencies
+    /// Signal/field dependencies specific to the execution block.
     ///
-    /// Paths to signals and fields that this execution reads.
-    /// Used for DAG construction to determine execution ordering.
-    /// Extracted by analyzing the body expression tree.
+    /// Paths to signals and fields that the execution reads. These are used
+    /// for fine-grained dependency analysis when building the deterministic
+    /// execution graph (DAG) for each phase.
+    ///
+    /// These paths are extracted by recursively walking the expression tree in
+    /// the [`ExecutionBody`]. The union of all `reads` across all execution
+    /// blocks is also stored at the node level in [`Node::reads`].
     pub reads: Vec<Path>,
 
-    /// Signal/field emission targets
+    /// Signal/field emission targets.
     ///
-    /// Paths to signals and fields that this execution emits to.
-    /// Used for DAG construction to determine causal links.
-    /// Extracted by analyzing emission statements in the body.
+    /// Paths to signals and fields that this execution block may emit to.
+    /// These are used for DAG construction to determine causal links and
+    /// output dependencies.
+    ///
+    /// **Status:** This field is currently a placeholder. Dependency extraction
+    /// for emission statements (e.g., `emit(target, value)`) is scheduled for
+    /// implementation in Phase 13.
     pub emits: Vec<Path>,
 
     /// Source location for error reporting

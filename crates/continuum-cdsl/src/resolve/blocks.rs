@@ -92,6 +92,10 @@ impl ExpressionVisitor for DependencyVisitor {
             ExprKind::Signal(path) | ExprKind::Field(path) => {
                 self.paths.insert(path.clone());
             }
+            ExprKind::Aggregate { entity, .. } | ExprKind::Fold { entity, .. } => {
+                // Iterating over an entity set is a read dependency on the entity's lifetime
+                self.paths.insert(Path::from_str(&entity.0.to_string()));
+            }
             _ => {}
         }
     }
@@ -229,7 +233,9 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
         // 5. Extract dependencies
         let reads = match &body {
             ExecutionBody::Expr(expr) => extract_dependencies(expr),
-            ExecutionBody::Statements(_) => Vec::new(), // Not yet implemented
+            ExecutionBody::Statements(_) => {
+                panic!("Dependency extraction not yet implemented for statement blocks")
+            }
         };
 
         // 6. Create Execution
@@ -253,13 +259,25 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
     node.execution_blocks.clear();
 
     // 8. Populate node-level reads for cycle detection (Phase 12 structure validation)
-    // Union of all per-execution reads
+    // Union of all per-execution reads AND assertion reads
     let mut all_reads = std::collections::HashSet::new();
+
+    // Collect from executions
     for execution in &node.executions {
         for read in &execution.reads {
             all_reads.insert(read.clone());
         }
     }
+
+    // Collect from assertions
+    let mut visitor = DependencyVisitor::default();
+    for assertion in &node.assertions {
+        assertion.condition.walk(&mut visitor);
+    }
+    for read in visitor.paths {
+        all_reads.insert(read);
+    }
+
     let mut sorted_reads: Vec<_> = all_reads.into_iter().collect();
     sorted_reads.sort();
     node.reads = sorted_reads;

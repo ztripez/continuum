@@ -48,8 +48,9 @@
 //! ```
 
 use crate::ast::{
-    Attribute, Execution, ExecutionBody, ExprKind, Index, KernelRegistry, Node, TypedExpr,
+    Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node, TypedExpr,
 };
+
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::Span;
 use std::collections::HashSet;
@@ -152,98 +153,55 @@ fn extract_uses_key_from_expr(expr: &crate::ast::Expr) -> Option<String> {
 }
 
 /// Walk typed expression tree collecting required uses from kernel calls and dt usage
-///
-/// Recursively scans the expression tree for:
-/// - Kernel calls with `requires_uses` in their signature
-/// - Raw `dt` access (ExprKind::Dt)
 fn collect_required_uses(
     expr: &TypedExpr,
     registry: &KernelRegistry,
     required: &mut Vec<RequiredUse>,
 ) {
-    match &expr.expr {
-        // Kernel call - check if it requires uses
-        ExprKind::Call { kernel, args } => {
-            // Look up kernel signature in registry
-            // Note: If registry.get() returns None, it means the kernel doesn't exist in the
-            // registry, which is acceptable here. Type resolution has already validated that
-            // all kernel calls reference valid kernels, so any unknown kernel would have been
-            // caught in an earlier compilation pass. Only registered kernels can reach this point.
-            if let Some(signature) = registry.get(kernel) {
-                if let Some(req) = &signature.requires_uses {
-                    required.push(RequiredUse {
-                        key: format!("{}.{}", signature.id.namespace, req.key),
-                        span: expr.span,
-                        source: signature.id.qualified_name(),
-                        hint: req.hint.clone(),
-                    });
+    let mut visitor = RequiredUsesVisitor { registry, required };
+    expr.walk(&mut visitor);
+}
+
+/// Visitor that collects required uses from a typed expression tree
+struct RequiredUsesVisitor<'a> {
+    registry: &'a KernelRegistry,
+    required: &'a mut Vec<RequiredUse>,
+}
+
+impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
+    fn visit_expr(&mut self, expr: &TypedExpr) {
+        match &expr.expr {
+            // Kernel call - check if it requires uses
+            ExprKind::Call { kernel, .. } => {
+                if let Some(signature) = self.registry.get(kernel) {
+                    if let Some(req) = &signature.requires_uses {
+                        self.required.push(RequiredUse {
+                            key: format!("{}.{}", signature.id.namespace, req.key),
+                            span: expr.span,
+                            source: signature.id.qualified_name(),
+                            hint: req.hint.clone(),
+                        });
+                    }
                 }
             }
 
-            // Recurse into arguments
-            for arg in args {
-                collect_required_uses(arg, registry, required);
+            // Raw dt access - requires dt.raw declaration
+            ExprKind::Dt => {
+                self.required.push(RequiredUse {
+                    key: "dt.raw".to_string(),
+                    span: expr.span,
+                    source: "dt".to_string(),
+                    hint: DT_RAW_HINT.to_string(),
+                });
             }
-        }
 
-        // Raw dt access - requires dt.raw declaration
-        ExprKind::Dt => {
-            required.push(RequiredUse {
-                key: "dt.raw".to_string(),
-                span: expr.span,
-                source: "dt".to_string(),
-                hint: DT_RAW_HINT.to_string(),
-            });
+            _ => {}
         }
-
-        // Recurse into subexpressions
-        ExprKind::Let { value, body, .. } => {
-            collect_required_uses(value, registry, required);
-            collect_required_uses(body, registry, required);
-        }
-
-        ExprKind::Struct { fields, .. } => {
-            for (_, field_expr) in fields {
-                collect_required_uses(field_expr, registry, required);
-            }
-        }
-
-        ExprKind::FieldAccess { object, .. } => {
-            collect_required_uses(object, registry, required);
-        }
-
-        ExprKind::Vector(elements) => {
-            for elem in elements {
-                collect_required_uses(elem, registry, required);
-            }
-        }
-
-        ExprKind::Aggregate { body, .. } => {
-            collect_required_uses(body, registry, required);
-        }
-
-        ExprKind::Fold { init, body, .. } => {
-            collect_required_uses(init, registry, required);
-            collect_required_uses(body, registry, required);
-        }
-
-        // Leaf nodes - no recursion needed
-        ExprKind::Literal { .. }
-        | ExprKind::Signal(_)
-        | ExprKind::Field(_)
-        | ExprKind::Config(_)
-        | ExprKind::Const(_)
-        | ExprKind::Local(_)
-        | ExprKind::Prev
-        | ExprKind::Current
-        | ExprKind::Inputs
-        | ExprKind::Self_
-        | ExprKind::Payload
-        | ExprKind::Other => {}
     }
 }
 
 /// Walk untyped expression tree collecting required uses from kernel calls and dt usage
+
 ///
 /// Similar to `collect_required_uses` but works on untyped `Expr` from parser.
 /// Used for warmup, when, and observe blocks that haven't been compiled to TypedExpr yet.
@@ -446,6 +404,12 @@ fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Ve
             // Note: emit_block contains Stmt, which we don't validate yet
             // (would need to extract expressions from statements)
         }
+    }
+
+    // 5. Assertions
+    //    Contains TypedExpr conditions
+    for assertion in &node.assertions {
+        collect_required_uses(&assertion.condition, registry, &mut required);
     }
 
     // Validate: for each required use, check if it's declared
