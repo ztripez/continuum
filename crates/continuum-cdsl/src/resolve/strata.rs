@@ -80,7 +80,7 @@
 use crate::ast::{Expr, Node, Stratum, UntypedKind};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::StratumId;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 /// Extract identifier string from expression (for attribute arguments).
 ///
@@ -124,11 +124,28 @@ pub fn resolve_strata<I: crate::ast::Index>(
 ) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
 
-    // Build stratum lookup map: name → StratumId
-    let mut stratum_map: HashMap<String, StratumId> = HashMap::new();
+    // Build stratum lookup map: name → StratumId (BTreeMap for deterministic iteration)
+    let mut stratum_map: BTreeMap<String, StratumId> = BTreeMap::new();
     for stratum in strata {
-        let name = stratum.path.last().unwrap_or("").to_string();
-        stratum_map.insert(name, stratum.id.clone());
+        let name = stratum.path.last().ok_or_else(|| {
+            vec![CompileError::new(
+                ErrorKind::InvalidCapability,
+                stratum.span,
+                "stratum path must have at least one segment".to_string(),
+            )]
+        })?;
+        stratum_map.insert(name.to_string(), stratum.id.clone());
+    }
+
+    // Check for zero strata with nodes requiring assignment
+    if strata.is_empty() && !nodes.is_empty() {
+        errors.push(CompileError::new(
+            ErrorKind::AmbiguousName,
+            nodes[0].span,
+            "world has no strata declared but contains nodes requiring stratum assignment"
+                .to_string(),
+        ));
+        return Err(errors);
     }
 
     // Determine default stratum (if world has exactly one)
@@ -280,15 +297,37 @@ pub fn resolve_cadences(strata: &mut [Stratum]) -> Result<(), Vec<CompileError>>
 
                 // Extract numeric value from literal expression
                 if let UntypedKind::Literal { value, .. } = attr.args[0].kind {
-                    let cadence = value as u32;
-                    if cadence > 0 && (cadence as f64 - value).abs() < 1e-9 {
-                        stratum.cadence = Some(cadence);
-                    } else {
+                    // Validate value is positive integer BEFORE casting to avoid overflow/truncation
+                    // Check: value > 0, is integer (no fractional part), fits in u32
+                    if value <= 0.0 {
                         errors.push(CompileError::new(
                             ErrorKind::InvalidCapability,
                             stratum.span,
                             format!("{} must be a positive integer, got {}", attr.name, value),
                         ));
+                    } else if value.fract().abs() > 1e-9 {
+                        errors.push(CompileError::new(
+                            ErrorKind::InvalidCapability,
+                            stratum.span,
+                            format!(
+                                "{} must be a positive integer, got {} (non-integer)",
+                                attr.name, value
+                            ),
+                        ));
+                    } else if value > u32::MAX as f64 {
+                        errors.push(CompileError::new(
+                            ErrorKind::InvalidCapability,
+                            stratum.span,
+                            format!(
+                                "{} must fit in u32 range (0 < value <= {}), got {}",
+                                attr.name,
+                                u32::MAX,
+                                value
+                            ),
+                        ));
+                    } else {
+                        // Safe to cast: positive, integer, fits in u32
+                        stratum.cadence = Some(value as u32);
                     }
                 } else {
                     errors.push(CompileError::new(
@@ -763,5 +802,57 @@ mod tests {
         // Valid strata should still have cadence assigned
         assert_eq!(strata[0].cadence, Some(5));
         assert_eq!(strata[2].cadence, Some(1));
+    }
+
+    // ===== Additional Coverage Tests =====
+
+    #[test]
+    fn test_resolve_cadence_overflow() {
+        let mut strata = vec![make_stratum(
+            "overflow",
+            vec![make_attr_numeric("stride", 5_000_000_000.0)], // > u32::MAX
+        )];
+        let result = resolve_cadences(&mut strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("must fit in u32"));
+    }
+
+    #[test]
+    fn test_extract_identifier_empty_path() {
+        let expr = Expr::new(UntypedKind::Signal(Path::new(vec![])), test_span());
+        assert_eq!(extract_identifier(&expr), None);
+    }
+
+    #[test]
+    fn test_extract_identifier_field_path() {
+        let expr = Expr::new(UntypedKind::Field(Path::from_str("field")), test_span());
+        assert_eq!(extract_identifier(&expr), Some("field".to_string()));
+    }
+
+    #[test]
+    fn test_extract_identifier_config_path() {
+        let expr = Expr::new(UntypedKind::Config(Path::from_str("cfg")), test_span());
+        assert_eq!(extract_identifier(&expr), Some("cfg".to_string()));
+    }
+
+    #[test]
+    fn test_extract_identifier_const_path() {
+        let expr = Expr::new(UntypedKind::Const(Path::from_str("c")), test_span());
+        assert_eq!(extract_identifier(&expr), Some("c".to_string()));
+    }
+
+    #[test]
+    fn test_resolve_zero_strata_with_nodes() {
+        let strata: Vec<Stratum> = vec![];
+        let mut nodes = vec![make_node("signal.temp", vec![])];
+
+        let result = resolve_strata(&mut nodes, &strata);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::AmbiguousName);
+        assert!(errors[0].message.contains("no strata declared"));
     }
 }
