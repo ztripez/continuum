@@ -1763,4 +1763,174 @@ mod tests {
             _ => panic!("Expected Kernel type"),
         }
     }
+
+    // ============================================================================
+    // Tests for execution context expressions (Prev/Current/Inputs/Payload)
+    // ============================================================================
+
+    #[test]
+    fn test_type_prev_with_node_output() {
+        let ctx = make_context();
+        let output_type = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::meters(),
+            bounds: None,
+        });
+        let ctx = ctx.with_execution_context(Some(output_type.clone()), None, None);
+
+        let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert_eq!(typed.ty, output_type);
+    }
+
+    #[test]
+    fn test_type_prev_without_node_output() {
+        let ctx = make_context();
+        let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::Internal));
+        assert!(errors[0].message.contains("prev"));
+    }
+
+    #[test]
+    fn test_type_current_with_node_output() {
+        let ctx = make_context();
+        let output_type = Type::Kernel(KernelType {
+            shape: Shape::Vector { dim: 3 },
+            unit: Unit::seconds(),
+            bounds: None,
+        });
+        let ctx = ctx.with_execution_context(Some(output_type.clone()), None, None);
+
+        let expr = Expr::new(UntypedKind::Current, Span::new(0, 0, 7, 1));
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert_eq!(typed.ty, output_type);
+    }
+
+    #[test]
+    fn test_type_current_without_node_output() {
+        let ctx = make_context();
+        let expr = Expr::new(UntypedKind::Current, Span::new(0, 0, 7, 1));
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::Internal));
+        assert!(errors[0].message.contains("current"));
+    }
+
+    #[test]
+    fn test_type_inputs_with_inputs_type() {
+        let ctx = make_context();
+        let inputs_type = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::kilograms(),
+            bounds: None,
+        });
+        let ctx = ctx.with_execution_context(None, Some(inputs_type.clone()), None);
+
+        let expr = Expr::new(UntypedKind::Inputs, Span::new(0, 0, 6, 1));
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert_eq!(typed.ty, inputs_type);
+    }
+
+    #[test]
+    fn test_type_inputs_without_inputs_type() {
+        let ctx = make_context();
+        let expr = Expr::new(UntypedKind::Inputs, Span::new(0, 0, 6, 1));
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::Internal));
+        assert!(errors[0].message.contains("inputs"));
+    }
+
+    #[test]
+    fn test_type_payload_with_payload_type() {
+        let ctx = make_context();
+        let payload_type = Type::User(TypeId::from("ImpulseData"));
+        let ctx = ctx.with_execution_context(None, None, Some(payload_type.clone()));
+
+        let expr = Expr::new(UntypedKind::Payload, Span::new(0, 0, 7, 1));
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert_eq!(typed.ty, payload_type);
+    }
+
+    #[test]
+    fn test_type_payload_without_payload_type() {
+        let ctx = make_context();
+        let expr = Expr::new(UntypedKind::Payload, Span::new(0, 0, 7, 1));
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::Internal));
+        assert!(errors[0].message.contains("payload"));
+    }
+
+    // ============================================================================
+    // Tests for Config/Const lookups
+    // ============================================================================
+
+    #[test]
+    fn test_type_config_found() {
+        let mut ctx = make_context();
+        let config_type = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::dimensionless(),
+            bounds: None,
+        });
+
+        let path = Box::leak(Box::new(Path::from("gravity")));
+        let config_types = Box::leak(Box::new({
+            let mut map = HashMap::new();
+            map.insert(path.clone(), config_type.clone());
+            map
+        }));
+        ctx.config_types = config_types;
+
+        let expr = Expr::new(UntypedKind::Config(path.clone()), Span::new(0, 0, 7, 1));
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert_eq!(typed.ty, config_type);
+    }
+
+    #[test]
+    fn test_type_config_not_found() {
+        let ctx = make_context();
+        let path = Path::from("unknown_config");
+        let expr = Expr::new(UntypedKind::Config(path), Span::new(0, 0, 14, 1));
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(errors[0].message.contains("config"));
+    }
+
+    #[test]
+    fn test_type_const_found() {
+        let mut ctx = make_context();
+        let const_type = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::meters(),
+            bounds: None,
+        });
+
+        let path = Box::leak(Box::new(Path::from("PI")));
+        let const_types = Box::leak(Box::new({
+            let mut map = HashMap::new();
+            map.insert(path.clone(), const_type.clone());
+            map
+        }));
+        ctx.const_types = const_types;
+
+        let expr = Expr::new(UntypedKind::Const(path.clone()), Span::new(0, 0, 2, 1));
+        let typed = type_expression(&expr, &ctx).unwrap();
+        assert_eq!(typed.ty, const_type);
+    }
+
+    #[test]
+    fn test_type_const_not_found() {
+        let ctx = make_context();
+        let path = Path::from("UNKNOWN");
+        let expr = Expr::new(UntypedKind::Const(path), Span::new(0, 0, 7, 1));
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+        assert!(errors[0].message.contains("const"));
+    }
 }
