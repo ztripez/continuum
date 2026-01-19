@@ -2879,7 +2879,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires kernel registry to have maths.sub - tracked in continuum-2cpl"]
     fn test_type_binary_subtract_desugars() {
         let ctx = make_context();
         let expr = Expr::new(
@@ -3134,7 +3133,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires logic.select kernel - tracked in continuum-2cpl"]
     fn test_type_if_then_else_desugars() {
         let ctx = make_context();
         let expr = Expr::new(
