@@ -21,12 +21,114 @@
 //! ```
 
 use crate::ast::{
-    BlockBody, Execution, ExecutionBody, ExprKind, ExpressionVisitor, Index, Node, RoleId,
-    TypedExpr,
+    BlockBody, Execution, ExecutionBody, Expr, ExprKind, ExpressionVisitor, Index, KernelRegistry,
+    Node, RoleId, Stmt, TypedExpr, TypedStmt,
 };
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{Path, Phase, Type};
-use std::collections::HashSet;
+use crate::resolve::expr_typing::{TypingContext, type_expression};
+use std::collections::{HashMap, HashSet};
+
+/// Compile a list of untyped statements into typed statements.
+///
+/// This pass performs:
+/// - Expression typing for all expressions within statements.
+/// - Local scope management for `let` bindings within the statement block.
+/// - Validation of assignment targets (signals and fields).
+///
+/// # Errors
+///
+/// Returns a list of compilation errors if any expression fails typing or
+/// any assignment target is invalid.
+pub fn compile_statements(
+    stmts: &[Stmt<Expr>],
+    ctx: &TypingContext,
+) -> Result<Vec<TypedStmt>, Vec<CompileError>> {
+    let mut typed_stmts = Vec::new();
+    let mut errors = Vec::new();
+    let mut current_ctx = TypingContext {
+        type_table: ctx.type_table,
+        kernel_registry: ctx.kernel_registry,
+        signal_types: ctx.signal_types,
+        field_types: ctx.field_types,
+        config_types: ctx.config_types,
+        const_types: ctx.const_types,
+        local_bindings: ctx.local_bindings.clone(),
+        node_output: ctx.node_output.clone(),
+        inputs_type: ctx.inputs_type.clone(),
+        payload_type: ctx.payload_type.clone(),
+        phase: ctx.phase,
+    };
+
+    for stmt in stmts {
+        match stmt {
+            Stmt::Let { name, value, span } => match type_expression(value, &current_ctx) {
+                Ok(typed_value) => {
+                    current_ctx
+                        .local_bindings
+                        .insert(name.clone(), typed_value.ty.clone());
+                    typed_stmts.push(TypedStmt::Let {
+                        name: name.clone(),
+                        value: typed_value,
+                        span: *span,
+                    });
+                }
+                Err(mut e) => errors.append(&mut e),
+            },
+            Stmt::SignalAssign {
+                target,
+                value,
+                span,
+            } => match type_expression(value, &current_ctx) {
+                Ok(typed_value) => {
+                    // TODO: Validate target signal exists and matches type
+                    typed_stmts.push(TypedStmt::SignalAssign {
+                        target: target.clone(),
+                        value: typed_value,
+                        span: *span,
+                    });
+                }
+                Err(mut e) => errors.append(&mut e),
+            },
+            Stmt::FieldAssign {
+                target,
+                position,
+                value,
+                span,
+            } => {
+                let typed_pos = type_expression(position, &current_ctx);
+                let typed_val = type_expression(value, &current_ctx);
+
+                match (typed_pos, typed_val) {
+                    (Ok(p), Ok(v)) => {
+                        // TODO: Validate target field exists and matches type
+                        typed_stmts.push(TypedStmt::FieldAssign {
+                            target: target.clone(),
+                            position: p,
+                            value: v,
+                            span: *span,
+                        });
+                    }
+                    (Err(mut e1), Err(mut e2)) => {
+                        errors.append(&mut e1);
+                        errors.append(&mut e2);
+                    }
+                    (Err(mut e), _) | (_, Err(mut e)) => errors.append(&mut e),
+                }
+            }
+            Stmt::Expr(expr) => match type_expression(expr, &current_ctx) {
+                Ok(typed_expr) => typed_stmts.push(TypedStmt::Expr(typed_expr)),
+                Err(mut e) => errors.append(&mut e),
+            },
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(typed_stmts)
+    } else {
+        Err(errors)
+    }
+}
 
 /// Parses a string phase name into a Phase enum value.
 ///
@@ -112,6 +214,39 @@ impl ExpressionVisitor for DependencyVisitor {
     }
 }
 
+/// Extracts signal and field paths from a statement.
+///
+/// Returns (reads, emits)
+fn extract_stmt_dependencies(stmt: &TypedStmt) -> (Vec<Path>, Vec<Path>) {
+    let mut reads = Vec::new();
+    let mut emits = Vec::new();
+
+    match stmt {
+        TypedStmt::Let { value, .. } => {
+            reads.extend(extract_dependencies(value));
+        }
+        TypedStmt::SignalAssign { target, value, .. } => {
+            emits.push(target.clone());
+            reads.extend(extract_dependencies(value));
+        }
+        TypedStmt::FieldAssign {
+            target,
+            position,
+            value,
+            ..
+        } => {
+            emits.push(target.clone());
+            reads.extend(extract_dependencies(position));
+            reads.extend(extract_dependencies(value));
+        }
+        TypedStmt::Expr(expr) => {
+            reads.extend(extract_dependencies(expr));
+        }
+    }
+
+    (reads, emits)
+}
+
 /// Validate that a phase is allowed for a node's role.
 ///
 /// Uses the role's spec to check if the phase is in the allowed set.
@@ -178,7 +313,10 @@ fn validate_phase_for_role(
 /// assert!(node.executions.len() > 0);
 /// assert!(node.execution_blocks.is_empty());
 /// ```
-pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<CompileError>> {
+pub fn compile_execution_blocks<I: Index>(
+    node: &mut Node<I>,
+    ctx: &TypingContext,
+) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
     let mut executions = Vec::new();
 
@@ -217,9 +355,12 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
             continue;
         }
 
-        // 4. Extract body as TypedExpr
+        // 4. Extract body
         let body = match block_body {
             BlockBody::TypedExpression(typed_expr) => ExecutionBody::Expr(typed_expr.clone()),
+            BlockBody::TypedStatements(typed_stmts) => {
+                ExecutionBody::Statements(typed_stmts.clone())
+            }
             BlockBody::Expression(_) => {
                 // Should never happen if expression typing ran first
                 errors.push(CompileError::new(
@@ -232,39 +373,44 @@ pub fn compile_execution_blocks<I: Index>(node: &mut Node<I>) -> Result<(), Vec<
                 ));
                 continue;
             }
-            BlockBody::Statements(_) => {
-                // Statement blocks are valid in effect phases (Collect, Fracture)
-                // but statement compilation is not yet implemented.
-                // Fail loudly instead of silently dropping.
-                errors.push(CompileError::new(
-                    ErrorKind::Internal,
-                    node.span,
-                    format!(
-                        "statement block compilation not yet implemented for '{}' phase (effect phases require statement support)",
-                        phase_name
-                    ),
-                ));
-                continue;
+            BlockBody::Statements(stmts) => {
+                // Compile untyped statements
+                let block_ctx = ctx.with_phase(phase);
+                match compile_statements(stmts, &block_ctx) {
+                    Ok(typed_stmts) => ExecutionBody::Statements(typed_stmts),
+                    Err(mut e) => {
+                        errors.append(&mut e);
+                        continue;
+                    }
+                }
             }
         };
 
-        // 5. Extract dependencies
-        let reads = match &body {
-            ExecutionBody::Expr(expr) => extract_dependencies(expr),
-            ExecutionBody::Statements(_) => {
-                panic!("Dependency extraction not yet implemented for statement blocks")
+        // 5. Extract dependencies and emissions
+        let (reads, emits) = match &body {
+            ExecutionBody::Expr(expr) => (extract_dependencies(expr), Vec::new()),
+            ExecutionBody::Statements(stmts) => {
+                let mut reads = HashSet::new();
+                let mut emits = HashSet::new();
+                for stmt in stmts {
+                    let (s_reads, s_emits) = extract_stmt_dependencies(stmt);
+                    for r in s_reads {
+                        reads.insert(r);
+                    }
+                    for e in s_emits {
+                        emits.insert(e);
+                    }
+                }
+                let mut sorted_reads: Vec<_> = reads.into_iter().collect();
+                sorted_reads.sort();
+                let mut sorted_emits: Vec<_> = emits.into_iter().collect();
+                sorted_emits.sort();
+                (sorted_reads, sorted_emits)
             }
         };
 
         // 6. Create Execution
-        let execution = Execution::new(
-            phase_name.clone(),
-            phase,
-            body,
-            reads,
-            vec![], // Emits extraction for statements not yet implemented
-            node.span,
-        );
+        let execution = Execution::new(phase_name.clone(), phase, body, reads, emits, node.span);
         executions.push(execution);
     }
 
@@ -318,6 +464,94 @@ mod tests {
             unit: Unit::dimensionless(),
             bounds: None,
         })
+    }
+
+    fn make_test_context<'a>(
+        type_table: &'a crate::resolve::types::TypeTable,
+        registry: &'a KernelRegistry,
+        signal_types: &'a HashMap<Path, Type>,
+        field_types: &'a HashMap<Path, Type>,
+        config_types: &'a HashMap<Path, Type>,
+        const_types: &'a HashMap<Path, Type>,
+    ) -> TypingContext<'a> {
+        TypingContext::new(
+            type_table,
+            registry,
+            signal_types,
+            field_types,
+            config_types,
+            const_types,
+        )
+    }
+
+    #[test]
+    fn test_compile_statements_basic() {
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+
+        let ctx = make_test_context(
+            &type_table,
+            &registry,
+            &signal_types,
+            &field_types,
+            &config_types,
+            &const_types,
+        );
+
+        let span = test_span();
+        let stmts = vec![
+            Stmt::Let {
+                name: "x".to_string(),
+                value: Expr::literal(1.0, None, span),
+                span,
+            },
+            Stmt::SignalAssign {
+                target: Path::from_str("signal.target"),
+                value: Expr::local("x".to_string(), span),
+                span,
+            },
+        ];
+
+        let result = compile_statements(&stmts, &ctx).unwrap();
+        assert_eq!(result.len(), 2);
+
+        if let TypedStmt::Let { name, value, .. } = &result[0] {
+            assert_eq!(name, "x");
+            assert!(matches!(value.expr, ExprKind::Literal { .. }));
+        } else {
+            panic!("Expected Let statement");
+        }
+
+        if let TypedStmt::SignalAssign { target, value, .. } = &result[1] {
+            assert_eq!(target.to_string(), "signal.target");
+            assert!(matches!(value.expr, ExprKind::Local(ref n) if n == "x"));
+        } else {
+            panic!("Expected SignalAssign statement");
+        }
+    }
+
+    #[test]
+    fn test_extract_stmt_dependencies() {
+        let span = test_span();
+        let ty = scalar_type();
+        let path_in = Path::from_str("signal.in");
+        let path_out = Path::from_str("signal.out");
+
+        let stmt = TypedStmt::SignalAssign {
+            target: path_out.clone(),
+            value: TypedExpr::new(ExprKind::Signal(path_in.clone()), ty, span),
+            span,
+        };
+
+        let (reads, emits) = extract_stmt_dependencies(&stmt);
+        assert_eq!(reads.len(), 1);
+        assert_eq!(reads[0], path_in);
+        assert_eq!(emits.len(), 1);
+        assert_eq!(emits[0], path_out);
     }
 
     #[test]
@@ -463,7 +697,22 @@ mod tests {
         )];
 
         // Compile execution blocks
-        let result = compile_execution_blocks(&mut node);
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let ctx = make_test_context(
+            &type_table,
+            &registry,
+            &signal_types,
+            &field_types,
+            &config_types,
+            &const_types,
+        );
+
+        let result = compile_execution_blocks(&mut node, &ctx);
         assert!(result.is_ok(), "Compilation should succeed: {:?}", result);
 
         // Verify executions populated
@@ -515,7 +764,22 @@ mod tests {
         )];
 
         // Compile execution blocks
-        let result = compile_execution_blocks(&mut node);
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let ctx = make_test_context(
+            &type_table,
+            &registry,
+            &signal_types,
+            &field_types,
+            &config_types,
+            &const_types,
+        );
+
+        let result = compile_execution_blocks(&mut node, &ctx);
         assert!(result.is_ok());
 
         // Verify node.reads contains the signal
@@ -555,7 +819,22 @@ mod tests {
             BlockBody::TypedExpression(TypedExpr::new(ExprKind::Signal(path_a.clone()), ty, span)),
         ));
 
-        compile_execution_blocks(&mut node).unwrap();
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let ctx = make_test_context(
+            &type_table,
+            &registry,
+            &signal_types,
+            &field_types,
+            &config_types,
+            &const_types,
+        );
+
+        compile_execution_blocks(&mut node, &ctx).unwrap();
 
         // Verify union is sorted: [signal.a, signal.b]
         assert_eq!(node.reads.len(), 2);
@@ -588,7 +867,22 @@ mod tests {
             span,
         ));
 
-        compile_execution_blocks(&mut node).unwrap();
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let ctx = make_test_context(
+            &type_table,
+            &registry,
+            &signal_types,
+            &field_types,
+            &config_types,
+            &const_types,
+        );
+
+        compile_execution_blocks(&mut node, &ctx).unwrap();
 
         // Verify assertion dependency is in node.reads
         assert!(node.reads.contains(&assert_path));
@@ -596,7 +890,7 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_untyped_expression_error() {
-        use crate::ast::{Expr, RoleData, UntypedKind};
+        use crate::ast::{RoleData, UntypedKind};
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -615,7 +909,22 @@ mod tests {
         node.execution_blocks = vec![("resolve".to_string(), BlockBody::Expression(untyped_expr))];
 
         // Compile execution blocks - should fail
-        let result = compile_execution_blocks(&mut node);
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let ctx = make_test_context(
+            &type_table,
+            &registry,
+            &signal_types,
+            &field_types,
+            &config_types,
+            &const_types,
+        );
+
+        let result = compile_execution_blocks(&mut node, &ctx);
         assert!(result.is_err(), "Should fail with untyped expression");
 
         let errors = result.unwrap_err();
@@ -735,7 +1044,22 @@ mod tests {
             span,
         ));
 
-        compile_execution_blocks(&mut node).unwrap();
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let ctx = make_test_context(
+            &type_table,
+            &registry,
+            &signal_types,
+            &field_types,
+            &config_types,
+            &const_types,
+        );
+
+        compile_execution_blocks(&mut node, &ctx).unwrap();
 
         // Verify union has only one entry
         assert_eq!(node.reads.len(), 1);
@@ -774,7 +1098,22 @@ mod tests {
             span,
         ));
 
-        compile_execution_blocks(&mut node).unwrap();
+        let registry = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let ctx = make_test_context(
+            &type_table,
+            &registry,
+            &signal_types,
+            &field_types,
+            &config_types,
+            &const_types,
+        );
+
+        compile_execution_blocks(&mut node, &ctx).unwrap();
 
         // Verify both assertion dependencies are in node.reads
         assert_eq!(node.reads.len(), 2);

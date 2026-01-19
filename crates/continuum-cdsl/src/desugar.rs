@@ -194,19 +194,19 @@ pub fn desugar_attributes(attrs: Vec<Attribute>) -> Vec<Attribute> {
 pub fn desugar_block_body(body: BlockBody) -> BlockBody {
     match body {
         BlockBody::Expression(expr) => BlockBody::Expression(desugar_expr(expr)),
-        BlockBody::TypedExpression(_) => {
-            panic!(
-                "TypedExpression encountered during desugar pass: desugaring must happen before typing"
-            )
-        }
         BlockBody::Statements(stmts) => {
             BlockBody::Statements(stmts.into_iter().map(desugar_stmt).collect())
+        }
+        BlockBody::TypedExpression(_) | BlockBody::TypedStatements(_) => {
+            panic!(
+                "Typed AST encountered during desugar pass: desugaring must happen before typing"
+            )
         }
     }
 }
 
 /// Desugar a statement
-pub fn desugar_stmt(stmt: Stmt) -> Stmt {
+pub fn desugar_stmt(stmt: Stmt<Expr>) -> Stmt<Expr> {
     match stmt {
         Stmt::Let { name, value, span } => Stmt::Let {
             name,

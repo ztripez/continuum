@@ -11,8 +11,11 @@ use crate::foundation::{Path, Span};
 ///
 /// Statements appear in blocks with effect capabilities (Collect, Apply, Emit).
 /// Blocks in pure phases (Resolve, Measure, Assert) use expression bodies.
+///
+/// The type parameter `E` represents the expression type (typically [`Expr`]
+/// for untyped AST or [`TypedExpr`] for compiled IR).
 #[derive(Debug, Clone, PartialEq)]
-pub enum Stmt {
+pub enum Stmt<E = Expr> {
     /// Let binding: `let x = expr`
     ///
     /// Introduces a local variable visible in subsequent statements.
@@ -21,7 +24,7 @@ pub enum Stmt {
         /// Variable name
         name: String,
         /// Value expression
-        value: Expr,
+        value: E,
         /// Source location
         span: Span,
     },
@@ -34,7 +37,7 @@ pub enum Stmt {
         /// Target signal path
         target: Path,
         /// Value to emit
-        value: Expr,
+        value: E,
         /// Source location
         span: Span,
     },
@@ -47,9 +50,9 @@ pub enum Stmt {
         /// Target field path
         target: Path,
         /// Position expression (Vec2/Vec3 or other spatial coordinate)
-        position: Expr,
+        position: E,
         /// Value expression (the field data at this position)
-        value: Expr,
+        value: E,
         /// Source location
         span: Span,
     },
@@ -57,39 +60,35 @@ pub enum Stmt {
     /// Expression statement
     ///
     /// An expression evaluated for its side effects (usually a function call).
-    Expr(Expr),
+    Expr(E),
 }
+
+/// Alias for a compiled, typed statement.
+pub type TypedStmt = Stmt<TypedExpr>;
 
 /// Block body - either single expression or statement list.
 ///
 /// The body kind is determined by the block's phase capabilities:
 /// - Pure phases (Resolve, Measure): Expression or TypedExpression
-/// - Effect phases (Collect, Fracture): Statements
+/// - Effect phases (Collect, Fracture): Statements or TypedStatements
 ///
 /// # Lifecycle
 ///
-/// Parser produces `Expression(Expr)` (untyped).
-/// Expression typing pass converts to `TypedExpression(TypedExpr)`.
-/// Execution block compilation expects `TypedExpression`.
+/// 1. Parser produces `Expression(Expr)` or `Statements(Vec<Stmt<Expr>>)`.
+/// 2. Expression typing pass converts `Expression` to `TypedExpression`.
+/// 3. Statement compilation pass (Phase 12.5-S) converts `Statements` to `TypedStatements`.
+/// 4. Execution block compilation expects either `TypedExpression` or `TypedStatements`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockBody {
     /// Single untyped expression (pure phases, from parser)
-    ///
-    /// Used in: resolve blocks, measure blocks (simple field emission)
-    /// Also used in: warmup iterate blocks (expression-only)
-    ///
-    /// Cleared by expression typing pass, replaced with TypedExpression.
     Expression(Expr),
 
     /// Single typed expression (pure phases, after type resolution)
-    ///
-    /// Produced by expression typing pass from Expression variant.
-    /// Consumed by execution block compilation to create Execution structs.
     TypedExpression(TypedExpr),
 
-    /// Statement list (effect phases)
-    ///
-    /// Used in: collect blocks, fracture emit blocks
-    /// Contains: let bindings, signal assignments, field assignments
-    Statements(Vec<Stmt>),
+    /// Untyped statement list (effect phases, from parser)
+    Statements(Vec<Stmt<Expr>>),
+
+    /// Typed statement list (effect phases, after statement compilation)
+    TypedStatements(Vec<TypedStmt>),
 }

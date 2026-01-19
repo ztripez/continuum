@@ -57,7 +57,7 @@
 use crate::foundation::{AssertionSeverity, EntityId, Path, Span, StratumId, Type};
 use std::path::PathBuf;
 
-use super::block::{BlockBody, Stmt};
+use super::block::{BlockBody, TypedStmt};
 use super::declaration::{Attribute, ObserveBlock, WarmupBlock, WhenBlock};
 use super::expr::TypedExpr;
 use super::role::RoleData;
@@ -491,8 +491,7 @@ pub enum ExecutionBody {
     /// Effectful computation (Collect, Apply)
     ///
     /// Contains a list of typed statements.
-    /// Note: Statement compilation is currently under implementation.
-    Statements(Vec<Stmt>),
+    Statements(Vec<TypedStmt>),
 }
 
 /// Compiled execution block in the Execution IR.
