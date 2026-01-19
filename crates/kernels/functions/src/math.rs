@@ -32,6 +32,19 @@ pub fn sub(a: f64, b: f64) -> f64 {
     a - b
 }
 
+/// Negation: `neg(x)` → -x
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any],
+    unit_in = [UnitAny],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn neg(x: f64) -> f64 {
+    -x
+}
+
 /// Multiplication: `mul(a, b)` → a * b
 #[kernel_fn(
     namespace = "maths",

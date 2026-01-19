@@ -2893,7 +2893,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Requires maths.neg kernel - tracked in continuum-2cpl"]
     fn test_type_unary_negate_desugars() {
         let ctx = make_context();
         let expr = Expr::new(
