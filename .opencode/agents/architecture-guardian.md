@@ -1,6 +1,10 @@
 ---
 description: "Use this agent when code changes have been made to verify alignment with project architecture, domain boundaries, naming conventions, and mutation patterns. This agent should be invoked proactively after any significant code modifications, particularly when:\\n\\n<example>\\nContext: User has just implemented a new feature in continuum-society that accesses terra components directly.\\nuser: \"I've added population migration that reads elevation data from terra components\"\\nassistant: \"Let me use the architecture-guardian agent to verify this implementation aligns with our architecture rules\"\\n<commentary>\\nThe architecture-guardian should check for forbidden cross-domain dependencies (continuum-society \u2194 continuum-terra direct coupling).\\n</commentary>\\n</example>\\n\\n<example>\\nContext: User has added a new field visualization component.\\nuser: \"I've created a new component for visualizing plate stress in continuum-visual\"\\nassistant: \"I'll use the architecture-guardian agent to ensure this follows our visualization patterns and read-only observer principles\"\\n<commentary>\\nThe agent should verify the visualization is read-only, uses IntoFieldSamples trait, and doesn't mutate simulation state.\\n</commentary>\\n</example>\\n\\n<example>\\nContext: User has modified a system that updates state.\\nuser: \"I've updated the plate physics system to modify velocity directly instead of using forces\"\\nassistant: \"Let me invoke the architecture-guardian agent to check if this mutation pattern follows our phase model\"\\n<commentary>\\nThe agent should verify the change adheres to read \u2192 transform \u2192 commit phases and doesn't violate determinism rules.\\n</commentary>\\n</example>"
 mode: subagent
+tools:
+  write: false
+  edit: false
+  plannotator-review: false
 
 ---
 
