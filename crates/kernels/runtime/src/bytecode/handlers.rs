@@ -172,7 +172,7 @@ pub(crate) fn handle_build_struct(
         fields.push((name, value));
     }
     fields.reverse();
-    runtime.push(Value::Map(fields))?;
+    runtime.push(Value::map(fields))?;
     Ok(())
 }
 

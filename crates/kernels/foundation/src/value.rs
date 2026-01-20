@@ -1,6 +1,7 @@
 use crate::tensor::TensorData;
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::sync::Arc;
 
 /// Runtime value for signals and fields.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -27,10 +28,16 @@ pub enum Value {
     Mat4([f64; 16]),
     /// Dynamic tensor (row-major storage with Arc for cheap cloning).
     Tensor(TensorData),
-    /// Structured payload with named fields.
-    Map(Vec<(String, Value)>),
+    /// Structured payload with named fields, wrapped in Arc for cheap cloning.
+    Map(Arc<Vec<(String, Value)>>),
     // TODO: Grid, Seq
 }
+
+impl Value {
+    /// Create a new map value from fields.
+    pub fn map(fields: Vec<(String, Value)>) -> Self {
+        Value::Map(Arc::new(fields))
+    }
 
 impl Value {
     /// Attempt to get the value as a scalar.
@@ -173,6 +180,10 @@ impl Value {
                     None
                 }
             }
+            (Value::Map(fields), _) => fields
+                .iter()
+                .find(|(n, _)| n == name)
+                .and_then(|(_, v)| v.as_scalar()),
             _ => None,
         }
     }

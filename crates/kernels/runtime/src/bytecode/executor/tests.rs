@@ -44,11 +44,11 @@ impl ExecutionContext for TestContext {
     }
 
     fn load_self(&self) -> Result<Value, ExecutionError> {
-        Ok(Value::Map(vec![("mass".to_string(), Value::Scalar(9.0))]))
+        Ok(Value::map(vec![("mass".to_string(), Value::Scalar(9.0))]))
     }
 
     fn load_other(&self) -> Result<Value, ExecutionError> {
-        Ok(Value::Map(vec![("mass".to_string(), Value::Scalar(8.0))]))
+        Ok(Value::map(vec![("mass".to_string(), Value::Scalar(8.0))]))
     }
 
     fn load_payload(&self) -> Result<Value, ExecutionError> {

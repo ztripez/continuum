@@ -40,7 +40,7 @@ impl JsonValue {
                     .iter()
                     .map(|(k, v)| (k.clone(), v.to_value()))
                     .collect();
-                Value::Map(items)
+                Value::map(items)
             }
         }
     }

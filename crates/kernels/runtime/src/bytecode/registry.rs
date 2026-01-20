@@ -37,18 +37,30 @@ pub fn opcode_specs() -> &'static [OpcodeSpec] {
     SPECS.get_or_init(|| build_specs())
 }
 
+/// Total number of opcodes in the system.
+const OPCODE_COUNT: usize = 30;
+
 /// Retrieves metadata for a specific opcode kind.
 ///
 /// # Panics
 ///
 /// Panics if the opcode kind has not been registered in the spec table.
 pub fn metadata_for(kind: OpcodeKind) -> &'static OpcodeMetadata {
-    opcode_specs()
-        .iter()
-        .find(|spec| spec.kind == kind)
-        .map(|spec| &spec.metadata)
-        .unwrap_or_else(|| panic!("Missing opcode metadata for {kind:?}"))
+    static METADATA: OnceLock<[&'static OpcodeMetadata; OPCODE_COUNT]> = OnceLock::new();
+    METADATA.get_or_init(|| {
+        let mut table = [&DEFAULT_METADATA; OPCODE_COUNT];
+        for spec in opcode_specs() {
+            table[spec.kind as usize] = unsafe { std::mem::transmute(&spec.metadata) };
+        }
+        table
+    })[kind as usize]
 }
+
+static DEFAULT_METADATA: OpcodeMetadata = OpcodeMetadata {
+    operand_count: OperandCount::Fixed(0),
+    has_effect: false,
+    allowed_phases: None,
+};
 
 /// Retrieves the execution handler for a specific opcode kind.
 ///
@@ -56,11 +68,14 @@ pub fn metadata_for(kind: OpcodeKind) -> &'static OpcodeMetadata {
 ///
 /// Panics if the opcode kind has not been registered in the spec table.
 pub fn handler_for(kind: OpcodeKind) -> Handler {
-    opcode_specs()
-        .iter()
-        .find(|spec| spec.kind == kind)
-        .map(|spec| spec.handler)
-        .unwrap_or_else(|| panic!("Missing opcode handler for {kind:?}"))
+    static HANDLERS: OnceLock<[Handler; OPCODE_COUNT]> = OnceLock::new();
+    HANDLERS.get_or_init(|| {
+        let mut table = [handle_noop as Handler; OPCODE_COUNT];
+        for spec in opcode_specs() {
+            table[spec.kind as usize] = spec.handler;
+        }
+        table
+    })[kind as usize]
 }
 
 fn build_specs() -> Vec<OpcodeSpec> {
@@ -109,7 +124,13 @@ fn build_specs() -> Vec<OpcodeSpec> {
         op!(Aggregate, OperandCount::Fixed(4), handle_aggregate),
         op!(Fold, OperandCount::Fixed(4), handle_fold),
         op!(FieldAccess, OperandCount::Fixed(1), handle_field_access),
-        op!(LoadSignal, OperandCount::Fixed(1), handle_load_signal),
+        op!(
+            LoadSignal,
+            OperandCount::Fixed(1),
+            false,
+            Some(&[Phase::Resolve, Phase::Fracture, Phase::Measure]),
+            handle_load_signal
+        ),
         op!(LoadConfig, OperandCount::Fixed(1), handle_load_config),
         op!(LoadConst, OperandCount::Fixed(1), handle_load_const),
         op!(LoadPrev, OperandCount::Fixed(0), handle_load_prev),
