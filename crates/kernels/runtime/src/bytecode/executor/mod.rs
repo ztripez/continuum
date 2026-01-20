@@ -27,11 +27,15 @@ use crate::bytecode::program::{BytecodeBlock, BytecodeProgram};
 use crate::bytecode::registry::handler_for;
 use crate::bytecode::runtime::{ExecutionContext, ExecutionError, ExecutionRuntime};
 
-/// Executes compiled bytecode blocks within the runtime.
+/// Executes compiled bytecode blocks within the deterministic runtime.
+///
+/// The executor maintains its own evaluation stack and slot storage, which are
+/// reset for each execution run. It dispatches instructions to their respective
+/// handlers registered in the opcode registry.
 pub struct BytecodeExecutor {
-    /// Value stack
+    /// Evaluation stack for computation results and intermediate values.
     stack: Vec<Value>,
-    /// Slot storage
+    /// Slot storage for locals, signals, and temporaries allocated during compilation.
     slots: Vec<Option<Value>>,
 }
 

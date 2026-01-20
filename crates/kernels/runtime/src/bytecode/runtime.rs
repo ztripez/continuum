@@ -60,105 +60,100 @@ pub enum ExecutionError {
 }
 
 /// Execution context required by the bytecode executor.
+///
+/// This trait provides the executor with access to the simulation state and
+/// engine services required to resolve signals, load configurations, and
+/// perform side effects (emissions, spawning).
 pub trait ExecutionContext {
-    /// Current phase
+    /// Returns the current simulation phase.
     fn phase(&self) -> Phase;
 
-    /// Load a signal value by path
+    /// Loads a signal value by its canonical path.
     ///
     /// # Errors
     ///
-    /// Returns an error when the value is unavailable or invalid.
+    /// Returns an error if the signal is unavailable, the path is invalid,
+    /// or the current phase does not allow signal reads.
     fn load_signal(&self, path: &Path) -> Result<Value, ExecutionError>;
 
-    /// Load a field value by path
+    /// Loads a value from a spatial field by its canonical path.
     ///
     /// # Errors
     ///
-    /// Returns an error when the value is unavailable or invalid.
+    /// Returns an error if the field is unavailable or if read from a kernel phase.
     fn load_field(&self, path: &Path) -> Result<Value, ExecutionError>;
 
-    /// Load a config value by path
+    /// Loads a configuration parameter by its canonical path.
     ///
     /// # Errors
     ///
-    /// Returns an error when the value is unavailable or invalid.
+    /// Returns an error if the configuration value is missing.
     fn load_config(&self, path: &Path) -> Result<Value, ExecutionError>;
 
-    /// Load a const value by path
+    /// Loads a global constant by its canonical path.
     ///
     /// # Errors
     ///
-    /// Returns an error when the value is unavailable or invalid.
+    /// Returns an error if the constant is missing.
     fn load_const(&self, path: &Path) -> Result<Value, ExecutionError>;
 
-    /// Load previous tick value for current signal
+    /// Loads the value of the current signal as it was at the end of the previous tick.
     ///
     /// # Errors
     ///
-    /// Returns an error when prev is unavailable for the phase.
+    /// Returns an error if history is unavailable or not requested by the signal definition.
     fn load_prev(&self) -> Result<Value, ExecutionError>;
 
-    /// Load current resolved value for current signal
+    /// Loads the resolved value of the current signal for the current tick.
     ///
     /// # Errors
     ///
-    /// Returns an error when current is unavailable for the phase.
+    /// Returns an error if signal resolution has not yet occurred (e.g., in Collect phase).
     fn load_current(&self) -> Result<Value, ExecutionError>;
 
-    /// Load accumulated inputs for current signal
+    /// Loads the accumulated inputs for the current signal.
     ///
     /// # Errors
     ///
-    /// Returns an error when inputs are unavailable for the phase.
+    /// Returns an error if called outside of the Resolve phase.
     fn load_inputs(&self) -> Result<Value, ExecutionError>;
 
-    /// Load time step
-    ///
-    /// # Errors
-    ///
-    /// Returns an error when dt is unavailable for the phase.
+    /// Returns the time step (delta time) for the current tick.
     fn load_dt(&self) -> Result<Value, ExecutionError>;
 
-    /// Load self entity instance
-    ///
-    /// The value should match the instance shape returned by `iter_entity`.
+    /// Returns the identity of the current entity instance (`self`).
     ///
     /// # Errors
     ///
-    /// Returns an error when the instance is unavailable.
+    /// Returns an error if execution is not occurring within an entity context.
     fn load_self(&self) -> Result<Value, ExecutionError>;
 
-    /// Load other entity instance
-    ///
-    /// The value should match the instance shape returned by `iter_entity`.
+    /// Returns the identity of the "other" entity instance in a dual-entity context.
     ///
     /// # Errors
     ///
-    /// Returns an error when the instance is unavailable.
+    /// Returns an error if no "other" entity is present.
     fn load_other(&self) -> Result<Value, ExecutionError>;
 
-    /// Load impulse payload
+    /// Returns the payload data associated with the current impulse.
     ///
     /// # Errors
     ///
-    /// Returns an error when the payload is unavailable.
+    /// Returns an error if execution was not triggered by an impulse.
     fn load_payload(&self) -> Result<Value, ExecutionError>;
 
-    /// Emit a value to a signal
+    /// Emits a value to a signal.
     ///
     /// # Errors
     ///
-    /// Returns an error when emission is invalid for the phase.
+    /// Returns an error if the signal is read-only or if called outside of the Collect phase.
     fn emit_signal(&mut self, target: &Path, value: Value) -> Result<(), ExecutionError>;
 
-    /// Emit a value to a field at a position
-    ///
-    /// Implementations define the expected position value shape (e.g., Vec2/Vec3).
+    /// Emits a value to a spatial field at a specific position.
     ///
     /// # Errors
     ///
-    /// Returns an error when emission is invalid for the phase.
+    /// Returns an error if called outside of the Measure phase.
     fn emit_field(
         &mut self,
         target: &Path,
@@ -166,64 +161,82 @@ pub trait ExecutionContext {
         value: Value,
     ) -> Result<(), ExecutionError>;
 
-    /// Spawn a new entity instance
+    /// Spawns a new entity instance of the specified type with initial data.
     ///
     /// # Errors
     ///
-    /// Returns an error when spawning is invalid for the phase.
+    /// Returns an error if called outside of the Fracture phase.
     fn spawn(&mut self, entity: &EntityId, value: Value) -> Result<(), ExecutionError>;
 
-    /// Destroy an entity instance
+    /// Marks an entity instance for destruction.
     ///
     /// # Errors
     ///
-    /// Returns an error when destruction is invalid for the phase.
+    /// Returns an error if called outside of the Fracture phase.
     fn destroy(&mut self, entity: &EntityId, instance: Value) -> Result<(), ExecutionError>;
 
-    /// Iterate entity instances in deterministic order
+    /// Returns all instances of an entity type in deterministic order.
     ///
     /// # Errors
     ///
-    /// Returns an error when the entity instances are unavailable.
+    /// Returns an error if the entity type is unknown.
     fn iter_entity(&self, entity: &EntityId) -> Result<Vec<Value>, ExecutionError>;
 
-    /// Reduce aggregate values
+    /// Reduces a collection of values using a specified aggregate operation.
     ///
     /// # Errors
     ///
-    /// Returns an error when reduction is invalid for the values provided.
+    /// Returns an error if the values cannot be reduced (e.g., type mismatch).
     fn reduce_aggregate(
         &self,
         op: AggregateOp,
         values: Vec<Value>,
     ) -> Result<Value, ExecutionError>;
 
-    /// Call a kernel operation
+    /// Dispatches a call to an engine kernel.
     ///
     /// # Errors
     ///
-    /// Returns an error when kernel dispatch fails.
+    /// Returns an error if the kernel name is unknown or arguments are invalid.
     fn call_kernel(&self, kernel: &KernelId, args: &[Value]) -> Result<Value, ExecutionError>;
 }
 
-/// Runtime interface required by opcode handlers.
+/// Runtime interface provided by the executor to opcode handlers.
 ///
-/// This trait abstracts the stack and slot operations of the bytecode VM,
-/// allowing handlers to operate without knowledge of the underlying executor implementation.
+/// This trait abstracts the internal state of the VM (stack, slots), allowing
+/// handlers to be implemented as pure functions without direct access to the executor.
 pub trait ExecutionRuntime {
-    /// Push a value onto the evaluation stack.
+    /// Pushes a value onto the evaluation stack.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ExecutionError::StackOverflow` if the stack limit is reached.
     fn push(&mut self, value: Value) -> Result<(), ExecutionError>;
 
-    /// Pop a value from the evaluation stack.
+    /// Pops the top value from the evaluation stack.
+    ///
+    /// # Errors
+    ///
+    /// Returns `ExecutionError::StackUnderflow` if the stack is empty.
     fn pop(&mut self) -> Result<Value, ExecutionError>;
 
-    /// Load a value from a specific slot.
+    /// Loads a value from the specified storage slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the slot index is invalid or the slot is uninitialized.
     fn load_slot(&self, slot: Slot) -> Result<Value, ExecutionError>;
 
-    /// Store a value into a specific slot.
+    /// Stores a value into the specified storage slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the slot index is invalid.
     fn store_slot(&mut self, slot: Slot, value: Value) -> Result<(), ExecutionError>;
 
-    /// Execute a nested bytecode block.
+    /// Executes a nested bytecode block and returns its result.
+    ///
+    /// This is used for sub-computations like those in `Aggregate` or `Fold`.
     fn execute_block(
         &mut self,
         block_id: BlockId,

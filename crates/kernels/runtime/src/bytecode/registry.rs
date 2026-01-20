@@ -14,21 +14,34 @@ use super::handlers::{
 };
 use super::opcode::{OpcodeKind, OpcodeMetadata, OperandCount};
 
-/// Opcode registry entry.
+/// Metadata and handler specification for an opcode.
+///
+/// This structure links a specific [`OpcodeKind`] to its static metadata
+/// (used for validation and compilation) and its runtime execution logic.
 #[derive(Debug, Clone)]
 pub struct OpcodeSpec {
+    /// The specific opcode kind this specification covers.
     pub kind: OpcodeKind,
+    /// Static metadata for validation and operand parsing.
     pub metadata: OpcodeMetadata,
+    /// The runtime function responsible for executing this opcode.
     pub handler: Handler,
 }
 
-/// Get all opcode specifications.
+/// Retrieves the global list of all registered opcode specifications.
+///
+/// This is used by the compiler and executor to look up metadata and handlers.
+/// The list is lazily initialized on the first call.
 pub fn opcode_specs() -> &'static [OpcodeSpec] {
     static SPECS: OnceLock<Vec<OpcodeSpec>> = OnceLock::new();
     SPECS.get_or_init(|| build_specs())
 }
 
-/// Get metadata for an opcode kind.
+/// Retrieves metadata for a specific opcode kind.
+///
+/// # Panics
+///
+/// Panics if the opcode kind has not been registered in the spec table.
 pub fn metadata_for(kind: OpcodeKind) -> &'static OpcodeMetadata {
     opcode_specs()
         .iter()
@@ -37,7 +50,11 @@ pub fn metadata_for(kind: OpcodeKind) -> &'static OpcodeMetadata {
         .unwrap_or_else(|| panic!("Missing opcode metadata for {kind:?}"))
 }
 
-/// Get handler for an opcode kind.
+/// Retrieves the execution handler for a specific opcode kind.
+///
+/// # Panics
+///
+/// Panics if the opcode kind has not been registered in the spec table.
 pub fn handler_for(kind: OpcodeKind) -> Handler {
     opcode_specs()
         .iter()

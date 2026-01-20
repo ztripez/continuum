@@ -11,6 +11,11 @@ use crate::bytecode::operand::{
 use crate::bytecode::program::BytecodeProgram;
 use crate::bytecode::runtime::{ExecutionContext, ExecutionError, ExecutionRuntime};
 
+/// Functional interface for an opcode execution handler.
+///
+/// Handlers are responsible for reading instruction operands, interacting with
+/// the evaluation stack and slot storage via [`ExecutionRuntime`], and performing
+/// simulation side effects or state lookups via [`ExecutionContext`].
 pub type Handler = fn(
     &Instruction,
     &mut dyn ExecutionRuntime,

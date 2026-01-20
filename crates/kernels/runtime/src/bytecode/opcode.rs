@@ -29,94 +29,123 @@ use super::registry::metadata_for;
 use continuum_cdsl::ast::expr::AggregateOp;
 
 /// Bytecode instruction kind.
+///
+/// Variants represent the atomic operations supported by the VM. Opcodes are
+/// categorized by their purpose and potential side effects.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum OpcodeKind {
     // === Stack Operations ===
-    /// Push literal operand[0] onto the stack.
+    /// Pushes the literal value from operand[0] onto the evaluation stack.
     PushLiteral,
-    /// Load slot operand[0] and push the value.
+    /// Loads a value from the slot index specified in operand[0] and pushes it.
     Load,
-    /// Pop value and store into slot operand[0].
+    /// Pops the top stack value and stores it in the slot index specified in operand[0].
     Store,
-    /// Duplicate the top stack value.
+    /// Duplicates the current top value on the evaluation stack.
     Dup,
-    /// Discard the top stack value.
+    /// Discards the top value from the evaluation stack.
     Pop,
 
     // === Constructors ===
-    /// Pop N scalar values (operand[0]) and build a Vec2/Vec3/Vec4.
+    /// Pops the number of scalar values specified in operand[0] and constructs a vector value.
+    ///
+    /// Supports Vec2, Vec3, and Vec4 results.
     BuildVector,
-    /// Consume values for field names (operands), building a map.
+    /// Constructs a Map value from the evaluation stack using field names provided in operands.
+    ///
+    /// Pops one value per field name in reverse order.
     BuildStruct,
 
     // === Kernel Calls ===
-    /// Call kernel with arg count operand[0].
+    /// Dispatches a call to an engine kernel (maths, physics, etc.).
+    ///
+    /// Argument count is provided in operand[0]. Arguments are popped from the stack.
     CallKernel,
 
     // === Control Flow ===
-    /// Declare a local slot binding (operand[0]).
+    /// Marks the start of a local binding scope for the slot in operand[0].
+    ///
+    /// This is used for lifecycle tracking and is usually a no-op in the executor.
     Let,
-    /// End a local binding scope.
+    /// Marks the end of a local binding scope.
     EndLet,
-    /// Aggregate over entity operand[0] using block operand[2] and op operand[3].
+    /// Iterates over entities and reduces results using an aggregate operation.
+    ///
+    /// Operands: [EntityId, BindingSlot, BlockId, AggregateOp]
     Aggregate,
-    /// Fold over entity operand[0] using accumulator/element slots and block operand[3].
+    /// Iterates over entities and performs a stateful reduction (fold).
+    ///
+    /// Operands: [EntityId, AccSlot, ElemSlot, BlockId]
     Fold,
-    /// Pop object and access field operand[0].
+    /// Pops a Map/Struct and accesses the field named in operand[0].
     FieldAccess,
 
     // === Temporal ===
-    /// Load signal value by path operand[0].
+    /// Loads the current value of a signal by its path in operand[0].
     LoadSignal,
-    /// Load config value by path operand[0].
+    /// Loads a configuration value by its path in operand[0].
     LoadConfig,
-    /// Load const value by path operand[0].
+    /// Loads a constant value by its path in operand[0].
     LoadConst,
-    /// Load previous tick value for the current signal.
+    /// Loads the value of the current signal from the previous tick.
     LoadPrev,
-    /// Load current resolved value for the current signal.
+    /// Loads the current resolved value of the current signal.
+    ///
+    /// Only valid in phases where signal resolution has completed (e.g., Fracture, Measure).
     LoadCurrent,
-    /// Load accumulated inputs for the current signal.
+    /// Loads the accumulated inputs for the current signal.
+    ///
+    /// Only valid during the Resolve phase.
     LoadInputs,
-    /// Load time step (dt).
+    /// Loads the current time step (dt).
     LoadDt,
-    /// Load the current entity instance (self).
+    /// Loads the identity (Value::Entity) of the current entity instance.
     LoadSelf,
-    /// Load the current "other" entity instance.
+    /// Loads the identity of the "other" entity (e.g., in collision contexts).
     LoadOther,
-    /// Load the impulse payload value.
+    /// Loads the payload data associated with an impulse.
     LoadPayload,
 
     // === Effect ===
-    /// Emit a value to signal path operand[0].
+    /// Emits a value to the signal path in operand[0].
+    ///
+    /// Only valid in the Collect phase.
     Emit,
-    /// Emit a value to field path operand[0] with position.
+    /// Emits a value to a spatial field at a given position.
+    ///
+    /// Pops [Value, Position] and writes to field path in operand[0]. Only valid in Measure phase.
     EmitField,
-    /// Spawn a new entity instance of operand[0].
+    /// Spawns a new instance of the entity type in operand[0].
+    ///
+    /// Only valid in the Fracture phase.
     Spawn,
-    /// Destroy an entity instance of operand[0].
+    /// Marks the entity instance (popped from stack) of type in operand[0] for destruction.
+    ///
+    /// Only valid in the Fracture phase.
     Destroy,
 
     // === Observation ===
-    /// Load a field value by path operand[0].
+    /// Loads a value from a spatial field by its path in operand[0].
+    ///
+    /// Only valid in the Measure phase (observer boundary).
     LoadField,
 
     // === Structural ===
-    /// Return from the current block.
+    /// Terminates the current block execution and returns the top stack value (if any).
     Return,
 }
 
-/// Bytecode instruction.
+/// A single bytecode instruction.
 ///
-/// Instructions consist of a kind and a list of operands. The meaning of each
-/// operand is defined by the opcode metadata table and executor handlers.
+/// Each instruction pairs an [`OpcodeKind`] with a list of [`Operand`]s required
+/// for its execution. CallKernel instructions also carry a [`KernelId`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Instruction {
-    /// Instruction kind
+    /// The type of operation to perform.
     pub kind: OpcodeKind,
-    /// Operand list
+    /// Positional operands for the instruction.
     pub operands: Vec<Operand>,
-    /// Optional kernel id (only valid for CallKernel)
+    /// Target kernel identifier (only populated for CallKernel).
     pub kernel: Option<KernelId>,
 }
 

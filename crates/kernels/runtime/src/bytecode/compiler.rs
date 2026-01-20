@@ -27,35 +27,48 @@ use crate::bytecode::opcode::{Instruction, OpcodeKind};
 use crate::bytecode::operand::{BlockId, Operand, Slot};
 use crate::bytecode::program::{BytecodeBlock, BytecodeProgram};
 
+/// Result of a successful compilation pass.
+///
+/// A compiled block contains the bytecode program, its root entry point,
+/// and metadata required by the runtime DAG for scheduling and validation.
 #[derive(Debug, Clone)]
 pub struct CompiledBlock {
-    /// Phase this block executes in
+    /// Phase this block executes in.
+    ///
+    /// The phase determines which opcodes are valid and which capabilities
+    /// (e.g., LoadPrev, Emit) are available during execution.
     pub phase: Phase,
-    /// Bytecode program (root block + nested blocks)
+    /// Bytecode program containing the root block and any nested blocks (e.g., from aggregates/folds).
     pub program: BytecodeProgram,
-    /// Root block id
+    /// Root block id where execution begins.
     pub root: BlockId,
-    /// Number of slots required for execution
+    /// Total number of slots required to hold all locals, signals, and temporaries.
+    ///
+    /// This is used by the executor to pre-allocate slot storage.
     pub slot_count: u32,
-    /// Signal dependencies (for DAG construction and scheduling)
+    /// Signal paths read by this block. Used for DAG dependency analysis.
     pub reads: Vec<Path>,
-    /// Temporal dependencies (prev access, used for history requirements)
+    /// Signal paths read with `prev`. Used to ensure history availability.
     pub temporal_reads: Vec<Path>,
-    /// Emission targets (for DAG construction and validation)
+    /// Signal paths emitted to by this block. Used for DAG dependency analysis.
     pub emits: Vec<Path>,
 }
 
-/// Converts typed IR execution blocks into bytecode.
+/// Converts typed IR execution blocks into bytecode sequences.
+///
+/// The compiler performs a single-pass walk of the typed IR tree, allocating
+/// slots for bindings and temporaries while emitting opcodes.
 pub struct Compiler {
-    /// Current slot allocation counter
+    /// Next available slot index for allocation.
     next_slot: u32,
-    /// Current program being compiled
+    /// Program being assembled during the current compilation pass.
     program: BytecodeProgram,
-    /// Local scope stack
+    /// Stack of local scopes used for name resolution.
     scopes: Vec<BTreeMap<String, Slot>>,
 }
 
 impl Compiler {
+    /// Create a new compiler instance with an empty initial scope.
     pub fn new() -> Self {
         Self {
             next_slot: 0,
@@ -532,20 +545,33 @@ fn ensure_aggregate_supported(
     Ok(())
 }
 
-/// Compilation error.
+/// Compilation error types.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum CompileError {
-    /// Phase constraint violation
+    /// An opcode was used in a phase where it is not allowed (e.g., `Emit` in `Resolve`).
     #[error("Opcode {opcode} not allowed in phase {phase:?}")]
-    PhaseViolation { opcode: String, phase: Phase },
+    PhaseViolation {
+        /// The forbidden opcode kind.
+        opcode: String,
+        /// The phase where it was attempted.
+        phase: Phase,
+    },
 
-    /// Invalid IR structure
+    /// The typed IR structure is invalid or contains unexpected nodes.
     #[error("Invalid IR: {message}")]
-    InvalidIR { message: String },
+    InvalidIR {
+        /// Description of the IR violation.
+        message: String,
+    },
 
-    /// Type mismatch
+    /// Expression type mismatch detected during compilation.
     #[error("Type mismatch: expected {expected}, found {found}")]
-    TypeMismatch { expected: String, found: String },
+    TypeMismatch {
+        /// The expected type description.
+        expected: String,
+        /// The actual type found.
+        found: String,
+    },
 }
 
 #[cfg(test)]

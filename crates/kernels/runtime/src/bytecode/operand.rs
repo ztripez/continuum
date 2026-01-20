@@ -61,38 +61,38 @@ impl BlockId {
 
 /// Operand types for bytecode instructions.
 ///
-/// Operands encode all data references needed by opcodes: where to read from,
-/// where to write to, what entities to iterate over, etc.
+/// Operands provide the static data required by opcodes. They encode references
+/// to storage locations (slots), identifiers (paths, entity IDs), or immediate values.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Operand {
-    /// Stack slot (local, temporary, or signal)
+    /// A reference to a storage slot (local binding, signal, or temporary).
     Slot(Slot),
 
-    /// Immediate literal value
+    /// An immediate constant value embedded in the instruction.
     Literal(Value),
 
-    /// Signal path reference (resolved at compile time to slot)
+    /// A path to a simulation signal.
     Signal(Path),
 
-    /// Field path reference (observer only)
+    /// A path to an observer field.
     Field(Path),
 
-    /// Entity ID for iteration
+    /// An entity identifier used for spawning, destruction, or iteration.
     Entity(EntityId),
 
-    /// Config value reference
+    /// A path to a configuration parameter.
     Config(Path),
 
-    /// Const value reference
+    /// A path to a global simulation constant.
     Const(Path),
 
-    /// String operand (field names, labels)
+    /// A raw string used for field names or lookup keys.
     String(String),
 
-    /// Block reference for nested execution
+    /// A reference to another bytecode block within the same program.
     Block(BlockId),
 
-    /// Aggregate operation
+    /// An identifier for an aggregation operation (sum, min, max, etc.).
     AggregateOp(AggregateOp),
 }
 
