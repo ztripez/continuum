@@ -52,7 +52,7 @@
 //! }
 //! ```
 
-use crate::ast::{AggregateOp, Declaration, Expr, Node, UntypedKind as ExprKind};
+use crate::ast::{Declaration, Expr, UntypedKind as ExprKind};
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::{EntityId, Path};
 use std::collections::{HashMap, HashSet};
@@ -497,7 +497,7 @@ pub fn validate_expr(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::RoleData;
+    use crate::ast::{AggregateOp, Node, RoleData};
     use crate::foundation::Span;
 
     fn make_path(s: &str) -> Path {

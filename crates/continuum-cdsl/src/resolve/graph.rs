@@ -857,4 +857,58 @@ mod tests {
         assert_eq!(errors[0].kind, ErrorKind::Conflict);
         assert!(errors[0].message.contains("Multiple nodes emitting to"));
     }
+
+    #[test]
+    fn test_dag_compilation_temporal_success() {
+        let span = test_span();
+        let metadata = crate::ast::WorldDecl {
+            path: Path::from_str("world"),
+            title: None,
+            version: None,
+            warmup: None,
+            attributes: vec![],
+            span,
+            doc: None,
+        };
+
+        // signal a { resolve { prev } }
+        let mut node_a = Node::new(Path::from_str("a"), span, RoleData::Signal, ());
+        node_a.stratum = Some(StratumId::new("default"));
+        node_a.executions = vec![Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(crate::ast::TypedExpr::new(
+                crate::ast::ExprKind::Prev,
+                crate::foundation::Type::Bool,
+                span,
+            )),
+            vec![],                    // No causal reads
+            vec![node_a.path.clone()], // Temporal read of self
+            vec![node_a.path.clone()], // Emits self
+            span,
+        )];
+
+        let mut world = World::new(metadata);
+        world.strata.insert(
+            Path::from_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+        );
+        world.globals.insert(node_a.path.clone(), node_a);
+
+        // Should SUCCEED: temporal read is not a DAG edge
+        let result = compile_graphs(&world);
+        assert!(
+            result.is_ok(),
+            "Temporal read should not cause cyclic dependency error: {:?}",
+            result.err()
+        );
+
+        let dag_set = result.unwrap();
+        let dag = dag_set
+            .dags
+            .get(&(Phase::Resolve, StratumId::new("default")))
+            .unwrap();
+        assert_eq!(dag.levels.len(), 1);
+        assert_eq!(dag.levels[0].nodes, vec![Path::from_str("a")]);
+    }
 }

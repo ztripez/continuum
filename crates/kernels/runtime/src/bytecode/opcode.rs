@@ -32,14 +32,23 @@ use continuum_cdsl::ast::expr::AggregateOp;
 ///
 /// Variants represent the atomic operations supported by the VM. Opcodes are
 /// categorized by their purpose and potential side effects.
+///
+/// Each variant corresponds to a runtime [`super::handlers::Handler`] registered
+/// in the [`super::registry::opcode_specs`] table.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum OpcodeKind {
     // === Stack Operations ===
     /// Pushes the literal value from operand[0] onto the evaluation stack.
+    ///
+    /// The operand must be an [`Operand::Literal`].
     PushLiteral,
     /// Loads a value from the slot index specified in operand[0] and pushes it.
+    ///
+    /// The operand must be an [`Operand::Slot`].
     Load,
     /// Pops the top stack value and stores it in the slot index specified in operand[0].
+    ///
+    /// The operand must be an [`Operand::Slot`].
     Store,
     /// Duplicates the current top value on the evaluation stack.
     Dup,
@@ -49,17 +58,18 @@ pub enum OpcodeKind {
     // === Constructors ===
     /// Pops the number of scalar values specified in operand[0] and constructs a vector value.
     ///
-    /// Supports Vec2, Vec3, and Vec4 results.
+    /// Supports Vec2, Vec3, and Vec4 results. Operand[0] must be an [`Operand::Literal`] integer.
     BuildVector,
     /// Constructs a Map value from the evaluation stack using field names provided in operands.
     ///
-    /// Pops one value per field name in reverse order.
+    /// Pops one value per field name in reverse order. Operands must be [`Operand::String`].
     BuildStruct,
 
     // === Kernel Calls ===
     /// Dispatches a call to an engine kernel (maths, physics, etc.).
     ///
     /// Argument count is provided in operand[0]. Arguments are popped from the stack.
+    /// The instruction must also carry a [`KernelId`].
     CallKernel,
 
     // === Control Flow ===
@@ -71,23 +81,31 @@ pub enum OpcodeKind {
     EndLet,
     /// Iterates over entities and reduces results using an aggregate operation.
     ///
-    /// Operands: [EntityId, BindingSlot, BlockId, AggregateOp]
+    /// Operands: [EntityId, BindingSlot, BlockId, AggregateOp].
+    /// Executes the specified block for each entity instance.
     Aggregate,
     /// Iterates over entities and performs a stateful reduction (fold).
     ///
-    /// Operands: [EntityId, AccSlot, ElemSlot, BlockId]
+    /// Operands: [EntityId, AccSlot, ElemSlot, BlockId].
+    /// Maintains an accumulator value in `AccSlot` across iterations.
     Fold,
     /// Pops a Map/Struct and accesses the field named in operand[0].
+    ///
+    /// The operand must be an [`Operand::String`].
     FieldAccess,
 
     // === Temporal ===
     /// Loads the current value of a signal by its path in operand[0].
+    ///
+    /// Valid in Resolve, Fracture, and Measure phases.
     LoadSignal,
     /// Loads a configuration value by its path in operand[0].
     LoadConfig,
     /// Loads a constant value by its path in operand[0].
     LoadConst,
     /// Loads the value of the current signal from the previous tick.
+    ///
+    /// Only valid for signals that requested history.
     LoadPrev,
     /// Loads the current resolved value of the current signal.
     ///
@@ -95,7 +113,7 @@ pub enum OpcodeKind {
     LoadCurrent,
     /// Loads the accumulated inputs for the current signal.
     ///
-    /// Only valid during the Resolve phase.
+    /// Only valid during the Resolve phase of a signal kernel.
     LoadInputs,
     /// Loads the current time step (dt).
     LoadDt,
@@ -127,7 +145,7 @@ pub enum OpcodeKind {
     // === Observation ===
     /// Loads a value from a spatial field by its path in operand[0].
     ///
-    /// Only valid in the Measure phase (observer boundary).
+    /// Only valid in the Measure phase (preserving the observer boundary).
     LoadField,
 
     // === Structural ===
@@ -138,21 +156,22 @@ pub enum OpcodeKind {
 /// A single bytecode instruction.
 ///
 /// Each instruction pairs an [`OpcodeKind`] with a list of [`Operand`]s required
-/// for its execution. CallKernel instructions also carry a [`KernelId`].
+/// for its execution. Instructions that dispatch to engine kernels ([`OpcodeKind::CallKernel`])
+/// also carry a [`KernelId`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Instruction {
     /// The type of operation to perform.
     pub kind: OpcodeKind,
-    /// Positional operands for the instruction.
+    /// Positional operands for the instruction. Ordering must match the opcode specification.
     pub operands: Vec<Operand>,
-    /// Target kernel identifier (only populated for CallKernel).
+    /// Target kernel identifier (only populated for [`OpcodeKind::CallKernel`]).
     pub kernel: Option<KernelId>,
 }
 
 impl Instruction {
-    /// Create a new instruction without a kernel
+    /// Create a new instruction without a kernel ID.
     ///
-    /// The operand ordering must match the opcode metadata for the specified kind.
+    /// The operand ordering and count must match the [`OpcodeMetadata`] for the specified kind.
     pub fn new(kind: OpcodeKind, operands: Vec<Operand>) -> Self {
         Self {
             kind,
@@ -161,9 +180,11 @@ impl Instruction {
         }
     }
 
-    /// Create a kernel call instruction
+    /// Create a kernel call instruction.
     ///
-    /// The operands must include the argument count as a literal integer.
+    /// # Parameters
+    /// - `kernel`: The unique identifier of the engine kernel to invoke.
+    /// - `operands`: Must include the argument count as the first operand.
     pub fn kernel_call(kernel: KernelId, operands: Vec<Operand>) -> Self {
         Self {
             kind: OpcodeKind::CallKernel,
@@ -173,31 +194,37 @@ impl Instruction {
     }
 }
 
-/// Metadata for an opcode.
+/// Metadata describing the static properties and constraints of an opcode.
 ///
-/// This table-driven approach avoids hard-coding opcode behavior in match statements.
+/// This metadata is used by the compiler for validation and by the executor
+/// to ensure architectural invariants (like phase boundaries) are respected.
 #[derive(Debug, Clone)]
 pub struct OpcodeMetadata {
-    /// Operand ordering follows the opcode kind docs and is positional.
-    /// Operand count specification
+    /// The number of operands expected by this opcode.
     pub operand_count: OperandCount,
-    /// Whether this opcode has side effects
+    /// Whether this opcode performs a side effect (e.g., emission, spawning).
     pub has_effect: bool,
-    /// Phase restrictions (None = any phase)
+    /// Optional list of simulation phases where this opcode is permitted.
+    /// If `None`, the opcode is valid in all phases.
     pub allowed_phases: Option<&'static [Phase]>,
 }
 
-/// Operand count specification for an opcode.
+/// Specification for the number of operands an opcode expects.
 #[derive(Debug, Clone, Copy)]
 pub enum OperandCount {
-    /// Fixed operand count
+    /// A fixed number of operands is required.
     Fixed(usize),
-    /// Variable operand count with optional bounds
-    Variable { min: usize, max: Option<usize> },
+    /// A variable number of operands within an optional range.
+    Variable {
+        /// Minimum number of operands (inclusive).
+        min: usize,
+        /// Maximum number of operands (inclusive), or `None` if unbounded.
+        max: Option<usize>,
+    },
 }
 
 impl OperandCount {
-    /// Check if the given operand length is valid for this count.
+    /// Check if the given operand count is valid according to this specification.
     ///
     /// For `Variable`, `min` is inclusive and `max` is optional/inclusive.
     pub fn matches(self, len: usize) -> bool {
@@ -209,16 +236,18 @@ impl OperandCount {
 }
 
 impl OpcodeKind {
-    /// Get metadata for this opcode kind.
+    /// Retrieves metadata for this opcode kind from the global registry.
     ///
     /// # Panics
     ///
-    /// Panics if no metadata entry exists for the opcode kind.
+    /// Panics if no metadata entry exists for the opcode kind (indicates a registry bug).
     pub fn metadata(self) -> &'static OpcodeMetadata {
         metadata_for(self)
     }
 
-    /// Check if this opcode is valid in the given phase.
+    /// Validates if this opcode is permitted to execute in the specified simulation phase.
+    ///
+    /// Used to enforce the absolute observer boundary and effect isolation.
     pub fn is_valid_in_phase(self, phase: Phase) -> bool {
         match self.metadata().allowed_phases {
             None => true,
@@ -226,7 +255,7 @@ impl OpcodeKind {
         }
     }
 
-    /// Check if this opcode has side effects.
+    /// Returns `true` if this opcode produces a simulation side effect.
     pub fn has_effect(self) -> bool {
         self.metadata().has_effect
     }

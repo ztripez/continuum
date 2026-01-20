@@ -32,6 +32,13 @@ use crate::bytecode::runtime::{ExecutionContext, ExecutionError, ExecutionRuntim
 /// The executor maintains its own evaluation stack and slot storage, which are
 /// reset for each execution run. It dispatches instructions to their respective
 /// handlers registered in the opcode registry.
+///
+/// # Execution Safety
+/// - **Stack Limits**: Enforces a maximum stack depth to prevent recursion-based overflows.
+/// - **Phase Validation**: Ensures that the compiled block's phase matches the
+///   active runtime phase.
+/// - **Deterministic Dispatch**: Uses table-driven handler lookup for O(1) execution
+///   without complex branch logic.
 pub struct BytecodeExecutor {
     /// Evaluation stack for computation results and intermediate values.
     stack: Vec<Value>,
@@ -40,6 +47,7 @@ pub struct BytecodeExecutor {
 }
 
 impl BytecodeExecutor {
+    /// Creates a new bytecode executor with pre-allocated capacity for the stack and slots.
     pub fn new() -> Self {
         Self {
             stack: Vec::with_capacity(256),
@@ -47,17 +55,25 @@ impl BytecodeExecutor {
         }
     }
 
-    /// Execute a compiled bytecode block
+    /// Executes a compiled bytecode block in the provided context.
+    ///
+    /// This is the main entry point for running simulation logic via bytecode.
+    ///
+    /// # Parameters
+    /// - `block`: The compiled bytecode and metadata.
+    /// - `ctx`: The runtime context providing state access and side-effect dispatch.
+    ///
+    /// # Returns
+    /// - `Ok(Some(Value))` if the block returned a value.
+    /// - `Ok(None)` if the block finished without a return value.
+    /// - `Err(ExecutionError)` if a runtime violation occurred.
     ///
     /// # Errors
     ///
     /// Returns an error if:
-    /// - Stack underflow/overflow
-    /// - Invalid slot access
-    /// - Kernel call fails
-    /// - Type mismatch
-    /// - Invalid opcode or operand counts
-    /// - Missing or unexpected return value
+    /// - The block phase does not match the context phase.
+    /// - A stack underflow or overflow occurs.
+    /// - A handler returns a domain error.
     pub fn execute(
         &mut self,
         block: &CompiledBlock,
@@ -75,6 +91,21 @@ impl BytecodeExecutor {
         self.execute_block(block.root, &block.program, ctx)
     }
 
+    /// Executes a specific block from a bytecode program.
+    ///
+    /// Used for the root entry point and for sub-computations (aggregates/folds).
+    ///
+    /// # Parameters
+    /// - `block_id`: The identifier of the block to execute.
+    /// - `program`: The complete bytecode program containing the block.
+    /// - `ctx`: The runtime context for simulation interface.
+    ///
+    /// # Returns
+    /// The block's return value, or `None` if it does not yield a result.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError`] if the block ID is invalid or a runtime
+    /// violation occurs during execution.
     fn execute_block(
         &mut self,
         block_id: BlockId,
@@ -100,6 +131,11 @@ impl BytecodeExecutor {
         Err(ExecutionError::MissingReturn)
     }
 
+    /// Validates instruction operands against the static opcode metadata.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::InvalidOperand`] if the operand count does
+    /// not match the opcode's static specification.
     fn validate_instruction(&self, instruction: &Instruction) -> Result<(), ExecutionError> {
         let meta = instruction.kind.metadata();
         if !meta.operand_count.matches(instruction.operands.len()) {
@@ -115,6 +151,11 @@ impl BytecodeExecutor {
         Ok(())
     }
 
+    /// Internal helper to push a value onto the evaluation stack.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::StackOverflow`] if the stack depth exceeds
+    /// the hard limit of 1024.
     fn push(&mut self, value: Value) -> Result<(), ExecutionError> {
         if self.stack.len() >= 1024 {
             return Err(ExecutionError::StackOverflow);
@@ -123,10 +164,19 @@ impl BytecodeExecutor {
         Ok(())
     }
 
+    /// Internal helper to pop a value from the evaluation stack.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::StackUnderflow`] if the stack is empty.
     fn pop(&mut self) -> Result<Value, ExecutionError> {
         self.stack.pop().ok_or(ExecutionError::StackUnderflow)
     }
 
+    /// Internal helper to load a value from a VM slot.
+    ///
+    /// # Errors
+    /// Returns an error if the slot index is out of bounds or if the slot
+    /// has not been initialized with a value.
     fn load_slot(&self, slot: Slot) -> Result<Value, ExecutionError> {
         let slot_value = self
             .slots
@@ -140,6 +190,10 @@ impl BytecodeExecutor {
             .ok_or(ExecutionError::UninitializedSlot { slot: slot.id() })
     }
 
+    /// Internal helper to store a value into a VM slot.
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError::InvalidSlot`] if the slot index is out of bounds.
     fn store_slot(&mut self, slot: Slot, value: Value) -> Result<(), ExecutionError> {
         if slot.id() as usize >= self.slots.len() {
             return Err(ExecutionError::InvalidSlot {
@@ -151,6 +205,18 @@ impl BytecodeExecutor {
         Ok(())
     }
 
+    /// Handles the return sequence for a block, validating stack state.
+    ///
+    /// # Parameters
+    /// - `block`: The block finishing execution.
+    /// - `base`: The stack depth at the start of block execution.
+    ///
+    /// # Returns
+    /// The block's result value (if any).
+    ///
+    /// # Errors
+    /// Returns [`ExecutionError`] if the stack depth is inconsistent with the
+    /// block's `returns_value` property.
     fn handle_return(
         &mut self,
         block: &BytecodeBlock,

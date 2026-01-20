@@ -38,6 +38,7 @@ impl Value {
     pub fn map(fields: Vec<(String, Value)>) -> Self {
         Value::Map(Arc::new(fields))
     }
+}
 
 impl Value {
     /// Attempt to get the value as a scalar.

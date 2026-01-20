@@ -57,10 +57,10 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    AggregateOp, Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, Entity,
-    EraDecl, Expr, Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData, Stmt, Stratum,
-    StratumPolicyEntry, TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr,
-    UntypedKind, WarmupBlock, WhenBlock, WorldDecl,
+    Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, Entity, EraDecl, Expr,
+    Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData, Stmt, Stratum, StratumPolicyEntry,
+    TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr, UntypedKind, WarmupBlock,
+    WhenBlock, WorldDecl,
 };
 
 use crate::foundation::{EntityId, Path, Span, StratumId};
@@ -122,8 +122,8 @@ pub fn parse_declarations(tokens: &[Token]) -> ParseResult<Vec<Declaration>, Ric
 }
 
 /// Main declarations parser - parses a complete CDSL file.
-fn declarations_parser<'src>()
--> impl Parser<'src, &'src [Token], Vec<Declaration>, extra::Err<Rich<'src, Token>>> + Clone {
+fn declarations_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Vec<Declaration>, extra::Err<Rich<'src, Token>>> + Clone {
     choice((
         world_parser(),
         type_decl_parser(),
@@ -195,8 +195,8 @@ fn declarations_parser<'src>()
 /// - If expressions require braces: `if x { a } else { b }`
 /// - Let bindings require `in` keyword: `let x = 1 in x + 1`
 /// - Parentheses override precedence: `(a + b) * c`
-fn expr_parser<'src>()
--> impl Parser<'src, &'src [Token], Expr, extra::Err<Rich<'src, Token>>> + Clone {
+fn expr_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Expr, extra::Err<Rich<'src, Token>>> + Clone {
     recursive(|expr| {
         // === Atoms ===
 
@@ -546,8 +546,8 @@ fn expr_parser<'src>()
 /// # Returns
 ///
 /// Parsed unit expression or error.
-fn unit_expr_parser<'src>()
--> impl Parser<'src, &'src [Token], UnitExpr, extra::Err<Rich<'src, Token>>> + Clone {
+fn unit_expr_parser<'src>(
+) -> impl Parser<'src, &'src [Token], UnitExpr, extra::Err<Rich<'src, Token>>> + Clone {
     recursive(|unit_term| {
         // Base unit: identifier
         let base = select! {
@@ -621,8 +621,8 @@ fn unit_expr_parser<'src>()
 /// Bool                → Bool
 /// OrbitalElements     → User(Path(...))
 /// ```
-fn type_expr_parser<'src>()
--> impl Parser<'src, &'src [Token], TypeExpr, extra::Err<Rich<'src, Token>>> + Clone {
+fn type_expr_parser<'src>(
+) -> impl Parser<'src, &'src [Token], TypeExpr, extra::Err<Rich<'src, Token>>> + Clone {
     // Bool type
     let bool_type = just(Token::Ident("Bool".to_string())).to(TypeExpr::Bool);
 
@@ -795,8 +795,8 @@ fn token_span(span: SimpleSpan) -> Span {
 ///
 /// Paths are sequences of identifiers separated by dots.
 /// They identify signals, fields, entities, strata, eras, etc.
-fn path_parser<'src>()
--> impl Parser<'src, &'src [Token], Path, extra::Err<Rich<'src, Token>>> + Clone {
+fn path_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Path, extra::Err<Rich<'src, Token>>> + Clone {
     select! { Token::Ident(name) => name }
         .separated_by(just(Token::Dot))
         .at_least(1)
@@ -808,8 +808,8 @@ fn path_parser<'src>()
 ///
 /// Per architecture feedback, type annotations use explicit `type` keyword
 /// to disambiguate from attributes: `: type Scalar<K>` vs `: title("Temp")`
-fn type_annotation_parser<'src>()
--> impl Parser<'src, &'src [Token], TypeExpr, extra::Err<Rich<'src, Token>>> + Clone {
+fn type_annotation_parser<'src>(
+) -> impl Parser<'src, &'src [Token], TypeExpr, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Colon)
         .ignore_then(just(Token::Type))
         .ignore_then(type_expr_parser())
@@ -819,8 +819,8 @@ fn type_annotation_parser<'src>()
 ///
 /// Attributes are parsed generically. Validation of attribute names and
 /// argument types happens in the analyzer, not the parser.
-fn attribute_parser<'src>()
--> impl Parser<'src, &'src [Token], Attribute, extra::Err<Rich<'src, Token>>> + Clone {
+fn attribute_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Attribute, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Colon)
         .ignore_then(select! { Token::Ident(name) => name })
         .then(
@@ -896,8 +896,8 @@ fn stmt_parser<'src>(
 ///
 /// Statements must be separated by semicolons.
 
-fn block_body_parser<'src>()
--> impl Parser<'src, &'src [Token], BlockBody, extra::Err<Rich<'src, Token>>> + Clone {
+fn block_body_parser<'src>(
+) -> impl Parser<'src, &'src [Token], BlockBody, extra::Err<Rich<'src, Token>>> + Clone {
     let expr = expr_parser();
 
     // Try to parse as statement list first (more specific)
@@ -918,8 +918,8 @@ fn block_body_parser<'src>()
 ///
 /// Warmup blocks contain attributes (iterations, convergence) and an
 /// iterate sub-block with the warmup expression.
-fn warmup_parser<'src>()
--> impl Parser<'src, &'src [Token], WarmupBlock, extra::Err<Rich<'src, Token>>> + Clone {
+fn warmup_parser<'src>(
+) -> impl Parser<'src, &'src [Token], WarmupBlock, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::WarmUp)
         .ignore_then(
             attribute_parser()
@@ -941,8 +941,8 @@ fn warmup_parser<'src>()
 ///
 /// When blocks contain conditions that must all be true.
 /// Conditions are expressions separated by semicolons or newlines.
-fn when_parser<'src>()
--> impl Parser<'src, &'src [Token], WhenBlock, extra::Err<Rich<'src, Token>>> + Clone {
+fn when_parser<'src>(
+) -> impl Parser<'src, &'src [Token], WhenBlock, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::When)
         .ignore_then(
             expr_parser()
@@ -968,8 +968,8 @@ fn when_parser<'src>()
 ///     }
 /// }
 /// ```
-fn observe_parser<'src>()
--> impl Parser<'src, &'src [Token], ObserveBlock, extra::Err<Rich<'src, Token>>> + Clone {
+fn observe_parser<'src>(
+) -> impl Parser<'src, &'src [Token], ObserveBlock, extra::Err<Rich<'src, Token>>> + Clone {
     // when clause: `when condition { emit_statements }`
     let when_clause = just(Token::When)
         .ignore_then(expr_parser())
@@ -1009,8 +1009,8 @@ fn observe_parser<'src>()
 ///     signal.time > 1e9<s>
 /// }
 /// ```
-fn transition_parser<'src>()
--> impl Parser<'src, &'src [Token], TransitionDecl, extra::Err<Rich<'src, Token>>> + Clone {
+fn transition_parser<'src>(
+) -> impl Parser<'src, &'src [Token], TransitionDecl, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Transition)
         .ignore_then(path_parser())
         .then(when_parser())
@@ -1029,8 +1029,8 @@ fn transition_parser<'src>()
 ///
 /// Execution blocks contain the logic for different phases.
 /// Examples: `resolve { expr }`, `collect { stmts }`, `measure { expr }`
-fn execution_block_parser<'src>()
--> impl Parser<'src, &'src [Token], (String, BlockBody), extra::Err<Rich<'src, Token>>> + Clone {
+fn execution_block_parser<'src>(
+) -> impl Parser<'src, &'src [Token], (String, BlockBody), extra::Err<Rich<'src, Token>>> + Clone {
     let block_keyword = select! {
         Token::Resolve => "resolve",
         Token::Collect => "collect",
@@ -1094,8 +1094,8 @@ fn execution_block_parser<'src>()
 ///     resolve { prev + 1 }
 /// }
 /// ```
-fn signal_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn signal_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Signal)
         .ignore_then(path_parser())
         .then(type_annotation_parser().or_not())
@@ -1130,8 +1130,8 @@ fn signal_parser<'src>()
 ///     measure { signal.temp }
 /// }
 /// ```
-fn field_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn field_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Field)
         .ignore_then(path_parser())
         .then(type_annotation_parser().or_not())
@@ -1168,8 +1168,8 @@ fn field_parser<'src>()
 ///     collect { signal.heat <- radiation - loss; }
 /// }
 /// ```
-fn operator_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn operator_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Operator)
         .ignore_then(path_parser())
         .then(type_annotation_parser().or_not())
@@ -1200,8 +1200,8 @@ fn operator_parser<'src>()
 ///     apply { signal.energy <- payload.energy; }
 /// }
 /// ```
-fn impulse_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn impulse_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Impulse)
         .ignore_then(path_parser())
         .then(type_annotation_parser().or_not())
@@ -1232,8 +1232,8 @@ fn impulse_parser<'src>()
 ///     emit { signal.feedback <- 1.5; }
 /// }
 /// ```
-fn fracture_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn fracture_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Fracture)
         .ignore_then(path_parser())
         .then(type_annotation_parser().or_not())
@@ -1269,8 +1269,8 @@ fn fracture_parser<'src>()
 ///     }
 /// }
 /// ```
-fn chronicle_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn chronicle_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Chronicle)
         .ignore_then(path_parser())
         .then(type_annotation_parser().or_not())
@@ -1301,8 +1301,8 @@ fn chronicle_parser<'src>()
 ///     : count(5..50)
 /// }
 /// ```
-fn entity_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn entity_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Entity)
         .ignore_then(path_parser())
         .then_ignore(just(Token::LBrace))
@@ -1325,8 +1325,8 @@ fn entity_parser<'src>()
 ///     resolve { prev }
 /// }
 /// ```
-fn member_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn member_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Member)
         .ignore_then(path_parser())
         .then(type_annotation_parser().or_not())
@@ -1386,8 +1386,8 @@ fn member_parser<'src>()
 ///     : title("Simulation")
 /// }
 /// ```
-fn stratum_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn stratum_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Strata)
         .ignore_then(path_parser())
         .then_ignore(just(Token::LBrace))
@@ -1421,8 +1421,8 @@ fn stratum_parser<'src>()
 ///     transition stable when { signal.temp < 1000<K> }
 /// }
 /// ```
-fn era_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn era_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     // Strata policy entry: `path : active` or `path : gated`
     // Parser preserves raw state identifier, semantic analysis interprets it
     let strata_entry = path_parser()
@@ -1483,8 +1483,8 @@ fn era_parser<'src>()
 ///     velocity: Vec3<m/s>
 /// }
 /// ```
-fn type_decl_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn type_decl_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     // Field: `name : TypeExpr`
     let field = select! { Token::Ident(name) => name }
         .then_ignore(just(Token::Colon))
@@ -1528,8 +1528,8 @@ fn type_decl_parser<'src>()
 ///     }
 /// }
 /// ```
-fn world_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn world_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     // Warmup policy block
     let warmup_policy = just(Token::WarmUp)
         .ignore_then(
@@ -1582,8 +1582,8 @@ fn world_parser<'src>()
 ///     physics.gravity: 9.81
 /// }
 /// ```
-fn const_block_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn const_block_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     // Entry: `path : expr`
     let entry = path_parser()
         .then_ignore(just(Token::Colon))
@@ -1616,8 +1616,8 @@ fn const_block_parser<'src>()
 ///     initial_temp: 5500<K>
 /// }
 /// ```
-fn config_block_parser<'src>()
--> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
+fn config_block_parser<'src>(
+) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     // Entry: `path : type TypeExpr = expr` or `path : type TypeExpr`
     let entry = path_parser()
         .then_ignore(just(Token::Colon))

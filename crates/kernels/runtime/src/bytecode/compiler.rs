@@ -27,48 +27,59 @@ use crate::bytecode::opcode::{Instruction, OpcodeKind};
 use crate::bytecode::operand::{BlockId, Operand, Slot};
 use crate::bytecode::program::{BytecodeBlock, BytecodeProgram};
 
-/// Result of a successful compilation pass.
+/// Result of a successful compilation pass from typed IR to bytecode.
 ///
-/// A compiled block contains the bytecode program, its root entry point,
-/// and metadata required by the runtime DAG for scheduling and validation.
+/// A compiled block contains the executable bytecode program and metadata
+/// required by the deterministic runtime for dependency analysis, scheduling,
+/// and resource allocation.
 #[derive(Debug, Clone)]
 pub struct CompiledBlock {
-    /// Phase this block executes in.
+    /// The simulation phase this block was compiled for.
     ///
-    /// The phase determines which opcodes are valid and which capabilities
-    /// (e.g., LoadPrev, Emit) are available during execution.
+    /// Opcode validity and capability access (e.g., LoadPrev, Emit) are
+    /// locked to this phase.
     pub phase: Phase,
-    /// Bytecode program containing the root block and any nested blocks (e.g., from aggregates/folds).
+    /// The bytecode program containing the instruction sequence and nested blocks.
     pub program: BytecodeProgram,
-    /// Root block id where execution begins.
+    /// The entry point block ID within the program (typically ID 0).
     pub root: BlockId,
-    /// Total number of slots required to hold all locals, signals, and temporaries.
+    /// The total number of memory slots required to execute this program.
     ///
-    /// This is used by the executor to pre-allocate slot storage.
+    /// This count includes space for all local let-bindings, signal lookups,
+    /// and temporary computation results across all blocks in the program.
     pub slot_count: u32,
-    /// Signal paths read by this block. Used for DAG dependency analysis.
+    /// List of signal paths that this block reads from the current tick.
+    /// Used by the graph builder to establish incoming causal edges.
     pub reads: Vec<Path>,
-    /// Signal paths read with `prev`. Used to ensure history availability.
+    /// List of signal paths read with the `prev` keyword.
+    /// Used to ensure that history buffers are maintained for these signals.
     pub temporal_reads: Vec<Path>,
-    /// Signal paths emitted to by this block. Used for DAG dependency analysis.
+    /// List of signal paths that this block emits to.
+    /// Used by the graph builder to establish outgoing causal edges.
     pub emits: Vec<Path>,
 }
 
-/// Converts typed IR execution blocks into bytecode sequences.
+/// A stateful compiler that transforms typed IR execution blocks into VM bytecode.
 ///
-/// The compiler performs a single-pass walk of the typed IR tree, allocating
-/// slots for bindings and temporaries while emitting opcodes.
+/// The compiler performs a depth-first walk of the typed IR tree, allocating
+/// VM slots for bindings and intermediates while emitting instructions.
+///
+/// # Compilation Process
+/// 1. **Slot Allocation**: Assigns stable indices to all local variables.
+/// 2. **Opcode Emission**: Translates IR nodes into linear instruction sequences.
+/// 3. **Block Management**: Handles nested scope construction for `Aggregate` and `Fold`.
+/// 4. **Validation**: Enforces phase and capability constraints defined in the IR.
 pub struct Compiler {
-    /// Next available slot index for allocation.
+    /// Current slot index being allocated. Incremented for each new binding.
     next_slot: u32,
-    /// Program being assembled during the current compilation pass.
+    /// The program currently being assembled.
     program: BytecodeProgram,
-    /// Stack of local scopes used for name resolution.
+    /// Lexical scope stack mapping variable names to their allocated slots.
     scopes: Vec<BTreeMap<String, Slot>>,
 }
 
 impl Compiler {
-    /// Create a new compiler instance with an empty initial scope.
+    /// Creates a new compiler instance with an empty initial scope.
     pub fn new() -> Self {
         Self {
             next_slot: 0,
@@ -77,19 +88,17 @@ impl Compiler {
         }
     }
 
-    /// Compile an execution block from IR
+    /// Compiles a typed IR [`Execution`] block into a [`CompiledBlock`].
     ///
-    /// This is the main entry point for compilation. Takes a typed Execution
-    /// from the IR and produces a CompiledBlock.
-    ///
-    /// Compiler state (slots and scopes) is reset per call.
+    /// This is the primary entry point for bytecode generation. It resets the
+    /// compiler's internal state (slots and scopes) before starting the walk.
     ///
     /// # Errors
     ///
-    /// Returns an error if:
-    /// - Phase constraints are violated
-    /// - Capabilities are missing
-    /// - Invalid IR structure
+    /// Returns a [`CompileError`] if:
+    /// - The IR violates phase constraints (e.g., `Emit` in `Resolve` phase).
+    /// - Required capabilities are missing from the IR definition.
+    /// - The IR structure is inconsistent or unsupported.
     pub fn compile_execution(
         &mut self,
         execution: &Execution,
@@ -121,6 +130,7 @@ impl Compiler {
         })
     }
 
+    /// Compiles an IR execution body (either a single expression or a list of statements).
     fn compile_body(
         &mut self,
         block: &mut BytecodeBlock,
@@ -140,6 +150,7 @@ impl Compiler {
         }
     }
 
+    /// Compiles a single typed IR statement into instructions.
     fn compile_stmt(
         &mut self,
         block: &mut BytecodeBlock,
@@ -182,6 +193,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a typed IR expression into instructions.
     fn compile_expr(
         &mut self,
         block: &mut BytecodeBlock,
@@ -301,6 +313,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a vector construction expression.
     fn compile_vector(
         &mut self,
         block: &mut BytecodeBlock,
@@ -316,6 +329,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a field access expression (e.g., `pos.x`).
     fn compile_field_access(
         &mut self,
         block: &mut BytecodeBlock,
@@ -330,6 +344,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a `let` binding, either as a statement or an expression.
     fn compile_let(
         &mut self,
         block: &mut BytecodeBlock,
@@ -365,6 +380,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles an aggregate operation (sum, count, etc.) into a nested bytecode block.
     fn compile_aggregate(
         &mut self,
         block: &mut BytecodeBlock,
@@ -396,6 +412,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a fold operation into a nested bytecode block.
     fn compile_fold(
         &mut self,
         block: &mut BytecodeBlock,
@@ -435,6 +452,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a kernel call into a `CallKernel` instruction.
     fn compile_call(
         &mut self,
         block: &mut BytecodeBlock,
@@ -451,6 +469,7 @@ impl Compiler {
         Ok(())
     }
 
+    /// Compiles a struct literal construction.
     fn compile_struct(
         &mut self,
         block: &mut BytecodeBlock,
@@ -469,16 +488,19 @@ impl Compiler {
         Ok(())
     }
 
+    /// Allocates a new VM slot index.
     fn alloc_slot(&mut self) -> Slot {
         let slot = Slot::new(self.next_slot);
         self.next_slot += 1;
         slot
     }
 
+    /// Pushes a new lexical scope onto the stack.
     fn push_scope(&mut self) {
         self.scopes.push(BTreeMap::new());
     }
 
+    /// Pops the current lexical scope.
     fn pop_scope(&mut self) {
         if self.scopes.len() <= 1 {
             panic!("Compiler scope underflow");
@@ -486,6 +508,7 @@ impl Compiler {
         self.scopes.pop();
     }
 
+    /// Binds a variable name to a slot in the current scope.
     fn bind_local(&mut self, name: String, slot: Slot) {
         let scope = self
             .scopes
@@ -494,6 +517,7 @@ impl Compiler {
         scope.insert(name, slot);
     }
 
+    /// Looks up the slot index for a variable name in the scope stack.
     fn lookup_local(&self, name: &str) -> Option<Slot> {
         self.scopes
             .iter()
@@ -501,6 +525,7 @@ impl Compiler {
             .find_map(|scope| scope.get(name).copied())
     }
 
+    /// Validates that all opcodes in the program are permitted in the target phase.
     fn validate_program(
         &self,
         phase: Phase,
@@ -534,6 +559,7 @@ impl Default for Compiler {
     }
 }
 
+/// Validates that an aggregate operation is supported by the bytecode VM.
 fn ensure_aggregate_supported(
     op: continuum_cdsl::ast::expr::AggregateOp,
 ) -> Result<(), CompileError> {
@@ -545,7 +571,7 @@ fn ensure_aggregate_supported(
     Ok(())
 }
 
-/// Compilation error types.
+/// Compilation error types encountered during IR → bytecode translation.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum CompileError {
     /// An opcode was used in a phase where it is not allowed (e.g., `Emit` in `Resolve`).

@@ -21,12 +21,13 @@
 //! ```
 
 use crate::ast::{
-    BlockBody, Execution, ExecutionBody, Expr, ExprKind, ExpressionVisitor, Index, Node, RoleId,
-    Stmt, TypedExpr, TypedStmt, UntypedKind,
+    BlockBody, Execution, ExecutionBody, Expr, Index, Node, RoleId, Stmt, TypedExpr, TypedStmt,
 };
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{Path, Phase, Type};
-use crate::resolve::expr_typing::{TypingContext, type_expression};
+use crate::foundation::Phase;
+use crate::resolve::dependencies::{extract_dependencies, extract_stmt_dependencies};
+use crate::resolve::expr_typing::{type_expression, TypingContext};
+use crate::resolve::utils::sort_unique;
 use std::collections::HashSet;
 
 /// Compiles a sequence of untyped statements into a type-validated IR representation.
@@ -60,21 +61,7 @@ pub fn compile_statements(
 ) -> Result<Vec<TypedStmt>, Vec<CompileError>> {
     let mut typed_stmts = Vec::new();
     let mut errors = Vec::new();
-    let mut current_ctx = TypingContext {
-        type_table: ctx.type_table,
-        kernel_registry: ctx.kernel_registry,
-        signal_types: ctx.signal_types,
-        field_types: ctx.field_types,
-        config_types: ctx.config_types,
-        const_types: ctx.const_types,
-        local_bindings: ctx.local_bindings.clone(),
-        self_type: ctx.self_type.clone(),
-        other_type: ctx.other_type.clone(),
-        node_output: ctx.node_output.clone(),
-        inputs_type: ctx.inputs_type.clone(),
-        payload_type: ctx.payload_type.clone(),
-        phase: ctx.phase,
-    };
+    let mut current_ctx = ctx.clone();
 
     for stmt in stmts {
         match stmt {
@@ -251,154 +238,6 @@ pub fn parse_phase_name(name: &str, span: crate::foundation::Span) -> Result<Pha
     }
 }
 
-/// Extracts signal and field paths from an expression tree.
-///
-/// Recursively walks the expression tree using [`DependencyVisitor`] to find all
-/// path references that represent data reads. These paths are used during
-/// Phase 13 (DAG Construction) to determine execution order and detect cycles.
-///
-/// # Determinism
-///
-/// Returns a tuple of `(reads, temporal_reads)` in **deterministic sorted order**
-/// to satisfy the engine's core determinism invariant.
-fn extract_dependencies(expr: &TypedExpr, current_node_path: &Path) -> (Vec<Path>, Vec<Path>) {
-    let mut visitor = DependencyVisitor {
-        paths: HashSet::new(),
-        temporal_paths: HashSet::new(),
-        current_node_path: current_node_path.clone(),
-    };
-    expr.walk(&mut visitor);
-
-    // Sort for determinism (satisfies hard invariant)
-    let mut paths: Vec<_> = visitor.paths.into_iter().collect();
-    paths.sort();
-
-    let mut temporal_paths: Vec<_> = visitor.temporal_paths.into_iter().collect();
-    temporal_paths.sort();
-
-    (paths, temporal_paths)
-}
-
-/// Visitor that collects signal and field paths from an expression tree.
-///
-/// This visitor performs a deep traversal of a [`TypedExpr`] tree to identify
-/// all external data dependencies (signals, fields, config, constants) and
-/// structural dependencies (entity set references for aggregations).
-struct DependencyVisitor {
-    /// Accumulated set of unique dependency paths.
-    paths: HashSet<Path>,
-    /// Accumulated set of unique temporal dependency paths (via 'prev').
-    temporal_paths: HashSet<Path>,
-    /// The path of the node whose execution block is being compiled.
-    current_node_path: Path,
-}
-
-impl ExpressionVisitor for DependencyVisitor {
-    fn visit_expr(&mut self, expr: &TypedExpr) {
-        match &expr.expr {
-            ExprKind::Signal(path)
-            | ExprKind::Field(path)
-            | ExprKind::Config(path)
-            | ExprKind::Const(path) => {
-                self.paths.insert(path.clone());
-            }
-            ExprKind::Aggregate { entity, .. } | ExprKind::Fold { entity, .. } => {
-                // Iterating over an entity set is a read dependency on the entity's lifetime
-                self.paths.insert(Path::from_str(&entity.0.to_string()));
-            }
-            ExprKind::FieldAccess { object, field } => {
-                // BUG FIX (continuum-b8wv): Don't insert member paths when object is Prev.
-                // Temporal self-references should not create cross-signal dependencies.
-                if !matches!(object.expr, ExprKind::Prev) {
-                    if let Type::User(type_id) = &object.ty {
-                        // Accessing a member on a user type (entity or struct)
-                        // In CDSL, members are identified by Entity.Member
-                        self.paths
-                            .insert(Path::from_str(&type_id.to_string()).append(field));
-                    }
-                }
-            }
-            // Temporal tracking (continuum-ak0c): Capture self-referential temporal read
-            ExprKind::Prev => {
-                self.temporal_paths.insert(self.current_node_path.clone());
-            }
-            // Leaf values and binding structures that don't directly introduce
-            // new path dependencies (dependencies are extracted from their sub-expressions
-            // during the recursive walk)
-            ExprKind::Literal { .. }
-            | ExprKind::Vector(_)
-            | ExprKind::Local(_)
-            | ExprKind::Current
-            | ExprKind::Inputs
-            | ExprKind::Dt
-            | ExprKind::Self_
-            | ExprKind::Other
-            | ExprKind::Payload
-            | ExprKind::Let { .. }
-            | ExprKind::Call { .. }
-            | ExprKind::Struct { .. } => {}
-        }
-    }
-}
-
-/// Extracts side effects and read dependencies from a compiled statement.
-///
-/// This function performs the critical mapping between procedural IR ([`TypedStmt`])
-/// and declarative execution metadata ([`Execution`]).
-///
-/// # Identified Metadata
-///
-/// - **Reads**: Any signals, fields, or config values read within the statement's expressions.
-///   These form the incoming edges in the execution DAG.
-/// - **Temporal Reads**: Signal dependencies via 'prev'.
-/// - **Emissions (Side Effects)**: The target signal or field path if the statement is an assignment.
-///   These form the outgoing edges and define the causality boundary for the execution block.
-///
-/// Returns a tuple of `(reads, temporal_reads, emits)` used to build the [`Execution`] IR.
-fn extract_stmt_dependencies(
-    stmt: &TypedStmt,
-    current_node_path: &Path,
-) -> (Vec<Path>, Vec<Path>, Vec<Path>) {
-    let mut reads = Vec::new();
-    let mut temporal_reads = Vec::new();
-    let mut emits = Vec::new();
-
-    match stmt {
-        TypedStmt::Let { value, .. } => {
-            let (r, t) = extract_dependencies(value, current_node_path);
-            reads.extend(r);
-            temporal_reads.extend(t);
-        }
-        TypedStmt::SignalAssign { target, value, .. } => {
-            emits.push(target.clone());
-            let (r, t) = extract_dependencies(value, current_node_path);
-            reads.extend(r);
-            temporal_reads.extend(t);
-        }
-        TypedStmt::FieldAssign {
-            target,
-            position,
-            value,
-            ..
-        } => {
-            emits.push(target.clone());
-            let (r1, t1) = extract_dependencies(position, current_node_path);
-            let (r2, t2) = extract_dependencies(value, current_node_path);
-            reads.extend(r1);
-            reads.extend(r2);
-            temporal_reads.extend(t1);
-            temporal_reads.extend(t2);
-        }
-        TypedStmt::Expr(expr) => {
-            let (r, t) = extract_dependencies(expr, current_node_path);
-            reads.extend(r);
-            temporal_reads.extend(t);
-        }
-    }
-
-    (reads, temporal_reads, emits)
-}
-
 /// Validate that a phase is allowed for a node's role.
 ///
 /// Uses the role's spec to check if the phase is in the allowed set.
@@ -564,13 +403,11 @@ pub fn compile_execution_blocks<I: Index>(
                         emits.insert(e);
                     }
                 }
-                let mut sorted_reads: Vec<_> = reads.into_iter().collect();
-                sorted_reads.sort();
-                let mut sorted_temporal: Vec<_> = temporal_reads.into_iter().collect();
-                sorted_temporal.sort();
-                let mut sorted_emits: Vec<_> = emits.into_iter().collect();
-                sorted_emits.sort();
-                (sorted_reads, sorted_temporal, sorted_emits)
+                (
+                    sort_unique(reads),
+                    sort_unique(temporal_reads),
+                    sort_unique(emits),
+                )
             }
         };
 
@@ -643,13 +480,8 @@ pub fn compile_execution_blocks<I: Index>(
         }
     }
 
-    let mut sorted_reads: Vec<_> = all_reads.into_iter().collect();
-    sorted_reads.sort();
-    node.reads = sorted_reads;
-
-    let mut sorted_temporal: Vec<_> = all_temporal.into_iter().collect();
-    sorted_temporal.sort();
-    node.temporal_reads = sorted_temporal;
+    node.reads = sort_unique(all_reads);
+    node.temporal_reads = sort_unique(all_temporal);
 
     Ok(())
 }
@@ -657,8 +489,8 @@ pub fn compile_execution_blocks<I: Index>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::KernelRegistry;
-    use crate::foundation::{KernelType, Shape, Span, Type, Unit};
+    use crate::ast::{Expr, ExprKind, KernelRegistry, TypedExpr, TypedStmt, UntypedKind};
+    use crate::foundation::{KernelType, Path, Shape, Span, Type, Unit};
     use std::collections::HashMap;
 
     fn test_span() -> Span {
@@ -1620,5 +1452,42 @@ mod tests {
         let (deps_const, _) = extract_dependencies(&const_expr, &Path::from_str("test"));
         assert_eq!(deps_const.len(), 1);
         assert_eq!(deps_const[0], const_path);
+    }
+
+    #[test]
+    fn test_prev_field_extraction_fix() {
+        use crate::foundation::TypeId;
+
+        let span = test_span();
+        let scalar_ty = scalar_type();
+        let plate_ty_id = TypeId::from("plate");
+        let plate_ty = Type::User(plate_ty_id.clone());
+
+        // prev object of type 'plate'
+        let object = TypedExpr::new(ExprKind::Prev, plate_ty, span);
+
+        // prev.mass
+        let expr = TypedExpr::new(
+            ExprKind::FieldAccess {
+                object: Box::new(object),
+                field: "mass".to_string(),
+            },
+            scalar_ty,
+            span,
+        );
+
+        let node_path = Path::from_str("plate.mass");
+        let (reads, temporal_reads) = extract_dependencies(&expr, &node_path);
+
+        // Should NOT have causal reads (prev is temporal)
+        assert!(
+            reads.is_empty(),
+            "Temporal field access should not create causal dependency, got: {:?}",
+            reads
+        );
+
+        // Should have temporal read of self
+        assert_eq!(temporal_reads.len(), 1);
+        assert_eq!(temporal_reads[0], node_path);
     }
 }

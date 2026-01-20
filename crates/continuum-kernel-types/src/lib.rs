@@ -221,7 +221,7 @@ pub struct RequiresUses {
 /// # Examples
 ///
 /// ```rust
-/// use continuum_kernel_types::{KernelSignature, KernelParam, KernelReturn, KernelPurity};
+/// use continuum_kernel_types::{KernelSignature, KernelParam, KernelReturn, KernelPurity, ValueType};
 /// use continuum_kernel_types::{ShapeConstraint, UnitConstraint, ShapeDerivation, UnitDerivation, KernelId};
 ///
 /// // maths.add(a, b) → same shape, same unit, pure
@@ -233,7 +233,8 @@ pub struct RequiresUses {
 ///     ],
 ///     returns: KernelReturn {
 ///         shape: ShapeDerivation::SameAs(0),
-///         unit: UnitDerivation::SameAs(0)
+///         unit: UnitDerivation::SameAs(0),
+///         value_type: ValueType::Scalar,
 ///     },
 ///     purity: KernelPurity::Pure,
 ///     requires_uses: None,

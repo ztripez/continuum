@@ -23,6 +23,12 @@ pub type Handler = fn(
     &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError>;
 
+/// Shared logic for opcodes that load simulation state via a path.
+///
+/// This helper handles the common pattern of:
+/// 1. Decoding a [`Path`] from the first instruction operand.
+/// 2. Calling a domain-specific load function from the [`ExecutionContext`].
+/// 3. Pushing the resulting [`Value`] onto the stack.
 fn handle_load_with_path(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -38,6 +44,10 @@ fn handle_load_with_path(
     Ok(())
 }
 
+/// Shared logic for opcodes that load context-dependent values (prev, dt, self, etc.).
+///
+/// This helper executes a load function from the [`ExecutionContext`] and pushes
+/// the result onto the stack. It is used for opcodes that do not require operands.
 fn handle_load_ctx(
     runtime: &mut dyn ExecutionRuntime,
     ctx: &mut dyn ExecutionContext,
@@ -48,6 +58,10 @@ fn handle_load_ctx(
     Ok(())
 }
 
+/// Shared logic for opcodes that emit values to a signal path.
+///
+/// Decodes the target signal path from operand[0], pops the value to emit from
+/// the top of the stack, and dispatches the emission via the [`ExecutionContext`].
 fn handle_emit_value(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -63,6 +77,7 @@ fn handle_emit_value(
     emit(ctx, &target, value)
 }
 
+/// No-op handler for instructions that serve as structural markers (e.g., Let, Return).
 pub(crate) fn handle_noop(
     _instruction: &Instruction,
     _runtime: &mut dyn ExecutionRuntime,
@@ -72,6 +87,13 @@ pub(crate) fn handle_noop(
     Ok(())
 }
 
+/// Pushes a literal value onto the evaluation stack.
+///
+/// # Operands
+/// - 0: The literal value to push ([`Operand::Literal`]).
+///
+/// # Stack
+/// - [ ] → [Value]
 pub(crate) fn handle_push_literal(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -83,6 +105,15 @@ pub(crate) fn handle_push_literal(
     Ok(())
 }
 
+/// Loads a value from a specific VM slot and pushes it onto the stack.
+///
+/// Used for reading let-bound variables and temporary computation results.
+///
+/// # Operands
+/// - 0: The slot index to load from ([`Operand::Slot`]).
+///
+/// # Stack
+/// - [ ] → [Value]
 pub(crate) fn handle_load(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -95,6 +126,13 @@ pub(crate) fn handle_load(
     Ok(())
 }
 
+/// Pops the top stack value and stores it into a VM slot.
+///
+/// # Operands
+/// - 0: The target slot index ([`Operand::Slot`]).
+///
+/// # Stack
+/// - [Value] → [ ]
 pub(crate) fn handle_store(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -107,6 +145,10 @@ pub(crate) fn handle_store(
     Ok(())
 }
 
+/// Duplicates the top value on the stack.
+///
+/// # Stack
+/// - [Value] → [Value, Value]
 pub(crate) fn handle_dup(
     _instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -119,6 +161,10 @@ pub(crate) fn handle_dup(
     Ok(())
 }
 
+/// Discards the top value from the stack.
+///
+/// # Stack
+/// - [Value] → [ ]
 pub(crate) fn handle_pop(
     _instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -129,6 +175,17 @@ pub(crate) fn handle_pop(
     Ok(())
 }
 
+/// Constructs a vector (Vec2, Vec3, or Vec4) from stack values.
+///
+/// Pops $N$ scalar values from the stack and pushes a single vector value.
+/// Components must be pushed in order (x, y, z, w); this handler pops them
+/// in reverse order to maintain correct orientation.
+///
+/// # Operands
+/// - 0: The number of components $N \in [2, 4]$ ([`Operand::Literal`] integer).
+///
+/// # Stack
+/// - [v1, ..., vN] → [Vector]
 pub(crate) fn handle_build_vector(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -159,6 +216,17 @@ pub(crate) fn handle_build_vector(
     Ok(())
 }
 
+/// Constructs a structured Map from stack values and operand field names.
+///
+/// Pops one value per field name provided in operands. Values must be pushed
+/// onto the stack in the same order as field names; this handler pops them
+/// in reverse order to build the map.
+///
+/// # Operands
+/// - Variable: List of field names ([`Operand::String`]).
+///
+/// # Stack
+/// - [v1, ..., vN] → [Map]
 pub(crate) fn handle_build_struct(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -176,6 +244,13 @@ pub(crate) fn handle_build_struct(
     Ok(())
 }
 
+/// Dispatches a call to an engine kernel primitive.
+///
+/// # Operands
+/// - 0: Argument count $N$ ([`Operand::Literal`] integer).
+///
+/// # Stack
+/// - [arg1, ..., argN] → [Result]
 pub(crate) fn handle_call_kernel(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -198,6 +273,16 @@ pub(crate) fn handle_call_kernel(
     Ok(())
 }
 
+/// Performs a distributed aggregate operation (sum, map, count, etc.) over an entity set.
+///
+/// Iterates over all instances of the specified entity type, executing a sub-block
+/// for each instance and reducing the results.
+///
+/// # Operands
+/// 0. Entity type ID ([`Operand::Entity`]).
+/// 1. VM slot to bind the current instance to ([`Operand::Slot`]).
+/// 2. ID of the bytecode block to execute ([`Operand::Block`]).
+/// 3. Aggregate operation kind ([`Operand::AggregateOp`]).
 pub(crate) fn handle_aggregate(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -223,6 +308,16 @@ pub(crate) fn handle_aggregate(
     Ok(())
 }
 
+/// Performs a stateful fold operation over an entity set.
+///
+/// Iterates over all instances of the specified entity type, maintaining an
+/// accumulator value across sub-block executions.
+///
+/// # Operands
+/// 0. Entity type ID ([`Operand::Entity`]).
+/// 1. VM slot for the accumulator ([`Operand::Slot`]).
+/// 2. VM slot for the current instance ([`Operand::Slot`]).
+/// 3. ID of the bytecode block to execute ([`Operand::Block`]).
 pub(crate) fn handle_fold(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -247,6 +342,13 @@ pub(crate) fn handle_fold(
     Ok(())
 }
 
+/// Accesses a named field on a Map value or a component on a vector.
+///
+/// # Operands
+/// - 0: The name of the field or component ([`Operand::String`]).
+///
+/// # Stack
+/// - [Object] → [Value]
 pub(crate) fn handle_field_access(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -260,6 +362,7 @@ pub(crate) fn handle_field_access(
     Ok(())
 }
 
+/// Loads a resolved signal value by its path.
 pub(crate) fn handle_load_signal(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -275,6 +378,7 @@ pub(crate) fn handle_load_signal(
     )
 }
 
+/// Loads a value from a spatial field by its path.
 pub(crate) fn handle_load_field(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -290,6 +394,7 @@ pub(crate) fn handle_load_field(
     )
 }
 
+/// Loads a world configuration value by its path.
 pub(crate) fn handle_load_config(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -305,6 +410,7 @@ pub(crate) fn handle_load_config(
     )
 }
 
+/// Loads a global simulation constant by its path.
 pub(crate) fn handle_load_const(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -320,6 +426,7 @@ pub(crate) fn handle_load_const(
     )
 }
 
+/// Loads the value of the current signal from the previous tick.
 pub(crate) fn handle_load_prev(
     _instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -329,6 +436,7 @@ pub(crate) fn handle_load_prev(
     handle_load_ctx(runtime, ctx, ExecutionContext::load_prev)
 }
 
+/// Loads the just-resolved value of the current signal.
 pub(crate) fn handle_load_current(
     _instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -338,6 +446,7 @@ pub(crate) fn handle_load_current(
     handle_load_ctx(runtime, ctx, ExecutionContext::load_current)
 }
 
+/// Loads the accumulated inputs for the current signal.
 pub(crate) fn handle_load_inputs(
     _instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -347,6 +456,7 @@ pub(crate) fn handle_load_inputs(
     handle_load_ctx(runtime, ctx, ExecutionContext::load_inputs)
 }
 
+/// Loads the current time step (dt).
 pub(crate) fn handle_load_dt(
     _instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -356,6 +466,10 @@ pub(crate) fn handle_load_dt(
     handle_load_ctx(runtime, ctx, ExecutionContext::load_dt)
 }
 
+/// Loads the identity of the current entity instance.
+///
+/// # Stack
+/// - [ ] → [EntityId]
 pub(crate) fn handle_load_self(
     _instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -365,6 +479,10 @@ pub(crate) fn handle_load_self(
     handle_load_ctx(runtime, ctx, ExecutionContext::load_self)
 }
 
+/// Loads the identity of the "other" entity instance (if any).
+///
+/// # Stack
+/// - [ ] → [EntityId]
 pub(crate) fn handle_load_other(
     _instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -374,6 +492,10 @@ pub(crate) fn handle_load_other(
     handle_load_ctx(runtime, ctx, ExecutionContext::load_other)
 }
 
+/// Loads the payload data from the triggering impulse.
+///
+/// # Stack
+/// - [ ] → [Value]
 pub(crate) fn handle_load_payload(
     _instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -383,6 +505,13 @@ pub(crate) fn handle_load_payload(
     handle_load_ctx(runtime, ctx, ExecutionContext::load_payload)
 }
 
+/// Emits a value to a signal.
+///
+/// # Operands
+/// - 0: The target signal path ([`Operand::Signal`]).
+///
+/// # Stack
+/// - [Value] → [ ]
 pub(crate) fn handle_emit(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -392,6 +521,9 @@ pub(crate) fn handle_emit(
     handle_emit_value(instruction, runtime, ctx, ExecutionContext::emit_signal)
 }
 
+/// Emits a value to a spatial field at a given position.
+///
+/// Pops [Value, Position] from the stack. Target field is in operand[0].
 pub(crate) fn handle_emit_field(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -404,6 +536,9 @@ pub(crate) fn handle_emit_field(
     ctx.emit_field(&target, position, value)
 }
 
+/// Spawns a new instance of an entity type.
+///
+/// Pops initial value from stack. Entity type is in operand[0].
 pub(crate) fn handle_spawn(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
@@ -415,6 +550,9 @@ pub(crate) fn handle_spawn(
     ctx.spawn(&entity, value)
 }
 
+/// Marks an entity instance for destruction.
+///
+/// Pops instance ID from stack. Entity type is in operand[0].
 pub(crate) fn handle_destroy(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,

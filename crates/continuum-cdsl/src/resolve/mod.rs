@@ -124,6 +124,7 @@
 
 pub mod blocks;
 pub mod capabilities;
+pub mod dependencies;
 pub mod effects;
 pub mod eras;
 pub mod expr_typing;
@@ -134,5 +135,7 @@ pub mod strata;
 pub mod structure;
 pub mod types;
 pub mod units;
+/// Utility functions for resolution passes.
+pub mod utils;
 pub mod uses;
 pub mod validation;

@@ -5,24 +5,28 @@ use crate::bytecode::operand::BlockId;
 
 /// A complete bytecode program consisting of one or more execution blocks.
 ///
-/// Programs are the unit of exchange between the compiler and the executor.
-/// They contain all the instructions required to execute a simulation fragment,
-/// including any nested blocks for sub-computations.
+/// Programs are the primary artifact produced by the compiler and executed by
+/// the VM. They represent a self-contained computation (like a signal resolve
+/// or an operator effect) and include all nested blocks required for control
+/// flow operations like `Aggregate` or `Fold`.
 #[derive(Debug, Clone)]
 pub struct BytecodeProgram {
-    /// List of blocks in the program. The root block is typically the first one.
+    /// Ordered list of blocks in the program.
+    ///
+    /// By convention, the root block is at index 0 (ID 0).
     blocks: Vec<BytecodeBlock>,
 }
 
 impl BytecodeProgram {
-    /// Create a new, empty bytecode program.
+    /// Creates a new, empty bytecode program.
     pub fn new() -> Self {
         Self { blocks: Vec::new() }
     }
 
-    /// Appends a block to the program and returns its unique identifier.
+    /// Appends an execution block to the program and returns its assigned ID.
     ///
-    /// Identifiers are assigned sequentially to ensure deterministic program structure.
+    /// Identifiers are assigned sequentially, matching the block's index in
+    /// the internal storage.
     pub fn add_block(&mut self, block: BytecodeBlock) -> BlockId {
         let id = BlockId::new(self.blocks.len() as u32);
         self.blocks.push(block);
@@ -36,31 +40,45 @@ impl BytecodeProgram {
 
     /// Retrieves a reference to a block by its identifier.
     ///
-    /// Returns `None` if the identifier is invalid or out of range.
+    /// # Returns
+    ///
+    /// `Some(&BytecodeBlock)` if the ID is valid, or `None` if it is out of range.
     pub fn block(&self, id: BlockId) -> Option<&BytecodeBlock> {
         self.blocks.get(id.id() as usize)
     }
 
-    /// Returns a slice of all blocks in the program.
+    /// Returns a slice of all blocks contained in the program.
+    ///
+    /// Used by the compiler during validation to perform static analysis
+    /// across the entire program's instruction space.
     pub(crate) fn blocks(&self) -> &[BytecodeBlock] {
         &self.blocks
     }
 }
 
-/// A sequential list of instructions within a program.
+/// A linear sequence of instructions representing a unit of execution.
 ///
-/// Blocks are the basic unit of execution in the VM. Each block must end
-/// with a `Return` instruction to yield control back to the caller or executor.
+/// Blocks are the basic executable entities in the VM. Each block manages
+/// its own instruction sequence and specifies whether it yields a result.
+///
+/// Every block should conclude with a [`OpcodeKind::Return`] instruction to
+/// ensure proper stack cleanup and control flow return.
 #[derive(Debug, Clone)]
 pub struct BytecodeBlock {
-    /// The linear sequence of instructions to execute.
+    /// The sequential list of instructions to execute.
     pub instructions: Vec<Instruction>,
-    /// Whether this block is expected to leave a value on the stack upon return.
+    /// Indicates if this block is expected to push a final result onto the stack.
+    ///
+    /// If `true`, the executor will validate that exactly one value remains
+    /// on the stack when the block returns.
     pub returns_value: bool,
 }
 
 impl BytecodeBlock {
     /// Creates a new, empty bytecode block.
+    ///
+    /// # Parameters
+    /// - `returns_value`: Whether the block's computation produces a result.
     pub fn new(returns_value: bool) -> Self {
         Self {
             instructions: Vec::new(),

@@ -18,6 +18,9 @@ use super::opcode::{OpcodeKind, OpcodeMetadata, OperandCount};
 ///
 /// This structure links a specific [`OpcodeKind`] to its static metadata
 /// (used for validation and compilation) and its runtime execution logic.
+///
+/// The opcode registry uses this specification to perform O(1) dispatch
+/// during execution and to validate instruction correctness during compilation.
 #[derive(Debug, Clone)]
 pub struct OpcodeSpec {
     /// The specific opcode kind this specification covers.
@@ -30,17 +33,21 @@ pub struct OpcodeSpec {
 
 /// Retrieves the global list of all registered opcode specifications.
 ///
-/// This is used by the compiler and executor to look up metadata and handlers.
-/// The list is lazily initialized on the first call.
+/// This is the primary source of truth for VM behavior. It is used by the
+/// compiler to verify instruction shapes and by the executor to build its
+/// jump table. The list is lazily initialized on the first call.
 pub fn opcode_specs() -> &'static [OpcodeSpec] {
     static SPECS: OnceLock<Vec<OpcodeSpec>> = OnceLock::new();
     SPECS.get_or_init(|| build_specs())
 }
 
 /// Total number of opcodes in the system.
+///
+/// This constant must match the number of variants in [`OpcodeKind`]. It is used
+/// to size the internal jump tables for O(1) metadata and handler lookups.
 const OPCODE_COUNT: usize = 30;
 
-/// Retrieves metadata for a specific opcode kind.
+/// Retrieves metadata for a specific opcode kind in O(1) time.
 ///
 /// # Panics
 ///
@@ -56,13 +63,14 @@ pub fn metadata_for(kind: OpcodeKind) -> &'static OpcodeMetadata {
     })[kind as usize]
 }
 
+/// Default metadata used for uninitialized slots in the metadata table.
 static DEFAULT_METADATA: OpcodeMetadata = OpcodeMetadata {
     operand_count: OperandCount::Fixed(0),
     has_effect: false,
     allowed_phases: None,
 };
 
-/// Retrieves the execution handler for a specific opcode kind.
+/// Retrieves the execution handler for a specific opcode kind in O(1) time.
 ///
 /// # Panics
 ///
@@ -78,6 +86,7 @@ pub fn handler_for(kind: OpcodeKind) -> Handler {
     })[kind as usize]
 }
 
+/// Master list of opcode specifications, linking kinds to metadata and handlers.
 fn build_specs() -> Vec<OpcodeSpec> {
     use OpcodeKind::*;
 

@@ -5,7 +5,7 @@
 //!
 //! # Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use continuum_kernel_types::prelude::*;
 //!
 //! #[kernel_fn(

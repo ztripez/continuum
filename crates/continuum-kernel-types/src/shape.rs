@@ -14,8 +14,8 @@
 //!
 //! # Examples
 //!
-//! ```
-//! # use continuum_cdsl::foundation::shape::*;
+//! ```rust
+//! # use continuum_kernel_types::Shape;
 //! // Basic shapes
 //! let scalar = Shape::Scalar;
 //! assert_eq!(scalar.rank(), 0);

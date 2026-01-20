@@ -14,6 +14,9 @@ use serde::{Deserialize, Serialize};
 /// - Local let bindings
 /// - Temporary computation results
 /// - Entity iteration state
+///
+/// Each slot corresponds to a fixed memory location in the executor's slot table,
+/// allocated during compilation to ensure deterministic access.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct Slot(
     /// Zero-based slot index within a bytecode block.
@@ -37,6 +40,11 @@ impl Slot {
 }
 
 /// Block identifier for nested bytecode blocks.
+///
+/// A `BlockId` refers to a specific [`super::program::BytecodeBlock`] within
+/// a [`super::program::BytecodeProgram`]. It is used to implement control flow
+/// operations like `Aggregate` and `Fold` where a sub-computation must be
+/// executed for multiple instances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct BlockId(
     /// Zero-based block index within a bytecode program.
@@ -97,6 +105,17 @@ pub enum Operand {
 }
 
 /// Helper to expect a specific operand type.
+///
+/// # Parameters
+/// - `operand`: The operand to check.
+/// - `expected`: Human-readable name of the expected operand variant (for errors).
+/// - `map`: Closure that attempts to extract the desired type from the operand.
+///
+/// # Returns
+/// The extracted value of type `T`.
+///
+/// # Errors
+/// Returns [`ExecutionError::InvalidOperand`] if the mapping fails.
 fn expect_operand<T>(
     operand: &Operand,
     expected: &'static str,
@@ -110,6 +129,10 @@ fn expect_operand<T>(
 }
 
 /// Decode a slot operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not a [`Operand::Slot`].
 pub fn operand_slot(operand: &Operand) -> Result<Slot, crate::bytecode::runtime::ExecutionError> {
     expect_operand(operand, "Slot", |op| {
         if let Operand::Slot(slot) = op {
@@ -120,7 +143,11 @@ pub fn operand_slot(operand: &Operand) -> Result<Slot, crate::bytecode::runtime:
     })
 }
 
-/// Decode a block operand.
+/// Decode a block identifier operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not a [`Operand::Block`].
 pub fn operand_block(
     operand: &Operand,
 ) -> Result<BlockId, crate::bytecode::runtime::ExecutionError> {
@@ -134,6 +161,10 @@ pub fn operand_block(
 }
 
 /// Decode a literal value operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not a [`Operand::Literal`].
 pub fn operand_literal(
     operand: &Operand,
 ) -> Result<Value, crate::bytecode::runtime::ExecutionError> {
@@ -146,7 +177,15 @@ pub fn operand_literal(
     })
 }
 
-/// Decode a literal integer as usize.
+/// Decodes a literal integer value as a `usize`.
+///
+/// Supports both [`Value::Integer`] and [`Value::Scalar`] (if the scalar is a finite,
+/// non-negative integer). Used for argument counts and indices.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the value is not a valid integer or
+/// cannot fit into a `usize`.
 pub fn operand_usize(operand: &Operand) -> Result<usize, crate::bytecode::runtime::ExecutionError> {
     match operand_literal(operand)? {
         Value::Integer(value) => usize::try_from(value).map_err(|_| {
@@ -179,6 +218,10 @@ pub fn operand_usize(operand: &Operand) -> Result<usize, crate::bytecode::runtim
 }
 
 /// Decode a string operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not a [`Operand::String`].
 pub fn operand_string(
     operand: &Operand,
 ) -> Result<String, crate::bytecode::runtime::ExecutionError> {
@@ -192,6 +235,10 @@ pub fn operand_string(
 }
 
 /// Decode a signal path operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not a [`Operand::Signal`].
 pub fn operand_signal_path(
     operand: &Operand,
 ) -> Result<Path, crate::bytecode::runtime::ExecutionError> {
@@ -205,6 +252,10 @@ pub fn operand_signal_path(
 }
 
 /// Decode a field path operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not a [`Operand::Field`].
 pub fn operand_field_path(
     operand: &Operand,
 ) -> Result<Path, crate::bytecode::runtime::ExecutionError> {
@@ -217,7 +268,11 @@ pub fn operand_field_path(
     })
 }
 
-/// Decode a config path operand.
+/// Decode a configuration path operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not a [`Operand::Config`].
 pub fn operand_config_path(
     operand: &Operand,
 ) -> Result<Path, crate::bytecode::runtime::ExecutionError> {
@@ -230,7 +285,11 @@ pub fn operand_config_path(
     })
 }
 
-/// Decode a const path operand.
+/// Decode a simulation constant path operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not a [`Operand::Const`].
 pub fn operand_const_path(
     operand: &Operand,
 ) -> Result<Path, crate::bytecode::runtime::ExecutionError> {
@@ -243,7 +302,11 @@ pub fn operand_const_path(
     })
 }
 
-/// Decode an entity ID operand.
+/// Decode an entity identifier operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not a [`Operand::Entity`].
 pub fn operand_entity(
     operand: &Operand,
 ) -> Result<continuum_foundation::EntityId, crate::bytecode::runtime::ExecutionError> {
@@ -257,6 +320,10 @@ pub fn operand_entity(
 }
 
 /// Decode an aggregate operation operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not an [`Operand::AggregateOp`].
 pub fn operand_aggregate_op(
     operand: &Operand,
 ) -> Result<AggregateOp, crate::bytecode::runtime::ExecutionError> {
@@ -269,7 +336,15 @@ pub fn operand_aggregate_op(
     })
 }
 
-/// Helper for dynamic field access during execution.
+/// Helper for performing dynamic field or component access during execution.
+///
+/// Supports [`Value::Map`] for named field lookup and other [`Value`] types
+/// for component access (e.g., .x, .y on vectors).
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the field does not exist or the
+/// type does not support field access.
 pub fn field_access(
     object: &Value,
     field: &str,

@@ -847,7 +847,7 @@ fn test_translation_basic() {
     assert_eq!(m.0[13], 20.0); // ty
     assert_eq!(m.0[14], 30.0); // tz
     assert_eq!(m.0[15], 1.0); // w
-    // Identity in upper-left 3x3
+                              // Identity in upper-left 3x3
     assert_eq!(m.0[0], 1.0);
     assert_eq!(m.0[5], 1.0);
     assert_eq!(m.0[10], 1.0);

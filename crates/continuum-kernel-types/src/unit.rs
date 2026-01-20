@@ -20,8 +20,8 @@
 //!
 //! # Examples
 //!
-//! ```
-//! # use continuum_cdsl::foundation::unit::*;
+//! ```rust
+//! # use continuum_kernel_types::unit::*;
 //! // Multiplicative units
 //! let velocity = Unit::meters().divide(&Unit::seconds()).unwrap();
 //! assert_eq!(velocity.dims().length, 1);

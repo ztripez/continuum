@@ -14,8 +14,8 @@ fn test_kernel_signatures_populated() {
     // Note: Variadic functions (12 total) don't have compile-time signatures
     assert_eq!(
         KERNEL_SIGNATURES.len(),
-        148,
-        "Expected exactly 148 signatures (160 total - 12 variadic), found {}",
+        201,
+        "Expected exactly 201 signatures, found {}",
         KERNEL_SIGNATURES.len()
     );
 
@@ -110,11 +110,11 @@ fn test_representative_signatures() {
         "emit should have empty namespace"
     );
 
-    // Test vector.dot - should have specific shape constraints
+    // Test vector.dot_vec3 - should have specific shape constraints
     let dot_sig = KERNEL_SIGNATURES
         .iter()
-        .find(|sig| sig.id.namespace == "vector" && sig.id.name == "dot")
-        .expect("vector.dot not found");
+        .find(|sig| sig.id.namespace == "vector" && sig.id.name == "dot_vec3")
+        .expect("vector.dot_vec3 not found");
 
     assert_eq!(dot_sig.purity, KernelPurity::Pure);
     // Should have vector constraints (implementation may vary)

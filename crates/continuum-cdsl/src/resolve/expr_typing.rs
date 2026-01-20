@@ -56,10 +56,10 @@ use std::collections::HashMap;
 /// context during typing.
 ///
 /// The context carries:
-/// - **Global Registries**: Type definitions and kernel signatures
-/// - **Authoritative State**: Declared types for signals, fields, configs, and constants
-/// - **Local Scope**: Types for variables bound in `let` expressions
-/// - **Execution Context**: Types for context-dependent values like `self`, `inputs`, or `node_output`
+/// - **Global Registries**: Type definitions and kernel signatures.
+/// - **Authoritative State**: Declared types for signals, fields, configs, and constants.
+/// - **Local Scope**: Types for variables bound in `let` expressions.
+/// - **Execution Context**: Types for context-dependent values like `self`, `inputs`, or `node_output`.
 ///
 /// # Examples
 ///
@@ -124,20 +124,18 @@ pub struct TypingContext<'a> {
 }
 
 impl<'a> TypingContext<'a> {
-    /// Create a new typing context
+    /// Create a new typing context with the provided registries.
     ///
     /// # Parameters
-    ///
-    /// - `type_table`: User type definitions
-    /// - `kernel_registry`: Kernel signatures
-    /// - `signal_types`: Signal path → type mapping
-    /// - `field_types`: Field path → type mapping
-    /// - `config_types`: Config path → type mapping
-    /// - `const_types`: Const path → type mapping
+    /// - `type_table`: User type definitions.
+    /// - `kernel_registry`: Kernel signatures.
+    /// - `signal_types`: Signal path → type mapping.
+    /// - `field_types`: Field path → type mapping.
+    /// - `config_types`: Config path → type mapping.
+    /// - `const_types`: Const path → type mapping.
     ///
     /// # Returns
-    ///
-    /// A new typing context ready for use with no execution context
+    /// A new typing context ready for use with no execution context.
     pub fn new(
         type_table: &'a TypeTable,
         kernel_registry: &'a KernelRegistry,
@@ -163,19 +161,17 @@ impl<'a> TypingContext<'a> {
         }
     }
 
-    /// Fork context with additional local binding
+    /// Fork context with an additional local variable binding.
     ///
     /// Creates a new context with the same registries but an extended local
-    /// binding scope. Used for let expressions.
+    /// binding scope. Used for `let` expressions.
     ///
     /// # Parameters
-    ///
-    /// - `name`: Variable name to bind
-    /// - `ty`: Type of the variable
+    /// - `name`: Variable name to bind.
+    /// - `ty`: Type of the variable.
     ///
     /// # Returns
-    ///
-    /// New context with extended local bindings
+    /// New context with extended local bindings.
     pub fn with_binding(&self, name: String, ty: Type) -> Self {
         let mut ctx = Self {
             type_table: self.type_table,
@@ -196,22 +192,20 @@ impl<'a> TypingContext<'a> {
         ctx
     }
 
-    /// Set execution context for a node
+    /// Set execution context for a specific node.
     ///
     /// Creates a new context with the same registries but updated execution context.
     /// Used when typing execution blocks for a specific node.
     ///
     /// # Parameters
-    ///
-    /// - `self_type`: The type of the 'self' entity
-    /// - `other_type`: The type of the 'other' entity
-    /// - `node_output`: The node's output type (for `prev`/`current`)
-    /// - `inputs_type`: The node's inputs type (for `inputs`)
-    /// - `payload_type`: The impulse's payload type (for `payload`)
+    /// - `self_type`: The type of the 'self' entity.
+    /// - `other_type`: The type of the 'other' entity.
+    /// - `node_output`: The node's output type (for `prev`/`current`).
+    /// - `inputs_type`: The node's inputs type (for `inputs`).
+    /// - `payload_type`: The impulse's payload type (for `payload`).
     ///
     /// # Returns
-    ///
-    /// New context with execution context set
+    /// New context with execution context set.
     pub fn with_execution_context(
         &self,
         self_type: Option<Type>,
@@ -237,18 +231,16 @@ impl<'a> TypingContext<'a> {
         }
     }
 
-    /// Set phase context for boundary enforcement
+    /// Set phase context for boundary enforcement.
     ///
     /// Creates a new context with the specified execution phase.
     /// Used to enforce phase boundaries (e.g., fields only in Measure).
     ///
     /// # Parameters
-    ///
-    /// - `phase`: The execution phase
+    /// - `phase`: The active execution phase.
     ///
     /// # Returns
-    ///
-    /// New context with phase set
+    /// New context with phase set.
     pub fn with_phase(&self, phase: Phase) -> Self {
         Self {
             type_table: self.type_table,
@@ -268,24 +260,23 @@ impl<'a> TypingContext<'a> {
     }
 }
 
-/// Get kernel type from argument at index
+/// Extracts the [`KernelType`] from a typed argument at the specified index.
 ///
-/// Helper for SameAs derivation that extracts kernel type from an argument.
+/// Used by return type derivation rules (like `SameAs`) to resolve dependencies
+/// between input and output types.
 ///
 /// # Parameters
-///
-/// - `args`: Typed arguments
-/// - `idx`: Parameter index to extract from
-/// - `span`: Source span for error reporting
-/// - `derivation_kind`: Description for error messages ("shape" or "unit")
+/// - `args`: The list of already typed arguments.
+/// - `idx`: The zero-based parameter index to extract.
+/// - `span`: Source location for error reporting.
+/// - `derivation_kind`: Description used in error messages (e.g., "shape", "unit").
 ///
 /// # Returns
-///
-/// Reference to the kernel type at the specified index.
+/// A reference to the kernel type of the argument.
 ///
 /// # Errors
-///
-/// - `Internal` - Index out of bounds or argument is not a kernel type
+/// Returns an internal compiler error if the index is out of bounds or the
+/// argument is not a kernel-compatible type.
 fn get_kernel_arg<'a>(
     args: &'a [TypedExpr],
     idx: usize,
@@ -311,30 +302,22 @@ fn get_kernel_arg<'a>(
     })
 }
 
-/// Derive return type from kernel signature and typed arguments
+/// Derives the result type of a kernel call based on its signature and arguments.
+///
+/// This implements the type propagation logic for Continuum engine kernels,
+/// handling shape inheritance, unit multiplication/division, and numeric promotion.
 ///
 /// # Parameters
-///
-/// - `sig`: Kernel signature with return type derivation rules
-/// - `args`: Typed arguments
-/// - `span`: Source span for error reporting
+/// - `sig`: The registered signature of the kernel being called.
+/// - `args`: The list of typed arguments provided to the call.
+/// - `span`: Source location of the call expression.
 ///
 /// # Returns
-///
-/// `Ok(Type)` if derivation succeeds, `Err` with errors otherwise.
-///
-/// # Bounds Derivation
-///
-/// - **Exact(shape)**: Returns unbounded (None)
-/// - **Scalar**: Returns unbounded (None)
-/// - **SameAs(idx)**: Copies bounds from argument at idx
-/// - **FromBroadcast, VectorDim, MatrixDims**: Not yet implemented (errors)
-/// - **Complex operations** (multiply, clamp, etc.): Require constraint
-///   propagation (Phase 14/15)
+/// The successfully derived [`Type`] for the call result.
 ///
 /// # Errors
-///
-/// - `Internal` - Invalid parameter index in derivation
+/// Returns a list of compilation errors if type derivation fails or if the
+/// signature requires an unimplemented derivation rule.
 fn derive_return_type(
     sig: &crate::ast::KernelSignature,
     args: &[TypedExpr],
@@ -444,239 +427,16 @@ fn derive_return_type(
     }))
 }
 
-/// Type an untyped expression tree.
-///
-/// This function performs the core typing pass in the Continuum CDSL compiler.
-/// It transforms an untyped [`Expr`] tree into a [`TypedExpr`] tree by:
-/// 1.  **Name Resolution**: Looking up paths in the provided registries (signals, fields, etc.).
-/// 2.  **Kernel Derivation**: Resolving kernel calls and deriving return types using registered signatures.
-/// 3.  **Type Propagation**: Propagating types through `let` bindings, aggregates, and folds.
-/// 4.  **Literal Inference**: Inferring types for numeric and boolean literals.
-/// 5.  **Context Validation**: Ensuring context-dependent values (e.g., `prev`, `self`, `inputs`) are available.
-/// 6.  **Boundary Enforcement**: Validating that field access only occurs in the `Measure` phase.
+/// Infers the type of a numeric literal and its associated unit.
 ///
 /// # Parameters
-///
-/// - `expr`: The root of the untyped expression tree to type.
-/// - `ctx`: The typing context providing registries, bindings, and execution state.
-///
-/// # Returns
-///
-/// - `Ok(TypedExpr)`: The successfully typed expression tree.
-/// - `Err(Vec<CompileError>)`: A list of typing errors encountered during traversal.
-///
-/// # Errors
-///
-/// - [`ErrorKind::UndefinedName`]: A signal, field, config, constant, or kernel was not found in the registries.
-/// - [`ErrorKind::PhaseBoundaryViolation`]: A field was accessed outside of the `Measure` phase.
-/// - [`ErrorKind::TypeMismatch`]: Structural or type-level conflicts (e.g., mismatched struct fields, non-scalar vector elements).
-/// - [`ErrorKind::Internal`]: Required context (like `node_output` for `prev`) was missing when requested.
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// use continuum_cdsl::resolve::expr_typing::type_expression;
-///
-/// let typed_expr = type_expression(&untyped_expr, &ctx)?;
-/// println!("Expression type: {:?}", typed_expr.ty);
-/// ```
-pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Vec<CompileError>> {
-    let span = expr.span;
-
-    let (kind, ty) = match &expr.kind {
-        // === Literals ===
-        UntypedKind::Literal { value, unit } => {
-            let (k, t) = type_literal(span, *value, unit.as_ref())?;
-            (k, t)
-        }
-
-        UntypedKind::BoolLiteral(val) => (
-            ExprKind::Literal {
-                value: if *val { 1.0 } else { 0.0 },
-                unit: None,
-            },
-            Type::Bool,
-        ),
-
-        // === References ===
-        UntypedKind::Local(name) => {
-            let ty = ctx.local_bindings.get(name).cloned().ok_or_else(|| {
-                err_undefined(span, name, "local variable")
-            })?;
-
-            (ExprKind::Local(name.clone()), ty)
-        }
-
-        UntypedKind::Signal(path) => {
-            let ty = lookup_path_type(ctx, path, span, "signal", ctx.signal_types)?;
-            (ExprKind::Signal(path.clone()), ty)
-        }
-
-        UntypedKind::Field(path) => {
-            // Phase boundary enforcement: Fields can only be read in Measure phase
-            if let Some(phase) = ctx.phase
-                && phase != Phase::Measure
-            {
-                return Err(vec![CompileError::new(
-                    ErrorKind::PhaseBoundaryViolation,
-                    span,
-                    format!(
-                        "field '{}' cannot be read in {:?} phase (fields are only accessible in Measure phase)",
-                        path, phase
-                    ),
-                )]);
-            }
-
-            let ty = lookup_path_type(ctx, path, span, "field", ctx.field_types)?;
-            (ExprKind::Field(path.clone()), ty)
-        }
-
-        // === Context values ===
-        UntypedKind::Dt => {
-            let kernel_type = KernelType {
-                shape: Shape::Scalar,
-                unit: Unit::seconds(),
-                bounds: None,
-            };
-            (ExprKind::Dt, Type::Kernel(kernel_type))
-        }
-
-        // === Config lookup ===
-        UntypedKind::Config(path) => {
-            let ty = lookup_path_type(ctx, path, span, "config path", ctx.config_types)?;
-            (ExprKind::Config(path.clone()), ty)
-        }
-
-        // === Const lookup ===
-        UntypedKind::Const(path) => {
-            let ty = lookup_path_type(ctx, path, span, "const path", ctx.const_types)?;
-            (ExprKind::Const(path.clone()), ty)
-        }
-
-        // === Prev (previous tick value) ===
-        UntypedKind::Prev => {
-            // PHASE VALIDATION (continuum-z0et): 'prev' may only be used in Resolve phase.
-            if ctx.phase != Some(Phase::Resolve) {
-                return Err(vec![CompileError::new(
-                    ErrorKind::InvalidCapability,
-                    span,
-                    format!(
-                        "'prev' may only be used in Resolve phase, found in {:?}",
-                        ctx.phase
-                    ),
-                )]);
-            }
-
-            let ty = require_context_type(span, "prev", &ctx.node_output)?;
-            (ExprKind::Prev, ty)
-        }
-
-        // === Current (just-resolved value) ===
-        UntypedKind::Current => {
-            let ty = require_context_type(span, "current", &ctx.node_output)?;
-            (ExprKind::Current, ty)
-        }
-
-        // === Inputs (accumulated inputs) ===
-        UntypedKind::Inputs => {
-            let ty = require_context_type(span, "inputs", &ctx.inputs_type)?;
-            (ExprKind::Inputs, ty)
-        }
-
-        // === Payload (impulse payload) ===
-        UntypedKind::Payload => {
-            let ty = require_context_type(span, "payload", &ctx.payload_type)?;
-            (ExprKind::Payload, ty)
-        }
-
-        // === Entity context ===
-        UntypedKind::Self_ => {
-            let ty = require_context_type(span, "self", &ctx.self_type)?;
-            (ExprKind::Self_, ty)
-        }
-
-        UntypedKind::Other => {
-            let ty = require_context_type(span, "other", &ctx.other_type)?;
-            (ExprKind::Other, ty)
-        }
-
-        // === Vector literal ===
-        UntypedKind::Vector(elements) => {
-            let (k, t) = type_vector(ctx, elements, span)?;
-            (k, t)
-        }
-
-        // === Let binding ===
-        UntypedKind::Let { name, value, body } => {
-            let (k, t) = type_let(ctx, name, value, body, span)?;
-            (k, t)
-        }
-
-        // === Struct literal ===
-        UntypedKind::Struct {
-            ty: ty_path,
-            fields,
-        } => {
-            let (k, t) = type_struct(ctx, ty_path, fields, span)?;
-            (k, t)
-        }
-
-        // === Aggregate operations ===
-        UntypedKind::Aggregate {
-            op,
-            entity,
-            binding,
-            body,
-        } => {
-            let (k, t) = type_aggregate(ctx, op, entity, binding, body, span)?;
-            (k, t)
-        }
-
-        UntypedKind::Fold {
-            entity,
-            init,
-            acc,
-            elem,
-            body,
-        } => {
-            let (k, t) = type_fold(ctx, entity, init, acc, elem, body, span)?;
-            (k, t)
-        }
-
-        // === Function/kernel call ===
-        UntypedKind::Call { func, args } => {
-            let (k, t) = type_call(ctx, func, args, span)?;
-            (k, t)
-        }
-
-        // === Operator desugaring guard ===
-        // These must be desugared to KernelCall variants before typing
-        UntypedKind::Binary { .. } | UntypedKind::Unary { .. } | UntypedKind::If { .. } => {
-            return Err(vec![CompileError::new(
-                ErrorKind::Internal,
-                span,
-                "operator expressions must be desugared before typing".to_string(),
-            )]);
-        }
-
-        UntypedKind::ParseError(_) => {
-            return Err(vec![CompileError::new(
-                ErrorKind::Internal,
-                span,
-                "expression parse error placeholder cannot be typed".to_string(),
-            )]);
-        }
-    };
-
-    Ok(TypedExpr::new(kind, ty, span))
-}
-
-// === Typing Helpers ===
-
+/// - `span`: Source location of the literal.
+/// - `value`: The literal numeric value.
+/// - `unit`: Optional unit expression associated with the literal (e.g., `42[m]`).
 fn type_literal(
     span: crate::foundation::Span,
     value: f64,
-    unit: Option<&crate::ast::untyped::Expr>,
+    unit: Option<&crate::ast::UnitExpr>,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let resolved_unit = match unit {
         Some(unit_expr) => resolve_unit_expr(Some(unit_expr), span).map_err(|e| vec![e])?,
@@ -698,6 +458,23 @@ fn type_literal(
     ))
 }
 
+/// Types a field or vector component access (e.g., `obj.field` or `vec.x`).
+///
+/// Handles both named field lookup for user-defined structs and component
+/// extraction for primitive vector types.
+///
+/// # Parameters
+/// - `ctx`: The typing context providing type and registry lookups.
+/// - `object`: The expression being accessed.
+/// - `field`: The name of the field or component.
+/// - `span`: Source location of the access expression.
+///
+/// # Returns
+/// A tuple containing the typed expression kind and its derived type.
+///
+/// # Errors
+/// Returns a list of compilation errors if the object type does not support
+/// field access or if the specified field is undefined.
 fn type_field_access(
     ctx: &TypingContext,
     object: &Expr,
@@ -719,7 +496,11 @@ fn type_field_access(
 
             // Look up field in user type
             user_type.field(field).cloned().ok_or_else(|| {
-                err_undefined(span, field, &format!("field on type '{}'", user_type.name()))
+                err_undefined(
+                    span,
+                    field,
+                    &format!("field on type '{}'", user_type.name()),
+                )
             })?
         }
         Type::Kernel(kt) => {
@@ -780,6 +561,21 @@ fn type_field_access(
     ))
 }
 
+/// Types a vector literal expression (e.g., `[1.0, 2.0, 3.0]`).
+///
+/// Ensures all elements are compatible scalars and have matching units.
+///
+/// # Parameters
+/// - `ctx`: The typing context providing type lookups.
+/// - `elements`: The list of component expressions.
+/// - `span`: Source location of the vector literal.
+///
+/// # Returns
+/// A tuple containing the typed expression kind and the derived vector type.
+///
+/// # Errors
+/// Returns a list of compilation errors if elements are not scalars, have
+/// mismatched units, or exceed the maximum dimension (4).
 fn type_vector(
     ctx: &TypingContext,
     elements: &[Expr],
@@ -854,9 +650,7 @@ fn type_vector(
     }
 
     let dim = elements.len() as u8;
-    let unit = unit.ok_or_else(|| {
-        err_internal(span, "vector literal unit resolution failed")
-    })?;
+    let unit = unit.ok_or_else(|| err_internal(span, "vector literal unit resolution failed"))?;
 
     Ok((
         ExprKind::Vector(typed_elements),
@@ -868,6 +662,20 @@ fn type_vector(
     ))
 }
 
+/// Types a `let` binding expression, extending the context for its body.
+///
+/// # Parameters
+/// - `ctx`: The typing context to extend.
+/// - `name`: The variable name being bound.
+/// - `value`: The expression whose value is being bound.
+/// - `body`: The expression in which the binding is in scope.
+/// - `_span`: Source location (currently unused).
+///
+/// # Returns
+/// A tuple containing the typed expression kind and the body's derived type.
+///
+/// # Errors
+/// Returns errors encountered while typing either the value or the body.
 fn type_let(
     ctx: &TypingContext,
     name: &str,
@@ -890,6 +698,22 @@ fn type_let(
     ))
 }
 
+/// Types a struct literal expression (e.g., `Point { x: 1.0, y: 2.0 }`).
+///
+/// Validates that the type exists, all fields are provided, and their types match.
+///
+/// # Parameters
+/// - `ctx`: The typing context providing type table lookups.
+/// - `ty_path`: The canonical path of the user-defined struct type.
+/// - `fields`: The list of field names and their initialization expressions.
+/// - `span`: Source location of the struct literal.
+///
+/// # Returns
+/// A tuple containing the typed expression kind and the user-defined type.
+///
+/// # Errors
+/// Returns a list of compilation errors if the type is undefined, fields are
+/// missing, or field types do not match the declaration.
 fn type_struct(
     ctx: &TypingContext,
     ty_path: &Path,
@@ -921,7 +745,11 @@ fn type_struct(
 
         let typed_expr = type_expression(field_expr, ctx)?;
         let expected_type = user_type.field(field_name).ok_or_else(|| {
-            err_undefined(field_expr.span, field_name, &format!("field on type '{}'", ty_path))
+            err_undefined(
+                field_expr.span,
+                field_name,
+                &format!("field on type '{}'", ty_path),
+            )
         })?;
 
         if &typed_expr.ty != expected_type {
@@ -957,6 +785,23 @@ fn type_struct(
     ))
 }
 
+/// Types an aggregate operation (sum, map, count, etc.) over an entity set.
+///
+/// Binds the current entity instance to `binding` within the `body` expression.
+///
+/// # Parameters
+/// - `ctx`: The typing context providing type and registry lookups.
+/// - `op`: The aggregate operation to perform.
+/// - `entity`: The entity set being iterated over.
+/// - `binding`: The name of the variable representing the current instance.
+/// - `body`: The expression evaluated for each instance.
+/// - `_span`: Source location (currently unused).
+///
+/// # Returns
+/// A tuple containing the typed expression kind and the derived aggregate type.
+///
+/// # Errors
+/// Returns errors encountered while typing the aggregate body.
 fn type_aggregate(
     ctx: &TypingContext,
     op: &crate::ast::AggregateOp,
@@ -965,7 +810,7 @@ fn type_aggregate(
     body: &Expr,
     _span: crate::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
-    let element_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
+    let element_ty = Type::User(continuum_foundation::TypeId::from(entity.id.0.to_string()));
     let extended_ctx = ctx.with_binding(binding.to_string(), element_ty);
     let typed_body = type_expression(body, &extended_ctx)?;
 
@@ -984,7 +829,7 @@ fn type_aggregate(
     Ok((
         ExprKind::Aggregate {
             op: *op,
-            entity: entity.clone(),
+            entity: entity.id.clone(),
             binding: binding.to_string(),
             body: Box::new(typed_body),
         },
@@ -992,6 +837,26 @@ fn type_aggregate(
     ))
 }
 
+/// Types a stateful fold operation over an entity set.
+///
+/// Binds `acc` to the current accumulator value and `elem` to the current
+/// entity instance within the `body` expression.
+///
+/// # Parameters
+/// - `ctx`: The typing context providing type lookups.
+/// - `entity`: The entity set being iterated over.
+/// - `init`: The initial value of the accumulator.
+/// - `acc`: The name of the accumulator variable.
+/// - `elem`: The name of the current instance variable.
+/// - `body`: The expression yielding the next accumulator value.
+/// - `span`: Source location of the fold expression.
+///
+/// # Returns
+/// A tuple containing the typed expression kind and the accumulator's type.
+///
+/// # Errors
+/// Returns a list of compilation errors if the body type does not match the
+/// accumulator type or if either expression fails to type.
 fn type_fold(
     ctx: &TypingContext,
     entity: &crate::ast::Entity,
@@ -1002,7 +867,7 @@ fn type_fold(
     span: crate::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let typed_init = type_expression(init, ctx)?;
-    let elem_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
+    let elem_ty = Type::User(continuum_foundation::TypeId::from(entity.id.0.to_string()));
 
     let mut extended_ctx = ctx.with_binding(acc.to_string(), typed_init.ty.clone());
     extended_ctx
@@ -1024,7 +889,7 @@ fn type_fold(
 
     Ok((
         ExprKind::Fold {
-            entity: entity.clone(),
+            entity: entity.id.clone(),
             init: Box::new(typed_init),
             acc: acc.to_string(),
             elem: elem.to_string(),
@@ -1034,6 +899,20 @@ fn type_fold(
     ))
 }
 
+/// Types a function or kernel call by its path.
+///
+/// # Parameters
+/// - `ctx`: The typing context providing kernel registry lookups.
+/// - `func`: The path to the function or kernel.
+/// - `args`: The list of argument expressions.
+/// - `span`: Source location of the call.
+///
+/// # Returns
+/// A tuple containing the typed expression kind and the derived return type.
+///
+/// # Errors
+/// Returns a list of compilation errors if the kernel is undefined, path is
+/// invalid, or return type derivation fails.
 fn type_call(
     ctx: &TypingContext,
     func: &Path,
@@ -1080,6 +959,20 @@ fn type_call(
     ))
 }
 
+/// Types a kernel call when the [`KernelId`] is already known.
+///
+/// # Parameters
+/// - `ctx`: The typing context providing kernel registry lookups.
+/// - `kernel`: The unique identifier of the kernel.
+/// - `args`: The list of argument expressions.
+/// - `span`: Source location of the call.
+///
+/// # Returns
+/// A tuple containing the typed expression kind and the derived return type.
+///
+/// # Errors
+/// Returns a list of compilation errors if the kernel is unknown or if
+/// return type derivation fails.
 fn type_as_kernel_call(
     ctx: &TypingContext,
     kernel: &continuum_kernel_types::KernelId,
@@ -1091,9 +984,10 @@ fn type_as_kernel_call(
         .map(|arg| type_expression(arg, ctx))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let sig = ctx.kernel_registry.get(kernel).ok_or_else(|| {
-        err_internal(span, format!("unknown kernel: {:?}", kernel))
-    })?;
+    let sig = ctx
+        .kernel_registry
+        .get(kernel)
+        .ok_or_else(|| err_internal(span, format!("unknown kernel: {:?}", kernel)))?;
 
     let return_type = derive_return_type(sig, &typed_args, span)?;
 
@@ -1106,949 +1000,359 @@ fn type_as_kernel_call(
     ))
 }
 
-// === Error Helpers ===
+fn test_type_current_with_node_output() {
+    let ctx = make_context();
+    let output_type = Type::Kernel(KernelType {
+        shape: Shape::Vector { dim: 3 },
+        unit: Unit::seconds(),
+        bounds: None,
+    });
+    let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
 
-fn err_undefined(span: crate::foundation::Span, name: &str, kind: &str) -> Vec<CompileError> {
-    vec![CompileError::new(
-        ErrorKind::UndefinedName,
-        span,
-        format!("{} '{}' not found", kind, name),
-    )]
+    let expr = Expr::new(UntypedKind::Current, Span::new(0, 0, 7, 1));
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert_eq!(typed.ty, output_type);
 }
 
-fn err_type_mismatch(span: crate::foundation::Span, expected: &str, found: &str) -> Vec<CompileError> {
-    vec![CompileError::new(
-        ErrorKind::TypeMismatch,
-        span,
-        format!("type mismatch: expected {}, found {}", expected, found),
-    )]
+#[test]
+fn test_type_current_without_node_output() {
+    let ctx = make_context();
+    let expr = Expr::new(UntypedKind::Current, Span::new(0, 0, 7, 1));
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::Internal));
+    assert!(errors[0].message.contains("current"));
 }
 
-fn err_internal(span: crate::foundation::Span, message: impl Into<String>) -> Vec<CompileError> {
-    vec![CompileError::new(ErrorKind::Internal, span, message.into())]
+#[test]
+fn test_type_inputs_with_inputs_type() {
+    let ctx = make_context();
+    let inputs_type = Type::Kernel(KernelType {
+        shape: Shape::Scalar,
+        unit: Unit::kilograms(),
+        bounds: None,
+    });
+    let ctx = ctx.with_execution_context(None, None, None, Some(inputs_type.clone()), None);
+
+    let expr = Expr::new(UntypedKind::Inputs, Span::new(0, 0, 6, 1));
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert_eq!(typed.ty, inputs_type);
 }
 
-// === Lookup Helpers ===
-
-fn lookup_path_type(
-    ctx: &TypingContext,
-    path: &Path,
-    span: crate::foundation::Span,
-    registry_name: &str,
-    registry: &HashMap<Path, Type>,
-) -> Result<Type, Vec<CompileError>> {
-    registry
-        .get(path)
-        .cloned()
-        .ok_or_else(|| err_undefined(span, &path.to_string(), registry_name))
+#[test]
+fn test_type_inputs_without_inputs_type() {
+    let ctx = make_context();
+    let expr = Expr::new(UntypedKind::Inputs, Span::new(0, 0, 6, 1));
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::Internal));
+    assert!(errors[0].message.contains("inputs"));
 }
 
-fn require_context_type(
-    span: crate::foundation::Span,
-    name: &str,
-    ty: &Option<Type>,
-) -> Result<Type, Vec<CompileError>> {
-    ty.clone().ok_or_else(|| {
-        err_internal(
-            span,
-            format!("{} not available: no context type provided", name),
-        )
-    })
+#[test]
+fn test_type_payload_with_payload_type() {
+    let ctx = make_context();
+    let payload_type = Type::User(TypeId::from("ImpulseData"));
+    let ctx = ctx.with_execution_context(None, None, None, None, Some(payload_type.clone()));
+
+    let expr = Expr::new(UntypedKind::Payload, Span::new(0, 0, 7, 1));
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert_eq!(typed.ty, payload_type);
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::foundation::{Path, Span, UserType};
-    use continuum_foundation::TypeId;
+#[test]
+fn test_type_payload_without_payload_type() {
+    let ctx = make_context();
+    let expr = Expr::new(UntypedKind::Payload, Span::new(0, 0, 7, 1));
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::Internal));
+    assert!(errors[0].message.contains("payload"));
+}
 
-    fn make_context<'a>() -> TypingContext<'a> {
-        let type_table = Box::leak(Box::new(TypeTable::new()));
-        let kernel_registry = KernelRegistry::global();
-        let signal_types = Box::leak(Box::new(HashMap::new()));
-        let field_types = Box::leak(Box::new(HashMap::new()));
-        let config_types = Box::leak(Box::new(HashMap::new()));
-        let const_types = Box::leak(Box::new(HashMap::new()));
+// ============================================================================
+// Tests for Config/Const lookups
+// ============================================================================
 
-        TypingContext::new(
-            type_table,
-            kernel_registry,
-            signal_types,
-            field_types,
-            config_types,
-            const_types,
-        )
-    }
+#[test]
+fn test_type_config_found() {
+    let mut ctx = make_context();
+    let config_type = Type::Kernel(KernelType {
+        shape: Shape::Scalar,
+        unit: Unit::dimensionless(),
+        bounds: None,
+    });
 
-    /// Create a typing context with pre-registered user types
-    #[allow(dead_code)]
-    fn make_context_with_types<'a>(types: &[(&str, &[(&str, Type)])]) -> TypingContext<'a> {
-        let type_table = Box::leak(Box::new({
-            let mut table = TypeTable::new();
-            for (type_name, fields) in types {
-                let type_id = TypeId::from(*type_name);
-                let user_type = UserType::new(
-                    type_id.clone(),
-                    Path::from(*type_name),
-                    fields
-                        .iter()
-                        .map(|(name, ty)| (name.to_string(), ty.clone()))
-                        .collect(),
-                );
-                table.register(user_type);
-            }
-            table
-        }));
+    let path = Box::leak(Box::new(Path::from("gravity")));
+    let config_types = Box::leak(Box::new({
+        let mut map = HashMap::new();
+        map.insert(path.clone(), config_type.clone());
+        map
+    }));
+    ctx.config_types = config_types;
 
-        let kernel_registry = KernelRegistry::global();
-        let signal_types = Box::leak(Box::new(HashMap::new()));
-        let field_types = Box::leak(Box::new(HashMap::new()));
-        let config_types = Box::leak(Box::new(HashMap::new()));
-        let const_types = Box::leak(Box::new(HashMap::new()));
+    let expr = Expr::new(UntypedKind::Config(path.clone()), Span::new(0, 0, 7, 1));
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert_eq!(typed.ty, config_type);
+}
 
-        TypingContext::new(
-            type_table,
-            kernel_registry,
-            signal_types,
-            field_types,
-            config_types,
-            const_types,
-        )
-    }
+#[test]
+fn test_type_config_not_found() {
+    let ctx = make_context();
+    let path = Path::from("unknown_config");
+    let expr = Expr::new(UntypedKind::Config(path), Span::new(0, 0, 14, 1));
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    assert!(errors[0].message.contains("config"));
+}
 
-    /// Create a dimensionless scalar literal expression for testing
-    #[allow(dead_code)]
-    fn test_literal(value: f64) -> Expr {
-        Expr::new(
-            UntypedKind::Literal { value, unit: None },
-            Span::new(0, 0, 3, 1),
-        )
-    }
+#[test]
+fn test_type_const_found() {
+    let mut ctx = make_context();
+    let const_type = Type::Kernel(KernelType {
+        shape: Shape::Scalar,
+        unit: Unit::meters(),
+        bounds: None,
+    });
 
-    #[test]
-    fn test_type_literal_dimensionless() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Literal {
-                value: 42.0,
-                unit: None,
-            },
-            Span::new(0, 0, 10, 1),
-        );
+    let path = Box::leak(Box::new(Path::from("PI")));
+    let const_types = Box::leak(Box::new({
+        let mut map = HashMap::new();
+        map.insert(path.clone(), const_type.clone());
+        map
+    }));
+    ctx.const_types = const_types;
 
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert!(matches!(typed.ty, Type::Kernel(_)));
-    }
+    let expr = Expr::new(UntypedKind::Const(path.clone()), Span::new(0, 0, 2, 1));
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert_eq!(typed.ty, const_type);
+}
 
-    #[test]
-    fn test_type_bool_literal() {
-        let ctx = make_context();
-        let expr = Expr::new(UntypedKind::BoolLiteral(true), Span::new(0, 0, 10, 1));
+#[test]
+fn test_type_const_not_found() {
+    let ctx = make_context();
+    let path = Path::from("UNKNOWN");
+    let expr = Expr::new(UntypedKind::Const(path), Span::new(0, 0, 7, 1));
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    assert!(errors[0].message.contains("const"));
+}
 
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert!(matches!(typed.ty, Type::Bool));
-    }
+// ============================================================================
+// Tests for Vector literal construction
+// ============================================================================
 
-    #[test]
-    fn test_type_dt() {
-        let ctx = make_context();
-        let expr = Expr::new(UntypedKind::Dt, Span::new(0, 0, 10, 1));
+#[test]
+fn test_type_vector_2d() {
+    let ctx = make_context();
+    let expr = Expr::new(
+        UntypedKind::Vector(vec![
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 2.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+        ]),
+        Span::new(0, 0, 10, 1),
+    );
 
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::seconds());
-                assert_eq!(kt.bounds, None);
-            }
-            _ => panic!("Expected Kernel type, got {:?}", typed.ty),
+    let typed = type_expression(&expr, &ctx).unwrap();
+    match &typed.ty {
+        Type::Kernel(kt) => {
+            assert_eq!(kt.shape, Shape::Vector { dim: 2 });
+            assert_eq!(kt.unit, Unit::dimensionless());
         }
+        _ => panic!("Expected Kernel type"),
     }
+}
 
-    #[test]
-    fn test_type_local_not_in_scope() {
-        let ctx = make_context();
-        let expr = Expr::new(UntypedKind::Local("x".to_string()), Span::new(0, 0, 10, 1));
+#[test]
+fn test_type_vector_3d() {
+    let ctx = make_context();
+    let expr = Expr::new(
+        UntypedKind::Vector(vec![
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 2.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 3.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+        ]),
+        Span::new(0, 0, 15, 1),
+    );
 
-        let result = type_expression(&expr, &ctx);
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-    }
-
-    #[test]
-    fn test_derive_return_type_copies_bounds_from_same_as() {
-        use crate::ast::{KernelReturn, KernelSignature, ShapeDerivation, UnitDerivation};
-        use crate::foundation::Bounds;
-        use continuum_kernel_types::KernelId;
-
-        // Create a signature with SameAs shape derivation
-        let sig = KernelSignature {
-            id: KernelId::new("test", "identity"),
-            params: vec![],
-            returns: KernelReturn {
-                shape: ShapeDerivation::SameAs(0),
-                unit: UnitDerivation::SameAs(0),
-                value_type: continuum_kernel_types::ValueType::Scalar,
-            },
-            purity: crate::ast::KernelPurity::Pure,
-            requires_uses: None,
-        };
-
-        // Create a typed argument with bounds
-        let arg_ty = Type::Kernel(KernelType {
-            shape: Shape::Scalar,
-            unit: Unit::meters(),
-            bounds: Some(Bounds {
-                min: Some(0.0),
-                max: Some(100.0),
-            }),
-        });
-        let arg = TypedExpr::new(
-            ExprKind::Literal {
-                value: 50.0,
-                unit: Some(Unit::meters()),
-            },
-            arg_ty,
-            Span::new(0, 0, 10, 1),
-        );
-
-        // Derive return type
-        let result = derive_return_type(&sig, &[arg], Span::new(0, 0, 10, 1)).unwrap();
-
-        // Verify bounds are copied
-        match result {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::meters());
-                assert_eq!(
-                    kt.bounds,
-                    Some(Bounds {
-                        min: Some(0.0),
-                        max: Some(100.0),
-                    })
-                );
-            }
-            _ => panic!("Expected Kernel type"),
+    let typed = type_expression(&expr, &ctx).unwrap();
+    match &typed.ty {
+        Type::Kernel(kt) => {
+            assert_eq!(kt.shape, Shape::Vector { dim: 3 });
+            assert_eq!(kt.unit, Unit::dimensionless());
         }
+        _ => panic!("Expected Kernel type"),
     }
+}
 
-    #[test]
-    fn test_derive_return_type_bool_value_type() {
-        use crate::ast::{KernelReturn, KernelSignature, ShapeDerivation, UnitDerivation};
-        use continuum_kernel_types::{KernelId, ValueType};
+#[test]
+fn test_type_vector_4d() {
+    let ctx = make_context();
+    let expr = Expr::new(
+        UntypedKind::Vector(vec![
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 2.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 3.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 4.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+        ]),
+        Span::new(0, 0, 20, 1),
+    );
 
-        let sig = KernelSignature {
-            id: KernelId::new("test", "is_equal"),
-            params: vec![],
-            returns: KernelReturn {
-                shape: ShapeDerivation::Scalar,
-                unit: UnitDerivation::Dimensionless,
-                value_type: ValueType::Bool,
-            },
-            purity: crate::ast::KernelPurity::Pure,
-            requires_uses: None,
-        };
-
-        let result = derive_return_type(&sig, &[], Span::new(0, 0, 10, 1)).unwrap();
-        assert!(matches!(result, Type::Bool));
-    }
-
-    #[test]
-    fn test_derive_return_type_no_bounds_for_exact_shape() {
-        use crate::ast::{KernelReturn, KernelSignature, ShapeDerivation, UnitDerivation};
-        use crate::foundation::Bounds;
-        use continuum_kernel_types::KernelId;
-
-        // Create a signature with Exact shape derivation
-        let sig = KernelSignature {
-            id: KernelId::new("test", "const"),
-            params: vec![],
-            returns: KernelReturn {
-                shape: ShapeDerivation::Exact(Shape::Scalar),
-                unit: UnitDerivation::Dimensionless,
-                value_type: continuum_kernel_types::ValueType::Scalar,
-            },
-            purity: crate::ast::KernelPurity::Pure,
-            requires_uses: None,
-        };
-
-        // Create a typed argument with bounds (should NOT be copied)
-        let arg_ty = Type::Kernel(KernelType {
-            shape: Shape::Scalar,
-            unit: Unit::meters(),
-            bounds: Some(Bounds {
-                min: Some(0.0),
-                max: Some(100.0),
-            }),
-        });
-        let arg = TypedExpr::new(
-            ExprKind::Literal {
-                value: 50.0,
-                unit: Some(Unit::meters()),
-            },
-            arg_ty,
-            Span::new(0, 0, 10, 1),
-        );
-
-        // Derive return type
-        let result = derive_return_type(&sig, &[arg], Span::new(0, 0, 10, 1)).unwrap();
-
-        // Verify bounds are NOT copied (Exact shape doesn't inherit bounds)
-        match result {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::DIMENSIONLESS);
-                assert_eq!(kt.bounds, None);
-            }
-            _ => panic!("Expected Kernel type"),
+    let typed = type_expression(&expr, &ctx).unwrap();
+    match &typed.ty {
+        Type::Kernel(kt) => {
+            assert_eq!(kt.shape, Shape::Vector { dim: 4 });
+            assert_eq!(kt.unit, Unit::dimensionless());
         }
+        _ => panic!("Expected Kernel type"),
     }
-
-    // === FieldAccess Tests ===
-
-    #[test]
-    fn test_type_field_access_vector_component_x() {
-        let mut ctx = make_context();
-
-        // Create a Vec3 with velocity unit (m/s)
-        let velocity_unit = Unit::meters().divide(&Unit::seconds()).unwrap();
-        ctx.local_bindings.insert(
-            "velocity".to_string(),
-            Type::Kernel(KernelType {
-                shape: Shape::Vector { dim: 3 },
-                unit: velocity_unit,
-                bounds: None,
-            }),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("velocity".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "x".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-
-        // Should return Scalar with same unit
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, velocity_unit);
-                assert_eq!(kt.bounds, None);
-            }
-            _ => panic!("Expected Kernel type, got {:?}", typed.ty),
-        }
-    }
-
-    #[test]
-    fn test_type_field_access_vector_component_y_on_vec2() {
-        let mut ctx = make_context();
-
-        ctx.local_bindings.insert(
-            "pos".to_string(),
-            Type::Kernel(KernelType {
-                shape: Shape::Vector { dim: 2 },
-                unit: Unit::meters(),
-                bounds: None,
-            }),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("pos".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "y".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-
-        // Should return Scalar with meters unit
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::meters());
-                assert_eq!(kt.bounds, None);
-            }
-            _ => panic!("Expected Kernel type, got {:?}", typed.ty),
-        }
-    }
-
-    #[test]
-    fn test_type_field_access_w_on_vec4() {
-        let mut ctx = make_context();
-
-        ctx.local_bindings.insert(
-            "quaternion".to_string(),
-            Type::Kernel(KernelType {
-                shape: Shape::Vector { dim: 4 },
-                unit: Unit::DIMENSIONLESS,
-                bounds: None,
-            }),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("quaternion".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "w".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::DIMENSIONLESS);
-            }
-            _ => panic!("Expected Kernel type"),
-        }
-    }
-
-    #[test]
-    fn test_type_field_access_w_on_vec3_fails() {
-        let mut ctx = make_context();
-
-        ctx.local_bindings.insert(
-            "vec3".to_string(),
-            Type::Kernel(KernelType {
-                shape: Shape::Vector { dim: 3 },
-                unit: Unit::meters(),
-                bounds: None,
-            }),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("vec3".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "w".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let result = type_expression(&expr, &ctx);
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-        assert!(errors[0].message.contains("out of bounds"));
-        assert!(errors[0].message.contains("dimension 3"));
-    }
-
-    #[test]
-    fn test_type_field_access_z_on_vec2_fails() {
-        let mut ctx = make_context();
-
-        ctx.local_bindings.insert(
-            "vec2".to_string(),
-            Type::Kernel(KernelType {
-                shape: Shape::Vector { dim: 2 },
-                unit: Unit::meters(),
-                bounds: None,
-            }),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("vec2".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "z".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let result = type_expression(&expr, &ctx);
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-    }
-
-    #[test]
-    fn test_type_field_access_invalid_component_name() {
-        let mut ctx = make_context();
-
-        ctx.local_bindings.insert(
-            "vec3".to_string(),
-            Type::Kernel(KernelType {
-                shape: Shape::Vector { dim: 3 },
-                unit: Unit::meters(),
-                bounds: None,
-            }),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("vec3".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "foo".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let result = type_expression(&expr, &ctx);
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-        assert!(errors[0].message.contains("invalid vector component"));
-    }
-
-    #[test]
-    fn test_type_field_access_on_scalar_fails() {
-        let mut ctx = make_context();
-
-        ctx.local_bindings.insert(
-            "scalar".to_string(),
-            Type::Kernel(KernelType {
-                shape: Shape::Scalar,
-                unit: Unit::meters(),
-                bounds: None,
-            }),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("scalar".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "x".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let result = type_expression(&expr, &ctx);
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-        assert!(errors[0].message.contains("non-struct, non-vector"));
-    }
-
-    #[test]
-    fn test_type_field_access_on_bool_fails() {
-        let mut ctx = make_context();
-
-        ctx.local_bindings.insert("flag".to_string(), Type::Bool);
-
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("flag".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "x".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let result = type_expression(&expr, &ctx);
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-        assert!(errors[0].message.contains("not supported"));
-    }
-
-    #[test]
-    fn test_type_field_access_user_struct() {
-        let type_table = Box::leak(Box::new({
-            let mut table = TypeTable::new();
-
-            // Create a user type "Position" with fields x, y
-            let type_id = TypeId::from("Position");
-            let user_type = UserType::new(
-                type_id.clone(),
-                Path::from("Position"),
-                vec![
-                    (
-                        "x".to_string(),
-                        Type::Kernel(KernelType {
-                            shape: Shape::Scalar,
-                            unit: Unit::meters(),
-                            bounds: None,
-                        }),
-                    ),
-                    (
-                        "y".to_string(),
-                        Type::Kernel(KernelType {
-                            shape: Shape::Scalar,
-                            unit: Unit::meters(),
-                            bounds: None,
-                        }),
-                    ),
-                ],
-            );
-            table.register(user_type);
-            table
-        }));
-
-        let kernel_registry = KernelRegistry::global();
-        let signal_types = Box::leak(Box::new(HashMap::new()));
-        let field_types = Box::leak(Box::new(HashMap::new()));
-        let config_types = Box::leak(Box::new(HashMap::new()));
-        let const_types = Box::leak(Box::new(HashMap::new()));
-        let mut ctx = TypingContext::new(
-            type_table,
-            kernel_registry,
-            signal_types,
-            field_types,
-            config_types,
-            const_types,
-        );
-
-        // Create a local variable of type Position
-        let type_id = TypeId::from("Position");
-        ctx.local_bindings
-            .insert("pos".to_string(), Type::User(type_id));
-
-        // Access pos.x
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("pos".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "x".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-
-        // Should return the field type
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::meters());
-            }
-            _ => panic!("Expected Kernel type, got {:?}", typed.ty),
-        }
-    }
-
-    #[test]
-    fn test_type_field_access_unknown_struct_field() {
-        let type_table = Box::leak(Box::new({
-            let mut table = TypeTable::new();
-
-            let type_id = TypeId::from("Position");
-            let user_type = UserType::new(
-                type_id.clone(),
-                Path::from("Position"),
-                vec![(
-                    "x".to_string(),
-                    Type::Kernel(KernelType {
-                        shape: Shape::Scalar,
-                        unit: Unit::meters(),
-                        bounds: None,
-                    }),
-                )],
-            );
-            table.register(user_type);
-            table
-        }));
-
-        let kernel_registry = KernelRegistry::global();
-        let signal_types = Box::leak(Box::new(HashMap::new()));
-        let field_types = Box::leak(Box::new(HashMap::new()));
-        let config_types = Box::leak(Box::new(HashMap::new()));
-        let const_types = Box::leak(Box::new(HashMap::new()));
-        let mut ctx = TypingContext::new(
-            type_table,
-            kernel_registry,
-            signal_types,
-            field_types,
-            config_types,
-            const_types,
-        );
-
-        let type_id = TypeId::from("Position");
-        ctx.local_bindings
-            .insert("pos".to_string(), Type::User(type_id));
-
-        // Try to access non-existent field pos.z
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("pos".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "z".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let result = type_expression(&expr, &ctx);
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-        assert!(errors[0].message.contains("field 'z' not found"));
-    }
-
-    #[test]
-    fn test_type_field_access_vector_component_preserves_unit() {
-        let mut ctx = make_context();
-
-        // Create a vector with a custom unit (force = kg·m/s²)
-        let newton = Unit::kilograms()
-            .multiply(&Unit::meters())
-            .unwrap()
-            .divide(&Unit::seconds())
-            .unwrap()
-            .divide(&Unit::seconds())
-            .unwrap();
-
-        ctx.local_bindings.insert(
-            "force".to_string(),
-            Type::Kernel(KernelType {
-                shape: Shape::Vector { dim: 3 },
-                unit: newton,
-                bounds: None,
-            }),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(
-                    UntypedKind::Local("force".to_string()),
-                    Span::new(0, 0, 5, 1),
-                )),
-                field: "z".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-
-        // Component should have same unit as vector
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, newton);
-                assert_eq!(kt.bounds, None);
-            }
-            _ => panic!("Expected Kernel type"),
-        }
-    }
-
-    // ============================================================================
-    // Tests for execution context expressions (Prev/Current/Inputs/Payload)
-    // ============================================================================
-
-    #[test]
-    fn test_type_prev_with_node_output() {
-        let ctx = make_context().with_phase(Phase::Resolve);
-        let output_type = Type::Kernel(KernelType {
-            shape: Shape::Scalar,
-            unit: Unit::meters(),
-            bounds: None,
-        });
-        let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
-
-        let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert_eq!(typed.ty, output_type);
-    }
-
-    #[test]
-    fn test_type_prev_without_node_output() {
-        let ctx = make_context().with_phase(Phase::Resolve);
-        let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::Internal));
-        assert!(errors[0].message.contains("prev"));
-    }
-
-    #[test]
-    fn test_type_prev_in_wrong_phase() {
-        let ctx = make_context().with_phase(Phase::Measure);
-        let output_type = Type::Kernel(KernelType {
-            shape: Shape::Scalar,
-            unit: Unit::meters(),
-            bounds: None,
-        });
-        let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
-
-        let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
-        assert!(errors[0].message.contains("may only be used in Resolve phase"));
-    }
-
-    #[test]
-    fn test_type_current_with_node_output() {
-        let ctx = make_context();
-        let output_type = Type::Kernel(KernelType {
-            shape: Shape::Vector { dim: 3 },
-            unit: Unit::seconds(),
-            bounds: None,
-        });
-        let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
-
-        let expr = Expr::new(UntypedKind::Current, Span::new(0, 0, 7, 1));
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert_eq!(typed.ty, output_type);
-    }
-
-    #[test]
-    fn test_type_current_without_node_output() {
-        let ctx = make_context();
-        let expr = Expr::new(UntypedKind::Current, Span::new(0, 0, 7, 1));
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::Internal));
-        assert!(errors[0].message.contains("current"));
-    }
-
-    #[test]
-    fn test_type_inputs_with_inputs_type() {
-        let ctx = make_context();
-        let inputs_type = Type::Kernel(KernelType {
-            shape: Shape::Scalar,
-            unit: Unit::kilograms(),
-            bounds: None,
-        });
-        let ctx = ctx.with_execution_context(None, None, None, Some(inputs_type.clone()), None);
-
-        let expr = Expr::new(UntypedKind::Inputs, Span::new(0, 0, 6, 1));
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert_eq!(typed.ty, inputs_type);
-    }
-
-    #[test]
-    fn test_type_inputs_without_inputs_type() {
-        let ctx = make_context();
-        let expr = Expr::new(UntypedKind::Inputs, Span::new(0, 0, 6, 1));
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::Internal));
-        assert!(errors[0].message.contains("inputs"));
-    }
-
-    #[test]
-    fn test_type_payload_with_payload_type() {
-        let ctx = make_context();
-        let payload_type = Type::User(TypeId::from("ImpulseData"));
-        let ctx = ctx.with_execution_context(None, None, None, None, Some(payload_type.clone()));
-
-        let expr = Expr::new(UntypedKind::Payload, Span::new(0, 0, 7, 1));
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert_eq!(typed.ty, payload_type);
-    }
-
-    #[test]
-    fn test_type_payload_without_payload_type() {
-        let ctx = make_context();
-        let expr = Expr::new(UntypedKind::Payload, Span::new(0, 0, 7, 1));
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::Internal));
-        assert!(errors[0].message.contains("payload"));
-    }
-
-    // ============================================================================
-    // Tests for Config/Const lookups
-    // ============================================================================
-
-    #[test]
-    fn test_type_config_found() {
-        let mut ctx = make_context();
-        let config_type = Type::Kernel(KernelType {
-            shape: Shape::Scalar,
-            unit: Unit::dimensionless(),
-            bounds: None,
-        });
-
-        let path = Box::leak(Box::new(Path::from("gravity")));
-        let config_types = Box::leak(Box::new({
-            let mut map = HashMap::new();
-            map.insert(path.clone(), config_type.clone());
-            map
-        }));
-        ctx.config_types = config_types;
-
-        let expr = Expr::new(UntypedKind::Config(path.clone()), Span::new(0, 0, 7, 1));
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert_eq!(typed.ty, config_type);
-    }
-
-    #[test]
-    fn test_type_config_not_found() {
-        let ctx = make_context();
-        let path = Path::from("unknown_config");
-        let expr = Expr::new(UntypedKind::Config(path), Span::new(0, 0, 14, 1));
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-        assert!(errors[0].message.contains("config"));
-    }
-
-    #[test]
-    fn test_type_const_found() {
-        let mut ctx = make_context();
-        let const_type = Type::Kernel(KernelType {
-            shape: Shape::Scalar,
-            unit: Unit::meters(),
-            bounds: None,
-        });
-
-        let path = Box::leak(Box::new(Path::from("PI")));
-        let const_types = Box::leak(Box::new({
-            let mut map = HashMap::new();
-            map.insert(path.clone(), const_type.clone());
-            map
-        }));
-        ctx.const_types = const_types;
-
-        let expr = Expr::new(UntypedKind::Const(path.clone()), Span::new(0, 0, 2, 1));
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert_eq!(typed.ty, const_type);
-    }
-
-    #[test]
-    fn test_type_const_not_found() {
-        let ctx = make_context();
-        let path = Path::from("UNKNOWN");
-        let expr = Expr::new(UntypedKind::Const(path), Span::new(0, 0, 7, 1));
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-        assert!(errors[0].message.contains("const"));
-    }
-
-    // ============================================================================
-    // Tests for Vector literal construction
-    // ============================================================================
-
-    #[test]
-    fn test_type_vector_2d() {
-        let ctx = make_context();
-        let expr = Expr::new(
+}
+
+#[test]
+fn test_type_vector_empty_fails() {
+    let ctx = make_context();
+    let expr = Expr::new(UntypedKind::Vector(vec![]), Span::new(0, 0, 2, 1));
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+    assert!(errors[0].message.contains("empty"));
+}
+
+#[test]
+fn test_type_vector_too_large_fails() {
+    let ctx = make_context();
+    let expr = Expr::new(
+        UntypedKind::Vector(vec![
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 2.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 3.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 4.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 5.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+        ]),
+        Span::new(0, 0, 25, 1),
+    );
+
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+    assert!(errors[0].message.contains("maximum is 4"));
+}
+
+#[test]
+fn test_type_vector_mixed_units_fails() {
+    let ctx = make_context();
+    let expr = Expr::new(
+        UntypedKind::Vector(vec![
+            Expr::new(
+                UntypedKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            ),
+            Expr::new(UntypedKind::Dt, Span::new(0, 0, 2, 1)),
+        ]),
+        Span::new(0, 0, 10, 1),
+    );
+
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+    assert!(errors[0].message.contains("unit"));
+}
+
+#[test]
+fn test_type_vector_non_scalar_element_fails() {
+    let ctx = make_context();
+    // Try to create a vector containing a vector
+    let expr = Expr::new(
+        UntypedKind::Vector(vec![Expr::new(
             UntypedKind::Vector(vec![
                 Expr::new(
                     UntypedKind::Literal {
@@ -2066,643 +1370,248 @@ mod tests {
                 ),
             ]),
             Span::new(0, 0, 10, 1),
-        );
+        )]),
+        Span::new(0, 0, 12, 1),
+    );
 
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Vector { dim: 2 });
-                assert_eq!(kt.unit, Unit::dimensionless());
-            }
-            _ => panic!("Expected Kernel type"),
-        }
-    }
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+    assert!(errors[0].message.contains("scalar") || errors[0].message.contains("Scalar"));
+}
 
-    #[test]
-    fn test_type_vector_3d() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Vector(vec![
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 1.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 2.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 3.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-            ]),
-            Span::new(0, 0, 15, 1),
-        );
+#[test]
+fn test_type_vector_bool_element_fails() {
+    let ctx = make_context();
+    // Try to create a vector containing a boolean
+    let expr = Expr::new(
+        UntypedKind::Vector(vec![Expr::new(
+            UntypedKind::BoolLiteral(true),
+            Span::new(0, 0, 4, 1),
+        )]),
+        Span::new(0, 0, 6, 1),
+    );
 
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Vector { dim: 3 });
-                assert_eq!(kt.unit, Unit::dimensionless());
-            }
-            _ => panic!("Expected Kernel type"),
-        }
-    }
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+    assert!(errors[0].message.contains("non-kernel") || errors[0].message.contains("Bool"));
+}
 
-    #[test]
-    fn test_type_vector_4d() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Vector(vec![
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 1.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 2.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 3.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 4.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-            ]),
-            Span::new(0, 0, 20, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Vector { dim: 4 });
-                assert_eq!(kt.unit, Unit::dimensionless());
-            }
-            _ => panic!("Expected Kernel type"),
-        }
-    }
-
-    #[test]
-    fn test_type_vector_empty_fails() {
-        let ctx = make_context();
-        let expr = Expr::new(UntypedKind::Vector(vec![]), Span::new(0, 0, 2, 1));
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-        assert!(errors[0].message.contains("empty"));
-    }
-
-    #[test]
-    fn test_type_vector_too_large_fails() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Vector(vec![
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 1.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 2.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 3.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 4.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 5.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-            ]),
-            Span::new(0, 0, 25, 1),
-        );
-
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-        assert!(errors[0].message.contains("maximum is 4"));
-    }
-
-    #[test]
-    fn test_type_vector_mixed_units_fails() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Vector(vec![
-                Expr::new(
-                    UntypedKind::Literal {
-                        value: 1.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                ),
-                Expr::new(UntypedKind::Dt, Span::new(0, 0, 2, 1)),
-            ]),
-            Span::new(0, 0, 10, 1),
-        );
-
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-        assert!(errors[0].message.contains("unit"));
-    }
-
-    #[test]
-    fn test_type_vector_non_scalar_element_fails() {
-        let ctx = make_context();
-        // Try to create a vector containing a vector
-        let expr = Expr::new(
-            UntypedKind::Vector(vec![Expr::new(
-                UntypedKind::Vector(vec![
-                    Expr::new(
-                        UntypedKind::Literal {
-                            value: 1.0,
-                            unit: None,
-                        },
-                        Span::new(0, 0, 3, 1),
-                    ),
-                    Expr::new(
-                        UntypedKind::Literal {
-                            value: 2.0,
-                            unit: None,
-                        },
-                        Span::new(0, 0, 3, 1),
-                    ),
-                ]),
+#[test]
+fn test_type_let_nested_bindings() {
+    let ctx = make_context();
+    // let x = 5.0; let y = x; y
+    let expr = Expr::new(
+        UntypedKind::Let {
+            name: "x".to_string(),
+            value: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 5.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            )),
+            body: Box::new(Expr::new(
+                UntypedKind::Let {
+                    name: "y".to_string(),
+                    value: Box::new(Expr::new(
+                        UntypedKind::Local("x".to_string()),
+                        Span::new(0, 0, 1, 1),
+                    )),
+                    body: Box::new(Expr::new(
+                        UntypedKind::Local("y".to_string()),
+                        Span::new(0, 0, 1, 1),
+                    )),
+                },
                 Span::new(0, 0, 10, 1),
-            )]),
-            Span::new(0, 0, 12, 1),
-        );
+            )),
+        },
+        Span::new(0, 0, 20, 1),
+    );
 
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-        assert!(errors[0].message.contains("scalar") || errors[0].message.contains("Scalar"));
+    let typed = type_expression(&expr, &ctx).unwrap();
+    match &typed.ty {
+        Type::Kernel(kt) => {
+            assert_eq!(kt.shape, Shape::Scalar);
+            assert_eq!(kt.unit, Unit::dimensionless());
+        }
+        _ => panic!("Expected Kernel type"),
     }
+}
 
-    #[test]
-    fn test_type_vector_bool_element_fails() {
-        let ctx = make_context();
-        // Try to create a vector containing a boolean
-        let expr = Expr::new(
-            UntypedKind::Vector(vec![Expr::new(
-                UntypedKind::BoolLiteral(true),
+#[test]
+fn test_type_let_shadowing() {
+    let ctx = make_context();
+    // let x = 5.0; let x = dt; x (inner binding shadows outer)
+    let expr = Expr::new(
+        UntypedKind::Let {
+            name: "x".to_string(),
+            value: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 5.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            )),
+            body: Box::new(Expr::new(
+                UntypedKind::Let {
+                    name: "x".to_string(),
+                    value: Box::new(Expr::new(UntypedKind::Dt, Span::new(0, 0, 2, 1))),
+                    body: Box::new(Expr::new(
+                        UntypedKind::Local("x".to_string()),
+                        Span::new(0, 0, 1, 1),
+                    )),
+                },
+                Span::new(0, 0, 10, 1),
+            )),
+        },
+        Span::new(0, 0, 20, 1),
+    );
+
+    let typed = type_expression(&expr, &ctx).unwrap();
+    // Should resolve to inner x (dt = seconds), not outer x (dimensionless)
+    match &typed.ty {
+        Type::Kernel(kt) => {
+            assert_eq!(kt.shape, Shape::Scalar);
+            assert_eq!(kt.unit, Unit::seconds());
+        }
+        _ => panic!("Expected Kernel type"),
+    }
+}
+
+#[test]
+fn test_type_let_binding_available_in_body() {
+    let ctx = make_context();
+    // Verify that let binding is correctly available within the let body
+    let expr = Expr::new(
+        UntypedKind::Let {
+            name: "temp".to_string(),
+            value: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 10.0,
+                    unit: None,
+                },
                 Span::new(0, 0, 4, 1),
-            )]),
-            Span::new(0, 0, 6, 1),
-        );
+            )),
+            body: Box::new(Expr::new(
+                UntypedKind::Local("temp".to_string()),
+                Span::new(0, 0, 4, 1),
+            )),
+        },
+        Span::new(0, 0, 15, 1),
+    );
 
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-        assert!(errors[0].message.contains("non-kernel") || errors[0].message.contains("Bool"));
-    }
+    // This should succeed - temp is in scope within body
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert!(matches!(typed.ty, Type::Kernel(_)));
+}
 
-    #[test]
-    fn test_type_let_nested_bindings() {
-        let ctx = make_context();
-        // let x = 5.0; let y = x; y
-        let expr = Expr::new(
-            UntypedKind::Let {
-                name: "x".to_string(),
-                value: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 5.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-                body: Box::new(Expr::new(
-                    UntypedKind::Let {
-                        name: "y".to_string(),
-                        value: Box::new(Expr::new(
-                            UntypedKind::Local("x".to_string()),
-                            Span::new(0, 0, 1, 1),
-                        )),
-                        body: Box::new(Expr::new(
-                            UntypedKind::Local("y".to_string()),
-                            Span::new(0, 0, 1, 1),
-                        )),
-                    },
-                    Span::new(0, 0, 10, 1),
-                )),
-            },
-            Span::new(0, 0, 20, 1),
-        );
+#[test]
+fn test_type_let_value_error_propagates() {
+    let ctx = make_context();
+    // Let binding value expression fails - error should propagate
+    let expr = Expr::new(
+        UntypedKind::Let {
+            name: "x".to_string(),
+            value: Box::new(Expr::new(
+                UntypedKind::Local("undefined_var".to_string()),
+                Span::new(0, 0, 13, 1),
+            )),
+            body: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            )),
+        },
+        Span::new(0, 0, 20, 1),
+    );
 
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::dimensionless());
-            }
-            _ => panic!("Expected Kernel type"),
-        }
-    }
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    assert!(errors[0].message.contains("undefined_var"));
+}
 
-    #[test]
-    fn test_type_let_shadowing() {
-        let ctx = make_context();
-        // let x = 5.0; let x = dt; x (inner binding shadows outer)
-        let expr = Expr::new(
-            UntypedKind::Let {
-                name: "x".to_string(),
-                value: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 5.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-                body: Box::new(Expr::new(
-                    UntypedKind::Let {
-                        name: "x".to_string(),
-                        value: Box::new(Expr::new(UntypedKind::Dt, Span::new(0, 0, 2, 1))),
-                        body: Box::new(Expr::new(
-                            UntypedKind::Local("x".to_string()),
-                            Span::new(0, 0, 1, 1),
-                        )),
-                    },
-                    Span::new(0, 0, 10, 1),
-                )),
-            },
-            Span::new(0, 0, 20, 1),
-        );
+#[test]
+fn test_type_let_body_error_propagates() {
+    let ctx = make_context();
+    // Let binding body expression fails - error should propagate
+    let expr = Expr::new(
+        UntypedKind::Let {
+            name: "x".to_string(),
+            value: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 42.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 4, 1),
+            )),
+            body: Box::new(Expr::new(
+                UntypedKind::Local("undefined_var".to_string()),
+                Span::new(0, 0, 13, 1),
+            )),
+        },
+        Span::new(0, 0, 20, 1),
+    );
 
-        let typed = type_expression(&expr, &ctx).unwrap();
-        // Should resolve to inner x (dt = seconds), not outer x (dimensionless)
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::seconds());
-            }
-            _ => panic!("Expected Kernel type"),
-        }
-    }
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    assert!(errors[0].message.contains("undefined_var"));
+}
 
-    #[test]
-    fn test_type_let_binding_available_in_body() {
-        let ctx = make_context();
-        // Verify that let binding is correctly available within the let body
-        let expr = Expr::new(
-            UntypedKind::Let {
-                name: "temp".to_string(),
-                value: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 10.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-                body: Box::new(Expr::new(
-                    UntypedKind::Local("temp".to_string()),
-                    Span::new(0, 0, 4, 1),
-                )),
-            },
-            Span::new(0, 0, 15, 1),
-        );
+// ============================================================================
+// Tests for Struct literal construction
+// ============================================================================
 
-        // This should succeed - temp is in scope within body
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert!(matches!(typed.ty, Type::Kernel(_)));
-    }
-
-    #[test]
-    fn test_type_let_value_error_propagates() {
-        let ctx = make_context();
-        // Let binding value expression fails - error should propagate
-        let expr = Expr::new(
-            UntypedKind::Let {
-                name: "x".to_string(),
-                value: Box::new(Expr::new(
-                    UntypedKind::Local("undefined_var".to_string()),
-                    Span::new(0, 0, 13, 1),
-                )),
-                body: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 1.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-            },
-            Span::new(0, 0, 20, 1),
-        );
-
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-        assert!(errors[0].message.contains("undefined_var"));
-    }
-
-    #[test]
-    fn test_type_let_body_error_propagates() {
-        let ctx = make_context();
-        // Let binding body expression fails - error should propagate
-        let expr = Expr::new(
-            UntypedKind::Let {
-                name: "x".to_string(),
-                value: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 42.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 4, 1),
-                )),
-                body: Box::new(Expr::new(
-                    UntypedKind::Local("undefined_var".to_string()),
-                    Span::new(0, 0, 13, 1),
-                )),
-            },
-            Span::new(0, 0, 20, 1),
-        );
-
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-        assert!(errors[0].message.contains("undefined_var"));
-    }
-
-    // ============================================================================
-    // Tests for Struct literal construction
-    // ============================================================================
-
-    #[test]
-    fn test_type_struct_valid_construction() {
-        let type_table = Box::leak(Box::new({
-            let mut table = TypeTable::new();
-            let type_id = TypeId::from("Position");
-            let user_type = UserType::new(
-                type_id.clone(),
-                Path::from("Position"),
-                vec![
-                    (
-                        "x".to_string(),
-                        Type::Kernel(KernelType {
-                            shape: Shape::Scalar,
-                            unit: Unit::dimensionless(),
-                            bounds: None,
-                        }),
-                    ),
-                    (
-                        "y".to_string(),
-                        Type::Kernel(KernelType {
-                            shape: Shape::Scalar,
-                            unit: Unit::dimensionless(),
-                            bounds: None,
-                        }),
-                    ),
-                ],
-            );
-            table.register(user_type);
-            table
-        }));
-
-        let ctx = TypingContext::new(
-            type_table,
-            KernelRegistry::global(),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::Struct {
-                ty: Path::from("Position"),
-                fields: vec![
-                    (
-                        "x".to_string(),
-                        Expr::new(
-                            UntypedKind::Literal {
-                                value: 10.0,
-                                unit: None,
-                            },
-                            Span::new(0, 0, 4, 1),
-                        ),
-                    ),
-                    (
-                        "y".to_string(),
-                        Expr::new(
-                            UntypedKind::Literal {
-                                value: 20.0,
-                                unit: None,
-                            },
-                            Span::new(0, 0, 4, 1),
-                        ),
-                    ),
-                ],
-            },
-            Span::new(0, 0, 30, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert_eq!(typed.ty, Type::User(TypeId::from("Position")));
-    }
-
-    #[test]
-    fn test_type_struct_unknown_type() {
-        let ctx = make_context();
-        let expr = Expr::new(
-            UntypedKind::Struct {
-                ty: Path::from("UnknownType"),
-                fields: vec![],
-            },
-            Span::new(0, 0, 15, 1),
-        );
-
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-        assert!(errors[0].message.contains("UnknownType"));
-    }
-
-    #[test]
-    fn test_type_struct_unknown_field() {
-        let type_table = Box::leak(Box::new({
-            let mut table = TypeTable::new();
-            let type_id = TypeId::from("Point");
-            let user_type = UserType::new(
-                type_id.clone(),
-                Path::from("Point"),
-                vec![(
+#[test]
+fn test_type_struct_valid_construction() {
+    let type_table = Box::leak(Box::new({
+        let mut table = TypeTable::new();
+        let type_id = TypeId::from("Position");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Position"),
+            vec![
+                (
                     "x".to_string(),
                     Type::Kernel(KernelType {
                         shape: Shape::Scalar,
                         unit: Unit::dimensionless(),
                         bounds: None,
                     }),
-                )],
-            );
-            table.register(user_type);
-            table
-        }));
-
-        let ctx = TypingContext::new(
-            type_table,
-            KernelRegistry::global(),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-        );
-
-        let expr = Expr::new(
-            UntypedKind::Struct {
-                ty: Path::from("Point"),
-                fields: vec![(
-                    "unknown_field".to_string(),
-                    Expr::new(
-                        UntypedKind::Literal {
-                            value: 5.0,
-                            unit: None,
-                        },
-                        Span::new(0, 0, 3, 1),
-                    ),
-                )],
-            },
-            Span::new(0, 0, 20, 1),
-        );
-
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
-        assert!(errors[0].message.contains("unknown_field"));
-    }
-
-    #[test]
-    fn test_type_struct_type_mismatch() {
-        let type_table = Box::leak(Box::new({
-            let mut table = TypeTable::new();
-            let type_id = TypeId::from("Data");
-            let user_type = UserType::new(
-                type_id.clone(),
-                Path::from("Data"),
-                vec![(
-                    "value".to_string(),
+                ),
+                (
+                    "y".to_string(),
                     Type::Kernel(KernelType {
                         shape: Shape::Scalar,
-                        unit: Unit::meters(),
+                        unit: Unit::dimensionless(),
                         bounds: None,
                     }),
-                )],
-            );
-            table.register(user_type);
-            table
-        }));
-
-        let ctx = TypingContext::new(
-            type_table,
-            KernelRegistry::global(),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
+                ),
+            ],
         );
+        table.register(user_type);
+        table
+    }));
 
-        // Provide dt (seconds) instead of meters
-        let expr = Expr::new(
-            UntypedKind::Struct {
-                ty: Path::from("Data"),
-                fields: vec![(
-                    "value".to_string(),
-                    Expr::new(UntypedKind::Dt, Span::new(0, 0, 2, 1)),
-                )],
-            },
-            Span::new(0, 0, 20, 1),
-        );
+    let ctx = TypingContext::new(
+        type_table,
+        KernelRegistry::global(),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+    );
 
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-    }
-
-    #[test]
-    fn test_type_struct_missing_field() {
-        let type_table = Box::leak(Box::new({
-            let mut table = TypeTable::new();
-            let type_id = TypeId::from("Vec2");
-            let user_type = UserType::new(
-                type_id.clone(),
-                Path::from("Vec2"),
-                vec![
-                    (
-                        "x".to_string(),
-                        Type::Kernel(KernelType {
-                            shape: Shape::Scalar,
-                            unit: Unit::dimensionless(),
-                            bounds: None,
-                        }),
-                    ),
-                    (
-                        "y".to_string(),
-                        Type::Kernel(KernelType {
-                            shape: Shape::Scalar,
-                            unit: Unit::dimensionless(),
-                            bounds: None,
-                        }),
-                    ),
-                ],
-            );
-            table.register(user_type);
-            table
-        }));
-
-        let ctx = TypingContext::new(
-            type_table,
-            KernelRegistry::global(),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-        );
-
-        // Only provide x, missing y
-        let expr = Expr::new(
-            UntypedKind::Struct {
-                ty: Path::from("Vec2"),
-                fields: vec![(
+    let expr = Expr::new(
+        UntypedKind::Struct {
+            ty: Path::from("Position"),
+            fields: vec![
+                (
                     "x".to_string(),
                     Expr::new(
                         UntypedKind::Literal {
@@ -2711,403 +1620,592 @@ mod tests {
                         },
                         Span::new(0, 0, 4, 1),
                     ),
-                )],
-            },
-            Span::new(0, 0, 20, 1),
+                ),
+                (
+                    "y".to_string(),
+                    Expr::new(
+                        UntypedKind::Literal {
+                            value: 20.0,
+                            unit: None,
+                        },
+                        Span::new(0, 0, 4, 1),
+                    ),
+                ),
+            ],
+        },
+        Span::new(0, 0, 30, 1),
+    );
+
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert_eq!(typed.ty, Type::User(TypeId::from("Position")));
+}
+
+#[test]
+fn test_type_struct_unknown_type() {
+    let ctx = make_context();
+    let expr = Expr::new(
+        UntypedKind::Struct {
+            ty: Path::from("UnknownType"),
+            fields: vec![],
+        },
+        Span::new(0, 0, 15, 1),
+    );
+
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    assert!(errors[0].message.contains("UnknownType"));
+}
+
+#[test]
+fn test_type_struct_unknown_field() {
+    let type_table = Box::leak(Box::new({
+        let mut table = TypeTable::new();
+        let type_id = TypeId::from("Point");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Point"),
+            vec![(
+                "x".to_string(),
+                Type::Kernel(KernelType {
+                    shape: Shape::Scalar,
+                    unit: Unit::dimensionless(),
+                    bounds: None,
+                }),
+            )],
         );
+        table.register(user_type);
+        table
+    }));
 
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-        assert!(errors[0].message.contains("missing"));
-    }
+    let ctx = TypingContext::new(
+        type_table,
+        KernelRegistry::global(),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+    );
 
-    #[test]
-    fn test_type_struct_duplicate_field() {
-        let type_table = Box::leak(Box::new({
-            let mut table = TypeTable::new();
-            let type_id = TypeId::from("Point");
-            let user_type = UserType::new(
-                type_id.clone(),
-                Path::from("Point"),
-                vec![(
+    let expr = Expr::new(
+        UntypedKind::Struct {
+            ty: Path::from("Point"),
+            fields: vec![(
+                "unknown_field".to_string(),
+                Expr::new(
+                    UntypedKind::Literal {
+                        value: 5.0,
+                        unit: None,
+                    },
+                    Span::new(0, 0, 3, 1),
+                ),
+            )],
+        },
+        Span::new(0, 0, 20, 1),
+    );
+
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
+    assert!(errors[0].message.contains("unknown_field"));
+}
+
+#[test]
+fn test_type_struct_type_mismatch() {
+    let type_table = Box::leak(Box::new({
+        let mut table = TypeTable::new();
+        let type_id = TypeId::from("Data");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Data"),
+            vec![(
+                "value".to_string(),
+                Type::Kernel(KernelType {
+                    shape: Shape::Scalar,
+                    unit: Unit::meters(),
+                    bounds: None,
+                }),
+            )],
+        );
+        table.register(user_type);
+        table
+    }));
+
+    let ctx = TypingContext::new(
+        type_table,
+        KernelRegistry::global(),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+    );
+
+    // Provide dt (seconds) instead of meters
+    let expr = Expr::new(
+        UntypedKind::Struct {
+            ty: Path::from("Data"),
+            fields: vec![(
+                "value".to_string(),
+                Expr::new(UntypedKind::Dt, Span::new(0, 0, 2, 1)),
+            )],
+        },
+        Span::new(0, 0, 20, 1),
+    );
+
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+}
+
+#[test]
+fn test_type_struct_missing_field() {
+    let type_table = Box::leak(Box::new({
+        let mut table = TypeTable::new();
+        let type_id = TypeId::from("Vec2");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Vec2"),
+            vec![
+                (
                     "x".to_string(),
                     Type::Kernel(KernelType {
                         shape: Shape::Scalar,
                         unit: Unit::dimensionless(),
                         bounds: None,
                     }),
-                )],
-            );
-            table.register(user_type);
-            table
-        }));
-
-        let ctx = TypingContext::new(
-            type_table,
-            KernelRegistry::global(),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
-            Box::leak(Box::new(HashMap::new())),
+                ),
+                (
+                    "y".to_string(),
+                    Type::Kernel(KernelType {
+                        shape: Shape::Scalar,
+                        unit: Unit::dimensionless(),
+                        bounds: None,
+                    }),
+                ),
+            ],
         );
+        table.register(user_type);
+        table
+    }));
 
-        // Provide x twice
-        let expr = Expr::new(
-            UntypedKind::Struct {
-                ty: Path::from("Point"),
-                fields: vec![
-                    (
-                        "x".to_string(),
-                        Expr::new(
-                            UntypedKind::Literal {
-                                value: 10.0,
-                                unit: None,
-                            },
-                            Span::new(0, 0, 4, 1),
-                        ),
-                    ),
-                    (
-                        "x".to_string(),
-                        Expr::new(
-                            UntypedKind::Literal {
-                                value: 20.0,
-                                unit: None,
-                            },
-                            Span::new(0, 0, 4, 1),
-                        ),
-                    ),
-                ],
-            },
-            Span::new(0, 0, 30, 1),
-        );
+    let ctx = TypingContext::new(
+        type_table,
+        KernelRegistry::global(),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+    );
 
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
-        assert!(errors[0].message.contains("multiple"));
-    }
-
-    #[test]
-    fn test_type_self_found() {
-        let mut ctx = make_context();
-        let entity_type = Type::User(TypeId::from("Plate"));
-        ctx.self_type = Some(entity_type.clone());
-
-        let expr = Expr::new(UntypedKind::Self_, Span::new(0, 0, 4, 1));
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert_eq!(typed.ty, entity_type);
-    }
-
-    #[test]
-    fn test_type_other_found() {
-        let mut ctx = make_context();
-        let entity_type = Type::User(TypeId::from("Plate"));
-        ctx.other_type = Some(entity_type.clone());
-
-        let expr = Expr::new(UntypedKind::Other, Span::new(0, 0, 5, 1));
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert_eq!(typed.ty, entity_type);
-    }
-
-    #[test]
-    fn test_type_self_not_found() {
-        let ctx = make_context();
-        let expr = Expr::new(UntypedKind::Self_, Span::new(0, 0, 4, 1));
-        let errors = type_expression(&expr, &ctx).unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert!(matches!(errors[0].kind, ErrorKind::Internal));
-        assert!(errors[0].message.contains("self"));
-    }
-
-    #[test]
-    fn test_type_aggregate_map() {
-        let ctx = make_context();
-        let entity = continuum_foundation::EntityId::new("Plate");
-        let expr = Expr::new(
-            UntypedKind::Aggregate {
-                op: crate::ast::AggregateOp::Map,
-                entity: entity.clone(),
-                binding: "p".to_string(),
-                body: Box::new(Expr::new(
+    // Only provide x, missing y
+    let expr = Expr::new(
+        UntypedKind::Struct {
+            ty: Path::from("Vec2"),
+            fields: vec![(
+                "x".to_string(),
+                Expr::new(
                     UntypedKind::Literal {
-                        value: 1.0,
+                        value: 10.0,
                         unit: None,
                     },
-                    Span::new(0, 0, 3, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.ty {
-            Type::Seq(inner) => {
-                assert!(matches!(**inner, Type::Kernel(_)));
-            }
-            _ => panic!("Expected Seq type, got {:?}", typed.ty),
-        }
-    }
-
-    #[test]
-    fn test_type_aggregate_sum() {
-        let ctx = make_context();
-        let entity = continuum_foundation::EntityId::new("Plate");
-        let expr = Expr::new(
-            UntypedKind::Aggregate {
-                op: crate::ast::AggregateOp::Sum,
-                entity: entity.clone(),
-                binding: "p".to_string(),
-                body: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 1.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert!(matches!(typed.ty, Type::Kernel(_)));
-    }
-
-    #[test]
-    fn test_type_aggregate_count() {
-        let ctx = make_context();
-        let entity = continuum_foundation::EntityId::new("Plate");
-        let expr = Expr::new(
-            UntypedKind::Aggregate {
-                op: crate::ast::AggregateOp::Count,
-                entity: entity.clone(),
-                binding: "p".to_string(),
-                body: Box::new(Expr::new(
-                    UntypedKind::BoolLiteral(true),
                     Span::new(0, 0, 4, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
+                ),
+            )],
+        },
+        Span::new(0, 0, 20, 1),
+    );
 
-        let typed = type_expression(&expr, &ctx).unwrap();
-        match &typed.ty {
-            Type::Kernel(kt) => {
-                assert_eq!(kt.shape, Shape::Scalar);
-                assert_eq!(kt.unit, Unit::DIMENSIONLESS);
-            }
-            _ => panic!("Expected dimensionless Scalar for Count"),
-        }
-    }
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+    assert!(errors[0].message.contains("missing"));
+}
 
-    #[test]
-    fn test_type_aggregate_any() {
-        let ctx = make_context();
-        let entity = continuum_foundation::EntityId::new("Plate");
-        let expr = Expr::new(
-            UntypedKind::Aggregate {
-                op: crate::ast::AggregateOp::Any,
-                entity: entity.clone(),
-                binding: "p".to_string(),
-                body: Box::new(Expr::new(
-                    UntypedKind::BoolLiteral(true),
-                    Span::new(0, 0, 4, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert!(matches!(typed.ty, Type::Bool));
-    }
-
-    #[test]
-    fn test_type_fold_valid() {
-        let ctx = make_context();
-        let entity = continuum_foundation::EntityId::new("Plate");
-        let expr = Expr::new(
-            UntypedKind::Fold {
-                entity: entity.clone(),
-                init: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 0.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-                acc: "acc".to_string(),
-                elem: "p".to_string(),
-                body: Box::new(Expr::new(
-                    UntypedKind::Local("acc".to_string()),
-                    Span::new(0, 0, 3, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert!(matches!(typed.ty, Type::Kernel(_)));
-    }
-
-    #[test]
-    fn test_type_fold_mismatch_fails() {
-        let ctx = make_context();
-        let entity = continuum_foundation::EntityId::new("Plate");
-        let expr = Expr::new(
-            UntypedKind::Fold {
-                entity: entity.clone(),
-                init: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 0.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-                acc: "acc".to_string(),
-                elem: "p".to_string(),
-                body: Box::new(Expr::new(
-                    UntypedKind::BoolLiteral(true),
-                    Span::new(0, 0, 4, 1),
-                )),
-            },
-            Span::new(0, 0, 10, 1),
-        );
-
-        let result = type_expression(&expr, &ctx);
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
-    }
-
-    #[test]
-    fn test_type_nested_aggregates() {
-        let ctx = make_context();
-        let entity1 = continuum_foundation::EntityId::new("Plate");
-        let entity2 = continuum_foundation::EntityId::new("Point");
-
-        // aggregate(Plate, p) { aggregate(Point, pt) { 1.0 } }
-        let expr = Expr::new(
-            UntypedKind::Aggregate {
-                op: crate::ast::AggregateOp::Map,
-                entity: entity1,
-                binding: "p".to_string(),
-                body: Box::new(Expr::new(
-                    UntypedKind::Aggregate {
-                        op: crate::ast::AggregateOp::Map,
-                        entity: entity2,
-                        binding: "pt".to_string(),
-                        body: Box::new(Expr::new(
-                            UntypedKind::Literal {
-                                value: 1.0,
-                                unit: None,
-                            },
-                            Span::new(0, 0, 3, 1),
-                        )),
-                    },
-                    Span::new(0, 0, 10, 1),
-                )),
-            },
-            Span::new(0, 0, 20, 1),
-        );
-
-        let typed = type_expression(&expr, &ctx).unwrap();
-        // Result should be Seq(Seq(Scalar))
-        match &typed.ty {
-            Type::Seq(inner1) => match &**inner1 {
-                Type::Seq(inner2) => {
-                    assert!(matches!(**inner2, Type::Kernel(_)));
-                }
-                _ => panic!("Expected nested Seq type, got {:?}", inner1),
-            },
-            _ => panic!("Expected Seq type, got {:?}", typed.ty),
-        }
-    }
-
-    #[test]
-    fn test_type_self_other_field_access() {
-        let type_name = "Plate";
-        let ctx = make_context_with_types(&[(
-            type_name,
-            &[(
-                "mass",
+#[test]
+fn test_type_struct_duplicate_field() {
+    let type_table = Box::leak(Box::new({
+        let mut table = TypeTable::new();
+        let type_id = TypeId::from("Point");
+        let user_type = UserType::new(
+            type_id.clone(),
+            Path::from("Point"),
+            vec![(
+                "x".to_string(),
                 Type::Kernel(KernelType {
                     shape: Shape::Scalar,
-                    unit: Unit::kilograms(),
+                    unit: Unit::dimensionless(),
                     bounds: None,
                 }),
             )],
-        )]);
-
-        let mut ctx = ctx;
-        let plate_ty = Type::User(TypeId::from(type_name));
-        ctx.self_type = Some(plate_ty.clone());
-        ctx.other_type = Some(plate_ty);
-
-        // self.mass
-        let expr_self = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(UntypedKind::Self_, Span::new(0, 0, 4, 1))),
-                field: "mass".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
         );
+        table.register(user_type);
+        table
+    }));
 
-        let typed_self = type_expression(&expr_self, &ctx).unwrap();
-        assert!(matches!(typed_self.ty, Type::Kernel(ref kt) if kt.unit == Unit::kilograms()));
+    let ctx = TypingContext::new(
+        type_table,
+        KernelRegistry::global(),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())),
+    );
 
-        // other.mass
-        let expr_other = Expr::new(
-            UntypedKind::FieldAccess {
-                object: Box::new(Expr::new(UntypedKind::Other, Span::new(0, 0, 5, 1))),
-                field: "mass".to_string(),
-            },
-            Span::new(0, 0, 10, 1),
-        );
+    // Provide x twice
+    let expr = Expr::new(
+        UntypedKind::Struct {
+            ty: Path::from("Point"),
+            fields: vec![
+                (
+                    "x".to_string(),
+                    Expr::new(
+                        UntypedKind::Literal {
+                            value: 10.0,
+                            unit: None,
+                        },
+                        Span::new(0, 0, 4, 1),
+                    ),
+                ),
+                (
+                    "x".to_string(),
+                    Expr::new(
+                        UntypedKind::Literal {
+                            value: 20.0,
+                            unit: None,
+                        },
+                        Span::new(0, 0, 4, 1),
+                    ),
+                ),
+            ],
+        },
+        Span::new(0, 0, 30, 1),
+    );
 
-        let typed_other = type_expression(&expr_other, &ctx).unwrap();
-        assert!(matches!(typed_other.ty, Type::Kernel(ref kt) if kt.unit == Unit::kilograms()));
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+    assert!(errors[0].message.contains("multiple"));
+}
+
+#[test]
+fn test_type_self_found() {
+    let mut ctx = make_context();
+    let entity_type = Type::User(TypeId::from("Plate"));
+    ctx.self_type = Some(entity_type.clone());
+
+    let expr = Expr::new(UntypedKind::Self_, Span::new(0, 0, 4, 1));
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert_eq!(typed.ty, entity_type);
+}
+
+#[test]
+fn test_type_other_found() {
+    let mut ctx = make_context();
+    let entity_type = Type::User(TypeId::from("Plate"));
+    ctx.other_type = Some(entity_type.clone());
+
+    let expr = Expr::new(UntypedKind::Other, Span::new(0, 0, 5, 1));
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert_eq!(typed.ty, entity_type);
+}
+
+#[test]
+fn test_type_self_not_found() {
+    let ctx = make_context();
+    let expr = Expr::new(UntypedKind::Self_, Span::new(0, 0, 4, 1));
+    let errors = type_expression(&expr, &ctx).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(matches!(errors[0].kind, ErrorKind::Internal));
+    assert!(errors[0].message.contains("self"));
+}
+
+#[test]
+fn test_type_aggregate_map() {
+    let ctx = make_context();
+    let entity = continuum_foundation::EntityId::new("Plate");
+    let expr = Expr::new(
+        UntypedKind::Aggregate {
+            op: crate::ast::AggregateOp::Map,
+            entity: entity.clone(),
+            binding: "p".to_string(),
+            body: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            )),
+        },
+        Span::new(0, 0, 10, 1),
+    );
+
+    let typed = type_expression(&expr, &ctx).unwrap();
+    match &typed.ty {
+        Type::Seq(inner) => {
+            assert!(matches!(**inner, Type::Kernel(_)));
+        }
+        _ => panic!("Expected Seq type, got {:?}", typed.ty),
     }
+}
 
-    #[test]
-    fn test_type_fold_with_nested_aggregate() {
-        let ctx = make_context();
-        let entity1 = continuum_foundation::EntityId::new("Plate");
-        let entity2 = continuum_foundation::EntityId::new("Point");
+#[test]
+fn test_type_aggregate_sum() {
+    let ctx = make_context();
+    let entity = continuum_foundation::EntityId::new("Plate");
+    let expr = Expr::new(
+        UntypedKind::Aggregate {
+            op: crate::ast::AggregateOp::Sum,
+            entity: entity.clone(),
+            binding: "p".to_string(),
+            body: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            )),
+        },
+        Span::new(0, 0, 10, 1),
+    );
 
-        // fold(Plate, 0.0, |acc, p| acc + sum(Point, |pt| 1.0))
-        let expr = Expr::new(
-            UntypedKind::Fold {
-                entity: entity1,
-                init: Box::new(Expr::new(
-                    UntypedKind::Literal {
-                        value: 0.0,
-                        unit: None,
-                    },
-                    Span::new(0, 0, 3, 1),
-                )),
-                acc: "acc".to_string(),
-                elem: "p".to_string(),
-                body: Box::new(Expr::new(
-                    UntypedKind::Aggregate {
-                        op: crate::ast::AggregateOp::Sum,
-                        entity: entity2,
-                        binding: "pt".to_string(),
-                        body: Box::new(Expr::new(
-                            UntypedKind::Literal {
-                                value: 1.0,
-                                unit: None,
-                            },
-                            Span::new(0, 0, 3, 1),
-                        )),
-                    },
-                    Span::new(0, 0, 10, 1),
-                )),
-            },
-            Span::new(0, 0, 20, 1),
-        );
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert!(matches!(typed.ty, Type::Kernel(_)));
+}
 
-        let typed = type_expression(&expr, &ctx).unwrap();
-        assert!(matches!(typed.ty, Type::Kernel(_)));
+#[test]
+fn test_type_aggregate_count() {
+    let ctx = make_context();
+    let entity = continuum_foundation::EntityId::new("Plate");
+    let expr = Expr::new(
+        UntypedKind::Aggregate {
+            op: crate::ast::AggregateOp::Count,
+            entity: entity.clone(),
+            binding: "p".to_string(),
+            body: Box::new(Expr::new(
+                UntypedKind::BoolLiteral(true),
+                Span::new(0, 0, 4, 1),
+            )),
+        },
+        Span::new(0, 0, 10, 1),
+    );
+
+    let typed = type_expression(&expr, &ctx).unwrap();
+    match &typed.ty {
+        Type::Kernel(kt) => {
+            assert_eq!(kt.shape, Shape::Scalar);
+            assert_eq!(kt.unit, Unit::DIMENSIONLESS);
+        }
+        _ => panic!("Expected dimensionless Scalar for Count"),
     }
+}
+
+#[test]
+fn test_type_aggregate_any() {
+    let ctx = make_context();
+    let entity = continuum_foundation::EntityId::new("Plate");
+    let expr = Expr::new(
+        UntypedKind::Aggregate {
+            op: crate::ast::AggregateOp::Any,
+            entity: entity.clone(),
+            binding: "p".to_string(),
+            body: Box::new(Expr::new(
+                UntypedKind::BoolLiteral(true),
+                Span::new(0, 0, 4, 1),
+            )),
+        },
+        Span::new(0, 0, 10, 1),
+    );
+
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert!(matches!(typed.ty, Type::Bool));
+}
+
+#[test]
+fn test_type_fold_valid() {
+    let ctx = make_context();
+    let entity = continuum_foundation::EntityId::new("Plate");
+    let expr = Expr::new(
+        UntypedKind::Fold {
+            entity: entity.clone(),
+            init: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 0.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            )),
+            acc: "acc".to_string(),
+            elem: "p".to_string(),
+            body: Box::new(Expr::new(
+                UntypedKind::Local("acc".to_string()),
+                Span::new(0, 0, 3, 1),
+            )),
+        },
+        Span::new(0, 0, 10, 1),
+    );
+
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert!(matches!(typed.ty, Type::Kernel(_)));
+}
+
+#[test]
+fn test_type_fold_mismatch_fails() {
+    let ctx = make_context();
+    let entity = continuum_foundation::EntityId::new("Plate");
+    let expr = Expr::new(
+        UntypedKind::Fold {
+            entity: entity.clone(),
+            init: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 0.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            )),
+            acc: "acc".to_string(),
+            elem: "p".to_string(),
+            body: Box::new(Expr::new(
+                UntypedKind::BoolLiteral(true),
+                Span::new(0, 0, 4, 1),
+            )),
+        },
+        Span::new(0, 0, 10, 1),
+    );
+
+    let result = type_expression(&expr, &ctx);
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
+}
+
+#[test]
+fn test_type_nested_aggregates() {
+    let ctx = make_context();
+    let entity1 = continuum_foundation::EntityId::new("Plate");
+    let entity2 = continuum_foundation::EntityId::new("Point");
+
+    // aggregate(Plate, p) { aggregate(Point, pt) { 1.0 } }
+    let expr = Expr::new(
+        UntypedKind::Aggregate {
+            op: crate::ast::AggregateOp::Map,
+            entity: entity1,
+            binding: "p".to_string(),
+            body: Box::new(Expr::new(
+                UntypedKind::Aggregate {
+                    op: crate::ast::AggregateOp::Map,
+                    entity: entity2,
+                    binding: "pt".to_string(),
+                    body: Box::new(Expr::new(
+                        UntypedKind::Literal {
+                            value: 1.0,
+                            unit: None,
+                        },
+                        Span::new(0, 0, 3, 1),
+                    )),
+                },
+                Span::new(0, 0, 10, 1),
+            )),
+        },
+        Span::new(0, 0, 20, 1),
+    );
+
+    let typed = type_expression(&expr, &ctx).unwrap();
+    // Result should be Seq(Seq(Scalar))
+    match &typed.ty {
+        Type::Seq(inner1) => match &**inner1 {
+            Type::Seq(inner2) => {
+                assert!(matches!(**inner2, Type::Kernel(_)));
+            }
+            _ => panic!("Expected nested Seq type, got {:?}", inner1),
+        },
+        _ => panic!("Expected Seq type, got {:?}", typed.ty),
+    }
+}
+
+#[test]
+fn test_type_self_other_field_access() {
+    let type_name = "Plate";
+    let ctx = make_context_with_types(&[(
+        type_name,
+        &[(
+            "mass",
+            Type::Kernel(KernelType {
+                shape: Shape::Scalar,
+                unit: Unit::kilograms(),
+                bounds: None,
+            }),
+        )],
+    )]);
+
+    let mut ctx = ctx;
+    let plate_ty = Type::User(TypeId::from(type_name));
+    ctx.self_type = Some(plate_ty.clone());
+    ctx.other_type = Some(plate_ty);
+
+    // self.mass
+    let expr_self = Expr::new(
+        UntypedKind::FieldAccess {
+            object: Box::new(Expr::new(UntypedKind::Self_, Span::new(0, 0, 4, 1))),
+            field: "mass".to_string(),
+        },
+        Span::new(0, 0, 10, 1),
+    );
+
+    let typed_self = type_expression(&expr_self, &ctx).unwrap();
+    assert!(matches!(typed_self.ty, Type::Kernel(ref kt) if kt.unit == Unit::kilograms()));
+
+    // other.mass
+    let expr_other = Expr::new(
+        UntypedKind::FieldAccess {
+            object: Box::new(Expr::new(UntypedKind::Other, Span::new(0, 0, 5, 1))),
+            field: "mass".to_string(),
+        },
+        Span::new(0, 0, 10, 1),
+    );
+
+    let typed_other = type_expression(&expr_other, &ctx).unwrap();
+    assert!(matches!(typed_other.ty, Type::Kernel(ref kt) if kt.unit == Unit::kilograms()));
+}
+
+#[test]
+fn test_type_fold_with_nested_aggregate() {
+    let ctx = make_context();
+    let entity1 = continuum_foundation::EntityId::new("Plate");
+    let entity2 = continuum_foundation::EntityId::new("Point");
+
+    // fold(Plate, 0.0, |acc, p| acc + sum(Point, |pt| 1.0))
+    let expr = Expr::new(
+        UntypedKind::Fold {
+            entity: entity1,
+            init: Box::new(Expr::new(
+                UntypedKind::Literal {
+                    value: 0.0,
+                    unit: None,
+                },
+                Span::new(0, 0, 3, 1),
+            )),
+            acc: "acc".to_string(),
+            elem: "p".to_string(),
+            body: Box::new(Expr::new(
+                UntypedKind::Aggregate {
+                    op: crate::ast::AggregateOp::Sum,
+                    entity: entity2,
+                    binding: "pt".to_string(),
+                    body: Box::new(Expr::new(
+                        UntypedKind::Literal {
+                            value: 1.0,
+                            unit: None,
+                        },
+                        Span::new(0, 0, 3, 1),
+                    )),
+                },
+                Span::new(0, 0, 10, 1),
+            )),
+        },
+        Span::new(0, 0, 20, 1),
+    );
+
+    let typed = type_expression(&expr, &ctx).unwrap();
+    assert!(matches!(typed.ty, Type::Kernel(_)));
 }

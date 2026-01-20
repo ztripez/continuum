@@ -404,7 +404,6 @@ pub fn resolve_type_expr(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::TypeId;
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)
