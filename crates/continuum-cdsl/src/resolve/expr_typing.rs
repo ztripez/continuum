@@ -353,10 +353,10 @@ fn derive_return_type(
         }
         _ => {
             return Err(vec![CompileError::new(
-                ErrorKind::Internal,
+                ErrorKind::UnsupportedDSLFeature,
                 span,
                 format!(
-                    "shape derivation not yet implemented: {:?}",
+                    "shape derivation variant not yet implemented: {:?}",
                     sig.returns.shape
                 ),
             )]);
@@ -407,10 +407,10 @@ fn derive_return_type(
         }
         UnitDerivation::Sqrt(_idx) | UnitDerivation::Inverse(_idx) => {
             return Err(vec![CompileError::new(
-                ErrorKind::Internal,
+                ErrorKind::UnsupportedDSLFeature,
                 span,
                 format!(
-                    "unit derivation not yet implemented: {:?}",
+                    "unit derivation variant not yet implemented: {:?}",
                     sig.returns.unit
                 ),
             )]);
@@ -896,6 +896,107 @@ fn type_fold(
             body: Box::new(typed_body.clone()),
         },
         typed_body.ty,
+    ))
+}
+
+/// Types a function or kernel call by its path.
+///
+/// # Parameters
+/// - `ctx`: The typing context providing kernel registry lookups.
+/// - `func`: The path to the function or kernel.
+/// - `args`: The list of argument expressions.
+/// - `span`: Source location of the call.
+///
+/// # Returns
+/// A tuple containing the typed expression kind and the derived return type.
+///
+/// # Errors
+/// Returns a list of compilation errors if the kernel is undefined, path is
+/// invalid, or return type derivation fails.
+fn type_call(
+    ctx: &TypingContext,
+    func: &Path,
+    args: &[Expr],
+    span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let typed_args: Vec<TypedExpr> = args
+        .iter()
+        .map(|arg| type_expression(arg, ctx))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let segments = func.segments();
+    if segments.is_empty() {
+        return Err(err_internal(span, "kernel path is empty"));
+    }
+
+    if segments.len() > 2 {
+        return Err(err_internal(
+            span,
+            format!("kernel path '{}' must be namespace.name or bare name", func),
+        ));
+    }
+
+    let (namespace, name) = if segments.len() == 1 {
+        ("", segments[0].as_str())
+    } else {
+        (segments[0].as_str(), segments[1].as_str())
+    };
+
+    let sig = ctx
+        .kernel_registry
+        .get_by_name(namespace, name)
+        .ok_or_else(|| err_undefined(span, &func.to_string(), "kernel"))?;
+
+    let kernel_id = sig.id.clone();
+    let return_type = derive_return_type(sig, &typed_args, span)?;
+
+    Ok((
+        ExprKind::Call {
+            kernel: kernel_id,
+            args: typed_args,
+        },
+        return_type,
+    ))
+}
+
+/// Types a kernel call when the [`KernelId`] is already known.
+///
+/// # Parameters
+/// - `ctx`: The typing context providing kernel registry lookups.
+/// - `kernel`: The unique identifier of the kernel.
+/// - `args`: The list of argument expressions.
+/// - `span`: Source location of the call.
+///
+/// # Returns
+/// A tuple containing the typed expression kind and the derived return type.
+///
+/// # Errors
+/// Returns a list of compilation errors if the kernel is unknown or if
+/// return type derivation fails.
+fn type_as_kernel_call(
+    ctx: &TypingContext,
+    kernel: &continuum_kernel_types::KernelId,
+    args: &[Expr],
+    span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let typed_args: Vec<TypedExpr> = args
+        .iter()
+        .map(|arg| type_expression(arg, ctx))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let sig = ctx
+        .kernel_registry
+        .get(kernel)
+        .ok_or_else(|| err_internal(span, format!("unknown kernel: {:?}", kernel)))?;
+
+    let return_type = derive_return_type(sig, &typed_args, span)?;
+
+    Ok((
+        ExprKind::Call {
+            kernel: kernel.clone(),
+            args: typed_args,
+        },
+        return_type,
     ))
 }
 

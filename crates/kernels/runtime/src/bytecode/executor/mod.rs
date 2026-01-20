@@ -46,6 +46,9 @@ pub struct BytecodeExecutor {
     slots: Vec<Option<Value>>,
 }
 
+/// Maximum depth of the VM evaluation stack.
+const MAX_STACK_DEPTH: usize = 1024;
+
 impl BytecodeExecutor {
     /// Creates a new bytecode executor with pre-allocated capacity for the stack and slots.
     pub fn new() -> Self {
@@ -155,9 +158,9 @@ impl BytecodeExecutor {
     ///
     /// # Errors
     /// Returns [`ExecutionError::StackOverflow`] if the stack depth exceeds
-    /// the hard limit of 1024.
+    /// the hard limit of [`MAX_STACK_DEPTH`].
     fn push(&mut self, value: Value) -> Result<(), ExecutionError> {
-        if self.stack.len() >= 1024 {
+        if self.stack.len() >= MAX_STACK_DEPTH {
             return Err(ExecutionError::StackOverflow);
         }
         self.stack.push(value);

@@ -137,6 +137,8 @@ pub enum ErrorKind {
     // Generic
     /// Internal compiler error (bug in compiler)
     Internal = 24,
+    /// Feature not yet supported in the current version
+    UnsupportedDSLFeature = 26,
 }
 
 /// Human-readable names for error kinds.
@@ -169,6 +171,7 @@ const ERROR_KIND_NAMES: &[&str] = &[
     "phase boundary violation", // 23: PhaseBoundaryViolation
     "internal compiler error",  // 24: Internal
     "conflict",                 // 25: Conflict
+    "unsupported dsl feature",  // 26: UnsupportedDSLFeature
 ];
 
 /// Diagnostic severity level.

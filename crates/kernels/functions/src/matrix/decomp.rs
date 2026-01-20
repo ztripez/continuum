@@ -6,8 +6,6 @@ use continuum_foundation::{Mat2, Mat3, Mat4};
 use continuum_kernel_macros::kernel_fn;
 use nalgebra as na;
 
-use super::utils::*;
-
 /// Sort eigenvalues in descending order by magnitude
 fn sort_eigenvalues_desc<const N: usize>(mut vals: [f64; N]) -> [f64; N] {
     vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
@@ -25,381 +23,8 @@ fn sort_eigenvalues_desc<const N: usize>(mut vals: [f64; N]) -> [f64; N] {
 ///
 /// # Preconditions
 /// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
-///   Non-symmetric matrices will produce incorrect results without error.
-///   No runtime validation is performed for performance reasons.
-///
-/// # Determinism
-/// Analytic formula is fully deterministic. Eigenvalues are sorted descending by magnitude.
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    purity = Pure,
-    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
-    unit_in = [UnitAny],
-    shape_out = ShapeVectorDim(DimExact(2)),
-    unit_out = UnitDerivSameAs(0)
-)]
-pub fn eigenvalues_mat2(arr: Mat2) -> [f64; 2] {
-    // Matrix [[a, b], [b, c]] in column-major: [a, b, b, c]
-    let a = arr.0[0];
-    let b = arr.0[1]; // off-diagonal
-    let c = arr.0[3];
-
-    // Characteristic polynomial: λ² - (a+c)λ + (ac-b²) = 0
-    // Eigenvalues: λ = (a+c)/2 ± sqrt((a-c)²/4 + b²)
-    // Use stable form to avoid catastrophic cancellation when eigenvalues are nearly equal
-    let trace = a + c;
-    let half_diff = (a - c) / 2.0;
-    let disc_raw = half_diff * half_diff + b * b;
-
-    // Fail loudly if discriminant is significantly negative (indicates non-symmetric input or numerical error)
-    const DISC_TOL: f64 = 1e-12;
-    assert!(
-        disc_raw >= -DISC_TOL,
-        "eigenvalues_mat2: negative discriminant {} (tolerance {}) indicates non-symmetric matrix or numerical error",
-        disc_raw,
-        DISC_TOL
-    );
-
-    let discriminant = disc_raw.max(0.0).sqrt();
-
-    let lambda1 = trace / 2.0 + discriminant;
-    let lambda2 = trace / 2.0 - discriminant;
-
-    // Return sorted descending
-    if lambda1 >= lambda2 {
-        [lambda1, lambda2]
-    } else {
-        [lambda2, lambda1]
-    }
-}
-
-/// Eigenvalues of a symmetric matrix: `eigenvalues_mat3(m)` -> Vec3
-///
-/// Returns eigenvalues sorted in descending order.
-///
-/// Uses Cardano's formula for solving the cubic characteristic polynomial analytically,
-/// providing O(1) performance with no allocation overhead. For a 3x3 real symmetric matrix,
-/// all eigenvalues are guaranteed to be real.
-///
-/// # Preconditions
-/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
-///   Non-symmetric matrices will produce incorrect results without error.
-///   No runtime validation is performed for performance reasons.
-///
-/// # Determinism
-/// Analytic formula is fully deterministic. Eigenvalues are sorted descending by magnitude.
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    purity = Pure,
-    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
-    unit_in = [UnitAny],
-    shape_out = ShapeVectorDim(DimExact(3)),
-    unit_out = UnitDerivSameAs(0)
-)]
-pub fn eigenvalues_mat3(arr: Mat3) -> [f64; 3] {
-    // Extract elements (column-major: [m00, m10, m20, m01, m11, m21, m02, m12, m22])
-    let m00 = arr.0[0];
-    let m10 = arr.0[1];
-    let m20 = arr.0[2];
-    let m11 = arr.0[4];
-    let m21 = arr.0[5];
-    let m22 = arr.0[8];
-
-    // Characteristic polynomial coefficients
-    let trace = m00 + m11 + m22;
-    let p1 = m10 * m10 + m20 * m20 + m21 * m21; // sum of squared off-diagonals
-    let q = trace / 3.0; // mean of eigenvalues
-    let p2 =
-        ((m00 - q) * (m00 - q) + (m11 - q) * (m11 - q) + (m22 - q) * (m22 - q) + 2.0 * p1) / 6.0;
-    let p = p2.sqrt();
-
-    // Degenerate case: all eigenvalues equal (matrix is scalar multiple of identity)
-    // This is a valid mathematical case, not an error, but we make it explicit rather than silent
-    const P_THRESHOLD: f64 = 1e-14;
-    if p < P_THRESHOLD {
-        // All eigenvalues equal to trace/3
-        return [q, q, q];
-    }
-
-    // Compute determinant of (A - qI) / p for angle calculation
-    let b00 = (m00 - q) / p;
-    let b10 = m10 / p;
-    let b20 = m20 / p;
-    let b11 = (m11 - q) / p;
-    let b21 = m21 / p;
-    let b22 = (m22 - q) / p;
-
-    let r = (b00 * (b11 * b22 - b21 * b21) - b10 * (b10 * b22 - b21 * b20)
-        + b20 * (b10 * b21 - b11 * b20))
-        / 2.0;
-
-    // Fail loudly if r is outside valid range (indicates numerical instability)
-    const R_TOL: f64 = 1e-10;
-    assert!(
-        r >= -1.0 - R_TOL && r <= 1.0 + R_TOL,
-        "eigenvalues_mat3: r={} out of valid range [-1,1] (tolerance {}), indicates numerical instability or non-symmetric matrix",
-        r,
-        R_TOL
-    );
-
-    // Clamp to exact range for acos (acceptable after validation)
-    let r = r.clamp(-1.0, 1.0);
-    let phi = r.acos() / 3.0;
-
-    // Eigenvalues (all real for symmetric matrices)
-    let lambda1 = q + 2.0 * p * phi.cos();
-    let lambda3 = q + 2.0 * p * (phi + 2.0 * std::f64::consts::PI / 3.0).cos();
-    let lambda2 = 3.0 * q - lambda1 - lambda3; // trace = sum of eigenvalues
-
-    // Sort descending
-    sort_eigenvalues_desc([lambda1, lambda2, lambda3])
-}
-
-/// Eigenvalues of a symmetric matrix: `eigenvalues_mat4(m)` -> Vec4
-///
-/// Returns eigenvalues sorted in descending order.
-///
-/// **Implementation Note**: Uses nalgebra's iterative decomposition instead of analytic formula.
-/// While 2x2 and 3x3 matrices have simple closed-form solutions (quadratic and Cardano's formula),
-/// the 4x4 analytic solution (Ferrari's quartic formula) is extremely complex and numerically
-/// unstable. Iterative methods are more practical for n≥4.
-///
-/// # Preconditions
-/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
-///   Non-symmetric matrices will produce incorrect results without error.
-///   No runtime validation is performed for performance reasons.
-///
-/// # Determinism Warning
-/// Eigenvalue ordering is currently implementation-defined (descending by magnitude).
-/// While stable within a single nalgebra version, ordering may change between versions.
-/// Sign of eigenvectors is ambiguous (v and -v are both valid eigenvectors).
-/// For deterministic simulations, consider these limitations carefully.
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    purity = Pure,
-    shape_in = [MatrixDims { rows: DimExact(4), cols: DimExact(4) }],
-    unit_in = [UnitAny],
-    shape_out = ShapeVectorDim(DimExact(4)),
-    unit_out = UnitDerivSameAs(0)
-)]
-pub fn eigenvalues_mat4(arr: Mat4) -> [f64; 4] {
-    let mat = to_na_mat4(&arr);
-    let eig = mat.symmetric_eigen();
-    sort_eigenvalues_desc([
-        eig.eigenvalues[0],
-        eig.eigenvalues[1],
-        eig.eigenvalues[2],
-        eig.eigenvalues[3],
-    ])
-}
-
-/// Eigenvectors of a symmetric matrix: `eigenvectors_mat2(m)` -> Mat2
-///
-/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues).
-/// Eigenvectors are orthonormal and sorted to match eigenvalue order (descending).
-///
-/// # Preconditions
-/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
-///   Non-symmetric matrices will produce incorrect results without error.
-///   No runtime validation is performed for performance reasons.
-///
-/// # Determinism Warning
-/// - **Sign ambiguity**: Both v and -v are valid eigenvectors for eigenvalue λ.
-///   The returned sign is nalgebra implementation-defined and may change between versions.
-/// - **Ordering**: Eigenvectors are sorted by eigenvalue magnitude (descending).
-///   While stable within a nalgebra version, ordering may change between versions.
-/// - For deterministic simulations requiring stable signs/ordering, consider
-///   implementing canonical normalization (e.g., first non-zero component positive).
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    purity = Pure,
-    shape_in = [MatrixDims { rows: DimExact(2), cols: DimExact(2) }],
-    unit_in = [UnitAny],
-    shape_out = ShapeMatrixDims { rows: DimExact(2), cols: DimExact(2) },
-    unit_out = UnitDerivSameAs(0)
-)]
-pub fn eigenvectors_mat2(arr: Mat2) -> Mat2 {
-    // Matrix [[a, b], [b, c]] in column-major: [a, b, b, c]
-    let a = arr.0[0];
-    let b = arr.0[1]; // off-diagonal
-    let c = arr.0[3];
-
-    // Get eigenvalues (already sorted descending)
-    let eigenvals = eigenvalues_mat2(arr);
-    let lambda1 = eigenvals[0]; // larger eigenvalue
-    let lambda2 = eigenvals[1]; // smaller eigenvalue
-
-    // Handle diagonal matrix case (b ≈ 0)
-    const B_THRESHOLD: f64 = 1e-12;
-    if b.abs() < B_THRESHOLD {
-        // Matrix is (nearly) diagonal - eigenvectors are standard basis
-        // Order by eigenvalue magnitude
-        if a >= c {
-            // λ₁ ≈ a, λ₂ ≈ c → v₁ = [1,0], v₂ = [0,1]
-            return Mat2([1.0, 0.0, 0.0, 1.0]);
-        } else {
-            // λ₁ ≈ c, λ₂ ≈ a → v₁ = [0,1], v₂ = [1,0]
-            return Mat2([0.0, 1.0, 1.0, 0.0]);
-        }
-    }
-
-    // For eigenvector of eigenvalue λ: (A - λI)v = 0
-    // From first row: (a - λ)v₁ + b*v₂ = 0 → v₁ = b/(λ - a)
-    // Set v₂ = 1, then normalize
-
-    // Eigenvector for λ₁
-    let v1_x = b / (lambda1 - a);
-    let v1_norm = (v1_x * v1_x + 1.0).sqrt();
-    let v1 = [v1_x / v1_norm, 1.0 / v1_norm];
-
-    // Eigenvector for λ₂
-    let v2_x = b / (lambda2 - a);
-    let v2_norm = (v2_x * v2_x + 1.0).sqrt();
-    let v2 = [v2_x / v2_norm, 1.0 / v2_norm];
-
-    // Return as column-major matrix: [col0_row0, col0_row1, col1_row0, col1_row1]
-    Mat2([v1[0], v1[1], v2[0], v2[1]])
-}
-
-/// Eigenvectors of a symmetric matrix: `eigenvectors_mat3(m)` -> Mat3
-///
-/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues).
-/// Eigenvectors are orthonormal and sorted to match eigenvalue order (descending).
-///
-/// # Preconditions
-/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
-///   Non-symmetric matrices will produce incorrect results without error.
-///   No runtime validation is performed for performance reasons.
-///
-/// # Implementation
-/// Uses analytic null space calculation via cross product method.
-/// O(1) complexity with no iterations or allocations.
-///
-/// # Sign Convention
-/// Sign is determined by the cross product computation order.
-/// Both v and -v are mathematically valid eigenvectors for eigenvalue λ.
-/// The sign is deterministic but may differ from other implementations.
-#[kernel_fn(
-    namespace = "matrix",
-    category = "matrix",
-    purity = Pure,
-    shape_in = [MatrixDims { rows: DimExact(3), cols: DimExact(3) }],
-    unit_in = [UnitAny],
-    shape_out = ShapeMatrixDims { rows: DimExact(3), cols: DimExact(3) },
-    unit_out = UnitDerivSameAs(0)
-)]
-pub fn eigenvectors_mat3(arr: Mat3) -> Mat3 {
-    // Matrix [[a, d, e], [d, b, f], [e, f, c]] in column-major order
-    // Column 0: [a, d, e], Column 1: [d, b, f], Column 2: [e, f, c]
-    let a = arr.0[0];
-    let d = arr.0[1];
-    let e = arr.0[2];
-    let b = arr.0[4];
-    let f = arr.0[5];
-    let c = arr.0[8];
-
-    // Get eigenvalues (already sorted descending)
-    let eigenvals = eigenvalues_mat3(arr);
-
-    // Compute eigenvector for each eigenvalue using null space method
-    let v1 = eigenvector_from_null_space_mat3(a, d, e, b, f, c, eigenvals[0]);
-    let v2 = eigenvector_from_null_space_mat3(a, d, e, b, f, c, eigenvals[1]);
-    let v3 = eigenvector_from_null_space_mat3(a, d, e, b, f, c, eigenvals[2]);
-
-    // Return as column-major matrix
-    Mat3([
-        v1[0], v1[1], v1[2], // col 0
-        v2[0], v2[1], v2[2], // col 1
-        v3[0], v3[1], v3[2], // col 2
-    ])
-}
-
-/// Compute eigenvector for symmetric 3x3 matrix using null space method.
-///
-/// For eigenvalue λ, solves (A - λI)v = 0 by finding the null space
-/// via cross product of two rows of (A - λI).
-#[inline]
-fn eigenvector_from_null_space_mat3(
-    a: f64,
-    d: f64,
-    e: f64,
-    b: f64,
-    f: f64,
-    c: f64,
-    lambda: f64,
-) -> [f64; 3] {
-    // Form B = A - λI
-    let b00 = a - lambda;
-    let b11 = b - lambda;
-    let b22 = c - lambda;
-
-    // Rows of B = A - λI
-    let row0 = [b00, d, e];
-    let row1 = [d, b11, f];
-    let row2 = [e, f, b22];
-
-    const NORM_THRESHOLD: f64 = 1e-12;
-
-    // Try cross product of row0 × row1
-    let v = cross3(row0, row1);
-    let norm_sq = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-    if norm_sq > NORM_THRESHOLD * NORM_THRESHOLD {
-        let norm = norm_sq.sqrt();
-        return [v[0] / norm, v[1] / norm, v[2] / norm];
-    }
-
-    // Rows 0,1 parallel - try row0 × row2
-    let v = cross3(row0, row2);
-    let norm_sq = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-    if norm_sq > NORM_THRESHOLD * NORM_THRESHOLD {
-        let norm = norm_sq.sqrt();
-        return [v[0] / norm, v[1] / norm, v[2] / norm];
-    }
-
-    // Rows 0,2 also parallel - try row1 × row2
-    let v = cross3(row1, row2);
-    let norm_sq = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
-    if norm_sq > NORM_THRESHOLD * NORM_THRESHOLD {
-        let norm = norm_sq.sqrt();
-        return [v[0] / norm, v[1] / norm, v[2] / norm];
-    }
-
-    // All rows parallel - matrix is scalar multiple of identity
-    // Any unit vector is an eigenvector; return standard basis
-    [1.0, 0.0, 0.0]
-}
-
-/// Cross product of two 3D vectors
-#[inline]
-fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
-    [
-        a[1] * b[2] - a[2] * b[1],
-        a[2] * b[0] - a[0] * b[2],
-        a[0] * b[1] - a[1] * b[0],
-    ]
-}
-
-/// Eigenvectors of a symmetric matrix: `eigenvectors_mat4(m)` -> Mat4
-///
-/// Returns matrix where columns are eigenvectors (corresponding to sorted eigenvalues).
-/// Eigenvectors are orthonormal and sorted to match eigenvalue order (descending).
-///
-/// # Preconditions
-/// - **REQUIRES SYMMETRIC MATRIX**: Input must be symmetric (A = A^T).
-///   Non-symmetric matrices will produce incorrect results without error.
-///   No runtime validation is performed for performance reasons.
-///
-/// # Determinism Warning
-/// - **Sign ambiguity**: Both v and -v are valid eigenvectors for eigenvalue λ.
-///   The returned sign is nalgebra implementation-defined and may change between versions.
-/// - **Ordering**: Eigenvectors are sorted by eigenvalue magnitude (descending).
-///   While stable within a nalgebra version, ordering may change between versions.
-/// - For deterministic simulations requiring stable signs/ordering, consider
-///   implementing canonical normalization (e.g., first non-zero component positive).
+///   Non-symmetric matrices will produce incorrect results.
+///   Symmetry is validated via assertion.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -410,7 +35,35 @@ fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn eigenvectors_mat4(arr: Mat4) -> Mat4 {
-    let mat = to_na_mat4(&arr);
+    // Validate symmetry
+    const SYM_TOL: f64 = 1e-12;
+    assert!(
+        (arr.0[1] - arr.0[4]).abs() < SYM_TOL,
+        "eigenvectors_mat4: matrix must be symmetric (m10 != m01)"
+    );
+    assert!(
+        (arr.0[2] - arr.0[8]).abs() < SYM_TOL,
+        "eigenvectors_mat4: matrix must be symmetric (m20 != m02)"
+    );
+    assert!(
+        (arr.0[3] - arr.0[12]).abs() < SYM_TOL,
+        "eigenvectors_mat4: matrix must be symmetric (m30 != m03)"
+    );
+    assert!(
+        (arr.0[6] - arr.0[9]).abs() < SYM_TOL,
+        "eigenvectors_mat4: matrix must be symmetric (m21 != m12)"
+    );
+    assert!(
+        (arr.0[7] - arr.0[13]).abs() < SYM_TOL,
+        "eigenvectors_mat4: matrix must be symmetric (m31 != m13)"
+    );
+    assert!(
+        (arr.0[11] - arr.0[14]).abs() < SYM_TOL,
+        "eigenvectors_mat4: matrix must be symmetric (m32 != m23)"
+    );
+
+    let mat = na::Matrix4::from_column_slice(&arr.0);
+
     let eig = mat.symmetric_eigen();
     let mut pairs: Vec<_> = eig
         .eigenvalues
@@ -424,7 +77,7 @@ pub fn eigenvectors_mat4(arr: Mat4) -> Mat4 {
     let v2 = na::Vector4::from_iterator(pairs[2].1.iter().cloned());
     let v3 = na::Vector4::from_iterator(pairs[3].1.iter().cloned());
     let result = na::Matrix4::from_columns(&[v0, v1, v2, v3]);
-    from_na_mat4(result)
+    Mat4(result.as_slice().try_into().unwrap())
 }
 
 /// SVD - U matrix: `svd_u_mat2(m)` -> Mat2
@@ -451,7 +104,9 @@ pub fn eigenvectors_mat4(arr: Mat4) -> Mat4 {
 pub fn svd_u_mat2(arr: Mat2) -> Mat2 {
     let mat = to_na_mat2(&arr);
     let svd = mat.svd(true, false);
-    let u = svd.u.unwrap();
+    let u = svd
+        .u
+        .expect("svd_u_mat2: SVD failed to converge or compute U");
     from_na_mat2(u)
 }
 
@@ -479,7 +134,9 @@ pub fn svd_u_mat2(arr: Mat2) -> Mat2 {
 pub fn svd_u_mat3(arr: Mat3) -> Mat3 {
     let mat = to_na_mat3(&arr);
     let svd = mat.svd(true, false);
-    let u = svd.u.unwrap();
+    let u = svd
+        .u
+        .expect("svd_u_mat3: SVD failed to converge or compute U");
     from_na_mat3(u)
 }
 
@@ -507,7 +164,9 @@ pub fn svd_u_mat3(arr: Mat3) -> Mat3 {
 pub fn svd_u_mat4(arr: Mat4) -> Mat4 {
     let mat = to_na_mat4(&arr);
     let svd = mat.svd(true, false);
-    let u = svd.u.unwrap();
+    let u = svd
+        .u
+        .expect("svd_u_mat4: SVD failed to converge or compute U");
     from_na_mat4(u)
 }
 
@@ -613,7 +272,9 @@ pub fn svd_s_mat4(arr: Mat4) -> [f64; 4] {
 pub fn svd_vt_mat2(arr: Mat2) -> Mat2 {
     let mat = to_na_mat2(&arr);
     let svd = mat.svd(false, true);
-    let vt = svd.v_t.unwrap();
+    let vt = svd
+        .v_t
+        .expect("svd_vt_mat2: SVD failed to converge or compute V_T");
     from_na_mat2(vt)
 }
 
@@ -641,7 +302,9 @@ pub fn svd_vt_mat2(arr: Mat2) -> Mat2 {
 pub fn svd_vt_mat3(arr: Mat3) -> Mat3 {
     let mat = to_na_mat3(&arr);
     let svd = mat.svd(false, true);
-    let vt = svd.v_t.unwrap();
+    let vt = svd
+        .v_t
+        .expect("svd_vt_mat3: SVD failed to converge or compute V_T");
     from_na_mat3(vt)
 }
 
@@ -669,6 +332,8 @@ pub fn svd_vt_mat3(arr: Mat3) -> Mat3 {
 pub fn svd_vt_mat4(arr: Mat4) -> Mat4 {
     let mat = to_na_mat4(&arr);
     let svd = mat.svd(false, true);
-    let vt = svd.v_t.unwrap();
+    let vt = svd
+        .v_t
+        .expect("svd_vt_mat4: SVD failed to converge or compute V_T");
     from_na_mat4(vt)
 }

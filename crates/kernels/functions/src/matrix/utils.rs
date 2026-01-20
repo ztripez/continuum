@@ -29,11 +29,16 @@ pub fn to_na_mat2(mat: &Mat2) -> na::Matrix2<f64> {
 /// A `continuum-foundation` 2x2 matrix.
 ///
 /// # Panics
-/// Panics if the internal slice conversion fails. This is guaranteed to succeed
-/// for fixed-size matrices of the same dimension.
+/// Panics if the internal slice conversion fails or size is incorrect.
 #[inline]
 pub fn from_na_mat2(mat: na::Matrix2<f64>) -> Mat2 {
-    Mat2(mat.as_slice().try_into().unwrap())
+    let slice = mat.as_slice();
+    assert_eq!(slice.len(), 4, "from_na_mat2: expected 4 elements");
+    Mat2(
+        slice
+            .try_into()
+            .expect("from_na_mat2: failed to convert slice to [f64; 4]"),
+    )
 }
 
 /// Converts a Continuum [`Mat3`] into a nalgebra [`na::Matrix3`].
@@ -57,11 +62,16 @@ pub fn to_na_mat3(mat: &Mat3) -> na::Matrix3<f64> {
 /// A `continuum-foundation` 3x3 matrix.
 ///
 /// # Panics
-/// Panics if the internal slice conversion fails. This is guaranteed to succeed
-/// for fixed-size matrices of the same dimension.
+/// Panics if the internal slice conversion fails or size is incorrect.
 #[inline]
 pub fn from_na_mat3(mat: na::Matrix3<f64>) -> Mat3 {
-    Mat3(mat.as_slice().try_into().unwrap())
+    let slice = mat.as_slice();
+    assert_eq!(slice.len(), 9, "from_na_mat3: expected 9 elements");
+    Mat3(
+        slice
+            .try_into()
+            .expect("from_na_mat3: failed to convert slice to [f64; 9]"),
+    )
 }
 
 /// Converts a Continuum [`Mat4`] into a nalgebra [`na::Matrix4`].
@@ -85,9 +95,14 @@ pub fn to_na_mat4(mat: &Mat4) -> na::Matrix4<f64> {
 /// A `continuum-foundation` 4x4 matrix.
 ///
 /// # Panics
-/// Panics if the internal slice conversion fails. This is guaranteed to succeed
-/// for fixed-size matrices of the same dimension.
+/// Panics if the internal slice conversion fails or size is incorrect.
 #[inline]
 pub fn from_na_mat4(mat: na::Matrix4<f64>) -> Mat4 {
-    Mat4(mat.as_slice().try_into().unwrap())
+    let slice = mat.as_slice();
+    assert_eq!(slice.len(), 16, "from_na_mat4: expected 16 elements");
+    Mat4(
+        slice
+            .try_into()
+            .expect("from_na_mat4: failed to convert slice to [f64; 16]"),
+    )
 }
