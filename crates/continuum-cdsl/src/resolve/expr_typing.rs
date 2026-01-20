@@ -48,7 +48,6 @@ use crate::foundation::{KernelType, Path, Shape, Type, Unit};
 use crate::resolve::types::TypeTable;
 use crate::resolve::units::resolve_unit_expr;
 use continuum_foundation::Phase;
-use continuum_kernel_types::KernelId;
 use std::collections::HashMap;
 
 /// Context for expression typing
@@ -76,6 +75,7 @@ use std::collections::HashMap;
 ///     &const_types,
 /// );
 /// ```
+#[derive(Clone)]
 pub struct TypingContext<'a> {
     /// User-defined type definitions for struct construction and field access.
     pub type_table: &'a TypeTable,
@@ -486,24 +486,8 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
     let (kind, ty) = match &expr.kind {
         // === Literals ===
         UntypedKind::Literal { value, unit } => {
-            let resolved_unit = match unit {
-                Some(unit_expr) => resolve_unit_expr(Some(unit_expr), span).map_err(|e| vec![e])?,
-                None => Unit::DIMENSIONLESS,
-            };
-
-            let kernel_type = KernelType {
-                shape: Shape::Scalar,
-                unit: resolved_unit,
-                bounds: None,
-            };
-
-            (
-                ExprKind::Literal {
-                    value: *value,
-                    unit: Some(resolved_unit),
-                },
-                Type::Kernel(kernel_type),
-            )
+            let (k, t) = type_literal(span, *value, unit.as_ref())?;
+            (k, t)
         }
 
         UntypedKind::BoolLiteral(val) => (
@@ -517,25 +501,14 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         // === References ===
         UntypedKind::Local(name) => {
             let ty = ctx.local_bindings.get(name).cloned().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::UndefinedName,
-                    span,
-                    format!("local variable '{}' not in scope", name),
-                )]
+                err_undefined(span, name, "local variable")
             })?;
 
             (ExprKind::Local(name.clone()), ty)
         }
 
         UntypedKind::Signal(path) => {
-            let ty = ctx.signal_types.get(path).cloned().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::UndefinedName,
-                    span,
-                    format!("signal '{}' not found", path),
-                )]
-            })?;
-
+            let ty = lookup_path_type(ctx, path, span, "signal", ctx.signal_types)?;
             (ExprKind::Signal(path.clone()), ty)
         }
 
@@ -554,14 +527,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
                 )]);
             }
 
-            let ty = ctx.field_types.get(path).cloned().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::UndefinedName,
-                    span,
-                    format!("field '{}' not found", path),
-                )]
-            })?;
-
+            let ty = lookup_path_type(ctx, path, span, "field", ctx.field_types)?;
             (ExprKind::Field(path.clone()), ty)
         }
 
@@ -575,191 +541,19 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             (ExprKind::Dt, Type::Kernel(kernel_type))
         }
 
-        // === Kernel calls ===
-        UntypedKind::KernelCall { kernel, args } => {
-            // Type each argument
-            let typed_args: Vec<TypedExpr> = args
-                .iter()
-                .map(|arg| type_expression(arg, ctx))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            // Lookup kernel signature
-            let sig = ctx.kernel_registry.get(kernel).ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    format!("unknown kernel: {:?}", kernel),
-                )]
-            })?;
-
-            // Derive return type from signature + arg types
-            // For MVP: just use the signature's return type derivation
-            let return_type = derive_return_type(sig, &typed_args, span)?;
-
-            (
-                ExprKind::Call {
-                    kernel: kernel.clone(),
-                    args: typed_args,
-                },
-                return_type,
-            )
-        }
-
-        // === Field access ===
-        // === Field access ===
-        //
-        // Handles two distinct access patterns:
-        //
-        // 1. **User-defined struct field access**: `signal.position` → looks up field type
-        //    - Requires TypeTable lookup by UserTypeId (currently O(n) via iter().find())
-        //    - Returns the declared field type with its bounds
-        //    - Errors if field doesn't exist on the user type
-        //
-        // 2. **Vector component access**: `velocity.x` → returns Scalar with same unit
-        //    - Component names (x, y, z, w) map to indices (0, 1, 2, 3) within dimension
-        //    - Returns Scalar shape with the vector's unit
-        //    - Bounds are NOT propagated from vector to component (returns None)
-        //    - Errors if component index >= vector dimension
-        //
-        // The bounds behavior differs between the two paths:
-        // - Struct fields inherit their declared bounds from the type definition
-        // - Vector components don't inherit vector bounds (semantically distinct values)
-        UntypedKind::FieldAccess { object, field } => {
-            // Helper to construct field access errors
-            let err = |kind: ErrorKind, msg: String| -> Vec<CompileError> {
-                vec![CompileError::new(kind, span, msg)]
-            };
-
-            // Type the object first
-            let typed_object = type_expression(object, ctx)?;
-
-            // Extract field type based on object type
-            let field_type = match &typed_object.ty {
-                Type::User(type_id) => {
-                    let user_type = ctx.type_table.get_by_id(type_id).ok_or_else(|| {
-                        err(
-                            ErrorKind::Internal,
-                            format!("user type {:?} not found in type table", type_id),
-                        )
-                    })?;
-
-                    // Look up field in user type
-                    user_type.field(field).cloned().ok_or_else(|| {
-                        err(
-                            ErrorKind::UndefinedName,
-                            format!("field '{}' not found on type '{}'", field, user_type.name()),
-                        )
-                    })?
-                }
-                Type::Kernel(kt) => {
-                    // Vector component access (.x, .y, .z, .w)
-                    match &kt.shape {
-                        Shape::Vector { dim } => {
-                            let component_index = match field.as_str() {
-                                "x" => Some(0),
-                                "y" => Some(1),
-                                "z" => Some(2),
-                                "w" => Some(3),
-                                _ => None,
-                            };
-
-                            match component_index {
-                                Some(idx) if idx < *dim as usize => {
-                                    // Return scalar with same unit as vector
-                                    Type::Kernel(KernelType {
-                                        shape: Shape::Scalar,
-                                        unit: kt.unit,
-                                        bounds: None, // Component bounds not derived from vector bounds
-                                    })
-                                }
-                                Some(_) => {
-                                    return Err(err(
-                                        ErrorKind::UndefinedName,
-                                        format!(
-                                            "component '{}' out of bounds for vector of dimension {}",
-                                            field, dim
-                                        ),
-                                    ));
-                                }
-                                None => {
-                                    return Err(err(
-                                        ErrorKind::UndefinedName,
-                                        format!("invalid vector component '{}'", field),
-                                    ));
-                                }
-                            }
-                        }
-                        _ => {
-                            return Err(err(
-                                ErrorKind::TypeMismatch,
-                                format!("field access on non-struct, non-vector type"),
-                            ));
-                        }
-                    }
-                }
-                _ => {
-                    return Err(err(
-                        ErrorKind::TypeMismatch,
-                        format!("field access not supported on type {:?}", typed_object.ty),
-                    ));
-                }
-            };
-
-            (
-                ExprKind::FieldAccess {
-                    object: Box::new(typed_object),
-                    field: field.clone(),
-                },
-                field_type,
-            )
-        }
-
         // === Config lookup ===
-        //
-        // Resolves a reference to a world-level configuration value.
-        // Config values are read-only constants defined in world.yaml
-        // and accessible from any execution block.
-        //
-        // Type derivation: Looks up path in ctx.config_types
-        // Error: UndefinedName if path not found in config registry
         UntypedKind::Config(path) => {
-            let ty = ctx.config_types.get(path).cloned().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::UndefinedName,
-                    span,
-                    format!("config path '{}' not found", path),
-                )]
-            })?;
-
+            let ty = lookup_path_type(ctx, path, span, "config path", ctx.config_types)?;
             (ExprKind::Config(path.clone()), ty)
         }
 
         // === Const lookup ===
-        //
-        // Resolves a reference to a CDSL-defined constant.
-        // Constants are compile-time values declared in the DSL.
-        //
-        // Type derivation: Looks up path in ctx.const_types
-        // Error: UndefinedName if path not found in const registry
         UntypedKind::Const(path) => {
-            let ty = ctx.const_types.get(path).cloned().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::UndefinedName,
-                    span,
-                    format!("const path '{}' not found", path),
-                )]
-            })?;
-
+            let ty = lookup_path_type(ctx, path, span, "const path", ctx.const_types)?;
             (ExprKind::Const(path.clone()), ty)
         }
 
         // === Prev (previous tick value) ===
-        //
-        // References the value from the previous execution tick.
-        // Only valid in resolve phase operators with node_output context.
-        //
-        // Type derivation: Returns ctx.node_output type
-        // Error: Internal if node_output not set in context
         UntypedKind::Prev => {
             // PHASE VALIDATION (continuum-z0et): 'prev' may only be used in Resolve phase.
             if ctx.phase != Some(Phase::Resolve) {
@@ -773,300 +567,86 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
                 )]);
             }
 
-            let ty = ctx.node_output.clone().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "prev not available: no node output type in context".to_string(),
-                )]
-            })?;
-
+            let ty = require_context_type(span, "prev", &ctx.node_output)?;
             (ExprKind::Prev, ty)
         }
 
         // === Current (just-resolved value) ===
-        //
-        // References the just-computed value in the current tick.
-        // Only valid in resolve phase operators with node_output context.
-        //
-        // Type derivation: Returns ctx.node_output type
-        // Error: Internal if node_output not set in context
         UntypedKind::Current => {
-            let ty = ctx.node_output.clone().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "current not available: no node output type in context".to_string(),
-                )]
-            })?;
-
+            let ty = require_context_type(span, "current", &ctx.node_output)?;
             (ExprKind::Current, ty)
         }
 
         // === Inputs (accumulated inputs) ===
-        //
-        // References accumulated signal inputs collected during this tick.
-        // Only valid in resolve phase operators with inputs_type context.
-        //
-        // Type derivation: Returns ctx.inputs_type
-        // Error: Internal if inputs_type not set in context
         UntypedKind::Inputs => {
-            let ty = ctx.inputs_type.clone().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "inputs not available: no inputs type in context".to_string(),
-                )]
-            })?;
-
+            let ty = require_context_type(span, "inputs", &ctx.inputs_type)?;
             (ExprKind::Inputs, ty)
         }
 
         // === Payload (impulse payload) ===
-        //
-        // References the payload data carried by an impulse.
-        // Only valid in impulse handler operators with payload_type context.
-        //
-        // Type derivation: Returns ctx.payload_type
-        // Error: Internal if payload_type not set in context
         UntypedKind::Payload => {
-            let ty = ctx.payload_type.clone().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "payload not available: no payload type in context".to_string(),
-                )]
-            })?;
-
+            let ty = require_context_type(span, "payload", &ctx.payload_type)?;
             (ExprKind::Payload, ty)
         }
 
+        // === Entity context ===
+        UntypedKind::Self_ => {
+            let ty = require_context_type(span, "self", &ctx.self_type)?;
+            (ExprKind::Self_, ty)
+        }
+
+        UntypedKind::Other => {
+            let ty = require_context_type(span, "other", &ctx.other_type)?;
+            (ExprKind::Other, ty)
+        }
+
         // === Vector literal ===
-        //
-        // Constructs a vector from 2-4 scalar elements.
-        // All elements must have the same unit.
-        //
-        // Type derivation: Vector<dim> with unit from first element
-        // Errors:
-        // - TypeMismatch if empty or >4 elements
-        // - TypeMismatch if elements not all scalar
-        // - TypeMismatch if elements have different units
         UntypedKind::Vector(elements) => {
-            if elements.is_empty() {
-                return Err(vec![CompileError::new(
-                    ErrorKind::TypeMismatch,
-                    span,
-                    "vector literal cannot be empty".to_string(),
-                )]);
-            }
-
-            if elements.len() > 4 {
-                return Err(vec![CompileError::new(
-                    ErrorKind::TypeMismatch,
-                    span,
-                    format!(
-                        "vector literal has {} elements, maximum is 4",
-                        elements.len()
-                    ),
-                )]);
-            }
-
-            // Type all elements
-            let typed_elements: Result<Vec<_>, _> = elements
-                .iter()
-                .map(|elem| type_expression(elem, ctx))
-                .collect();
-            let typed_elements = typed_elements?;
-
-            // All elements must be Kernel types
-            let mut unit = None;
-            for (i, elem) in typed_elements.iter().enumerate() {
-                match &elem.ty {
-                    Type::Kernel(kt) => {
-                        if kt.shape != Shape::Scalar {
-                            return Err(vec![CompileError::new(
-                                ErrorKind::TypeMismatch,
-                                elem.span,
-                                format!(
-                                    "vector element {} has shape {:?}, expected Scalar",
-                                    i, kt.shape
-                                ),
-                            )]);
-                        }
-
-                        // All elements must have the same unit
-                        if let Some(ref expected_unit) = unit {
-                            if kt.unit != *expected_unit {
-                                return Err(vec![CompileError::new(
-                                    ErrorKind::TypeMismatch,
-                                    elem.span,
-                                    format!(
-                                        "vector element {} has unit {}, expected {}",
-                                        i, kt.unit, expected_unit
-                                    ),
-                                )]);
-                            }
-                        } else {
-                            unit = Some(kt.unit);
-                        }
-                    }
-                    _ => {
-                        return Err(vec![CompileError::new(
-                            ErrorKind::TypeMismatch,
-                            elem.span,
-                            format!("vector element {} has non-kernel type {:?}", i, elem.ty),
-                        )]);
-                    }
-                }
-            }
-
-            let dim = elements.len() as u8;
-            let unit = unit.ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "vector literal unit resolution failed".to_string(),
-                )]
-            })?;
-
-            (
-                ExprKind::Vector(typed_elements),
-                Type::Kernel(KernelType {
-                    shape: Shape::Vector { dim },
-                    unit,
-                    bounds: None, // Vector bounds not derived from element bounds
-                }),
-            )
+            let (k, t) = type_vector(ctx, elements, span)?;
+            (k, t)
         }
 
         // === Let binding ===
-        //
-        // Creates a local binding for use in the body expression.
-        // The binding is scoped to the body only.
-        //
-        // Type derivation: Body's type becomes result type
-        // The value is typed first, then body is typed with binding in scope
         UntypedKind::Let { name, value, body } => {
-            // Type the value expression
-            let typed_value = type_expression(value, ctx)?;
-
-            // Create extended context with the binding
-            let extended_ctx = ctx.with_binding(name.clone(), typed_value.ty.clone());
-
-            // Type the body in the extended context
-            let typed_body = type_expression(body, &extended_ctx)?;
-
-            // Result type is the body's type
-            let ty = typed_body.ty.clone();
-
-            (
-                ExprKind::Let {
-                    name: name.clone(),
-                    value: Box::new(typed_value),
-                    body: Box::new(typed_body),
-                },
-                ty,
-            )
+            let (k, t) = type_let(ctx, name, value, body, span)?;
+            (k, t)
         }
 
         // === Struct literal ===
-        //
-        // Constructs an instance of a user-defined type.
-        // All fields must be provided exactly once with correct types.
-        //
-        // Type derivation: Returns Type::User(type_id)
-        // Errors:
-        // - UndefinedName if type not found
-        // - UndefinedName if field not in type definition
-        // - TypeMismatch if field type doesn't match definition
-        // - TypeMismatch if missing fields
-        // - TypeMismatch if duplicate fields
         UntypedKind::Struct {
             ty: ty_path,
             fields,
         } => {
-            // Look up the user type
-            let type_id = ctx
-                .type_table
-                .get_id(ty_path)
-                .ok_or_else(|| {
-                    vec![CompileError::new(
-                        ErrorKind::UndefinedName,
-                        span,
-                        format!("unknown type '{}'", ty_path),
-                    )]
-                })?
-                .clone();
+            let (k, t) = type_struct(ctx, ty_path, fields, span)?;
+            (k, t)
+        }
 
-            let user_type = ctx.type_table.get(ty_path).ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    format!("type '{}' not found in type table", ty_path),
-                )]
-            })?;
+        // === Aggregate operations ===
+        UntypedKind::Aggregate {
+            op,
+            entity,
+            binding,
+            body,
+        } => {
+            let (k, t) = type_aggregate(ctx, op, entity, binding, body, span)?;
+            (k, t)
+        }
 
-            // Type all field expressions
-            let mut typed_fields = Vec::new();
-            let mut seen_fields = std::collections::HashSet::new();
+        UntypedKind::Fold {
+            entity,
+            init,
+            acc,
+            elem,
+            body,
+        } => {
+            let (k, t) = type_fold(ctx, entity, init, acc, elem, body, span)?;
+            (k, t)
+        }
 
-            for (field_name, field_expr) in fields {
-                // Check for duplicate fields
-                if !seen_fields.insert(field_name.clone()) {
-                    return Err(vec![CompileError::new(
-                        ErrorKind::TypeMismatch,
-                        field_expr.span,
-                        format!(
-                            "field '{}' specified multiple times in struct literal",
-                            field_name
-                        ),
-                    )]);
-                }
-
-                let typed_expr = type_expression(field_expr, ctx)?;
-
-                // Verify field exists in type
-                let expected_type = user_type.field(field_name).ok_or_else(|| {
-                    vec![CompileError::new(
-                        ErrorKind::UndefinedName,
-                        field_expr.span,
-                        format!("field '{}' not found on type '{}'", field_name, ty_path),
-                    )]
-                })?;
-
-                // Verify type matches
-                if &typed_expr.ty != expected_type {
-                    return Err(vec![CompileError::new(
-                        ErrorKind::TypeMismatch,
-                        field_expr.span,
-                        format!(
-                            "field '{}' has type {:?}, expected {:?}",
-                            field_name, typed_expr.ty, expected_type
-                        ),
-                    )]);
-                }
-
-                typed_fields.push((field_name.clone(), typed_expr));
-            }
-
-            // Verify all declared fields are provided
-            for (declared_field, _) in user_type.fields() {
-                if !fields.iter().any(|(name, _)| name == declared_field) {
-                    return Err(vec![CompileError::new(
-                        ErrorKind::TypeMismatch,
-                        span,
-                        format!("missing field '{}' in struct literal", declared_field),
-                    )]);
-                }
-            }
-
-            (
-                ExprKind::Struct {
-                    ty: type_id.clone(),
-                    fields: typed_fields,
-                },
-                Type::User(type_id),
-            )
+        // === Function/kernel call ===
+        UntypedKind::Call { func, args } => {
+            let (k, t) = type_call(ctx, func, args, span)?;
+            (k, t)
         }
 
         // === Operator desugaring guard ===
@@ -1079,161 +659,6 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             )]);
         }
 
-        // === Entity context ===
-        UntypedKind::Self_ => {
-            let ty = ctx.self_type.clone().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "self not available: no entity type in context".to_string(),
-                )]
-            })?;
-
-            (ExprKind::Self_, ty)
-        }
-
-        UntypedKind::Other => {
-            let ty = ctx.other_type.clone().ok_or_else(|| {
-                vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "other not available: no entity type in context".to_string(),
-                )]
-            })?;
-
-            (ExprKind::Other, ty)
-        }
-
-        // === Aggregate operations ===
-        UntypedKind::Aggregate {
-            op,
-            entity,
-            binding,
-            body,
-        } => {
-            // Binding represents an instance of the target entity
-            let element_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
-
-            let extended_ctx = ctx.with_binding(binding.clone(), element_ty);
-            let typed_body = type_expression(body, &extended_ctx)?;
-
-            let aggregate_ty = match op {
-                crate::ast::AggregateOp::Map => Type::Seq(Box::new(typed_body.ty.clone())),
-                crate::ast::AggregateOp::Sum => typed_body.ty.clone(),
-                crate::ast::AggregateOp::Max | crate::ast::AggregateOp::Min => {
-                    typed_body.ty.clone()
-                }
-                crate::ast::AggregateOp::Count => Type::Kernel(KernelType {
-                    shape: Shape::Scalar,
-                    unit: Unit::DIMENSIONLESS,
-                    bounds: None,
-                }),
-                crate::ast::AggregateOp::Any | crate::ast::AggregateOp::All => Type::Bool,
-            };
-
-            (
-                ExprKind::Aggregate {
-                    op: *op,
-                    entity: entity.clone(),
-                    binding: binding.clone(),
-                    body: Box::new(typed_body),
-                },
-                aggregate_ty,
-            )
-        }
-
-        UntypedKind::Fold {
-            entity,
-            init,
-            acc,
-            elem,
-            body,
-        } => {
-            let typed_init = type_expression(init, ctx)?;
-            let elem_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
-
-            let mut extended_ctx = ctx.with_binding(acc.clone(), typed_init.ty.clone());
-            extended_ctx.local_bindings.insert(elem.clone(), elem_ty);
-
-            let typed_body = type_expression(body, &extended_ctx)?;
-
-            // In a fold, the body must match the accumulator/init type
-            if typed_body.ty != typed_init.ty {
-                return Err(vec![CompileError::new(
-                    ErrorKind::TypeMismatch,
-                    span,
-                    format!(
-                        "fold body type {:?} does not match accumulator type {:?}",
-                        typed_body.ty, typed_init.ty
-                    ),
-                )]);
-            }
-
-            (
-                ExprKind::Fold {
-                    entity: entity.clone(),
-                    init: Box::new(typed_init),
-                    acc: acc.clone(),
-                    elem: elem.clone(),
-                    body: Box::new(typed_body.clone()),
-                },
-                typed_body.ty,
-            )
-        }
-
-        // === Function/kernel call ===
-        UntypedKind::Call { func, args } => {
-            let typed_args: Vec<TypedExpr> = args
-                .iter()
-                .map(|arg| type_expression(arg, ctx))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            let segments = func.segments();
-            if segments.is_empty() {
-                return Err(vec![CompileError::new(
-                    ErrorKind::Internal,
-                    span,
-                    "kernel path is empty".to_string(),
-                )]);
-            }
-
-            if segments.len() > 2 {
-                return Err(vec![CompileError::new(
-                    ErrorKind::UndefinedName,
-                    span,
-                    format!("kernel path '{}' must be namespace.name or bare name", func),
-                )]);
-            }
-
-            let (namespace, name) = if segments.len() == 1 {
-                ("", segments[0].as_str())
-            } else {
-                (segments[0].as_str(), segments[1].as_str())
-            };
-
-            let sig = ctx
-                .kernel_registry
-                .get_by_name(namespace, name)
-                .ok_or_else(|| {
-                    vec![CompileError::new(
-                        ErrorKind::UndefinedName,
-                        span,
-                        format!("kernel '{}' not found", func),
-                    )]
-                })?;
-
-            let kernel_id = sig.id.clone();
-            let return_type = derive_return_type(sig, &typed_args, span)?;
-
-            (
-                ExprKind::Call {
-                    kernel: kernel_id,
-                    args: typed_args,
-                },
-                return_type,
-            )
-        }
-
         UntypedKind::ParseError(_) => {
             return Err(vec![CompileError::new(
                 ErrorKind::Internal,
@@ -1244,6 +669,491 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
     };
 
     Ok(TypedExpr::new(kind, ty, span))
+}
+
+// === Typing Helpers ===
+
+fn type_literal(
+    span: crate::foundation::Span,
+    value: f64,
+    unit: Option<&crate::ast::untyped::Expr>,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let resolved_unit = match unit {
+        Some(unit_expr) => resolve_unit_expr(Some(unit_expr), span).map_err(|e| vec![e])?,
+        None => Unit::DIMENSIONLESS,
+    };
+
+    let kernel_type = KernelType {
+        shape: Shape::Scalar,
+        unit: resolved_unit,
+        bounds: None,
+    };
+
+    Ok((
+        ExprKind::Literal {
+            value,
+            unit: Some(resolved_unit),
+        },
+        Type::Kernel(kernel_type),
+    ))
+}
+
+fn type_field_access(
+    ctx: &TypingContext,
+    object: &Expr,
+    field: &str,
+    span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    // Type the object first
+    let typed_object = type_expression(object, ctx)?;
+
+    // Extract field type based on object type
+    let field_type = match &typed_object.ty {
+        Type::User(type_id) => {
+            let user_type = ctx.type_table.get_by_id(type_id).ok_or_else(|| {
+                err_internal(
+                    span,
+                    format!("user type {:?} not found in type table", type_id),
+                )
+            })?;
+
+            // Look up field in user type
+            user_type.field(field).cloned().ok_or_else(|| {
+                err_undefined(span, field, &format!("field on type '{}'", user_type.name()))
+            })?
+        }
+        Type::Kernel(kt) => {
+            // Vector component access (.x, .y, .z, .w)
+            match &kt.shape {
+                Shape::Vector { dim } => {
+                    let component_index = match field {
+                        "x" => Some(0),
+                        "y" => Some(1),
+                        "z" => Some(2),
+                        "w" => Some(3),
+                        _ => None,
+                    };
+
+                    match component_index {
+                        Some(idx) if idx < *dim as usize => {
+                            // Return scalar with same unit as vector
+                            Type::Kernel(KernelType {
+                                shape: Shape::Scalar,
+                                unit: kt.unit,
+                                bounds: None, // Component bounds not derived from vector bounds
+                            })
+                        }
+                        Some(_) => {
+                            return Err(err_undefined(
+                                span,
+                                field,
+                                &format!("component out of bounds for vector of dimension {}", dim),
+                            ));
+                        }
+                        None => {
+                            return Err(err_undefined(span, field, "invalid vector component"));
+                        }
+                    }
+                }
+                _ => {
+                    return Err(err_internal(
+                        span,
+                        "field access on non-struct, non-vector type",
+                    ));
+                }
+            }
+        }
+        _ => {
+            return Err(err_internal(
+                span,
+                format!("field access not supported on type {:?}", typed_object.ty),
+            ));
+        }
+    };
+
+    Ok((
+        ExprKind::FieldAccess {
+            object: Box::new(typed_object),
+            field: field.to_string(),
+        },
+        field_type,
+    ))
+}
+
+fn type_vector(
+    ctx: &TypingContext,
+    elements: &[Expr],
+    span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    if elements.is_empty() {
+        return Err(vec![CompileError::new(
+            ErrorKind::TypeMismatch,
+            span,
+            "vector literal cannot be empty".to_string(),
+        )]);
+    }
+
+    if elements.len() > 4 {
+        return Err(vec![CompileError::new(
+            ErrorKind::TypeMismatch,
+            span,
+            format!(
+                "vector literal has {} elements, maximum is 4",
+                elements.len()
+            ),
+        )]);
+    }
+
+    // Type all elements
+    let typed_elements: Result<Vec<_>, _> = elements
+        .iter()
+        .map(|elem| type_expression(elem, ctx))
+        .collect();
+    let typed_elements = typed_elements?;
+
+    // All elements must be Kernel types
+    let mut unit = None;
+    for (i, elem) in typed_elements.iter().enumerate() {
+        match &elem.ty {
+            Type::Kernel(kt) => {
+                if kt.shape != Shape::Scalar {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::TypeMismatch,
+                        elem.span,
+                        format!(
+                            "vector element {} has shape {:?}, expected Scalar",
+                            i, kt.shape
+                        ),
+                    )]);
+                }
+
+                // All elements must have the same unit
+                if let Some(ref expected_unit) = unit {
+                    if kt.unit != *expected_unit {
+                        return Err(vec![CompileError::new(
+                            ErrorKind::TypeMismatch,
+                            elem.span,
+                            format!(
+                                "vector element {} has unit {}, expected {}",
+                                i, kt.unit, expected_unit
+                            ),
+                        )]);
+                    }
+                } else {
+                    unit = Some(kt.unit);
+                }
+            }
+            _ => {
+                return Err(vec![CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    elem.span,
+                    format!("vector element {} has non-kernel type {:?}", i, elem.ty),
+                )]);
+            }
+        }
+    }
+
+    let dim = elements.len() as u8;
+    let unit = unit.ok_or_else(|| {
+        err_internal(span, "vector literal unit resolution failed")
+    })?;
+
+    Ok((
+        ExprKind::Vector(typed_elements),
+        Type::Kernel(KernelType {
+            shape: Shape::Vector { dim },
+            unit,
+            bounds: None,
+        }),
+    ))
+}
+
+fn type_let(
+    ctx: &TypingContext,
+    name: &str,
+    value: &Expr,
+    body: &Expr,
+    _span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let typed_value = type_expression(value, ctx)?;
+    let extended_ctx = ctx.with_binding(name.to_string(), typed_value.ty.clone());
+    let typed_body = type_expression(body, &extended_ctx)?;
+    let ty = typed_body.ty.clone();
+
+    Ok((
+        ExprKind::Let {
+            name: name.to_string(),
+            value: Box::new(typed_value),
+            body: Box::new(typed_body),
+        },
+        ty,
+    ))
+}
+
+fn type_struct(
+    ctx: &TypingContext,
+    ty_path: &Path,
+    fields: &[(String, Expr)],
+    span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let type_id = ctx
+        .type_table
+        .get_id(ty_path)
+        .ok_or_else(|| err_undefined(span, &ty_path.to_string(), "type"))?
+        .clone();
+
+    let user_type = ctx
+        .type_table
+        .get(ty_path)
+        .ok_or_else(|| err_internal(span, format!("type '{}' not found in table", ty_path)))?;
+
+    let mut typed_fields = Vec::new();
+    let mut seen_fields = std::collections::HashSet::new();
+
+    for (field_name, field_expr) in fields {
+        if !seen_fields.insert(field_name.clone()) {
+            return Err(vec![CompileError::new(
+                ErrorKind::TypeMismatch,
+                field_expr.span,
+                format!("field '{}' specified multiple times", field_name),
+            )]);
+        }
+
+        let typed_expr = type_expression(field_expr, ctx)?;
+        let expected_type = user_type.field(field_name).ok_or_else(|| {
+            err_undefined(field_expr.span, field_name, &format!("field on type '{}'", ty_path))
+        })?;
+
+        if &typed_expr.ty != expected_type {
+            return Err(vec![CompileError::new(
+                ErrorKind::TypeMismatch,
+                field_expr.span,
+                format!(
+                    "field '{}' has type {:?}, expected {:?}",
+                    field_name, typed_expr.ty, expected_type
+                ),
+            )]);
+        }
+
+        typed_fields.push((field_name.clone(), typed_expr));
+    }
+
+    for (declared_field, _) in user_type.fields() {
+        if !fields.iter().any(|(name, _)| name == declared_field) {
+            return Err(vec![CompileError::new(
+                ErrorKind::TypeMismatch,
+                span,
+                format!("missing field '{}'", declared_field),
+            )]);
+        }
+    }
+
+    Ok((
+        ExprKind::Struct {
+            ty: type_id.clone(),
+            fields: typed_fields,
+        },
+        Type::User(type_id),
+    ))
+}
+
+fn type_aggregate(
+    ctx: &TypingContext,
+    op: &crate::ast::AggregateOp,
+    entity: &crate::ast::Entity,
+    binding: &str,
+    body: &Expr,
+    _span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let element_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
+    let extended_ctx = ctx.with_binding(binding.to_string(), element_ty);
+    let typed_body = type_expression(body, &extended_ctx)?;
+
+    let aggregate_ty = match op {
+        crate::ast::AggregateOp::Map => Type::Seq(Box::new(typed_body.ty.clone())),
+        crate::ast::AggregateOp::Sum => typed_body.ty.clone(),
+        crate::ast::AggregateOp::Max | crate::ast::AggregateOp::Min => typed_body.ty.clone(),
+        crate::ast::AggregateOp::Count => Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::DIMENSIONLESS,
+            bounds: None,
+        }),
+        crate::ast::AggregateOp::Any | crate::ast::AggregateOp::All => Type::Bool,
+    };
+
+    Ok((
+        ExprKind::Aggregate {
+            op: *op,
+            entity: entity.clone(),
+            binding: binding.to_string(),
+            body: Box::new(typed_body),
+        },
+        aggregate_ty,
+    ))
+}
+
+fn type_fold(
+    ctx: &TypingContext,
+    entity: &crate::ast::Entity,
+    init: &Expr,
+    acc: &str,
+    elem: &str,
+    body: &Expr,
+    span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let typed_init = type_expression(init, ctx)?;
+    let elem_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
+
+    let mut extended_ctx = ctx.with_binding(acc.to_string(), typed_init.ty.clone());
+    extended_ctx
+        .local_bindings
+        .insert(elem.to_string(), elem_ty);
+
+    let typed_body = type_expression(body, &extended_ctx)?;
+
+    if typed_body.ty != typed_init.ty {
+        return Err(vec![CompileError::new(
+            ErrorKind::TypeMismatch,
+            span,
+            format!(
+                "fold body type {:?} does not match accumulator type {:?}",
+                typed_body.ty, typed_init.ty
+            ),
+        )]);
+    }
+
+    Ok((
+        ExprKind::Fold {
+            entity: entity.clone(),
+            init: Box::new(typed_init),
+            acc: acc.to_string(),
+            elem: elem.to_string(),
+            body: Box::new(typed_body.clone()),
+        },
+        typed_body.ty,
+    ))
+}
+
+fn type_call(
+    ctx: &TypingContext,
+    func: &Path,
+    args: &[Expr],
+    span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let typed_args: Vec<TypedExpr> = args
+        .iter()
+        .map(|arg| type_expression(arg, ctx))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let segments = func.segments();
+    if segments.is_empty() {
+        return Err(err_internal(span, "kernel path is empty"));
+    }
+
+    if segments.len() > 2 {
+        return Err(err_internal(
+            span,
+            format!("kernel path '{}' must be namespace.name or bare name", func),
+        ));
+    }
+
+    let (namespace, name) = if segments.len() == 1 {
+        ("", segments[0].as_str())
+    } else {
+        (segments[0].as_str(), segments[1].as_str())
+    };
+
+    let sig = ctx
+        .kernel_registry
+        .get_by_name(namespace, name)
+        .ok_or_else(|| err_undefined(span, &func.to_string(), "kernel"))?;
+
+    let kernel_id = sig.id.clone();
+    let return_type = derive_return_type(sig, &typed_args, span)?;
+
+    Ok((
+        ExprKind::Call {
+            kernel: kernel_id,
+            args: typed_args,
+        },
+        return_type,
+    ))
+}
+
+fn type_as_kernel_call(
+    ctx: &TypingContext,
+    kernel: &continuum_kernel_types::KernelId,
+    args: &[Expr],
+    span: crate::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let typed_args: Vec<TypedExpr> = args
+        .iter()
+        .map(|arg| type_expression(arg, ctx))
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let sig = ctx.kernel_registry.get(kernel).ok_or_else(|| {
+        err_internal(span, format!("unknown kernel: {:?}", kernel))
+    })?;
+
+    let return_type = derive_return_type(sig, &typed_args, span)?;
+
+    Ok((
+        ExprKind::Call {
+            kernel: kernel.clone(),
+            args: typed_args,
+        },
+        return_type,
+    ))
+}
+
+// === Error Helpers ===
+
+fn err_undefined(span: crate::foundation::Span, name: &str, kind: &str) -> Vec<CompileError> {
+    vec![CompileError::new(
+        ErrorKind::UndefinedName,
+        span,
+        format!("{} '{}' not found", kind, name),
+    )]
+}
+
+fn err_type_mismatch(span: crate::foundation::Span, expected: &str, found: &str) -> Vec<CompileError> {
+    vec![CompileError::new(
+        ErrorKind::TypeMismatch,
+        span,
+        format!("type mismatch: expected {}, found {}", expected, found),
+    )]
+}
+
+fn err_internal(span: crate::foundation::Span, message: impl Into<String>) -> Vec<CompileError> {
+    vec![CompileError::new(ErrorKind::Internal, span, message.into())]
+}
+
+// === Lookup Helpers ===
+
+fn lookup_path_type(
+    ctx: &TypingContext,
+    path: &Path,
+    span: crate::foundation::Span,
+    registry_name: &str,
+    registry: &HashMap<Path, Type>,
+) -> Result<Type, Vec<CompileError>> {
+    registry
+        .get(path)
+        .cloned()
+        .ok_or_else(|| err_undefined(span, &path.to_string(), registry_name))
+}
+
+fn require_context_type(
+    span: crate::foundation::Span,
+    name: &str,
+    ty: &Option<Type>,
+) -> Result<Type, Vec<CompileError>> {
+    ty.clone().ok_or_else(|| {
+        err_internal(
+            span,
+            format!("{} not available: no context type provided", name),
+        )
+    })
 }
 
 #[cfg(test)]
