@@ -217,6 +217,12 @@ pub struct Node<I: Index = ()> {
     /// Set during the execution block compilation pass ([`compile_execution_blocks`]).
     pub reads: Vec<Path>,
 
+    /// Temporal signal dependencies (via 'prev') read by any of the node's executions.
+    ///
+    /// These are tracked separately from `reads` because they don't create
+    /// edges in the execution DAG.
+    pub temporal_reads: Vec<Path>,
+
     /// Validation errors found during semantic analysis
     pub validation_errors: Vec<ValidationError>,
 }
@@ -261,6 +267,7 @@ impl<I: Index> Node<I> {
             observe: None,
             execution_blocks: Vec::new(),
             reads: Vec::new(),
+            temporal_reads: Vec::new(),
             validation_errors: Vec::new(),
         }
     }
@@ -554,6 +561,13 @@ pub struct Execution {
     /// blocks is also stored at the node level in [`Node::reads`].
     pub reads: Vec<Path>,
 
+    /// Temporal signal dependencies (via 'prev').
+    ///
+    /// These are tracked separately from `reads` because they don't create
+    /// edges in the execution DAG (they reference the previous state).
+    /// However, they are needed for warmup analysis and history buffer allocation.
+    pub temporal_reads: Vec<Path>,
+
     /// Signal/field emission targets.
     ///
     /// Paths to signals and fields that this execution block may emit to.
@@ -590,6 +604,7 @@ impl Execution {
         phase: crate::foundation::Phase,
         body: ExecutionBody,
         reads: Vec<Path>,
+        temporal_reads: Vec<Path>,
         emits: Vec<Path>,
         span: Span,
     ) -> Self {
@@ -598,6 +613,7 @@ impl Execution {
             phase,
             body,
             reads,
+            temporal_reads,
             emits,
             span,
         }
@@ -750,6 +766,7 @@ mod tests {
             ExecutionBody::Expr(test_body),
             vec![],
             vec![],
+            vec![],
             span,
         )];
         assert!(node.is_compiled());
@@ -870,6 +887,7 @@ mod tests {
             ExecutionBody::Expr(test_body),
             vec![],
             vec![],
+            vec![],
             span,
         )];
         assert!(!node.is_compiled());
@@ -921,6 +939,7 @@ mod tests {
             body,
             reads.clone(),
             vec![],
+            vec![],
             span,
         );
 
@@ -957,7 +976,15 @@ mod tests {
 
         for phase in phases {
             let body = ExecutionBody::Expr(body_expr.clone());
-            let execution = Execution::new("test".to_string(), phase, body, vec![], vec![], span);
+            let execution = Execution::new(
+                "test".to_string(),
+                phase,
+                body,
+                vec![],
+                vec![],
+                vec![],
+                span,
+            );
             assert_eq!(execution.phase, phase);
         }
     }
@@ -982,6 +1009,7 @@ mod tests {
             "test".to_string(),
             Phase::Resolve,
             body,
+            vec![],
             vec![],
             vec![],
             span,

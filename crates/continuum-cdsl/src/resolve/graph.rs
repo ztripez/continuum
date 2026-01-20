@@ -197,13 +197,24 @@ fn build_dag(
 
     let mut producers: IndexMap<Path, Path> = IndexMap::new();
     for (path, exec) in &nodes {
-        if phase == Phase::Resolve {
-            // Signal nodes produce themselves in Resolve phase
-            producers.insert(path.clone(), path.clone());
-        } else {
-            // In other phases, we look at 'emits'
-            for emit in &exec.emits {
-                producers.insert(emit.clone(), path.clone());
+        // In all phases, we look at 'emits' to determine causal links.
+        // For Resolve phase, the compiler explicitly populates 'emits' with the node's own path.
+        for emit in &exec.emits {
+            if let Some(existing_producer) = producers.insert(emit.clone(), path.clone()) {
+                // Conflict: Multiple nodes emitting to the same signal in the same phase/stratum.
+                // This is only allowed in Collect phase (accumulation) where nodes contribute
+                // to a signal via += or similar (which are resolved as separate emits in IR).
+                if phase != Phase::Collect {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::Conflict,
+                        exec.span,
+                        format!(
+                            "Multiple nodes emitting to '{}' in {:?} phase: '{}' and '{}'. \
+                             Only one producer is allowed per signal in this phase.",
+                            emit, phase, existing_producer, path
+                        ),
+                    )]);
+                }
             }
         }
     }
@@ -250,6 +261,34 @@ fn build_dag(
                         .or_default()
                         .push(path.clone());
                     *in_degree.entry(path.clone()).or_default() += 1;
+                }
+            } else {
+                // If the read is a signal/field that exists but isn't in this stratum's producers,
+                // it's a cross-stratum dependency violation.
+                // We check world globals and members for stratum mismatch.
+                let target_info = world
+                    .globals
+                    .get(read)
+                    .map(|n| (n.role_id(), &n.stratum))
+                    .or_else(|| world.members.get(read).map(|n| (n.role_id(), &n.stratum)));
+
+                if let Some((role_id, target_stratum)) = target_info {
+                    // Only Signal and Field roles have strata that matter for DAG construction.
+                    // Config and Const are globally available and don't create DAG edges here
+                    // because they are immutable during execution (resolved in Configure or earlier).
+                    if matches!(role_id, RoleId::Signal | RoleId::Field) {
+                        if target_stratum.as_ref() != Some(stratum) {
+                            return Err(vec![CompileError::new(
+                                ErrorKind::InvalidDependency,
+                                exec.span,
+                                format!(
+                                    "Node '{}' (stratum {:?}) reads from '{}' (stratum {:?}). \
+                                     Cross-stratum dependencies are forbidden to preserve strict determinism.",
+                                    path, stratum, read, target_stratum
+                                ),
+                            )]);
+                        }
+                    }
                 }
             }
         }
@@ -390,6 +429,7 @@ mod tests {
             )),
             vec![],
             vec![],
+            vec![node_a.path.clone()],
             span,
         )];
 
@@ -406,6 +446,7 @@ mod tests {
             )),
             vec![Path::from_str("a")],
             vec![],
+            vec![node_b.path.clone()],
             span,
         )];
 
@@ -454,6 +495,7 @@ mod tests {
             )),
             vec![Path::from_str("b")],
             vec![],
+            vec![node_a.path.clone()],
             span,
         )];
 
@@ -470,6 +512,7 @@ mod tests {
             )),
             vec![Path::from_str("a")],
             vec![],
+            vec![node_b.path.clone()],
             span,
         )];
 
@@ -523,6 +566,7 @@ mod tests {
             )),
             vec![],
             vec![],
+            vec![field_node.path.clone()],
             span,
         )];
 
@@ -538,11 +582,9 @@ mod tests {
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert_eq!(errors[0].kind, ErrorKind::PhaseBoundaryViolation);
-        assert!(
-            errors[0]
-                .message
-                .contains("Fields are observation-only and may only execute in Measure phase")
-        );
+        assert!(errors[0]
+            .message
+            .contains("Fields are observation-only and may only execute in Measure phase"));
     }
 
     #[test]
@@ -578,6 +620,7 @@ mod tests {
             )),
             vec![],
             vec![],
+            vec![node_zebra.path.clone()],
             span,
         )];
 
@@ -596,6 +639,7 @@ mod tests {
             )),
             vec![],
             vec![],
+            vec![node_apple.path.clone()],
             span,
         )];
 
@@ -614,6 +658,7 @@ mod tests {
             )),
             vec![],
             vec![],
+            vec![node_banana.path.clone()],
             span,
         )];
 
@@ -671,5 +716,145 @@ mod tests {
 
         // Should have no DAGs for empty world
         assert!(dag_set.dags.is_empty());
+    }
+
+    #[test]
+    fn test_cross_stratum_dependency_violation() {
+        let span = test_span();
+        let metadata = crate::ast::WorldDecl {
+            path: Path::from_str("world"),
+            title: None,
+            version: None,
+            warmup: None,
+            attributes: vec![],
+            span,
+            doc: None,
+        };
+
+        // signal slow_signal { : stratum(slow); resolve { 1.0 } }
+        let mut node_slow = Node::new(Path::from_str("slow_signal"), span, RoleData::Signal, ());
+        node_slow.stratum = Some(StratumId::new("slow"));
+        node_slow.executions = vec![Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(crate::ast::TypedExpr::new(
+                crate::ast::ExprKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                crate::foundation::Type::Bool,
+                span,
+            )),
+            vec![],
+            vec![],
+            vec![node_slow.path.clone()],
+            span,
+        )];
+
+        // signal fast_signal { : stratum(fast); resolve { signal.slow_signal } }
+        let mut node_fast = Node::new(Path::from_str("fast_signal"), span, RoleData::Signal, ());
+        node_fast.stratum = Some(StratumId::new("fast"));
+        node_fast.executions = vec![Execution::new(
+            "resolve".to_string(),
+            Phase::Resolve,
+            ExecutionBody::Expr(crate::ast::TypedExpr::new(
+                crate::ast::ExprKind::Signal(Path::from_str("slow_signal")),
+                crate::foundation::Type::Bool,
+                span,
+            )),
+            vec![Path::from_str("slow_signal")],
+            vec![],
+            vec![node_fast.path.clone()],
+            span,
+        )];
+
+        let mut world = World::new(metadata);
+        world.strata.insert(
+            Path::from_str("slow"),
+            crate::ast::Stratum::new(StratumId::new("slow"), Path::from_str("slow"), span),
+        );
+        world.strata.insert(
+            Path::from_str("fast"),
+            crate::ast::Stratum::new(StratumId::new("fast"), Path::from_str("fast"), span),
+        );
+        world.globals.insert(node_slow.path.clone(), node_slow);
+        world.globals.insert(node_fast.path.clone(), node_fast);
+
+        // Should fail: fast_signal reads slow_signal from different stratum
+        let result = compile_graphs(&world);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].kind, ErrorKind::InvalidDependency);
+        assert!(errors[0]
+            .message
+            .contains("Cross-stratum dependencies are forbidden"));
+    }
+
+    #[test]
+    fn test_multi_emitter_conflict() {
+        let span = test_span();
+        let metadata = crate::ast::WorldDecl {
+            path: Path::from_str("world"),
+            title: None,
+            version: None,
+            warmup: None,
+            attributes: vec![],
+            span,
+            doc: None,
+        };
+
+        // operator op1 { measure { field.a <- 1.0 } }
+        let mut node_op1 = Node::new(Path::from_str("op1"), span, RoleData::Operator, ());
+        node_op1.stratum = Some(StratumId::new("default"));
+        node_op1.executions = vec![Execution::new(
+            "measure".to_string(),
+            Phase::Measure,
+            ExecutionBody::Expr(crate::ast::TypedExpr::new(
+                crate::ast::ExprKind::Literal {
+                    value: 1.0,
+                    unit: None,
+                },
+                crate::foundation::Type::Bool,
+                span,
+            )),
+            vec![],
+            vec![],
+            vec![Path::from_str("field.a")],
+            span,
+        )];
+
+        let mut node_op2 = Node::new(Path::from_str("op2"), span, RoleData::Operator, ());
+        node_op2.stratum = Some(StratumId::new("default"));
+        node_op2.executions = vec![Execution::new(
+            "measure".to_string(),
+            Phase::Measure,
+            ExecutionBody::Expr(crate::ast::TypedExpr::new(
+                crate::ast::ExprKind::Literal {
+                    value: 2.0,
+                    unit: None,
+                },
+                crate::foundation::Type::Bool,
+                span,
+            )),
+            vec![],
+            vec![],
+            vec![Path::from_str("field.a")],
+            span,
+        )];
+
+        let mut world = World::new(metadata);
+        world.strata.insert(
+            Path::from_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+        );
+        world.globals.insert(node_op1.path.clone(), node_op1);
+        world.globals.insert(node_op2.path.clone(), node_op2);
+
+        // Should fail: two operators emitting to same field in Measure phase
+        let result = compile_graphs(&world);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert_eq!(errors[0].kind, ErrorKind::Conflict);
+        assert!(errors[0].message.contains("Multiple nodes emitting to"));
     }
 }

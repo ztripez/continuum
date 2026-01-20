@@ -259,16 +259,24 @@ pub fn parse_phase_name(name: &str, span: crate::foundation::Span) -> Result<Pha
 ///
 /// # Determinism
 ///
-/// Returns paths in **deterministic sorted order** to satisfy the engine's core
-/// determinism invariant.
-fn extract_dependencies(expr: &TypedExpr) -> Vec<Path> {
-    let mut visitor = DependencyVisitor::default();
+/// Returns a tuple of `(reads, temporal_reads)` in **deterministic sorted order**
+/// to satisfy the engine's core determinism invariant.
+fn extract_dependencies(expr: &TypedExpr, current_node_path: &Path) -> (Vec<Path>, Vec<Path>) {
+    let mut visitor = DependencyVisitor {
+        paths: HashSet::new(),
+        temporal_paths: HashSet::new(),
+        current_node_path: current_node_path.clone(),
+    };
     expr.walk(&mut visitor);
 
     // Sort for determinism (satisfies hard invariant)
     let mut paths: Vec<_> = visitor.paths.into_iter().collect();
     paths.sort();
-    paths
+
+    let mut temporal_paths: Vec<_> = visitor.temporal_paths.into_iter().collect();
+    temporal_paths.sort();
+
+    (paths, temporal_paths)
 }
 
 /// Visitor that collects signal and field paths from an expression tree.
@@ -276,10 +284,13 @@ fn extract_dependencies(expr: &TypedExpr) -> Vec<Path> {
 /// This visitor performs a deep traversal of a [`TypedExpr`] tree to identify
 /// all external data dependencies (signals, fields, config, constants) and
 /// structural dependencies (entity set references for aggregations).
-#[derive(Default)]
 struct DependencyVisitor {
     /// Accumulated set of unique dependency paths.
     paths: HashSet<Path>,
+    /// Accumulated set of unique temporal dependency paths (via 'prev').
+    temporal_paths: HashSet<Path>,
+    /// The path of the node whose execution block is being compiled.
+    current_node_path: Path,
 }
 
 impl ExpressionVisitor for DependencyVisitor {
@@ -296,12 +307,20 @@ impl ExpressionVisitor for DependencyVisitor {
                 self.paths.insert(Path::from_str(&entity.0.to_string()));
             }
             ExprKind::FieldAccess { object, field } => {
-                if let Type::User(type_id) = &object.ty {
-                    // Accessing a member on a user type (entity or struct)
-                    // In CDSL, members are identified by Entity.Member
-                    self.paths
-                        .insert(Path::from_str(&type_id.to_string()).append(field));
+                // BUG FIX (continuum-b8wv): Don't insert member paths when object is Prev.
+                // Temporal self-references should not create cross-signal dependencies.
+                if !matches!(object.expr, ExprKind::Prev) {
+                    if let Type::User(type_id) = &object.ty {
+                        // Accessing a member on a user type (entity or struct)
+                        // In CDSL, members are identified by Entity.Member
+                        self.paths
+                            .insert(Path::from_str(&type_id.to_string()).append(field));
+                    }
                 }
+            }
+            // Temporal tracking (continuum-ak0c): Capture self-referential temporal read
+            ExprKind::Prev => {
+                self.temporal_paths.insert(self.current_node_path.clone());
             }
             // Leaf values and binding structures that don't directly introduce
             // new path dependencies (dependencies are extracted from their sub-expressions
@@ -309,7 +328,6 @@ impl ExpressionVisitor for DependencyVisitor {
             ExprKind::Literal { .. }
             | ExprKind::Vector(_)
             | ExprKind::Local(_)
-            | ExprKind::Prev
             | ExprKind::Current
             | ExprKind::Inputs
             | ExprKind::Dt
@@ -332,21 +350,30 @@ impl ExpressionVisitor for DependencyVisitor {
 ///
 /// - **Reads**: Any signals, fields, or config values read within the statement's expressions.
 ///   These form the incoming edges in the execution DAG.
+/// - **Temporal Reads**: Signal dependencies via 'prev'.
 /// - **Emissions (Side Effects)**: The target signal or field path if the statement is an assignment.
 ///   These form the outgoing edges and define the causality boundary for the execution block.
 ///
-/// Returns a tuple of `(reads, emits)` used to build the [`Execution`] IR.
-fn extract_stmt_dependencies(stmt: &TypedStmt) -> (Vec<Path>, Vec<Path>) {
+/// Returns a tuple of `(reads, temporal_reads, emits)` used to build the [`Execution`] IR.
+fn extract_stmt_dependencies(
+    stmt: &TypedStmt,
+    current_node_path: &Path,
+) -> (Vec<Path>, Vec<Path>, Vec<Path>) {
     let mut reads = Vec::new();
+    let mut temporal_reads = Vec::new();
     let mut emits = Vec::new();
 
     match stmt {
         TypedStmt::Let { value, .. } => {
-            reads.extend(extract_dependencies(value));
+            let (r, t) = extract_dependencies(value, current_node_path);
+            reads.extend(r);
+            temporal_reads.extend(t);
         }
         TypedStmt::SignalAssign { target, value, .. } => {
             emits.push(target.clone());
-            reads.extend(extract_dependencies(value));
+            let (r, t) = extract_dependencies(value, current_node_path);
+            reads.extend(r);
+            temporal_reads.extend(t);
         }
         TypedStmt::FieldAssign {
             target,
@@ -355,15 +382,21 @@ fn extract_stmt_dependencies(stmt: &TypedStmt) -> (Vec<Path>, Vec<Path>) {
             ..
         } => {
             emits.push(target.clone());
-            reads.extend(extract_dependencies(position));
-            reads.extend(extract_dependencies(value));
+            let (r1, t1) = extract_dependencies(position, current_node_path);
+            let (r2, t2) = extract_dependencies(value, current_node_path);
+            reads.extend(r1);
+            reads.extend(r2);
+            temporal_reads.extend(t1);
+            temporal_reads.extend(t2);
         }
         TypedStmt::Expr(expr) => {
-            reads.extend(extract_dependencies(expr));
+            let (r, t) = extract_dependencies(expr, current_node_path);
+            reads.extend(r);
+            temporal_reads.extend(t);
         }
     }
 
-    (reads, emits)
+    (reads, temporal_reads, emits)
 }
 
 /// Validate that a phase is allowed for a node's role.
@@ -509,15 +542,23 @@ pub fn compile_execution_blocks<I: Index>(
         };
 
         // 5. Extract dependencies and emissions
-        let (reads, emits) = match &body {
-            ExecutionBody::Expr(expr) => (extract_dependencies(expr), Vec::new()),
+        let (reads, temporal_reads, mut emits) = match &body {
+            ExecutionBody::Expr(expr) => {
+                let (r, t) = extract_dependencies(expr, &node.path);
+                (r, t, Vec::new())
+            }
             ExecutionBody::Statements(stmts) => {
                 let mut reads = HashSet::new();
+                let mut temporal_reads = HashSet::new();
                 let mut emits = HashSet::new();
                 for stmt in stmts {
-                    let (s_reads, s_emits) = extract_stmt_dependencies(stmt);
+                    let (s_reads, s_temporal, s_emits) =
+                        extract_stmt_dependencies(stmt, &node.path);
                     for r in s_reads {
                         reads.insert(r);
+                    }
+                    for t in s_temporal {
+                        temporal_reads.insert(t);
                     }
                     for e in s_emits {
                         emits.insert(e);
@@ -525,14 +566,46 @@ pub fn compile_execution_blocks<I: Index>(
                 }
                 let mut sorted_reads: Vec<_> = reads.into_iter().collect();
                 sorted_reads.sort();
+                let mut sorted_temporal: Vec<_> = temporal_reads.into_iter().collect();
+                sorted_temporal.sort();
                 let mut sorted_emits: Vec<_> = emits.into_iter().collect();
                 sorted_emits.sort();
-                (sorted_reads, sorted_emits)
+                (sorted_reads, sorted_temporal, sorted_emits)
             }
         };
 
+        // 5.1 Enforce emission rules (continuum-6lc9)
+        // Signal resolve blocks should have empty emits (implicit self-emission).
+        // Resolve phase is pure - no explicit emissions allowed.
+        if phase == Phase::Resolve && !emits.is_empty() {
+            errors.push(CompileError::new(
+                ErrorKind::PhaseBoundaryViolation,
+                node.span,
+                format!(
+                    "Resolve phase execution at '{}' has explicit emissions: {:?}. \
+                     Resolve phase must be pure; signals implicitly resolve to themselves.",
+                    node.path, emits
+                ),
+            ));
+            continue;
+        }
+
+        // 5.2 Populate Resolve emissions (continuum-4rnt)
+        // Signals produce themselves in Resolve phase. Making this explicit in IR.
+        if phase == Phase::Resolve && role_id == RoleId::Signal {
+            emits = vec![node.path.clone()];
+        }
+
         // 6. Create Execution
-        let execution = Execution::new(phase_name.clone(), phase, body, reads, emits, node.span);
+        let execution = Execution::new(
+            phase_name.clone(),
+            phase,
+            body,
+            reads,
+            temporal_reads,
+            emits,
+            node.span,
+        );
         executions.push(execution);
     }
 
@@ -546,27 +619,37 @@ pub fn compile_execution_blocks<I: Index>(
 
     // 8. Populate node-level reads for cycle detection (Phase 12 structure validation)
     // Union of all per-execution reads AND assertion reads
-    let mut all_reads = std::collections::HashSet::new();
+    let mut all_reads = HashSet::new();
+    let mut all_temporal = HashSet::new();
 
     // Collect from executions
     for execution in &node.executions {
         for read in &execution.reads {
             all_reads.insert(read.clone());
         }
+        for read in &execution.temporal_reads {
+            all_temporal.insert(read.clone());
+        }
     }
 
     // Collect from assertions
-    let mut visitor = DependencyVisitor::default();
     for assertion in &node.assertions {
-        assertion.condition.walk(&mut visitor);
-    }
-    for read in visitor.paths {
-        all_reads.insert(read);
+        let (r, t) = extract_dependencies(&assertion.condition, &node.path);
+        for read in r {
+            all_reads.insert(read);
+        }
+        for read in t {
+            all_temporal.insert(read);
+        }
     }
 
     let mut sorted_reads: Vec<_> = all_reads.into_iter().collect();
     sorted_reads.sort();
     node.reads = sorted_reads;
+
+    let mut sorted_temporal: Vec<_> = all_temporal.into_iter().collect();
+    sorted_temporal.sort();
+    node.temporal_reads = sorted_temporal;
 
     Ok(())
 }
@@ -865,7 +948,7 @@ mod tests {
             span,
         };
 
-        let (reads, emits) = extract_stmt_dependencies(&stmt);
+        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_str("test"));
         assert_eq!(emits.len(), 0);
         assert_eq!(reads.len(), 1);
         assert_eq!(reads[0], path);
@@ -886,7 +969,7 @@ mod tests {
             span,
         };
 
-        let (reads, emits) = extract_stmt_dependencies(&stmt);
+        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_str("test"));
         assert_eq!(emits.len(), 1);
         assert_eq!(emits[0], path_field);
         assert_eq!(reads.len(), 2);
@@ -902,7 +985,7 @@ mod tests {
 
         let stmt = TypedStmt::Expr(TypedExpr::new(ExprKind::Signal(path.clone()), ty, span));
 
-        let (reads, emits) = extract_stmt_dependencies(&stmt);
+        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_str("test"));
         assert_eq!(emits.len(), 0);
         assert_eq!(reads.len(), 1);
         assert_eq!(reads[0], path);
@@ -921,7 +1004,7 @@ mod tests {
             span,
         };
 
-        let (reads, emits) = extract_stmt_dependencies(&stmt);
+        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_str("test"));
         assert_eq!(reads.len(), 1);
         assert_eq!(reads[0], path_in);
         assert_eq!(emits.len(), 1);
@@ -995,7 +1078,7 @@ mod tests {
             ty,
             span,
         );
-        let deps = extract_dependencies(&expr);
+        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
         assert_eq!(deps.len(), 0);
     }
 
@@ -1005,7 +1088,7 @@ mod tests {
         let ty = scalar_type();
         let path = Path::from_str("signal.temperature");
         let expr = TypedExpr::new(ExprKind::Signal(path.clone()), ty, span);
-        let deps = extract_dependencies(&expr);
+        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
 
         assert_eq!(deps.len(), 1);
         assert!(deps.contains(&path));
@@ -1033,7 +1116,7 @@ mod tests {
             span,
         );
 
-        let deps = extract_dependencies(&expr);
+        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
 
         assert_eq!(deps.len(), 2);
         assert!(deps.contains(&path1));
@@ -1332,7 +1415,7 @@ mod tests {
             span,
         );
 
-        let deps = extract_dependencies(&expr);
+        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
         assert_eq!(deps.len(), 1);
         // Entity set dependency is captured
         assert_eq!(deps[0], Path::from_str("plate"));
@@ -1375,7 +1458,7 @@ mod tests {
             span,
         );
 
-        let deps = extract_dependencies(&expr);
+        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
         assert_eq!(deps.len(), 1);
         assert_eq!(deps[0], Path::from_str("plate"));
     }
@@ -1514,7 +1597,7 @@ mod tests {
             span,
         );
 
-        let deps = extract_dependencies(&expr);
+        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
         assert_eq!(deps.len(), 1);
         // Member dependency 'plate.mass' should be captured
         assert_eq!(deps[0], Path::from_str("plate.mass"));
@@ -1530,11 +1613,11 @@ mod tests {
         let config_expr = TypedExpr::new(ExprKind::Config(config_path.clone()), ty.clone(), span);
         let const_expr = TypedExpr::new(ExprKind::Const(const_path.clone()), ty, span);
 
-        let deps_config = extract_dependencies(&config_expr);
+        let (deps_config, _) = extract_dependencies(&config_expr, &Path::from_str("test"));
         assert_eq!(deps_config.len(), 1);
         assert_eq!(deps_config[0], config_path);
 
-        let deps_const = extract_dependencies(&const_expr);
+        let (deps_const, _) = extract_dependencies(&const_expr, &Path::from_str("test"));
         assert_eq!(deps_const.len(), 1);
         assert_eq!(deps_const[0], const_path);
     }

@@ -761,6 +761,18 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         // Type derivation: Returns ctx.node_output type
         // Error: Internal if node_output not set in context
         UntypedKind::Prev => {
+            // PHASE VALIDATION (continuum-z0et): 'prev' may only be used in Resolve phase.
+            if ctx.phase != Some(Phase::Resolve) {
+                return Err(vec![CompileError::new(
+                    ErrorKind::InvalidCapability,
+                    span,
+                    format!(
+                        "'prev' may only be used in Resolve phase, found in {:?}",
+                        ctx.phase
+                    ),
+                )]);
+            }
+
             let ty = ctx.node_output.clone().ok_or_else(|| {
                 vec![CompileError::new(
                     ErrorKind::Internal,
@@ -1938,7 +1950,7 @@ mod tests {
 
     #[test]
     fn test_type_prev_with_node_output() {
-        let ctx = make_context();
+        let ctx = make_context().with_phase(Phase::Resolve);
         let output_type = Type::Kernel(KernelType {
             shape: Shape::Scalar,
             unit: Unit::meters(),
@@ -1953,12 +1965,29 @@ mod tests {
 
     #[test]
     fn test_type_prev_without_node_output() {
-        let ctx = make_context();
+        let ctx = make_context().with_phase(Phase::Resolve);
         let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
         let errors = type_expression(&expr, &ctx).unwrap_err();
         assert_eq!(errors.len(), 1);
         assert!(matches!(errors[0].kind, ErrorKind::Internal));
         assert!(errors[0].message.contains("prev"));
+    }
+
+    #[test]
+    fn test_type_prev_in_wrong_phase() {
+        let ctx = make_context().with_phase(Phase::Measure);
+        let output_type = Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::meters(),
+            bounds: None,
+        });
+        let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
+
+        let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
+        let errors = type_expression(&expr, &ctx).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+        assert!(errors[0].message.contains("may only be used in Resolve phase"));
     }
 
     #[test]

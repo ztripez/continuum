@@ -109,6 +109,8 @@ pub enum ErrorKind {
     MissingCapability = 15,
     /// Invalid use of capability (e.g., emit with wrong target)
     InvalidCapability = 16,
+    /// Invalid dependency (e.g., cross-stratum read)
+    InvalidDependency = 22,
     /// Phase boundary violation (e.g., field read in kernel execution)
     PhaseBoundaryViolation = 23,
 
@@ -121,6 +123,8 @@ pub enum ErrorKind {
     CyclicDependency = 18,
     /// Path collision (signal.x conflicts with signal field x)
     PathCollision = 19,
+    /// Conflicting definitions or emissions
+    Conflict = 25,
 
     // Execution compilation
     /// Cannot compile to executable form
@@ -161,9 +165,10 @@ const ERROR_KIND_NAMES: &[&str] = &[
     "path collision",           // 19: PathCollision
     "compilation failed",       // 20: CompilationFailed
     "missing uses declaration", // 21: MissingUsesDeclaration
-    "reserved",                 // 22: (reserved)
+    "invalid dependency",       // 22: InvalidDependency
     "phase boundary violation", // 23: PhaseBoundaryViolation
     "internal compiler error",  // 24: Internal
+    "conflict",                 // 25: Conflict
 ];
 
 /// Diagnostic severity level.
