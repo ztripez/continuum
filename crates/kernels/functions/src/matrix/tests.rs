@@ -219,7 +219,7 @@ fn test_from_quat_identity() {
     let result = from_quat(q);
     // Should be close to identity matrix
     let expected = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
-    for i in 0..9 {
+    for (i, _) in expected.iter().enumerate() {
         assert!((result.0[i] - expected[i]).abs() < 1e-10);
     }
 }
@@ -231,7 +231,7 @@ fn test_from_axis_angle_identity() {
     let angle = 0.0;
     let result = from_axis_angle(axis, angle);
     let expected = [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0];
-    for i in 0..9 {
+    for (i, _) in expected.iter().enumerate() {
         assert!((result.0[i] - expected[i]).abs() < 1e-10);
     }
 }
@@ -245,7 +245,7 @@ fn test_from_axis_angle_90_deg_z() {
     // Should rotate (1,0,0) to (0,1,0)
     // Expected matrix (column-major): [[0,-1,0], [1,0,0], [0,0,1]]
     let expected = [0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0];
-    for i in 0..9 {
+    for (i, _) in expected.iter().enumerate() {
         assert!((result.0[i] - expected[i]).abs() < 1e-10);
     }
 }
@@ -437,7 +437,7 @@ fn test_eigenvalues_eigenvectors_mat3_correctness() {
     let eigenvecs = eigenvectors_mat3(Mat3(m_data));
 
     // Test A·v = λ·v for each eigenvalue/eigenvector pair
-    for i in 0..3 {
+    for (i, _) in eigenvals.iter().enumerate() {
         let v = [
             eigenvecs.0[i * 3],
             eigenvecs.0[i * 3 + 1],

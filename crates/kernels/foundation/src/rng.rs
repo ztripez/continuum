@@ -324,12 +324,12 @@ mod tests {
 
         for _ in 0..1000 {
             let val = stream.uniform();
-            assert!(val >= 0.0 && val < 1.0);
+            assert!((0.0..1.0).contains(&val));
         }
 
         for _ in 0..1000 {
             let val = stream.uniform_range(10.0, 20.0);
-            assert!(val >= 10.0 && val < 20.0);
+            assert!((10.0..20.0).contains(&val));
         }
     }
 
@@ -354,7 +354,7 @@ mod tests {
 
         for _ in 0..1000 {
             let val = stream.int_range(5, 10);
-            assert!(val >= 5 && val <= 10);
+            assert!((5..=10).contains(&val));
         }
     }
 

@@ -1,3 +1,10 @@
+//! Runtime value representation for simulation state.
+//!
+//! This module defines the [`Value`] enum, which serves as the universal
+//! container for all data flowing through the simulation (signals, fields,
+//! impulses). It also provides traits for converting between primitive Rust
+//! types and [`Value`].
+
 use crate::tensor::TensorData;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -139,7 +146,6 @@ impl Value {
     }
 
     /// Get a component by name (x, y, z, w).
-
     pub fn component(&self, name: &str) -> Option<f64> {
         match (self, name) {
             (Value::Scalar(v), _) => Some(*v),
@@ -266,14 +272,20 @@ impl fmt::Display for Value {
 }
 
 /// Trait for converting a reference to a Value into a concrete type.
-/// Used by kernel macros to unpack arguments.
+///
+/// Used by kernel macros to unpack arguments from the evaluation stack.
 pub trait FromValue: Sized {
+    /// Attempts to convert a [`Value`] reference into the target type.
+    ///
+    /// Returns `None` if the value type is incompatible or conversion fails.
     fn from_value(value: &Value) -> Option<Self>;
 }
 
 /// Trait for converting a concrete type into a Value.
-/// Used by kernel macros to pack return values.
+///
+/// Used by kernel macros to pack return values for the evaluation stack.
 pub trait IntoValue {
+    /// Converts the target type into a [`Value`].
     fn into_value(self) -> Value;
 }
 
@@ -349,6 +361,7 @@ impl IntoValue for [f64; 4] {
     }
 }
 
+/// Quaternion value (w, x, y, z).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Quat(pub [f64; 4]);
 
@@ -364,6 +377,7 @@ impl IntoValue for Quat {
     }
 }
 
+/// 2x2 matrix value (column-major storage).
 pub struct Mat2(pub [f64; 4]);
 
 impl FromValue for Mat2 {
@@ -378,6 +392,7 @@ impl IntoValue for Mat2 {
     }
 }
 
+/// 3x3 matrix value (column-major storage).
 pub struct Mat3(pub [f64; 9]);
 
 impl FromValue for Mat3 {
@@ -392,6 +407,7 @@ impl IntoValue for Mat3 {
     }
 }
 
+/// 4x4 matrix value (column-major storage).
 pub struct Mat4(pub [f64; 16]);
 
 impl FromValue for Mat4 {

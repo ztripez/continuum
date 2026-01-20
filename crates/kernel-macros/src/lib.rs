@@ -482,7 +482,7 @@ fn generate_kernel_registration(
     let namespace = &args.namespace;
     let category = &args.category;
     let variadic = args.variadic;
-    let vectorized = args.vectorized;
+    let _vectorized = args.vectorized;
     let unit_inference = &args.unit_inference;
     let pattern_hints = &args.pattern_hints;
     let requires_uses = &args.requires_uses;
@@ -516,15 +516,14 @@ fn generate_kernel_registration(
     let params: Vec<_> = func.sig.inputs.iter().collect();
 
     // Check if last param is Dt
-    let has_dt = params.last().map_or(false, |p| {
-        if let syn::FnArg::Typed(pat) = p {
-            if let syn::Type::Path(tp) = pat.ty.as_ref() {
-                return tp
-                    .path
-                    .segments
-                    .last()
-                    .map_or(false, |seg| seg.ident == "Dt");
-            }
+    let has_dt = params.last().is_some_and(|p| {
+        if let syn::FnArg::Typed(pat) = p
+            && let syn::Type::Path(tp) = pat.ty.as_ref() {
+            return tp
+                .path
+                .segments
+                .last()
+                .is_some_and(|seg| seg.ident == "Dt");
         }
         false
     });
@@ -534,10 +533,9 @@ fn generate_kernel_registration(
         .iter()
         .take(params.len() - if has_dt { 1 } else { 0 })
         .filter_map(|p| {
-            if let syn::FnArg::Typed(pat) = p {
-                if let syn::Pat::Ident(pi) = pat.pat.as_ref() {
-                    return Some((&pi.ident, pat.ty.as_ref()));
-                }
+            if let syn::FnArg::Typed(pat) = p
+                && let syn::Pat::Ident(pi) = pat.pat.as_ref() {
+                return Some((&pi.ident, pat.ty.as_ref()));
             }
             None
         })
@@ -574,7 +572,7 @@ fn generate_kernel_registration(
                     tp.path
                         .segments
                         .last()
-                        .map_or(false, |s| s.ident == "Value")
+                        .is_some_and(|s| s.ident == "Value")
                 } else {
                     false
                 }
@@ -670,11 +668,7 @@ fn generate_kernel_registration(
     };
 
     // Determine vectorized implementation (registered separately by vectorized_kernel_fn)
-    let vectorized_impl = if vectorized {
-        quote! { None }
-    } else {
-        quote! { None }
-    };
+    let vectorized_impl = quote! { None };
 
     // Parse unit inference specification
     let unit_inference_value = if let Some(ui_str) = unit_inference {
@@ -1001,14 +995,13 @@ fn generate_vectorized_registration(
 
     let params: Vec<_> = func.sig.inputs.iter().collect();
     let has_dt = params.iter().any(|p| {
-        if let syn::FnArg::Typed(pat) = p {
-            if let syn::Type::Path(tp) = pat.ty.as_ref() {
-                return tp
-                    .path
-                    .segments
-                    .last()
-                    .map_or(false, |seg| seg.ident == "Dt");
-            }
+        if let syn::FnArg::Typed(pat) = p
+            && let syn::Type::Path(tp) = pat.ty.as_ref() {
+            return tp
+                .path
+                .segments
+                .last()
+                .is_some_and(|seg| seg.ident == "Dt");
         }
         false
     });

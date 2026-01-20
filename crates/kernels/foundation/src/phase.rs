@@ -62,25 +62,25 @@ use serde::{Deserialize, Serialize};
 #[repr(u8)]
 pub enum Phase {
     // === Initialization phases (run once) ===
-    /// Gather config values from scenario
+    /// Gather configuration values from the scenario manifest.
     CollectConfig = 0,
-    /// Set initial signal values from configs
+    /// Set initial signal values derived from configuration.
     Initialize = 1,
-    /// Run ticks until convergence (see WarmUpPolicy)
+    /// Run simulation ticks until state convergence is achieved.
     WarmUp = 2,
 
     // === Tick phases (run every step) ===
-    /// Finalize per-tick execution context
+    /// Finalize per-tick execution context and freeze derived configuration.
     Configure = 3,
-    /// Gather inputs to signals, apply impulses
+    /// Accumulate signal inputs and apply external impulses.
     Collect = 4,
-    /// Compute authoritative state
+    /// Compute authoritative simulation state (resolved signals).
     Resolve = 5,
-    /// Detect and respond to tension
+    /// Detect emergent tension and respond with structural changes (spawn/destroy).
     Fracture = 6,
-    /// Produce observations (fields)
+    /// Produce derived observations and spatial fields for observers.
     Measure = 7,
-    /// Validate invariants (has Prev + Current for deltas)
+    /// Validate simulation invariants and detect runaway states.
     Assert = 8,
 }
 
@@ -88,7 +88,7 @@ pub enum Phase {
 ///
 /// Determines the deterministic response of the simulation engine when an
 /// assertion condition evaluates to `false`.
-#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize, Default)]
 #[repr(u8)]
 pub enum AssertionSeverity {
     /// Non-fatal violation. The failure is logged as a warning, but
@@ -96,41 +96,40 @@ pub enum AssertionSeverity {
     Warn = 0,
     /// Standard error. Simulation may continue or halt depending on the
     /// global fault policy defined in the world manifest.
+    #[default]
     Error = 1,
     /// Critical failure. Simulation execution is immediately halted to
     /// prevent cascading causal instability or non-deterministic outcomes.
     Fatal = 2,
 }
 
-impl Default for AssertionSeverity {
-    fn default() -> Self {
-        Self::Error
-    }
-}
-
 /// Context capability available during execution.
+///
+/// Capabilities define the set of operations and context values accessible to
+/// a kernel or operator. This is enforced at both compile time (DSL) and
+/// runtime (bytecode VM).
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Hash, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum Capability {
-    /// Access to config/const values
+    /// Access to world configuration and global constants.
     Scoping = 0,
-    /// Signal read access
+    /// Read-only access to current signal values.
     Signals = 1,
-    /// Previous tick value
+    /// Access to the previous tick's value for the current signal.
     Prev = 2,
-    /// Just-resolved value
+    /// Access to the just-resolved value for the current signal.
     Current = 3,
-    /// Accumulated inputs
+    /// Access to accumulated inputs during the Resolve phase.
     Inputs = 4,
-    /// Time step
+    /// Access to the simulation timestep (dt).
     Dt = 5,
-    /// Impulse payload
+    /// Access to the data payload associated with an impulse.
     Payload = 6,
-    /// Emit to signal
+    /// Ability to emit values to signals (Collect/Fracture phases).
     Emit = 7,
-    /// Entity self-reference
+    /// Access to the identity of the current entity instance (self).
     Index = 8,
-    /// Field read access (observer-only)
+    /// Read-only access to spatial fields (Measure phase only).
     Fields = 9,
 }
 

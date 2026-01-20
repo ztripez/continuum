@@ -7,22 +7,29 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+/// Represents a hierarchical path used for identifying simulation symbols.
+///
+/// Paths are composed of dot-separated segments (e.g., "geophysics.elevation").
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Path {
+    /// Ordered segments of the hierarchical path.
     pub segments: Vec<String>,
 }
 
 impl Path {
+    /// Creates a new Path from a list of segments.
     pub fn new(segments: Vec<String>) -> Self {
         Self { segments }
     }
 
-    pub fn from_str(s: &str) -> Self {
+    /// Creates a new Path from a dot-separated string.
+    pub fn from_path_str(s: &str) -> Self {
         Self {
             segments: s.split('.').map(String::from).collect(),
         }
     }
 
+    /// Joins the path segments into a single string using the specified separator.
     pub fn join(&self, sep: &str) -> String {
         self.segments.join(sep)
     }
@@ -36,19 +43,19 @@ impl fmt::Display for Path {
 
 impl From<&str> for Path {
     fn from(s: &str) -> Self {
-        Self::from_str(s)
+        Self::from_path_str(s)
     }
 }
 
 impl From<String> for Path {
     fn from(s: String) -> Self {
-        Self::from_str(&s)
+        Self::from_path_str(&s)
     }
 }
 
 impl PartialEq<&str> for Path {
     fn eq(&self, other: &&str) -> bool {
-        self.to_string() == *other
+        self.segments.join(".") == *other
     }
 }
 
@@ -65,14 +72,17 @@ macro_rules! define_id {
         pub struct $name(pub Path);
 
         impl $name {
+            /// Creates a new identifier from a path.
             pub fn new(p: impl Into<Path>) -> Self {
                 Self(p.into())
             }
 
+            /// Returns the identifier as a string.
             pub fn as_str(&self) -> String {
                 self.0.to_string()
             }
 
+            /// Returns a reference to the underlying path.
             pub fn path(&self) -> &Path {
                 &self.0
             }
@@ -86,13 +96,13 @@ macro_rules! define_id {
 
         impl From<&str> for $name {
             fn from(s: &str) -> Self {
-                Self(Path::from_str(s))
+                Self(Path::from_path_str(s))
             }
         }
 
         impl From<String> for $name {
             fn from(s: String) -> Self {
-                Self(Path::from_str(&s))
+                Self(Path::from_path_str(&s))
             }
         }
 

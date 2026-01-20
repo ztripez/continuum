@@ -231,9 +231,11 @@ pub enum Arity {
 /// we use string-based descriptors that the dimension analyzer interprets.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnitInference {
-    /// Output is dimensionless (e.g., sin, cos, tan)
-    /// If requires_angle is true, input must be angle or dimensionless
-    Dimensionless { requires_angle: bool },
+    /// Output is dimensionless (e.g., sin, cos, tan).
+    Dimensionless {
+        /// If true, input must be an angle or dimensionless.
+        requires_angle: bool,
+    },
 
     /// Output has same unit as first argument (e.g., abs, min, max, clamp)
     /// All arguments must have matching units

@@ -6,10 +6,15 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
 
-/// Dynamic tensor with Arc-based storage for cheap cloning
+/// Dynamic tensor with Arc-based storage for cheap cloning.
+///
+/// Tensors represent multi-dimensional numeric data, typically used for
+/// large datasets or spatial grids.
 #[derive(Clone, Debug)]
 pub struct TensorData {
+    /// Number of rows in the tensor.
     pub rows: usize,
+    /// Number of columns in the tensor.
     pub cols: usize,
     #[allow(dead_code)]
     pub(crate) data: Arc<[f64]>, // Row-major storage

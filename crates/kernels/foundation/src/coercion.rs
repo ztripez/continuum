@@ -4,12 +4,16 @@
 
 use crate::primitives::{PrimitiveShape, PrimitiveTypeId};
 
-/// Binary operations for type checking (subset of full BinaryOp)
+/// Binary operations for type checking (subset of full BinaryOp).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TypeCheckOp {
+    /// Addition (+).
     Add,
+    /// Subtraction (-).
     Sub,
+    /// Multiplication (*).
     Mul,
+    /// Division (/).
     Div,
 }
 

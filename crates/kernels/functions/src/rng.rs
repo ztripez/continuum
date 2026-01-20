@@ -430,7 +430,7 @@ mod tests {
             .unwrap();
 
             assert!(
-                result >= 10.0 && result < 20.0,
+                (10.0..20.0).contains(&result),
                 "Value {} out of range",
                 result
             );
@@ -483,7 +483,7 @@ mod tests {
             .as_int()
             .unwrap();
 
-            assert!(result >= 5 && result <= 10, "Value {} out of range", result);
+            assert!((5..=10).contains(&result), "Value {} out of range", result);
         }
     }
 

@@ -5,9 +5,14 @@
 use continuum_foundation::{Mat3, Mat4};
 use continuum_kernel_macros::kernel_fn;
 
-/// Build rotation matrix from quaternion: `from_quat(q)` -> Mat3
+/// Builds a 3x3 rotation matrix from a quaternion.
 ///
-/// Input quaternion is in [x, y, z, w] order and will be normalized before conversion.
+/// # Parameters
+/// - `q`: Input quaternion in `[x, y, z, w]` order. It will be normalized
+///   before conversion to ensure a valid rotation matrix.
+///
+/// # Returns
+/// A 3x3 rotation [`Mat3`].
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -28,7 +33,14 @@ pub fn from_quat(q: [f64; 4]) -> Mat3 {
     crate::quat::to_mat3(normalized)
 }
 
-/// Build rotation matrix from axis-angle: `from_axis_angle(axis, angle)` -> Mat3
+/// Builds a 3x3 rotation matrix from an axis and an angle.
+///
+/// # Parameters
+/// - `axis`: The rotation axis as a 3D vector. It will be normalized.
+/// - `angle`: The rotation angle in radians.
+///
+/// # Returns
+/// A 3x3 rotation [`Mat3`].
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -44,8 +56,15 @@ pub fn from_axis_angle(axis: [f64; 3], angle: f64) -> Mat3 {
     crate::quat::to_mat3(quat)
 }
 
-/// Scale matrix: `scale(x, y, z)` -> Mat4
 /// Creates a 4x4 scaling transformation matrix.
+///
+/// # Parameters
+/// - `x`: Scale factor along the X axis.
+/// - `y`: Scale factor along the Y axis.
+/// - `z`: Scale factor along the Z axis.
+///
+/// # Returns
+/// A 4x4 scaling [`Mat4`].
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -66,8 +85,15 @@ pub fn scale(x: f64, y: f64, z: f64) -> Mat4 {
     ])
 }
 
-/// Translation matrix: `translation(x, y, z)` -> Mat4
 /// Creates a 4x4 translation transformation matrix.
+///
+/// # Parameters
+/// - `x`: Translation along the X axis.
+/// - `y`: Translation along the Y axis.
+/// - `z`: Translation along the Z axis.
+///
+/// # Returns
+/// A 4x4 translation [`Mat4`].
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -88,9 +114,13 @@ pub fn translation(x: f64, y: f64, z: f64) -> Mat4 {
     ])
 }
 
-/// Rotation around X axis: `rotation_x(angle)` -> Mat4
 /// Creates a 4x4 rotation matrix around the X axis.
-/// Angle is in radians.
+///
+/// # Parameters
+/// - `angle`: Rotation angle in radians.
+///
+/// # Returns
+/// A 4x4 rotation [`Mat4`].
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -113,9 +143,13 @@ pub fn rotation_x(angle: f64) -> Mat4 {
     ])
 }
 
-/// Rotation around Y axis: `rotation_y(angle)` -> Mat4
 /// Creates a 4x4 rotation matrix around the Y axis.
-/// Angle is in radians.
+///
+/// # Parameters
+/// - `angle`: Rotation angle in radians.
+///
+/// # Returns
+/// A 4x4 rotation [`Mat4`].
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -138,9 +172,13 @@ pub fn rotation_y(angle: f64) -> Mat4 {
     ])
 }
 
-/// Rotation around Z axis: `rotation_z(angle)` -> Mat4
 /// Creates a 4x4 rotation matrix around the Z axis.
-/// Angle is in radians.
+///
+/// # Parameters
+/// - `angle`: Rotation angle in radians.
+///
+/// # Returns
+/// A 4x4 rotation [`Mat4`].
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",

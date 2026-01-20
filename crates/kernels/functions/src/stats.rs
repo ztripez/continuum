@@ -1,189 +1,178 @@
-//! Statistical Analysis Functions
+//! Statistical Analysis Functions.
 //!
-//! Functions for computing descriptive statistics.
-//! These are designed to work in analyzer contexts with field sample collections.
+//! This module defines the signature for statistical kernels used in DSL
+//! expressions, primarily within analyzer contexts.
 //!
-//! NOTE: These are placeholder registrations. The actual implementation will be
-//! in the analyzer executor, which will provide FieldSamples types that support
-//! these operations. This module registers the function names in the kernel registry.
+//! # Implementation Note
+//!
+//! These functions are currently **placeholders** registered in the kernel
+//! registry. The actual execution logic is provided by the analyzer executor,
+//! which handles specialized `FieldSamples` types that are not yet available
+//! in the base kernel runtime.
+//!
+//! Each placeholder returns 0.0 but allows the DSL compiler to validate
+//! calls and perform dimensional analysis during the resolution phase.
 
 use continuum_kernel_macros::kernel_fn;
 
-/// Placeholder: Compute mean (average)
+/// Computes the arithmetic mean of a collection of samples.
 ///
-/// In analyzer context: `let m = stats.mean(field_samples)`
-/// Returns the arithmetic mean of all sample values.
+/// This kernel is intended for use in analyzers to calculate the average
+/// value of a field over a given region or set of entities.
 ///
-/// Returns 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder. The analyzer runtime will provide the
+/// actual reduction logic.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn mean_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute median (middle value)
+/// Computes the median value of a collection of samples.
 ///
-/// In analyzer context: `let med = stats.median(field_samples)`
-/// For even-length collections, returns average of two middle values.
+/// For even-length collections, this will eventually return the average
+/// of the two middle values after sorting.
 ///
-/// Returns 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn median_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Get minimum value
+/// Returns the minimum value in a collection of samples.
 ///
-/// In analyzer context: `let min_val = stats.min(field_samples)`
-///
-/// Returns 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn min_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Get maximum value
+/// Returns the maximum value in a collection of samples.
 ///
-/// In analyzer context: `let max_val = stats.max(field_samples)`
-///
-/// Returns 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn max_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Get sum of all values
+/// Computes the sum of all sample values in a collection.
 ///
-/// In analyzer context: `let total = stats.sum(field_samples)`
-///
-/// Returns 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn sum_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Get count of values
+/// Returns the number of samples in a collection.
 ///
-/// In analyzer context: `let n = stats.count(field_samples)`
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats")]
 pub fn count_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute range (max - min)
+/// Computes the range (max - min) of a collection of samples.
 ///
-/// In analyzer context: `let r = stats.range(field_samples)`
-///
-/// Returns 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn range_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute population variance
+/// Computes the population variance of a collection of samples.
 ///
-/// In analyzer context: `let var = stats.variance(field_samples)`
-///
-/// Returns 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn variance_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute population standard deviation
+/// Computes the population standard deviation of a collection of samples.
 ///
-/// In analyzer context: `let std = stats.std_dev(field_samples)`
-///
-/// Returns 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn std_dev_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute percentile
+/// Computes a specific percentile (0-100) for a collection of samples.
 ///
-/// In analyzer context: `let p25 = stats.percentile(field_samples, 25)`
-///
-/// p: percentile value (0-100)
-///
-/// Returns 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn percentile_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute Pearson correlation coefficient
+/// Computes the Pearson correlation coefficient between two sample collections.
 ///
-/// In analyzer context: `let r = stats.correlation(samples_x, samples_y)`
+/// Returns a value in the range [-1, 1] representing the linear correlation.
 ///
-/// Returns value in [-1, 1]:
-/// - 1.0: perfect positive correlation
-/// - 0.0: no correlation
-/// - -1.0: perfect negative correlation
-///
-/// Returns 0.0 if inputs invalid or empty.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats")]
 pub fn correlation_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute covariance
+/// Computes the covariance between two sample collections.
 ///
-/// In analyzer context: `let cov = stats.covariance(samples_x, samples_y)`
-///
-/// Returns 0.0 if inputs invalid or empty.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn covariance_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute weighted mean
-///
-/// In analyzer context: `let wmean = stats.weighted_mean(values, weights)`
+/// Computes the weighted mean of a collection of values using associated weights.
 ///
 /// Formula: Σ(value * weight) / Σ(weight)
 ///
-/// Returns 0.0 if inputs invalid or empty.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats", unit_inference = "preserve_first")]
 pub fn weighted_mean_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute histogram bins
+/// Computes histogram counts for a collection of samples given a set of boundaries.
 ///
-/// In analyzer context: `let bins = stats.histogram(field_samples, [0, 50, 100, 150, ...])`
-///
-/// With n+1 boundaries, returns n bins with counts for each range.
-///
-/// Returns empty for invalid inputs.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats")]
 pub fn histogram_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
     0.0
 }
 
-/// Placeholder: Compute comprehensive statistics
+/// Computes a comprehensive set of descriptive statistics for a collection.
 ///
-/// In analyzer context: `let stats_obj = stats.compute(field_samples)`
+/// This typically returns a structured object containing mean, median,
+/// std_dev, etc., in a single pass.
 ///
-/// Returns a structure with:
-/// - count, min, max, mean, median
-/// - std_dev, variance
-/// - percentiles: p5, p25, p75, p95
-///
-/// All fields return 0.0 for empty collections.
+/// # Returns
+/// Returns 0.0 as a placeholder.
 #[kernel_fn(namespace = "stats")]
 pub fn compute_placeholder() -> f64 {
     // Placeholder - actual implementation in analyzer executor
@@ -198,6 +187,5 @@ mod tests {
     #[test]
     fn test_stats_registered() {
         // Just verify the module loads
-        assert!(true);
     }
 }

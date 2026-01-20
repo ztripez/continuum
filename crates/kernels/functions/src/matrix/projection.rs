@@ -5,15 +5,21 @@
 use continuum_foundation::Mat4;
 use continuum_kernel_macros::kernel_fn;
 
-/// Perspective projection matrix: `perspective(fov_y, aspect, near, far)` -> Mat4
+/// Creates a perspective projection matrix.
 ///
-/// Creates a perspective projection matrix (OpenGL-style, right-handed, depth [-1, 1]).
+/// Generates a right-handed perspective matrix (OpenGL-style, depth range [-1, 1]).
 ///
-/// # Arguments
-/// * `fov_y` - Vertical field of view in radians
-/// * `aspect` - Aspect ratio (width / height)
-/// * `near` - Near clipping plane distance (positive)
-/// * `far` - Far clipping plane distance (positive)
+/// # Parameters
+/// - `fov_y`: Vertical field of view in radians. Must be in (0, π).
+/// - `aspect`: Aspect ratio (width / height). Must be positive.
+/// - `near`: Distance to the near clipping plane. Must be positive.
+/// - `far`: Distance to the far clipping plane. Must be greater than `near`.
+///
+/// # Returns
+/// A 4x4 perspective projection [`Mat4`].
+///
+/// # Panics
+/// Panics if input constraints are violated.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -70,17 +76,23 @@ pub fn perspective(fov_y: f64, aspect: f64, near: f64, far: f64) -> Mat4 {
     ])
 }
 
-/// Orthographic projection matrix: `orthographic(left, right, bottom, top, near, far)` -> Mat4
+/// Creates an orthographic projection matrix.
 ///
-/// Creates an orthographic projection matrix (OpenGL-style, right-handed, depth [-1, 1]).
+/// Generates a right-handed orthographic matrix (OpenGL-style, depth range [-1, 1]).
 ///
-/// # Arguments
-/// * `left` - Left clipping plane
-/// * `right` - Right clipping plane
-/// * `bottom` - Bottom clipping plane
-/// * `top` - Top clipping plane
-/// * `near` - Near clipping plane
-/// * `far` - Far clipping plane
+/// # Parameters
+/// - `left`: Left clipping plane.
+/// - `right`: Right clipping plane.
+/// - `bottom`: Bottom clipping plane.
+/// - `top`: Top clipping plane.
+/// - `near`: Near clipping plane.
+/// - `far`: Far clipping plane.
+///
+/// # Returns
+/// A 4x4 orthographic projection [`Mat4`].
+///
+/// # Panics
+/// Panics if parallel planes are provided (e.g., `left == right`).
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -135,14 +147,22 @@ pub fn orthographic(left: f64, right: f64, bottom: f64, top: f64, near: f64, far
     ])
 }
 
-/// Look-at view matrix: `look_at(eye, target, up)` -> Mat4
+/// Creates a look-at view matrix.
 ///
-/// Creates a view matrix that looks from `eye` position towards `target` with `up` vector.
+/// Generates a view matrix that looks from `eye` towards `target`, oriented with `up`.
 ///
-/// # Arguments
-/// * `eye` - Camera position as Vec3
-/// * `target` - Target position to look at as Vec3
-/// * `up` - Up direction as Vec3 (usually [0, 1, 0])
+/// # Parameters
+/// - `eye`: Camera position as a 3D vector.
+/// - `target`: Target position to look at as a 3D vector.
+/// - `up`: Up direction vector (normalized direction, usually [0, 1, 0]).
+///
+/// # Returns
+/// A 4x4 look-at view [`Mat4`].
+///
+/// # Panics
+/// Panics if:
+/// - `eye` and `target` are at the same position.
+/// - `up` is parallel to the view direction.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",

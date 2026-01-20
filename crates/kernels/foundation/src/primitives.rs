@@ -47,39 +47,73 @@ impl<'de> Deserialize<'de> for PrimitiveTypeId {
 /// High-level shape for a primitive type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PrimitiveShape {
+    /// A single numeric value.
     Scalar,
-    Vector { dim: u8 },
-    Matrix { rows: u8, cols: u8 },
+    /// A fixed-size vector of numeric values.
+    Vector {
+        /// The number of components in the vector.
+        dim: u8,
+    },
+    /// A fixed-size matrix of numeric values.
+    Matrix {
+        /// The number of rows in the matrix.
+        rows: u8,
+        /// The number of columns in the matrix.
+        cols: u8,
+    },
+    /// A dense multi-dimensional array of numeric values.
     Tensor,
+    /// A spatially organized grid of values.
     Grid,
+    /// A variable-length sequence of values.
     Seq,
 }
 
 /// Storage class for runtime value buffers.
+///
+/// Defines the memory layout and alignment used for storing values of a primitive type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PrimitiveStorageClass {
+    /// Stored as a single f64 or i64.
     Scalar,
+    /// Stored as an array of 2 f64s.
     Vec2,
+    /// Stored as an array of 3 f64s.
     Vec3,
+    /// Stored as an array of 4 f64s.
     Vec4,
+    /// Stored as an array of 4 f64s (2x2 matrix).
     Mat2,
+    /// Stored as an array of 9 f64s (3x3 matrix).
     Mat3,
+    /// Stored as an array of 16 f64s (4x4 matrix).
     Mat4,
+    /// Stored as a heap-allocated tensor buffer.
     Tensor,
+    /// Stored as a heap-allocated grid buffer.
     Grid,
+    /// Stored as a heap-allocated vector of values.
     Seq,
 }
 
 /// Parameter kinds that can appear in primitive type declarations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum PrimitiveParamKind {
+    /// Physical unit (e.g., meters, seconds).
     Unit,
+    /// Valid range of values (min/max).
     Range,
+    /// Vector magnitude constraint.
     Magnitude,
+    /// Number of rows in a tensor or matrix.
     Rows,
+    /// Number of columns in a tensor or matrix.
     Cols,
+    /// Width of a grid.
     Width,
+    /// Height of a grid.
     Height,
+    /// Type of elements in a container (Grid, Seq).
     ElementType,
 }
 

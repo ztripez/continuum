@@ -4,7 +4,6 @@
 
 use continuum_foundation::{Mat2, Mat3, Mat4};
 use continuum_kernel_macros::kernel_fn;
-use nalgebra as na;
 
 use super::utils::{from_na_mat4, to_na_mat4};
 
@@ -20,8 +19,12 @@ fn frobenius_norm_mat3(m: &Mat3) -> f64 {
     m.0.iter().map(|x| x * x).sum::<f64>().sqrt()
 }
 
-/// Identity 2x2 matrix: `identity2()`
-/// Returns column-major: [1, 0, 0, 1]
+/// Returns a 2x2 identity matrix.
+///
+/// The identity matrix has ones on the main diagonal and zeros elsewhere.
+///
+/// # Returns
+/// A [`Mat2`] containing the identity matrix in column-major order: `[1.0, 0.0, 0.0, 1.0]`.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -35,8 +38,12 @@ pub fn identity2() -> Mat2 {
     Mat2([1.0, 0.0, 0.0, 1.0])
 }
 
-/// Identity 3x3 matrix: `identity3()`
-/// Returns column-major: [1, 0, 0, 0, 1, 0, 0, 0, 1]
+/// Returns a 3x3 identity matrix.
+///
+/// The identity matrix has ones on the main diagonal and zeros elsewhere.
+///
+/// # Returns
+/// A [`Mat3`] containing the identity matrix in column-major order.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -50,8 +57,12 @@ pub fn identity3() -> Mat3 {
     Mat3([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
 }
 
-/// Identity 4x4 matrix: `identity4()`
-/// Returns column-major: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]
+/// Returns a 4x4 identity matrix.
+///
+/// The identity matrix has ones on the main diagonal and zeros elsewhere.
+///
+/// # Returns
+/// A [`Mat4`] containing the identity matrix in column-major order.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -67,8 +78,15 @@ pub fn identity4() -> Mat4 {
     ])
 }
 
-/// Transpose a matrix: `transpose_mat2(m)`
-/// Converts column-major to row-major order (or vice versa)
+/// Computes the transpose of a 2x2 matrix.
+///
+/// Swaps the rows and columns of the input matrix.
+///
+/// # Parameters
+/// - `mat`: The 2x2 matrix to transpose.
+///
+/// # Returns
+/// The transposed 2x2 matrix.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -82,8 +100,15 @@ pub fn transpose_mat2(mat: Mat2) -> Mat2 {
     Mat2([mat.0[0], mat.0[2], mat.0[1], mat.0[3]])
 }
 
-/// Transpose a matrix: `transpose_mat3(m)`
-/// Converts column-major to row-major order (or vice versa)
+/// Computes the transpose of a 3x3 matrix.
+///
+/// Swaps the rows and columns of the input matrix.
+///
+/// # Parameters
+/// - `mat`: The 3x3 matrix to transpose.
+///
+/// # Returns
+/// The transposed 3x3 matrix.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -99,8 +124,15 @@ pub fn transpose_mat3(mat: Mat3) -> Mat3 {
     ])
 }
 
-/// Transpose a matrix: `transpose_mat4(m)`
-/// Converts column-major to row-major order (or vice versa)
+/// Computes the transpose of a 4x4 matrix.
+///
+/// Swaps the rows and columns of the input matrix.
+///
+/// # Parameters
+/// - `mat`: The 4x4 matrix to transpose.
+///
+/// # Returns
+/// The transposed 4x4 matrix.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -117,7 +149,13 @@ pub fn transpose_mat4(mat: Mat4) -> Mat4 {
     ])
 }
 
-/// Determinant of a matrix: `determinant_mat2(m)` -> Scalar
+/// Computes the determinant of a 2x2 matrix.
+///
+/// # Parameters
+/// - `mat`: The 2x2 matrix to evaluate.
+///
+/// # Returns
+/// The determinant as a scalar value.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -131,7 +169,13 @@ pub fn determinant_mat2(mat: Mat2) -> f64 {
     mat.0[0] * mat.0[3] - mat.0[2] * mat.0[1]
 }
 
-/// Determinant of a matrix: `determinant_mat3(m)` -> Scalar
+/// Computes the determinant of a 3x3 matrix.
+///
+/// # Parameters
+/// - `mat`: The 3x3 matrix to evaluate.
+///
+/// # Returns
+/// The determinant as a scalar value.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -155,7 +199,13 @@ pub fn determinant_mat3(mat: Mat3) -> f64 {
     m00 * (m11 * m22 - m21 * m12) - m01 * (m10 * m22 - m20 * m12) + m02 * (m10 * m21 - m20 * m11)
 }
 
-/// Determinant of a matrix: `determinant_mat4(m)` -> Scalar
+/// Computes the determinant of a 4x4 matrix.
+///
+/// # Parameters
+/// - `mat`: The 4x4 matrix to evaluate.
+///
+/// # Returns
+/// The determinant as a scalar value.
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -209,7 +259,6 @@ pub fn determinant_mat4(mat: Mat4) -> f64 {
 pub fn inverse_mat2(mat: Mat2) -> Mat2 {
     let det = determinant_mat2(Mat2(mat.0));
     let norm = frobenius_norm_mat2(&mat);
-    // Epsilon must scale as norm^n where n=dimension, since det(cA) = c^n * det(A)
     let eps = f64::EPSILON * 100.0 * norm * norm;
 
     if det.abs() < eps {
@@ -251,7 +300,6 @@ pub fn inverse_mat3(mat: Mat3) -> Mat3 {
 
     let det = determinant_mat3(Mat3(mat.0));
     let norm = frobenius_norm_mat3(&mat);
-    // Epsilon must scale as norm^n where n=dimension, since det(cA) = c^n * det(A)
     let eps = f64::EPSILON * 100.0 * norm * norm * norm;
 
     if det.abs() < eps {
@@ -300,7 +348,6 @@ pub fn inverse_mat4(mat: Mat4) -> Mat4 {
 }
 
 /// Matrix multiply: `mul_mat2(a, b)` -> Mat2
-/// Explicit function for matrix multiplication (alternative to a * b operator)
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -319,7 +366,6 @@ pub fn mul_mat2(a: Mat2, b: Mat2) -> Mat2 {
 }
 
 /// Matrix multiply: `mul_mat3(a, b)` -> Mat3
-/// Explicit function for matrix multiplication (alternative to a * b operator)
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",
@@ -338,7 +384,6 @@ pub fn mul_mat3(a: Mat3, b: Mat3) -> Mat3 {
 }
 
 /// Matrix multiply: `mul_mat4(a, b)` -> Mat4
-/// Explicit function for matrix multiplication (alternative to a * b operator)
 #[kernel_fn(
     namespace = "matrix",
     category = "matrix",

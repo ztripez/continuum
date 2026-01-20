@@ -130,7 +130,9 @@ pub static KERNEL_SIGNATURES: [KernelSignature];
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct KernelId {
+    /// Kernel namespace (empty string for bare names).
     pub namespace: std::borrow::Cow<'static, str>,
+    /// Unique kernel name within the namespace.
     pub name: std::borrow::Cow<'static, str>,
 }
 
@@ -309,9 +311,11 @@ pub enum ShapeConstraint {
     /// Vector with constrained dimension
     VectorDim(DimConstraint),
 
-    /// Matrix with constrained dimensions
+    /// Matrix with constrained dimensions.
     MatrixDims {
+        /// Row dimension constraint.
         rows: DimConstraint,
+        /// Column dimension constraint.
         cols: DimConstraint,
     },
 }
@@ -440,9 +444,11 @@ pub enum ShapeDerivation {
     /// Vector with dimension from constraint
     VectorDim(DimConstraint),
 
-    /// Matrix with dimensions from constraints
+    /// Matrix with constrained dimensions from constraints.
     MatrixDims {
+        /// Row dimension constraint.
         rows: DimConstraint,
+        /// Column dimension constraint.
         cols: DimConstraint,
     },
 }
