@@ -41,6 +41,7 @@
 //! ```
 
 pub mod checkpoint;
+pub mod bytecode;
 pub mod dag;
 pub mod error;
 pub mod executor;
@@ -53,6 +54,10 @@ pub mod vectorized;
 
 pub use error::{Error, Result};
 pub use executor::cost_model::{ComplexityScore, ComplexityThresholds, CostModel, CostWeights};
+pub use bytecode::{
+    BytecodeExecutor, CompiledBlock, Compiler, ExecutionContext, ExecutionError, ExecutionRuntime,
+    Instruction, OpcodeKind, OpcodeMetadata,
+};
 pub use executor::{
     AssertContext, AssertionChecker, AssertionFn, AssertionSeverity, ChunkConfig, CollectContext,
     CollectFn, EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, LaneKernel,
