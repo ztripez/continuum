@@ -6,6 +6,8 @@ use continuum_foundation::{Mat2, Mat3, Mat4};
 use continuum_kernel_macros::kernel_fn;
 use nalgebra as na;
 
+use super::utils::*;
+
 /// Sort eigenvalues in descending order by magnitude
 fn sort_eigenvalues_desc<const N: usize>(mut vals: [f64; N]) -> [f64; N] {
     vals.sort_by(|a, b| b.partial_cmp(a).unwrap());
@@ -184,7 +186,7 @@ pub fn eigenvalues_mat3(arr: Mat3) -> [f64; 3] {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn eigenvalues_mat4(arr: Mat4) -> [f64; 4] {
-    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let mat = to_na_mat4(&arr);
     let eig = mat.symmetric_eigen();
     sort_eigenvalues_desc([
         eig.eigenvalues[0],
@@ -408,7 +410,7 @@ fn cross3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn eigenvectors_mat4(arr: Mat4) -> Mat4 {
-    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let mat = to_na_mat4(&arr);
     let eig = mat.symmetric_eigen();
     let mut pairs: Vec<_> = eig
         .eigenvalues
@@ -422,7 +424,7 @@ pub fn eigenvectors_mat4(arr: Mat4) -> Mat4 {
     let v2 = na::Vector4::from_iterator(pairs[2].1.iter().cloned());
     let v3 = na::Vector4::from_iterator(pairs[3].1.iter().cloned());
     let result = na::Matrix4::from_columns(&[v0, v1, v2, v3]);
-    Mat4(result.as_slice().try_into().unwrap())
+    from_na_mat4(result)
 }
 
 /// SVD - U matrix: `svd_u_mat2(m)` -> Mat2
@@ -447,10 +449,10 @@ pub fn eigenvectors_mat4(arr: Mat4) -> Mat4 {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_u_mat2(arr: Mat2) -> Mat2 {
-    let mat = na::Matrix2::from_column_slice(&arr.0);
+    let mat = to_na_mat2(&arr);
     let svd = mat.svd(true, false);
     let u = svd.u.unwrap();
-    Mat2(u.as_slice().try_into().unwrap())
+    from_na_mat2(u)
 }
 
 /// SVD - U matrix: `svd_u_mat3(m)` -> Mat3
@@ -475,10 +477,10 @@ pub fn svd_u_mat2(arr: Mat2) -> Mat2 {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_u_mat3(arr: Mat3) -> Mat3 {
-    let mat = na::Matrix3::from_column_slice(&arr.0);
+    let mat = to_na_mat3(&arr);
     let svd = mat.svd(true, false);
     let u = svd.u.unwrap();
-    Mat3(u.as_slice().try_into().unwrap())
+    from_na_mat3(u)
 }
 
 /// SVD - U matrix: `svd_u_mat4(m)` -> Mat4
@@ -503,10 +505,10 @@ pub fn svd_u_mat3(arr: Mat3) -> Mat3 {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_u_mat4(arr: Mat4) -> Mat4 {
-    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let mat = to_na_mat4(&arr);
     let svd = mat.svd(true, false);
     let u = svd.u.unwrap();
-    Mat4(u.as_slice().try_into().unwrap())
+    from_na_mat4(u)
 }
 
 /// SVD - singular values: `svd_s_mat2(m)` -> Vec2
@@ -527,7 +529,7 @@ pub fn svd_u_mat4(arr: Mat4) -> Mat4 {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_s_mat2(arr: Mat2) -> [f64; 2] {
-    let mat = na::Matrix2::from_column_slice(&arr.0);
+    let mat = to_na_mat2(&arr);
     let svd = mat.svd(false, false);
     [svd.singular_values[0], svd.singular_values[1]]
 }
@@ -550,7 +552,7 @@ pub fn svd_s_mat2(arr: Mat2) -> [f64; 2] {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_s_mat3(arr: Mat3) -> [f64; 3] {
-    let mat = na::Matrix3::from_column_slice(&arr.0);
+    let mat = to_na_mat3(&arr);
     let svd = mat.svd(false, false);
     [
         svd.singular_values[0],
@@ -577,7 +579,7 @@ pub fn svd_s_mat3(arr: Mat3) -> [f64; 3] {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_s_mat4(arr: Mat4) -> [f64; 4] {
-    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let mat = to_na_mat4(&arr);
     let svd = mat.svd(false, false);
     [
         svd.singular_values[0],
@@ -609,10 +611,10 @@ pub fn svd_s_mat4(arr: Mat4) -> [f64; 4] {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_vt_mat2(arr: Mat2) -> Mat2 {
-    let mat = na::Matrix2::from_column_slice(&arr.0);
+    let mat = to_na_mat2(&arr);
     let svd = mat.svd(false, true);
     let vt = svd.v_t.unwrap();
-    Mat2(vt.as_slice().try_into().unwrap())
+    from_na_mat2(vt)
 }
 
 /// SVD - V^T matrix: `svd_vt_mat3(m)` -> Mat3
@@ -637,10 +639,10 @@ pub fn svd_vt_mat2(arr: Mat2) -> Mat2 {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_vt_mat3(arr: Mat3) -> Mat3 {
-    let mat = na::Matrix3::from_column_slice(&arr.0);
+    let mat = to_na_mat3(&arr);
     let svd = mat.svd(false, true);
     let vt = svd.v_t.unwrap();
-    Mat3(vt.as_slice().try_into().unwrap())
+    from_na_mat3(vt)
 }
 
 /// SVD - V^T matrix: `svd_vt_mat4(m)` -> Mat4
@@ -665,8 +667,8 @@ pub fn svd_vt_mat3(arr: Mat3) -> Mat3 {
     unit_out = UnitDerivSameAs(0)
 )]
 pub fn svd_vt_mat4(arr: Mat4) -> Mat4 {
-    let mat = na::Matrix4::from_column_slice(&arr.0);
+    let mat = to_na_mat4(&arr);
     let svd = mat.svd(false, true);
     let vt = svd.v_t.unwrap();
-    Mat4(vt.as_slice().try_into().unwrap())
+    from_na_mat4(vt)
 }

@@ -6,6 +6,8 @@ use continuum_foundation::{Mat2, Mat3, Mat4};
 use continuum_kernel_macros::kernel_fn;
 use nalgebra as na;
 
+use super::utils::{from_na_mat4, to_na_mat4};
+
 /// Compute Frobenius norm of a 2x2 matrix (sqrt of sum of squares of all elements)
 /// Used for scale-invariant singularity checks
 fn frobenius_norm_mat2(m: &Mat2) -> f64 {
@@ -286,10 +288,10 @@ pub fn inverse_mat3(mat: Mat3) -> Mat3 {
     unit_out = Inverse(0)
 )]
 pub fn inverse_mat4(mat: Mat4) -> Mat4 {
-    let m = na::Matrix4::from_column_slice(&mat.0);
+    let m = to_na_mat4(&mat);
 
     match m.try_inverse() {
-        Some(inv) => Mat4(inv.as_slice().try_into().unwrap()),
+        Some(inv) => from_na_mat4(inv),
         None => {
             let det = determinant_mat4(mat);
             panic!("matrix.inverse: matrix is singular (determinant = {})", det);
