@@ -16,7 +16,7 @@
 //! # use continuum_cdsl::error::*;
 //! # use continuum_cdsl::foundation::{Span, Path};
 //! # let span = Span::new(0, 0, 5, 1);
-//! # let path = Path::from_str("test.signal");
+//! # let path = Path::from_path_str("test.signal");
 //! let error = CompileError::new(
 //!     ErrorKind::DuplicateName,
 //!     span,
@@ -210,6 +210,15 @@ impl CompileError {
     /// # Returns
     ///
     /// A new error with severity `Error` and no secondary labels or notes.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::error::{CompileError, ErrorKind};
+    /// use continuum_cdsl::foundation::Span;
+    ///
+    /// let err = CompileError::new(ErrorKind::Syntax, Span::new(0, 0, 1, 1), "bad".to_string());
+    /// assert_eq!(err.kind, ErrorKind::Syntax);
+    /// ```
     pub fn new(kind: ErrorKind, span: Span, message: String) -> Self {
         Self::with_severity(kind, Severity::Error, span, message)
     }
@@ -225,6 +234,19 @@ impl CompileError {
     /// # Returns
     ///
     /// A new diagnostic with severity `Warning`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::error::{CompileError, ErrorKind, Severity};
+    /// use continuum_cdsl::foundation::Span;
+    ///
+    /// let warn = CompileError::warning(
+    ///     ErrorKind::TypeMismatch,
+    ///     Span::new(0, 0, 1, 1),
+    ///     "mismatch".to_string(),
+    /// );
+    /// assert_eq!(warn.severity, Severity::Warning);
+    /// ```
     pub fn warning(kind: ErrorKind, span: Span, message: String) -> Self {
         Self::with_severity(kind, Severity::Warning, span, message)
     }
@@ -240,6 +262,19 @@ impl CompileError {
     /// # Returns
     ///
     /// A new diagnostic with severity `Note`.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::error::{CompileError, ErrorKind, Severity};
+    /// use continuum_cdsl::foundation::Span;
+    ///
+    /// let note = CompileError::note(
+    ///     ErrorKind::TypeMismatch,
+    ///     Span::new(0, 0, 1, 1),
+    ///     "note".to_string(),
+    /// );
+    /// assert_eq!(note.severity, Severity::Note);
+    /// ```
     pub fn note(kind: ErrorKind, span: Span, message: String) -> Self {
         Self::with_severity(kind, Severity::Note, span, message)
     }
@@ -266,6 +301,16 @@ impl CompileError {
     /// # Returns
     ///
     /// Self (for chaining).
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::error::{CompileError, ErrorKind};
+    /// use continuum_cdsl::foundation::Span;
+    ///
+    /// let err = CompileError::new(ErrorKind::DuplicateName, Span::new(0, 0, 1, 1), "dup".to_string())
+    ///     .with_label(Span::new(0, 2, 3, 1), "first defined here".to_string());
+    /// assert_eq!(err.labels.len(), 1);
+    /// ```
     pub fn with_label(mut self, span: Span, message: String) -> Self {
         self.labels.push(Label { span, message });
         self
@@ -280,6 +325,16 @@ impl CompileError {
     /// # Returns
     ///
     /// Self (for chaining).
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::error::{CompileError, ErrorKind};
+    /// use continuum_cdsl::foundation::Span;
+    ///
+    /// let err = CompileError::new(ErrorKind::TypeMismatch, Span::new(0, 0, 1, 1), "bad".to_string())
+    ///     .with_note("expected Scalar".to_string());
+    /// assert_eq!(err.notes.len(), 1);
+    /// ```
     pub fn with_note(mut self, note: String) -> Self {
         self.notes.push(note);
         self
@@ -296,6 +351,13 @@ impl ErrorKind {
     /// # Returns
     ///
     /// String slice with the error kind name.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::error::ErrorKind;
+    ///
+    /// assert_eq!(ErrorKind::Syntax.name(), "syntax error");
+    /// ```
     pub fn name(self) -> &'static str {
         ERROR_KIND_NAMES[self as usize]
     }
@@ -370,6 +432,16 @@ impl<'a> DiagnosticFormatter<'a> {
     /// # Returns
     ///
     /// New formatter instance.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::error::DiagnosticFormatter;
+    /// use continuum_cdsl::foundation::SourceMap;
+    ///
+    /// let sources = SourceMap::new();
+    /// let formatter = DiagnosticFormatter::new(&sources);
+    /// let _ = formatter;
+    /// ```
     pub fn new(sources: &'a SourceMap) -> Self {
         Self { sources }
     }
@@ -383,6 +455,25 @@ impl<'a> DiagnosticFormatter<'a> {
     /// # Returns
     ///
     /// Formatted string with source location, snippet, and labels.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::error::{CompileError, DiagnosticFormatter, ErrorKind};
+    /// use continuum_cdsl::foundation::{SourceMap, Span};
+    /// use std::path::PathBuf;
+    ///
+    /// let mut sources = SourceMap::new();
+    /// let file_id = sources.add_file(PathBuf::from("demo.cdsl"), "let x = y".to_string());
+    /// let err = CompileError::new(
+    ///     ErrorKind::UndefinedName,
+    ///     Span::new(file_id, 8, 9, 1),
+    ///     "undefined".to_string(),
+    /// );
+    ///
+    /// let formatter = DiagnosticFormatter::new(&sources);
+    /// let output = formatter.format(&err);
+    /// assert!(output.contains("undefined"));
+    /// ```
     pub fn format(&self, error: &CompileError) -> String {
         let mut output = String::new();
 
@@ -445,6 +536,25 @@ impl<'a> DiagnosticFormatter<'a> {
     /// # Returns
     ///
     /// Formatted string with all diagnostics separated by blank lines.
+    ///
+    /// # Examples
+    /// ```rust
+    /// use continuum_cdsl::error::{CompileError, DiagnosticFormatter, ErrorKind};
+    /// use continuum_cdsl::foundation::{SourceMap, Span};
+    /// use std::path::PathBuf;
+    ///
+    /// let mut sources = SourceMap::new();
+    /// let file_id = sources.add_file(PathBuf::from("demo.cdsl"), "let x = y".to_string());
+    /// let err = CompileError::new(
+    ///     ErrorKind::UndefinedName,
+    ///     Span::new(file_id, 8, 9, 1),
+    ///     "undefined".to_string(),
+    /// );
+    ///
+    /// let formatter = DiagnosticFormatter::new(&sources);
+    /// let output = formatter.format_all(&[err]);
+    /// assert!(output.contains("undefined"));
+    /// ```
     pub fn format_all(&self, errors: &[CompileError]) -> String {
         errors
             .iter()

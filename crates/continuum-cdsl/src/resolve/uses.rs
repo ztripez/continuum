@@ -86,8 +86,8 @@ struct RequiredUse {
 ///     Attribute {
 ///         name: "uses".to_string(),
 ///         args: vec![
-///             Expr::Signal(Path::from_str("maths.clamping")),
-///             Expr::Signal(Path::from_str("dt.raw")),
+///             Expr::Signal(Path::from_path_str("maths.clamping")),
+///             Expr::Signal(Path::from_path_str("dt.raw")),
 ///         ],
 ///         span,
 ///     },
@@ -533,7 +533,7 @@ mod tests {
             name: "uses".to_string(),
             args: keys
                 .iter()
-                .map(|k| Expr::new(UntypedKind::Signal(Path::from_str(k)), make_span()))
+                .map(|k| Expr::new(UntypedKind::Signal(Path::from_path_str(k)), make_span()))
                 .collect(),
             span: make_span(),
         }
@@ -616,7 +616,7 @@ mod tests {
     #[test]
     fn test_validate_node_missing_maths_clamping() {
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
 
         // Create node with clamp usage but no uses declaration
         let mut node = Node::new(path, span, RoleData::Signal, ());
@@ -670,7 +670,7 @@ mod tests {
     #[test]
     fn test_validate_node_with_maths_clamping_declared() {
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
 
         // Create node with clamp usage AND uses declaration
         let mut node = Node::new(path, span, RoleData::Signal, ());
@@ -860,7 +860,7 @@ mod tests {
     #[test]
     fn test_multiple_violations_all_reported() {
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
 
         // Create node with BOTH clamp AND dt usage but NO declarations
         let mut node = Node::new(path, span, RoleData::Signal, ());
@@ -936,7 +936,7 @@ mod tests {
         use crate::ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
 
         // Create node with warmup block using dt
         let mut node = Node::new(path, span, RoleData::Signal, ());
@@ -965,7 +965,7 @@ mod tests {
         use crate::ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
 
         let mut node = Node::new(path, span, RoleData::Signal, ());
         node.attributes.push(make_attr_uses(vec!["dt.raw"]));
@@ -992,12 +992,12 @@ mod tests {
         use crate::ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
 
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         // warmup { iterate { maths.clamp(prev, 0.0, 1.0) } }
-        let clamp_path = Path::from_str("maths.clamp");
+        let clamp_path = Path::from_path_str("maths.clamp");
         let prev_expr = Expr::new(UntypedKind::Prev, span);
         let min_expr = Expr::new(
             UntypedKind::Literal {
@@ -1040,7 +1040,7 @@ mod tests {
         use crate::ast::{Expr, UntypedKind, WhenBlock};
 
         let span = make_span();
-        let path = Path::from_str("test.fracture");
+        let path = Path::from_path_str("test.fracture");
 
         let mut node = Node::new(path, span, RoleData::Fracture, ());
 
@@ -1073,7 +1073,7 @@ mod tests {
         use crate::ast::{Expr, ObserveBlock, ObserveWhen, UntypedKind};
 
         let span = make_span();
-        let path = Path::from_str("test.chronicle");
+        let path = Path::from_path_str("test.chronicle");
 
         let mut node = Node::new(path, span, RoleData::Chronicle, ());
 
@@ -1082,9 +1082,9 @@ mod tests {
         //         emit event.high_value
         //     }
         // }
-        let signal_path = Path::from_str("signal.value");
+        let signal_path = Path::from_path_str("signal.value");
         let signal_expr = Expr::new(UntypedKind::Signal(signal_path), span);
-        let saturate_path = Path::from_str("maths.saturate");
+        let saturate_path = Path::from_path_str("maths.saturate");
         let saturate_call = Expr::new(
             UntypedKind::Call {
                 func: saturate_path,
@@ -1123,7 +1123,7 @@ mod tests {
         use crate::ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
 
         // Create node with warmup block using nested let with dt
         let mut node = Node::new(path, span, RoleData::Signal, ());
@@ -1162,7 +1162,7 @@ mod tests {
         use crate::ast::{Expr, UntypedKind, WhenBlock};
 
         let span = make_span();
-        let path = Path::from_str("test.fracture");
+        let path = Path::from_path_str("test.fracture");
 
         // Create node with when block using if expression with dt
         let mut node = Node::new(path, span, RoleData::Fracture, ());
@@ -1208,7 +1208,7 @@ mod tests {
         use crate::ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
 
         // Create node with warmup block using clamp nested in binary expression
         let mut node = Node::new(path, span, RoleData::Signal, ());
@@ -1230,7 +1230,7 @@ mod tests {
             },
             span,
         );
-        let clamp_path = Path::from_str("maths.clamp");
+        let clamp_path = Path::from_path_str("maths.clamp");
         let clamp_call = Expr::new(
             UntypedKind::Call {
                 func: clamp_path,
@@ -1260,7 +1260,7 @@ mod tests {
         use crate::ast::{Expr, KernelId, UntypedKind, WarmupBlock};
 
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         // Desugared form: maths.add(prev, dt) as KernelCall
@@ -1294,7 +1294,7 @@ mod tests {
         use crate::ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         // -dt

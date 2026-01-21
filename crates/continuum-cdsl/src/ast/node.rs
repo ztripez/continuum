@@ -34,7 +34,7 @@
 //!
 //! // Create a global signal node
 //! let mut signal = Node::new(
-//!     Path::from_str("world.temperature"),
+//!     Path::from_path_str("world.temperature"),
 //!     Span::new(0, 0, 100, 1),
 //!     RoleData::Signal,
 //!     (), // global
@@ -46,12 +46,12 @@
 //!
 //! // Create a per-entity member
 //! let member = Node::new(
-//!     Path::from_str("plate.area"),
+//!     Path::from_path_str("plate.area"),
 //!     Span::new(0, 0, 100, 1),
 //!     RoleData::Signal,
-//!     EntityId(Path::from_str("plate")),
+//!     EntityId(Path::from_path_str("plate")),
 //! );
-//! assert_eq!(member.index, EntityId(Path::from_str("plate")));
+//! assert_eq!(member.index, EntityId(Path::from_path_str("plate")));
 //! ```
 
 use crate::foundation::{AssertionSeverity, EntityId, Path, Span, StratumId, Type};
@@ -657,7 +657,7 @@ mod tests {
 
     #[test]
     fn test_node_creation_global() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path.clone(), span, RoleData::Signal, ());
 
@@ -672,7 +672,7 @@ mod tests {
 
     #[test]
     fn test_node_creation_entity() {
-        let path = Path::from_str("test.member");
+        let path = Path::from_path_str("test.member");
         let span = Span::new(0, 0, 10, 1);
         let entity_id = EntityId::new("test.entity");
         let node = Node::new(path.clone(), span, RoleData::Signal, entity_id.clone());
@@ -684,7 +684,7 @@ mod tests {
 
     #[test]
     fn test_field_with_reconstruction() {
-        let path = Path::from_str("test.field");
+        let path = Path::from_path_str("test.field");
         let span = Span::new(0, 0, 10, 1);
         let hint = super::super::role::ReconstructionHint {
             domain: super::super::role::Domain::Cartesian,
@@ -713,7 +713,7 @@ mod tests {
 
     #[test]
     fn test_impulse_with_payload() {
-        let path = Path::from_str("test.impulse");
+        let path = Path::from_path_str("test.impulse");
         let span = Span::new(0, 0, 10, 1);
         let payload_type = Type::Bool;
         let node = Node::new(
@@ -736,7 +736,7 @@ mod tests {
 
     #[test]
     fn test_node_lifecycle_states() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
@@ -774,7 +774,7 @@ mod tests {
 
     #[test]
     fn test_node_validation_errors() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
@@ -792,11 +792,11 @@ mod tests {
     fn test_different_roles() {
         let span = Span::new(0, 0, 10, 1);
 
-        let signal = Node::new(Path::from_str("test.signal"), span, RoleData::Signal, ());
+        let signal = Node::new(Path::from_path_str("test.signal"), span, RoleData::Signal, ());
         assert_eq!(signal.role_id(), super::super::role::RoleId::Signal);
 
         let field = Node::new(
-            Path::from_str("test.field"),
+            Path::from_path_str("test.field"),
             span,
             RoleData::Field {
                 reconstruction: None,
@@ -806,7 +806,7 @@ mod tests {
         assert_eq!(field.role_id(), super::super::role::RoleId::Field);
 
         let operator = Node::new(
-            Path::from_str("test.operator"),
+            Path::from_path_str("test.operator"),
             span,
             RoleData::Operator,
             (),
@@ -814,7 +814,7 @@ mod tests {
         assert_eq!(operator.role_id(), super::super::role::RoleId::Operator);
 
         let impulse = Node::new(
-            Path::from_str("test.impulse"),
+            Path::from_path_str("test.impulse"),
             span,
             RoleData::Impulse { payload: None },
             (),
@@ -822,7 +822,7 @@ mod tests {
         assert_eq!(impulse.role_id(), super::super::role::RoleId::Impulse);
 
         let fracture = Node::new(
-            Path::from_str("test.fracture"),
+            Path::from_path_str("test.fracture"),
             span,
             RoleData::Fracture,
             (),
@@ -830,7 +830,7 @@ mod tests {
         assert_eq!(fracture.role_id(), super::super::role::RoleId::Fracture);
 
         let chronicle = Node::new(
-            Path::from_str("test.chronicle"),
+            Path::from_path_str("test.chronicle"),
             span,
             RoleData::Chronicle,
             (),
@@ -850,7 +850,7 @@ mod tests {
 
     #[test]
     fn test_node_lifecycle_boundaries() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
@@ -895,7 +895,7 @@ mod tests {
 
     #[test]
     fn test_node_default_initialization() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path.clone(), span, RoleData::Signal, ());
 
@@ -931,7 +931,7 @@ mod tests {
             span,
         );
         let body = ExecutionBody::Expr(body_expr);
-        let reads = vec![Path::from_str("signal.temp"), Path::from_str("signal.prev")];
+        let reads = vec![Path::from_path_str("signal.temp"), Path::from_path_str("signal.prev")];
 
         let execution = Execution::new(
             "test".to_string(),
@@ -947,8 +947,8 @@ mod tests {
         assert_eq!(execution.phase, Phase::Resolve);
         assert_eq!(execution.span, span);
         assert_eq!(execution.reads.len(), 2);
-        assert_eq!(execution.reads[0], Path::from_str("signal.temp"));
-        assert_eq!(execution.reads[1], Path::from_str("signal.prev"));
+        assert_eq!(execution.reads[0], Path::from_path_str("signal.temp"));
+        assert_eq!(execution.reads[1], Path::from_path_str("signal.prev"));
     }
 
     #[test]

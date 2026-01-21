@@ -29,15 +29,18 @@ pub type Handler = fn(
 /// 1. Decoding a [`Path`] from the first instruction operand.
 /// 2. Calling a domain-specific load function from the [`ExecutionContext`].
 /// 3. Pushing the resulting [`Value`] onto the stack.
-fn handle_load_with_path(
+fn handle_load_with_path<F>(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
     ctx: &mut dyn ExecutionContext,
-    load: fn(&dyn ExecutionContext, &continuum_foundation::Path) -> Result<Value, ExecutionError>,
+    load: F,
     decode: fn(
         &crate::bytecode::operand::Operand,
     ) -> Result<continuum_foundation::Path, ExecutionError>,
-) -> Result<(), ExecutionError> {
+) -> Result<(), ExecutionError>
+where
+    F: Fn(&dyn ExecutionContext, &continuum_foundation::Path) -> Result<Value, ExecutionError>,
+{
     let path = decode(&instruction.operands[0])?;
     let value = load(ctx, &path)?;
     runtime.push(value)?;
@@ -48,11 +51,14 @@ fn handle_load_with_path(
 ///
 /// This helper executes a load function from the [`ExecutionContext`] and pushes
 /// the result onto the stack. It is used for opcodes that do not require operands.
-fn handle_load_ctx(
+fn handle_load_ctx<F>(
     runtime: &mut dyn ExecutionRuntime,
     ctx: &mut dyn ExecutionContext,
-    load: fn(&dyn ExecutionContext) -> Result<Value, ExecutionError>,
-) -> Result<(), ExecutionError> {
+    load: F,
+) -> Result<(), ExecutionError>
+where
+    F: Fn(&mut dyn ExecutionContext) -> Result<Value, ExecutionError>,
+{
     let value = load(ctx)?;
     runtime.push(value)?;
     Ok(())
@@ -62,16 +68,15 @@ fn handle_load_ctx(
 ///
 /// Decodes the target signal path from operand[0], pops the value to emit from
 /// the top of the stack, and dispatches the emission via the [`ExecutionContext`].
-fn handle_emit_value(
+fn handle_emit_value<F>(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
     ctx: &mut dyn ExecutionContext,
-    emit: fn(
-        &mut dyn ExecutionContext,
-        &continuum_foundation::Path,
-        Value,
-    ) -> Result<(), ExecutionError>,
-) -> Result<(), ExecutionError> {
+    emit: F,
+) -> Result<(), ExecutionError>
+where
+    F: Fn(&mut dyn ExecutionContext, &continuum_foundation::Path, Value) -> Result<(), ExecutionError>,
+{
     let target = operand_signal_path(&instruction.operands[0])?;
     let value = runtime.pop()?;
     emit(ctx, &target, value)
@@ -259,9 +264,11 @@ pub(crate) fn handle_call_kernel(
 ) -> Result<(), ExecutionError> {
     let kernel = instruction
         .kernel
+        .as_ref()
         .ok_or_else(|| ExecutionError::InvalidOperand {
             message: "CallKernel missing kernel id".to_string(),
-        })?;
+        })?
+        .clone();
     let arg_count = operand_usize(&instruction.operands[0])?;
     let mut args = Vec::with_capacity(arg_count);
     for _ in 0..arg_count {
@@ -373,7 +380,7 @@ pub(crate) fn handle_load_signal(
         instruction,
         runtime,
         ctx,
-        ExecutionContext::load_signal,
+        |ctx, path| ctx.load_signal(path),
         operand_signal_path,
     )
 }
@@ -389,7 +396,7 @@ pub(crate) fn handle_load_field(
         instruction,
         runtime,
         ctx,
-        ExecutionContext::load_field,
+        |ctx, path| ctx.load_field(path),
         operand_field_path,
     )
 }
@@ -405,7 +412,7 @@ pub(crate) fn handle_load_config(
         instruction,
         runtime,
         ctx,
-        ExecutionContext::load_config,
+        |ctx, path| ctx.load_config(path),
         operand_config_path,
     )
 }
@@ -421,7 +428,7 @@ pub(crate) fn handle_load_const(
         instruction,
         runtime,
         ctx,
-        ExecutionContext::load_const,
+        |ctx, path| ctx.load_const(path),
         operand_const_path,
     )
 }
@@ -433,7 +440,7 @@ pub(crate) fn handle_load_prev(
     _program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    handle_load_ctx(runtime, ctx, ExecutionContext::load_prev)
+    handle_load_ctx(runtime, ctx, |ctx| ctx.load_prev())
 }
 
 /// Loads the just-resolved value of the current signal.
@@ -443,7 +450,7 @@ pub(crate) fn handle_load_current(
     _program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    handle_load_ctx(runtime, ctx, ExecutionContext::load_current)
+    handle_load_ctx(runtime, ctx, |ctx| ctx.load_current())
 }
 
 /// Loads the accumulated inputs for the current signal.
@@ -453,7 +460,7 @@ pub(crate) fn handle_load_inputs(
     _program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    handle_load_ctx(runtime, ctx, ExecutionContext::load_inputs)
+    handle_load_ctx(runtime, ctx, |ctx| ctx.load_inputs())
 }
 
 /// Loads the current time step (dt).
@@ -463,7 +470,7 @@ pub(crate) fn handle_load_dt(
     _program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    handle_load_ctx(runtime, ctx, ExecutionContext::load_dt)
+    handle_load_ctx(runtime, ctx, |ctx| ctx.load_dt())
 }
 
 /// Loads the identity of the current entity instance.
@@ -476,7 +483,7 @@ pub(crate) fn handle_load_self(
     _program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    handle_load_ctx(runtime, ctx, ExecutionContext::load_self)
+    handle_load_ctx(runtime, ctx, |ctx| ctx.load_self())
 }
 
 /// Loads the identity of the "other" entity instance (if any).
@@ -489,7 +496,7 @@ pub(crate) fn handle_load_other(
     _program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    handle_load_ctx(runtime, ctx, ExecutionContext::load_other)
+    handle_load_ctx(runtime, ctx, |ctx| ctx.load_other())
 }
 
 /// Loads the payload data from the triggering impulse.
@@ -502,7 +509,7 @@ pub(crate) fn handle_load_payload(
     _program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    handle_load_ctx(runtime, ctx, ExecutionContext::load_payload)
+    handle_load_ctx(runtime, ctx, |ctx| ctx.load_payload())
 }
 
 /// Emits a value to a signal.
@@ -518,7 +525,9 @@ pub(crate) fn handle_emit(
     _program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    handle_emit_value(instruction, runtime, ctx, ExecutionContext::emit_signal)
+    handle_emit_value(instruction, runtime, ctx, |ctx, path, value| {
+        ctx.emit_signal(path, value)
+    })
 }
 
 /// Emits a value to a spatial field at a given position.

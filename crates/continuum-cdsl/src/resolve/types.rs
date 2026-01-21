@@ -246,7 +246,7 @@ pub fn resolve_user_types(
     // 1. First pass: Register all type names
     for decl in declarations {
         if let Declaration::Type(type_decl) = decl {
-            let path = Path::from_str(&type_decl.name);
+            let path = Path::from(type_decl.name.as_str());
             let type_id = UserTypeId::from(path.to_string());
             type_table.register(UserType::new(type_id, path, vec![]));
         }
@@ -255,7 +255,7 @@ pub fn resolve_user_types(
     // 2. Second pass: Resolve field types
     for decl in declarations {
         if let Declaration::Type(type_decl) = decl {
-            let path = Path::from_str(&type_decl.name);
+            let path = Path::from(type_decl.name.as_str());
             let mut fields = Vec::new();
 
             for field in &type_decl.fields {
@@ -423,11 +423,11 @@ mod tests {
 
         let span = test_span();
         let entity_id = EntityId::new("plate");
-        let entity_path = Path::from_str("plate");
+        let entity_path = Path::from_path_str("plate");
         let entity = Entity::new(entity_id.clone(), entity_path.clone(), span);
 
         // plate.physics.velocity
-        let member_path = Path::from_str("plate.physics.velocity");
+        let member_path = Path::from_path_str("plate.physics.velocity");
         let mut member = Node::new(member_path, span, RoleData::Signal, entity_id);
         member.type_expr = Some(TypeExpr::Vector { dim: 3, unit: None });
 
@@ -465,21 +465,21 @@ mod tests {
 
         // Entity A
         let id_a = EntityId::new("A");
-        let path_a = Path::from_str("A");
+        let path_a = Path::from_path_str("A");
         let entity_a = Entity::new(id_a.clone(), path_a.clone(), span);
 
         // Member A.b : B
-        let mut member_ab = Node::new(Path::from_str("A.b"), span, RoleData::Signal, id_a);
-        member_ab.type_expr = Some(TypeExpr::User(Path::from_str("B")));
+        let mut member_ab = Node::new(Path::from_path_str("A.b"), span, RoleData::Signal, id_a);
+        member_ab.type_expr = Some(TypeExpr::User(Path::from_path_str("B")));
 
         // Entity B
         let id_b = EntityId::new("B");
-        let path_b = Path::from_str("B");
+        let path_b = Path::from_path_str("B");
         let entity_b = Entity::new(id_b.clone(), path_b.clone(), span);
 
         // Member B.a : A
-        let mut member_ba = Node::new(Path::from_str("B.a"), span, RoleData::Signal, id_b);
-        member_ba.type_expr = Some(TypeExpr::User(Path::from_str("A")));
+        let mut member_ba = Node::new(Path::from_path_str("B.a"), span, RoleData::Signal, id_b);
+        member_ba.type_expr = Some(TypeExpr::User(Path::from_path_str("A")));
 
         let decls = vec![
             Declaration::Entity(entity_a),

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 /// Represents a hierarchical path used for identifying simulation symbols.
 ///
-/// Paths are composed of dot-separated segments (e.g., "geophysics.elevation").
+/// Paths are composed of dot-separated segments (e.g., \"geophysics.elevation\").
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Path {
     /// Ordered segments of the hierarchical path.
@@ -29,9 +29,57 @@ impl Path {
         }
     }
 
+    /// Get the path segments.
+    pub fn segments(&self) -> &[String] {
+        &self.segments
+    }
+
+    /// Get the number of segments.
+    pub fn len(&self) -> usize {
+        self.segments.len()
+    }
+
+    /// Check if the path is empty.
+    pub fn is_empty(&self) -> bool {
+        self.segments.is_empty()
+    }
+
+    /// Get the first segment (namespace or root).
+    pub fn first(&self) -> Option<&str> {
+        self.segments.first().map(String::as_str)
+    }
+
+    /// Get the last segment (leaf name).
+    pub fn last(&self) -> Option<&str> {
+        self.segments.last().map(String::as_str)
+    }
+
     /// Joins the path segments into a single string using the specified separator.
     pub fn join(&self, sep: &str) -> String {
         self.segments.join(sep)
+    }
+
+    /// Append a segment to create a new path.
+    pub fn append(&self, segment: impl Into<String>) -> Self {
+        let mut new_segments = self.segments.clone();
+        new_segments.push(segment.into());
+        Self::new(new_segments)
+    }
+
+    /// Get the parent path (all segments except the last).
+    ///
+    /// Returns None if this is a single-segment path.
+    pub fn parent(&self) -> Option<Self> {
+        if self.segments.len() <= 1 {
+            None
+        } else {
+            Some(Self::new(self.segments[..self.segments.len() - 1].to_vec()))
+        }
+    }
+
+    /// Check if this path starts with another path.
+    pub fn starts_with(&self, prefix: &Path) -> bool {
+        self.segments.starts_with(&prefix.segments)
     }
 }
 

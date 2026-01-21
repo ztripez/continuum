@@ -469,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_entity_creation() {
-        let path = Path::from_str("test.plate");
+        let path = Path::from_path_str("test.plate");
         let span = Span::new(0, 0, 10, 1);
         let id = EntityId::new("test.plate");
         let entity = Entity::new(id.clone(), path.clone(), span);
@@ -482,7 +482,7 @@ mod tests {
 
     #[test]
     fn test_stratum_creation() {
-        let path = Path::from_str("test.fast");
+        let path = Path::from_path_str("test.fast");
         let span = Span::new(0, 0, 10, 1);
         let id = StratumId::new("test.fast");
         let mut stratum = Stratum::new(id.clone(), path.clone(), span);
@@ -504,7 +504,7 @@ mod tests {
     #[test]
     fn test_stratum_cadence() {
         let span = Span::new(0, 0, 10, 1);
-        let mut slow = Stratum::new(StratumId::new("slow"), Path::from_str("slow"), span);
+        let mut slow = Stratum::new(StratumId::new("slow"), Path::from_path_str("slow"), span);
 
         // Simulate semantic analysis resolving cadence to 10
         slow.cadence = Some(10);
@@ -521,7 +521,7 @@ mod tests {
         use crate::ast::expr::{ExprKind, TypedExpr};
         use crate::foundation::{KernelType, Shape, Type, Unit};
 
-        let path = Path::from_str("test.formation");
+        let path = Path::from_path_str("test.formation");
         let span = Span::new(0, 0, 10, 1);
         let id = EraId::new("test.formation");
 
@@ -590,7 +590,7 @@ mod tests {
         use crate::ast::expr::{ExprKind, TypedExpr};
         use crate::foundation::{KernelType, Shape, Type, Unit};
 
-        let path = Path::from_str("test.elevation_stats");
+        let path = Path::from_path_str("test.elevation_stats");
         let span = Span::new(0, 0, 10, 1);
         let id = AnalyzerId::new("test.elevation_stats");
 
@@ -650,7 +650,7 @@ mod tests {
     #[should_panic(expected = "cadence must be resolved")]
     fn test_stratum_is_eligible_panics_without_cadence() {
         let span = Span::new(0, 0, 10, 1);
-        let stratum = Stratum::new(StratumId::new("test"), Path::from_str("test"), span);
+        let stratum = Stratum::new(StratumId::new("test"), Path::from_path_str("test"), span);
         // cadence is None - documented to panic
         stratum.is_eligible(0);
     }
@@ -675,7 +675,7 @@ mod tests {
             span,
         };
 
-        let mut era = Era::new(id, Path::from_str("test"), dt_expr, span);
+        let mut era = Era::new(id, Path::from_path_str("test"), dt_expr, span);
 
         // Add a transition - era should not be terminal
         let condition = TypedExpr {

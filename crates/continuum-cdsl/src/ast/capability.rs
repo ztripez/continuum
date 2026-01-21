@@ -352,7 +352,7 @@ mod tests {
 
     impl HasScoping for MockResolveContext {
         fn config(&self, path: &Path) -> &Value {
-            if path == &Path::from_str("test") {
+            if path == &Path::from_path_str("test") {
                 &self.config
             } else {
                 panic!("MockResolveContext: unknown config path: {}", path)
@@ -360,7 +360,7 @@ mod tests {
         }
 
         fn constant(&self, path: &Path) -> &Value {
-            if path == &Path::from_str("test") {
+            if path == &Path::from_path_str("test") {
                 &self.constant
             } else {
                 panic!("MockResolveContext: unknown constant path: {}", path)
@@ -370,7 +370,7 @@ mod tests {
 
     impl HasSignals for MockResolveContext {
         fn signal(&self, path: &Path) -> &Value {
-            if path == &Path::from_str("test") {
+            if path == &Path::from_path_str("test") {
                 &self.signal
             } else {
                 panic!("MockResolveContext: unknown signal path: {}", path)
@@ -397,7 +397,7 @@ mod tests {
             config_val: Value::Scalar(42.0),
             const_val: Value::Scalar(100.0),
         };
-        let path = Path::from_str("test.value");
+        let path = Path::from_path_str("test.value");
         assert_eq!(ctx.config(&path), &Value::Scalar(42.0));
         assert_eq!(ctx.constant(&path), &Value::Scalar(100.0));
     }
@@ -411,7 +411,7 @@ mod tests {
             fn signal(&self, path: &Path) -> &Value {
                 // In a real implementation, unknown paths would panic
                 // This test implementation only supports one known path
-                if path == &Path::from_str("world.temperature") {
+                if path == &Path::from_path_str("world.temperature") {
                     &self.temperature
                 } else {
                     panic!("Unknown signal path: {}", path)
@@ -423,7 +423,7 @@ mod tests {
             temperature: Value::Scalar(300.0),
         };
         assert_eq!(
-            ctx.signal(&Path::from_str("world.temperature")),
+            ctx.signal(&Path::from_path_str("world.temperature")),
             &Value::Scalar(300.0)
         );
         // Accessing unknown signal would panic (as documented)
@@ -528,8 +528,8 @@ mod tests {
         let mut ctx = TestContext {
             emissions: Vec::new(),
         };
-        let target1 = Path::from_str("signal.a");
-        let target2 = Path::from_str("signal.b");
+        let target1 = Path::from_path_str("signal.a");
+        let target2 = Path::from_path_str("signal.b");
 
         ctx.emit(&target1, Value::Scalar(10.0));
         ctx.emit(&target2, Value::Scalar(20.0));
@@ -581,9 +581,9 @@ mod tests {
         assert_eq!(ctx.dt(), &Value::Scalar(0.016));
         assert_eq!(ctx.prev(), &Value::Scalar(5.0));
         assert_eq!(ctx.inputs(), &Value::Scalar(2.0));
-        assert_eq!(ctx.config(&Path::from_str("test")), &Value::Scalar(1.0));
-        assert_eq!(ctx.constant(&Path::from_str("test")), &Value::Scalar(2.0));
-        assert_eq!(ctx.signal(&Path::from_str("test")), &Value::Scalar(3.0));
+        assert_eq!(ctx.config(&Path::from_path_str("test")), &Value::Scalar(1.0));
+        assert_eq!(ctx.constant(&Path::from_path_str("test")), &Value::Scalar(2.0));
+        assert_eq!(ctx.signal(&Path::from_path_str("test")), &Value::Scalar(3.0));
     }
 
     #[test]

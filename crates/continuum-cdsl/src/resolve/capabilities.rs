@@ -61,7 +61,6 @@
 use crate::ast::{ExprKind, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
 use continuum_foundation::{Capability, CapabilitySet};
-use continuum_kernel_types::KernelId;
 
 /// Execution context for capability validation.
 ///
@@ -392,6 +391,7 @@ fn scan_for_capability_violations(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::KernelId;
     use crate::foundation::{Shape, Span, Type, Unit};
 
     fn test_span() -> Span {
@@ -941,7 +941,7 @@ mod tests {
         let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Signals));
 
         let expr = TypedExpr::new(
-            ExprKind::Signal(Path::from_str("body.velocity")),
+            ExprKind::Signal(Path::from_path_str("body.velocity")),
             Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
             test_span(),
         );
@@ -957,7 +957,7 @@ mod tests {
         let ctx = CapabilityContext::new(CapabilitySet::empty());
 
         let expr = TypedExpr::new(
-            ExprKind::Signal(Path::from_str("body.velocity")),
+            ExprKind::Signal(Path::from_path_str("body.velocity")),
             Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
             test_span(),
         );
@@ -976,7 +976,7 @@ mod tests {
         let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Fields));
 
         let expr = TypedExpr::new(
-            ExprKind::Field(Path::from_str("temperature")),
+            ExprKind::Field(Path::from_path_str("temperature")),
             Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
             test_span(),
         );
@@ -992,7 +992,7 @@ mod tests {
         let ctx = CapabilityContext::new(CapabilitySet::empty());
 
         let expr = TypedExpr::new(
-            ExprKind::Field(Path::from_str("temperature")),
+            ExprKind::Field(Path::from_path_str("temperature")),
             Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
             test_span(),
         );
@@ -1012,7 +1012,7 @@ mod tests {
         let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Scoping));
 
         let expr = TypedExpr::new(
-            ExprKind::Signal(Path::from_str("body.mass")),
+            ExprKind::Signal(Path::from_path_str("body.mass")),
             Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
             test_span(),
         );
@@ -1035,7 +1035,7 @@ mod tests {
         );
 
         let expr = TypedExpr::new(
-            ExprKind::Field(Path::from_str("elevation")),
+            ExprKind::Field(Path::from_path_str("elevation")),
             Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
             test_span(),
         );

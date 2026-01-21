@@ -45,7 +45,7 @@ pub fn opcode_specs() -> &'static [OpcodeSpec] {
 ///
 /// This constant must match the number of variants in [`OpcodeKind`]. It is used
 /// to size the internal jump tables for O(1) metadata and handler lookups.
-const OPCODE_COUNT: usize = 30;
+const OPCODE_COUNT: usize = 29;
 
 /// Retrieves metadata for a specific opcode kind in O(1) time.
 ///
@@ -55,20 +55,17 @@ const OPCODE_COUNT: usize = 30;
 pub fn metadata_for(kind: OpcodeKind) -> &'static OpcodeMetadata {
     static METADATA: OnceLock<[&'static OpcodeMetadata; OPCODE_COUNT]> = OnceLock::new();
     METADATA.get_or_init(|| {
-        let mut table = [&DEFAULT_METADATA; OPCODE_COUNT];
+        let mut table: [Option<&'static OpcodeMetadata>; OPCODE_COUNT] = [None; OPCODE_COUNT];
         for spec in opcode_specs() {
             table[spec.kind as usize] = unsafe { std::mem::transmute(&spec.metadata) };
         }
-        table
+        std::array::from_fn(|index| {
+            table[index].unwrap_or_else(|| {
+                panic!("Missing opcode metadata for opcode index {}", index)
+            })
+        })
     })[kind as usize]
 }
-
-/// Default metadata used for uninitialized slots in the metadata table.
-static DEFAULT_METADATA: OpcodeMetadata = OpcodeMetadata {
-    operand_count: OperandCount::Fixed(0),
-    has_effect: false,
-    allowed_phases: None,
-};
 
 /// Retrieves the execution handler for a specific opcode kind in O(1) time.
 ///
@@ -78,11 +75,14 @@ static DEFAULT_METADATA: OpcodeMetadata = OpcodeMetadata {
 pub fn handler_for(kind: OpcodeKind) -> Handler {
     static HANDLERS: OnceLock<[Handler; OPCODE_COUNT]> = OnceLock::new();
     HANDLERS.get_or_init(|| {
-        let mut table = [handle_noop as Handler; OPCODE_COUNT];
+        let mut table: [Option<Handler>; OPCODE_COUNT] = [None; OPCODE_COUNT];
         for spec in opcode_specs() {
-            table[spec.kind as usize] = spec.handler;
+            table[spec.kind as usize] = Some(spec.handler);
         }
-        table
+        std::array::from_fn(|index| {
+            table[index]
+                .unwrap_or_else(|| panic!("Missing opcode handler for opcode index {}", index))
+        })
     })[kind as usize]
 }
 
@@ -137,7 +137,7 @@ fn build_specs() -> Vec<OpcodeSpec> {
             LoadSignal,
             OperandCount::Fixed(1),
             false,
-            Some(&[Phase::Resolve, Phase::Fracture, Phase::Measure]),
+            Some(&[Phase::Collect, Phase::Resolve, Phase::Fracture, Phase::Measure]),
             handle_load_signal
         ),
         op!(LoadConfig, OperandCount::Fixed(1), handle_load_config),

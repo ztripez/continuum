@@ -156,7 +156,7 @@ impl Compiler {
         block: &mut BytecodeBlock,
         stmt: &TypedStmt,
     ) -> Result<(), CompileError> {
-        use continuum_cdsl::ast::block::Stmt;
+        use continuum_cdsl::ast::Stmt;
 
         match stmt {
             Stmt::Let { name, value, .. } => {
@@ -300,7 +300,7 @@ impl Compiler {
                 self.compile_fold(block, entity, init, acc, elem, body)?;
             }
             ExprKind::Call { kernel, args } => {
-                self.compile_call(block, *kernel, args)?;
+                self.compile_call(block, kernel.clone(), args)?;
             }
             ExprKind::Struct { fields, .. } => {
                 self.compile_struct(block, fields)?;
@@ -384,8 +384,8 @@ impl Compiler {
     fn compile_aggregate(
         &mut self,
         block: &mut BytecodeBlock,
-        op: continuum_cdsl::ast::expr::AggregateOp,
-        entity: &continuum_cdsl::ast::Entity,
+        op: continuum_cdsl::ast::AggregateOp,
+        entity: &continuum_foundation::EntityId,
         binding: &String,
         body: &TypedExpr,
     ) -> Result<(), CompileError> {
@@ -416,7 +416,7 @@ impl Compiler {
     fn compile_fold(
         &mut self,
         block: &mut BytecodeBlock,
-        entity: &continuum_cdsl::ast::Entity,
+        entity: &continuum_foundation::EntityId,
         init: &TypedExpr,
         acc: &String,
         elem: &String,
@@ -456,7 +456,7 @@ impl Compiler {
     fn compile_call(
         &mut self,
         block: &mut BytecodeBlock,
-        kernel: continuum_kernel_types::KernelOp,
+        kernel: continuum_kernel_types::KernelId,
         args: &[TypedExpr],
     ) -> Result<(), CompileError> {
         for arg in args {
@@ -561,9 +561,9 @@ impl Default for Compiler {
 
 /// Validates that an aggregate operation is supported by the bytecode VM.
 fn ensure_aggregate_supported(
-    op: continuum_cdsl::ast::expr::AggregateOp,
+    op: continuum_cdsl::ast::AggregateOp,
 ) -> Result<(), CompileError> {
-    if matches!(op, continuum_cdsl::ast::expr::AggregateOp::Map) {
+    if matches!(op, continuum_cdsl::ast::AggregateOp::Map) {
         return Err(CompileError::InvalidIR {
             message: "Aggregate Map is not a runtime reduction opcode".to_string(),
         });

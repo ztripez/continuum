@@ -297,7 +297,7 @@ mod tests {
 
         let mut era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
@@ -328,7 +328,7 @@ mod tests {
 
         let era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             dt_expr,
             span,
         );
@@ -344,7 +344,7 @@ mod tests {
 
         let mut era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
@@ -362,7 +362,7 @@ mod tests {
 
         let mut era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
@@ -397,13 +397,13 @@ mod tests {
 
         let mut era1 = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
         let era2 = Era::new(
             EraId::new("stable"),
-            Path::from_str("stable"),
+            Path::from_path_str("stable"),
             make_time_expr(span),
             span,
         );
@@ -423,13 +423,13 @@ mod tests {
         // Create cycle: formation → stable → formation
         let mut era1 = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
         let mut era2 = Era::new(
             EraId::new("stable"),
-            Path::from_str("stable"),
+            Path::from_path_str("stable"),
             make_time_expr(span),
             span,
         );
@@ -457,13 +457,13 @@ mod tests {
         // Linear: formation → stable (no cycle)
         let mut era1 = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
         let era2 = Era::new(
             EraId::new("stable"),
-            Path::from_str("stable"),
+            Path::from_path_str("stable"),
             make_time_expr(span),
             span,
         );
@@ -487,7 +487,7 @@ mod tests {
         // Era with no strata policies (valid - era just controls dt)
         let era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
@@ -503,7 +503,7 @@ mod tests {
         // Terminal era with no transitions (valid)
         let era = Era::new(
             EraId::new("terminal"),
-            Path::from_str("terminal"),
+            Path::from_path_str("terminal"),
             make_time_expr(span),
             span,
         );
@@ -521,7 +521,7 @@ mod tests {
 
         let mut era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
@@ -542,7 +542,7 @@ mod tests {
 
         let mut era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
@@ -566,19 +566,19 @@ mod tests {
 
         let era_stable = Era::new(
             EraId::new("stable"),
-            Path::from_str("stable"),
+            Path::from_path_str("stable"),
             make_time_expr(span),
             span,
         );
         let era_decay = Era::new(
             EraId::new("decay"),
-            Path::from_str("decay"),
+            Path::from_path_str("decay"),
             make_time_expr(span),
             span,
         );
         let era_collapse = Era::new(
             EraId::new("collapse"),
-            Path::from_str("collapse"),
+            Path::from_path_str("collapse"),
             make_time_expr(span),
             span,
         );
@@ -594,7 +594,7 @@ mod tests {
 
         let mut era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
@@ -615,7 +615,7 @@ mod tests {
 
         let mut era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
@@ -637,7 +637,7 @@ mod tests {
         // Era transitions to itself
         let mut era = Era::new(
             EraId::new("oscillating"),
-            Path::from_str("oscillating"),
+            Path::from_path_str("oscillating"),
             make_time_expr(span),
             span,
         );
@@ -661,19 +661,19 @@ mod tests {
         // Cycle: formation → stable → decay → formation
         let mut era1 = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
         let mut era2 = Era::new(
             EraId::new("stable"),
-            Path::from_str("stable"),
+            Path::from_path_str("stable"),
             make_time_expr(span),
             span,
         );
         let mut era3 = Era::new(
             EraId::new("decay"),
-            Path::from_str("decay"),
+            Path::from_path_str("decay"),
             make_time_expr(span),
             span,
         );
@@ -706,13 +706,13 @@ mod tests {
         // Cycle 1: A ↔ B
         let mut era_a = Era::new(
             EraId::new("a"),
-            Path::from_str("a"),
+            Path::from_path_str("a"),
             make_time_expr(span),
             span,
         );
         let mut era_b = Era::new(
             EraId::new("b"),
-            Path::from_str("b"),
+            Path::from_path_str("b"),
             make_time_expr(span),
             span,
         );
@@ -731,13 +731,13 @@ mod tests {
         // Cycle 2: C ↔ D
         let mut era_c = Era::new(
             EraId::new("c"),
-            Path::from_str("c"),
+            Path::from_path_str("c"),
             make_time_expr(span),
             span,
         );
         let mut era_d = Era::new(
             EraId::new("d"),
-            Path::from_str("d"),
+            Path::from_path_str("d"),
             make_time_expr(span),
             span,
         );
@@ -765,19 +765,19 @@ mod tests {
         // formation → stable, but decay is unreachable
         let mut era_formation = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
         let era_stable = Era::new(
             EraId::new("stable"),
-            Path::from_str("stable"),
+            Path::from_path_str("stable"),
             make_time_expr(span),
             span,
         );
         let era_decay = Era::new(
             EraId::new("decay"),
-            Path::from_str("decay"),
+            Path::from_path_str("decay"),
             make_time_expr(span),
             span,
         );
@@ -802,13 +802,13 @@ mod tests {
 
         let mut era1 = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
         let era2 = Era::new(
             EraId::new("stable"),
-            Path::from_str("stable"),
+            Path::from_path_str("stable"),
             make_time_expr(span),
             span,
         );
@@ -844,13 +844,13 @@ mod tests {
 
         let mut era1 = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );
         let era2 = Era::new(
             EraId::new("stable"),
-            Path::from_str("stable"),
+            Path::from_path_str("stable"),
             make_time_expr(span),
             span,
         );
@@ -899,7 +899,7 @@ mod tests {
 
         let mut era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             bad_dt_expr,
             span,
         );
@@ -951,7 +951,7 @@ mod tests {
 
         let mut era = Era::new(
             EraId::new("formation"),
-            Path::from_str("formation"),
+            Path::from_path_str("formation"),
             make_time_expr(span),
             span,
         );

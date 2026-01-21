@@ -1007,7 +1007,7 @@ impl MemberSignalBuffer {
         }?;
 
         if meta.value_type.is_quat() {
-            Some(Value::Quat(value))
+            Some(Value::Quat(continuum_foundation::Quat(value)))
         } else {
             Some(Value::Vec4(value))
         }
@@ -1025,7 +1025,8 @@ impl MemberSignalBuffer {
                 Ok(())
             }
             (value_type, Value::Quat(v)) if value_type.is_quat() => {
-                self.vec4s.set_current(meta.buffer_index, instance_idx, v);
+                self.vec4s
+                    .set_current(meta.buffer_index, instance_idx, v.0);
                 Ok(())
             }
             (_, value) => Err(value),

@@ -178,7 +178,7 @@ impl ExecutableDag {
 }
 
 /// Collection of DAGs for an era
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize, Clone)]
 pub struct EraDags {
     /// DAGs indexed by (phase, stratum)
     dags: IndexMap<(Phase, StratumId), ExecutableDag>,

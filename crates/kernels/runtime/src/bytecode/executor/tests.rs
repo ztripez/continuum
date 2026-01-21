@@ -2,7 +2,9 @@ use super::*;
 use crate::bytecode::operand::Operand;
 use crate::bytecode::program::BytecodeBlock;
 use crate::bytecode::runtime::{ExecutionContext, ExecutionError};
-use continuum_cdsl::ast::expr::AggregateOp;
+use continuum_cdsl::ast::AggregateOp;
+use continuum_foundation::{EntityId, Path, Phase, Value};
+use continuum_kernel_types::KernelId;
 
 struct TestContext;
 
@@ -35,7 +37,7 @@ impl ExecutionContext for TestContext {
         Ok(Value::Scalar(6.0))
     }
 
-    fn load_inputs(&self) -> Result<Value, ExecutionError> {
+    fn load_inputs(&mut self) -> Result<Value, ExecutionError> {
         Ok(Value::Scalar(7.0))
     }
 

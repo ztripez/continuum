@@ -174,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_named_trait() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path.clone(), span, RoleData::Signal, ());
 
@@ -186,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_parsed_trait() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path.clone(), span, RoleData::Signal, ());
 
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn test_resolved_trait() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path.clone(), span, RoleData::Signal, ());
 
@@ -217,7 +217,7 @@ mod tests {
 
     #[test]
     fn test_validated_trait() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path.clone(), span, RoleData::Signal, ());
 
@@ -233,7 +233,7 @@ mod tests {
 
     #[test]
     fn test_compiled_trait() {
-        let path = Path::from_str("test.signal");
+        let path = Path::from_path_str("test.signal");
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path.clone(), span, RoleData::Signal, ());
 
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_trait_hierarchy() {
-        let path = Path::from_str("test.operator");
+        let path = Path::from_path_str("test.operator");
         let span = Span::new(0, 0, 10, 1);
         let node = Node::new(path, span, RoleData::Operator, ());
 
@@ -272,14 +272,14 @@ mod tests {
     #[test]
     fn test_generic_processing() {
         let signal = Node::new(
-            Path::from_str("world.temperature"),
+            Path::from_path_str("world.temperature"),
             Span::new(0, 0, 10, 1),
             RoleData::Signal,
             (),
         );
 
         let operator = Node::new(
-            Path::from_str("update.temperature"),
+            Path::from_path_str("update.temperature"),
             Span::new(0, 0, 10, 1),
             RoleData::Operator,
             (),
@@ -292,11 +292,11 @@ mod tests {
 
         assert_eq!(
             process_parsed(&signal),
-            &Path::from_str("world.temperature")
+            &Path::from_path_str("world.temperature")
         );
         assert_eq!(
             process_parsed(&operator),
-            &Path::from_str("update.temperature")
+            &Path::from_path_str("update.temperature")
         );
     }
 }

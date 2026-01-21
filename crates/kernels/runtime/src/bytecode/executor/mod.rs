@@ -18,7 +18,7 @@
 //! - Entity iteration state
 //! - Kernel call dispatch
 
-use continuum_foundation::{Phase, Value};
+use continuum_foundation::Value;
 
 use crate::bytecode::compiler::CompiledBlock;
 use crate::bytecode::opcode::{Instruction, OpcodeKind};
@@ -109,7 +109,7 @@ impl BytecodeExecutor {
     /// # Errors
     /// Returns [`ExecutionError`] if the block ID is invalid or a runtime
     /// violation occurs during execution.
-    fn execute_block(
+    pub fn execute_block(
         &mut self,
         block_id: BlockId,
         program: &BytecodeProgram,

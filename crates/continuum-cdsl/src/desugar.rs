@@ -32,9 +32,8 @@
 //! - **Before:** uses validation on typed expressions
 
 use crate::ast::{
-    Attribute, BinaryOp, BlockBody, Declaration, Entity, EraDecl, Expr, Index, KernelId, Node,
-    ObserveBlock, ObserveWhen, Stmt, Stratum, UnaryOp, UntypedKind as ExprKind, WarmupBlock,
-    WhenBlock, WorldDecl,
+    Attribute, BlockBody, Declaration, Entity, EraDecl, Expr, Index, KernelId, Node, ObserveBlock,
+    ObserveWhen, Stmt, Stratum, UntypedKind as ExprKind, WarmupBlock, WhenBlock, WorldDecl,
 };
 use crate::foundation::Span;
 
@@ -354,6 +353,7 @@ pub fn desugar_declarations(decls: Vec<Declaration>) -> Vec<Declaration> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::{BinaryOp, UnaryOp};
     use crate::foundation::Span;
 
     fn make_span() -> Span {
@@ -750,7 +750,7 @@ mod tests {
         let arg2 = make_literal(5.0);
         let call = Expr {
             kind: ExprKind::Call {
-                func: Path::from_str("some.function"),
+                func: Path::from_path_str("some.function"),
                 args: vec![arg1, arg2],
             },
             span: make_span(),
@@ -760,7 +760,7 @@ mod tests {
 
         match desugared.kind {
             ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("some.function"));
+                assert_eq!(func, Path::from_path_str("some.function"));
                 assert_eq!(args.len(), 2);
                 // First arg should be desugared to add
                 assert!(
@@ -786,7 +786,7 @@ mod tests {
         let field2_value = make_literal(10.0);
         let struct_expr = Expr {
             kind: ExprKind::Struct {
-                ty: Path::from_str("MyType"),
+                ty: Path::from_path_str("MyType"),
                 fields: vec![
                     ("x".to_string(), field1_value),
                     ("y".to_string(), field2_value),
@@ -799,7 +799,7 @@ mod tests {
 
         match desugared.kind {
             ExprKind::Struct { ty, fields } => {
-                assert_eq!(ty, Path::from_str("MyType"));
+                assert_eq!(ty, Path::from_path_str("MyType"));
                 assert_eq!(fields.len(), 2);
                 // First field value should be desugared
                 assert_eq!(fields[0].0, "x");
@@ -917,7 +917,7 @@ mod tests {
 
         // SignalAssign: signal = a + b;
         let assign = Stmt::SignalAssign {
-            target: Path::from_str("temp"),
+            target: Path::from_path_str("temp"),
             value: Expr::binary(
                 BinaryOp::Add,
                 make_literal(1.0),
@@ -936,7 +936,7 @@ mod tests {
 
         // FieldAssign: field[pos] = value;
         let field_assign = Stmt::FieldAssign {
-            target: Path::from_str("pressure"),
+            target: Path::from_path_str("pressure"),
             position: Expr::binary(
                 BinaryOp::Add,
                 make_literal(1.0),
@@ -968,7 +968,7 @@ mod tests {
         use crate::ast::{BlockBody, Node, RoleData};
         use crate::foundation::Path;
 
-        let mut node = Node::new(Path::from_str("test"), make_span(), RoleData::Signal, ());
+        let mut node = Node::new(Path::from_path_str("test"), make_span(), RoleData::Signal, ());
 
         // Add an execution block: resolve { a + b }
         let expr = Expr::binary(
@@ -997,7 +997,7 @@ mod tests {
 
         // Era: dt = a + b
         let era = EraDecl {
-            path: Path::from_str("test"),
+            path: Path::from_path_str("test"),
             dt: Some(Expr::binary(
                 BinaryOp::Add,
                 make_literal(1.0),
@@ -1006,7 +1006,7 @@ mod tests {
             )),
             strata_policy: vec![],
             transitions: vec![TransitionDecl {
-                target: Path::from_str("next"),
+                target: Path::from_path_str("next"),
                 conditions: vec![Expr::binary(
                     BinaryOp::Lt,
                     make_literal(1.0),
@@ -1032,7 +1032,7 @@ mod tests {
 
         // World with attributes
         let mut world = WorldDecl {
-            path: Path::from_str("terra"),
+            path: Path::from_path_str("terra"),
             title: None,
             version: None,
             warmup: None,
@@ -1067,13 +1067,13 @@ mod tests {
 
         let decls = vec![
             Declaration::Node(Node::new(
-                Path::from_str("s1"),
+                Path::from_path_str("s1"),
                 make_span(),
                 RoleData::Signal,
                 (),
             )),
             Declaration::Const(vec![ConstEntry {
-                path: Path::from_str("C"),
+                path: Path::from_path_str("C"),
                 value: Expr::binary(
                     BinaryOp::Add,
                     make_literal(1.0),

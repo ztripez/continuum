@@ -92,6 +92,7 @@ fn extract_identifier(expr: &Expr) -> Option<String> {
         | UntypedKind::Field(path)
         | UntypedKind::Config(path)
         | UntypedKind::Const(path) => path.last().map(|s| s.to_string()),
+        UntypedKind::Local(name) => Some(name.to_string()),
         _ => None,
     }
 }
@@ -105,18 +106,32 @@ fn extract_identifier(expr: &Expr) -> Option<String> {
 /// Returns [`ErrorKind::UndefinedName`] if stratum name doesn't exist.
 /// Returns [`ErrorKind::AmbiguousName`] if no stratum specified and multiple exist.
 ///
+/// # Parameters
+/// - `nodes`: Nodes that may contain `:stratum(name)` attributes.
+/// - `strata`: Declared strata to validate against.
+///
+/// # Returns
+/// `Ok(())` after populating `node.stratum` for each node.
+///
 /// # Examples
 ///
-/// ```rust,ignore
-/// let mut nodes = parse_nodes(source);
-/// let strata = parse_strata(source);
+/// ```rust
+/// use continuum_cdsl::ast::{Attribute, Expr, Node, RoleData, Stratum};
+/// use continuum_cdsl::foundation::{Path, Span, StratumId};
+/// use continuum_cdsl::resolve::strata::resolve_strata;
 ///
-/// resolve_strata(&mut nodes, &strata)?;
+/// let span = Span::new(0, 0, 0, 1);
+/// let stratum = Stratum::new(StratumId::new("sim"), Path::from_path_str("sim"), span);
+/// let mut node = Node::new(Path::from_path_str("signal.temp"), span, RoleData::Signal, ());
+/// node.attributes.push(Attribute {
+///     name: "stratum".to_string(),
+///     args: vec![Expr::local("sim".to_string(), span)],
+///     span,
+/// });
 ///
-/// // All nodes now have stratum assigned
-/// for node in &nodes {
-///     assert!(node.stratum.is_some());
-/// }
+/// let mut nodes = vec![node];
+/// resolve_strata(&mut nodes, &[stratum]).unwrap();
+/// assert!(nodes[0].stratum.is_some());
 /// ```
 pub fn resolve_strata<I: crate::ast::Index>(
     nodes: &mut [Node<I>],
@@ -257,18 +272,30 @@ pub fn resolve_strata<I: crate::ast::Index>(
 ///
 /// Returns [`ErrorKind::InvalidCapability`] if cadence is not a positive integer.
 ///
+/// # Parameters
+/// - `strata`: Strata whose cadence is derived from attributes.
+///
+/// # Returns
+/// `Ok(())` after populating `Stratum.cadence` for each stratum.
+///
 /// # Examples
 ///
-/// ```rust,ignore
-/// let mut strata = parse_strata(source);
+/// ```rust
+/// use continuum_cdsl::ast::{Attribute, Expr, Stratum, UntypedKind};
+/// use continuum_cdsl::foundation::{Path, Span, StratumId};
+/// use continuum_cdsl::resolve::strata::resolve_cadences;
 ///
-/// resolve_cadences(&mut strata)?;
+/// let span = Span::new(0, 0, 0, 1);
+/// let mut stratum = Stratum::new(StratumId::new("fast"), Path::from_path_str("fast"), span);
+/// stratum.attributes.push(Attribute {
+///     name: "stride".to_string(),
+///     args: vec![Expr::new(UntypedKind::Literal { value: 2.0, unit: None }, span)],
+///     span,
+/// });
 ///
-/// // All strata now have cadence resolved
-/// for stratum in &strata {
-///     assert!(stratum.cadence.is_some());
-///     assert!(stratum.cadence.unwrap() > 0);
-/// }
+/// let mut strata = vec![stratum];
+/// resolve_cadences(&mut strata).unwrap();
+/// assert!(strata[0].cadence.is_some());
 /// ```
 pub fn resolve_cadences(strata: &mut [Stratum]) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
@@ -362,14 +389,14 @@ mod tests {
     }
 
     fn make_stratum(name: &str, attributes: Vec<Attribute>) -> Stratum {
-        let path = Path::from_str(name);
+        let path = Path::from_path_str(name);
         let mut stratum = Stratum::new(StratumId::new(name), path, test_span());
         stratum.attributes = attributes;
         stratum
     }
 
     fn make_node(path: &str, attributes: Vec<Attribute>) -> Node<()> {
-        let mut node = Node::new(Path::from_str(path), test_span(), RoleData::Signal, ());
+        let mut node = Node::new(Path::from_path_str(path), test_span(), RoleData::Signal, ());
         node.attributes = attributes;
         node
     }
@@ -380,7 +407,7 @@ mod tests {
         let span = test_span();
         let args = arg_names
             .into_iter()
-            .map(|name| Expr::new(UntypedKind::Signal(Path::from_str(name)), span))
+            .map(|name| Expr::new(UntypedKind::Signal(Path::from_path_str(name)), span))
             .collect();
 
         Attribute {
@@ -827,19 +854,19 @@ mod tests {
 
     #[test]
     fn test_extract_identifier_field_path() {
-        let expr = Expr::new(UntypedKind::Field(Path::from_str("field")), test_span());
+        let expr = Expr::new(UntypedKind::Field(Path::from_path_str("field")), test_span());
         assert_eq!(extract_identifier(&expr), Some("field".to_string()));
     }
 
     #[test]
     fn test_extract_identifier_config_path() {
-        let expr = Expr::new(UntypedKind::Config(Path::from_str("cfg")), test_span());
+        let expr = Expr::new(UntypedKind::Config(Path::from_path_str("cfg")), test_span());
         assert_eq!(extract_identifier(&expr), Some("cfg".to_string()));
     }
 
     #[test]
     fn test_extract_identifier_const_path() {
-        let expr = Expr::new(UntypedKind::Const(Path::from_str("c")), test_span());
+        let expr = Expr::new(UntypedKind::Const(Path::from_path_str("c")), test_span());
         assert_eq!(extract_identifier(&expr), Some("c".to_string()));
     }
 

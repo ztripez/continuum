@@ -67,7 +67,7 @@ impl TestHarness {
         let era_configs = build_era_configs(&world);
 
         // Create runtime
-        let mut runtime = Runtime::new(initial_era, era_configs, compilation.dags);
+        let mut runtime = Runtime::new(initial_era, era_configs, compilation.dags, Vec::new());
 
         // Register resolvers
         for (signal_id, signal) in &signals {

@@ -164,10 +164,11 @@ pub mod error;
 
 /// Public compilation API
 ///
-/// Phase 15 will expose the public interface.
-pub mod compile {
-    //! High-level compilation API.
-}
+/// Phase 15 exposes the high-level interface for compiling entire worlds
+/// from the filesystem and serializing the results.
+pub mod compile;
+
+pub use compile::{compile, deserialize_world, format_errors, serialize_world};
 
 // Placeholder version info
 /// Compiler version

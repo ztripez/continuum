@@ -129,6 +129,18 @@ pub struct RunOptions {
     pub checkpoint: Option<CheckpointOptions>,
 }
 
+impl Default for RunOptions {
+    fn default() -> Self {
+        Self {
+            steps: 1,
+            print_signals: false,
+            signals: Vec::new(),
+            lens_sink: None,
+            checkpoint: None,
+        }
+    }
+}
+
 /// Summary report returned after a successful simulation run.
 #[derive(Debug, Clone)]
 pub struct RunReport {
@@ -791,12 +803,14 @@ impl Runtime {
                 } else {
                     self.bytecode_executor.execute_fracture(
                         &self.current_era,
+                        self.tick,
                         dt,
                         self.sim_time,
+                        &strata_states,
                         &self.dags,
                         &self.bytecode_blocks,
                         &self.signals,
-                        &self.entities,
+                        &mut self.entities,
                         &self.member_signals,
                         &mut self.input_channels,
                     )?;

@@ -148,6 +148,14 @@ impl InputChannels {
             .map(|values| values.iter().sum())
             .unwrap_or(0.0)
     }
+
+    /// Sum all accumulated values for a signal without removing them.
+    pub fn peek_sum(&self, id: &SignalId) -> f64 {
+        self.channels
+            .get(id)
+            .map(|values| values.iter().sum())
+            .unwrap_or(0.0)
+    }
 }
 
 /// Queued fracture outputs for next tick

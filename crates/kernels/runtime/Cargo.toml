@@ -21,6 +21,7 @@ chrono = "0.4"
 
 [dev-dependencies]
 criterion = { version = "0.8.1", features = ["html_reports"] }
+continuum-functions = { version = "0.1.0", path = "../functions" }
 
 [[bench]]
 name = "chunking_strategies"

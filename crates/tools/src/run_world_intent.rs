@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use continuum_cdsl::ast::{BinaryBundle, CompiledWorld};
 use continuum_cdsl::compile;
@@ -26,12 +26,20 @@ impl WorldSource {
         let ext = path
             .extension()
             .and_then(|value| value.to_str())
-            .unwrap_or("");
+            .ok_or_else(|| {
+                RunWorldError::Io(format!(
+                    "Cannot determine world source for path without extension: {}",
+                    path.display()
+                ))
+            })?;
 
-        if ext == "cvm" {
-            Ok(Self::CompiledBundle(path))
-        } else {
-            Ok(Self::CompiledJson(path))
+        match ext {
+            "cvm" => Ok(Self::CompiledBundle(path)),
+            "json" => Ok(Self::CompiledJson(path)),
+            _ => Err(RunWorldError::Io(format!(
+                "Unsupported world source extension: .{}",
+                ext
+            ))),
         }
     }
 
@@ -57,7 +65,7 @@ impl WorldSource {
     }
 }
 
-/// Intent describing the single canonical world execution flow.
+/// Intent describing the execution lifecycle of a Continuum world.
 pub struct RunWorldIntent {
     /// Where to load the world from.
     pub source: WorldSource,
@@ -70,24 +78,20 @@ pub struct RunWorldIntent {
 impl RunWorldIntent {
     /// Build a new intent with default run options.
     pub fn new(source: WorldSource, steps: u64) -> Self {
+        let mut options = RunOptions::default();
+        options.steps = steps;
         Self {
             source,
-            options: RunOptions {
-                steps,
-                print_signals: false,
-                signals: Vec::new(),
-                lens_sink: None,
-                checkpoint: None,
-            },
+            options,
             seed: None,
         }
     }
 
-    /// Execute the intent and run the world.
+    /// Execute the intent and run the world simulation.
     pub fn execute(self) -> Result<RunReport, RunWorldError> {
         if self.options.steps == 0 {
             return Err(RunWorldError::Runtime(
-                "run options require steps > 0".to_string(),
+                "Simulation requires at least 1 step".to_string(),
             ));
         }
         let compiled = self.source.load()?;
@@ -152,19 +156,10 @@ pub fn run_world_from_path(
     seed: Option<u64>,
 ) -> Result<RunReport, RunWorldError> {
     let source = WorldSource::from_path(path)?;
-    let mut intent = RunWorldIntent::new(source, options.steps);
-    intent.options = options;
-    intent.seed = seed;
+    let intent = RunWorldIntent {
+        source,
+        options,
+        seed,
+    };
     intent.execute()
-}
-
-/// Confirm a path is a directory for world sources.
-pub fn validate_world_dir(path: &Path) -> Result<(), RunWorldError> {
-    if !path.is_dir() {
-        return Err(RunWorldError::Io(format!(
-            "world path '{}' is not a directory",
-            path.display()
-        )));
-    }
-    Ok(())
 }

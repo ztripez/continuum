@@ -54,7 +54,7 @@ impl ExpressionVisitor for DependencyVisitor {
             }
             ExprKind::Aggregate { entity, .. } | ExprKind::Fold { entity, .. } => {
                 // Iterating over an entity set is a read dependency on the entity's lifetime
-                self.paths.insert(Path::from_str(&entity.0.to_string()));
+                self.paths.insert(Path::from(entity.0.to_string().as_str()));
             }
             ExprKind::FieldAccess { object, field } => {
                 // BUG FIX (continuum-b8wv): Don't insert member paths when object is Prev.
@@ -64,7 +64,7 @@ impl ExpressionVisitor for DependencyVisitor {
                         // Accessing a member on a user type (entity or struct)
                         // In CDSL, members are identified by Entity.Member
                         self.paths
-                            .insert(Path::from_str(&type_id.to_string()).append(field));
+                            .insert(Path::from(type_id.to_string().as_str()).append(field));
                     }
                 }
             }

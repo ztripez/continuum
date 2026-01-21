@@ -45,7 +45,7 @@
 //!
 //! // Create a global signal node
 //! let signal = Node::new(
-//!     Path::from_str("world.temperature"),
+//!     Path::from_path_str("world.temperature"),
 //!     span,
 //!     RoleData::Signal,
 //!     (), // global index
@@ -53,10 +53,10 @@
 //!
 //! // Create a per-entity member node
 //! let member = Node::new(
-//!     Path::from_str("plate.velocity"),
+//!     Path::from_path_str("plate.velocity"),
 //!     span,
 //!     RoleData::Signal,
-//!     EntityId(Path::from_str("plate")), // per-entity index
+//!     EntityId(Path::from_path_str("plate")), // per-entity index
 //! );
 //! ```
 

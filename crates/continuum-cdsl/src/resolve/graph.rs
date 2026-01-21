@@ -404,7 +404,7 @@ mod tests {
     fn test_dag_compilation_simple() {
         let span = test_span();
         let metadata = crate::ast::WorldDecl {
-            path: Path::from_str("world"),
+            path: Path::from_path_str("world"),
             title: None,
             version: None,
             warmup: None,
@@ -414,7 +414,7 @@ mod tests {
         };
 
         // signal a { resolve { 1.0 } }
-        let mut node_a = Node::new(Path::from_str("a"), span, RoleData::Signal, ());
+        let mut node_a = Node::new(Path::from_path_str("a"), span, RoleData::Signal, ());
         node_a.stratum = Some(StratumId::new("default"));
         node_a.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -434,17 +434,17 @@ mod tests {
         )];
 
         // signal b { resolve { signal.a } }
-        let mut node_b = Node::new(Path::from_str("b"), span, RoleData::Signal, ());
+        let mut node_b = Node::new(Path::from_path_str("b"), span, RoleData::Signal, ());
         node_b.stratum = Some(StratumId::new("default"));
         node_b.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
             ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Signal(Path::from_str("a")),
+                crate::ast::ExprKind::Signal(Path::from_path_str("a")),
                 crate::foundation::Type::Bool, // Dummy type
                 span,
             )),
-            vec![Path::from_str("a")],
+            vec![Path::from_path_str("a")],
             vec![],
             vec![node_b.path.clone()],
             span,
@@ -452,8 +452,8 @@ mod tests {
 
         let mut world = World::new(metadata);
         world.strata.insert(
-            Path::from_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+            Path::from_path_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
         );
         world.globals.insert(node_a.path.clone(), node_a);
         world.globals.insert(node_b.path.clone(), node_b);
@@ -465,15 +465,15 @@ mod tests {
             .expect("DAG not found");
 
         assert_eq!(dag.levels.len(), 2);
-        assert_eq!(dag.levels[0].nodes, vec![Path::from_str("a")]);
-        assert_eq!(dag.levels[1].nodes, vec![Path::from_str("b")]);
+        assert_eq!(dag.levels[0].nodes, vec![Path::from_path_str("a")]);
+        assert_eq!(dag.levels[1].nodes, vec![Path::from_path_str("b")]);
     }
 
     #[test]
     fn test_dag_compilation_cycle() {
         let span = test_span();
         let metadata = crate::ast::WorldDecl {
-            path: Path::from_str("world"),
+            path: Path::from_path_str("world"),
             title: None,
             version: None,
             warmup: None,
@@ -483,34 +483,34 @@ mod tests {
         };
 
         // signal a { resolve { signal.b } }
-        let mut node_a = Node::new(Path::from_str("a"), span, RoleData::Signal, ());
+        let mut node_a = Node::new(Path::from_path_str("a"), span, RoleData::Signal, ());
         node_a.stratum = Some(StratumId::new("default"));
         node_a.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
             ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Signal(Path::from_str("b")),
+                crate::ast::ExprKind::Signal(Path::from_path_str("b")),
                 crate::foundation::Type::Bool,
                 span,
             )),
-            vec![Path::from_str("b")],
+            vec![Path::from_path_str("b")],
             vec![],
             vec![node_a.path.clone()],
             span,
         )];
 
         // signal b { resolve { signal.a } }
-        let mut node_b = Node::new(Path::from_str("b"), span, RoleData::Signal, ());
+        let mut node_b = Node::new(Path::from_path_str("b"), span, RoleData::Signal, ());
         node_b.stratum = Some(StratumId::new("default"));
         node_b.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
             ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Signal(Path::from_str("a")),
+                crate::ast::ExprKind::Signal(Path::from_path_str("a")),
                 crate::foundation::Type::Bool,
                 span,
             )),
-            vec![Path::from_str("a")],
+            vec![Path::from_path_str("a")],
             vec![],
             vec![node_b.path.clone()],
             span,
@@ -518,8 +518,8 @@ mod tests {
 
         let mut world = World::new(metadata);
         world.strata.insert(
-            Path::from_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+            Path::from_path_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
         );
         world.globals.insert(node_a.path.clone(), node_a);
         world.globals.insert(node_b.path.clone(), node_b);
@@ -534,7 +534,7 @@ mod tests {
     fn test_field_isolation_in_kernel_phases() {
         let span = test_span();
         let metadata = crate::ast::WorldDecl {
-            path: Path::from_str("world"),
+            path: Path::from_path_str("world"),
             title: None,
             version: None,
             warmup: None,
@@ -545,7 +545,7 @@ mod tests {
 
         // field temperature { resolve { 1.0 } }  // INVALID: Fields can't execute in Resolve
         let mut field_node = Node::new(
-            Path::from_str("temperature"),
+            Path::from_path_str("temperature"),
             span,
             RoleData::Field {
                 reconstruction: None,
@@ -572,8 +572,8 @@ mod tests {
 
         let mut world = World::new(metadata);
         world.strata.insert(
-            Path::from_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+            Path::from_path_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
         );
         world.globals.insert(field_node.path.clone(), field_node);
 
@@ -591,7 +591,7 @@ mod tests {
     fn test_parallel_node_deterministic_ordering() {
         let span = test_span();
         let metadata = crate::ast::WorldDecl {
-            path: Path::from_str("world"),
+            path: Path::from_path_str("world"),
             title: None,
             version: None,
             warmup: None,
@@ -605,7 +605,7 @@ mod tests {
         // signal apple { resolve { 2.0 } }
         // signal banana { resolve { 3.0 } }
 
-        let mut node_zebra = Node::new(Path::from_str("zebra"), span, RoleData::Signal, ());
+        let mut node_zebra = Node::new(Path::from_path_str("zebra"), span, RoleData::Signal, ());
         node_zebra.stratum = Some(StratumId::new("default"));
         node_zebra.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -624,7 +624,7 @@ mod tests {
             span,
         )];
 
-        let mut node_apple = Node::new(Path::from_str("apple"), span, RoleData::Signal, ());
+        let mut node_apple = Node::new(Path::from_path_str("apple"), span, RoleData::Signal, ());
         node_apple.stratum = Some(StratumId::new("default"));
         node_apple.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -643,7 +643,7 @@ mod tests {
             span,
         )];
 
-        let mut node_banana = Node::new(Path::from_str("banana"), span, RoleData::Signal, ());
+        let mut node_banana = Node::new(Path::from_path_str("banana"), span, RoleData::Signal, ());
         node_banana.stratum = Some(StratumId::new("default"));
         node_banana.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -664,8 +664,8 @@ mod tests {
 
         let mut world = World::new(metadata);
         world.strata.insert(
-            Path::from_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+            Path::from_path_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
         );
 
         // Insert in non-alphabetical order to verify sorting
@@ -685,9 +685,9 @@ mod tests {
         assert_eq!(
             dag.levels[0].nodes,
             vec![
-                Path::from_str("apple"),
-                Path::from_str("banana"),
-                Path::from_str("zebra")
+                Path::from_path_str("apple"),
+                Path::from_path_str("banana"),
+                Path::from_path_str("zebra")
             ]
         );
     }
@@ -696,7 +696,7 @@ mod tests {
     fn test_empty_dag_handling() {
         let span = test_span();
         let metadata = crate::ast::WorldDecl {
-            path: Path::from_str("world"),
+            path: Path::from_path_str("world"),
             title: None,
             version: None,
             warmup: None,
@@ -707,8 +707,8 @@ mod tests {
 
         let mut world = World::new(metadata);
         world.strata.insert(
-            Path::from_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+            Path::from_path_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
         );
 
         // No nodes in the world - all DAGs should be empty (None)
@@ -722,7 +722,7 @@ mod tests {
     fn test_cross_stratum_dependency_violation() {
         let span = test_span();
         let metadata = crate::ast::WorldDecl {
-            path: Path::from_str("world"),
+            path: Path::from_path_str("world"),
             title: None,
             version: None,
             warmup: None,
@@ -732,7 +732,7 @@ mod tests {
         };
 
         // signal slow_signal { : stratum(slow); resolve { 1.0 } }
-        let mut node_slow = Node::new(Path::from_str("slow_signal"), span, RoleData::Signal, ());
+        let mut node_slow = Node::new(Path::from_path_str("slow_signal"), span, RoleData::Signal, ());
         node_slow.stratum = Some(StratumId::new("slow"));
         node_slow.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -752,17 +752,17 @@ mod tests {
         )];
 
         // signal fast_signal { : stratum(fast); resolve { signal.slow_signal } }
-        let mut node_fast = Node::new(Path::from_str("fast_signal"), span, RoleData::Signal, ());
+        let mut node_fast = Node::new(Path::from_path_str("fast_signal"), span, RoleData::Signal, ());
         node_fast.stratum = Some(StratumId::new("fast"));
         node_fast.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
             ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Signal(Path::from_str("slow_signal")),
+                crate::ast::ExprKind::Signal(Path::from_path_str("slow_signal")),
                 crate::foundation::Type::Bool,
                 span,
             )),
-            vec![Path::from_str("slow_signal")],
+            vec![Path::from_path_str("slow_signal")],
             vec![],
             vec![node_fast.path.clone()],
             span,
@@ -770,12 +770,12 @@ mod tests {
 
         let mut world = World::new(metadata);
         world.strata.insert(
-            Path::from_str("slow"),
-            crate::ast::Stratum::new(StratumId::new("slow"), Path::from_str("slow"), span),
+            Path::from_path_str("slow"),
+            crate::ast::Stratum::new(StratumId::new("slow"), Path::from_path_str("slow"), span),
         );
         world.strata.insert(
-            Path::from_str("fast"),
-            crate::ast::Stratum::new(StratumId::new("fast"), Path::from_str("fast"), span),
+            Path::from_path_str("fast"),
+            crate::ast::Stratum::new(StratumId::new("fast"), Path::from_path_str("fast"), span),
         );
         world.globals.insert(node_slow.path.clone(), node_slow);
         world.globals.insert(node_fast.path.clone(), node_fast);
@@ -794,7 +794,7 @@ mod tests {
     fn test_multi_emitter_conflict() {
         let span = test_span();
         let metadata = crate::ast::WorldDecl {
-            path: Path::from_str("world"),
+            path: Path::from_path_str("world"),
             title: None,
             version: None,
             warmup: None,
@@ -804,7 +804,7 @@ mod tests {
         };
 
         // operator op1 { measure { field.a <- 1.0 } }
-        let mut node_op1 = Node::new(Path::from_str("op1"), span, RoleData::Operator, ());
+        let mut node_op1 = Node::new(Path::from_path_str("op1"), span, RoleData::Operator, ());
         node_op1.stratum = Some(StratumId::new("default"));
         node_op1.executions = vec![Execution::new(
             "measure".to_string(),
@@ -819,11 +819,11 @@ mod tests {
             )),
             vec![],
             vec![],
-            vec![Path::from_str("field.a")],
+            vec![Path::from_path_str("field.a")],
             span,
         )];
 
-        let mut node_op2 = Node::new(Path::from_str("op2"), span, RoleData::Operator, ());
+        let mut node_op2 = Node::new(Path::from_path_str("op2"), span, RoleData::Operator, ());
         node_op2.stratum = Some(StratumId::new("default"));
         node_op2.executions = vec![Execution::new(
             "measure".to_string(),
@@ -838,14 +838,14 @@ mod tests {
             )),
             vec![],
             vec![],
-            vec![Path::from_str("field.a")],
+            vec![Path::from_path_str("field.a")],
             span,
         )];
 
         let mut world = World::new(metadata);
         world.strata.insert(
-            Path::from_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+            Path::from_path_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
         );
         world.globals.insert(node_op1.path.clone(), node_op1);
         world.globals.insert(node_op2.path.clone(), node_op2);
@@ -862,7 +862,7 @@ mod tests {
     fn test_dag_compilation_temporal_success() {
         let span = test_span();
         let metadata = crate::ast::WorldDecl {
-            path: Path::from_str("world"),
+            path: Path::from_path_str("world"),
             title: None,
             version: None,
             warmup: None,
@@ -872,7 +872,7 @@ mod tests {
         };
 
         // signal a { resolve { prev } }
-        let mut node_a = Node::new(Path::from_str("a"), span, RoleData::Signal, ());
+        let mut node_a = Node::new(Path::from_path_str("a"), span, RoleData::Signal, ());
         node_a.stratum = Some(StratumId::new("default"));
         node_a.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -890,8 +890,8 @@ mod tests {
 
         let mut world = World::new(metadata);
         world.strata.insert(
-            Path::from_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_str("default"), span),
+            Path::from_path_str("default"),
+            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
         );
         world.globals.insert(node_a.path.clone(), node_a);
 
@@ -909,6 +909,6 @@ mod tests {
             .get(&(Phase::Resolve, StratumId::new("default")))
             .unwrap();
         assert_eq!(dag.levels.len(), 1);
-        assert_eq!(dag.levels[0].nodes, vec![Path::from_str("a")]);
+        assert_eq!(dag.levels[0].nodes, vec![Path::from_path_str("a")]);
     }
 }

@@ -19,11 +19,11 @@ mod coverage_gap_tests {
     #[test]
     fn test_reads_union_from_multiple_blocks() {
         let span = test_span();
-        let path = Path::from_str("test.operator");
+        let path = Path::from_path_str("test.operator");
         let mut node = Node::new(path, span, RoleData::Operator, ());
 
-        let path1 = Path::from_str("signal.a");
-        let path2 = Path::from_str("signal.b");
+        let path1 = Path::from_path_str("signal.a");
+        let path2 = Path::from_path_str("signal.b");
 
         // Execution 1 reads signal.a
         let expr1 = TypedExpr::new(ExprKind::Signal(path1.clone()), scalar_type(), span);

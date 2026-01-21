@@ -991,10 +991,10 @@ mod tests {
         fn references_are_pure() {
             let references = vec![
                 ExprKind::Local("x".to_string()),
-                ExprKind::Signal(Path::from_str("velocity")),
-                ExprKind::Field(Path::from_str("temperature")),
-                ExprKind::Config(Path::from_str("initial_temp")),
-                ExprKind::Const(Path::from_str("BOLTZMANN")),
+                ExprKind::Signal(Path::from_path_str("velocity")),
+                ExprKind::Field(Path::from_path_str("temperature")),
+                ExprKind::Config(Path::from_path_str("initial_temp")),
+                ExprKind::Const(Path::from_path_str("BOLTZMANN")),
             ];
 
             for ref_kind in references {
@@ -1036,7 +1036,7 @@ mod tests {
         #[test]
         fn effect_kernel_call_is_impure() {
             let target = TypedExpr::new(
-                ExprKind::Signal(Path::from_str("force")),
+                ExprKind::Signal(Path::from_path_str("force")),
                 scalar_type(),
                 make_span(),
             );
@@ -1170,7 +1170,7 @@ mod tests {
 
             let orbit_ty = TypeId::from("Orbit");
             let object = TypedExpr::new(
-                ExprKind::Signal(Path::from_str("orbit")),
+                ExprKind::Signal(Path::from_path_str("orbit")),
                 Type::User(orbit_ty),
                 make_span(),
             );

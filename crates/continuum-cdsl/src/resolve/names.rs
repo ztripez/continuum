@@ -204,7 +204,7 @@ pub fn build_symbol_table(declarations: &[Declaration]) -> SymbolTable {
                 table.register_member(node.index.clone(), node.path.clone());
             }
             Declaration::Type(type_decl) => {
-                table.register_type(Path::from_str(&type_decl.name));
+                table.register_type(Path::from(type_decl.name.as_str()));
             }
             Declaration::Const(entries) => {
                 for entry in entries {
@@ -235,6 +235,7 @@ pub struct Scope {
 
 impl Scope {
     /// Create empty scope
+    #[allow(dead_code)]
     fn new() -> Self {
         Self::default()
     }
@@ -501,7 +502,7 @@ mod tests {
     use crate::foundation::Span;
 
     fn make_path(s: &str) -> Path {
-        Path::from_str(s)
+        Path::from_path_str(s)
     }
 
     fn make_node(path: &str) -> Node<()> {

@@ -3,7 +3,7 @@
 //! Operands represent the data that opcodes operate on: signal slots, entity indices,
 //! local bindings, temporal markers, block references, etc.
 
-use continuum_cdsl::ast::expr::AggregateOp;
+use continuum_cdsl::ast::AggregateOp;
 use continuum_foundation::{EntityId, Path, Value};
 use serde::{Deserialize, Serialize};
 

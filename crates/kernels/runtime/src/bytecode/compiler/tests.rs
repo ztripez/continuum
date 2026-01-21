@@ -1,7 +1,7 @@
 use super::*;
-use continuum_cdsl::ast::expr::TypedExpr;
-use continuum_cdsl::ast::{Execution, ExecutionBody, ExprKind};
-use continuum_foundation::{Phase, Span, Type};
+use continuum_cdsl::ast::{Execution, ExecutionBody, ExprKind, TypedExpr};
+use continuum_cdsl::foundation::{Span, Type};
+use continuum_foundation::Phase;
 
 fn make_literal(value: f64) -> TypedExpr {
     TypedExpr {

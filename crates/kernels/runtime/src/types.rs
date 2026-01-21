@@ -19,70 +19,44 @@
 // Re-export foundational ID types and StratumState
 pub use continuum_foundation::{
     AssertionSeverity, EntityId, EraId, FieldId, FractureId, ImpulseId, InstanceId, OperatorId,
-    SignalId, StratumId, StratumState, Value,
+    Phase, SignalId, StratumId, StratumState, Value,
 };
 
 use serde::{Deserialize, Serialize};
 
-/// The five execution phases that occur each simulation tick.
+/// The internal state machine phases for a simulation tick.
 ///
-/// Phases execute in strict order and define what operations are permitted
-/// at each stage. This ensures deterministic execution regardless of how
-/// signals and operators are declared.
-///
-/// # Phase Order
-///
-/// 1. **Configure** - Freeze execution context (dt, era, tick number)
-/// 2. **Collect** - Accumulate impulse inputs and inter-signal contributions
-/// 3. **Resolve** - Compute new signal values from expressions
-/// 4. **Fracture** - Detect tension conditions and emit responses
-/// 5. **Measure** - Emit field values for observer consumption
-///
-/// # Phase Boundaries
-///
-/// Operations are restricted by phase:
-/// - Signal writes only occur during Resolve
-/// - Field emission only occurs during Measure
-/// - Fracture detection only occurs during Fracture
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-pub enum Phase {
-    /// Freeze execution context for the tick.
-    Configure,
-    /// Accumulate inputs from impulses and other sources.
-    Collect,
-    /// Compute new signal values from resolver expressions.
-    Resolve,
-    /// Detect tension conditions and emit fracture responses.
-    Fracture,
-    /// Emit field values for external observation.
-    Measure,
+/// While [`Phase`] defines the logical simulation phases (the 5 kernels),
+/// [`TickPhase`] includes the runtime plumbing required to manage the tick
+/// lifecycle.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TickPhase {
+    /// Logical simulation phase (Configure, Collect, Resolve, Fracture, Measure)
+    Simulation(Phase),
     /// Transition to another era if conditions met.
     EraTransition,
     /// Post-tick state advancement (tick++, advance buffers).
     PostTick,
 }
 
-impl Phase {
-    /// All phases in execution order
-    pub const ALL: [Phase; 7] = [
-        Phase::Configure,
-        Phase::Collect,
-        Phase::Resolve,
-        Phase::Fracture,
-        Phase::Measure,
-        Phase::EraTransition,
-        Phase::PostTick,
-    ];
+impl TickPhase {
+    /// The first phase of a tick.
+    pub const START: TickPhase = TickPhase::Simulation(Phase::Configure);
 
+    /// Get the next phase in the tick lifecycle.
     pub fn next(&self) -> Self {
         match self {
-            Phase::Configure => Phase::Collect,
-            Phase::Collect => Phase::Resolve,
-            Phase::Resolve => Phase::Fracture,
-            Phase::Fracture => Phase::Measure,
-            Phase::Measure => Phase::EraTransition,
-            Phase::EraTransition => Phase::PostTick,
-            Phase::PostTick => Phase::Configure,
+            TickPhase::Simulation(Phase::CollectConfig)
+            | TickPhase::Simulation(Phase::Initialize)
+            | TickPhase::Simulation(Phase::WarmUp) => TickPhase::Simulation(Phase::Configure),
+            TickPhase::Simulation(Phase::Configure) => TickPhase::Simulation(Phase::Collect),
+            TickPhase::Simulation(Phase::Collect) => TickPhase::Simulation(Phase::Resolve),
+            TickPhase::Simulation(Phase::Resolve) => TickPhase::Simulation(Phase::Fracture),
+            TickPhase::Simulation(Phase::Fracture) => TickPhase::Simulation(Phase::Measure),
+            TickPhase::Simulation(Phase::Measure) => TickPhase::Simulation(Phase::Assert),
+            TickPhase::Simulation(Phase::Assert) => TickPhase::EraTransition,
+            TickPhase::EraTransition => TickPhase::PostTick,
+            TickPhase::PostTick => TickPhase::Simulation(Phase::Configure),
         }
     }
 }

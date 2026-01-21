@@ -1,6 +1,6 @@
 //! Runtime traits and errors for bytecode execution.
 
-use continuum_cdsl::ast::expr::AggregateOp;
+use continuum_cdsl::ast::AggregateOp;
 use continuum_foundation::{EntityId, Path, Phase, Value};
 use continuum_kernel_types::KernelId;
 
@@ -161,7 +161,7 @@ pub trait ExecutionContext {
     /// # Errors
     ///
     /// Returns an error if called outside of the Resolve phase.
-    fn load_inputs(&self) -> Result<Value, ExecutionError>;
+    fn load_inputs(&mut self) -> Result<Value, ExecutionError>;
 
     /// Returns the time step (delta time) for the current tick.
     fn load_dt(&self) -> Result<Value, ExecutionError>;

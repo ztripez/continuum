@@ -92,6 +92,13 @@ pub enum Error {
         message: String,
     },
 
+    /// A bytecode execution failure occurred.
+    #[error("execution failure: {message}")]
+    ExecutionFailure {
+        /// Description of the execution failure.
+        message: String,
+    },
+
     /// An operation was attempted in an invalid execution phase.
     ///
     /// The five-phase execution model restricts what operations can occur

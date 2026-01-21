@@ -21,7 +21,7 @@
 //! ```
 
 use crate::ast::{
-    BlockBody, Execution, ExecutionBody, Expr, Index, Node, RoleId, Stmt, TypedExpr, TypedStmt,
+    BlockBody, Execution, ExecutionBody, Expr, Index, Node, RoleId, Stmt, TypedStmt,
 };
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::Phase;
@@ -55,6 +55,47 @@ use std::collections::HashSet;
 ///
 /// Returns an aggregated list of [`CompileError`]s if any expression fails typing,
 /// a variable is undefined, or an assignment target is invalid.
+///
+/// # Parameters
+/// - `stmts`: Untyped statements to type-check.
+/// - `ctx`: Typing context used for expression typing and phase checks.
+///
+/// # Returns
+/// Typed statements suitable for dependency extraction and execution.
+///
+/// # Examples
+/// ```rust
+/// use continuum_cdsl::ast::{Expr, Stmt};
+/// use continuum_cdsl::ast::KernelRegistry;
+/// use continuum_cdsl::foundation::Span;
+/// use continuum_cdsl::resolve::blocks::compile_statements;
+/// use continuum_cdsl::resolve::expr_typing::TypingContext;
+/// use continuum_cdsl::resolve::types::TypeTable;
+/// use continuum_foundation::Phase;
+/// use std::collections::HashMap;
+///
+/// let span = Span::new(0, 0, 0, 1);
+/// let stmts = vec![Stmt::Expr(Expr::literal(1.0, None, span))];
+///
+/// let registry = KernelRegistry::global();
+/// let type_table = TypeTable::new();
+/// let signal_types = HashMap::new();
+/// let field_types = HashMap::new();
+/// let config_types = HashMap::new();
+/// let const_types = HashMap::new();
+/// let ctx = TypingContext::new(
+///     &type_table,
+///     &registry,
+///     &signal_types,
+///     &field_types,
+///     &config_types,
+///     &const_types,
+/// )
+/// .with_phase(Phase::Collect);
+///
+/// let typed = compile_statements(&stmts, &ctx).unwrap();
+/// assert_eq!(typed.len(), 1);
+/// ```
 pub fn compile_statements(
     stmts: &[Stmt<Expr>],
     ctx: &TypingContext,
@@ -204,10 +245,28 @@ pub fn compile_statements(
 
 /// Parses a string phase name into a Phase enum value.
 ///
+/// # Parameters
+/// - `name`: Phase name string.
+/// - `span`: Source span used for diagnostics.
+///
+/// # Returns
+/// Parsed [`Phase`] value.
+///
 /// # Errors
 ///
 /// Returns [`ErrorKind::InvalidCapability`] if the name is unrecognized or
 /// is a legacy name like "apply" or "emit".
+///
+/// # Examples
+/// ```rust
+/// use continuum_cdsl::resolve::blocks::parse_phase_name;
+/// use continuum_cdsl::foundation::Span;
+/// use continuum_foundation::Phase;
+///
+/// let span = Span::new(0, 0, 0, 1);
+/// let phase = parse_phase_name("resolve", span).unwrap();
+/// assert_eq!(phase, Phase::Resolve);
+/// ```
 pub fn parse_phase_name(name: &str, span: crate::foundation::Span) -> Result<Phase, CompileError> {
     match name.to_lowercase().as_str() {
         "resolve" => Ok(Phase::Resolve),
@@ -297,12 +356,51 @@ fn validate_phase_for_role(
 ///
 /// # Examples
 ///
-/// ```rust,ignore
-/// let mut node = parsed_node;
-/// compile_execution_blocks(&mut node)?;
+/// # Parameters
+/// - `node`: Node whose execution blocks will be compiled.
+/// - `ctx`: Typing context used for expression and statement typing.
 ///
-/// assert!(node.executions.len() > 0);
-/// assert!(node.execution_blocks.is_empty());
+/// # Returns
+/// `Ok(())` after populating `node.executions` and related metadata.
+///
+/// # Examples
+/// ```rust
+/// use continuum_cdsl::ast::{BlockBody, Expr, KernelRegistry, Node, RoleData};
+/// use continuum_cdsl::foundation::{KernelType, Path, Shape, Span, Type, Unit};
+/// use continuum_cdsl::resolve::blocks::compile_execution_blocks;
+/// use continuum_cdsl::resolve::expr_typing::TypingContext;
+/// use continuum_cdsl::resolve::types::TypeTable;
+/// use std::collections::HashMap;
+///
+/// let span = Span::new(0, 0, 0, 1);
+/// let mut node = Node::new(Path::from_path_str("demo.counter"), span, RoleData::Signal, ());
+/// node.output = Some(Type::Kernel(KernelType {
+///     shape: Shape::Scalar,
+///     unit: Unit::DIMENSIONLESS,
+///     bounds: None,
+/// }));
+/// node.execution_blocks.push((
+///     "resolve".to_string(),
+///     BlockBody::Expression(Expr::literal(1.0, None, span)),
+/// ));
+///
+/// let registry = KernelRegistry::global();
+/// let type_table = TypeTable::new();
+/// let signal_types = HashMap::new();
+/// let field_types = HashMap::new();
+/// let config_types = HashMap::new();
+/// let const_types = HashMap::new();
+/// let ctx = TypingContext::new(
+///     &type_table,
+///     &registry,
+///     &signal_types,
+///     &field_types,
+///     &config_types,
+///     &const_types,
+/// );
+///
+/// compile_execution_blocks(&mut node, &ctx).unwrap();
+/// assert_eq!(node.executions.len(), 1);
 /// ```
 pub fn compile_execution_blocks<I: Index>(
     node: &mut Node<I>,
@@ -312,6 +410,7 @@ pub fn compile_execution_blocks<I: Index>(
     let mut executions = Vec::new();
 
     let role_id = node.role.id();
+    let base_ctx = ctx.with_execution_context(None, None, node.output.clone(), None, None);
 
     // Process each execution block
     for (phase_name, block_body) in &node.execution_blocks {
@@ -358,7 +457,7 @@ pub fn compile_execution_blocks<I: Index>(
             }
             BlockBody::Expression(expr) => {
                 // Type untyped expression
-                let block_ctx = ctx.with_phase(phase);
+                let block_ctx = base_ctx.with_phase(phase);
                 match type_expression(expr, &block_ctx) {
                     Ok(typed_expr) => ExecutionBody::Expr(typed_expr),
                     Err(mut e) => {
@@ -369,7 +468,7 @@ pub fn compile_execution_blocks<I: Index>(
             }
             BlockBody::Statements(stmts) => {
                 // Compile untyped statements
-                let block_ctx = ctx.with_phase(phase);
+                let block_ctx = base_ctx.with_phase(phase);
                 match compile_statements(stmts, &block_ctx) {
                     Ok(typed_stmts) => ExecutionBody::Statements(typed_stmts),
                     Err(mut e) => {
@@ -527,7 +626,7 @@ mod tests {
     fn test_compile_statements_basic() {
         let registry = KernelRegistry::global();
         let mut signal_types = HashMap::new();
-        signal_types.insert(Path::from_str("signal.target"), scalar_type());
+        signal_types.insert(Path::from_path_str("signal.target"), scalar_type());
 
         let field_types = HashMap::new();
         let config_types = HashMap::new();
@@ -558,7 +657,7 @@ mod tests {
                 span,
             },
             Stmt::SignalAssign {
-                target: Path::from_str("signal.target"),
+                target: Path::from_path_str("signal.target"),
                 value: Expr::local("x".to_string(), span),
                 span,
             },
@@ -636,7 +735,7 @@ mod tests {
     fn test_compile_statements_type_mismatch() {
         let registry = KernelRegistry::global();
         let mut signal_types = HashMap::new();
-        signal_types.insert(Path::from_str("signal.target"), scalar_type());
+        signal_types.insert(Path::from_path_str("signal.target"), scalar_type());
 
         let field_types = HashMap::new();
         let config_types = HashMap::new();
@@ -661,7 +760,7 @@ mod tests {
 
         let span = test_span();
         let stmts = vec![Stmt::SignalAssign {
-            target: Path::from_str("signal.target"),
+            target: Path::from_path_str("signal.target"),
             value: Expr::new(UntypedKind::BoolLiteral(true), span), // Boolean instead of Scalar
             span,
         }];
@@ -705,7 +804,7 @@ mod tests {
 
         let span = test_span();
         let stmts = vec![Stmt::SignalAssign {
-            target: Path::from_str("signal.missing"),
+            target: Path::from_path_str("signal.missing"),
             value: Expr::literal(1.0, None, span),
             span,
         }];
@@ -726,7 +825,7 @@ mod tests {
     fn test_compile_statements_phase_boundary_violation() {
         let registry = KernelRegistry::global();
         let mut signal_types = HashMap::new();
-        signal_types.insert(Path::from_str("signal.target"), scalar_type());
+        signal_types.insert(Path::from_path_str("signal.target"), scalar_type());
 
         let field_types = HashMap::new();
         let config_types = HashMap::new();
@@ -751,7 +850,7 @@ mod tests {
 
         let span = test_span();
         let stmts = vec![Stmt::SignalAssign {
-            target: Path::from_str("signal.target"),
+            target: Path::from_path_str("signal.target"),
             value: Expr::literal(1.0, None, span),
             span,
         }];
@@ -772,7 +871,7 @@ mod tests {
     fn test_extract_stmt_dependencies_let() {
         let span = test_span();
         let ty = scalar_type();
-        let path = Path::from_str("signal.test");
+        let path = Path::from_path_str("signal.test");
 
         let stmt = TypedStmt::Let {
             name: "x".to_string(),
@@ -780,7 +879,7 @@ mod tests {
             span,
         };
 
-        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_str("test"));
+        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_path_str("test"));
         assert_eq!(emits.len(), 0);
         assert_eq!(reads.len(), 1);
         assert_eq!(reads[0], path);
@@ -790,9 +889,9 @@ mod tests {
     fn test_extract_stmt_dependencies_field_assign() {
         let span = test_span();
         let ty = scalar_type();
-        let path_field = Path::from_str("field.temperature");
-        let path_pos = Path::from_str("signal.pos");
-        let path_val = Path::from_str("signal.val");
+        let path_field = Path::from_path_str("field.temperature");
+        let path_pos = Path::from_path_str("signal.pos");
+        let path_val = Path::from_path_str("signal.val");
 
         let stmt = TypedStmt::FieldAssign {
             target: path_field.clone(),
@@ -801,7 +900,7 @@ mod tests {
             span,
         };
 
-        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_str("test"));
+        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_path_str("test"));
         assert_eq!(emits.len(), 1);
         assert_eq!(emits[0], path_field);
         assert_eq!(reads.len(), 2);
@@ -813,11 +912,11 @@ mod tests {
     fn test_extract_stmt_dependencies_expr() {
         let span = test_span();
         let ty = scalar_type();
-        let path = Path::from_str("signal.test");
+        let path = Path::from_path_str("signal.test");
 
         let stmt = TypedStmt::Expr(TypedExpr::new(ExprKind::Signal(path.clone()), ty, span));
 
-        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_str("test"));
+        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_path_str("test"));
         assert_eq!(emits.len(), 0);
         assert_eq!(reads.len(), 1);
         assert_eq!(reads[0], path);
@@ -827,8 +926,8 @@ mod tests {
     fn test_extract_stmt_dependencies() {
         let span = test_span();
         let ty = scalar_type();
-        let path_in = Path::from_str("signal.in");
-        let path_out = Path::from_str("signal.out");
+        let path_in = Path::from_path_str("signal.in");
+        let path_out = Path::from_path_str("signal.out");
 
         let stmt = TypedStmt::SignalAssign {
             target: path_out.clone(),
@@ -836,7 +935,7 @@ mod tests {
             span,
         };
 
-        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_str("test"));
+        let (reads, _, emits) = extract_stmt_dependencies(&stmt, &Path::from_path_str("test"));
         assert_eq!(reads.len(), 1);
         assert_eq!(reads[0], path_in);
         assert_eq!(emits.len(), 1);
@@ -910,7 +1009,7 @@ mod tests {
             ty,
             span,
         );
-        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
+        let (deps, _) = extract_dependencies(&expr, &Path::from_path_str("test"));
         assert_eq!(deps.len(), 0);
     }
 
@@ -918,9 +1017,9 @@ mod tests {
     fn test_extract_dependencies_signal() {
         let span = test_span();
         let ty = scalar_type();
-        let path = Path::from_str("signal.temperature");
+        let path = Path::from_path_str("signal.temperature");
         let expr = TypedExpr::new(ExprKind::Signal(path.clone()), ty, span);
-        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
+        let (deps, _) = extract_dependencies(&expr, &Path::from_path_str("test"));
 
         assert_eq!(deps.len(), 1);
         assert!(deps.contains(&path));
@@ -932,8 +1031,8 @@ mod tests {
 
         let span = test_span();
         let ty = scalar_type();
-        let path1 = Path::from_str("signal.a");
-        let path2 = Path::from_str("field.b");
+        let path1 = Path::from_path_str("signal.a");
+        let path2 = Path::from_path_str("field.b");
 
         let left = TypedExpr::new(ExprKind::Signal(path1.clone()), ty.clone(), span);
         let right = TypedExpr::new(ExprKind::Field(path2.clone()), ty.clone(), span);
@@ -948,7 +1047,7 @@ mod tests {
             span,
         );
 
-        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
+        let (deps, _) = extract_dependencies(&expr, &Path::from_path_str("test"));
 
         assert_eq!(deps.len(), 2);
         assert!(deps.contains(&path1));
@@ -1035,7 +1134,7 @@ mod tests {
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
-        let signal_path = Path::from_str("other.signal");
+        let signal_path = Path::from_path_str("other.signal");
 
         // Create a typed expression that reads a signal
         let ty = Type::Kernel(KernelType {
@@ -1083,8 +1182,8 @@ mod tests {
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
-        let path_a = Path::from_str("signal.a");
-        let path_b = Path::from_str("signal.b");
+        let path_a = Path::from_path_str("signal.a");
+        let path_b = Path::from_path_str("signal.b");
 
         let ty = Type::Kernel(KernelType {
             shape: Shape::Scalar,
@@ -1138,7 +1237,7 @@ mod tests {
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
-        let assert_path = Path::from_str("signal.limit");
+        let assert_path = Path::from_path_str("signal.limit");
 
         let ty = Type::Kernel(KernelType {
             shape: Shape::Scalar,
@@ -1247,10 +1346,10 @@ mod tests {
             span,
         );
 
-        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
+        let (deps, _) = extract_dependencies(&expr, &Path::from_path_str("test"));
         assert_eq!(deps.len(), 1);
         // Entity set dependency is captured
-        assert_eq!(deps[0], Path::from_str("plate"));
+        assert_eq!(deps[0], Path::from_path_str("plate"));
     }
 
     #[test]
@@ -1290,9 +1389,9 @@ mod tests {
             span,
         );
 
-        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
+        let (deps, _) = extract_dependencies(&expr, &Path::from_path_str("test"));
         assert_eq!(deps.len(), 1);
-        assert_eq!(deps[0], Path::from_str("plate"));
+        assert_eq!(deps[0], Path::from_path_str("plate"));
     }
 
     #[test]
@@ -1302,7 +1401,7 @@ mod tests {
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
-        let path_a = Path::from_str("signal.a");
+        let path_a = Path::from_path_str("signal.a");
 
         let ty = Type::Kernel(KernelType {
             shape: Shape::Scalar,
@@ -1359,8 +1458,8 @@ mod tests {
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
-        let path_1 = Path::from_str("signal.1");
-        let path_2 = Path::from_str("signal.2");
+        let path_1 = Path::from_path_str("signal.1");
+        let path_2 = Path::from_path_str("signal.2");
 
         let ty = Type::Kernel(KernelType {
             shape: Shape::Scalar,
@@ -1429,27 +1528,27 @@ mod tests {
             span,
         );
 
-        let (deps, _) = extract_dependencies(&expr, &Path::from_str("test"));
+        let (deps, _) = extract_dependencies(&expr, &Path::from_path_str("test"));
         assert_eq!(deps.len(), 1);
         // Member dependency 'plate.mass' should be captured
-        assert_eq!(deps[0], Path::from_str("plate.mass"));
+        assert_eq!(deps[0], Path::from_path_str("plate.mass"));
     }
 
     #[test]
     fn test_extract_dependencies_config_const() {
         let span = test_span();
         let ty = scalar_type();
-        let config_path = Path::from_str("config.max_temp");
-        let const_path = Path::from_str("const.PI");
+        let config_path = Path::from_path_str("config.max_temp");
+        let const_path = Path::from_path_str("const.PI");
 
         let config_expr = TypedExpr::new(ExprKind::Config(config_path.clone()), ty.clone(), span);
         let const_expr = TypedExpr::new(ExprKind::Const(const_path.clone()), ty, span);
 
-        let (deps_config, _) = extract_dependencies(&config_expr, &Path::from_str("test"));
+        let (deps_config, _) = extract_dependencies(&config_expr, &Path::from_path_str("test"));
         assert_eq!(deps_config.len(), 1);
         assert_eq!(deps_config[0], config_path);
 
-        let (deps_const, _) = extract_dependencies(&const_expr, &Path::from_str("test"));
+        let (deps_const, _) = extract_dependencies(&const_expr, &Path::from_path_str("test"));
         assert_eq!(deps_const.len(), 1);
         assert_eq!(deps_const[0], const_path);
     }
@@ -1476,7 +1575,7 @@ mod tests {
             span,
         );
 
-        let node_path = Path::from_str("plate.mass");
+        let node_path = Path::from_path_str("plate.mass");
         let (reads, temporal_reads) = extract_dependencies(&expr, &node_path);
 
         // Should NOT have causal reads (prev is temporal)
