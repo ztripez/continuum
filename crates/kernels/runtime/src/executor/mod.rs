@@ -1,5 +1,40 @@
 //!
-//! Orchestrates DAG execution through phases.
+//! The Executor is the core of the Continuum runtime. It is responsible for:
+//! 1. **DAG Scheduling** - Determining the execution order based on signal dependencies.
+//! 2. **Phase Management** - Orchestrating the execution flow (Collect, Resolve, Fracture, Measure).
+//! 3. **Memory Management** - Handling signal storage (SoA), entity instances, and event buffers.
+//! 4. **Bytecode Execution** - Running compiled DSL blocks within the appropriate context.
+//!
+//! # Execution Architecture
+//!
+//! Simulation progress is driven by `execute_tick()`, which iterates through all phases
+//! for all active strata.
+//!
+//! ```text
+//! Tick
+//!  ├─ Configure (engine internal)
+//!  ├─ Collect (impulses -> input channels)
+//!  ├─ Resolve (inputs -> signals)
+//!  ├─ Fracture (tension detection -> spawn/destroy)
+//!  └─ Measure (signals -> fields/observers)
+//! ```
+//!
+//! Each phase uses a specialized `Context` to provide the required capabilities
+//! while enforcing the observer boundary. For example, `ResolveContext` allows
+//! reading `prev` values but forbids `emit` calls to fields.
+//!
+//! # Determinism
+//!
+//! The executor guarantees bit-for-bit determinism by:
+//! - Using stable topological sorting for DAG nodes.
+//! - Enforcing explicit iteration order for entities and members.
+//! - Preventing any non-causal data (fields) from influencing causal phases.
+//!
+//! # Failure Handling (Fail Loudly)
+//!
+//! Any runtime violation—such as missing dependencies, type mismatches, or
+//! assertion failures—is immediately surfaced as a `RunError`. The runtime
+//! does not attempt to "fix" or "clamp" invalid states silently.
 
 mod assertions;
 pub mod bytecode;
@@ -64,24 +99,40 @@ use std::path::PathBuf;
 // Use LensSink for observer data output (fields only, no signals)
 // Signals belong in checkpoints, not observer snapshots
 
+/// Configuration for periodic state persistence (checkpoints).
+///
+/// Checkpoints allow simulation state to be saved to disk and resumed later.
+/// They are triggered based on tick stride or wall-clock time intervals.
 #[derive(Debug, Clone)]
 pub struct CheckpointOptions {
+    /// Directory where checkpoint files (`.ckpt`) will be stored.
     pub checkpoint_dir: PathBuf,
+    /// Number of ticks between scheduled checkpoints.
     pub stride: u64,
+    /// Optional real-time interval between checkpoints (e.g., every 5 minutes).
     pub wall_clock_interval: Option<std::time::Duration>,
+    /// Number of historical checkpoints to retain before pruning.
     pub keep_last_n: Option<usize>,
 }
 
+/// Options for configuring a simulation run.
 pub struct RunOptions {
+    /// Total number of simulation steps to execute.
     pub steps: u64,
+    /// Whether to print resolved signal values to stdout after each tick.
     pub print_signals: bool,
+    /// List of specific signal IDs to print (if `print_signals` is true).
     pub signals: Vec<SignalId>,
+    /// Optional observer sink for field reconstruction and snapshot output.
     pub lens_sink: Option<Box<dyn LensSink>>,
+    /// Optional configuration for automated checkpointing.
     pub checkpoint: Option<CheckpointOptions>,
 }
 
+/// Summary report returned after a successful simulation run.
 #[derive(Debug, Clone)]
 pub struct RunReport {
+    /// The output directory for lens snapshots, if a sink was provided.
     pub run_dir: Option<PathBuf>,
 }
 
@@ -97,7 +148,7 @@ pub fn run_simulation(
     runtime: &mut Runtime,
     mut options: RunOptions,
 ) -> std::result::Result<RunReport, RunError> {
-    let run_dir: Option<PathBuf> = None;
+    let run_dir = options.lens_sink.as_ref().and_then(|s| s.output_path());
 
     // Lens sink is handled separately now - no manifest created here
     // The sink handles its own manifest/metadata

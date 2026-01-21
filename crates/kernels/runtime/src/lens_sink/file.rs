@@ -172,6 +172,10 @@ impl LensSink for FileSink {
         self.is_closed = true;
         Ok(())
     }
+
+    fn output_path(&self) -> Option<PathBuf> {
+        Some(self.run_dir.clone())
+    }
 }
 
 #[cfg(test)]

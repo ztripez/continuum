@@ -1,4 +1,3 @@
-//! Benchmarks for L1 member signal chunking strategies.
 //!
 //! Tests different chunk sizes and population sizes to measure:
 //! - Optimal chunk size for different population scales
@@ -7,13 +6,13 @@
 
 use std::hint::black_box;
 
-use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
 use continuum_runtime::executor::member_executor::{
-    ChunkConfig, MemberResolveContext, resolve_scalar_l1,
+    resolve_scalar_l1, ChunkConfig, MemberResolveContext,
 };
 use continuum_runtime::soa_storage::MemberSignalBuffer;
-use continuum_runtime::storage::SignalStorage;
+use continuum_runtime::storage::{EntityStorage, SignalStorage};
 use continuum_runtime::types::{Dt, Value};
 
 fn create_test_signals() -> SignalStorage {
@@ -52,6 +51,7 @@ fn bench_chunk_sizes(c: &mut Criterion) {
     let prev_values: Vec<f64> = (0..population).map(|i| i as f64 * 0.1).collect();
     let signals = create_test_signals();
     let members = create_test_members(population);
+    let entities = EntityStorage::default();
     let dt = Dt(0.016); // ~60fps
 
     group.throughput(Throughput::Elements(population as u64));
@@ -75,6 +75,7 @@ fn bench_chunk_sizes(c: &mut Criterion) {
                             ctx.prev + ctx.dt.seconds() + (ctx.index.0 as f64 * 0.001)
                         },
                         black_box(&signals),
+                        black_box(&entities),
                         black_box(&members),
                         dt,
                         0.0, // sim_time
@@ -95,6 +96,7 @@ fn bench_chunk_sizes(c: &mut Criterion) {
                     ctx.prev + ctx.dt.seconds() + (ctx.index.0 as f64 * 0.001)
                 },
                 black_box(&signals),
+                black_box(&entities),
                 black_box(&members),
                 dt,
                 0.0, // sim_time
@@ -116,6 +118,7 @@ fn bench_parallel_speedup(c: &mut Criterion) {
         let prev_values: Vec<f64> = (0..population).map(|i| i as f64 * 0.1).collect();
         let signals = create_test_signals();
         let members = create_test_members(population);
+        let entities = EntityStorage::default();
 
         group.throughput(Throughput::Elements(population as u64));
 
@@ -139,6 +142,7 @@ fn bench_parallel_speedup(c: &mut Criterion) {
                             ctx.prev + ctx.dt.seconds() + (ctx.index.0 as f64 * 0.001)
                         },
                         black_box(&signals),
+                        black_box(&entities),
                         black_box(&members),
                         dt,
                         0.0, // sim_time
@@ -160,43 +164,29 @@ fn bench_compute_heavy_resolver(c: &mut Criterion) {
     let prev_values: Vec<f64> = (0..population).map(|i| i as f64 * 0.1).collect();
     let signals = create_test_signals();
     let members = create_test_members(population);
+    let entities = EntityStorage::default();
     let dt = Dt(0.016);
 
     group.throughput(Throughput::Elements(population as u64));
 
-    // Simple resolver
-    let simple_config = ChunkConfig::auto(population);
-    group.bench_function("simple_resolver", |b| {
-        b.iter(|| {
-            resolve_scalar_l1(
-                black_box(&prev_values),
-                |ctx: &MemberResolveContext<'_, f64>| ctx.prev + ctx.dt.seconds(),
-                black_box(&signals),
-                black_box(&members),
-                dt,
-                0.0, // sim_time
-                simple_config,
-            )
-        })
-    });
-
-    // Complex resolver with trig functions
-    let complex_config = ChunkConfig::auto(population);
-    group.bench_function("complex_resolver", |b| {
+    // Parallel L1 with auto chunk
+    let config = ChunkConfig::auto(population);
+    group.bench_function("heavy_l1", |b| {
         b.iter(|| {
             resolve_scalar_l1(
                 black_box(&prev_values),
                 |ctx: &MemberResolveContext<'_, f64>| {
-                    let base = ctx.prev + ctx.dt.seconds();
-                    let idx_factor = (ctx.index.0 as f64 * 0.01).sin();
-                    let decay = (-base * 0.1).exp();
-                    base * idx_factor.abs() * decay + ctx.prev.sqrt()
+                    // More compute: several additions and multiplications
+                    ctx.prev * 0.5
+                        + ctx.dt.seconds() * 2.0
+                        + (ctx.index.0 as f64 * 0.001).sin().abs()
                 },
                 black_box(&signals),
+                black_box(&entities),
                 black_box(&members),
                 dt,
                 0.0, // sim_time
-                complex_config,
+                config,
             )
         })
     });

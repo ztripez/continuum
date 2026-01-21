@@ -1,6 +1,32 @@
 //! Assertion evaluation and checking
+//! Assertions provide runtime validation of simulation invariants.
 //!
-//! Assertions are evaluated after signal resolution to validate invariants.
+//! Unlike engine-level checks (which detect bugs in the runtime), assertions
+//! validate user-defined rules within the simulation (e.g., "temperature
+//! must not exceed melting point").
+//!
+//! # Assertion Lifecycle
+//!
+//! 1. **Declaration** - Assertions are declared in the DSL within execution blocks.
+//! 2. **Registration** - During runtime initialization, assertions are attached to their target signals.
+//! 3. **Evaluation** - After a signal is resolved, all associated assertions are evaluated.
+//! 4. **Reporting** - Failures are recorded in the `AssertionChecker` and can trigger a simulation halt.
+//!
+//! # Severities
+//!
+//! | Severity | Behavior |
+//! |----------|----------|
+//! | `Note`   | Purely informational, logged only. |
+//! | `Warn`   | Significant deviation, logged but simulation continues. |
+//! | `Error`  | Invalid state, triggers a `RunError` and halts the simulation. |
+//! | `Fatal`  | Critical invariant violation, triggers an immediate panic. |
+//!
+//! # Observer Boundary
+//!
+//! Assertions are strictly **non-causal**. They can read simulation state to
+//! validate conditions, but they can NEVER mutate values or influence the
+//! execution path. This ensures that a simulation with all assertions disabled
+//! produces the exact same results as one with all assertions enabled.
 
 use tracing::{debug, error, warn};
 
@@ -14,15 +40,29 @@ use super::context::AssertContext;
 
 pub type AssertionFn = Box<dyn Fn(&AssertContext) -> bool + Send + Sync>;
 
-/// Record of an assertion failure
+/// Represents a single violation of a simulation invariant detected at runtime.
 #[derive(Debug, Clone)]
 pub struct AssertionFailure {
+    /// The unique identifier of the signal that failed the assertion.
     pub signal: SignalId,
+    /// Severity level determining the runtime response (Note/Warn/Error/Fatal).
     pub severity: AssertionSeverity,
+    /// Human-readable description of the failure condition.
     pub message: String,
+    /// The simulation tick when the failure occurred.
     pub tick: u64,
+    /// The name of the era active during the failure.
     pub era: String,
+    /// Total elapsed simulation time in seconds.
     pub sim_time: f64,
+}
+
+/// Registered assertion for a signal.
+pub struct SignalAssertion {
+    pub signal: SignalId,
+    pub condition: AssertionFn,
+    pub severity: AssertionSeverity,
+    pub message: Option<String>,
 }
 
 /// Assertion checker for the runtime
@@ -133,11 +173,10 @@ impl AssertionChecker {
                         });
                     }
                     AssertionSeverity::Fatal => {
-                        error!(signal = %signal, message = %message, "assertion fatal");
-                        return Err(Error::AssertionFailed {
-                            signal: signal.clone(),
-                            message,
-                        });
+                        panic!(
+                        "FATAL ASSERTION FAILURE: signal={}, message={:?}, tick={}, era={}, time={}",
+                        signal, message, tick, era, sim_time
+                    );
                     }
                 }
             }

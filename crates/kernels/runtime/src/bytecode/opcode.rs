@@ -26,7 +26,6 @@ use serde::{Deserialize, Serialize};
 
 use super::operand::Operand;
 use super::registry::metadata_for;
-use continuum_cdsl::ast::expr::AggregateOp;
 
 /// Bytecode instruction kind.
 ///
@@ -35,6 +34,34 @@ use continuum_cdsl::ast::expr::AggregateOp;
 ///
 /// Each variant corresponds to a runtime [`super::handlers::Handler`] registered
 /// in the [`super::registry::opcode_specs`] table.
+///
+/// # Instruction Reference
+///
+/// | Opcode | Category | Operands | Description | Allowed Phases |
+/// |--------|----------|----------|-------------|----------------|
+/// | `PushLiteral` | Stack | `Value` | Pushes a constant value onto the evaluation stack. | All |
+/// | `Load` | Stack | `Slot` | Pushes the value from the specified local slot onto the stack. | All |
+/// | `Store` | Stack | `Slot` | Pops the top stack value and stores it in the specified local slot. | All |
+/// | `Dup` | Stack | - | Duplicates the current top value on the evaluation stack. | All |
+/// | `Pop` | Stack | - | Discards the top value from the evaluation stack. | All |
+/// | `BuildVector` | Constructor | `dim: u8` | Pops `dim` scalar values and pushes a `VecN` result. | All |
+/// | `BuildStruct` | Constructor | `fields: Vec<String>` | Pops values for each field and pushes a `Map`. | All |
+/// | `CallKernel` | Kernel | `arg_count: u8`, `KernelId` | Dispatches a call to an engine-provided kernel. | All (per kernel purity) |
+/// | `Let` | Control | `Slot` | Marks the start of a local binding scope. | All |
+/// | `EndLet` | Control | - | Marks the end of a local binding scope. | All |
+/// | `Aggregate` | Control | `EntityId, Slot, BlockId, Op` | Iterates over entity instances, executing a block for each. | All |
+/// | `Fold` | Control | `EntityId, Acc, Elem, BlockId` | Stateful reduction over entity instances. | All |
+/// | `FieldAccess` | Control | `field: String` | Pops a Map/Struct and accesses the named field. | All |
+/// | `LoadSignal` | Temporal | `path: Path` | Loads the current value of a signal by its path. | `Resolve`, `Fracture`, `Measure` |
+/// | `LoadPrev` | Temporal | - | Loads the previous tick value of the current signal. | `Resolve` |
+/// | `LoadCurrent` | Temporal | - | Loads the current resolved value of the current signal. | `Fracture`, `Measure` |
+/// | `LoadDt` | Temporal | - | Loads the current timestep (dt) in seconds. | All |
+/// | `Emit` | Effect | `path: Path` | Accumulates a value to a signal. | `Collect` |
+/// | `EmitField` | Effect | `path: Path` | Writes a value to a spatial field at a given position. | `Measure` |
+/// | `Spawn` | Effect | `entity: EntityId` | Creates a new instance of the specified entity type. | `Fracture` |
+/// | `Destroy` | Effect | `entity: EntityId` | Marks an entity instance for destruction. | `Fracture` |
+/// | `LoadField` | Observation | `path: Path` | Loads a value from a spatial field by its path. | `Measure` |
+/// | `Return` | Structural | - | Terminates block execution and returns the top value. | All |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum OpcodeKind {
     // === Stack Operations ===
@@ -264,6 +291,7 @@ impl OpcodeKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use continuum_cdsl::ast::AggregateOp;
     use continuum_foundation::Path;
 
     #[test]
@@ -283,7 +311,7 @@ mod tests {
     fn test_instruction_builder() {
         let instr = Instruction::new(
             OpcodeKind::LoadSignal,
-            vec![Operand::Signal(Path::from_str("force"))],
+            vec![Operand::Signal(Path::from_path_str("force"))],
         );
         assert_eq!(instr.kind, OpcodeKind::LoadSignal);
         assert!(instr.kernel.is_none());

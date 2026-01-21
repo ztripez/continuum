@@ -1,6 +1,32 @@
 //! Phase execution
+//! The PhaseExecutor orchestrates the transition of simulation state through
+//! the defined execution phases.
 //!
-//! Executes individual simulation phases: Collect, Resolve, Fracture, Measure.
+//! # Phase Definitions
+//!
+//! ### 1. Collect
+//! **Purpose**: Gather external causal inputs (impulses) and operator side-effects.
+//! - **Inputs**: Impulses from host, previous signal values.
+//! - **Outputs**: Accumulated values in input channels.
+//! - **Restrictions**: No direct mutation of signals; no field access.
+//!
+//! ### 2. Resolve
+//! **Purpose**: Resolves authoritative signal values for the current tick.
+//! - **Inputs**: Input channels (accumulated in Collect), previous signal values.
+//! - **Outputs**: Current authoritative signal values.
+//! - **Restrictions**: Must be deterministic and pure; no side-effects (emit/spawn/destroy).
+//!
+//! ### 3. Fracture
+//! **Purpose**: Detect and respond to simulation tension (instabilities).
+//! - **Inputs**: Resolved current signals, authoritative member state.
+//! - **Outputs**: Spawn/Destroy commands for entity instances.
+//! - **Invariants**: Fracture execution is parallel and must produce a stable set of mutations.
+//!
+//! ### 4. Measure
+//! **Purpose**: Emit non-causal data for observation and reconstruction.
+//! - **Inputs**: Resolved current signals, authoritative entity identities.
+//! - **Outputs**: Samples in spatial field buffers.
+//! - **Boundary**: Measure is strictly observer-only. Results can never influence simulation.
 
 use indexmap::IndexMap;
 
@@ -14,15 +40,15 @@ use crate::storage::{
 };
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 
-use super::AggregateResolverFn;
 use super::assertions::AssertionChecker;
 use super::context::{
     ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext,
     ResolveContext,
 };
 use super::member_executor::{
-    ChunkConfig, ScalarResolverFn, Vec3ResolverFn, resolve_scalar_l1, resolve_vec3_l1,
+    resolve_scalar_l1, resolve_vec3_l1, ChunkConfig, ScalarResolverFn, Vec3ResolverFn,
 };
+use super::AggregateResolverFn;
 use crate::soa_storage::MemberSignalBuffer;
 
 /// Function that resolves a signal value
@@ -377,8 +403,19 @@ impl PhaseExecutor {
                                 .map(|i| {
                                     member_signals
                                         .get_previous(&full_signal, i)
-                                        .and_then(|v| v.as_scalar())
-                                        .unwrap_or(0.0)
+                                        .unwrap_or_else(|| {
+                                            panic!(
+                                                "missing previous value for member signal '{}' at index {}",
+                                                full_signal, i
+                                            )
+                                        })
+                                        .as_scalar()
+                                        .unwrap_or_else(|| {
+                                            panic!(
+                                                "member signal '{}' at index {} is not a scalar",
+                                                full_signal, i
+                                            )
+                                        })
                                 })
                                 .collect();
                             let config = ChunkConfig::auto(count);
@@ -393,8 +430,9 @@ impl PhaseExecutor {
                                 config,
                             );
                             for (i, v) in values.into_iter().enumerate() {
-                                let _ =
-                                    member_signals.set_current(&full_signal, i, Value::Scalar(v));
+                                member_signals
+                                    .set_current(&full_signal, i, Value::Scalar(v))
+                                    .map_err(|e| Error::ExecutionFailure { message: e })?;
                             }
                         }
                         MemberResolver::Vec3(f) => {
@@ -402,8 +440,19 @@ impl PhaseExecutor {
                                 .map(|i| {
                                     member_signals
                                         .get_previous(&full_signal, i)
-                                        .and_then(|v| v.as_vec3())
-                                        .unwrap_or([0.0, 0.0, 0.0])
+                                        .unwrap_or_else(|| {
+                                            panic!(
+                                                "missing previous value for member signal '{}' at index {}",
+                                                full_signal, i
+                                            )
+                                        })
+                                        .as_vec3()
+                                        .unwrap_or_else(|| {
+                                            panic!(
+                                                "member signal '{}' at index {} is not a Vec3",
+                                                full_signal, i
+                                            )
+                                        })
                                 })
                                 .collect();
                             let config = ChunkConfig::auto(count);
@@ -418,7 +467,9 @@ impl PhaseExecutor {
                                 config,
                             );
                             for (i, v) in values.into_iter().enumerate() {
-                                let _ = member_signals.set_current(&full_signal, i, Value::Vec3(v));
+                                member_signals
+                                    .set_current(&full_signal, i, Value::Vec3(v))
+                                    .map_err(|e| Error::ExecutionFailure { message: e })?;
                             }
                         }
                     }

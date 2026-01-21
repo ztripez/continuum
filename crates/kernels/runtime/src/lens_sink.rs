@@ -87,6 +87,11 @@ pub trait LensSink: Send {
     /// Called once at simulation end. Should write manifests, close
     /// connections, etc. After close(), the sink must not be used.
     fn close(&mut self) -> Result<()>;
+
+    /// Returns the output path where this sink is writing data, if any.
+    fn output_path(&self) -> Option<std::path::PathBuf> {
+        None
+    }
 }
 
 /// Null sink - discards all data (for performance testing)
@@ -166,6 +171,10 @@ impl<S: LensSink> LensSink for FilteredSink<S> {
     fn close(&mut self) -> Result<()> {
         self.inner.close()
     }
+
+    fn output_path(&self) -> Option<std::path::PathBuf> {
+        self.inner.output_path()
+    }
 }
 
 /// Multi-sink - broadcast to multiple sinks simultaneously
@@ -220,6 +229,10 @@ impl LensSink for MultiSink {
             sink.close()?;
         }
         Ok(())
+    }
+
+    fn output_path(&self) -> Option<std::path::PathBuf> {
+        self.sinks.first().and_then(|s| s.output_path())
     }
 }
 

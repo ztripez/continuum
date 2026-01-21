@@ -28,10 +28,113 @@
 
 use std::collections::HashMap;
 
-use continuum_vm::{BytecodeChunk, Op};
+use continuum_foundation::Value;
 use serde::{Deserialize, Serialize};
 
 use super::LoweringStrategy;
+
+/// Minimal bytecode chunk representation for cost modeling.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct BytecodeChunk {
+    pub ops: Vec<Op>,
+    pub local_count: u32,
+    pub kernels: Vec<String>,
+}
+
+/// Minimal opcode representation for cost modeling.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum Op {
+    /// Pops two values and pushes their sum.
+    Add,
+    /// Pops two values and pushes their difference.
+    Sub,
+    /// Pops two values and pushes their product.
+    Mul,
+    /// Pops two values and pushes their quotient.
+    Div,
+    /// Pops a value and its exponent, pushes result.
+    Pow,
+    /// Pops a value and pushes its negation.
+    Neg,
+    /// Pops two values, pushes true if equal.
+    Eq,
+    /// Pops two values, pushes true if not equal.
+    Ne,
+    /// Pops two values, pushes true if left < right.
+    Lt,
+    /// Pops two values, pushes true if left <= right.
+    Le,
+    /// Pops two values, pushes true if left > right.
+    Gt,
+    /// Pops two values, pushes true if left >= right.
+    Ge,
+    /// Pops two booleans, pushes logical AND.
+    And,
+    /// Pops two booleans, pushes logical OR.
+    Or,
+    /// Pops a boolean, pushes logical NOT.
+    Not,
+    /// Pops a value, jumps if it is zero/false.
+    JumpIfZero(u32),
+    /// Unconditional jump to instruction offset.
+    Jump(u32),
+    /// Calls a kernel with the specified ID and argument count.
+    Call { kernel: u32, arity: u32 },
+    /// Loads a global signal value into a slot.
+    LoadSignal(u32),
+    /// Loads a specific component of a global signal.
+    LoadSignalComponent(u32, u32),
+    /// Pushes a constant literal value onto the stack.
+    Literal(Value),
+    /// Loads the previous tick's value of the current signal.
+    LoadPrev,
+    /// Loads a specific component of the previous tick's value.
+    LoadPrevComponent(u32),
+    /// Loads the current simulation timestep (dt).
+    LoadDt,
+    /// Loads the total accumulated simulation time.
+    LoadSimTime,
+    /// Loads accumulated impulse inputs.
+    LoadInputs,
+    /// Loads a specific component of accumulated inputs.
+    LoadInputsComponent(u32),
+    /// Loads a constant value from the world manifest.
+    LoadConst(u32),
+    /// Loads a configuration value from the world manifest.
+    LoadConfig(u32),
+    /// Loads a value from a local binding slot.
+    LoadLocal(u32),
+    /// Stores a value into a local binding slot.
+    StoreLocal(u32),
+    /// Duplicates the top stack value.
+    Dup,
+    /// Discards the top stack value.
+    Pop,
+    /// Loads a field from the current entity instance.
+    LoadSelfField(u32),
+    /// Loads a field from a specific entity instance by index.
+    LoadEntityField(u32, u32, u32),
+    /// Loads a field from the "other" entity in an interaction.
+    LoadOtherField(u32),
+    /// Executes an aggregate reduction over entity instances.
+    Aggregate(u32, u32, u32),
+    /// Filters entity instances based on a predicate.
+    Filter(u32, u32, u32),
+    /// Finds the first entity instance matching a condition.
+    FindFirstField(u32, u32, u32),
+    /// Performs a spatial lookup for the nearest field value.
+    LoadNearestField(u32, u32, u32),
+    /// Checks if an entity is within a given radius.
+    WithinAggregate(u32, u32, u32, u32),
+    /// Iterates over pairs of entities (e.g. for collision).
+    Pairs(u32, u32),
+    /// Loads the payload of the current impulse.
+    LoadPayload,
+    /// Loads a field from the impulse payload.
+    LoadPayloadField(u32),
+    /// Accumulates a value to a signal.
+    EmitSignal(u32),
+}
 
 // ============================================================================
 // Complexity Score
@@ -443,40 +546,36 @@ impl CostModel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use continuum_vm::compiler::{BinaryOp, Expr, compile_expr};
 
     fn compile_simple_expr() -> BytecodeChunk {
-        // prev + dt
-        let expr = Expr::Binary {
-            op: BinaryOp::Add,
-            left: Box::new(Expr::Prev),
-            right: Box::new(Expr::DtRaw),
-        };
-        compile_expr(&expr)
+        BytecodeChunk {
+            ops: vec![Op::LoadPrev, Op::LoadDt, Op::Add],
+            local_count: 0,
+            kernels: vec![],
+        }
     }
 
     fn compile_complex_expr() -> BytecodeChunk {
-        // if prev > 0 then sin(prev) * 2 else -prev
-        let expr = Expr::If {
-            condition: Box::new(Expr::Binary {
-                op: BinaryOp::Gt,
-                left: Box::new(Expr::Prev),
-                right: Box::new(Expr::Literal(0.0)),
-            }),
-            then_branch: Box::new(Expr::Binary {
-                op: BinaryOp::Mul,
-                left: Box::new(Expr::Call {
-                    function: "sin".to_string(),
-                    args: vec![Expr::Prev],
-                }),
-                right: Box::new(Expr::Literal(2.0)),
-            }),
-            else_branch: Box::new(Expr::Unary {
-                op: continuum_vm::compiler::UnaryOp::Neg,
-                operand: Box::new(Expr::Prev),
-            }),
-        };
-        compile_expr(&expr)
+        BytecodeChunk {
+            ops: vec![
+                Op::LoadPrev,
+                Op::Literal(Value::Scalar(0.0)),
+                Op::Gt,
+                Op::JumpIfZero(12),
+                Op::LoadPrev,
+                Op::Call {
+                    kernel: 0,
+                    arity: 1,
+                },
+                Op::Literal(Value::Scalar(2.0)),
+                Op::Mul,
+                Op::Jump(14),
+                Op::LoadPrev,
+                Op::Neg,
+            ],
+            local_count: 0,
+            kernels: vec!["sin".to_string()],
+        }
     }
 
     #[test]

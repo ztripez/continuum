@@ -62,7 +62,13 @@ impl LensSink for ReconstructedSink {
             reconstructed.insert(field_id, rebuilt);
         }
 
-        self.inner.emit_tick(tick, time_seconds, LensData { fields: reconstructed })
+        self.inner.emit_tick(
+            tick,
+            time_seconds,
+            LensData {
+                fields: reconstructed,
+            },
+        )
     }
 
     fn flush(&mut self) -> Result<()> {
@@ -71,5 +77,9 @@ impl LensSink for ReconstructedSink {
 
     fn close(&mut self) -> Result<()> {
         self.inner.close()
+    }
+
+    fn output_path(&self) -> Option<std::path::PathBuf> {
+        self.inner.output_path()
     }
 }
