@@ -29,15 +29,30 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use continuum_runtime::{Runtime, EraConfig, Dt};
+//! ```rust,no_run
+//! use continuum_cdsl::compile;
+//! use continuum_runtime::build_runtime;
 //!
-//! let mut runtime = Runtime::new(era_configs, initial_era);
-//! runtime.init_signals(world, |world, id| get_initial_value(world, id));
-//!
-//! for _ in 0..1000 {
-//!     runtime.tick();
+//! let root = std::env::temp_dir().join("cdsl-demo");
+//! std::fs::create_dir_all(&root).unwrap();
+//! std::fs::write(
+//!     root.join("demo.cdsl"),
+//!     r#"
+//! world demo { }
+//! strata sim { : stride(1) }
+//! era main {
+//!     : initial
+//!     : dt(1.0 <s>)
+//!     strata { sim: active }
 //! }
+//! signal counter : type Scalar : stratum(sim) { resolve { prev } }
+//! "#,
+//! )
+//! .unwrap();
+//!
+//! let compiled = compile(&root).unwrap();
+//! let mut runtime = build_runtime(compiled);
+//! runtime.tick();
 //! ```
 
 pub mod checkpoint;
@@ -77,3 +92,403 @@ pub use vectorized::{
     FracturePrimitive, GlobalSignal, IndexSpace, MemberSignal, MemberSignalId,
     MemberSignalIdentity, SampleIndex, VectorizedPrimitive,
 };
+
+use crate::dag::NodeKind;
+use continuum_cdsl::ast::{CompiledWorld, ExprKind, RoleId, TypedExpr};
+use indexmap::IndexMap;
+
+/// Build a runtime from a compiled world.
+///
+/// Initializes era configuration, compiles bytecode blocks, and seeds global
+/// signals from literal resolve expressions.
+///
+/// # Parameters
+/// - `compiled`: Compiled CDSL world with resolved declarations and DAGs.
+///
+/// # Returns
+/// A [`Runtime`] ready to execute ticks for the initial era.
+///
+/// # Panics
+/// Panics if any era `dt` is not a literal scalar, if transitions are declared
+/// without a runtime compiler, or if the initial era is missing or unknown.
+///
+/// # Examples
+/// ```rust
+/// use continuum_cdsl::compile;
+/// use continuum_runtime::build_runtime;
+/// use std::time::{SystemTime, UNIX_EPOCH};
+///
+/// let mut root = std::env::temp_dir();
+/// let stamp = SystemTime::now()
+///     .duration_since(UNIX_EPOCH)
+///     .unwrap()
+///     .as_nanos();
+/// root.push(format!("cdsl-demo-{}", stamp));
+/// std::fs::create_dir_all(&root).unwrap();
+/// std::fs::write(
+///     root.join("demo.cdsl"),
+///     r#"
+/// world demo { }
+/// strata sim { : stride(1) }
+/// era main {
+///     : initial
+///     : dt(1.0 <s>)
+///     strata { sim: active }
+/// }
+/// signal counter : type Scalar : stratum(sim) { resolve { prev } }
+/// "#,
+/// )
+/// .unwrap();
+///
+/// let compiled = compile(&root).unwrap();
+/// let _runtime = build_runtime(compiled);
+/// ```
+pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
+    let mut era_configs = IndexMap::new();
+
+    for era in compiled.world.eras.values() {
+        if !era.transitions.is_empty() {
+            panic!(
+                "era '{}' declares transitions, but runtime transition compilation is not implemented",
+                era.path
+            );
+        }
+        let dt = literal_scalar(&era.dt).map(Dt).unwrap_or_else(|| {
+            panic!("Era {} has non-literal dt expression", era.path)
+        });
+        let mut strata = IndexMap::new();
+        for policy in &era.strata_policy {
+            let state = if policy.active {
+                if let Some(stride) = policy.cadence_override {
+                    StratumState::ActiveWithStride(stride)
+                } else {
+                    StratumState::Active
+                }
+            } else {
+                StratumState::Gated
+            };
+            strata.insert(policy.stratum.clone(), state);
+        }
+
+        era_configs.insert(
+            EraId::new(era.path.to_string()),
+            EraConfig {
+                dt,
+                strata,
+                transition: None,
+            },
+        );
+    }
+
+    let initial_era = compiled
+        .world
+        .initial_era
+        .clone()
+        .unwrap_or_else(|| {
+            panic!("world missing initial era; mark exactly one era with :initial")
+        });
+
+    if !era_configs.contains_key(&initial_era) {
+        panic!("initial era '{}' not found in era configs", initial_era);
+    }
+
+    let (dag_set, bytecode_blocks) = compile_bytecode_and_dags(&compiled);
+
+    let mut runtime = Runtime::new(initial_era, era_configs, dag_set, bytecode_blocks);
+
+    // Initialize signals from world defaults/metadata
+    for (path, node) in &compiled.world.globals {
+        if let Some(literal) = node
+            .executions
+            .iter()
+            .find(|execution| execution.phase == Phase::Resolve)
+            .and_then(|execution| match &execution.body {
+                continuum_cdsl::ast::ExecutionBody::Expr(expr) => literal_scalar(expr),
+                _ => None,
+            })
+        {
+            runtime.init_signal(SignalId::from(path.to_string()), Value::Scalar(literal));
+        }
+    }
+
+    runtime
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use continuum_cdsl::ast::{EraTransition, TypedExpr, World, WorldDecl};
+    use continuum_cdsl::foundation::{Path, Shape, Span, Type, Unit};
+    use continuum_kernel_types::KernelId;
+
+    fn empty_world() -> World {
+        World::new(WorldDecl {
+            path: Path::from_path_str("demo"),
+            title: None,
+            version: None,
+            warmup: None,
+            attributes: Vec::new(),
+            span: Span::new(0, 0, 0, 0),
+            doc: None,
+        })
+    }
+
+    #[test]
+    #[should_panic(expected = "world missing initial era")]
+    fn test_runtime_panics_without_initial_era() {
+        let world = empty_world();
+        let compiled = CompiledWorld::new(world, Default::default());
+        let _runtime = build_runtime(compiled);
+    }
+
+    #[test]
+    #[should_panic(expected = "initial era 'missing' not found in era configs")]
+    fn test_runtime_panics_when_initial_missing_in_configs() {
+        let span = Span::new(0, 0, 0, 0);
+        let mut world = empty_world();
+        world.initial_era = Some(EraId::new("missing"));
+        let dt = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+        world
+            .eras
+            .insert(Path::from_path_str("main"), continuum_cdsl::ast::Era::new(
+                EraId::new("main"),
+                Path::from_path_str("main"),
+                dt,
+                span,
+            ));
+
+        let compiled = CompiledWorld::new(world, Default::default());
+        let _runtime = build_runtime(compiled);
+    }
+
+    #[test]
+    #[should_panic(expected = "non-literal dt expression")]
+    fn test_runtime_panics_on_non_literal_dt() {
+        let span = Span::new(0, 0, 0, 0);
+        let mut world = empty_world();
+        world.initial_era = Some(EraId::new("main"));
+
+        let left = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+        let right = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 2.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+        let dt = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Call {
+                kernel: KernelId::new("maths", "add"),
+                args: vec![left, right],
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+
+        world
+            .eras
+            .insert(Path::from_path_str("main"), continuum_cdsl::ast::Era::new(
+                EraId::new("main"),
+                Path::from_path_str("main"),
+                dt,
+                span,
+            ));
+
+        let compiled = CompiledWorld::new(world, Default::default());
+        let _runtime = build_runtime(compiled);
+    }
+
+    #[test]
+    #[should_panic(expected = "declares transitions")]
+    fn test_runtime_panics_on_transitions() {
+        let span = Span::new(0, 0, 0, 0);
+        let mut world = empty_world();
+        world.initial_era = Some(EraId::new("main"));
+
+        let dt = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+        let condition = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            Type::Bool,
+            span,
+        );
+        let mut era = continuum_cdsl::ast::Era::new(
+            EraId::new("main"),
+            Path::from_path_str("main"),
+            dt,
+            span,
+        );
+        era.transitions.push(EraTransition::new(
+            EraId::new("next"),
+            condition,
+            span,
+        ));
+        world.eras.insert(Path::from_path_str("main"), era);
+
+        let compiled = CompiledWorld::new(world, Default::default());
+        let _runtime = build_runtime(compiled);
+    }
+}
+
+fn compile_bytecode_and_dags(compiled: &CompiledWorld) -> (crate::dag::DagSet, Vec<CompiledBlock>) {
+    let mut compiler = crate::bytecode::Compiler::new();
+    let mut bytecode_blocks = Vec::new();
+    let mut block_indices: IndexMap<(continuum_foundation::Path, Phase), usize> = IndexMap::new();
+
+    let mut runtime_dags: IndexMap<(Phase, StratumId), crate::dag::ExecutableDag> = IndexMap::new();
+
+    for ((phase, stratum), dag) in &compiled.dag_set.dags {
+        let mut levels = Vec::with_capacity(dag.levels.len());
+        for level in &dag.levels {
+            let mut nodes = Vec::with_capacity(level.nodes.len());
+            for path in &level.nodes {
+                let (role_id, exec, node_path) = if let Some(node) = compiled.world.globals.get(path)
+                {
+                    let exec = node
+                        .executions
+                        .iter()
+                        .find(|execution| execution.phase == *phase)
+                        .unwrap_or_else(|| panic!("Missing execution for {} in {:?}", path, phase));
+                    (node.role_id(), exec, node.path.clone())
+                } else if let Some(node) = compiled.world.members.get(path) {
+                    let exec = node
+                        .executions
+                        .iter()
+                        .find(|execution| execution.phase == *phase)
+                        .unwrap_or_else(|| panic!("Missing execution for {} in {:?}", path, phase));
+                    (node.role_id(), exec, node.path.clone())
+                } else {
+                    panic!("DAG references unknown node {}", path);
+                };
+
+                let key = (path.clone(), *phase);
+                let block_idx = if let Some(idx) = block_indices.get(&key) {
+                    *idx
+                } else {
+                    let compiled_block = compiler
+                        .compile_execution(exec)
+                        .unwrap_or_else(|err| panic!("Failed to compile {}: {err:?}", path));
+                    let idx = bytecode_blocks.len();
+                    bytecode_blocks.push(compiled_block);
+                    block_indices.insert(key, idx);
+                    idx
+                };
+
+                let node_kind = match (role_id, *phase) {
+                    (RoleId::Signal, Phase::Resolve) => NodeKind::SignalResolve {
+                        signal: SignalId::from(path.to_string()),
+                        resolver_idx: block_idx,
+                    },
+                    (RoleId::Operator, Phase::Collect) | (RoleId::Impulse, Phase::Collect) => {
+                        NodeKind::OperatorCollect {
+                            operator_idx: block_idx,
+                        }
+                    }
+                    (RoleId::Operator, Phase::Measure) => NodeKind::OperatorMeasure {
+                        operator_idx: block_idx,
+                    },
+                    (RoleId::Field, Phase::Measure) => NodeKind::FieldEmit {
+                        field_idx: block_idx,
+                    },
+                    (RoleId::Fracture, Phase::Fracture) => NodeKind::Fracture {
+                        fracture_idx: block_idx,
+                    },
+                    (RoleId::Chronicle, Phase::Measure) => NodeKind::ChronicleObserve {
+                        chronicle_idx: block_idx,
+                    },
+                    _ => panic!(
+                        "Unsupported execution for {} in phase {:?} ({:?})",
+                        path,
+                        phase,
+                        role_id
+                    ),
+                };
+
+                let reads = exec
+                    .reads
+                    .iter()
+                    .map(|read| {
+                        if let Some(read_node) = compiled.world.globals.get(read) {
+                            if read_node.role_id() != RoleId::Signal {
+                                panic!("read '{}' is not a signal", read);
+                            }
+                            SignalId::from(read.to_string())
+                        } else if let Some(read_node) = compiled.world.members.get(read) {
+                            if read_node.role_id() != RoleId::Signal {
+                                panic!("read '{}' is not a signal", read);
+                            }
+                            SignalId::from(read.to_string())
+                        } else {
+                            panic!("read '{}' references unknown node", read);
+                        }
+                    })
+                    .collect();
+
+                let writes = match role_id {
+                    RoleId::Signal => Some(SignalId::from(node_path.to_string())),
+                    _ => None,
+                };
+
+                nodes.push(crate::dag::DagNode {
+                    id: crate::dag::NodeId(node_path.to_string()),
+                    reads,
+                    writes,
+                    kind: node_kind,
+                });
+            }
+            levels.push(crate::dag::Level { nodes });
+        }
+
+        runtime_dags.insert(
+            (*phase, stratum.clone()),
+            crate::dag::ExecutableDag {
+                phase: *phase,
+                stratum: stratum.clone(),
+                levels,
+            },
+        );
+    }
+
+    let mut era_dags = crate::dag::EraDags::default();
+    for dag in runtime_dags.values() {
+        era_dags.insert(dag.clone());
+    }
+
+    let mut dag_set = crate::dag::DagSet::default();
+    for era in compiled.world.eras.values() {
+        dag_set.insert_era(EraId::new(era.path.to_string()), era_dags.clone());
+    }
+
+    (dag_set, bytecode_blocks)
+}
+
+fn literal_scalar(expr: &TypedExpr) -> Option<f64> {
+    match &expr.expr {
+        ExprKind::Literal { value, .. } => Some(*value),
+        _ => None,
+    }
+}

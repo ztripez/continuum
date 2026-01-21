@@ -296,9 +296,9 @@ pub struct EraDecl {
     /// Era path
     pub path: Path,
 
-    /// Base timestep expression
+    /// Base timestep expression.
     ///
-    /// Can be constant or computed. If None, inherits from parent era or world default.
+    /// Derived from `:dt(...)` attributes during parsing.
     pub dt: Option<Expr>,
 
     /// Stratum activation policies for this era
@@ -313,7 +313,6 @@ pub struct EraDecl {
     /// Common attributes:
     /// - :initial - marks this as the starting era
     /// - :terminal - marks this as a valid end state
-    /// - :dt(value) - sets timestep
     ///
     /// Semantic analysis extracts and validates these.
     pub attributes: Vec<Attribute>,
