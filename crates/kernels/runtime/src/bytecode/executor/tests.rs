@@ -70,6 +70,15 @@ impl ExecutionContext for TestContext {
         Ok(())
     }
 
+    fn emit_event(
+        &mut self,
+        _chronicle_id: &str,
+        _name: &str,
+        _fields: Vec<(String, Value)>,
+    ) -> Result<(), ExecutionError> {
+        Ok(())
+    }
+
     fn spawn(&mut self, _entity: &EntityId, _value: Value) -> Result<(), ExecutionError> {
         Ok(())
     }

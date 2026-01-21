@@ -206,6 +206,18 @@ pub trait ExecutionContext {
         value: Value,
     ) -> Result<(), ExecutionError>;
 
+    /// Emits an event from a chronicle.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if called outside of the Measure phase.
+    fn emit_event(
+        &mut self,
+        chronicle_id: &str,
+        name: &str,
+        fields: Vec<(String, Value)>,
+    ) -> Result<(), ExecutionError>;
+
     /// Spawns a new entity instance of the specified type with initial data.
     ///
     /// # Errors

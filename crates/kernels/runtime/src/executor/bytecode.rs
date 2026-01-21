@@ -82,8 +82,11 @@ impl BytecodePhaseExecutor {
                             member_signals,
                             channels: input_channels,
                             field_buffer: &mut placeholder_field_buffer,
+                            event_buffer: &mut EventBuffer::default(),
                             target_signal: None,
+                            cached_inputs: None,
                         };
+
                         let block_id = compiled.root;
                         self.executor
                             .execute_block(block_id, &compiled.program, &mut ctx)
@@ -156,7 +159,9 @@ impl BytecodePhaseExecutor {
                                 member_signals,
                                 channels: input_channels,
                                 field_buffer: &mut placeholder_field_buffer,
+                                event_buffer: &mut EventBuffer::default(),
                                 target_signal: Some(signal.clone()),
+                                cached_inputs: None,
                             };
 
                             let block_id = compiled.root;
@@ -263,7 +268,9 @@ impl BytecodePhaseExecutor {
                             member_signals,
                             channels: input_channels,
                             field_buffer: &mut placeholder_field_buffer,
+                            event_buffer: &mut EventBuffer::default(),
                             target_signal: None, // TODO: Fracture nodes currently lack single-signal target context
+                            cached_inputs: None,
                         };
                         let block_id = compiled.root;
                         self.executor
@@ -332,7 +339,9 @@ impl BytecodePhaseExecutor {
                                 member_signals,
                                 channels: &mut inner_input_channels,
                                 field_buffer,
+                                event_buffer: &mut EventBuffer::default(),
                                 target_signal: None,
+                                cached_inputs: None,
                             };
 
                             let block_id = compiled.root;
@@ -403,7 +412,9 @@ impl BytecodePhaseExecutor {
                                 member_signals,
                                 channels: &mut input_channels,
                                 field_buffer: &mut placeholder_field_buffer,
+                                event_buffer,
                                 target_signal: None,
+                                cached_inputs: None,
                             };
 
                             let block_id = compiled.root;
@@ -444,7 +455,9 @@ pub struct VMContext<'a> {
     pub member_signals: &'a MemberSignalBuffer,
     pub channels: &'a mut InputChannels,
     pub field_buffer: &'a mut FieldBuffer,
+    pub event_buffer: &'a mut EventBuffer,
     pub target_signal: Option<SignalId>,
+    pub cached_inputs: Option<f64>,
 }
 
 impl<'a> ExecutionContext for VMContext<'a> {
@@ -540,8 +553,13 @@ impl<'a> ExecutionContext for VMContext<'a> {
                 opcode: "LoadInputs requires target signal context".to_string(),
                 phase: self.phase,
             })?;
-        // Use peek_sum instead of drain_sum to preserve "One Truth" for multiple reads in one block
-        let value = self.channels.peek_sum(signal);
+
+        if let Some(cached) = self.cached_inputs {
+            return Ok(Value::Scalar(cached));
+        }
+
+        let value = self.channels.drain_sum(signal);
+        self.cached_inputs = Some(value);
         Ok(Value::Scalar(value))
     }
 
@@ -609,6 +627,23 @@ impl<'a> ExecutionContext for VMContext<'a> {
             })?;
         self.field_buffer
             .emit_scalar(crate::types::FieldId::from(path.clone()), val);
+        Ok(())
+    }
+
+    fn emit_event(
+        &mut self,
+        chronicle_id: &str,
+        name: &str,
+        fields: Vec<(String, Value)>,
+    ) -> std::result::Result<(), ExecutionError> {
+        if self.phase != Phase::Measure {
+            return Err(ExecutionError::InvalidOpcode {
+                opcode: "Emit event only allowed in Measure phase".to_string(),
+                phase: self.phase,
+            });
+        }
+        self.event_buffer
+            .emit(chronicle_id.to_string(), name.to_string(), fields);
         Ok(())
     }
 
