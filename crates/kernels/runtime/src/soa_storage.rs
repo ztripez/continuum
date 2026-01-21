@@ -40,7 +40,7 @@ use std::ptr::NonNull;
 use indexmap::IndexMap;
 
 use crate::types::{EntityId, Value};
-use continuum_foundation::{PrimitiveStorageClass, PrimitiveTypeId, primitive_type_by_name};
+use continuum_foundation::{primitive_type_by_name, PrimitiveStorageClass, PrimitiveTypeId};
 
 /// Alignment for SIMD-friendly allocation (64 bytes = cache line).
 pub const SIMD_ALIGNMENT: usize = 64;
@@ -183,6 +183,7 @@ impl ValueType {
             Value::Mat4(_) => ValueType::scalar(), // TODO: proper matrix value type
             Value::Boolean(_) => ValueType::boolean(),
             Value::Integer(_) => ValueType::integer(),
+            Value::String(_) => panic!("String values are not supported in member signals"),
             Value::Map(_) => panic!("Map values are not supported in member signals"),
             Value::Tensor(_) => panic!("Tensor values are not yet supported in member signals"),
         }
@@ -1025,8 +1026,7 @@ impl MemberSignalBuffer {
                 Ok(())
             }
             (value_type, Value::Quat(v)) if value_type.is_quat() => {
-                self.vec4s
-                    .set_current(meta.buffer_index, instance_idx, v.0);
+                self.vec4s.set_current(meta.buffer_index, instance_idx, v.0);
                 Ok(())
             }
             (_, value) => Err(value),

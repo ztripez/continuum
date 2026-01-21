@@ -217,6 +217,7 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
 
             // Other leaf nodes and containers that don't require specific uses
             ExprKind::Literal { .. }
+            | ExprKind::StringLiteral(_)
             | ExprKind::Vector(_)
             | ExprKind::Local(_)
             | ExprKind::Signal(_)
@@ -414,7 +415,8 @@ fn collect_required_uses_untyped(
         | UntypedKind::Self_
         | UntypedKind::Other
         | UntypedKind::Payload
-        | UntypedKind::ParseError(_) => {}
+        | UntypedKind::ParseError(_)
+        | UntypedKind::StringLiteral(_) => {}
     }
 }
 

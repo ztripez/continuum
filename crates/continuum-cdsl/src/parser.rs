@@ -110,6 +110,12 @@ fn expr_parser<'src>(
         }
         .map_with(move |kind, e| Expr::new(kind, token_span(e.span(), file_id)));
 
+        // String literals
+        let string_literal = select! {
+            Token::String(s) => UntypedKind::StringLiteral(s),
+        }
+        .map_with(move |kind, e| Expr::new(kind, token_span(e.span(), file_id)));
+
         // Numeric literals
         let numeric_literal = select! {
             Token::Integer(n) => n as f64,
@@ -165,6 +171,7 @@ fn expr_parser<'src>(
         let atom = choice((
             bool_literal,
             numeric_literal,
+            string_literal,
             context_value,
             vector_literal,
             parens,
@@ -1086,6 +1093,7 @@ fn world_parser<'src>(
                 attributes: attrs,
                 span: token_span(e.span(), file_id),
                 doc: None,
+                debug: false,
             })
         })
 }

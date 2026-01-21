@@ -146,19 +146,19 @@ fn build_dag(
     // 1. Collect all nodes that execute in this phase and stratum
     for node in world.globals.values() {
         if node.stratum.as_ref() == Some(stratum) {
-            // Observer boundary enforcement: Fields may only execute in Measure phase
-            if node.role_id() == RoleId::Field && phase != Phase::Measure {
-                return Err(vec![CompileError::new(
-                    ErrorKind::PhaseBoundaryViolation,
-                    node.span,
-                    format!(
-                        "Field '{}' has execution in {:?} phase. Fields are observation-only and may only execute in Measure phase.",
-                        node.path, phase
-                    ),
-                )]);
-            }
-
             if let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
+                // Observer boundary enforcement: Fields may only execute in Measure phase
+                if node.role_id() == RoleId::Field && phase != Phase::Measure {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::PhaseBoundaryViolation,
+                        node.span,
+                        format!(
+                            "Field '{}' has execution in {:?} phase. Fields are observation-only and may only execute in Measure phase.",
+                            node.path, phase
+                        ),
+                    )]);
+                }
+
                 nodes.push((node.path.clone(), exec));
                 node_spans.insert(node.path.clone(), exec.span);
             }
@@ -167,19 +167,19 @@ fn build_dag(
 
     for node in world.members.values() {
         if node.stratum.as_ref() == Some(stratum) {
-            // Observer boundary enforcement: Fields may only execute in Measure phase
-            if node.role_id() == RoleId::Field && phase != Phase::Measure {
-                return Err(vec![CompileError::new(
-                    ErrorKind::PhaseBoundaryViolation,
-                    node.span,
-                    format!(
-                        "Field '{}' has execution in {:?} phase. Fields are observation-only and may only execute in Measure phase.",
-                        node.path, phase
-                    ),
-                )]);
-            }
-
             if let Some(exec) = node.executions.iter().find(|e| e.phase == phase) {
+                // Observer boundary enforcement: Fields may only execute in Measure phase
+                if node.role_id() == RoleId::Field && phase != Phase::Measure {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::PhaseBoundaryViolation,
+                        node.span,
+                        format!(
+                            "Field '{}' has execution in {:?} phase. Fields are observation-only and may only execute in Measure phase.",
+                            node.path, phase
+                        ),
+                    )]);
+                }
+
                 nodes.push((node.path.clone(), exec));
                 node_spans.insert(node.path.clone(), exec.span);
             }
@@ -411,6 +411,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         // signal a { resolve { 1.0 } }
@@ -453,7 +454,11 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
+            crate::ast::Stratum::new(
+                StratumId::new("default"),
+                Path::from_path_str("default"),
+                span,
+            ),
         );
         world.globals.insert(node_a.path.clone(), node_a);
         world.globals.insert(node_b.path.clone(), node_b);
@@ -480,6 +485,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         // signal a { resolve { signal.b } }
@@ -519,7 +525,11 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
+            crate::ast::Stratum::new(
+                StratumId::new("default"),
+                Path::from_path_str("default"),
+                span,
+            ),
         );
         world.globals.insert(node_a.path.clone(), node_a);
         world.globals.insert(node_b.path.clone(), node_b);
@@ -541,6 +551,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         // field temperature { resolve { 1.0 } }  // INVALID: Fields can't execute in Resolve
@@ -573,7 +584,11 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
+            crate::ast::Stratum::new(
+                StratumId::new("default"),
+                Path::from_path_str("default"),
+                span,
+            ),
         );
         world.globals.insert(field_node.path.clone(), field_node);
 
@@ -598,6 +613,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         // Three signals with no dependencies - should sort alphabetically in same level
@@ -665,7 +681,11 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
+            crate::ast::Stratum::new(
+                StratumId::new("default"),
+                Path::from_path_str("default"),
+                span,
+            ),
         );
 
         // Insert in non-alphabetical order to verify sorting
@@ -703,12 +723,17 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
+            crate::ast::Stratum::new(
+                StratumId::new("default"),
+                Path::from_path_str("default"),
+                span,
+            ),
         );
 
         // No nodes in the world - all DAGs should be empty (None)
@@ -729,10 +754,16 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         // signal slow_signal { : stratum(slow); resolve { 1.0 } }
-        let mut node_slow = Node::new(Path::from_path_str("slow_signal"), span, RoleData::Signal, ());
+        let mut node_slow = Node::new(
+            Path::from_path_str("slow_signal"),
+            span,
+            RoleData::Signal,
+            (),
+        );
         node_slow.stratum = Some(StratumId::new("slow"));
         node_slow.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -752,7 +783,12 @@ mod tests {
         )];
 
         // signal fast_signal { : stratum(fast); resolve { signal.slow_signal } }
-        let mut node_fast = Node::new(Path::from_path_str("fast_signal"), span, RoleData::Signal, ());
+        let mut node_fast = Node::new(
+            Path::from_path_str("fast_signal"),
+            span,
+            RoleData::Signal,
+            (),
+        );
         node_fast.stratum = Some(StratumId::new("fast"));
         node_fast.executions = vec![Execution::new(
             "resolve".to_string(),
@@ -801,6 +837,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         // operator op1 { measure { field.a <- 1.0 } }
@@ -845,7 +882,11 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
+            crate::ast::Stratum::new(
+                StratumId::new("default"),
+                Path::from_path_str("default"),
+                span,
+            ),
         );
         world.globals.insert(node_op1.path.clone(), node_op1);
         world.globals.insert(node_op2.path.clone(), node_op2);
@@ -869,6 +910,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         // signal a { resolve { prev } }
@@ -891,7 +933,11 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(StratumId::new("default"), Path::from_path_str("default"), span),
+            crate::ast::Stratum::new(
+                StratumId::new("default"),
+                Path::from_path_str("default"),
+                span,
+            ),
         );
         world.globals.insert(node_a.path.clone(), node_a);
 

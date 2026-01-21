@@ -164,6 +164,9 @@ pub struct WorldDecl {
 
     /// Doc comment
     pub doc: Option<String>,
+
+    /// Auto-generate debug fields for all signals
+    pub debug: bool,
 }
 
 /// Warmup policy for iterative equilibration.

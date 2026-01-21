@@ -48,6 +48,9 @@ pub enum Type {
     /// Distinct from Scalar for type safety.
     Bool,
 
+    /// String type
+    String,
+
     /// Unit type (void)
     ///
     /// Result of side effects: emit, spawn, destroy, log.
@@ -308,6 +311,7 @@ impl fmt::Display for Type {
             Type::Kernel(kt) => write!(f, "{}", kt),
             Type::User(id) => write!(f, "{}", id),
             Type::Bool => write!(f, "Bool"),
+            Type::String => write!(f, "String"),
             Type::Unit => write!(f, "Unit"),
             Type::Seq(inner) => write!(f, "Seq<{}>", inner),
         }

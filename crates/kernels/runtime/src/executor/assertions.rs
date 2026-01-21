@@ -28,6 +28,7 @@
 //! execution path. This ensures that a simulation with all assertions disabled
 //! produces the exact same results as one with all assertions enabled.
 
+use serde::{Deserialize, Serialize};
 use tracing::{debug, error, warn};
 
 use crate::error::{Error, Result};
@@ -41,7 +42,7 @@ use super::context::AssertContext;
 pub type AssertionFn = Box<dyn Fn(&AssertContext) -> bool + Send + Sync>;
 
 /// Represents a single violation of a simulation invariant detected at runtime.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AssertionFailure {
     /// The unique identifier of the signal that failed the assertion.
     pub signal: SignalId,

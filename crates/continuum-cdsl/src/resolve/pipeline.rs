@@ -3,7 +3,7 @@
 //! This module orchestrates the various resolution and validation passes
 //! to transform raw parsed declarations into a fully resolved [`World`].
 
-use crate::ast::{CompiledWorld, Declaration, Era, KernelRegistry, Node, World};
+use crate::ast::{CompiledWorld, Declaration, Era, Expr, KernelRegistry, Node, World, WorldDecl};
 use crate::desugar::desugar_declarations;
 use crate::error::CompileError;
 use crate::foundation::{EntityId, Path, Type};
@@ -156,13 +156,19 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
         }
     }
 
-    let Some(metadata) = world_decl else {
+    let Some(mut metadata) = world_decl else {
         return Err(vec![CompileError::new(
             crate::error::ErrorKind::Internal,
             crate::foundation::Span::new(0, 0, 0, 0),
             "No 'world' declaration found".to_string(),
         )]);
     };
+
+    resolve_world_metadata(&mut metadata, &mut errors);
+
+    if metadata.debug {
+        inject_debug_fields(&mut global_nodes, &mut member_nodes);
+    }
 
     let world_span = metadata.span;
     let mut world = World::new(metadata);
@@ -412,6 +418,137 @@ fn collect_node_types(globals: &[Node<()>], members: &[Node<EntityId>]) -> HashM
     map
 }
 
+fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileError>) {
+    for attr in &metadata.attributes {
+        match attr.name.as_str() {
+            "title" => {
+                if attr.args.len() != 1 {
+                    errors.push(CompileError::new(
+                        crate::error::ErrorKind::InvalidCapability,
+                        attr.span,
+                        "title attribute expects 1 argument".to_string(),
+                    ));
+                    continue;
+                }
+                match &attr.args[0].kind {
+                    crate::ast::UntypedKind::StringLiteral(s) => metadata.title = Some(s.clone()),
+                    _ => errors.push(CompileError::new(
+                        crate::error::ErrorKind::TypeMismatch,
+                        attr.args[0].span,
+                        "title attribute expects a string literal".to_string(),
+                    )),
+                }
+            }
+            "version" => {
+                if attr.args.len() != 1 {
+                    errors.push(CompileError::new(
+                        crate::error::ErrorKind::InvalidCapability,
+                        attr.span,
+                        "version attribute expects 1 argument".to_string(),
+                    ));
+                    continue;
+                }
+                match &attr.args[0].kind {
+                    crate::ast::UntypedKind::StringLiteral(s) => metadata.version = Some(s.clone()),
+                    _ => errors.push(CompileError::new(
+                        crate::error::ErrorKind::TypeMismatch,
+                        attr.args[0].span,
+                        "version attribute expects a string literal".to_string(),
+                    )),
+                }
+            }
+            "debug" => {
+                if !attr.args.is_empty() {
+                    errors.push(CompileError::new(
+                        crate::error::ErrorKind::InvalidCapability,
+                        attr.span,
+                        "debug attribute expects no arguments".to_string(),
+                    ));
+                    continue;
+                }
+                metadata.debug = true;
+            }
+            _ => {
+                errors.push(CompileError::new(
+                    crate::error::ErrorKind::Internal,
+                    attr.span,
+                    format!("Unknown world attribute: {}", attr.name),
+                ));
+            }
+        }
+    }
+}
+
+fn inject_debug_fields(global_nodes: &mut Vec<Node<()>>, member_nodes: &mut Vec<Node<EntityId>>) {
+    use crate::ast::{BlockBody, RoleData, RoleId};
+
+    let mut debug_globals = Vec::new();
+    for node in global_nodes.iter() {
+        if node.role_id() == RoleId::Signal {
+            let mut debug_path = Path::from("debug");
+            for segment in &node.path.segments {
+                debug_path.segments.push(segment.clone());
+            }
+
+            let mut debug_node = Node::new(
+                debug_path,
+                node.span,
+                RoleData::Field {
+                    reconstruction: None,
+                },
+                (),
+            );
+            debug_node.type_expr = node.type_expr.clone();
+            debug_node.stratum = node.stratum.clone();
+
+            // Create measure block: signal.path
+            let expr = Expr::new(
+                crate::ast::UntypedKind::Signal(node.path.clone()),
+                node.span,
+            );
+            debug_node
+                .execution_blocks
+                .push(("measure".to_string(), BlockBody::Expression(expr)));
+
+            debug_globals.push(debug_node);
+        }
+    }
+    global_nodes.extend(debug_globals);
+
+    let mut debug_members = Vec::new();
+    for node in member_nodes.iter() {
+        if node.role_id() == RoleId::Signal {
+            let mut debug_path = Path::from("debug");
+            for segment in &node.path.segments {
+                debug_path.segments.push(segment.clone());
+            }
+
+            let mut debug_node = Node::new(
+                debug_path,
+                node.span,
+                RoleData::Field {
+                    reconstruction: None,
+                },
+                node.index.clone(),
+            );
+            debug_node.type_expr = node.type_expr.clone();
+            debug_node.stratum = node.stratum.clone();
+
+            // Create measure block: signal.path
+            let expr = Expr::new(
+                crate::ast::UntypedKind::Signal(node.path.clone()),
+                node.span,
+            );
+            debug_node
+                .execution_blocks
+                .push(("measure".to_string(), BlockBody::Expression(expr)));
+
+            debug_members.push(debug_node);
+        }
+    }
+    member_nodes.extend(debug_members);
+}
+
 fn resolve_initial_era(
     eras: &IndexMap<Path, Era>,
     initial_candidates: &[(Path, crate::foundation::Span)],
@@ -491,6 +628,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         let stratum_id = StratumId::new("fast");
@@ -573,6 +711,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         let era = EraDecl {
@@ -607,6 +746,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         let initial_attr = Attribute {
@@ -663,6 +803,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         let initial_attr = Attribute {
@@ -702,6 +843,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         let era = EraDecl {
@@ -740,6 +882,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         let era = EraDecl {
@@ -779,6 +922,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         let decls = vec![Declaration::World(metadata)];
@@ -799,6 +943,7 @@ mod tests {
             attributes: vec![],
             span,
             doc: None,
+            debug: false,
         };
 
         let era = EraDecl {
@@ -820,5 +965,132 @@ mod tests {
         assert!(errors
             .iter()
             .any(|e| e.message.contains("Era missing dt expression")));
+    }
+
+    #[test]
+    fn test_inject_debug_fields() {
+        let span = test_span();
+        let metadata = WorldDecl {
+            path: Path::from_path_str("terra"),
+            title: None,
+            version: None,
+            warmup: None,
+            attributes: vec![],
+            span,
+            doc: None,
+            debug: true,
+        };
+
+        let era = EraDecl {
+            path: Path::from_path_str("main"),
+            dt: Some(Expr::literal(
+                1.0,
+                Some(UnitExpr::Base("s".to_string())),
+                span,
+            )),
+            strata_policy: Vec::new(),
+            transitions: Vec::new(),
+            attributes: vec![Attribute {
+                name: "initial".to_string(),
+                args: Vec::new(),
+                span,
+            }],
+            span,
+            doc: None,
+        };
+
+        let stratum_path = Path::from_path_str("sim");
+        let stratum = Stratum::new(StratumId::new("sim"), stratum_path.clone(), span);
+
+        let signal_path = Path::from_path_str("gravity");
+        let mut signal = Node::new(signal_path.clone(), span, RoleData::Signal, ());
+        signal.type_expr = Some(crate::ast::TypeExpr::Scalar { unit: None });
+        signal.attributes.push(Attribute {
+            name: "strata".to_string(),
+            args: vec![Expr::new(
+                crate::ast::UntypedKind::Signal(Path::from_path_str("sim")),
+                span,
+            )],
+            span,
+        });
+        signal.execution_blocks.push((
+            "resolve".to_string(),
+            BlockBody::Expression(Expr::literal(9.8, None, span)),
+        ));
+
+        let entity_id = EntityId::new("plate");
+        let entity = Entity::new(entity_id.clone(), Path::from_path_str("plate"), span);
+
+        let member_path = Path::from_path_str("plate.mass");
+        let mut member = Node::new(
+            member_path.clone(),
+            span,
+            RoleData::Signal,
+            entity_id.clone(),
+        );
+        member.type_expr = Some(crate::ast::TypeExpr::Scalar { unit: None });
+        member.attributes.push(Attribute {
+            name: "strata".to_string(),
+            args: vec![Expr::new(
+                crate::ast::UntypedKind::Signal(Path::from_path_str("sim")),
+                span,
+            )],
+            span,
+        });
+        member.execution_blocks.push((
+            "resolve".to_string(),
+            BlockBody::Expression(Expr::literal(100.0, None, span)),
+        ));
+
+        let decls = vec![
+            Declaration::World(metadata),
+            Declaration::Era(era),
+            Declaration::Stratum(stratum),
+            Declaration::Node(signal),
+            Declaration::Entity(entity),
+            Declaration::Member(member),
+        ];
+
+        let world = compile(decls).expect("Compilation failed");
+
+        // Should have gravity signal and debug.gravity field
+        assert!(world
+            .world
+            .globals
+            .contains_key(&Path::from_path_str("gravity")));
+        assert!(world
+            .world
+            .globals
+            .contains_key(&Path::from_path_str("debug.gravity")));
+
+        let debug_node = world
+            .world
+            .globals
+            .get(&Path::from_path_str("debug.gravity"))
+            .unwrap();
+        assert_eq!(debug_node.role_id(), crate::ast::RoleId::Field);
+        assert_eq!(debug_node.executions.len(), 1);
+        assert_eq!(
+            debug_node.executions[0].phase,
+            crate::foundation::Phase::Measure
+        );
+
+        // Verify member signal
+        assert!(world
+            .world
+            .members
+            .contains_key(&Path::from_path_str("plate.mass")));
+        assert!(world
+            .world
+            .members
+            .contains_key(&Path::from_path_str("debug.plate.mass")));
+
+        let debug_member = world
+            .world
+            .members
+            .get(&Path::from_path_str("debug.plate.mass"))
+            .unwrap();
+        assert_eq!(debug_member.role_id(), crate::ast::RoleId::Field);
+        assert_eq!(debug_member.index, EntityId::new("plate"));
     }
 }

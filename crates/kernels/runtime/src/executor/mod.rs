@@ -90,7 +90,7 @@ use crate::storage::{
     FractureQueue, InputChannels, SignalStorage,
 };
 use crate::types::{
-    Dt, EntityId, EraId, FieldId, Phase, SignalId, StratumId, StratumState, TickContext, Value,
+    Dt, EntityId, EraId, FieldId, ImpulseId, Phase, SignalId, StratumId, StratumState, TickContext, Value,
     WarmupConfig, WarmupResult,
 };
 use std::path::PathBuf;
@@ -373,6 +373,8 @@ pub struct Runtime {
     world_ir_hash: Option<[u8; 32]>,
     /// Initial seed for determinism
     initial_seed: u64,
+    /// Mapping from impulse ID to bytecode block index (for interactive injection)
+    impulse_map: std::collections::HashMap<ImpulseId, usize>,
 }
 
 impl Runtime {
@@ -409,6 +411,7 @@ impl Runtime {
             checkpoint_writer: None,
             world_ir_hash: None,
             initial_seed: 0,
+            impulse_map: std::collections::HashMap::new(),
         }
     }
 
@@ -428,6 +431,18 @@ impl Runtime {
     pub fn clear_breakpoints(&mut self) {
         info!("all breakpoints cleared");
         self.breakpoints.clear();
+    }
+
+    /// Add a mapping for an impulse ID to its bytecode block index
+    pub fn add_impulse_mapping(&mut self, id: ImpulseId, idx: usize) {
+        self.impulse_map.insert(id, idx);
+    }
+
+    /// Inject an impulse by its ID
+    pub fn inject_impulse_by_id(&mut self, id: &ImpulseId, payload: Value) -> Result<()> {
+        let idx = self.impulse_map.get(id).ok_or_else(|| Error::Generic(format!("Impulse '{}' not found", id)))?;
+        self.inject_impulse(*idx, payload);
+        Ok(())
     }
 
     /// Check if a signal has a breakpoint

@@ -483,6 +483,7 @@ pub fn validate_expr(
         // === Literals and keywords (always valid) ===
         ExprKind::Literal { .. }
         | ExprKind::BoolLiteral(_)
+        | ExprKind::StringLiteral(_)
         | ExprKind::Prev
         | ExprKind::Current
         | ExprKind::Inputs

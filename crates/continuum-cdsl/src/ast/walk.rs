@@ -120,6 +120,7 @@ where
 
         // === Leaf nodes (no children to traverse) ===
         ExprKind::Literal { .. }
+        | ExprKind::StringLiteral(_)
         | ExprKind::Local(_)
         | ExprKind::Signal(_)
         | ExprKind::Field(_)

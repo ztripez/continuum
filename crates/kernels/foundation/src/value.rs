@@ -35,6 +35,9 @@ pub enum Value {
     Mat4(Mat4),
     /// Dynamic tensor (row-major storage with Arc for cheap cloning).
     Tensor(TensorData),
+    /// String value
+    String(String),
+
     /// Structured payload with named fields, wrapped in Arc for cheap cloning.
     Map(Arc<Vec<(String, Value)>>),
     // TODO: Grid, Seq
@@ -267,6 +270,7 @@ impl fmt::Display for Value {
                 ) // row 3
             }
             Value::Tensor(t) => write!(f, "{}", t),
+            Value::String(s) => write!(f, "\"{}\"", s),
             Value::Map(v) => {
                 let items: Vec<_> = v.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", items.join(", "))
@@ -512,7 +516,9 @@ mod tests {
         ]);
         let value = m.into_value();
         match &value {
-            Value::Mat3(inner) => assert_eq!(inner.0, [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]),
+            Value::Mat3(inner) => {
+                assert_eq!(inner.0, [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0])
+            }
             _ => panic!("Expected Mat3"),
         }
         assert_eq!(

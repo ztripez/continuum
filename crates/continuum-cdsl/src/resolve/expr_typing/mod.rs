@@ -69,6 +69,8 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             Type::Bool,
         ),
 
+        UntypedKind::StringLiteral(val) => (ExprKind::StringLiteral(val.clone()), Type::String),
+
         // === References ===
         UntypedKind::Local(name) => {
             let ty = ctx.local_bindings.get(name).cloned().ok_or_else(|| {

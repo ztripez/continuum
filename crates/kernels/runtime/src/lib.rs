@@ -192,9 +192,12 @@ pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
         panic!("initial era '{}' not found in era configs", initial_era);
     }
 
-    let (dag_set, bytecode_blocks) = compile_bytecode_and_dags(&compiled);
+    let (dag_set, bytecode_blocks, impulse_map) = compile_bytecode_and_dags(&compiled);
 
     let mut runtime = Runtime::new(initial_era, era_configs, dag_set, bytecode_blocks);
+    for (id, idx) in impulse_map {
+        runtime.add_impulse_mapping(id, idx);
+    }
 
     // Initialize signals from world defaults/metadata
     for (path, node) in &compiled.world.globals {
@@ -230,6 +233,7 @@ mod tests {
             attributes: Vec::new(),
             span: Span::new(0, 0, 0, 0),
             doc: None,
+            debug: false,
         })
     }
 
@@ -354,10 +358,11 @@ mod tests {
     }
 }
 
-fn compile_bytecode_and_dags(compiled: &CompiledWorld) -> (crate::dag::DagSet, Vec<CompiledBlock>) {
+fn compile_bytecode_and_dags(compiled: &CompiledWorld) -> (crate::dag::DagSet, Vec<CompiledBlock>, std::collections::HashMap<ImpulseId, usize>) {
     let mut compiler = crate::bytecode::Compiler::new();
     let mut bytecode_blocks = Vec::new();
     let mut block_indices: IndexMap<(continuum_foundation::Path, Phase), usize> = IndexMap::new();
+    let mut impulse_map = std::collections::HashMap::new();
 
     let mut runtime_dags: IndexMap<(Phase, StratumId), crate::dag::ExecutableDag> = IndexMap::new();
 
@@ -404,6 +409,9 @@ fn compile_bytecode_and_dags(compiled: &CompiledWorld) -> (crate::dag::DagSet, V
                         resolver_idx: block_idx,
                     },
                     (RoleId::Operator, Phase::Collect) | (RoleId::Impulse, Phase::Collect) => {
+                        if role_id == RoleId::Impulse {
+                            impulse_map.insert(ImpulseId::new(path.to_string()), block_idx);
+                        }
                         NodeKind::OperatorCollect {
                             operator_idx: block_idx,
                         }
@@ -483,7 +491,7 @@ fn compile_bytecode_and_dags(compiled: &CompiledWorld) -> (crate::dag::DagSet, V
         dag_set.insert_era(EraId::new(era.path.to_string()), era_dags.clone());
     }
 
-    (dag_set, bytecode_blocks)
+    (dag_set, bytecode_blocks, impulse_map)
 }
 
 fn literal_scalar(expr: &TypedExpr) -> Option<f64> {

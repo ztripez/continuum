@@ -298,16 +298,13 @@ pub enum ExprKind {
     },
 
     /// Boolean literal
-    ///
-    /// # Examples
-    ///
-    /// ```cdsl
-    /// true
-    /// false
-    /// ```
     BoolLiteral(bool),
 
+    /// String literal
+    StringLiteral(String),
+
     /// Vector literal
+
     ///
     /// # Examples
     ///

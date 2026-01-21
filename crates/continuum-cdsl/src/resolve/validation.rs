@@ -350,7 +350,8 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
         | ExprKind::Dt
         | ExprKind::Self_
         | ExprKind::Other
-        | ExprKind::Payload => {}
+        | ExprKind::Payload
+        | ExprKind::StringLiteral(_) => {}
     }
 
     errors
@@ -1345,11 +1346,9 @@ mod tests {
         let errors = validate_expr(&vec_expr, &ctx);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
-        assert!(
-            errors[0]
-                .message
-                .contains("Seq types cannot be stored in vectors")
-        );
+        assert!(errors[0]
+            .message
+            .contains("Seq types cannot be stored in vectors"));
     }
 
     #[test]
@@ -1382,11 +1381,9 @@ mod tests {
         assert_eq!(errors.len(), 2);
         // First error is Seq type leakage
         assert_eq!(errors[0].kind, ErrorKind::TypeMismatch);
-        assert!(
-            errors[0]
-                .message
-                .contains("Seq types cannot be stored in struct field")
-        );
+        assert!(errors[0]
+            .message
+            .contains("Seq types cannot be stored in struct field"));
         // Second error is unknown type (not registered)
         assert_eq!(errors[1].kind, ErrorKind::UnknownType);
     }
@@ -1843,11 +1840,9 @@ mod tests {
         let errors = validate_expr(&call_expr, &ctx);
         // Should have 2 errors (one for each argument shape mismatch)
         assert!(!errors.is_empty());
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.kind == ErrorKind::InvalidKernelShape)
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.kind == ErrorKind::InvalidKernelShape));
     }
 
     #[test]
@@ -1885,11 +1880,9 @@ mod tests {
 
         let errors = validate_expr(&call_expr, &ctx);
         assert!(!errors.is_empty());
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.kind == ErrorKind::InvalidKernelShape)
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.kind == ErrorKind::InvalidKernelShape));
     }
 
     #[test]
@@ -1927,16 +1920,12 @@ mod tests {
 
         let errors = validate_expr(&call_expr, &ctx);
         assert!(!errors.is_empty());
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.kind == ErrorKind::InvalidKernelShape)
-        );
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("must have same shape as argument 0"))
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.kind == ErrorKind::InvalidKernelShape));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("must have same shape as argument 0")));
     }
 
     #[test]
@@ -1965,11 +1954,9 @@ mod tests {
 
         let errors = validate_expr(&call_expr, &ctx);
         assert!(!errors.is_empty());
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.kind == ErrorKind::InvalidKernelUnit)
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.kind == ErrorKind::InvalidKernelUnit));
     }
 
     #[test]
@@ -2007,16 +1994,12 @@ mod tests {
 
         let errors = validate_expr(&call_expr, &ctx);
         assert!(!errors.is_empty());
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.kind == ErrorKind::InvalidKernelUnit)
-        );
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("must have same unit as argument 0"))
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.kind == ErrorKind::InvalidKernelUnit));
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("must have same unit as argument 0")));
     }
 
     #[test]

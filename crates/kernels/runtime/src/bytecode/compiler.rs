@@ -206,6 +206,12 @@ impl Compiler {
                     vec![Operand::Literal(Value::Scalar(*value))],
                 ));
             }
+            ExprKind::StringLiteral(value) => {
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::PushLiteral,
+                    vec![Operand::Literal(Value::String(value.clone()))],
+                ));
+            }
             ExprKind::Vector(values) => {
                 self.compile_vector(block, values)?;
             }
@@ -560,9 +566,7 @@ impl Default for Compiler {
 }
 
 /// Validates that an aggregate operation is supported by the bytecode VM.
-fn ensure_aggregate_supported(
-    op: continuum_cdsl::ast::AggregateOp,
-) -> Result<(), CompileError> {
+fn ensure_aggregate_supported(op: continuum_cdsl::ast::AggregateOp) -> Result<(), CompileError> {
     if matches!(op, continuum_cdsl::ast::AggregateOp::Map) {
         return Err(CompileError::InvalidIR {
             message: "Aggregate Map is not a runtime reduction opcode".to_string(),

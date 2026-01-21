@@ -272,6 +272,7 @@ fn scan_for_effect_violations(
 
         // Leaf nodes - no kernel calls possible
         ExprKind::Literal { .. }
+        | ExprKind::StringLiteral(_)
         | ExprKind::Local(_)
         | ExprKind::Signal(_)
         | ExprKind::Field(_)
@@ -582,11 +583,9 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::UnknownKernel);
         assert!(errors[0].message.contains("unknown.bogus"));
-        assert!(
-            errors[0]
-                .message
-                .contains("should have been caught by type validation")
-        );
+        assert!(errors[0]
+            .message
+            .contains("should have been caught by type validation"));
     }
 
     #[test]
@@ -631,11 +630,9 @@ mod tests {
         // Should have both: unknown kernel AND nested effect violation
         assert_eq!(errors.len(), 2);
         assert!(errors.iter().any(|e| e.kind == ErrorKind::UnknownKernel));
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.kind == ErrorKind::EffectInPureContext)
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.kind == ErrorKind::EffectInPureContext));
     }
 
     #[test]

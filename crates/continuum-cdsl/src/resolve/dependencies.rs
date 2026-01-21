@@ -76,6 +76,7 @@ impl ExpressionVisitor for DependencyVisitor {
             // new path dependencies (dependencies are extracted from their sub-expressions
             // during the recursive walk)
             ExprKind::Literal { .. }
+            | ExprKind::StringLiteral(_)
             | ExprKind::Vector(_)
             | ExprKind::Local(_)
             | ExprKind::Current

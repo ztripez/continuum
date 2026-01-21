@@ -968,7 +968,12 @@ mod tests {
         use crate::ast::{BlockBody, Node, RoleData};
         use crate::foundation::Path;
 
-        let mut node = Node::new(Path::from_path_str("test"), make_span(), RoleData::Signal, ());
+        let mut node = Node::new(
+            Path::from_path_str("test"),
+            make_span(),
+            RoleData::Signal,
+            (),
+        );
 
         // Add an execution block: resolve { a + b }
         let expr = Expr::binary(
@@ -1039,6 +1044,7 @@ mod tests {
             attributes: vec![],
             span: make_span(),
             doc: None,
+            debug: false,
         };
         // Add attribute with expression arg
         use crate::ast::Attribute;

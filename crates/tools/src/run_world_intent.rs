@@ -43,7 +43,7 @@ impl WorldSource {
         }
     }
 
-    fn load(&self) -> Result<CompiledWorld, RunWorldError> {
+    pub fn load(&self) -> Result<CompiledWorld, RunWorldError> {
         match self {
             WorldSource::Directory(path) => compile(path).map_err(RunWorldError::from_compile),
             WorldSource::CompiledBundle(path) => {

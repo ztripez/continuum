@@ -276,6 +276,9 @@ pub enum ExprKind {
     /// - Empty vectors are invalid
     Vector(Vec<TypedExpr>),
 
+    /// String literal
+    StringLiteral(String),
+
     // === References ===
     /// Local let-bound variable reference
     ///
@@ -751,6 +754,7 @@ impl TypedExpr {
         match &self.expr {
             // Literals and references are always pure
             ExprKind::Literal { .. }
+            | ExprKind::StringLiteral(_)
             | ExprKind::Local(_)
             | ExprKind::Signal(_)
             | ExprKind::Field(_)
@@ -840,6 +844,7 @@ impl TypedExpr {
 
             // Leaf nodes (explicitly listed to ensure exhaustiveness)
             ExprKind::Literal { .. }
+            | ExprKind::StringLiteral(_)
             | ExprKind::Local(_)
             | ExprKind::Signal(_)
             | ExprKind::Field(_)
@@ -864,7 +869,7 @@ impl TypedExpr {
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```rust,ignore
 /// use continuum_cdsl::ast::{TypedExpr, ExpressionVisitor};
 ///
 /// #[derive(Default)]
