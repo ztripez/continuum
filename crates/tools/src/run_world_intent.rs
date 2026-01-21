@@ -87,6 +87,11 @@ impl RunWorldIntent {
         }
     }
 
+    /// Load the compiled world from the source without executing.
+    pub fn load(&self) -> Result<CompiledWorld, RunWorldError> {
+        self.source.load()
+    }
+
     /// Execute the intent and run the world simulation.
     pub fn execute(self) -> Result<RunReport, RunWorldError> {
         if self.options.steps == 0 {

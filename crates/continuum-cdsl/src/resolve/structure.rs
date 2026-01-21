@@ -183,6 +183,18 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
         index: &mut HashMap<Path, (Span, DeclKind)>,
         errors: &mut Vec<CompileError>,
     ) {
+        // Reserve "debug" namespace for system-generated fields
+        if let Some(first) = path.segments.first() {
+            if first == "debug" {
+                errors.push(CompileError::new(
+                    ErrorKind::PathCollision,
+                    span,
+                    "Top-level namespace 'debug' is reserved for system use".to_string(),
+                ));
+                return;
+            }
+        }
+
         if let Some((other_span, _)) = index.get(path) {
             errors.push(
                 CompileError::new(

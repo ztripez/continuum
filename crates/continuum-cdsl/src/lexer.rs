@@ -299,7 +299,7 @@ pub enum Token {
         let s = lex.slice();
         // Strip quotes and unescape
         let content = &s[1..s.len()-1];
-        Some(content.to_string())
+        unescape_string(content)
     })]
     String(String),
 
@@ -322,6 +322,32 @@ pub enum Token {
         s.strip_prefix("///").unwrap_or(s).trim().to_string()
     }, priority = 10)]
     DocComment(String),
+}
+
+/// Unescape a string literal content.
+fn unescape_string(s: &str) -> Option<String> {
+    let mut result = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c == '\\' {
+            match chars.next() {
+                Some('n') => result.push('\n'),
+                Some('r') => result.push('\r'),
+                Some('t') => result.push('\t'),
+                Some('\\') => result.push('\\'),
+                Some('"') => result.push('"'),
+                Some('\'') => result.push('\''),
+                Some(_u) => {
+                    // Unsupported escape sequence
+                    return None;
+                }
+                None => return None, // Trailing backslash
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    Some(result)
 }
 
 /// Token string lookup table.

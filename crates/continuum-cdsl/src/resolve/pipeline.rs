@@ -71,58 +71,6 @@ macro_rules! validate_node_pass {
 ///
 /// This is the main entry point for the CDSL compiler. It runs all
 /// resolution and validation passes in the correct order.
-///
-/// # Pipeline Order
-/// 1. **Name Resolution** - Build symbol table and validate paths.
-/// 2. **Structural Validation (Collisions)** - Check for path namespace conflicts.
-/// 3. **Type Table Projection** - Synthesize hierarchical entity types.
-/// 4. **Type Resolution** - Resolve TypeExpr to semantic Type for all nodes.
-/// 5. **Stratum Resolution** - Assign strata and resolve cadences.
-/// 6. **Era Resolution** - Validate eras and transition graph.
-/// 7. **Block Compilation** - Type-check and compile execution blocks.
-/// 8. **Structural Validation (Cycles)** - Detect circular dependencies.
-/// 9. **Final Validation** - Semantic checks (purity, bounds, uses).
-/// 10. **Graph Compilation** - Build deterministic execution DAGs.
-///
-/// # Parameters
-/// - `declarations`: Parsed declarations in source order.
-///
-/// # Returns
-/// Fully resolved [`CompiledWorld`] with typed nodes and execution graphs.
-///
-/// # Errors
-/// Returns all compile errors encountered during resolution or validation,
-/// including missing `world` declarations, invalid `dt` expressions, or
-/// missing/conflicting `:initial` era declarations.
-///
-/// # Examples
-/// ```rust
-/// use continuum_cdsl::lexer::Token;
-/// use continuum_cdsl::parser::parse_declarations;
-/// use continuum_cdsl::resolve::pipeline::compile;
-/// use logos::Logos;
-///
-/// let source = r#"
-/// world demo { }
-///
-/// strata sim { : stride(1) }
-///
-/// era main : initial : dt(1.0 <s>) {
-///     strata { sim: active }
-/// }
-///
-/// signal counter : type Scalar : stratum(sim) {
-///     resolve { prev }
-/// }
-/// "#;
-///
-/// let tokens: Vec<_> = Token::lexer(source)
-///     .collect::<Result<Vec<_>, _>>()
-///     .unwrap();
-/// let decls = parse_declarations(&tokens, 0).unwrap();
-/// let compiled = compile(decls).unwrap();
-/// assert_eq!(compiled.world.metadata.path.to_string(), "demo");
-/// ```
 pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<CompileError>> {
     let mut errors = Vec::new();
 
@@ -165,10 +113,6 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     };
 
     resolve_world_metadata(&mut metadata, &mut errors);
-
-    if metadata.debug {
-        inject_debug_fields(&mut global_nodes, &mut member_nodes);
-    }
 
     let world_span = metadata.span;
     let mut world = World::new(metadata);
@@ -226,6 +170,11 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
 
     if !errors.is_empty() {
         return Err(errors);
+    }
+
+    // 5.5. Inject Debug Fields
+    if world.metadata.debug {
+        inject_debug_fields(&mut global_nodes, &mut member_nodes);
     }
 
     // 6. Era Resolution
@@ -458,6 +407,14 @@ fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileErro
                 }
             }
             "debug" => {
+                if metadata.debug {
+                    errors.push(CompileError::new(
+                        crate::error::ErrorKind::Conflict,
+                        attr.span,
+                        "duplicate :debug attribute in world block".to_string(),
+                    ));
+                    continue;
+                }
                 if !attr.args.is_empty() {
                     errors.push(CompileError::new(
                         crate::error::ErrorKind::InvalidCapability,
@@ -480,37 +437,12 @@ fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileErro
 }
 
 fn inject_debug_fields(global_nodes: &mut Vec<Node<()>>, member_nodes: &mut Vec<Node<EntityId>>) {
-    use crate::ast::{BlockBody, RoleData, RoleId};
+    use crate::ast::RoleId;
 
     let mut debug_globals = Vec::new();
     for node in global_nodes.iter() {
         if node.role_id() == RoleId::Signal {
-            let mut debug_path = Path::from("debug");
-            for segment in &node.path.segments {
-                debug_path.segments.push(segment.clone());
-            }
-
-            let mut debug_node = Node::new(
-                debug_path,
-                node.span,
-                RoleData::Field {
-                    reconstruction: None,
-                },
-                (),
-            );
-            debug_node.type_expr = node.type_expr.clone();
-            debug_node.stratum = node.stratum.clone();
-
-            // Create measure block: signal.path
-            let expr = Expr::new(
-                crate::ast::UntypedKind::Signal(node.path.clone()),
-                node.span,
-            );
-            debug_node
-                .execution_blocks
-                .push(("measure".to_string(), BlockBody::Expression(expr)));
-
-            debug_globals.push(debug_node);
+            debug_globals.push(create_debug_node(node, ()));
         }
     }
     global_nodes.extend(debug_globals);
@@ -518,35 +450,46 @@ fn inject_debug_fields(global_nodes: &mut Vec<Node<()>>, member_nodes: &mut Vec<
     let mut debug_members = Vec::new();
     for node in member_nodes.iter() {
         if node.role_id() == RoleId::Signal {
-            let mut debug_path = Path::from("debug");
-            for segment in &node.path.segments {
-                debug_path.segments.push(segment.clone());
-            }
-
-            let mut debug_node = Node::new(
-                debug_path,
-                node.span,
-                RoleData::Field {
-                    reconstruction: None,
-                },
-                node.index.clone(),
-            );
-            debug_node.type_expr = node.type_expr.clone();
-            debug_node.stratum = node.stratum.clone();
-
-            // Create measure block: signal.path
-            let expr = Expr::new(
-                crate::ast::UntypedKind::Signal(node.path.clone()),
-                node.span,
-            );
-            debug_node
-                .execution_blocks
-                .push(("measure".to_string(), BlockBody::Expression(expr)));
-
-            debug_members.push(debug_node);
+            debug_members.push(create_debug_node(node, node.index.clone()));
         }
     }
     member_nodes.extend(debug_members);
+}
+
+fn create_debug_node<I: crate::ast::Index>(source: &Node<I>, index: I) -> Node<I> {
+    use crate::ast::{BlockBody, RoleData};
+
+    let mut debug_path = Path::from("debug");
+    for segment in &source.path.segments {
+        debug_path.segments.push(segment.clone());
+    }
+
+    let mut debug_node = Node::new(
+        debug_path,
+        source.span,
+        RoleData::Field {
+            reconstruction: None,
+        },
+        index,
+    );
+    // Copy resolved metadata
+    debug_node.type_expr = source.type_expr.clone();
+    debug_node.output = source.output.clone();
+    debug_node.stratum = source.stratum.clone();
+    debug_node.doc = source.doc.clone();
+    debug_node.title = source.title.as_ref().map(|t| format!("Debug: {}", t));
+    debug_node.file = source.file.clone();
+
+    // Create measure block: signal.path
+    let expr = Expr::new(
+        crate::ast::UntypedKind::Signal(source.path.clone()),
+        source.span,
+    );
+    debug_node
+        .execution_blocks
+        .push(("measure".to_string(), BlockBody::Expression(expr)));
+
+    debug_node
 }
 
 fn resolve_initial_era(

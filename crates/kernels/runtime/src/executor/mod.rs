@@ -191,7 +191,7 @@ pub fn run_simulation(
                 })?;
                 line.push_str(&format!("{}={} ", id, val));
             }
-            println!("{}", line);
+            tracing::info!("{}", line);
         }
 
         // Emit field data to lens sink

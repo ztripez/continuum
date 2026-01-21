@@ -35,8 +35,8 @@ pub enum Value {
     Mat4(Mat4),
     /// Dynamic tensor (row-major storage with Arc for cheap cloning).
     Tensor(TensorData),
-    /// String value
-    String(String),
+    /// String value (wrapped in Arc for cheap cloning)
+    String(Arc<String>),
 
     /// Structured payload with named fields, wrapped in Arc for cheap cloning.
     Map(Arc<Vec<(String, Value)>>),
@@ -136,6 +136,14 @@ impl Value {
     pub fn as_tensor(&self) -> Option<&TensorData> {
         match self {
             Value::Tensor(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Attempt to get the value as a string.
+    pub fn as_string(&self) -> Option<&str> {
+        match self {
+            Value::String(v) => Some(v.as_str()),
             _ => None,
         }
     }
@@ -330,6 +338,18 @@ impl FromValue for i64 {
 impl IntoValue for i64 {
     fn into_value(self) -> Value {
         Value::Integer(self)
+    }
+}
+
+impl FromValue for String {
+    fn from_value(value: &Value) -> Option<Self> {
+        value.as_string().map(|s| s.to_string())
+    }
+}
+
+impl IntoValue for String {
+    fn into_value(self) -> Value {
+        Value::String(Arc::new(self))
     }
 }
 
