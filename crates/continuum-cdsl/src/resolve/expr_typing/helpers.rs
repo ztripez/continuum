@@ -548,10 +548,11 @@ pub fn type_call(
     }
 
     if segments.len() > 2 {
-        return Err(err_internal(
+        return Err(vec![CompileError::new(
+            ErrorKind::Syntax,
             span,
             format!("kernel path '{}' must be namespace.name or bare name", func),
-        ));
+        )]);
     }
 
     let (namespace, name) = if segments.len() == 1 {

@@ -79,6 +79,43 @@ fn test_type_literal_dimensionless() {
 }
 
 #[test]
+fn test_type_call_invalid_depth() {
+    let ctx = make_context();
+    let expr = Expr::new(
+        UntypedKind::Call {
+            func: Path::from_path_str("maths.vector.add"),
+            args: vec![],
+        },
+        Span::new(0, 0, 10, 1),
+    );
+
+    let result = type_expression(&expr, &ctx);
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert_eq!(errors[0].kind, crate::error::ErrorKind::Syntax);
+    assert!(errors[0]
+        .message
+        .contains("must be namespace.name or bare name"));
+}
+
+#[test]
+fn test_type_call_undefined_namespace() {
+    let ctx = make_context();
+    let expr = Expr::new(
+        UntypedKind::Call {
+            func: Path::from_path_str("unknown_ns.func"),
+            args: vec![],
+        },
+        Span::new(0, 0, 10, 1),
+    );
+
+    let result = type_expression(&expr, &ctx);
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert_eq!(errors[0].kind, crate::error::ErrorKind::UndefinedName);
+}
+
+#[test]
 fn test_type_bool_literal() {
     let ctx = make_context();
     let expr = Expr::new(UntypedKind::BoolLiteral(true), Span::new(0, 0, 10, 1));

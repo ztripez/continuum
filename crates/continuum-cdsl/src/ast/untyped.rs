@@ -101,6 +101,22 @@ pub struct Expr {
 }
 
 impl Expr {
+    /// Attempt to interpret this expression as a static [`Path`].
+    ///
+    /// Succeeds if the expression is a [`Local`] identifier or a chain of
+    /// [`FieldAccess`] operations on a path.
+    pub fn as_path(&self) -> Option<Path> {
+        match &self.kind {
+            ExprKind::Local(name) => Some(Path::from(name.as_str())),
+            ExprKind::FieldAccess { object, field } => {
+                let mut path = object.as_path()?;
+                path.segments.push(field.clone());
+                Some(path)
+            }
+            _ => None,
+        }
+    }
+
     /// Create a new untyped expression
     ///
     /// # Parameters
@@ -1018,7 +1034,7 @@ mod tests {
 
     #[test]
     fn type_expr_user() {
-        let path = Path::from_str("OrbitalElements");
+        let path = Path::from_path_str("OrbitalElements");
         let ty = TypeExpr::User(path.clone());
         match ty {
             TypeExpr::User(p) => assert_eq!(p, path),
@@ -1087,7 +1103,7 @@ mod tests {
 
     #[test]
     fn expr_kind_signal() {
-        let path = Path::from_str("velocity");
+        let path = Path::from_path_str("velocity");
         let expr = Expr::new(ExprKind::Signal(path.clone()), make_span());
         match expr.kind {
             ExprKind::Signal(p) => assert_eq!(p, path),
@@ -1097,7 +1113,7 @@ mod tests {
 
     #[test]
     fn expr_kind_field() {
-        let path = Path::from_str("temperature");
+        let path = Path::from_path_str("temperature");
         let expr = Expr::new(ExprKind::Field(path.clone()), make_span());
         match expr.kind {
             ExprKind::Field(p) => assert_eq!(p, path),
@@ -1107,7 +1123,7 @@ mod tests {
 
     #[test]
     fn expr_kind_config() {
-        let path = Path::from_str("initial_temp");
+        let path = Path::from_path_str("initial_temp");
         let expr = Expr::new(ExprKind::Config(path.clone()), make_span());
         match expr.kind {
             ExprKind::Config(p) => assert_eq!(p, path),
@@ -1117,7 +1133,7 @@ mod tests {
 
     #[test]
     fn expr_kind_const() {
-        let path = Path::from_str("BOLTZMANN");
+        let path = Path::from_path_str("BOLTZMANN");
         let expr = Expr::new(ExprKind::Const(path.clone()), make_span());
         match expr.kind {
             ExprKind::Const(p) => assert_eq!(p, path),
@@ -1253,14 +1269,14 @@ mod tests {
         let arg = Expr::literal(1.0, None, make_span());
         let expr = Expr::new(
             ExprKind::Call {
-                func: Path::from_str("sin"),
+                func: Path::from_path_str("sin"),
                 args: vec![arg],
             },
             make_span(),
         );
         match expr.kind {
             ExprKind::Call { func, args } => {
-                assert_eq!(func, Path::from_str("sin"));
+                assert_eq!(func, Path::from_path_str("sin"));
                 assert_eq!(args.len(), 1);
             }
             _ => panic!("expected call"),
@@ -1272,14 +1288,14 @@ mod tests {
         let field_val = Expr::literal(1.5e11, None, make_span());
         let expr = Expr::new(
             ExprKind::Struct {
-                ty: Path::from_str("Orbit"),
+                ty: Path::from_path_str("Orbit"),
                 fields: vec![("semi_major".to_string(), field_val)],
             },
             make_span(),
         );
         match expr.kind {
             ExprKind::Struct { ty, fields } => {
-                assert_eq!(ty, Path::from_str("Orbit"));
+                assert_eq!(ty, Path::from_path_str("Orbit"));
                 assert_eq!(fields.len(), 1);
                 assert_eq!(fields[0].0, "semi_major");
             }

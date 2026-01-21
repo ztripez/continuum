@@ -9,12 +9,13 @@ use crate::error::CompileError;
 use crate::foundation::{EntityId, Path, Type};
 use crate::resolve::blocks::compile_execution_blocks;
 use crate::resolve::eras::resolve_eras;
-use crate::resolve::expr_typing::{TypingContext, type_expression};
+use crate::resolve::expr_typing::{type_expression, TypingContext};
 use crate::resolve::graph::compile_graphs;
-use crate::resolve::names::{Scope, build_symbol_table, validate_expr};
+use crate::resolve::names::{build_symbol_table, validate_expr, Scope};
 use crate::resolve::strata::{resolve_cadences, resolve_strata};
+use crate::resolve::structure::{validate_collisions, validate_cycles};
 use crate::resolve::types::{
-    TypeTable, project_entity_types, resolve_node_types, resolve_user_types,
+    project_entity_types, resolve_node_types, resolve_user_types, TypeTable,
 };
 use crate::resolve::uses::validate_uses;
 use crate::resolve::validation::{validate_node, validate_seq_escape};
@@ -73,14 +74,15 @@ macro_rules! validate_node_pass {
 ///
 /// # Pipeline Order
 /// 1. **Name Resolution** - Build symbol table and validate paths.
-/// 2. **Type Table Projection** - Synthesize hierarchical entity types.
-/// 3. **Type Resolution** - Resolve TypeExpr to semantic Type for all nodes.
-/// 4. **Expression Typing** - (Deferred to Block Compilation)
+/// 2. **Structural Validation (Collisions)** - Check for path namespace conflicts.
+/// 3. **Type Table Projection** - Synthesize hierarchical entity types.
+/// 4. **Type Resolution** - Resolve TypeExpr to semantic Type for all nodes.
 /// 5. **Stratum Resolution** - Assign strata and resolve cadences.
 /// 6. **Era Resolution** - Validate eras and transition graph.
 /// 7. **Block Compilation** - Type-check and compile execution blocks.
-/// 8. **Validation** - Final semantic validation (purity, bounds, uses).
-/// 9. **Graph Compilation** - Build deterministic execution DAGs.
+/// 8. **Structural Validation (Cycles)** - Detect circular dependencies.
+/// 9. **Final Validation** - Semantic checks (purity, bounds, uses).
+/// 10. **Graph Compilation** - Build deterministic execution DAGs.
 ///
 /// # Parameters
 /// - `declarations`: Parsed declarations in source order.
@@ -168,6 +170,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
 
     // 3. Name Resolution (Symbol Table Building)
     let symbol_table = build_symbol_table(&world.declarations);
+    errors.extend(validate_collisions(&world.declarations));
 
     // 4. Type Resolution
     let mut type_table = TypeTable::new();
@@ -187,12 +190,9 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     }
 
     // Resolve node types (TypeExpr -> Type)
-    apply_node_pass!(
-        errors,
-        &mut global_nodes,
-        &mut member_nodes,
-        |nodes| resolve_node_types(nodes, &type_table)
-    );
+    apply_node_pass!(errors, &mut global_nodes, &mut member_nodes, |nodes| {
+        resolve_node_types(nodes, &type_table)
+    });
 
     if !errors.is_empty() {
         return Err(errors);
@@ -214,12 +214,9 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     }
 
     let strata_vec: Vec<_> = strata_map.values().cloned().collect();
-    apply_node_pass!(
-        errors,
-        &mut global_nodes,
-        &mut member_nodes,
-        |nodes| resolve_strata(nodes, &strata_vec)
-    );
+    apply_node_pass!(errors, &mut global_nodes, &mut member_nodes, |nodes| {
+        resolve_strata(nodes, &strata_vec)
+    });
 
     if !errors.is_empty() {
         return Err(errors);
@@ -304,12 +301,8 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
         resolved_eras.insert(era.path.clone(), era);
     }
 
-    let initial_era = resolve_initial_era(
-        &resolved_eras,
-        &initial_candidates,
-        world_span,
-        &mut errors,
-    );
+    let initial_era =
+        resolve_initial_era(&resolved_eras, &initial_candidates, world_span, &mut errors);
 
     if !errors.is_empty() {
         return Err(errors);
@@ -330,18 +323,14 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     }
 
     // 7. Block Compilation
-    validate_node_pass!(
-        errors,
-        &mut global_nodes,
-        &mut member_nodes,
-        |node| compile_execution_blocks(node, &ctx)
-    );
+    validate_node_pass!(errors, &mut global_nodes, &mut member_nodes, |node| {
+        compile_execution_blocks(node, &ctx)
+    });
 
-    if !errors.is_empty() {
-        return Err(errors);
-    }
+    // 8. Structural Validation (Cycles)
+    errors.extend(validate_cycles(&global_nodes, &member_nodes));
 
-    // 8. Validation
+    // 9. Validation
     // dedicated Name Validation (uses SymbolTable)
     let mut scope = Scope::default();
     for decl in &world.declarations {
@@ -555,13 +544,14 @@ mod tests {
         let world = compile(decls).expect("Compilation failed");
 
         assert_eq!(world.world.metadata.path, world_path);
-        assert!(world.world.entities.contains_key(&Path::from_path_str("plate")));
-        assert!(
-            world
-                .world
-                .members
-                .contains_key(&Path::from_path_str("plate.mass"))
-        );
+        assert!(world
+            .world
+            .entities
+            .contains_key(&Path::from_path_str("plate")));
+        assert!(world
+            .world
+            .members
+            .contains_key(&Path::from_path_str("plate.mass")));
 
         let mass_node = world
             .world

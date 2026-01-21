@@ -7,9 +7,9 @@ use chumsky::prelude::*;
 
 use crate::ast::{
     Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, Entity, EraDecl, Expr,
-    Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData, Stmt, Stratum,
-    StratumPolicyEntry, TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr,
-    UntypedKind, WarmupBlock, WhenBlock, WorldDecl,
+    Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData, Stmt, Stratum, StratumPolicyEntry,
+    TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr, UntypedKind, WarmupBlock,
+    WhenBlock, WorldDecl,
 };
 
 use crate::foundation::{EntityId, Path, Span, StratumId};
@@ -144,25 +144,9 @@ fn expr_parser<'src>(
         let identifier = select! {
             Token::Ident(name) => name,
         }
-        .map_with(move |name, e| Expr::new(UntypedKind::Local(name), token_span(e.span(), file_id)))
-        .foldl(
-            expr.clone()
-                .separated_by(just(Token::Comma))
-                .allow_trailing()
-                .collect::<Vec<_>>()
-                .delimited_by(just(Token::LParen), just(Token::RParen))
-                .repeated(),
-            |func_expr, args| {
-                let span = func_expr.span;
-                match &func_expr.kind {
-                    UntypedKind::Local(name) => {
-                        let path = Path::from(name.as_str());
-                        Expr::new(UntypedKind::Call { func: path, args }, span)
-                    }
-                    _ => unreachable!(),
-                }
-            },
-        );
+        .map_with(move |name, e| {
+            Expr::new(UntypedKind::Local(name), token_span(e.span(), file_id))
+        });
 
         let parens = expr
             .clone()
@@ -187,19 +171,52 @@ fn expr_parser<'src>(
             identifier,
         ));
 
+        #[derive(Clone)]
+        enum Postfix {
+            Field(String),
+            Call(Vec<Expr>),
+        }
+
         let postfix = atom.foldl(
-            just(Token::Dot)
-                .ignore_then(select! { Token::Ident(name) => name })
-                .repeated(),
-            |object, field| {
-                let span = object.span;
-                Expr::new(
-                    UntypedKind::FieldAccess {
-                        object: Box::new(object),
-                        field,
-                    },
-                    span,
-                )
+            choice((
+                just(Token::Dot)
+                    .ignore_then(select! { Token::Ident(name) => name })
+                    .map(Postfix::Field),
+                expr.clone()
+                    .separated_by(just(Token::Comma))
+                    .allow_trailing()
+                    .collect::<Vec<_>>()
+                    .delimited_by(just(Token::LParen), just(Token::RParen))
+                    .map(Postfix::Call),
+            ))
+            .repeated(),
+            |target, post| {
+                let span = target.span;
+                match post {
+                    Postfix::Call(args) => {
+                        // It's a call
+                        if let Some(path) = target.as_path() {
+                            Expr::new(UntypedKind::Call { func: path, args }, span)
+                        } else {
+                            Expr::new(
+                                UntypedKind::ParseError(
+                                    "Dynamic dispatch not supported".to_string(),
+                                ),
+                                span,
+                            )
+                        }
+                    }
+                    Postfix::Field(field) => {
+                        // It's a field access
+                        Expr::new(
+                            UntypedKind::FieldAccess {
+                                object: Box::new(target),
+                                field,
+                            },
+                            span,
+                        )
+                    }
+                }
             },
         );
 
@@ -471,7 +488,6 @@ fn path_parser<'src>(
         .collect::<Vec<_>>()
         .map(|segments| Path::from(segments.join(".").as_str()))
 }
-
 
 fn type_annotation_parser<'src>(
     file_id: u16,
@@ -841,6 +857,18 @@ fn member_parser<'src>(
 ) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     just(Token::Member)
         .ignore_then(path_parser())
+        .validate(|path, e, emitter| {
+            if path.len() < 2 {
+                emitter.emit(Rich::custom(
+                    e.span(),
+                    format!(
+                        "Member declaration requires entity.member path structure, got '{}'",
+                        path
+                    ),
+                ));
+            }
+            path
+        })
         .then(type_annotation_parser(file_id).or_not())
         .then(attribute_parser(file_id).repeated().collect::<Vec<_>>())
         .then_ignore(just(Token::LBrace))
@@ -852,14 +880,8 @@ fn member_parser<'src>(
         .then_ignore(just(Token::RBrace))
         .map_with(move |(((full_path, type_expr), attrs), blocks), e| {
             let span = token_span(e.span(), file_id);
-            let path_str = full_path.to_string();
-            let parts: Vec<&str> = path_str.split('.').collect();
-            assert!(
-                parts.len() > 1,
-                "Member declaration requires entity.member path structure, got '{}'",
-                path_str
-            );
-            let entity_id = EntityId::new(parts[..parts.len() - 1].join("."));
+            let entity_path = full_path.parent().unwrap_or_else(|| full_path.clone());
+            let entity_id = EntityId::new(entity_path.to_string());
             let mut node = Node::new(full_path, span, RoleData::Signal, entity_id);
             node.type_expr = type_expr;
             node.attributes = attrs;

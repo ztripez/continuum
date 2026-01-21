@@ -56,9 +56,9 @@
 //! }
 //! ```
 
-use crate::ast::Node;
+use crate::ast::{Declaration, Node};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::Path;
+use crate::foundation::{EntityId, Path, Span};
 use std::collections::{HashMap, HashSet};
 
 /// Validates that the AST contains no circular dependencies.
@@ -71,39 +71,33 @@ use std::collections::{HashMap, HashSet};
 ///
 /// Returns [`ErrorKind::CyclicDependency`] for each detected cycle, with a
 /// message describing the cycle path.
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// // signal a { resolve { Prev(b) } }
-/// // signal b { resolve { Prev(a) } }
-/// // → Cycle detected: a → b → a
-///
-/// let errors = validate_cycles(&nodes);
-/// assert!(!errors.is_empty());
-/// ```
-pub fn validate_cycles<I: crate::ast::Index>(nodes: &[Node<I>]) -> Vec<CompileError> {
+pub fn validate_cycles(globals: &[Node<()>], members: &[Node<EntityId>]) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
-    // Build dependency graph: path → list of paths it depends on
-    let mut graph: HashMap<Path, Vec<Path>> = HashMap::new();
-    for node in nodes {
-        graph.insert(node.path.clone(), node.reads.clone());
+    // Build dependency graph: path → (list of paths it depends on, span)
+    let mut graph: HashMap<Path, (Vec<Path>, Span)> = HashMap::new();
+    for node in globals {
+        graph.insert(node.path.clone(), (node.reads.clone(), node.span));
+    }
+    for node in members {
+        graph.insert(node.path.clone(), (node.reads.clone(), node.span));
     }
 
     // Track visited nodes during DFS
     let mut visited = HashSet::new();
     let mut rec_stack = HashSet::new();
 
-    // Perform DFS from each node
-    for node in nodes {
-        if !visited.contains(&node.path) {
+    // Perform DFS from each node in the graph
+    let paths: Vec<_> = graph.keys().cloned().collect();
+    for path in paths {
+        if !visited.contains(&path) {
             if let Some(cycle) =
-                detect_cycle_dfs(&node.path, &graph, &mut visited, &mut rec_stack, Vec::new())
+                detect_cycle_dfs(&path, &graph, &mut visited, &mut rec_stack, Vec::new())
             {
+                let span = graph[&path].1;
                 errors.push(CompileError::new(
                     ErrorKind::CyclicDependency,
-                    node.span,
+                    span,
                     format_cycle_error(&cycle),
                 ));
             }
@@ -118,7 +112,7 @@ pub fn validate_cycles<I: crate::ast::Index>(nodes: &[Node<I>]) -> Vec<CompileEr
 /// Returns Some(cycle_path) if a cycle is detected, None otherwise.
 fn detect_cycle_dfs(
     current: &Path,
-    graph: &HashMap<Path, Vec<Path>>,
+    graph: &HashMap<Path, (Vec<Path>, Span)>,
     visited: &mut HashSet<Path>,
     rec_stack: &mut HashSet<Path>,
     mut path: Vec<Path>,
@@ -127,7 +121,7 @@ fn detect_cycle_dfs(
     rec_stack.insert(current.clone());
     path.push(current.clone());
 
-    if let Some(deps) = graph.get(current) {
+    if let Some((deps, _)) = graph.get(current) {
         for dep in deps {
             if !visited.contains(dep) {
                 if let Some(cycle) = detect_cycle_dfs(dep, graph, visited, rec_stack, path.clone())
@@ -158,51 +152,127 @@ fn format_cycle_error(cycle: &[Path]) -> String {
     format!("Circular dependency detected: {}", cycle_str)
 }
 
-/// Validates that the AST contains no path collisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DeclKind {
+    Entity,
+    Node,
+    Member,
+    Other,
+}
+
+/// Validates that the AST contains no path collisions across all declarations.
 ///
 /// Detects namespace conflicts where paths overlap in ways that create ambiguity:
 /// - A node at path `foo.bar` collides with a node at path `foo` with field `bar`
 /// - Parent paths shadowing child declarations
+/// - Multiple declarations of the same path (e.g., a signal and an entity)
 ///
 /// # Errors
 ///
 /// Returns [`ErrorKind::PathCollision`] for each detected collision, with a
 /// message describing the conflicting paths.
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// // signal velocity { ... }  // path: "velocity"
-/// // field velocity { ... }   // path: "velocity"
-/// // → Collision: both declare "velocity"
-///
-/// let errors = validate_collisions(&nodes);
-/// assert!(!errors.is_empty());
-/// ```
-pub fn validate_collisions<I: crate::ast::Index>(nodes: &[Node<I>]) -> Vec<CompileError> {
+pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
     let mut errors = Vec::new();
+    let mut path_index: HashMap<Path, (Span, DeclKind)> = HashMap::new();
 
-    // Build path index: path → (node_index, span)
-    let mut path_index: HashMap<Path, (usize, crate::foundation::Span)> = HashMap::new();
-
-    for (idx, node) in nodes.iter().enumerate() {
-        if let Some((_other_idx, other_span)) = path_index.get(&node.path) {
-            // Direct collision - same path declared twice
+    // Helper to register a path and check for direct collisions
+    fn register_path(
+        path: &Path,
+        span: Span,
+        kind: DeclKind,
+        index: &mut HashMap<Path, (Span, DeclKind)>,
+        errors: &mut Vec<CompileError>,
+    ) {
+        if let Some((other_span, _)) = index.get(path) {
             errors.push(
                 CompileError::new(
                     ErrorKind::PathCollision,
-                    node.span,
-                    format!("Path '{}' is declared multiple times", node.path),
+                    span,
+                    format!("Path '{}' is declared multiple times", path),
                 )
                 .with_label(*other_span, "first declared here".to_string()),
             );
         } else {
-            path_index.insert(node.path.clone(), (idx, node.span));
+            index.insert(path.clone(), (span, kind));
         }
+    }
 
-        // Check for parent/child collisions
-        // If we have "foo.bar.baz", check if "foo" or "foo.bar" exist as separate declarations
-        check_parent_collisions(&node.path, &path_index, node.span, &mut errors);
+    for decl in declarations {
+        match decl {
+            Declaration::Node(n) => register_path(
+                &n.path,
+                n.span,
+                DeclKind::Node,
+                &mut path_index,
+                &mut errors,
+            ),
+            Declaration::Member(m) => register_path(
+                &m.path,
+                m.span,
+                DeclKind::Member,
+                &mut path_index,
+                &mut errors,
+            ),
+            Declaration::Entity(e) => register_path(
+                &e.path,
+                e.span,
+                DeclKind::Entity,
+                &mut path_index,
+                &mut errors,
+            ),
+            Declaration::Stratum(s) => register_path(
+                &s.path,
+                s.span,
+                DeclKind::Other,
+                &mut path_index,
+                &mut errors,
+            ),
+            Declaration::Era(e) => register_path(
+                &e.path,
+                e.span,
+                DeclKind::Other,
+                &mut path_index,
+                &mut errors,
+            ),
+            Declaration::Type(t) => {
+                let path = Path::from(t.name.as_str());
+                register_path(&path, t.span, DeclKind::Other, &mut path_index, &mut errors);
+            }
+            Declaration::World(w) => register_path(
+                &w.path,
+                w.span,
+                DeclKind::Other,
+                &mut path_index,
+                &mut errors,
+            ),
+            Declaration::Const(entries) => {
+                for entry in entries {
+                    register_path(
+                        &entry.path,
+                        entry.span,
+                        DeclKind::Other,
+                        &mut path_index,
+                        &mut errors,
+                    );
+                }
+            }
+            Declaration::Config(entries) => {
+                for entry in entries {
+                    register_path(
+                        &entry.path,
+                        entry.span,
+                        DeclKind::Other,
+                        &mut path_index,
+                        &mut errors,
+                    );
+                }
+            }
+        }
+    }
+
+    // Check for parent/child collisions
+    for (path, (span, kind)) in &path_index {
+        check_parent_collisions(path, &path_index, *span, *kind, &mut errors);
     }
 
     errors
@@ -211,15 +281,24 @@ pub fn validate_collisions<I: crate::ast::Index>(nodes: &[Node<I>]) -> Vec<Compi
 /// Checks if a path collides with any of its parent paths.
 fn check_parent_collisions(
     path: &Path,
-    path_index: &HashMap<Path, (usize, crate::foundation::Span)>,
-    span: crate::foundation::Span,
+    path_index: &HashMap<Path, (Span, DeclKind)>,
+    span: Span,
+    kind: DeclKind,
     errors: &mut Vec<CompileError>,
 ) {
     // For path "a.b.c", check if "a" or "a.b" exist as separate nodes
     let segments = path.segments();
     for i in 1..segments.len() {
         let parent = Path::new(segments[..i].iter().map(|s| s.to_string()).collect());
-        if let Some((_, parent_span)) = path_index.get(&parent) {
+        if let Some((parent_span, parent_kind)) = path_index.get(&parent) {
+            // EXCEPTION: Members are allowed to have an Entity as their parent path
+            if kind == DeclKind::Member
+                && *parent_kind == DeclKind::Entity
+                && i == segments.len() - 1
+            {
+                continue;
+            }
+
             errors.push(
                 CompileError::new(
                     ErrorKind::PathCollision,
@@ -235,7 +314,7 @@ fn check_parent_collisions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::RoleData;
+    use crate::ast::{Entity, RoleData};
     use crate::foundation::Span;
 
     fn test_span() -> Span {
@@ -243,8 +322,8 @@ mod tests {
     }
 
     fn make_signal(path: &str, reads: Vec<&str>) -> Node<()> {
-        let mut node = Node::new(Path::from_str(path), test_span(), RoleData::Signal, ());
-        node.reads = reads.iter().map(|s| Path::from_str(s)).collect();
+        let mut node = Node::new(Path::from_path_str(path), test_span(), RoleData::Signal, ());
+        node.reads = reads.iter().map(|s| Path::from_path_str(s)).collect();
         node
     }
 
@@ -257,7 +336,7 @@ mod tests {
             make_signal("c", vec![]),
         ];
 
-        let errors = validate_cycles(&nodes);
+        let errors = validate_cycles(&nodes, &[]);
         assert!(errors.is_empty());
     }
 
@@ -266,7 +345,7 @@ mod tests {
         // a → b → a
         let nodes = vec![make_signal("a", vec!["b"]), make_signal("b", vec!["a"])];
 
-        let errors = validate_cycles(&nodes);
+        let errors = validate_cycles(&nodes, &[]);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::CyclicDependency);
         assert!(errors[0].message.contains("a"));
@@ -278,7 +357,7 @@ mod tests {
         // a → a
         let nodes = vec![make_signal("a", vec!["a"])];
 
-        let errors = validate_cycles(&nodes);
+        let errors = validate_cycles(&nodes, &[]);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::CyclicDependency);
     }
@@ -292,28 +371,31 @@ mod tests {
             make_signal("c", vec!["a"]),
         ];
 
-        let errors = validate_cycles(&nodes);
+        let errors = validate_cycles(&nodes, &[]);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::CyclicDependency);
     }
 
     #[test]
     fn test_no_collision_for_unique_paths() {
-        let nodes = vec![
-            make_signal("a", vec![]),
-            make_signal("b", vec![]),
-            make_signal("c.d", vec![]),
+        let decls = vec![
+            Declaration::Node(make_signal("a", vec![])),
+            Declaration::Node(make_signal("b", vec![])),
+            Declaration::Node(make_signal("c.d", vec![])),
         ];
 
-        let errors = validate_collisions(&nodes);
+        let errors = validate_collisions(&decls);
         assert!(errors.is_empty());
     }
 
     #[test]
     fn test_detects_duplicate_path() {
-        let nodes = vec![make_signal("a", vec![]), make_signal("a", vec![])];
+        let decls = vec![
+            Declaration::Node(make_signal("a", vec![])),
+            Declaration::Node(make_signal("a", vec![])),
+        ];
 
-        let errors = validate_collisions(&nodes);
+        let errors = validate_collisions(&decls);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::PathCollision);
         assert!(errors[0].message.contains("declared multiple times"));
@@ -322,11 +404,49 @@ mod tests {
     #[test]
     fn test_detects_parent_child_collision() {
         // "a" and "a.b" should collide
-        let nodes = vec![make_signal("a", vec![]), make_signal("a.b", vec![])];
+        let decls = vec![
+            Declaration::Node(make_signal("a", vec![])),
+            Declaration::Node(make_signal("a.b", vec![])),
+        ];
 
-        let errors = validate_collisions(&nodes);
+        let errors = validate_collisions(&decls);
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::PathCollision);
         assert!(errors[0].message.contains("collides with parent"));
+    }
+
+    #[test]
+    fn test_member_entity_exception() {
+        let span = test_span();
+        let entity = Entity::new(EntityId::new("player"), Path::from_path_str("player"), span);
+        let member = Node::new(
+            Path::from_path_str("player.health"),
+            span,
+            RoleData::Signal,
+            EntityId::new("player"),
+        );
+
+        let decls = vec![Declaration::Entity(entity), Declaration::Member(member)];
+        let errors = validate_collisions(&decls);
+        assert!(
+            errors.is_empty(),
+            "Member should be allowed under its Entity path"
+        );
+    }
+
+    fn make_entity(path: &str) -> Entity {
+        Entity::new(EntityId::new(path), Path::from_path_str(path), test_span())
+    }
+
+    #[test]
+    fn test_cross_type_collision() {
+        let decls = vec![
+            Declaration::Entity(make_entity("sim")),
+            Declaration::Node(make_signal("sim", vec![])),
+        ];
+
+        let errors = validate_collisions(&decls);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::PathCollision);
     }
 }
