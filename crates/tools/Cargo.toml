@@ -3,60 +3,12 @@ name = "continuum-tools"
 version.workspace = true
 edition.workspace = true
 
-[[bin]]
-name = "check"
-path = "src/bin/check.rs"
-
-[[bin]]
-name = "run"
-path = "src/bin/run.rs"
-
-[[bin]]
-name = "analyze"
-path = "src/bin/analyze.rs"
-
-[[bin]]
-name = "dsl-lint"
-path = "src/bin/dsl_lint.rs"
-
-[[bin]]
-name = "world-ipc"
-path = "src/bin/world_ipc.rs"
-
-[[bin]]
-name = "world-ipc-web"
-path = "src/bin/world_ipc_web.rs"
-
-[[bin]]
-name = "compile"
-path = "src/bin/compile.rs"
-
-[[bin]]
-name = "gen-textmate"
-path = "src/bin/gen_textmate.rs"
-
-[[bin]]
-name = "test-ipc-client"
-path = "src/bin/test_ipc_client.rs"
-
 [dependencies]
+continuum-cdsl = { path = "../continuum-cdsl" }
 continuum-foundation = { path = "../kernels/foundation" }
-continuum-functions = { version = "0.1.0", path = "../kernels/functions" }
-continuum-lens = { path = "../kernels/lens" }
 continuum-runtime = { path = "../kernels/runtime" }
-anyhow = "1.0"
-axum = { version = "0.7", features = ["ws"] }
 bincode = "1.3"
-futures-util = "0.3"
-indexmap = "2.13.0"
-tungstenite = "0.24"
-url = "2.5"
-tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.19", features = ["env-filter"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-chrono = "0.4"
-clap = { version = "4.4", features = ["derive"] }
-sha2 = "0.10"
-tokio = { version = "1.37", features = ["macros", "net", "rt-multi-thread", "io-util", "signal"] }
-tower-http = { version = "0.6", features = ["fs"] }
+tokio = { version = "1.0", features = ["full"] }
+tracing = "0.1"

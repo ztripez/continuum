@@ -5,13 +5,16 @@ members = [
     "crates/continuum-cdsl",
     "crates/continuum-kernel-types",
     
-    # Temporarily disabled during compiler rewrite (depend on deleted vm/ir/compiler crates):
+    # Re-enabled in Phase 15:
+    "crates/tools",
+    "crates/kernels/runtime",
+    "crates/continuum-inspector",
+    
+    # Temporarily disabled during compiler rewrite:
     # "crates/cdsl-lsp",
     # "crates/cdsl-dap",
-    # "crates/tools",
     # "crates/tests",
     # "crates/continuum-inspector",
-    # "crates/kernels/runtime",
     # "crates/kernels/gpu",
     # "crates/kernels/lens",
     

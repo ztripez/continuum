@@ -30,7 +30,8 @@ Continuum is built as a modular workspace of Rust crates:
 - **`continuum-functions`**: Standard library of mathematical and physical kernels.
 
 ### Tooling
-- **`continuum-tools`**: CLI tools for running simulations, linting DSL, and analysis.
+- **`continuum-tools`**: Library API for running simulations, and transport-agnostic IPC server.
+- **`continuum-inspector`**: Web-based inspector UI for interacting with worlds.
 
 ## Documentation
 
@@ -43,20 +44,18 @@ Comprehensive documentation is available in the `docs/` directory:
 
 ## Usage
 
-To run a simulation world:
+To run a simulation world with the web inspector:
 
 ```bash
-cargo run --bin run -- examples/terra
+cargo run -p continuum_inspector -- examples/terra
 ```
 
-To lint a DSL file:
+To execute a world programmatically via the library:
 
-```bash
-cargo run --bin dsl-lint -- examples/terra/terra.cdsl
-```
+```rust
+use continuum_tools::run_world_intent::{RunWorldIntent, WorldSource};
 
-To compile a world into a bytecode bundle:
-
-```bash
-cargo run --bin compile -- examples/terra
+let source = WorldSource::from_path("examples/terra".into())?;
+let intent = RunWorldIntent::new(source, 100);
+let report = intent.execute()?;
 ```
