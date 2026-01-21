@@ -7,6 +7,7 @@ license = "MIT"
 
 [dependencies]
 continuum-foundation = { path = "../foundation" }
+continuum-runtime = { path = "../runtime" }
 indexmap = "2"
 thiserror = "2"
 continuum-gpu = { path = "../gpu", optional = true }

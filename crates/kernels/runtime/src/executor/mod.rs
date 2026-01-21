@@ -2,6 +2,7 @@
 //! Orchestrates DAG execution through phases.
 
 mod assertions;
+pub mod bytecode;
 mod context;
 pub mod cost_model;
 pub mod kernel_registry;
@@ -15,8 +16,9 @@ mod warmup;
 
 // Re-export public types
 pub use assertions::{
-    AssertionChecker, AssertionFailure, AssertionFn, AssertionSeverity, SignalAssertion,
+    AssertionChecker, AssertionFailure, AssertionFn, SignalAssertion,
 };
+pub use crate::types::AssertionSeverity;
 pub use context::{
     AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext,
     MeasureContext, ResolveContext, WarmupContext,
@@ -43,6 +45,7 @@ use indexmap::IndexMap;
 
 use tracing::{debug, error, info, instrument, trace, warn};
 
+use crate::bytecode::CompiledBlock;
 use crate::dag::DagSet;
 use crate::error::{Error, Result};
 use crate::lens_sink::{LensData, LensSink};
@@ -52,7 +55,7 @@ use crate::storage::{
     FractureQueue, InputChannels, SignalStorage,
 };
 use crate::types::{
-    Dt, EntityId, EraId, FieldId, SignalId, StratumId, StratumState, TickContext, Value,
+    Dt, EntityId, EraId, FieldId, Phase, SignalId, StratumId, StratumState, TickContext, Value,
     WarmupConfig, WarmupResult,
 };
 use std::path::PathBuf;
@@ -120,9 +123,10 @@ pub fn run_simulation(
         if options.print_signals {
             let mut line = format!("Tick {:04}: ", runtime.tick());
             for id in &options.signals {
-                if let Some(val) = runtime.get_signal(id) {
-                    line.push_str(&format!("{}={} ", id, val));
-                }
+                let val = runtime.get_signal(id).ok_or_else(|| {
+                    RunError::Execution(format!("Signal '{}' not found", id))
+                })?;
+                line.push_str(&format!("{}={} ", id, val));
             }
             println!("{}", line);
         }
@@ -151,28 +155,33 @@ pub fn run_simulation(
                     .checkpoint_dir
                     .join(format!("checkpoint_{:010}.ckpt", runtime.tick()));
 
-                if let Err(e) = runtime.request_checkpoint(&checkpoint_path) {
-                    warn!("Checkpoint request failed: {}", e);
-                } else {
-                    debug!("Checkpoint requested for tick {}", runtime.tick());
-                    last_checkpoint_time = std::time::Instant::now();
+                runtime
+                    .request_checkpoint(&checkpoint_path)
+                    .map_err(|e| RunError::Execution(e.to_string()))?;
+                debug!("Checkpoint requested for tick {}", runtime.tick());
+                last_checkpoint_time = std::time::Instant::now();
 
-                    // Update 'latest' symlink
-                    let latest_link = checkpoint.checkpoint_dir.join("latest");
-                    let _ = std::fs::remove_file(&latest_link); // Ignore errors
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::symlink;
-                        let _ = symlink(
-                            format!("checkpoint_{:010}.ckpt", runtime.tick()),
-                            &latest_link,
-                        );
+                // Update 'latest' symlink
+                let latest_link = checkpoint.checkpoint_dir.join("latest");
+                if let Err(err) = std::fs::remove_file(&latest_link) {
+                    if err.kind() != std::io::ErrorKind::NotFound {
+                        return Err(RunError::Execution(err.to_string()));
                     }
+                }
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::symlink;
+                    symlink(
+                        format!("checkpoint_{:010}.ckpt", runtime.tick()),
+                        &latest_link,
+                    )
+                    .map_err(|e| RunError::Execution(e.to_string()))?;
                 }
 
                 // Prune old checkpoints if configured
                 if let Some(keep_n) = checkpoint.keep_last_n {
-                    prune_old_checkpoints(&checkpoint.checkpoint_dir, keep_n);
+                    prune_old_checkpoints(&checkpoint.checkpoint_dir, keep_n)
+                        .map_err(|e| RunError::Execution(e.to_string()))?;
                 }
             }
         }
@@ -188,25 +197,31 @@ pub fn run_simulation(
 }
 
 /// Prune old checkpoints, keeping only the last N.
-fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) {
-    let Ok(entries) = std::fs::read_dir(checkpoint_dir) else {
-        return;
-    };
+fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) -> Result<()> {
+    let entries = std::fs::read_dir(checkpoint_dir)
+        .map_err(|e| Error::Checkpoint(e.to_string()))?;
 
-    let mut checkpoints: Vec<_> = entries
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| ext == "ckpt")
-                .unwrap_or(false)
-        })
-        .collect();
+    let mut checkpoints = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| Error::Checkpoint(e.to_string()))?;
+        let path = entry.path();
+        let extension = match path.extension() {
+            Some(ext) => ext,
+            None => continue,
+        };
+        let extension_str = extension.to_str().ok_or_else(|| {
+            Error::Checkpoint(format!(
+                "Checkpoint entry '{}' has non-UTF8 extension",
+                path.display()
+            ))
+        })?;
+        if extension_str == "ckpt" {
+            checkpoints.push(entry);
+        }
+    }
 
     if checkpoints.len() <= keep_n {
-        return;
+        return Ok(());
     }
 
     // Sort by filename (which includes tick number)
@@ -215,9 +230,11 @@ fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) {
     // Remove oldest checkpoints
     let to_remove = checkpoints.len() - keep_n;
     for entry in checkpoints.iter().take(to_remove) {
-        let _ = std::fs::remove_file(entry.path());
+        std::fs::remove_file(entry.path())
+            .map_err(|e| Error::Checkpoint(e.to_string()))?;
         debug!("Pruned old checkpoint: {}", entry.path().display());
     }
+    Ok(())
 }
 
 // ============================================================================
@@ -265,13 +282,17 @@ pub struct Runtime {
     sim_time: f64,
     /// Current era
     current_era: EraId,
-    /// Current phase within the tick
-    current_phase: crate::types::Phase,
+    /// Current internal phase within the tick
+    current_phase: crate::types::TickPhase,
     /// Era configurations (IndexMap for deterministic iteration order)
     eras: IndexMap<EraId, EraConfig>,
     /// Execution DAGs
     dags: DagSet,
-    /// Phase executor
+    /// Compiled bytecode blocks indexed by DAG node
+    bytecode_blocks: Vec<CompiledBlock>,
+    /// Bytecode phase executor
+    bytecode_executor: crate::executor::bytecode::BytecodePhaseExecutor,
+    /// Phase executor (procedural handlers)
     phase_executor: crate::executor::phases::PhaseExecutor,
     /// Warmup executor
     warmup_executor: crate::executor::warmup::WarmupExecutor,
@@ -293,7 +314,12 @@ pub struct Runtime {
 
 impl Runtime {
     /// Create a new runtime
-    pub fn new(initial_era: EraId, eras: IndexMap<EraId, EraConfig>, dags: DagSet) -> Self {
+    pub fn new(
+        initial_era: EraId,
+        eras: IndexMap<EraId, EraConfig>,
+        dags: DagSet,
+        bytecode_blocks: Vec<CompiledBlock>,
+    ) -> Self {
         info!(era = %initial_era, "runtime created");
         Self {
             signals: SignalStorage::default(),
@@ -306,9 +332,11 @@ impl Runtime {
             tick: 0,
             sim_time: 0.0,
             current_era: initial_era,
-            current_phase: crate::types::Phase::Configure,
+            current_phase: crate::types::TickPhase::START,
             eras,
             dags,
+            bytecode_blocks,
+            bytecode_executor: crate::executor::bytecode::BytecodePhaseExecutor::new(),
             phase_executor: crate::executor::phases::PhaseExecutor::new(),
             warmup_executor: crate::executor::warmup::WarmupExecutor::new(),
             assertion_checker: AssertionChecker::new(),
@@ -510,11 +538,6 @@ impl Runtime {
         self.warmup_executor.is_complete()
     }
 
-    /// Get access to the field buffer
-    pub fn field_buffer(&self) -> &FieldBuffer {
-        &self.field_buffer
-    }
-
     /// Drain field samples (clears the buffer)
     pub fn drain_fields(&mut self) -> IndexMap<FieldId, Vec<FieldSample>> {
         self.field_buffer.drain()
@@ -535,8 +558,8 @@ impl Runtime {
         let dt = self
             .eras
             .get(&self.current_era)
-            .map(|e| e.dt)
-            .unwrap_or(Dt(0.0));
+            .unwrap_or_else(|| panic!("current era '{}' missing from runtime", self.current_era))
+            .dt;
         TickContext {
             tick: self.tick,
             sim_time: self.sim_time,
@@ -583,7 +606,7 @@ impl Runtime {
     }
 
     /// Get current phase
-    pub fn phase(&self) -> crate::types::Phase {
+    pub fn phase(&self) -> crate::types::TickPhase {
         self.current_phase
     }
 
@@ -598,97 +621,204 @@ impl Runtime {
         };
 
         match self.current_phase {
-            crate::types::Phase::Configure => {
+            crate::types::TickPhase::Simulation(Phase::CollectConfig)
+            | crate::types::TickPhase::Simulation(Phase::Initialize)
+            | crate::types::TickPhase::Simulation(Phase::WarmUp) => {
+                return Err(Error::PhaseViolation {
+                    operation: "execute_step".to_string(),
+                    phase: match self.current_phase {
+                        crate::types::TickPhase::Simulation(phase) => phase,
+                        _ => Phase::Configure,
+                    },
+                });
+            }
+            crate::types::TickPhase::Simulation(Phase::Configure) => {
                 self.active_tick_ctx = Some(TickContext {
                     tick: self.tick,
                     sim_time: self.sim_time,
                     dt,
                     era: self.current_era.clone(),
                 });
-                self.current_phase = crate::types::Phase::Collect;
+                self.current_phase = crate::types::TickPhase::Simulation(Phase::Collect);
             }
-            crate::types::Phase::Collect => {
+            crate::types::TickPhase::Simulation(Phase::Collect) => {
                 trace!("phase: collect");
-                self.phase_executor.execute_collect(
-                    &self.current_era,
-                    self.tick,
-                    dt,
-                    self.sim_time,
-                    &strata_states,
-                    &self.dags,
-                    &self.signals,
-                    &self.entities,
-                    &mut self.input_channels,
-                    &mut self.pending_impulses,
-                )?;
-                self.current_phase = crate::types::Phase::Resolve;
+                if self.bytecode_blocks.is_empty() {
+                    self.phase_executor.execute_collect(
+                        &self.current_era,
+                        self.tick,
+                        dt,
+                        self.sim_time,
+                        &strata_states,
+                        &self.dags,
+                        &self.signals,
+                        &self.entities,
+                        &mut self.input_channels,
+                        &mut self.pending_impulses,
+                    )?;
+                } else {
+                    self.bytecode_executor.execute_collect(
+                        &self.current_era,
+                        self.tick,
+                        dt,
+                        self.sim_time,
+                        &strata_states,
+                        &self.dags,
+                        &self.bytecode_blocks,
+                        &self.signals,
+                        &self.entities,
+                        &self.member_signals,
+                        &mut self.input_channels,
+                    )?;
+                }
+                // Apply pending impulses (procedural for now)
+                let impulses = std::mem::take(&mut self.pending_impulses);
+                for (handler_idx, payload) in impulses {
+                    let handler = &self.phase_executor.impulse_handlers[handler_idx];
+                    let mut ctx = ImpulseContext {
+                        signals: &self.signals,
+                        entities: &self.entities,
+                        channels: &mut self.input_channels,
+                        dt,
+                        sim_time: self.sim_time,
+                    };
+                    handler(&mut ctx, &payload);
+                }
+                self.current_phase = crate::types::TickPhase::Simulation(Phase::Resolve);
             }
-            crate::types::Phase::Resolve => {
+            crate::types::TickPhase::Simulation(Phase::Resolve) => {
                 trace!("phase: resolve");
-                if let Some(signal) = self.phase_executor.execute_resolve(
-                    &self.current_era,
-                    self.tick,
-                    dt,
-                    self.sim_time,
-                    &strata_states,
-                    &self.dags,
-                    &mut self.signals,
-                    &self.entities,
-                    &mut self.member_signals,
-                    &mut self.input_channels,
-                    &mut self.assertion_checker,
-                    &self.breakpoints,
-                )? {
+                let signal = if self.bytecode_blocks.is_empty() {
+                    self.phase_executor.execute_resolve(
+                        &self.current_era,
+                        self.tick,
+                        dt,
+                        self.sim_time,
+                        &strata_states,
+                        &self.dags,
+                        &mut self.signals,
+                        &self.entities,
+                        &mut self.member_signals,
+                        &mut self.input_channels,
+                        &mut self.assertion_checker,
+                        &self.breakpoints,
+                    )?
+                } else {
+                    self.bytecode_executor.execute_resolve(
+                        &self.current_era,
+                        self.tick,
+                        dt,
+                        self.sim_time,
+                        &strata_states,
+                        &self.dags,
+                        &self.bytecode_blocks,
+                        &mut self.signals,
+                        &self.entities,
+                        &mut self.member_signals,
+                        &mut self.input_channels,
+                        &mut self.assertion_checker,
+                        &self.breakpoints,
+                    )?
+                };
+                if let Some(signal) = signal {
                     return Ok(crate::types::StepResult::Breakpoint { signal });
                 }
-                self.current_phase = crate::types::Phase::Fracture;
+                self.current_phase = crate::types::TickPhase::Simulation(Phase::Fracture);
             }
-            crate::types::Phase::Fracture => {
+            crate::types::TickPhase::Simulation(Phase::Fracture) => {
                 trace!("phase: fracture");
-                self.phase_executor.execute_fracture(
-                    &self.current_era,
-                    dt,
-                    self.sim_time,
-                    &self.dags,
-                    &self.signals,
-                    &self.entities,
-                    &mut self.fracture_queue,
-                )?;
-                self.current_phase = crate::types::Phase::Measure;
+                if self.bytecode_blocks.is_empty() {
+                    self.phase_executor.execute_fracture(
+                        &self.current_era,
+                        dt,
+                        self.sim_time,
+                        &self.dags,
+                        &self.signals,
+                        &self.entities,
+                        &mut self.fracture_queue,
+                    )?;
+                } else {
+                    self.bytecode_executor.execute_fracture(
+                        &self.current_era,
+                        dt,
+                        self.sim_time,
+                        &self.dags,
+                        &self.bytecode_blocks,
+                        &self.signals,
+                        &self.entities,
+                        &self.member_signals,
+                        &mut self.input_channels,
+                    )?;
+                }
+                self.current_phase = crate::types::TickPhase::Simulation(Phase::Measure);
             }
-            crate::types::Phase::Measure => {
+            crate::types::TickPhase::Simulation(Phase::Measure) => {
                 trace!("phase: measure");
-                self.phase_executor.execute_measure(
-                    &self.current_era,
-                    self.tick,
-                    dt,
-                    self.sim_time,
-                    &strata_states,
-                    &self.dags,
-                    &self.signals,
-                    &self.entities,
-                    &mut self.field_buffer,
-                )?;
+                if self.bytecode_blocks.is_empty() {
+                    self.phase_executor.execute_measure(
+                        &self.current_era,
+                        self.tick,
+                        dt,
+                        self.sim_time,
+                        &strata_states,
+                        &self.dags,
+                        &self.signals,
+                        &self.entities,
+                        &mut self.field_buffer,
+                    )?;
 
-                self.phase_executor.execute_chronicles(
-                    &self.current_era,
-                    self.tick,
-                    dt,
-                    self.sim_time,
-                    &strata_states,
-                    &self.dags,
-                    &self.signals,
-                    &self.entities,
-                    &mut self.event_buffer,
-                )?;
-                self.current_phase = crate::types::Phase::EraTransition;
+                    self.phase_executor.execute_chronicles(
+                        &self.current_era,
+                        self.tick,
+                        dt,
+                        self.sim_time,
+                        &strata_states,
+                        &self.dags,
+                        &self.signals,
+                        &self.entities,
+                        &mut self.event_buffer,
+                    )?;
+                } else {
+                    self.bytecode_executor.execute_measure(
+                        &self.current_era,
+                        self.tick,
+                        dt,
+                        self.sim_time,
+                        &strata_states,
+                        &self.dags,
+                        &self.bytecode_blocks,
+                        &self.signals,
+                        &self.entities,
+                        &self.member_signals,
+                        &mut self.field_buffer,
+                    )?;
+
+                    self.bytecode_executor.execute_chronicles(
+                        &self.current_era,
+                        self.tick,
+                        dt,
+                        self.sim_time,
+                        &strata_states,
+                        &self.dags,
+                        &self.bytecode_blocks,
+                        &self.signals,
+                        &self.entities,
+                        &self.member_signals,
+                        &mut self.event_buffer,
+                    )?;
+                }
+                self.current_phase = crate::types::TickPhase::EraTransition;
             }
-            crate::types::Phase::EraTransition => {
+            crate::types::TickPhase::Simulation(Phase::Assert) => {
+                trace!("phase: assert");
+                self.current_phase = crate::types::TickPhase::EraTransition;
+            }
+            crate::types::TickPhase::EraTransition => {
                 trace!("phase: era transition");
                 self.check_era_transition()?;
-                self.current_phase = crate::types::Phase::PostTick;
+                self.current_phase = crate::types::TickPhase::PostTick;
             }
-            crate::types::Phase::PostTick => {
+            crate::types::TickPhase::PostTick => {
                 trace!("phase: post tick");
                 self.signals.advance_tick();
                 self.entities.advance_tick();
@@ -696,11 +826,11 @@ impl Runtime {
                 self.fracture_queue.drain_into(&mut self.input_channels);
                 self.sim_time += dt.seconds();
                 self.tick += 1;
-                self.current_phase = crate::types::Phase::Configure;
+                self.current_phase = crate::types::TickPhase::Simulation(Phase::Configure);
             }
         }
 
-        if self.current_phase == crate::types::Phase::Configure {
+        if self.current_phase == crate::types::TickPhase::START {
             let ctx = self
                 .active_tick_ctx
                 .take()
@@ -804,11 +934,32 @@ impl Runtime {
             })
             .collect();
 
+        let world_ir_hash = self
+            .world_ir_hash
+            .ok_or_else(|| Error::Checkpoint("world IR hash missing".to_string()))?;
+        let stratum_states = self
+            .eras
+            .get(&self.current_era)
+            .ok_or_else(|| Error::Checkpoint("current era not found".to_string()))?
+            .strata
+            .iter()
+            .map(|(id, state)| {
+                let is_gated = matches!(state, StratumState::Gated);
+                (
+                    id.clone(),
+                    crate::checkpoint::StratumState {
+                        cadence_counter: 0,
+                        is_gated,
+                    },
+                )
+            })
+            .collect();
+
         // Build checkpoint
         let checkpoint = crate::checkpoint::Checkpoint {
             header: crate::checkpoint::CheckpointHeader {
                 version: crate::checkpoint::CHECKPOINT_VERSION,
-                world_ir_hash: self.world_ir_hash.unwrap_or([0u8; 32]),
+                world_ir_hash,
                 tick: self.tick,
                 sim_time: self.sim_time,
                 seed: self.initial_seed,
@@ -821,7 +972,7 @@ impl Runtime {
                 entities: self.entities.clone(),
                 member_signals,
                 era_configs,
-                stratum_states: std::collections::HashMap::new(), // TODO: capture stratum states
+                stratum_states,
             },
         };
 
@@ -899,7 +1050,7 @@ mod tests {
                 transition: None,
             },
         );
-        Runtime::new(era_id, eras, DagSet::default())
+        Runtime::new(era_id, eras, DagSet::default(), Vec::new())
     }
 
     #[test]
@@ -914,7 +1065,7 @@ mod tests {
                 transition: None,
             },
         );
-        let runtime = Runtime::new(era_id, eras, DagSet::default());
+        let runtime = Runtime::new(era_id, eras, DagSet::default(), Vec::new());
         assert_eq!(runtime.tick(), 0);
         assert_eq!(runtime.sim_time(), 0.0);
     }
@@ -1110,7 +1261,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags);
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
 
         // Register resolver: temperature increments by 10 each tick
         runtime.register_resolver(Box::new(|ctx| {
@@ -1137,19 +1288,16 @@ mod tests {
         runtime.execute_tick().unwrap();
 
         // Check field buffer has the emitted value
-        let samples = runtime.field_buffer().get_samples(&field_id).unwrap();
+        let drained = runtime.drain_fields();
+        let samples = drained.get(&field_id).unwrap();
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].value.as_scalar(), Some(110.0));
-
-        // Drain and verify empty
-        let drained = runtime.drain_fields();
-        assert_eq!(drained.len(), 1);
-        assert!(runtime.field_buffer().is_empty());
 
         // Execute another tick
         runtime.execute_tick().unwrap();
 
-        let samples = runtime.field_buffer().get_samples(&field_id).unwrap();
+        let drained = runtime.drain_fields();
+        let samples = drained.get(&field_id).unwrap();
         assert_eq!(samples[0].value.as_scalar(), Some(120.0));
     }
 
@@ -1189,7 +1337,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags);
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
 
         // Register resolver: prev + collected
         runtime.register_resolver(Box::new(|ctx| {
@@ -1265,7 +1413,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags);
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
 
         // Register resolver that produces negative values after tick 2
         let tick_counter = std::sync::atomic::AtomicU64::new(0);
@@ -1368,7 +1516,7 @@ mod tests {
         eras.insert(era_a.clone(), era_a_config);
         eras.insert(era_b.clone(), era_b_config);
 
-        let mut runtime = Runtime::new(era_a.clone(), eras, dags);
+        let mut runtime = Runtime::new(era_a.clone(), eras, dags, Vec::new());
 
         // Register resolver: increment by 1 each tick
         runtime.register_resolver(Box::new(|ctx| {
@@ -1448,7 +1596,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags);
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
 
         // Register resolvers
         runtime.register_resolver(Box::new(|ctx| {
@@ -1527,7 +1675,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags);
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
 
         runtime.register_resolver(Box::new(|ctx| {
             Value::Scalar(ctx.prev.as_scalar().unwrap_or(0.0) + 1.0)
@@ -1605,7 +1753,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags);
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
 
         // A: returns 10
         runtime.register_resolver(Box::new(|_| Value::Scalar(10.0)));
@@ -1679,7 +1827,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags);
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
 
         // Register resolver: temperature increments by 10 each tick
         runtime.register_resolver(Box::new(|ctx| {
@@ -1779,7 +1927,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags);
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
 
         // Register resolver: pressure stays constant at 50
         runtime.register_resolver(Box::new(|_ctx| Value::Scalar(50.0)));

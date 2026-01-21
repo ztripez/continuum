@@ -10,11 +10,13 @@ use std::process;
 use clap::Parser;
 use tracing::{error, info, warn};
 
-use continuum_compiler::ir::{
-    BinaryBundle, RuntimeBuildOptions, Scenario, build_runtime, compile, find_scenarios,
+use continuum_cdsl::{compile, deserialize_world};
+use continuum_runtime::executor::{run_simulation, CheckpointOptions, RunOptions};
+use continuum_lens::ReconstructedSink;
+use continuum_runtime::lens_sink::{
+    FileSink, FileSinkConfig, FilteredSink, LensSink, LensSinkConfig,
 };
-use continuum_runtime::executor::{CheckpointOptions, RunOptions, run_simulation};
-use continuum_runtime::lens_sink::{FileSink, FileSinkConfig, FilteredSink, LensSinkConfig};
+use continuum_runtime::{build_runtime, Runtime};
 
 #[derive(Parser, Debug)]
 #[command(name = "run")]
@@ -36,6 +38,10 @@ struct Args {
     /// If a path is provided, loads the scenario from that file.
     #[arg(long)]
     scenario: Option<String>,
+
+    /// Seed for deterministic lens output (required when --save is used)
+    #[arg(long)]
+    seed: Option<u64>,
 
     /// List available scenarios and exit
     #[arg(long)]
@@ -76,6 +82,7 @@ struct Args {
     #[arg(long = "force-resume")]
     force_resume: bool,
 }
+
 
 fn main() {
     continuum_tools::init_logging();
@@ -131,111 +138,52 @@ fn main() {
         None
     };
 
-    let (world, compilation) =
-        if args.path.is_file() && args.path.extension().map_or(false, |ext| ext == "cvm") {
-            info!("Loading binary bundle from: {}", args.path.display());
-            let data = match fs::read(&args.path) {
-                Ok(d) => d,
-                Err(e) => {
-                    error!("Error reading file '{}': {}", args.path.display(), e);
-                    process::exit(1);
-                }
-            };
-            let bundle: BinaryBundle = match bincode::deserialize(&data) {
-                Ok(b) => b,
-                Err(e) => {
-                    error!(
-                        "Error decoding binary bundle '{}': {}",
-                        args.path.display(),
-                        e
-                    );
-                    process::exit(1);
-                }
-            };
-            info!("Loaded world: {}", bundle.world_name);
-            (bundle.world, bundle.compilation)
-        } else {
-            // Load and compile world from directory
-            info!("Loading world source from: {}", args.path.display());
-
-            let compile_result = continuum_compiler::compile_from_dir_result(&args.path);
-
-            // Log diagnostics using proper logging
-            compile_result.log_diagnostics();
-
-            if compile_result.has_errors() {
+    let compiled = if args.path.is_file() && args.path.extension().map_or(false, |ext| ext == "cvm")
+    {
+        info!("Loading binary bundle from: {}", args.path.display());
+        let data = match fs::read(&args.path) {
+            Ok(d) => d,
+            Err(e) => {
+                error!("Error reading file '{}': {}", args.path.display(), e);
                 process::exit(1);
             }
-
-            let world = compile_result.world.expect("no world despite no errors");
-            info!("Successfully compiled world source");
-
-            // Compile to DAGs
-            info!("Compiling to DAGs...");
-            let compilation = match compile(&world) {
-                Ok(c) => c,
-                Err(e) => {
-                    error!("Compilation error: {}", e);
-                    process::exit(1);
-                }
-            };
-            (world, compilation)
         };
-
-    let signals = world.signals();
-    let fields = world.fields();
-
-    info!("  Strata: {}", world.strata().len());
-    info!("  Eras: {}", world.eras().len());
-    info!("  Signals: {}", signals.len());
-    info!("  Fields: {}", fields.len());
-    info!("  Constants: {}", world.constants.len());
-    info!("  Config: {}", world.config.len());
-
-    // Validate scenario against world if present
-    if let Some(ref s) = scenario {
-        if let Err(e) = s.validate_against_world(&world) {
-            warn!("Scenario validation warning: {}", e);
+        match deserialize_world(&data) {
+            Ok(w) => w,
+            Err(e) => {
+                error!(
+                    "Error decoding binary bundle '{}': {}",
+                    args.path.display(),
+                    e
+                );
+                process::exit(1);
+            }
         }
-    }
+    } else {
+        // Load and compile world from directory
+        info!("Compiling world from: {}", args.path.display());
 
-    info!("Building runtime...");
-    let (mut runtime, report) = match build_runtime(
-        &world,
-        compilation,
-        RuntimeBuildOptions {
-            dt_override: args.dt,
-            scenario,
-        },
-    ) {
-        Ok(result) => result,
-        Err(e) => {
-            error!("Runtime build error: {}", e);
-            process::exit(1);
+        match compile(&args.path) {
+            Ok(w) => {
+                info!("Successfully compiled world source");
+                w
+            }
+            Err(errors) => {
+                for err in errors {
+                    error!("{}", err);
+                }
+                process::exit(1);
+            }
         }
     };
 
-    if report.resolver_count > 0 || report.aggregate_count > 0 {
-        info!(
-            "  Total: {} resolvers, {} aggregate resolvers registered",
-            report.resolver_count, report.aggregate_count
-        );
-    }
-    if report.assertion_count > 0 {
-        info!("  Registered {} assertions", report.assertion_count);
-    }
-    if report.field_count > 0 {
-        info!("  Registered {} field measures", report.field_count);
-    }
-    if report.fracture_count > 0 {
-        info!("  Registered {} fractures", report.fracture_count);
-    }
-    if report.member_signal_count > 0 {
-        info!(
-            "  Initialized {} member signals (max {} instances)",
-            report.member_signal_count, report.max_member_instances
-        );
-    }
+    info!("  Strata: {}", compiled.world.strata.len());
+    info!("  Eras: {}", compiled.world.eras.len());
+    info!("  Signals: {}", compiled.world.globals.len());
+    info!("  Fields: {}", field_ids.len());
+
+    info!("Building runtime...");
+    let mut runtime = build_runtime(compiled);
 
     // ========================================================================
     // Checkpoint Setup
@@ -258,7 +206,13 @@ fn main() {
         info!("Attempting to resume from: {}", checkpoint_dir.display());
 
         // Find latest checkpoint
-        let checkpoint_path = find_latest_checkpoint(&checkpoint_dir);
+        let checkpoint_path = match find_latest_checkpoint(&checkpoint_dir) {
+            Ok(path) => path,
+            Err(err) => {
+                error!("Failed to scan checkpoint directory: {}", err);
+                process::exit(1);
+            }
+        };
 
         match checkpoint_path {
             Some(path) => {
@@ -280,14 +234,45 @@ fn main() {
         }
     }
 
+    let signals = &compiled.world.globals;
+    let mut field_ids: Vec<continuum_runtime::types::FieldId> = compiled
+        .world
+        .globals
+        .iter()
+        .filter_map(|(path, node)| {
+            if node.role_id() == continuum_cdsl::ast::RoleId::Field {
+                Some(continuum_runtime::types::FieldId::from(path.to_string()))
+            } else {
+                None
+            }
+        })
+        .collect();
+    field_ids.extend(
+        compiled
+            .world
+            .members
+            .iter()
+            .filter_map(|(path, node)| {
+                if node.role_id() == continuum_cdsl::ast::RoleId::Field {
+                    Some(continuum_runtime::types::FieldId::from(path.to_string()))
+                } else {
+                    None
+                }
+            }),
+    );
+
     // Prepare lens sink if save directory requested
     let lens_sink = args.save_dir.as_ref().map(|dir| {
+        let seed = args.seed.unwrap_or_else(|| {
+            error!("--seed is required when using --save");
+            process::exit(1);
+        });
         let config = FileSinkConfig {
             output_dir: dir.clone(),
-            seed: 0, // TODO: Get actual seed from scenario or args
+            seed,
             steps: args.steps,
             stride: args.stride,
-            field_filter: fields.keys().cloned().collect(),
+            field_filter: field_ids.clone(),
         };
 
         let file_sink = FileSink::new(config).expect("Failed to create file sink");
@@ -295,11 +280,15 @@ fn main() {
         // Wrap with FilteredSink to apply stride
         let sink_config = LensSinkConfig {
             stride: args.stride,
-            field_filter: fields.keys().cloned().collect(),
+            field_filter: field_ids.clone(),
         };
 
-        Box::new(FilteredSink::new(file_sink, sink_config))
-            as Box<dyn continuum_runtime::lens_sink::LensSink>
+        let filtered = FilteredSink::new(file_sink, sink_config);
+        let reconstructed = ReconstructedSink::new(Box::new(filtered)).unwrap_or_else(|e| {
+            error!("Failed to initialize lens: {}", e);
+            process::exit(1);
+        });
+        Box::new(reconstructed) as Box<dyn LensSink>
     });
 
     info!("Running {} steps...", args.steps);
@@ -317,7 +306,10 @@ fn main() {
         RunOptions {
             steps: args.steps,
             print_signals: true,
-            signals: signals.keys().cloned().collect(),
+            signals: signals
+                .keys()
+                .map(|p| continuum_runtime::types::SignalId::from(p.to_string()))
+                .collect(),
             lens_sink,
             checkpoint,
         },
@@ -339,33 +331,37 @@ fn main() {
 /// Find the latest checkpoint in a directory.
 ///
 /// Looks for 'latest' symlink first, then finds the newest checkpoint by filename.
-fn find_latest_checkpoint(checkpoint_dir: &PathBuf) -> Option<PathBuf> {
+fn find_latest_checkpoint(checkpoint_dir: &PathBuf) -> Result<Option<PathBuf>, String> {
     // Try 'latest' symlink first
     let latest_link = checkpoint_dir.join("latest");
     if latest_link.exists() {
-        return Some(latest_link);
+        return Ok(Some(latest_link));
     }
 
     // Find newest checkpoint by filename
-    let mut checkpoints: Vec<_> = std::fs::read_dir(checkpoint_dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|entry| {
-            entry
-                .path()
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .map(|ext| ext == "ckpt")
-                .unwrap_or(false)
-        })
-        .collect();
+    let mut checkpoints = Vec::new();
+    let entries = std::fs::read_dir(checkpoint_dir)
+        .map_err(|e| format!("Failed to read {}: {}", checkpoint_dir.display(), e))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Dir entry error: {}", e))?;
+        let path = entry.path();
+        let extension = path
+            .extension()
+            .ok_or_else(|| format!("Checkpoint entry '{}' missing extension", path.display()))?;
+        let extension_str = extension.to_str().ok_or_else(|| {
+            format!("Checkpoint entry '{}' has non-UTF8 extension", path.display())
+        })?;
+        if extension_str == "ckpt" {
+            checkpoints.push(entry);
+        }
+    }
 
     if checkpoints.is_empty() {
-        return None;
+        return Ok(None);
     }
 
     // Sort by filename (descending) to get latest
     checkpoints.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
 
-    Some(checkpoints.first()?.path())
+    Ok(checkpoints.first().map(|entry| entry.path()))
 }

@@ -38,6 +38,7 @@ mod lens;
 mod playback;
 mod reconstruction;
 mod refinement;
+mod sink;
 mod storage;
 mod topology;
 
@@ -50,6 +51,7 @@ pub use reconstruction::{FieldReconstruction, NearestNeighborReconstruction};
 pub use refinement::{
     RefinementHandle, RefinementRequest, RefinementRequestSpec, RefinementStatus, Region,
 };
+pub use sink::ReconstructedSink;
 pub use storage::{FieldFrame, FieldSnapshot};
 pub use topology::{CubedSphereTopology, TileId};
 
