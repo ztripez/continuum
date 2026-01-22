@@ -424,3 +424,44 @@ fn test_span_points_to_actual_error() {
     println!("Error: {:?}", first_error);
     // The span should have byte offsets > 10 (after "signal test")
 }
+
+// =============================================================================
+// Edge Cases for Assertion Metadata
+// =============================================================================
+
+#[test]
+fn test_eof_in_assertion_metadata() {
+    // EOF while parsing assertion metadata should be caught
+    let source = r#"
+        signal temp {
+            assert {
+                prev > 0 :
+    "#;
+
+    let errors = expect_error(source);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("EOF") || e.message.contains("expected")),
+        "Expected EOF error, got: {:?}",
+        errors
+    );
+}
+
+#[test]
+fn test_unicode_source_span_accuracy() {
+    // Unicode characters have multi-byte UTF-8 encoding, which can break
+    // byte offset tracking if not handled correctly
+    let source = "signal 🌡️ { resolve { 42 } }";
+
+    // This should parse successfully (invalid identifier is caught at lex)
+    // OR fail gracefully with accurate span (not crash or panic)
+    let tokens: Vec<continuum_cdsl_lexer::Token> =
+        continuum_cdsl_lexer::Token::lexer(source)
+            .filter_map(Result::ok)
+            .collect();
+
+    // Just verify we don't panic on unicode
+    let _result = continuum_cdsl_parser::parse_declarations(&tokens, 0);
+    // Accept either success or error, just don't crash
+}

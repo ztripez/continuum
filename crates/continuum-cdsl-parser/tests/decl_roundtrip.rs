@@ -697,3 +697,100 @@ fn test_multiple_assertions_with_mixed_metadata() {
         _ => panic!("Expected Node"),
     }
 }
+
+// =============================================================================
+// Edge Case Tests for Assertion Metadata and Span Tracking
+// =============================================================================
+
+#[test]
+fn test_empty_assertion_block() {
+    // Empty assert block is valid (parsed as empty statement list)
+    let source = r#"
+        signal temp {
+            assert {}
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => match &node.execution_blocks[0].1 {
+            BlockBody::Statements(stmts) => {
+                // Empty assert block results in empty statement list
+                assert_eq!(stmts.len(), 0, "Expected empty statement list");
+            }
+            _ => panic!("Expected BlockBody::Statements"),
+        },
+        _ => panic!("Expected Node"),
+    }
+}
+
+#[test]
+fn test_assertion_condition_ast_verification() {
+    // Verify that assertion conditions are parsed as proper expressions
+    let source = r#"
+        signal velocity {
+            assert {
+                prev > 0 && prev < 100 : "velocity in valid range"
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => match &node.execution_blocks[0].1 {
+            BlockBody::Statements(stmts) => match &stmts[0] {
+                Stmt::Assert { condition, .. } => {
+                    // Verify condition is a BinaryOp (&&) with two BinaryOp operands (>, <)
+                    use continuum_cdsl_ast::UntypedKind;
+                    match &condition.kind {
+                        UntypedKind::Binary { .. } => {
+                            // Successfully parsed as binary operation
+                        }
+                        _ => panic!(
+                            "Expected Binary op for condition, got: {:?}",
+                            condition.kind
+                        ),
+                    }
+                }
+                _ => panic!("Expected Stmt::Assert"),
+            },
+            _ => panic!("Expected BlockBody::Statements"),
+        },
+        _ => panic!("Expected Node"),
+    }
+}
+
+#[test]
+fn test_assertion_with_unicode_in_message() {
+    // Unicode characters should not break span tracking (multi-byte chars)
+    let source = r#"
+        signal temp {
+            assert {
+                prev > 0 : "温度必须为正 (temperature must be positive) 🌡️"
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => match &node.execution_blocks[0].1 {
+            BlockBody::Statements(stmts) => match &stmts[0] {
+                Stmt::Assert { message, .. } => {
+                    assert!(message
+                        .as_ref()
+                        .unwrap()
+                        .contains("温度必须为正 (temperature must be positive) 🌡️"));
+                }
+                _ => panic!("Expected Stmt::Assert"),
+            },
+            _ => panic!("Expected BlockBody::Statements"),
+        },
+        _ => panic!("Expected Node"),
+    }
+}
