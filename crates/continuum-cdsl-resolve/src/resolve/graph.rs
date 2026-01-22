@@ -12,14 +12,21 @@
 //! 5. **Cycle Detection** - Circular dependencies are detected and reported as errors.
 
 use crate::error::{CompileError, ErrorKind};
-use continuum_cdsl_ast::foundation::{Path, Phase, Span, StratumId};
+use continuum_cdsl_ast::foundation::{EraId, Path, Phase, Span, StratumId};
 use continuum_cdsl_ast::{DagSet, ExecutionDag, ExecutionLevel, RoleId, World};
 use indexmap::IndexMap;
 
-/// Compiles execution DAGs for all phases and strata in the world.
+/// Compiles execution DAGs for all eras, phases, and strata in the world.
+///
+/// This produces one DAG per (era, phase, stratum) combination. Each era may have
+/// different execution policies (gated strata, different cadences), so DAGs are
+/// built separately per era.
 pub fn compile_graphs(world: &World) -> Result<DagSet, Vec<CompileError>> {
     let mut dag_set = DagSet::default();
     let mut errors = Vec::new();
+
+    // The set of all eras defined in the world
+    let eras: Vec<_> = world.eras.keys().cloned().collect();
 
     // The set of all strata defined in the world
     let strata: Vec<_> = world.strata.keys().cloned().collect();
@@ -33,18 +40,22 @@ pub fn compile_graphs(world: &World) -> Result<DagSet, Vec<CompileError>> {
         Phase::Measure,
     ];
 
-    for phase in phases {
-        for stratum_path in &strata {
-            let stratum_id = StratumId::new(stratum_path.to_string());
-            match build_dag(world, phase, &stratum_id) {
-                Ok(Some(dag)) => {
-                    dag_set.dags.insert((phase, stratum_id), dag);
-                }
-                Ok(None) => {
-                    // Empty DAG, skip
-                }
-                Err(mut e) => {
-                    errors.append(&mut e);
+    // Build DAGs for each (era, phase, stratum) combination
+    for era_path in &eras {
+        let era_id = EraId::new(era_path.to_string());
+        for phase in phases {
+            for stratum_path in &strata {
+                let stratum_id = StratumId::new(stratum_path.to_string());
+                match build_dag(world, &era_id, phase, &stratum_id) {
+                    Ok(Some(dag)) => {
+                        dag_set.insert(dag);
+                    }
+                    Ok(None) => {
+                        // Empty DAG, skip
+                    }
+                    Err(mut e) => {
+                        errors.append(&mut e);
+                    }
                 }
             }
         }
@@ -106,9 +117,10 @@ fn trace_cycle_path(cycle_nodes: &[Path], adj: &IndexMap<Path, Vec<Path>>) -> Ve
     path
 }
 
-/// Builds a DAG for a specific phase and stratum.
+/// Builds a DAG for a specific era, phase, and stratum.
 fn build_dag(
     world: &World,
+    era: &EraId,
     phase: Phase,
     stratum: &StratumId,
 ) -> Result<Option<ExecutionDag>, Vec<CompileError>> {
@@ -357,6 +369,7 @@ fn build_dag(
     }
 
     Ok(Some(ExecutionDag {
+        era: era.clone(),
         phase,
         stratum: stratum.clone(),
         levels,
@@ -367,10 +380,17 @@ fn build_dag(
 mod tests {
     use super::*;
     use crate::ast::{Execution, ExecutionBody, Node, RoleData};
-    use crate::foundation::{Phase, Span, StratumId};
+    use crate::foundation::{EraId, Phase, Span, StratumId};
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)
+    }
+
+    fn add_default_era(world: &mut World, span: Span) {
+        world.eras.insert(
+            Path::from_path_str("default"),
+            crate::ast::Era::new(EraId::new("default"), Path::from_path_str("default"), span),
+        );
     }
 
     #[test]
@@ -434,13 +454,18 @@ mod tests {
                 span,
             ),
         );
+        add_default_era(&mut world, span);
+        add_default_era(&mut world, span);
         world.globals.insert(node_a.path.clone(), node_a);
         world.globals.insert(node_b.path.clone(), node_b);
 
         let dag_set = compile_graphs(&world).expect("Failed to compile graphs");
         let dag = dag_set
-            .dags
-            .get(&(Phase::Resolve, StratumId::new("default")))
+            .get(
+                &EraId::new("default"),
+                Phase::Resolve,
+                &StratumId::new("default"),
+            )
             .expect("DAG not found");
 
         assert_eq!(dag.levels.len(), 2);
@@ -506,6 +531,8 @@ mod tests {
                 span,
             ),
         );
+        add_default_era(&mut world, span);
+        add_default_era(&mut world, span);
         world.globals.insert(node_a.path.clone(), node_a);
         world.globals.insert(node_b.path.clone(), node_b);
 
@@ -566,6 +593,8 @@ mod tests {
                 span,
             ),
         );
+        add_default_era(&mut world, span);
+        add_default_era(&mut world, span);
         world.globals.insert(field_node.path.clone(), field_node);
 
         // Should fail: Fields are observer-only, can't execute in Resolve phase
@@ -573,11 +602,9 @@ mod tests {
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert_eq!(errors[0].kind, ErrorKind::PhaseBoundaryViolation);
-        assert!(
-            errors[0]
-                .message
-                .contains("Fields are observation-only and may only execute in Measure phase")
-        );
+        assert!(errors[0]
+            .message
+            .contains("Fields are observation-only and may only execute in Measure phase"));
     }
 
     #[test]
@@ -666,6 +693,7 @@ mod tests {
                 span,
             ),
         );
+        add_default_era(&mut world, span);
 
         // Insert in non-alphabetical order to verify sorting
         world.globals.insert(node_zebra.path.clone(), node_zebra);
@@ -674,8 +702,11 @@ mod tests {
 
         let dag_set = compile_graphs(&world).expect("Failed to compile graphs");
         let dag = dag_set
-            .dags
-            .get(&(Phase::Resolve, StratumId::new("default")))
+            .get(
+                &EraId::new("default"),
+                Phase::Resolve,
+                &StratumId::new("default"),
+            )
             .expect("DAG not found");
 
         // All three should be in the same level (no dependencies)
@@ -715,6 +746,7 @@ mod tests {
                 span,
             ),
         );
+        add_default_era(&mut world, span);
 
         // No nodes in the world - all DAGs should be empty (None)
         let dag_set = compile_graphs(&world).expect("Failed to compile graphs");
@@ -790,10 +822,12 @@ mod tests {
             Path::from_path_str("slow"),
             crate::ast::Stratum::new(StratumId::new("slow"), Path::from_path_str("slow"), span),
         );
+        add_default_era(&mut world, span);
         world.strata.insert(
             Path::from_path_str("fast"),
             crate::ast::Stratum::new(StratumId::new("fast"), Path::from_path_str("fast"), span),
         );
+        add_default_era(&mut world, span);
         world.globals.insert(node_slow.path.clone(), node_slow);
         world.globals.insert(node_fast.path.clone(), node_fast);
 
@@ -802,11 +836,9 @@ mod tests {
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert_eq!(errors[0].kind, ErrorKind::InvalidDependency);
-        assert!(
-            errors[0]
-                .message
-                .contains("Cross-stratum dependencies are forbidden")
-        );
+        assert!(errors[0]
+            .message
+            .contains("Cross-stratum dependencies are forbidden"));
     }
 
     #[test]
@@ -872,6 +904,7 @@ mod tests {
                 span,
             ),
         );
+        add_default_era(&mut world, span);
         world.globals.insert(node_op1.path.clone(), node_op1);
         world.globals.insert(node_op2.path.clone(), node_op2);
 
@@ -924,6 +957,7 @@ mod tests {
                 span,
             ),
         );
+        add_default_era(&mut world, span);
         world.globals.insert(node_a.path.clone(), node_a);
 
         // Should SUCCEED: temporal read is not a DAG edge
@@ -936,8 +970,11 @@ mod tests {
 
         let dag_set = result.unwrap();
         let dag = dag_set
-            .dags
-            .get(&(Phase::Resolve, StratumId::new("default")))
+            .get(
+                &EraId::new("default"),
+                Phase::Resolve,
+                &StratumId::new("default"),
+            )
             .unwrap();
         assert_eq!(dag.levels.len(), 1);
         assert_eq!(dag.levels[0].nodes, vec![Path::from_path_str("a")]);

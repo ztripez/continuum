@@ -374,9 +374,10 @@ fn compile_bytecode_and_dags(
     let mut block_indices: IndexMap<(continuum_foundation::Path, Phase), usize> = IndexMap::new();
     let mut impulse_map = std::collections::HashMap::new();
 
-    let mut runtime_dags: IndexMap<(Phase, StratumId), crate::dag::ExecutableDag> = IndexMap::new();
+    let mut runtime_dags: IndexMap<(EraId, Phase, StratumId), crate::dag::ExecutableDag> =
+        IndexMap::new();
 
-    for ((phase, stratum), dag) in &compiled.dag_set.dags {
+    for ((era, phase, stratum), dag) in &compiled.dag_set.dags {
         let mut levels = Vec::with_capacity(dag.levels.len());
         for level in &dag.levels {
             let mut nodes = Vec::with_capacity(level.nodes.len());
@@ -481,7 +482,7 @@ fn compile_bytecode_and_dags(
         }
 
         runtime_dags.insert(
-            (*phase, stratum.clone()),
+            (era.clone(), *phase, stratum.clone()),
             crate::dag::ExecutableDag {
                 phase: *phase,
                 stratum: stratum.clone(),
@@ -490,14 +491,23 @@ fn compile_bytecode_and_dags(
         );
     }
 
-    let mut era_dags = crate::dag::EraDags::default();
-    for dag in runtime_dags.values() {
-        era_dags.insert(dag.clone());
+    // Build runtime DagSet with proper era separation
+    // Group DAGs by era
+    let mut dags_by_era: IndexMap<EraId, Vec<crate::dag::ExecutableDag>> = IndexMap::new();
+    for ((era_id, _, _), dag) in &runtime_dags {
+        dags_by_era
+            .entry(era_id.clone())
+            .or_default()
+            .push(dag.clone());
     }
 
     let mut dag_set = crate::dag::DagSet::default();
-    for era in compiled.world.eras.values() {
-        dag_set.insert_era(EraId::new(era.path.to_string()), era_dags.clone());
+    for (era_id, dags) in dags_by_era {
+        let mut era_dags = crate::dag::EraDags::default();
+        for dag in dags {
+            era_dags.insert(dag);
+        }
+        dag_set.insert_era(era_id, era_dags);
     }
 
     (dag_set, bytecode_blocks, impulse_map)
