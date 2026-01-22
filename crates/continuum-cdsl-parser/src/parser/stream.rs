@@ -2,20 +2,24 @@
 
 use continuum_cdsl_ast::foundation::Span;
 use continuum_cdsl_lexer::Token;
+use std::ops::Range;
 
 /// Token stream with lookahead and position tracking.
 ///
 /// Provides methods for consuming tokens, lookahead, and span tracking
 /// for the hand-written recursive descent parser.
+///
+/// Each token is paired with its byte span from the source, enabling
+/// accurate error message locations.
 pub struct TokenStream<'src> {
-    tokens: &'src [Token],
+    tokens: &'src [(Token, Range<usize>)],
     pos: usize,
     file_id: u16,
 }
 
 impl<'src> TokenStream<'src> {
-    /// Create a new token stream.
-    pub fn new(tokens: &'src [Token], file_id: u16) -> Self {
+    /// Create a new token stream from tokens with their byte spans.
+    pub fn new(tokens: &'src [(Token, Range<usize>)], file_id: u16) -> Self {
         Self {
             tokens,
             pos: 0,
@@ -25,17 +29,17 @@ impl<'src> TokenStream<'src> {
 
     /// Peek at the current token without consuming it.
     pub fn peek(&self) -> Option<&Token> {
-        self.tokens.get(self.pos)
+        self.tokens.get(self.pos).map(|(tok, _)| tok)
     }
 
     /// Peek at the nth token ahead without consuming.
     pub fn peek_nth(&self, n: usize) -> Option<&Token> {
-        self.tokens.get(self.pos + n)
+        self.tokens.get(self.pos + n).map(|(tok, _)| tok)
     }
 
     /// Advance to the next token and return the current one.
     pub fn advance(&mut self) -> Option<&Token> {
-        let token = self.tokens.get(self.pos);
+        let token = self.tokens.get(self.pos).map(|(tok, _)| tok);
         if token.is_some() {
             self.pos += 1;
         }
@@ -75,15 +79,42 @@ impl<'src> TokenStream<'src> {
     }
 
     /// Create a span from a starting position to the current position.
+    ///
+    /// Uses actual byte offsets from the source file for accurate error locations.
     pub fn span_from(&self, start: usize) -> Span {
-        // For now, create a simple span
-        // In a full implementation, we'd track byte offsets from tokens
-        Span::new(self.file_id, start as u32, self.pos as u32, 0)
+        let start_byte = self
+            .tokens
+            .get(start)
+            .map(|(_, span)| span.start)
+            .unwrap_or(0);
+
+        let end_byte = if self.pos > 0 && self.pos <= self.tokens.len() {
+            // Use the end of the previous token (last consumed token)
+            self.tokens
+                .get(self.pos - 1)
+                .map(|(_, span)| span.end)
+                .unwrap_or(start_byte)
+        } else {
+            // At EOF or start, use start position
+            start_byte
+        };
+
+        Span::new(self.file_id, start_byte as u32, end_byte as u32, 0)
     }
 
     /// Get a span for the current token.
     pub fn current_span(&self) -> Span {
-        Span::new(self.file_id, self.pos as u32, self.pos as u32, 0)
+        if let Some((_, span)) = self.tokens.get(self.pos) {
+            Span::new(self.file_id, span.start as u32, span.end as u32, 0)
+        } else {
+            // At EOF - use the end of the last token
+            if let Some((_, span)) = self.tokens.last() {
+                Span::new(self.file_id, span.end as u32, span.end as u32, 0)
+            } else {
+                // Empty token stream
+                Span::new(self.file_id, 0, 0, 0)
+            }
+        }
     }
 
     /// Synchronize to the next declaration keyword for error recovery.

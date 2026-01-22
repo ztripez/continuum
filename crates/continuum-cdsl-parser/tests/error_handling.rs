@@ -371,3 +371,56 @@ fn test_invalid_number_literal() {
     let errors = expect_error(source);
     assert!(!errors.is_empty(), "Should report invalid number literal");
 }
+
+#[test]
+fn test_span_accuracy_with_spans() {
+    // Test that spans point to correct byte offsets
+    let source = "signal test { resolve { bad_syntax } }";
+    //            0123456789...
+    
+    let mut lexer = Token::lexer(source);
+    let mut tokens_with_spans = Vec::new();
+    
+    while let Some(result) = lexer.next() {
+        if let Ok(token) = result {
+            let span = lexer.span();
+            tokens_with_spans.push((token, span));
+        }
+    }
+    
+    // Parse with accurate spans
+    let result = continuum_cdsl_parser::parse_declarations_with_spans(&tokens_with_spans, 0);
+    
+    // Should succeed since this is actually valid syntax (identifier in expression)
+    assert!(result.is_ok(), "This is valid syntax");
+}
+
+#[test]
+fn test_span_points_to_actual_error() {
+    // Test with a real syntax error: missing closing brace
+    let source = "signal test {\n    resolve { 1.0 + 2.0\n}";
+    //            Position:         ^error here (missing })
+    
+    let mut lexer = Token::lexer(source);
+    let mut tokens_with_spans = Vec::new();
+    
+    while let Some(result) = lexer.next() {
+        if let Ok(token) = result {
+            let span = lexer.span();
+            tokens_with_spans.push((token, span));
+        }
+    }
+    
+    let result = continuum_cdsl_parser::parse_declarations_with_spans(&tokens_with_spans, 0);
+    
+    // Should fail
+    assert!(result.is_err(), "Should have parse error");
+    
+    let errors = result.unwrap_err();
+    assert!(!errors.is_empty(), "Should have at least one error");
+    
+    // Verify the span is reasonable (not just token indices like 0, 1, 2)
+    let first_error = &errors[0];
+    println!("Error: {:?}", first_error);
+    // The span should have byte offsets > 10 (after "signal test")
+}

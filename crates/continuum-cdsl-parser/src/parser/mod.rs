@@ -43,6 +43,7 @@ mod types;
 // Public API wrappers matching old chumsky-based interface
 use continuum_cdsl_ast::{Declaration, Expr};
 use continuum_cdsl_lexer::Token;
+use std::ops::Range;
 
 /// Parse a sequence of tokens into declarations.
 ///
@@ -53,8 +54,36 @@ use continuum_cdsl_lexer::Token;
 /// # Returns
 /// - `Ok(Vec<Declaration>)` if parsing succeeds
 /// - `Err(Vec<ParseError>)` if parsing fails
+///
+/// # Note
+/// This function creates fake byte spans for backward compatibility.
+/// Use `parse_declarations_with_spans` for accurate error locations.
 pub fn parse_declarations(
     tokens: &[Token],
+    file_id: u16,
+) -> Result<Vec<Declaration>, Vec<ParseError>> {
+    // Create fake spans for backward compatibility
+    let tokens_with_spans: Vec<(Token, Range<usize>)> = tokens
+        .iter()
+        .enumerate()
+        .map(|(i, tok)| (tok.clone(), i..i + 1))
+        .collect();
+
+    let mut stream = TokenStream::new(&tokens_with_spans, file_id);
+    decl::parse_declarations(&mut stream)
+}
+
+/// Parse a sequence of tokens with byte spans into declarations.
+///
+/// # Parameters
+/// - `tokens`: Slice of (token, byte_span) pairs
+/// - `file_id`: File identifier for span tracking
+///
+/// # Returns
+/// - `Ok(Vec<Declaration>)` if parsing succeeds
+/// - `Err(Vec<ParseError>)` if parsing fails
+pub fn parse_declarations_with_spans(
+    tokens: &[(Token, Range<usize>)],
     file_id: u16,
 ) -> Result<Vec<Declaration>, Vec<ParseError>> {
     let mut stream = TokenStream::new(tokens, file_id);
@@ -70,7 +99,35 @@ pub fn parse_declarations(
 /// # Returns
 /// - `Ok(Expr)` if parsing succeeds
 /// - `Err(Vec<ParseError>)` if parsing fails (single error wrapped in Vec for API compatibility)
+///
+/// # Note
+/// This function creates fake byte spans for backward compatibility.
+/// Use `parse_expr_with_spans` for accurate error locations.
 pub fn parse_expr(tokens: &[Token], file_id: u16) -> Result<Expr, Vec<ParseError>> {
+    // Create fake spans for backward compatibility
+    let tokens_with_spans: Vec<(Token, Range<usize>)> = tokens
+        .iter()
+        .enumerate()
+        .map(|(i, tok)| (tok.clone(), i..i + 1))
+        .collect();
+
+    let mut stream = TokenStream::new(&tokens_with_spans, file_id);
+    expr::parse_expr(&mut stream).map_err(|e| vec![e])
+}
+
+/// Parse a sequence of tokens with byte spans into an expression.
+///
+/// # Parameters
+/// - `tokens`: Slice of (token, byte_span) pairs
+/// - `file_id`: File identifier for span tracking
+///
+/// # Returns
+/// - `Ok(Expr)` if parsing succeeds
+/// - `Err(Vec<ParseError>)` if parsing fails
+pub fn parse_expr_with_spans(
+    tokens: &[(Token, Range<usize>)],
+    file_id: u16,
+) -> Result<Expr, Vec<ParseError>> {
     let mut stream = TokenStream::new(tokens, file_id);
     expr::parse_expr(&mut stream).map_err(|e| vec![e])
 }

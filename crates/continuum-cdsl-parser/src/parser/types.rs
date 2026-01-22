@@ -225,13 +225,22 @@ mod tests {
     #[test]
     fn test_scalar_with_bounds_tokens() {
         let source = "Scalar<K, 0.0..1000.0>";
-        let tokens: Vec<Token> = Token::lexer(source).filter_map(Result::ok).collect();
-        eprintln!("Tokens for '{}':", source);
-        for (i, tok) in tokens.iter().enumerate() {
-            eprintln!("  {}: {:?}", i, tok);
+        let mut lexer = Token::lexer(source);
+        let mut tokens_with_spans = Vec::new();
+
+        while let Some(result) = lexer.next() {
+            if let Ok(token) = result {
+                let span = lexer.span();
+                tokens_with_spans.push((token, span));
+            }
         }
 
-        let mut stream = TokenStream::new(&tokens, 0);
+        eprintln!("Tokens for '{}':", source);
+        for (i, (tok, span)) in tokens_with_spans.iter().enumerate() {
+            eprintln!("  {}: {:?} at {:?}", i, tok, span);
+        }
+
+        let mut stream = TokenStream::new(&tokens_with_spans, 0);
         // Skip 'Scalar' token
         assert!(matches!(stream.peek(), Some(Token::Ident(_))));
         stream.advance();
