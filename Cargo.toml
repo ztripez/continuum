@@ -1,7 +1,11 @@
 [workspace]
 resolver = "2"
 members = [
-    # New compiler
+    # New compiler (modular)
+    "crates/continuum-cdsl-ast",
+    "crates/continuum-cdsl-lexer",
+    "crates/continuum-cdsl-parser",
+    "crates/continuum-cdsl-resolve",
     "crates/continuum-cdsl",
     "crates/continuum-kernel-types",
     

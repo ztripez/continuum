@@ -1,0 +1,13 @@
+[package]
+name = "continuum-cdsl-ast"
+version.workspace = true
+edition.workspace = true
+description = "AST types for Continuum DSL"
+license = "MIT"
+
+[dependencies]
+continuum-foundation = { path = "../kernels/foundation" }
+continuum-kernel-types = { path = "../continuum-kernel-types" }
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }

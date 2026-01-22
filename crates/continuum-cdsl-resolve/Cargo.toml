@@ -1,0 +1,22 @@
+[package]
+name = "continuum-cdsl-resolve"
+version.workspace = true
+edition.workspace = true
+description = "Resolution and validation for Continuum DSL"
+license = "MIT"
+
+[dependencies]
+continuum-cdsl-ast = { path = "../continuum-cdsl-ast" }
+continuum-foundation = { path = "../kernels/foundation" }
+continuum-kernel-registry = { path = "../kernel-registry" }
+continuum-kernel-types = { path = "../continuum-kernel-types" }
+
+# Graph algorithms
+petgraph = "0.6"
+indexmap = { version = "2", features = ["serde"] }
+
+# Error handling
+thiserror = "2"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
