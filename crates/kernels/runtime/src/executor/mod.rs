@@ -1136,6 +1136,7 @@ mod tests {
     use super::*;
     use crate::dag::{DagBuilder, DagNode, EraDags, NodeId, NodeKind};
     use crate::types::{Phase, StratumId};
+    use crate::FaultPolicy;
     use std::collections::HashSet;
 
     fn create_minimal_runtime(era_id: EraId) -> Runtime {

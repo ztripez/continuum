@@ -951,6 +951,7 @@ mod tests {
     use crate::bytecode::Compiler;
     use crate::dag::{DagBuilder, DagNode, DagSet, EraDags, NodeId};
     use crate::executor::{EraConfig, Runtime};
+    use crate::WorldPolicy;
     use continuum_cdsl::ast::{Execution, ExecutionBody, ExprKind, Stmt, TypedExpr};
     use continuum_cdsl::foundation::{Shape, Span, Type, Unit};
     use continuum_functions as _;

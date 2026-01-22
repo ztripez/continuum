@@ -286,3 +286,6 @@ impl Default for BytecodeExecutor {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod assert_tests;
