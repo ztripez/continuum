@@ -101,10 +101,14 @@ pub mod ast;
 /// Provides tokenization of CDSL source code.
 pub mod lexer;
 
-/// Parser (chumsky-based parsing)
+/// Parser (hand-written recursive descent)
 ///
-/// Implements recursive descent parsing with chumsky combinators.
+/// Implements recursive descent parsing without combinator overhead.
 pub mod parser;
+
+/// Old chumsky-based parser (temporary, for comparison)
+#[allow(dead_code)]
+mod parser_chumsky;
 
 /// Desugaring pass
 ///
