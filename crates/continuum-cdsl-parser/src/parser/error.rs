@@ -16,15 +16,43 @@ pub struct ParseError {
 }
 
 /// Category of parse error.
+///
+/// Each variant represents a specific class of parsing failure to enable
+/// targeted error recovery and clear diagnostic messages.
 #[derive(Debug, Clone, PartialEq)]
 pub enum ParseErrorKind {
-    /// Unexpected token (found X, expected Y)
+    /// Unexpected token encountered where a specific token was expected.
+    ///
+    /// Use when the parser expected a particular token (e.g., `{`, `:`, `=`)
+    /// but found a different one. The parser typically skips to a recovery
+    /// point (e.g., next statement or declaration boundary).
+    ///
+    /// Example: Expected `{` to start block, found identifier instead.
     UnexpectedToken,
-    /// Unexpected end of input
+
+    /// Unexpected end of input while parsing was incomplete.
+    ///
+    /// Use when the parser reaches EOF but expected more tokens to complete
+    /// the current construct (e.g., unclosed block, incomplete expression).
+    /// This indicates the source file was truncated or malformed.
+    ///
+    /// Example: Reached EOF while parsing function body, missing `}`.
     UnexpectedEof,
-    /// Invalid syntax
+
+    /// Syntactically invalid construct that violates language grammar.
+    ///
+    /// Use when tokens are present but violate syntax rules (e.g., invalid
+    /// operator combination, malformed declaration). Unlike `UnexpectedToken`,
+    /// this indicates a structural grammar violation, not just wrong token.
+    ///
+    /// Example: `signal x: :` (double colon in type position).
     InvalidSyntax,
-    /// Other parse error
+
+    /// Other parse error not covered by specific categories.
+    ///
+    /// Use for errors that don't fit the above patterns or for temporary
+    /// error reporting during parser development. Prefer specific variants
+    /// when possible for better diagnostics.
     Other,
 }
 

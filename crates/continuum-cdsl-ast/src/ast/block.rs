@@ -62,9 +62,28 @@ pub enum Stmt<E = Expr> {
         span: Span,
     },
 
-    /// Expression statement
+    /// Expression statement: evaluate expression for side effects only.
     ///
-    /// An expression evaluated for its side effects (usually a function call).
+    /// Represents an expression executed solely for its side effects, with the
+    /// result value discarded. Typically used for function calls, kernel invocations,
+    /// or other effectful operations where the return value is not needed.
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// debug("checkpoint reached")    // Function call for side effect
+    /// physics::apply_force(entity)   // Kernel with side effect
+    /// ```
+    ///
+    /// # Usage
+    ///
+    /// Valid in statement blocks (Collect, Fracture phases). Unlike other
+    /// statement types that bind names or emit to signals/fields, this simply
+    /// executes the expression and discards the result.
+    ///
+    /// The parser automatically wraps bare expressions in statement position
+    /// with this variant. If the expression returns a non-unit type, the compiler
+    /// may warn about unused values (depending on linting policy).
     Expr(E),
 
     /// Assertion with optional severity and message

@@ -5,7 +5,37 @@ use continuum_cdsl_ast::{BlockBody, ObserveBlock, ObserveWhen, Stmt, WarmupBlock
 use continuum_cdsl_lexer::Token;
 
 /// Parse execution blocks inside a primitive declaration body.
-/// Returns Vec<(phase_name, body)> where phase_name is lowercase ("resolve", "collect", etc.).
+///
+/// Parses zero or more phase-tagged execution blocks within a declaration
+/// (e.g., operator, signal, field). Each block is tagged with a phase name
+/// that determines when it executes in the simulation lifecycle.
+///
+/// # Arguments
+///
+/// * `stream` - Token stream positioned after the opening `{` of the declaration body,
+///   before the first execution block keyword or closing `}`.
+///
+/// # Returns
+///
+/// * `Ok(blocks)` - Vector of `(phase_name, body)` tuples where:
+///   - `phase_name`: lowercase phase identifier ("resolve", "collect", "measure", etc.)
+///   - `body`: parsed block body (expression or statement list)
+/// * `Err(error)` - Parse error if block syntax is invalid or phase keyword is unrecognized
+///
+/// # Examples
+///
+/// ```cdsl
+/// operator example {
+///   resolve { x + y }           // Single expression body
+///   collect { signal.x <- 10 }  // Statement list body
+/// }
+/// ```
+///
+/// # Notes
+///
+/// - Phase names are normalized to lowercase for consistent matching
+/// - Stops parsing when it encounters `}` (end of declaration body)
+/// - Returns empty vector if no execution blocks present
 pub fn parse_execution_blocks(
     stream: &mut TokenStream,
 ) -> Result<Vec<(String, BlockBody)>, ParseError> {
