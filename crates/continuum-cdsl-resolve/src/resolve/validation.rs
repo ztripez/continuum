@@ -210,8 +210,39 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                             errors.extend(validate_expr(position, &ctx));
                             errors.extend(validate_expr(value, &ctx));
                         }
-                        continuum_cdsl_ast::TypedStmt::Assert { condition, .. } => {
-                            errors.extend(validate_expr(condition, &ctx))
+                        continuum_cdsl_ast::TypedStmt::Assert {
+                            condition,
+                            severity,
+                            span,
+                            ..
+                        } => {
+                            errors.extend(validate_expr(condition, &ctx));
+
+                            // Enforce Bool type for assertion condition (fail loudly)
+                            if condition.ty != Type::Bool {
+                                errors.push(CompileError::new(
+                                    ErrorKind::TypeMismatch,
+                                    *span,
+                                    format!(
+                                        "assert condition must be Bool, got {:?}",
+                                        condition.ty
+                                    ),
+                                ));
+                            }
+
+                            // Validate severity level if present
+                            if let Some(sev) = severity {
+                                if !matches!(sev.as_str(), "warn" | "error" | "fatal") {
+                                    errors.push(CompileError::new(
+                                        ErrorKind::TypeMismatch,
+                                        *span,
+                                        format!(
+                                            "Invalid severity '{}'. Must be 'warn', 'error', or 'fatal'",
+                                            sev
+                                        ),
+                                    ));
+                                }
+                            }
                         }
                         continuum_cdsl_ast::TypedStmt::Expr(expr) => {
                             errors.extend(validate_expr(expr, &ctx))
