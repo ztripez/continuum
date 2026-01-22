@@ -134,6 +134,12 @@ pub enum ErrorKind {
     /// Missing uses() declaration for dangerous function
     MissingUsesDeclaration = 21,
 
+    // Integrator validation
+    /// Integrator method mismatch (declared vs used)
+    IntegratorMismatch = 27,
+    /// Missing integrator hint for specific integration method
+    MissingIntegratorHint = 28,
+
     // Generic
     /// Internal compiler error (bug in compiler)
     Internal = 24,
@@ -172,6 +178,8 @@ const ERROR_KIND_NAMES: &[&str] = &[
     "internal compiler error",  // 24: Internal
     "conflict",                 // 25: Conflict
     "unsupported dsl feature",  // 26: UnsupportedDSLFeature
+    "integrator mismatch",      // 27: IntegratorMismatch
+    "missing integrator hint",  // 28: MissingIntegratorHint
 ];
 
 /// Diagnostic severity level.

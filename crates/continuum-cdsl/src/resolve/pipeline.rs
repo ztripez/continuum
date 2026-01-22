@@ -11,6 +11,7 @@ use crate::resolve::blocks::compile_execution_blocks;
 use crate::resolve::eras::resolve_eras;
 use crate::resolve::expr_typing::{type_expression, TypingContext};
 use crate::resolve::graph::compile_graphs;
+use crate::resolve::integrators::validate_integrators;
 use crate::resolve::names::{build_symbol_table, validate_expr, Scope};
 use crate::resolve::strata::{resolve_cadences, resolve_strata};
 use crate::resolve::structure::{validate_collisions, validate_cycles};
@@ -310,6 +311,10 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
 
     extend_node_pass!(errors, &global_nodes, &member_nodes, |nodes| {
         validate_uses(nodes, &registry)
+    });
+
+    extend_node_pass!(errors, &mut global_nodes, &mut member_nodes, |nodes| {
+        validate_integrators(nodes, &registry)
     });
 
     extend_node_pass!(errors, &global_nodes, &member_nodes, |nodes| {

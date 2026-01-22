@@ -142,6 +142,13 @@ pub struct Node<I: Index = ()> {
     /// Stratum assignment (execution lane + cadence)
     pub stratum: Option<StratumId>,
 
+    /// Integrator hint for signals that use dt.raw
+    ///
+    /// Declares the expected integration method for validation.
+    /// Valid values: "euler", "rk4", "verlet", "symplectic_euler"
+    /// Set by attribute resolution from `: integrator(method)`.
+    pub integrator: Option<String>,
+
     /// Output type (what this node produces)
     ///
     /// Set by type resolution. None before resolution.
@@ -257,6 +264,7 @@ impl<I: Index> Node<I> {
             assertions: Vec::new(),
             executions: Vec::new(),
             stratum: None,
+            integrator: None,
             output: None,
             inputs: Vec::new(),
             index,
