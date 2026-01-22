@@ -101,7 +101,7 @@ fn declarations_parser<'src>(
 
 fn expr_parser<'src>(
     file_id: u16,
-) -> impl Parser<'src, &'src [Token], Expr, extra::Err<Rich<'src, Token>>> + Clone {
+) -> Boxed<'src, 'src, &'src [Token], Expr, extra::Err<Rich<'src, Token>>> {
     recursive(|expr| {
         // Boolean literals
         let bool_literal = select! {
@@ -553,11 +553,12 @@ fn expr_parser<'src>(
 
         choice((let_expr, if_expr, or))
     })
+    .boxed()
 }
 
 fn unit_expr_parser<'src>(
     _file_id: u16,
-) -> impl Parser<'src, &'src [Token], UnitExpr, extra::Err<Rich<'src, Token>>> + Clone {
+) -> Boxed<'src, 'src, &'src [Token], UnitExpr, extra::Err<Rich<'src, Token>>> {
     recursive(|unit_term| {
         let base = select! { Token::Ident(name) => UnitExpr::Base(name) };
         let parens = unit_term
@@ -590,11 +591,12 @@ fn unit_expr_parser<'src>(
             },
         )
     })
+    .boxed()
 }
 
 fn type_expr_parser<'src>(
     file_id: u16,
-) -> impl Parser<'src, &'src [Token], TypeExpr, extra::Err<Rich<'src, Token>>> + Clone {
+) -> Boxed<'src, 'src, &'src [Token], TypeExpr, extra::Err<Rich<'src, Token>>> {
     let bool_type = just(Token::Ident("Bool".to_string())).to(TypeExpr::Bool);
     let scalar_type = just(Token::Ident("Scalar".to_string()))
         .then(
@@ -628,7 +630,7 @@ fn type_expr_parser<'src>(
             unit: Some(unit),
         });
     let user_type = select! { Token::Ident(name) => TypeExpr::User(Path::from(name.as_str())) };
-    choice((bool_type, scalar_type, vector_type, matrix_type, user_type))
+    choice((bool_type, scalar_type, vector_type, matrix_type, user_type)).boxed()
 }
 
 fn entity_ref_parser<'src>(
