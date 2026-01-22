@@ -6,10 +6,10 @@
 
 use std::hint::black_box;
 
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{BenchmarkId, Criterion, Throughput, criterion_group, criterion_main};
 
 use continuum_runtime::executor::member_executor::{
-    resolve_scalar_l1, ChunkConfig, MemberResolveContext,
+    ChunkConfig, MemberResolveContext, resolve_scalar_l1,
 };
 use continuum_runtime::soa_storage::MemberSignalBuffer;
 use continuum_runtime::storage::{EntityStorage, SignalStorage};

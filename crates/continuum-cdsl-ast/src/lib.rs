@@ -4,6 +4,7 @@
 //! and foundation types used by the parser and compiler.
 
 pub mod ast;
+pub mod error;
 pub mod foundation;
 
 // Re-export commonly used types
@@ -14,3 +15,4 @@ pub use foundation::{
 };
 
 pub use ast::*;
+pub use error::{CompileError, ErrorKind};

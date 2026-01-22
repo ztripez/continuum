@@ -5,13 +5,12 @@ use std::sync::OnceLock;
 use continuum_foundation::Phase;
 
 use super::handlers::{
-    handle_aggregate, handle_build_struct, handle_build_vector, handle_call_kernel, handle_destroy,
-    handle_dup, handle_emit, handle_emit_field, handle_field_access, handle_filter, handle_fold,
-    handle_load, handle_load_config, handle_load_const, handle_load_current, handle_load_dt,
-    handle_load_entity, handle_load_field, handle_load_inputs, handle_load_other,
+    Handler, handle_aggregate, handle_build_struct, handle_build_vector, handle_call_kernel,
+    handle_destroy, handle_dup, handle_emit, handle_emit_field, handle_field_access, handle_filter,
+    handle_fold, handle_load, handle_load_config, handle_load_const, handle_load_current,
+    handle_load_dt, handle_load_entity, handle_load_field, handle_load_inputs, handle_load_other,
     handle_load_payload, handle_load_prev, handle_load_self, handle_load_signal, handle_nearest,
     handle_noop, handle_pop, handle_push_literal, handle_spawn, handle_store, handle_within,
-    Handler,
 };
 use super::opcode::{OpcodeKind, OpcodeMetadata, OperandCount};
 

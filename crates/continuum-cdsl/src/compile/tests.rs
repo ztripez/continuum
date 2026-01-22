@@ -31,10 +31,12 @@ signal counter : type Scalar : stratum(sim) {
     let compiled = compile(dir.path()).expect("Full compilation failed");
 
     assert_eq!(compiled.world.metadata.path.to_string(), "test_world");
-    assert!(compiled
-        .world
-        .globals
-        .contains_key(&Path::from_path_str("counter")));
+    assert!(
+        compiled
+            .world
+            .globals
+            .contains_key(&Path::from_path_str("counter"))
+    );
 }
 
 #[test]
@@ -43,9 +45,11 @@ fn test_compile_empty_directory_error() {
     let result = compile(dir.path());
     assert!(result.is_err());
     let errors = result.unwrap_err();
-    assert!(errors
-        .iter()
-        .any(|e| e.message.contains("No .cdsl files found")));
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("No .cdsl files found"))
+    );
 }
 
 #[test]
@@ -64,7 +68,9 @@ fn test_compile_multi_file_errors() {
 
     // Should have both errors
     assert!(errors.iter().any(|e| e.message.contains("Invalid token")));
-    assert!(errors
-        .iter()
-        .any(|e| e.message.contains("found end of input")));
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("found end of input"))
+    );
 }

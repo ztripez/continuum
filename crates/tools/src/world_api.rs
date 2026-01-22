@@ -40,14 +40,15 @@ pub enum WorldMessage {
 /// Framing helper for async streams.
 pub mod framing {
     use super::*;
-    use tokio::io::{AsyncRead, AsyncWrite, AsyncReadExt, AsyncWriteExt};
+    use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
     /// Write a message to an async stream with a 4-byte length prefix.
     pub async fn write_message<W: AsyncWrite + Unpin>(
         writer: &mut W,
         message: &WorldMessage,
     ) -> Result<(), std::io::Error> {
-        let data = serde_json::to_vec(message).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+        let data = serde_json::to_vec(message)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
         writer.write_u32(data.len() as u32).await?;
         writer.write_all(&data).await?;
         Ok(())
@@ -60,6 +61,7 @@ pub mod framing {
         let len = reader.read_u32().await?;
         let mut buffer = vec![0u8; len as usize];
         reader.read_exact(&mut buffer).await?;
-        serde_json::from_slice(&buffer).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+        serde_json::from_slice(&buffer)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
     }
 }

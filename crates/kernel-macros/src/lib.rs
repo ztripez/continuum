@@ -518,12 +518,9 @@ fn generate_kernel_registration(
     // Check if last param is Dt
     let has_dt = params.last().is_some_and(|p| {
         if let syn::FnArg::Typed(pat) = p
-            && let syn::Type::Path(tp) = pat.ty.as_ref() {
-            return tp
-                .path
-                .segments
-                .last()
-                .is_some_and(|seg| seg.ident == "Dt");
+            && let syn::Type::Path(tp) = pat.ty.as_ref()
+        {
+            return tp.path.segments.last().is_some_and(|seg| seg.ident == "Dt");
         }
         false
     });
@@ -534,7 +531,8 @@ fn generate_kernel_registration(
         .take(params.len() - if has_dt { 1 } else { 0 })
         .filter_map(|p| {
             if let syn::FnArg::Typed(pat) = p
-                && let syn::Pat::Ident(pi) = pat.pat.as_ref() {
+                && let syn::Pat::Ident(pi) = pat.pat.as_ref()
+            {
                 return Some((&pi.ident, pat.ty.as_ref()));
             }
             None
@@ -569,10 +567,7 @@ fn generate_kernel_registration(
         let is_value_slice = if let Some(syn::Type::Reference(tr)) = first_param_type {
             if let syn::Type::Slice(ts) = tr.elem.as_ref() {
                 if let syn::Type::Path(tp) = ts.elem.as_ref() {
-                    tp.path
-                        .segments
-                        .last()
-                        .is_some_and(|s| s.ident == "Value")
+                    tp.path.segments.last().is_some_and(|s| s.ident == "Value")
                 } else {
                     false
                 }
@@ -996,12 +991,9 @@ fn generate_vectorized_registration(
     let params: Vec<_> = func.sig.inputs.iter().collect();
     let has_dt = params.iter().any(|p| {
         if let syn::FnArg::Typed(pat) = p
-            && let syn::Type::Path(tp) = pat.ty.as_ref() {
-            return tp
-                .path
-                .segments
-                .last()
-                .is_some_and(|seg| seg.ident == "Dt");
+            && let syn::Type::Path(tp) = pat.ty.as_ref()
+        {
+            return tp.path.segments.last().is_some_and(|seg| seg.ident == "Dt");
         }
         false
     });

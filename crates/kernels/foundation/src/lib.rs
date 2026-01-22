@@ -24,20 +24,20 @@ pub use ids::{
     MemberId, OperatorId, Path, SignalId, StratumId, TypeId,
 };
 
-pub use coercion::{can_operate, type_shape, TypeCheckOp, TypeCheckResult};
+pub use coercion::{TypeCheckOp, TypeCheckResult, can_operate, type_shape};
 pub use field::FieldSample;
 pub use operators::{AggregateOp, BinaryOp, UnaryOp};
 pub use phase::{AssertionSeverity, Capability, CapabilitySet, Phase, PhaseSet};
 pub use policy::{DeterminismPolicy, FaultPolicy, WorldPolicy};
 pub use primitives::{
-    primitive_type_by_name, PrimitiveParamKind, PrimitiveParamSpec, PrimitiveShape,
-    PrimitiveStorageClass, PrimitiveTypeDef, PrimitiveTypeId, PRIMITIVE_TYPES,
+    PRIMITIVE_TYPES, PrimitiveParamKind, PrimitiveParamSpec, PrimitiveShape, PrimitiveStorageClass,
+    PrimitiveTypeDef, PrimitiveTypeId, primitive_type_by_name,
 };
 pub use value::{FromValue, IntoValue, Mat2, Mat3, Mat4, Quat, Value};
 
 // Re-export stable hash items at crate root
 pub use stable_hash::{
-    fnv1a64, fnv1a64_mix, fnv1a64_path, fnv1a64_str, FNV1A_OFFSET_BASIS_64, FNV1A_PRIME_64,
+    FNV1A_OFFSET_BASIS_64, FNV1A_PRIME_64, fnv1a64, fnv1a64_mix, fnv1a64_path, fnv1a64_str,
 };
 
 // Re-export RNG at crate root

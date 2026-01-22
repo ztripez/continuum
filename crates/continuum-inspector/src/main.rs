@@ -184,7 +184,9 @@ async fn proxy_socket(mut websocket: WebSocket, state: AppState) {
                         }
                     };
 
-                    if let Err(err) = write_message(&mut write_half, &WorldMessage::Request(req)).await {
+                    if let Err(err) =
+                        write_message(&mut write_half, &WorldMessage::Request(req)).await
+                    {
                         error!("Failed to write to Unix socket: {err}");
                         break;
                     }
