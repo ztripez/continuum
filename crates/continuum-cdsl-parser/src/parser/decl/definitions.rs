@@ -147,10 +147,7 @@ fn parse_const_or_config_entry(
     // Check if next token is a type keyword
     let has_explicit_type = matches!(
         stream.peek(),
-        Some(Token::Ident(name)) if matches!(
-            name.as_str(),
-            "Bool" | "Scalar" | "Vec2" | "Vec3" | "Vec4" | "Quat" | "Mat2" | "Mat3" | "Mat4" | "Tensor"
-        )
+        Some(Token::Ident(name)) if super::super::token_utils::is_type_keyword(name)
     );
 
     let type_expr = if has_explicit_type {
