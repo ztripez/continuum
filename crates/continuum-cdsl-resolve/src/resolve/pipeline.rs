@@ -7,20 +7,21 @@ use crate::desugar::desugar_declarations;
 use crate::error::CompileError;
 use crate::resolve::blocks::compile_execution_blocks;
 use crate::resolve::eras::resolve_eras;
-use crate::resolve::expr_typing::{TypingContext, type_expression};
+use crate::resolve::expr_typing::{type_expression, TypingContext};
 use crate::resolve::graph::compile_graphs;
 use crate::resolve::integrators::validate_integrators;
-use crate::resolve::names::{Scope, build_symbol_table, validate_expr};
+use crate::resolve::names::{build_symbol_table, validate_expr, Scope};
 use crate::resolve::strata::{resolve_cadences, resolve_strata};
 use crate::resolve::structure::{validate_collisions, validate_cycles};
 use crate::resolve::types::{
-    TypeTable, project_entity_types, resolve_node_types, resolve_user_types,
+    project_entity_types, resolve_node_types, resolve_user_types, TypeTable,
 };
 use crate::resolve::uses::validate_uses;
 use crate::resolve::validation::{validate_node, validate_seq_escape};
 use continuum_cdsl_ast::foundation::{EntityId, Path, Type};
 use continuum_cdsl_ast::{
-    CompiledWorld, Declaration, Era, Expr, KernelRegistry, Node, World, WorldDecl,
+    CompiledWorld, ConfigEntry, ConstEntry, Declaration, Era, Expr, KernelRegistry, Node, World,
+    WorldDecl,
 };
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -186,8 +187,20 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
 
     // Context maps for typing
     let field_types = HashMap::new();
-    let config_types = HashMap::new();
-    let const_types = HashMap::new();
+    let config_types = match collect_config_types(&_config_entries, &type_table) {
+        Ok(types) => types,
+        Err(mut e) => {
+            errors.append(&mut e);
+            HashMap::new()
+        }
+    };
+    let const_types = match collect_const_types(&_const_entries, &type_table) {
+        Ok(types) => types,
+        Err(mut e) => {
+            errors.append(&mut e);
+            HashMap::new()
+        }
+    };
 
     let ctx = TypingContext::new(
         &type_table,
@@ -372,6 +385,108 @@ fn collect_node_types(globals: &[Node<()>], members: &[Node<EntityId>]) -> HashM
         }
     }
     map
+}
+
+/// Collect types for config entries.
+///
+/// Resolves TypeExpr to Type for each config entry and builds a lookup map.
+/// If TypeExpr is Infer, infers type from default value expression.
+fn collect_config_types(
+    entries: &[ConfigEntry],
+    type_table: &TypeTable,
+) -> Result<HashMap<Path, Type>, Vec<CompileError>> {
+    use crate::resolve::types::{infer_type_from_expr, resolve_type_expr};
+    use continuum_cdsl_ast::TypeExpr;
+
+    let mut map = HashMap::new();
+    let mut errors = Vec::new();
+
+    for entry in entries {
+        let ty = if matches!(entry.type_expr, TypeExpr::Infer) {
+            // Type inference from default value
+            if let Some(default_expr) = &entry.default {
+                match infer_type_from_expr(default_expr, entry.span) {
+                    Ok(ty) => ty,
+                    Err(e) => {
+                        errors.push(e);
+                        continue;
+                    }
+                }
+            } else {
+                errors.push(CompileError::new(
+                    crate::error::ErrorKind::TypeMismatch,
+                    entry.span,
+                    format!(
+                        "Config entry '{}' requires explicit type or default value for inference",
+                        entry.path
+                    ),
+                ));
+                continue;
+            }
+        } else {
+            // Explicit type
+            match resolve_type_expr(&entry.type_expr, type_table, entry.span) {
+                Ok(ty) => ty,
+                Err(e) => {
+                    errors.push(e);
+                    continue;
+                }
+            }
+        };
+
+        map.insert(entry.path.clone(), ty);
+    }
+
+    if errors.is_empty() {
+        Ok(map)
+    } else {
+        Err(errors)
+    }
+}
+
+/// Collect types for const entries.
+///
+/// Resolves TypeExpr to Type for each const entry and builds a lookup map.
+/// If TypeExpr is Infer, infers type from value expression.
+fn collect_const_types(
+    entries: &[ConstEntry],
+    type_table: &TypeTable,
+) -> Result<HashMap<Path, Type>, Vec<CompileError>> {
+    use crate::resolve::types::{infer_type_from_expr, resolve_type_expr};
+    use continuum_cdsl_ast::TypeExpr;
+
+    let mut map = HashMap::new();
+    let mut errors = Vec::new();
+
+    for entry in entries {
+        let ty = if matches!(entry.type_expr, TypeExpr::Infer) {
+            // Type inference from value expression
+            match infer_type_from_expr(&entry.value, entry.span) {
+                Ok(ty) => ty,
+                Err(e) => {
+                    errors.push(e);
+                    continue;
+                }
+            }
+        } else {
+            // Explicit type
+            match resolve_type_expr(&entry.type_expr, type_table, entry.span) {
+                Ok(ty) => ty,
+                Err(e) => {
+                    errors.push(e);
+                    continue;
+                }
+            }
+        };
+
+        map.insert(entry.path.clone(), ty);
+    }
+
+    if errors.is_empty() {
+        Ok(map)
+    } else {
+        Err(errors)
+    }
 }
 
 fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileError>) {
@@ -641,18 +756,14 @@ mod tests {
         let world = compile(decls).expect("Compilation failed");
 
         assert_eq!(world.world.metadata.path, world_path);
-        assert!(
-            world
-                .world
-                .entities
-                .contains_key(&Path::from_path_str("plate"))
-        );
-        assert!(
-            world
-                .world
-                .members
-                .contains_key(&Path::from_path_str("plate.mass"))
-        );
+        assert!(world
+            .world
+            .entities
+            .contains_key(&Path::from_path_str("plate")));
+        assert!(world
+            .world
+            .members
+            .contains_key(&Path::from_path_str("plate.mass")));
 
         let mass_node = world
             .world
@@ -694,11 +805,9 @@ mod tests {
 
         let decls = vec![Declaration::World(metadata), Declaration::Era(era)];
         let errors = compile(decls).expect_err("expected missing initial era error");
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("no era marked :initial"))
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("no era marked :initial")));
     }
 
     #[test]
@@ -754,11 +863,9 @@ mod tests {
             Declaration::Era(era_b),
         ];
         let errors = compile(decls).expect_err("expected multiple initial eras error");
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("multiple eras marked :initial"))
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("multiple eras marked :initial")));
     }
 
     #[test]
@@ -797,11 +904,9 @@ mod tests {
 
         let decls = vec![Declaration::World(metadata), Declaration::Era(era)];
         let errors = compile(decls).expect_err("expected duplicate initial error");
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("declares multiple :initial attributes"))
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("declares multiple :initial attributes")));
     }
 
     #[test]
@@ -839,11 +944,9 @@ mod tests {
 
         let decls = vec![Declaration::World(metadata), Declaration::Era(era)];
         let errors = compile(decls).expect_err("expected initial args error");
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("initial attribute expects no arguments"))
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("initial attribute expects no arguments")));
     }
 
     #[test]
@@ -904,11 +1007,9 @@ mod tests {
 
         let decls = vec![Declaration::World(metadata)];
         let errors = compile(decls).expect_err("expected no-era error");
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("world declares no eras"))
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("world declares no eras")));
     }
 
     #[test]
@@ -942,11 +1043,9 @@ mod tests {
 
         let decls = vec![Declaration::World(metadata), Declaration::Era(era)];
         let errors = compile(decls).expect_err("expected missing dt error");
-        assert!(
-            errors
-                .iter()
-                .any(|e| e.message.contains("Era missing dt expression"))
-        );
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("Era missing dt expression")));
     }
 
     #[test]
@@ -1043,18 +1142,14 @@ mod tests {
         let world = compile(decls).expect("Compilation failed");
 
         // Should have gravity signal and debug.gravity field
-        assert!(
-            world
-                .world
-                .globals
-                .contains_key(&Path::from_path_str("gravity"))
-        );
-        assert!(
-            world
-                .world
-                .globals
-                .contains_key(&Path::from_path_str("debug.gravity"))
-        );
+        assert!(world
+            .world
+            .globals
+            .contains_key(&Path::from_path_str("gravity")));
+        assert!(world
+            .world
+            .globals
+            .contains_key(&Path::from_path_str("debug.gravity")));
 
         let debug_node = world
             .world
@@ -1069,18 +1164,14 @@ mod tests {
         );
 
         // Verify member signal
-        assert!(
-            world
-                .world
-                .members
-                .contains_key(&Path::from_path_str("plate.mass"))
-        );
-        assert!(
-            world
-                .world
-                .members
-                .contains_key(&Path::from_path_str("debug.plate.mass"))
-        );
+        assert!(world
+            .world
+            .members
+            .contains_key(&Path::from_path_str("plate.mass")));
+        assert!(world
+            .world
+            .members
+            .contains_key(&Path::from_path_str("debug.plate.mass")));
 
         let debug_member = world
             .world

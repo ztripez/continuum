@@ -69,11 +69,11 @@ pub(super) fn parse_atom(stream: &mut TokenStream) -> Result<Expr, ParseError> {
         Some(Token::Pairs) => spatial::parse_pairs(stream),
         Some(Token::Agg) => aggregate::parse_aggregate(stream),
         Some(Token::Entity) => parse_entity_reference(stream),
-        Some(Token::Ident(_))
-        | Some(Token::Config)
-        | Some(Token::Const)
-        | Some(Token::Signal)
-        | Some(Token::Field) => parse_identifier(stream),
+        Some(Token::Config) => parse_config_reference(stream),
+        Some(Token::Const) => parse_const_reference(stream),
+        Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => {
+            parse_identifier(stream)
+        }
         other => Err(ParseError::unexpected_token(
             other,
             "in expression",
@@ -189,4 +189,29 @@ fn parse_entity_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> 
         UntypedKind::Entity(EntityId::new(path.to_string())),
         stream.span_from(start),
     ))
+}
+
+/// Parse config.path reference.
+fn parse_config_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> {
+    let start = stream.current_pos();
+    stream.expect(Token::Config)?;
+    stream.expect(Token::Dot)?;
+
+    let path = super::super::types::parse_path(stream)?;
+
+    Ok(Expr::new(
+        UntypedKind::Config(path),
+        stream.span_from(start),
+    ))
+}
+
+/// Parse const.path reference.
+fn parse_const_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> {
+    let start = stream.current_pos();
+    stream.expect(Token::Const)?;
+    stream.expect(Token::Dot)?;
+
+    let path = super::super::types::parse_path(stream)?;
+
+    Ok(Expr::new(UntypedKind::Const(path), stream.span_from(start)))
 }
