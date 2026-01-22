@@ -61,7 +61,12 @@ pub(super) fn parse_pratt(stream: &mut TokenStream, min_prec: u8) -> Result<Expr
                 break;
             }
 
-            let op = token_to_binary_op(token).unwrap();
+            // SAFETY: If binary_precedence returned Some, token_to_binary_op must also return Some
+            // because they match on the same token set. If this fails, it's a logic error in the
+            // parser implementation, not a user input error.
+            let op = token_to_binary_op(token).expect(
+                "internal parser error: binary_precedence and token_to_binary_op out of sync",
+            );
             let span_start = stream.current_pos();
             stream.advance();
 
@@ -98,10 +103,13 @@ fn parse_prefix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
 /// Parse unary operators.
 fn parse_unary(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let start = stream.current_pos();
+    let span = stream.current_span();
     let op = match stream.advance() {
         Some(Token::Minus) => UnaryOp::Neg,
         Some(Token::Not) => UnaryOp::Not,
-        _ => unreachable!(),
+        other => {
+            return Err(ParseError::unexpected_token(other, "unary operator", span));
+        }
     };
 
     let operand = parse_prefix(stream)?;

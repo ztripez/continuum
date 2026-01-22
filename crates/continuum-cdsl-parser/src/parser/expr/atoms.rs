@@ -27,13 +27,13 @@ pub(super) fn parse_atom(stream: &mut TokenStream) -> Result<Expr, ParseError> {
         }
         Some(Token::Integer(_)) | Some(Token::Float(_)) => parse_numeric_literal(stream),
         Some(Token::String(_)) => {
-            if let Some(Token::String(s)) = stream.advance() {
-                Ok(Expr::new(
+            let span = stream.current_span();
+            match stream.advance() {
+                Some(Token::String(s)) => Ok(Expr::new(
                     UntypedKind::StringLiteral(s.clone()),
                     stream.span_from(start),
-                ))
-            } else {
-                unreachable!()
+                )),
+                other => Err(ParseError::unexpected_token(other, "string literal", span)),
             }
         }
         Some(Token::LBracket) => parse_vector_literal(stream),
@@ -82,14 +82,17 @@ pub(super) fn parse_atom(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     }
 }
 
-/// Parse numeric literal with optional unit.
+/// Parse numeric literal.
 fn parse_numeric_literal(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let start = stream.current_pos();
+    let span = stream.current_span();
 
     let value = match stream.advance() {
         Some(Token::Integer(n)) => *n as f64,
         Some(Token::Float(f)) => *f,
-        _ => unreachable!(),
+        other => {
+            return Err(ParseError::unexpected_token(other, "numeric literal", span));
+        }
     };
 
     // Check for optional unit: <unit>
@@ -141,6 +144,7 @@ fn parse_parenthesized(stream: &mut TokenStream) -> Result<Expr, ParseError> {
 /// Parse identifier or path.
 fn parse_identifier(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let start = stream.current_pos();
+    let span = stream.current_span();
 
     let name = match stream.advance() {
         Some(Token::Ident(s)) => s.clone(),
@@ -149,7 +153,9 @@ fn parse_identifier(stream: &mut TokenStream) -> Result<Expr, ParseError> {
         Some(Token::Signal) => "signal".to_string(),
         Some(Token::Field) => "field".to_string(),
         Some(Token::Dt) => "dt".to_string(),
-        _ => unreachable!(),
+        other => {
+            return Err(ParseError::unexpected_token(other, "identifier", span));
+        }
     };
 
     Ok(Expr::new(UntypedKind::Local(name), stream.span_from(start)))
