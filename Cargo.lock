@@ -449,6 +449,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "continuum-run"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "continuum-cdsl",
+ "continuum-runtime",
+ "continuum-tools",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "continuum-runtime"
 version = "0.1.0"
 dependencies = [

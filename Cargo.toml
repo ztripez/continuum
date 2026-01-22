@@ -9,6 +9,7 @@ members = [
     "crates/tools",
     "crates/kernels/runtime",
     "crates/continuum-inspector",
+    "crates/continuum-run",
     
     # Temporarily disabled during compiler rewrite:
     # "crates/cdsl-lsp",
