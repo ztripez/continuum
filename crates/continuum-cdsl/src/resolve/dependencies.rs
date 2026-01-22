@@ -52,9 +52,22 @@ impl ExpressionVisitor for DependencyVisitor {
             | ExprKind::Const(path) => {
                 self.paths.insert(path.clone());
             }
-            ExprKind::Aggregate { entity, .. } | ExprKind::Fold { entity, .. } => {
+            ExprKind::Aggregate { source, .. } | ExprKind::Fold { source, .. } => {
                 // Iterating over an entity set is a read dependency on the entity's lifetime
+                if let ExprKind::Entity(entity_id) = &source.expr {
+                    self.paths
+                        .insert(Path::from(entity_id.0.to_string().as_str()));
+                }
+            }
+            ExprKind::Nearest { entity, .. } | ExprKind::Within { entity, .. } => {
                 self.paths.insert(Path::from(entity.0.to_string().as_str()));
+            }
+            ExprKind::Filter { source, .. } => {
+                // Recursion handles source
+            }
+            ExprKind::Entity(entity_id) => {
+                self.paths
+                    .insert(Path::from(entity_id.0.to_string().as_str()));
             }
             ExprKind::FieldAccess { object, field } => {
                 // BUG FIX (continuum-b8wv): Don't insert member paths when object is Prev.

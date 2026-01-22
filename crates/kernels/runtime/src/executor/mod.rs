@@ -90,8 +90,8 @@ use crate::storage::{
     FractureQueue, InputChannels, SignalStorage,
 };
 use crate::types::{
-    Dt, EntityId, EraId, FieldId, ImpulseId, Phase, SignalId, StratumId, StratumState, TickContext, Value,
-    WarmupConfig, WarmupResult,
+    Dt, EntityId, EraId, FieldId, ImpulseId, Phase, SignalId, StratumId, StratumState,
+    TickContext, Value, WarmupConfig, WarmupResult, WorldPolicy, DeterminismPolicy,
 };
 use std::path::PathBuf;
 
@@ -375,6 +375,8 @@ pub struct Runtime {
     initial_seed: u64,
     /// Mapping from impulse ID to bytecode block index (for interactive injection)
     impulse_map: std::collections::HashMap<ImpulseId, usize>,
+    /// Execution policy for the world
+    policy: WorldPolicy,
 }
 
 impl Runtime {
@@ -384,8 +386,12 @@ impl Runtime {
         eras: IndexMap<EraId, EraConfig>,
         dags: DagSet,
         bytecode_blocks: Vec<CompiledBlock>,
+        policy: WorldPolicy,
     ) -> Self {
         info!(era = %initial_era, "runtime created");
+        let mut assertion_checker = AssertionChecker::new();
+        assertion_checker.set_policy(policy.faults);
+
         Self {
             signals: SignalStorage::default(),
             entities: EntityStorage::default(),
@@ -404,7 +410,7 @@ impl Runtime {
             bytecode_executor: crate::executor::bytecode::BytecodePhaseExecutor::new(),
             phase_executor: crate::executor::phases::PhaseExecutor::new(),
             warmup_executor: crate::executor::warmup::WarmupExecutor::new(),
-            assertion_checker: AssertionChecker::new(),
+            assertion_checker,
             breakpoints: std::collections::HashSet::new(),
             active_tick_ctx: None,
             pending_impulses: Vec::new(),
@@ -412,6 +418,7 @@ impl Runtime {
             world_ir_hash: None,
             initial_seed: 0,
             impulse_map: std::collections::HashMap::new(),
+            policy,
         }
     }
 
@@ -906,6 +913,7 @@ impl Runtime {
                 self.fracture_queue.drain_into(&mut self.input_channels);
                 self.sim_time += dt.seconds();
                 self.tick += 1;
+                self.validate_determinism()?;
                 self.current_phase = crate::types::TickPhase::Simulation(Phase::Configure);
             }
         }
@@ -983,6 +991,16 @@ impl Runtime {
     /// Set the initial seed for determinism.
     pub fn set_initial_seed(&mut self, seed: u64) {
         self.initial_seed = seed;
+    }
+
+    /// Validate determinism if policy is Strict
+    pub fn validate_determinism(&self) -> Result<()> {
+        if self.policy.determinism != DeterminismPolicy::Strict {
+            return Ok(());
+        }
+        // TODO: Implement actual determinism checks (hash state etc)
+        trace!("Strict determinism check performed (placeholder)");
+        Ok(())
     }
 
     /// Request a checkpoint write (non-blocking).
@@ -1130,7 +1148,7 @@ mod tests {
                 transition: None,
             },
         );
-        Runtime::new(era_id, eras, DagSet::default(), Vec::new())
+        Runtime::new(era_id, eras, DagSet::default(), Vec::new(), WorldPolicy::default())
     }
 
     #[test]
@@ -1145,7 +1163,7 @@ mod tests {
                 transition: None,
             },
         );
-        let runtime = Runtime::new(era_id, eras, DagSet::default(), Vec::new());
+        let runtime = Runtime::new(era_id, eras, DagSet::default(), Vec::new(), WorldPolicy::default());
         assert_eq!(runtime.tick(), 0);
         assert_eq!(runtime.sim_time(), 0.0);
     }
@@ -1341,7 +1359,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new(), WorldPolicy::default());
 
         // Register resolver: temperature increments by 10 each tick
         runtime.register_resolver(Box::new(|ctx| {
@@ -1417,7 +1435,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new(), WorldPolicy::default());
 
         // Register resolver: prev + collected
         runtime.register_resolver(Box::new(|ctx| {
@@ -1493,7 +1511,9 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
+        let mut policy = WorldPolicy::default();
+        policy.faults = FaultPolicy::Fatal;
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new(), policy);
 
         // Register resolver that produces negative values after tick 2
         let tick_counter = std::sync::atomic::AtomicU64::new(0);
@@ -1596,7 +1616,7 @@ mod tests {
         eras.insert(era_a.clone(), era_a_config);
         eras.insert(era_b.clone(), era_b_config);
 
-        let mut runtime = Runtime::new(era_a.clone(), eras, dags, Vec::new());
+        let mut runtime = Runtime::new(era_a.clone(), eras, dags, Vec::new(), WorldPolicy::default());
 
         // Register resolver: increment by 1 each tick
         runtime.register_resolver(Box::new(|ctx| {
@@ -1676,7 +1696,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new(), WorldPolicy::default());
 
         // Register resolvers
         runtime.register_resolver(Box::new(|ctx| {
@@ -1755,7 +1775,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new(), WorldPolicy::default());
 
         runtime.register_resolver(Box::new(|ctx| {
             Value::Scalar(ctx.prev.as_scalar().unwrap_or(0.0) + 1.0)
@@ -1833,7 +1853,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new(), WorldPolicy::default());
 
         // A: returns 10
         runtime.register_resolver(Box::new(|_| Value::Scalar(10.0)));
@@ -1907,7 +1927,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new(), WorldPolicy::default());
 
         // Register resolver: temperature increments by 10 each tick
         runtime.register_resolver(Box::new(|ctx| {
@@ -2007,7 +2027,7 @@ mod tests {
         let mut eras = IndexMap::new();
         eras.insert(era_id.clone(), era_config);
 
-        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new());
+        let mut runtime = Runtime::new(era_id, eras, dags, Vec::new(), WorldPolicy::default());
 
         // Register resolver: pressure stays constant at 50
         runtime.register_resolver(Box::new(|_ctx| Value::Scalar(50.0)));

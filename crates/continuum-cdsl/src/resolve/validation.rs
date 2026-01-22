@@ -338,6 +338,35 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
             }
         }
 
+        ExprKind::Aggregate { source, body, .. } => {
+            errors.extend(validate_expr(source, ctx));
+            errors.extend(validate_expr(body, ctx));
+        }
+
+        ExprKind::Fold {
+            source, init, body, ..
+        } => {
+            errors.extend(validate_expr(source, ctx));
+            errors.extend(validate_expr(init, ctx));
+            errors.extend(validate_expr(body, ctx));
+        }
+
+        ExprKind::Filter { source, predicate } => {
+            errors.extend(validate_expr(source, ctx));
+            errors.extend(validate_expr(predicate, ctx));
+        }
+
+        ExprKind::Nearest { position, .. } => {
+            errors.extend(validate_expr(position, ctx));
+        }
+
+        ExprKind::Within {
+            position, radius, ..
+        } => {
+            errors.extend(validate_expr(position, ctx));
+            errors.extend(validate_expr(radius, ctx));
+        }
+
         // References don't need validation
         ExprKind::Local(_)
         | ExprKind::Signal(_)
@@ -351,6 +380,7 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
         | ExprKind::Self_
         | ExprKind::Other
         | ExprKind::Payload
+        | ExprKind::Entity(_)
         | ExprKind::StringLiteral(_) => {}
     }
 

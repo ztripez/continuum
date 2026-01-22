@@ -161,59 +161,11 @@
 //! };
 //! ```
 
-use crate::foundation::{Path, Span, Type, UserTypeId};
+use crate::foundation::{AggregateOp, Path, Span, Type, UserTypeId};
 use continuum_kernel_types::KernelId;
 use serde::{Deserialize, Serialize};
 
 use crate::foundation::EntityId;
-
-/// Kernel operation identifier
-///
-/// All operations in Continuum DSL are kernel calls. Most use namespaces
-/// (`maths.*`, `vector.*`, `logic.*`, `compare.*`), but effect operations
-/// are bare names (`emit`, `spawn`, `destroy`, `log`).
-///
-/// **NOTE:** KernelId is now imported from `continuum_kernel_types` (single source of truth)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum AggregateOp {
-    /// Sum all values - requires numeric type with addition
-    ///
-    /// Type: `Seq<T>` → `T` where `T` supports `maths.add`
-    Sum,
-
-    /// Map over all values - produces Seq<T> (must be consumed)
-    ///
-    /// Type: `(Entity, |e| -> T)` → `Seq<T>`
-    ///
-    /// **Important:** `Seq<T>` is intermediate-only and cannot be stored in
-    /// signals or let bindings (unless immediately consumed by another aggregate).
-    Map,
-
-    /// Maximum value - requires ordered type
-    ///
-    /// Type: `Seq<T>` → `T` where `T` supports `compare.gt`
-    Max,
-
-    /// Minimum value - requires ordered type
-    ///
-    /// Type: `Seq<T>` → `T` where `T` supports `compare.lt`
-    Min,
-
-    /// Count matching elements - body must return Bool
-    ///
-    /// Type: `(Entity, |e| -> Bool)` → `Scalar<>` (dimensionless)
-    Count,
-
-    /// Any element satisfies predicate - body must return Bool
-    ///
-    /// Type: `(Entity, |e| -> Bool)` → `Bool`
-    Any,
-
-    /// All elements satisfy predicate - body must return Bool
-    ///
-    /// Type: `(Entity, |e| -> Bool)` → `Bool`
-    All,
-}
 
 /// Expression variants for Continuum DSL
 ///
@@ -457,21 +409,36 @@ pub enum ExprKind {
     Other,
 
     /// Impulse payload - requires `Capability::Payload`
-    ///
-    /// # Examples
-    ///
-    /// ```cdsl
-    /// impulse collision : CollisionData {
-    ///     apply {
-    ///         emit(force, payload.impulse)  // Payload
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// **Type:** Impulse's `payload` type
-    ///
-    /// **Capability:** Requires `Capability::Payload` from phase
     Payload,
+
+    /// Entity reference (produces Seq<Instance>)
+    Entity(EntityId),
+
+    /// Spatial lookup: nearest(entity, pos)
+    Nearest {
+        /// Entity to search in
+        entity: EntityId,
+        /// Reference position
+        position: Box<TypedExpr>,
+    },
+
+    /// Spatial filter: within(entity, pos, radius)
+    Within {
+        /// Entity to search in
+        entity: EntityId,
+        /// Center position
+        position: Box<TypedExpr>,
+        /// Search radius
+        radius: Box<TypedExpr>,
+    },
+
+    /// Filtered entity set: filter(entity, predicate)
+    Filter {
+        /// Entity or Seq to filter
+        source: Box<TypedExpr>,
+        /// Predicate expression (uses self)
+        predicate: Box<TypedExpr>,
+    },
 
     // === Binding forms (introduce scope) ===
     /// Local variable binding
@@ -509,9 +476,9 @@ pub enum ExprKind {
     /// # Examples
     ///
     /// ```cdsl
-    /// sum(plates, |p| p.mass)        // AggregateOp::Sum
-    /// max(bodies, |b| b.temperature)  // AggregateOp::Max
-    /// count(stars, |s| s.active)      // AggregateOp::Count
+    /// sum(entity.plates, self.mass)        // AggregateOp::Sum
+    /// max(entity.bodies, self.temperature)  // AggregateOp::Max
+    /// count(entity.stars, self.active)      // AggregateOp::Count
     /// ```
     ///
     /// **Iteration order:** Lexical `InstanceId` order (deterministic)
@@ -520,8 +487,8 @@ pub enum ExprKind {
     Aggregate {
         /// Aggregate operation
         op: AggregateOp,
-        /// Entity to iterate over
-        entity: EntityId,
+        /// Source of instances (Entity or Filtered set)
+        source: Box<TypedExpr>,
         /// Binding name for loop variable
         binding: String,
         /// Body expression (can reference binding)
@@ -533,18 +500,15 @@ pub enum ExprKind {
     /// # Examples
     ///
     /// ```cdsl
-    /// fold(plates, 0.0<kg>, |total, p| total + p.mass)
-    /// fold(bodies, min_temp, |min, b| {
-    ///     if b.temp < min { b.temp } else { min }
-    /// })
+    /// fold(entity.plates, 0.0<kg>, total + self.mass)
     /// ```
     ///
     /// **Iteration order:** Lexical `InstanceId` order (deterministic)
     ///
     /// **Purity:** Body must be pure
     Fold {
-        /// Entity to iterate over
-        entity: EntityId,
+        /// Source of instances
+        source: Box<TypedExpr>,
         /// Initial accumulator value
         init: Box<TypedExpr>,
         /// Accumulator binding name
@@ -766,7 +730,15 @@ impl TypedExpr {
             | ExprKind::Dt
             | ExprKind::Self_
             | ExprKind::Other
-            | ExprKind::Payload => true,
+            | ExprKind::Payload
+            | ExprKind::Entity(_) => true,
+
+            // Spatial and filter ops are pure if their components are pure
+            ExprKind::Nearest { position, .. } => position.is_pure(),
+            ExprKind::Within {
+                position, radius, ..
+            } => position.is_pure() && radius.is_pure(),
+            ExprKind::Filter { source, predicate } => source.is_pure() && predicate.is_pure(),
 
             // Vector is pure if all elements are pure
             ExprKind::Vector(exprs) => exprs.iter().all(|e| e.is_pure()),
@@ -841,6 +813,19 @@ impl TypedExpr {
             ExprKind::FieldAccess { object, .. } => {
                 object.walk(visitor);
             }
+            ExprKind::Nearest { position, .. } => {
+                position.walk(visitor);
+            }
+            ExprKind::Within {
+                position, radius, ..
+            } => {
+                position.walk(visitor);
+                radius.walk(visitor);
+            }
+            ExprKind::Filter { source, predicate } => {
+                source.walk(visitor);
+                predicate.walk(visitor);
+            }
 
             // Leaf nodes (explicitly listed to ensure exhaustiveness)
             ExprKind::Literal { .. }
@@ -856,7 +841,8 @@ impl TypedExpr {
             | ExprKind::Dt
             | ExprKind::Self_
             | ExprKind::Other
-            | ExprKind::Payload => {}
+            | ExprKind::Payload
+            | ExprKind::Entity(_) => {}
         }
     }
 }
@@ -1122,24 +1108,29 @@ mod tests {
 
         #[test]
         fn aggregate_with_pure_body_is_pure() {
+            let span = make_span();
             let body = TypedExpr::new(
                 ExprKind::FieldAccess {
-                    object: Box::new(TypedExpr::new(ExprKind::Self_, scalar_type(), make_span())),
+                    object: Box::new(TypedExpr::new(ExprKind::Self_, scalar_type(), span)),
                     field: "mass".to_string(),
                 },
                 scalar_type(),
-                make_span(),
+                span,
             );
 
             let expr = TypedExpr::new(
                 ExprKind::Aggregate {
                     op: AggregateOp::Sum,
-                    entity: EntityId::new("plate"),
+                    source: Box::new(TypedExpr::new(
+                        ExprKind::Entity(EntityId::new("plate")),
+                        scalar_type(), // Dummy type
+                        span,
+                    )),
                     binding: "p".to_string(),
                     body: Box::new(body),
                 },
                 scalar_type(),
-                make_span(),
+                span,
             );
             assert!(expr.is_pure());
         }
@@ -1193,44 +1184,41 @@ mod tests {
 
         #[test]
         fn fold_with_pure_body_is_pure() {
+            let span = make_span();
             let init = TypedExpr::new(
                 ExprKind::Literal {
                     value: 0.0,
                     unit: None,
                 },
                 scalar_type(),
-                make_span(),
+                span,
             );
             let body = TypedExpr::new(
                 ExprKind::Call {
                     kernel: KernelId::new("maths", "add"),
                     args: vec![
-                        TypedExpr::new(
-                            ExprKind::Local("acc".to_string()),
-                            scalar_type(),
-                            make_span(),
-                        ),
-                        TypedExpr::new(
-                            ExprKind::Local("elem".to_string()),
-                            scalar_type(),
-                            make_span(),
-                        ),
+                        TypedExpr::new(ExprKind::Local("acc".to_string()), scalar_type(), span),
+                        TypedExpr::new(ExprKind::Local("elem".to_string()), scalar_type(), span),
                     ],
                 },
                 scalar_type(),
-                make_span(),
+                span,
             );
 
             let expr = TypedExpr::new(
                 ExprKind::Fold {
-                    entity: EntityId::new("plate"),
+                    source: Box::new(TypedExpr::new(
+                        ExprKind::Entity(EntityId::new("plate")),
+                        scalar_type(), // Dummy type
+                        span,
+                    )),
                     init: Box::new(init),
                     acc: "acc".to_string(),
                     elem: "elem".to_string(),
                     body: Box::new(body),
                 },
                 scalar_type(),
-                make_span(),
+                span,
             );
             assert!(expr.is_pure());
         }
@@ -1269,65 +1257,72 @@ mod tests {
 
         #[test]
         fn aggregate_with_impure_body_is_impure() {
+            let span = make_span();
             let body = TypedExpr::new(
                 ExprKind::Call {
                     kernel: KernelId::new("", "emit"),
                     args: vec![],
                 },
                 Type::Unit,
-                make_span(),
+                span,
             );
             let expr = TypedExpr::new(
                 ExprKind::Aggregate {
                     op: AggregateOp::Sum,
-                    entity: EntityId::new("plate"),
+                    source: Box::new(TypedExpr::new(
+                        ExprKind::Entity(EntityId::new("plate")),
+                        scalar_type(), // Dummy type
+                        span,
+                    )),
                     binding: "p".to_string(),
                     body: Box::new(body),
                 },
                 scalar_type(),
-                make_span(),
+                span,
             );
             assert!(!expr.is_pure());
         }
 
         #[test]
         fn fold_with_impure_init_is_impure() {
+            let span = make_span();
             let init = TypedExpr::new(
                 ExprKind::Call {
                     kernel: KernelId::new("", "emit"),
                     args: vec![],
                 },
                 Type::Unit,
-                make_span(),
+                span,
             );
-            let body = TypedExpr::new(
-                ExprKind::Local("acc".to_string()),
-                scalar_type(),
-                make_span(),
-            );
+            let body = TypedExpr::new(ExprKind::Local("acc".to_string()), scalar_type(), span);
             let expr = TypedExpr::new(
                 ExprKind::Fold {
-                    entity: EntityId::new("plate"),
+                    source: Box::new(TypedExpr::new(
+                        ExprKind::Entity(EntityId::new("plate")),
+                        scalar_type(), // Dummy type
+                        span,
+                    )),
                     init: Box::new(init),
                     acc: "acc".to_string(),
                     elem: "elem".to_string(),
                     body: Box::new(body),
                 },
                 scalar_type(),
-                make_span(),
+                span,
             );
             assert!(!expr.is_pure());
         }
 
         #[test]
         fn fold_with_impure_body_is_impure() {
+            let span = make_span();
             let init = TypedExpr::new(
                 ExprKind::Literal {
                     value: 0.0,
                     unit: None,
                 },
                 scalar_type(),
-                make_span(),
+                span,
             );
             let body = TypedExpr::new(
                 ExprKind::Call {
@@ -1335,18 +1330,22 @@ mod tests {
                     args: vec![],
                 },
                 Type::Unit,
-                make_span(),
+                span,
             );
             let expr = TypedExpr::new(
                 ExprKind::Fold {
-                    entity: EntityId::new("plate"),
+                    source: Box::new(TypedExpr::new(
+                        ExprKind::Entity(EntityId::new("plate")),
+                        scalar_type(), // Dummy type
+                        span,
+                    )),
                     init: Box::new(init),
                     acc: "acc".to_string(),
                     elem: "elem".to_string(),
                     body: Box::new(body),
                 },
                 scalar_type(),
-                make_span(),
+                span,
             );
             assert!(!expr.is_pure());
         }

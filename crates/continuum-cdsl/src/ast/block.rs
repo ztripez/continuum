@@ -3,8 +3,8 @@
 //! This module defines block body types used in execution blocks.
 //! These types are shared between declaration.rs and node.rs.
 
-use crate::ast::TypedExpr;
 use crate::ast::untyped::Expr;
+use crate::ast::TypedExpr;
 use crate::foundation::{Path, Span};
 
 /// A single simulation statement within a procedural block body.

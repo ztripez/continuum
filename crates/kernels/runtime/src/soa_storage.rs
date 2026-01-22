@@ -185,6 +185,7 @@ impl ValueType {
             Value::Integer(_) => ValueType::integer(),
             Value::String(_) => panic!("String values are not supported in member signals"),
             Value::Map(_) => panic!("Map values are not supported in member signals"),
+            Value::Seq(_) => panic!("Seq values are not supported in member signals"),
             Value::Tensor(_) => panic!("Tensor values are not yet supported in member signals"),
         }
     }

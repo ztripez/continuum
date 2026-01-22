@@ -2,17 +2,19 @@ import { useEffect, useState } from 'preact/hooks';
 import type { SignalInfo, FieldInfo, EntityInfo, ChronicleEvent } from '../types/ipc';
 
 interface TabPanelProps {
-  currentTab: 'signals' | 'fields' | 'entities' | 'chronicles';
-  onTabChange: (tab: 'signals' | 'fields' | 'entities' | 'chronicles') => void;
+  currentTab: 'signals' | 'fields' | 'entities' | 'chronicles' | 'impulses';
+  onTabChange: (tab: 'signals' | 'fields' | 'entities' | 'chronicles' | 'impulses') => void;
   onSelectItem: (item: any) => void;
+  onEmitImpulse: () => void;
   ws: any;
 }
 
-export function TabPanel({ currentTab, onTabChange, onSelectItem, ws }: TabPanelProps) {
+export function TabPanel({ currentTab, onTabChange, onSelectItem, onEmitImpulse, ws }: TabPanelProps) {
   const [signals, setSignals] = useState<string[]>([]);
   const [fields, setFields] = useState<string[]>([]);
   const [entities, setEntities] = useState<string[]>([]);
   const [chronicles, setChronicles] = useState<ChronicleEvent[]>([]);
+  const [impulses, setImpulses] = useState<any[]>([]);
 
   useEffect(() => {
     if (ws.status !== 'connected') return;
@@ -28,6 +30,10 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, ws }: TabPanel
 
     ws.sendRequest('entity.list').then((data: any) => {
       setEntities(data.entities || []);
+    }).catch(console.error);
+
+    ws.sendRequest('impulse.list').then((data: any) => {
+      setImpulses(data || []);
     }).catch(console.error);
 
     // Subscribe to chronicle events
@@ -80,6 +86,9 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, ws }: TabPanel
         <button class={currentTab === 'chronicles' ? 'active' : ''} onClick={() => onTabChange('chronicles')}>
           Chronicles ({chronicles.length})
         </button>
+        <button class={currentTab === 'impulses' ? 'active' : ''} onClick={() => onTabChange('impulses')}>
+          Impulses ({impulses.length})
+        </button>
       </div>
       <div class="tab-content">
         {currentTab === 'signals' && (
@@ -119,7 +128,20 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, ws }: TabPanel
                   <div class="chronicle-name">{chron.name}</div>
                   <div class="chronicle-meta">
                     Tick {chron.tick} • Era: {chron.era} • {chron.sim_time.toFixed(2)}s
-                  </div>
+        {currentTab === 'impulses' && (
+          <div class="item-list">
+            <button class="primary emit-btn" onClick={onEmitImpulse}>
+              Emit Impulse...
+            </button>
+            {impulses.map(imp => (
+              <div key={imp.path} class="item" onClick={() => onSelectItem({ type: 'impulse', data: imp })}>
+                {imp.path}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
                 </div>
               ))
             )}

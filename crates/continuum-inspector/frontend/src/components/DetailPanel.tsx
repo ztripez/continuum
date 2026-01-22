@@ -83,6 +83,12 @@ export function DetailPanel({ selectedItem }: DetailPanelProps) {
             </div>
           </>
         )}
+        {type === 'impulse' && (
+          <div class="detail-grid">
+            <span class="label">Path:</span><span>{data.path}</span>
+            <span class="label">Payload Type:</span><span>{data.payload_type || 'None'}</span>
+          </div>
+        )}
       </div>
     </div>
   );

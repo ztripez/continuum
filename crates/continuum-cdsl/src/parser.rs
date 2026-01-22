@@ -6,13 +6,13 @@
 use chumsky::prelude::*;
 
 use crate::ast::{
-    Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, Entity, EraDecl, Expr,
-    Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData, Stmt, Stratum, StratumPolicyEntry,
-    TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp, UnitExpr, UntypedKind, WarmupBlock,
-    WhenBlock, WorldDecl,
+    Attribute, BinaryOp, BlockBody, ConfigEntry, ConstEntry, Declaration, DeterminismPolicy,
+    Entity, EraDecl, Expr, FaultPolicy, Node, ObserveBlock, ObserveWhen, RawWarmupPolicy, RoleData,
+    Stmt, Stratum, StratumPolicyEntry, TransitionDecl, TypeDecl, TypeExpr, TypeField, UnaryOp,
+    UnitExpr, UntypedKind, WarmupBlock, WhenBlock, WorldDecl, WorldPolicy,
 };
 
-use crate::foundation::{EntityId, Path, Span, StratumId};
+use crate::foundation::{AggregateOp, EntityId, Path, Span, StratumId};
 use crate::lexer::Token;
 
 /// Parse an expression from a token stream.
@@ -168,12 +168,160 @@ fn expr_parser<'src>(
                 Expr::new(UntypedKind::Vector(elements), token_span(e.span(), file_id))
             });
 
+        // Functional operators
+        let filter_expr = just(Token::Filter)
+            .ignore_then(
+                expr.clone()
+                    .separated_by(just(Token::Comma))
+                    .collect::<Vec<_>>()
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .map_with(move |args, e| {
+                let span = token_span(e.span(), file_id);
+                match args.as_slice() {
+                    [source, predicate] => Expr::new(
+                        UntypedKind::Filter {
+                            source: Box::new(source.clone()),
+                            predicate: Box::new(predicate.clone()),
+                        },
+                        span,
+                    ),
+                    _ => Expr::new(
+                        UntypedKind::ParseError("filter() expects 2 arguments".to_string()),
+                        span,
+                    ),
+                }
+            });
+
+        let nearest_expr = just(Token::Nearest)
+            .ignore_then(
+                path_parser()
+                    .then_ignore(just(Token::Comma))
+                    .then(expr.clone())
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .map_with(move |(entity_path, position), e| {
+                Expr::new(
+                    UntypedKind::Nearest {
+                        entity: EntityId::new(entity_path.to_string()),
+                        position: Box::new(position),
+                    },
+                    token_span(e.span(), file_id),
+                )
+            });
+
+        let within_expr = just(Token::Within)
+            .ignore_then(
+                path_parser()
+                    .then_ignore(just(Token::Comma))
+                    .then(expr.clone())
+                    .then_ignore(just(Token::Comma))
+                    .then(expr.clone())
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .map_with(move |((entity_path, position), radius), e| {
+                Expr::new(
+                    UntypedKind::Within {
+                        entity: EntityId::new(entity_path.to_string()),
+                        position: Box::new(position),
+                        radius: Box::new(radius),
+                    },
+                    token_span(e.span(), file_id),
+                )
+            });
+
+        let other_expr = just(Token::Other)
+            .ignore_then(path_parser().delimited_by(just(Token::LParen), just(Token::RParen)))
+            .map_with(move |entity_path, e| {
+                Expr::new(
+                    UntypedKind::OtherInstances(EntityId::new(entity_path.to_string())),
+                    token_span(e.span(), file_id),
+                )
+            });
+
+        let pairs_expr = just(Token::Pairs)
+            .ignore_then(path_parser().delimited_by(just(Token::LParen), just(Token::RParen)))
+            .map_with(move |entity_path, e| {
+                Expr::new(
+                    UntypedKind::PairsInstances(EntityId::new(entity_path.to_string())),
+                    token_span(e.span(), file_id),
+                )
+            });
+
+        let agg_op = just(Token::Agg)
+            .ignore_then(just(Token::Dot))
+            .ignore_then(choice((
+                just(Token::Ident("sum".to_string())).to(AggregateOp::Sum),
+                just(Token::Ident("product".to_string())).to(AggregateOp::Product),
+                just(Token::Ident("min".to_string())).to(AggregateOp::Min),
+                just(Token::Ident("max".to_string())).to(AggregateOp::Max),
+                just(Token::Ident("mean".to_string())).to(AggregateOp::Mean),
+                just(Token::Ident("count".to_string())).to(AggregateOp::Count),
+                just(Token::Ident("any".to_string())).to(AggregateOp::Any),
+                just(Token::Ident("all".to_string())).to(AggregateOp::All),
+                just(Token::Ident("none".to_string())).to(AggregateOp::None),
+                just(Token::Ident("map".to_string())).to(AggregateOp::Map),
+                just(Token::Ident("first".to_string())).to(AggregateOp::First),
+            )));
+
+        let agg_expr = agg_op
+            .then(
+                expr.clone()
+                    .separated_by(just(Token::Comma))
+                    .collect::<Vec<_>>()
+                    .delimited_by(just(Token::LParen), just(Token::RParen)),
+            )
+            .map_with(move |(op, args): (AggregateOp, Vec<Expr>), e| {
+                let span = token_span(e.span(), file_id);
+                match args.as_slice() {
+                    [source] if op == AggregateOp::Count => Expr::new(
+                        UntypedKind::Aggregate {
+                            op,
+                            source: Box::new(source.clone()),
+                            binding: "self".to_string(),
+                            body: Box::new(Expr::new(UntypedKind::BoolLiteral(true), span)),
+                        },
+                        span,
+                    ),
+                    [source, body] => Expr::new(
+                        UntypedKind::Aggregate {
+                            op,
+                            source: Box::new(source.clone()),
+                            binding: "self".to_string(),
+                            body: Box::new(body.clone()),
+                        },
+                        span,
+                    ),
+                    _ => Expr::new(
+                        UntypedKind::ParseError(format!("agg.{:?} expects 1 or 2 arguments", op)),
+                        span,
+                    ),
+                }
+            });
+
+        let entity_expr = just(Token::Entity)
+            .ignore_then(just(Token::Dot))
+            .ignore_then(path_parser())
+            .map_with(move |path, e| {
+                Expr::new(
+                    UntypedKind::Entity(EntityId::new(path.to_string())),
+                    token_span(e.span(), file_id),
+                )
+            });
+
         let atom = choice((
             bool_literal,
             numeric_literal,
             string_literal,
             context_value,
             vector_literal,
+            filter_expr,
+            nearest_expr,
+            within_expr,
+            other_expr,
+            pairs_expr,
+            agg_expr,
+            entity_expr,
             parens,
             identifier,
         ));
@@ -247,7 +395,7 @@ fn expr_parser<'src>(
         let power = unary
             .clone()
             .then(power_op.then(unary.clone()).repeated().collect::<Vec<_>>())
-            .map(|(first, rest)| {
+            .map(|(first, rest): (Expr, Vec<(BinaryOp, Expr)>)| {
                 if rest.is_empty() {
                     return first;
                 }
@@ -481,6 +629,14 @@ fn type_expr_parser<'src>(
         });
     let user_type = select! { Token::Ident(name) => TypeExpr::User(Path::from(name.as_str())) };
     choice((bool_type, scalar_type, vector_type, matrix_type, user_type))
+}
+
+fn entity_ref_parser<'src>(
+) -> impl Parser<'src, &'src [Token], EntityId, extra::Err<Rich<'src, Token>>> + Clone {
+    just(Token::Entity)
+        .ignore_then(just(Token::Dot))
+        .ignore_then(path_parser())
+        .map(|path| EntityId::new(path.to_string()))
 }
 
 fn token_span(span: SimpleSpan, file_id: u16) -> Span {
@@ -1072,17 +1228,75 @@ fn config_block_parser<'src>(
         .map(Declaration::Config)
 }
 
+fn policy_parser<'src>(
+    _file_id: u16,
+) -> impl Parser<'src, &'src [Token], WorldPolicy, extra::Err<Rich<'src, Token>>> + Clone {
+    #[derive(Clone)]
+    enum PolicyField {
+        Determinism(DeterminismPolicy),
+        Faults(FaultPolicy),
+    }
+
+    let determinism = just(Token::Determinism)
+        .ignore_then(just(Token::Colon))
+        .ignore_then(select! {
+            Token::String(s) if s == "strict" => DeterminismPolicy::Strict,
+            Token::String(s) if s == "relaxed" => DeterminismPolicy::Relaxed,
+            Token::Ident(s) if s == "strict" => DeterminismPolicy::Strict,
+            Token::Ident(s) if s == "relaxed" => DeterminismPolicy::Relaxed,
+        })
+        .map(PolicyField::Determinism);
+
+    let faults = just(Token::Faults)
+        .ignore_then(just(Token::Colon))
+        .ignore_then(select! {
+            Token::String(s) if s == "fatal" => FaultPolicy::Fatal,
+            Token::String(s) if s == "warn" => FaultPolicy::Warn,
+            Token::String(s) if s == "ignore" => FaultPolicy::Ignore,
+            Token::Ident(s) if s == "fatal" => FaultPolicy::Fatal,
+            Token::Ident(s) if s == "warn" => FaultPolicy::Warn,
+            Token::Ident(s) if s == "ignore" => FaultPolicy::Ignore,
+        })
+        .map(PolicyField::Faults);
+
+    just(Token::Policy)
+        .ignore_then(
+            just(Token::LBrace).ignore_then(
+                choice((determinism, faults))
+                    .separated_by(just(Token::Semicolon))
+                    .allow_trailing()
+                    .collect::<Vec<_>>(),
+            ),
+        )
+        .then_ignore(just(Token::RBrace))
+        .map_with(move |fields, _| {
+            let mut policy = WorldPolicy::default();
+            for field in fields {
+                match field {
+                    PolicyField::Determinism(p) => policy.determinism = p,
+                    PolicyField::Faults(p) => policy.faults = p,
+                }
+            }
+            policy
+        })
+}
+
 fn world_parser<'src>(
     file_id: u16,
 ) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
-    just(Token::World)
+    let header = just(Token::World)
         .ignore_then(path_parser())
-        .then_ignore(just(Token::LBrace))
-        .then(attribute_parser(file_id).repeated().collect::<Vec<_>>())
+        .then_ignore(just(Token::LBrace));
+
+    let body = attribute_parser(file_id)
+        .repeated()
+        .collect::<Vec<_>>()
         .then(warmup_parser(file_id).or_not())
-        .then_ignore(just(Token::RBrace))
-        .map_with(move |((path, attrs), warmup), e| {
-            Declaration::World(WorldDecl {
+        .then(policy_parser(file_id).or_not());
+
+    header.then(body).then_ignore(just(Token::RBrace)).map_with(
+        move |(path, ((attrs, warmup), policy)), e| {
+            let w = WorldDecl {
                 path,
                 title: None,
                 version: None,
@@ -1094,8 +1308,11 @@ fn world_parser<'src>(
                 span: token_span(e.span(), file_id),
                 doc: None,
                 debug: false,
-            })
-        })
+                policy: policy.unwrap_or_default(),
+            };
+            Declaration::World(w)
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1250,5 +1467,25 @@ mod tests {
         };
         let dt = era.dt.as_ref().expect("expected dt");
         assert!(matches!(dt.kind, UntypedKind::ParseError(_)));
+    }
+
+    #[test]
+    fn test_parse_world_policy() {
+        let decls = lex_and_parse_decl(
+            r#"
+            world terra {
+                policy {
+                    determinism: strict;
+                    faults: fatal;
+                }
+            }
+            "#,
+        );
+        let world = match &decls[0] {
+            Declaration::World(world) => world,
+            _ => panic!("expected world"),
+        };
+        assert_eq!(world.policy.determinism, DeterminismPolicy::Strict);
+        assert_eq!(world.policy.faults, FaultPolicy::Fatal);
     }
 }

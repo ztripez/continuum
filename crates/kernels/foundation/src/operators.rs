@@ -16,6 +16,8 @@ pub enum BinaryOp {
     Mul,
     /// Division: `a / b`.
     Div,
+    /// Modulo: `a % b`.
+    Mod,
     /// Exponentiation: `a ^ b` or `a ** b`.
     Pow,
     /// Equality: `a == b`.
@@ -66,4 +68,8 @@ pub enum AggregateOp {
     All,
     /// No instance matches predicate: `agg.none(entity.plate, self.age < 0)`
     None,
+    /// Map over all values: `agg.map(entity.moon, self.mass)`
+    Map,
+    /// First instance matching predicate: `agg.first(entity.plate, self.type == Continental)`
+    First,
 }

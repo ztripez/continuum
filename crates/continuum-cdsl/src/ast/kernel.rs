@@ -80,7 +80,7 @@
 //! - Deriving return types from argument types
 
 use crate::foundation::{Shape, Unit};
-use continuum_kernel_types::{KERNEL_SIGNATURES, KernelId};
+use continuum_kernel_types::{KernelId, KERNEL_SIGNATURES};
 
 /// Declares that a kernel requires explicit `: uses()` declaration
 ///

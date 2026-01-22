@@ -126,6 +126,15 @@ pub enum Token {
     /// Keyword `world`
     #[token("world")]
     World,
+    /// Keyword `policy`
+    #[token("policy")]
+    Policy,
+    /// Keyword `determinism`
+    #[token("determinism")]
+    Determinism,
+    /// Keyword `faults`
+    #[token("faults")]
+    Faults,
 
     // Expression keywords
     /// Keyword `let`
@@ -140,6 +149,23 @@ pub enum Token {
     /// Keyword `else`
     #[token("else")]
     Else,
+
+    // Functional operators
+    /// Keyword `filter`
+    #[token("filter")]
+    Filter,
+    /// Keyword `nearest`
+    #[token("nearest")]
+    Nearest,
+    /// Keyword `within`
+    #[token("within")]
+    Within,
+    /// Keyword `first`
+    #[token("first")]
+    First,
+    /// Keyword `agg`
+    #[token("agg")]
+    Agg,
 
     // Context keywords
     /// Keyword `prev`
@@ -386,11 +412,19 @@ const TOKEN_STRINGS: &[&str] = &[
     "for",
     "emit",
     "observe",
-    "world", // phases & blocks
+    "world",
+    "policy",
+    "determinism",
+    "faults", // phases & blocks
     "let",
     "in",
     "if",
     "else", // expressions
+    "filter",
+    "nearest",
+    "within",
+    "first",
+    "agg",
     "prev",
     "current",
     "inputs",

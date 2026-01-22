@@ -792,7 +792,12 @@ mod tests {
     fn test_different_roles() {
         let span = Span::new(0, 0, 10, 1);
 
-        let signal = Node::new(Path::from_path_str("test.signal"), span, RoleData::Signal, ());
+        let signal = Node::new(
+            Path::from_path_str("test.signal"),
+            span,
+            RoleData::Signal,
+            (),
+        );
         assert_eq!(signal.role_id(), super::super::role::RoleId::Signal);
 
         let field = Node::new(
@@ -931,7 +936,10 @@ mod tests {
             span,
         );
         let body = ExecutionBody::Expr(body_expr);
-        let reads = vec![Path::from_path_str("signal.temp"), Path::from_path_str("signal.prev")];
+        let reads = vec![
+            Path::from_path_str("signal.temp"),
+            Path::from_path_str("signal.prev"),
+        ];
 
         let execution = Execution::new(
             "test".to_string(),

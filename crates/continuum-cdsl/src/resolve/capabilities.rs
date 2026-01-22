@@ -323,13 +323,33 @@ fn scan_for_capability_violations(
             scan_for_capability_violations(object, ctx, errors);
         }
 
-        ExprKind::Aggregate { body, .. } => {
+        ExprKind::Aggregate { source, body, .. } => {
+            scan_for_capability_violations(source, ctx, errors);
             scan_for_capability_violations(body, ctx, errors);
         }
 
-        ExprKind::Fold { init, body, .. } => {
+        ExprKind::Fold {
+            source, init, body, ..
+        } => {
+            scan_for_capability_violations(source, ctx, errors);
             scan_for_capability_violations(init, ctx, errors);
             scan_for_capability_violations(body, ctx, errors);
+        }
+
+        ExprKind::Filter { source, predicate } => {
+            scan_for_capability_violations(source, ctx, errors);
+            scan_for_capability_violations(predicate, ctx, errors);
+        }
+
+        ExprKind::Nearest { position, .. } => {
+            scan_for_capability_violations(position, ctx, errors);
+        }
+
+        ExprKind::Within {
+            position, radius, ..
+        } => {
+            scan_for_capability_violations(position, ctx, errors);
+            scan_for_capability_violations(radius, ctx, errors);
         }
 
         ExprKind::Self_ => {
@@ -383,7 +403,8 @@ fn scan_for_capability_violations(
         | ExprKind::StringLiteral(_)
         | ExprKind::Local(_)
         | ExprKind::Config(_)
-        | ExprKind::Const(_) => {
+        | ExprKind::Const(_)
+        | ExprKind::Entity(_) => {
             // These don't require special capabilities
         }
     }

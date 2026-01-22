@@ -72,13 +72,9 @@ export interface WorldInfo {
 }
 
 export interface ImpulseInfo {
-  id: string;
-  title?: string;
-  symbol?: string;
+  path: string;
   doc?: string;
-  payload_type: string;
-  unit?: string;
-  range?: [number, number];
+  payload_type?: string;
 }
 
 export interface ChronicleEvent {

@@ -1319,8 +1319,7 @@ mod tests {
 
     #[test]
     fn test_extract_dependencies_aggregate() {
-        use crate::ast::AggregateOp;
-        use crate::foundation::EntityId;
+        use crate::foundation::{AggregateOp, EntityId};
 
         let span = test_span();
         let ty = scalar_type();
@@ -1338,7 +1337,11 @@ mod tests {
         let expr = TypedExpr::new(
             ExprKind::Aggregate {
                 op: AggregateOp::Sum,
-                entity: entity.clone(),
+                source: Box::new(TypedExpr::new(
+                    ExprKind::Entity(entity.clone()),
+                    ty.clone(),
+                    span,
+                )),
                 binding: "p".to_string(),
                 body: Box::new(body),
             },
@@ -1379,7 +1382,11 @@ mod tests {
 
         let expr = TypedExpr::new(
             ExprKind::Fold {
-                entity: entity.clone(),
+                source: Box::new(TypedExpr::new(
+                    ExprKind::Entity(entity.clone()),
+                    ty.clone(),
+                    span,
+                )),
                 init: Box::new(init),
                 acc: "acc".to_string(),
                 elem: "p".to_string(),

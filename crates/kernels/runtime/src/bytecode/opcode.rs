@@ -106,14 +106,36 @@ pub enum OpcodeKind {
     Let,
     /// Marks the end of a local binding scope.
     EndLet,
-    /// Iterates over entities and reduces results using an aggregate operation.
+    /// Loads all instances of an entity type onto the stack as a sequence (Seq).
     ///
-    /// Operands: [EntityId, BindingSlot, BlockId, AggregateOp].
+    /// Operands: [EntityId].
+    LoadEntity,
+    /// Filters a sequence using a predicate block.
+    ///
+    /// Pops: [Seq].
+    /// Operands: [BindingSlot, BlockId].
+    /// Pushes: [Filtered Seq].
+    Filter,
+    /// Finds the instance in a sequence nearest to a position.
+    ///
+    /// Pops: [Seq, Position].
+    /// Pushes: [Nearest Instance].
+    Nearest,
+    /// Filters a sequence to instances within a radius of a position.
+    ///
+    /// Pops: [Seq, Position, Radius].
+    /// Pushes: [Filtered Seq].
+    Within,
+    /// Iterates over a sequence and reduces results using an aggregate operation.
+    ///
+    /// Pops: [Seq].
+    /// Operands: [BindingSlot, BlockId, AggregateOp].
     /// Executes the specified block for each entity instance.
     Aggregate,
-    /// Iterates over entities and performs a stateful reduction (fold).
+    /// Iterates over a sequence and performs a stateful reduction (fold).
     ///
-    /// Operands: [EntityId, AccSlot, ElemSlot, BlockId].
+    /// Pops: [Seq, InitialValue].
+    /// Operands: [AccSlot, ElemSlot, BlockId].
     /// Maintains an accumulator value in `AccSlot` across iterations.
     Fold,
     /// Pops a Map/Struct and accesses the field named in operand[0].

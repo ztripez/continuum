@@ -208,23 +208,111 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         // === Aggregate operations ===
         UntypedKind::Aggregate {
             op,
-            entity,
+            source,
             binding,
             body,
         } => {
-            let (k, t) = type_aggregate(ctx, op, entity, binding, body, span)?;
+            let (k, t) = type_aggregate(ctx, op, source, binding, body, span)?;
             (k, t)
         }
 
         UntypedKind::Fold {
-            entity,
+            source,
             init,
             acc,
             elem,
             body,
         } => {
-            let (k, t) = type_fold(ctx, entity, init, acc, elem, body, span)?;
+            let (k, t) = type_fold(ctx, source, init, acc, elem, body, span)?;
             (k, t)
+        }
+
+        UntypedKind::Entity(entity_id) => {
+            let instance_ty = Type::User(continuum_foundation::TypeId::from(entity_id.0.clone()));
+            (
+                ExprKind::Entity(entity_id.clone()),
+                Type::Seq(Box::new(instance_ty)),
+            )
+        }
+
+        UntypedKind::Filter { source, predicate } => {
+            let typed_source = type_expression(source, ctx)?;
+            let element_ty = match &typed_source.ty {
+                Type::Seq(inner) => *inner.clone(),
+                _ => {
+                    return Err(err_type_mismatch(
+                        source.span,
+                        "Seq<T>",
+                        &format!("{:?}", typed_source.ty),
+                    ))
+                }
+            };
+
+            let extended_ctx = ctx.with_binding("self".to_string(), element_ty.clone());
+            let typed_predicate = type_expression(predicate, &extended_ctx)?;
+
+            if typed_predicate.ty != Type::Bool {
+                return Err(err_type_mismatch(
+                    predicate.span,
+                    "Bool",
+                    &format!("{:?}", typed_predicate.ty),
+                ));
+            }
+
+            (
+                ExprKind::Filter {
+                    source: Box::new(typed_source),
+                    predicate: Box::new(typed_predicate),
+                },
+                Type::Seq(Box::new(element_ty)),
+            )
+        }
+
+        UntypedKind::Nearest { entity, position } => {
+            let typed_position = type_expression(position, ctx)?;
+            (
+                ExprKind::Nearest {
+                    entity: entity.clone(),
+                    position: Box::new(typed_position),
+                },
+                Type::User(continuum_foundation::TypeId::from(entity.0.clone())),
+            )
+        }
+
+        UntypedKind::Within {
+            entity,
+            position,
+            radius,
+        } => {
+            let typed_position = type_expression(position, ctx)?;
+            let typed_radius = type_expression(radius, ctx)?;
+            let instance_ty = Type::User(continuum_foundation::TypeId::from(entity.0.clone()));
+            (
+                ExprKind::Within {
+                    entity: entity.clone(),
+                    position: Box::new(typed_position),
+                    radius: Box::new(typed_radius),
+                },
+                Type::Seq(Box::new(instance_ty)),
+            )
+        }
+
+        UntypedKind::OtherInstances(entity_id) => {
+            let instance_ty = Type::User(continuum_foundation::TypeId::from(entity_id.0.clone()));
+            (
+                ExprKind::Entity(entity_id.clone()), // Desugar to Entity for now or add variant
+                Type::Seq(Box::new(instance_ty)),
+            )
+        }
+
+        UntypedKind::PairsInstances(entity_id) => {
+            let instance_ty = Type::User(continuum_foundation::TypeId::from(entity_id.0.clone()));
+            // Produces Seq<[Instance, Instance]>?
+            // For now, let's just say it produces Seq<Instance> and we'll handle the pair logic in the VM
+            (
+                ExprKind::Entity(entity_id.clone()), // Desugar to Entity for now
+                Type::Seq(Box::new(instance_ty)),
+            )
         }
 
         // === Function/kernel call ===

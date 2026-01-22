@@ -581,9 +581,18 @@ mod tests {
         assert_eq!(ctx.dt(), &Value::Scalar(0.016));
         assert_eq!(ctx.prev(), &Value::Scalar(5.0));
         assert_eq!(ctx.inputs(), &Value::Scalar(2.0));
-        assert_eq!(ctx.config(&Path::from_path_str("test")), &Value::Scalar(1.0));
-        assert_eq!(ctx.constant(&Path::from_path_str("test")), &Value::Scalar(2.0));
-        assert_eq!(ctx.signal(&Path::from_path_str("test")), &Value::Scalar(3.0));
+        assert_eq!(
+            ctx.config(&Path::from_path_str("test")),
+            &Value::Scalar(1.0)
+        );
+        assert_eq!(
+            ctx.constant(&Path::from_path_str("test")),
+            &Value::Scalar(2.0)
+        );
+        assert_eq!(
+            ctx.signal(&Path::from_path_str("test")),
+            &Value::Scalar(3.0)
+        );
     }
 
     #[test]

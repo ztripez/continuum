@@ -40,7 +40,10 @@ pub enum Value {
 
     /// Structured payload with named fields, wrapped in Arc for cheap cloning.
     Map(Arc<Vec<(String, Value)>>),
-    // TODO: Grid, Seq
+
+    /// Ordered sequence of values (intermediate only, wrapped in Arc).
+    Seq(Arc<Vec<Value>>),
+    // TODO: Grid
 }
 
 impl Value {
@@ -152,6 +155,14 @@ impl Value {
     pub fn as_map(&self) -> Option<&[(String, Value)]> {
         match self {
             Value::Map(v) => Some(v),
+            _ => None,
+        }
+    }
+
+    /// Attempt to get the value as a sequence.
+    pub fn as_seq(&self) -> Option<&[Value]> {
+        match self {
+            Value::Seq(v) => Some(v),
             _ => None,
         }
     }
@@ -282,6 +293,10 @@ impl fmt::Display for Value {
             Value::Map(v) => {
                 let items: Vec<_> = v.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", items.join(", "))
+            }
+            Value::Seq(v) => {
+                let items: Vec<_> = v.iter().map(|v| format!("{}", v)).collect();
+                write!(f, "[{}]", items.join(", "))
             }
         }
     }

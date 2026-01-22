@@ -4,8 +4,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use crate::world_api::{WorldMessage, WorldRequest, WorldResponse};
 use crate::world_api::framing::{read_message, write_message};
 use crate::run_world_intent::RunWorldIntent;
+use crate::ipc_types::{SignalInfo, FieldInfo, ImpulseInfo, AssertionInfo};
 use continuum_runtime::{Runtime, build_runtime};
-use continuum_cdsl::ast::{CompiledWorld, RoleId};
+use continuum_cdsl::ast::{CompiledWorld, RoleData, RoleId};
 use tracing::{info, error, debug, warn};
 use std::sync::{Arc, Mutex};
 
@@ -120,6 +121,14 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
     let mut rt = state.runtime.lock().unwrap();
     
     match req.kind.as_str() {
+        "world.get" => {
+            WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(serde_json::to_value(&state.compiled.world.metadata).unwrap()),
+                error: None,
+            }
+        }
         "run.step" => {
             let steps = match req.payload.get("steps").and_then(|v| v.as_u64()) {
                 Some(s) => s,
@@ -193,11 +202,16 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
             let signals: Vec<_> = state.compiled.world.globals.iter()
                 .filter(|(_, node)| node.role_id() == RoleId::Signal)
                 .map(|(path, node)| {
-                    serde_json::json!({
-                        "path": path.to_string(),
-                        "doc": node.doc,
-                        "type": node.output.as_ref().map(|t| t.to_string()),
-                    })
+                    SignalInfo {
+                        id: path.to_string(),
+                        title: node.title.clone(),
+                        symbol: None, // TODO: add symbol to Node
+                        doc: node.doc.clone(),
+                        value_type: node.output.as_ref().map(|t| t.to_string()),
+                        unit: None, // TODO: extract unit from Type
+                        range: None, // TODO: extract range from Type
+                        stratum: node.stratum.as_ref().map(|s| s.to_string()),
+                    }
                 })
                 .collect();
             
@@ -220,11 +234,16 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
             let fields: Vec<_> = state.compiled.world.globals.iter()
                 .filter(|(_, node)| node.role_id() == RoleId::Field)
                 .map(|(path, node)| {
-                    serde_json::json!({
-                        "path": path.to_string(),
-                        "doc": node.doc,
-                        "type": node.output.as_ref().map(|t| t.to_string()),
-                    })
+                    FieldInfo {
+                        id: path.to_string(),
+                        title: node.title.clone(),
+                        symbol: None,
+                        doc: node.doc.clone(),
+                        topology: None, // TODO: add topology to Field role data
+                        value_type: node.output.as_ref().map(|t| t.to_string()),
+                        unit: None,
+                        range: None,
+                    }
                 })
                 .collect();
             
@@ -247,10 +266,16 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
             let impulses: Vec<_> = state.compiled.world.globals.iter()
                 .filter(|(_, node)| node.role_id() == RoleId::Impulse)
                 .map(|(path, node)| {
-                    serde_json::json!({
-                        "path": path.to_string(),
-                        "doc": node.doc,
-                    })
+                    let payload_type = if let RoleData::Impulse { payload } = &node.role {
+                        payload.as_ref().map(|t| t.to_string())
+                    } else {
+                        None
+                    };
+                    ImpulseInfo {
+                        path: path.to_string(),
+                        doc: node.doc.clone(),
+                        payload_type,
+                    }
                 })
                 .collect();
             
@@ -317,11 +342,11 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
             let mut assertions = Vec::new();
             for node in state.compiled.world.globals.values() {
                 for assertion in &node.assertions {
-                    assertions.push(serde_json::json!({
-                        "path": node.path.to_string(),
-                        "message": assertion.message,
-                        "severity": format!("{:?}", assertion.severity),
-                    }));
+                    assertions.push(AssertionInfo {
+                        signal_id: node.path.to_string(),
+                        message: assertion.message.clone(),
+                        severity: format!("{:?}", assertion.severity),
+                    });
                 }
             }
             match serde_json::to_value(assertions) {

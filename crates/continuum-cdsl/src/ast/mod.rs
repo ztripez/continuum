@@ -91,7 +91,8 @@ pub use world::*;
 pub use continuum_kernel_types::KernelId;
 
 // Re-export untyped AST types explicitly to avoid ExprKind ambiguity
-pub use untyped::{BinaryOp, Expr, TypeExpr, UnaryOp, UnitExpr};
+pub use crate::foundation::{BinaryOp, UnaryOp};
+pub use untyped::{Expr, TypeExpr, UnitExpr};
 
 // ExprKind from untyped module is public but not re-exported at top level
 // to avoid name collision with expr::ExprKind. Access it as untyped::ExprKind.

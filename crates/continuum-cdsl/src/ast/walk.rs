@@ -109,13 +109,33 @@ where
             walk_expr(object, visitor);
         }
 
-        ExprKind::Aggregate { body, .. } => {
+        ExprKind::Aggregate { source, body, .. } => {
+            walk_expr(source, visitor);
             walk_expr(body, visitor);
         }
 
-        ExprKind::Fold { init, body, .. } => {
+        ExprKind::Fold {
+            source, init, body, ..
+        } => {
+            walk_expr(source, visitor);
             walk_expr(init, visitor);
             walk_expr(body, visitor);
+        }
+
+        ExprKind::Filter { source, predicate } => {
+            walk_expr(source, visitor);
+            walk_expr(predicate, visitor);
+        }
+
+        ExprKind::Nearest { position, .. } => {
+            walk_expr(position, visitor);
+        }
+
+        ExprKind::Within {
+            position, radius, ..
+        } => {
+            walk_expr(position, visitor);
+            walk_expr(radius, visitor);
         }
 
         // === Leaf nodes (no children to traverse) ===
@@ -132,7 +152,8 @@ where
         | ExprKind::Dt
         | ExprKind::Self_
         | ExprKind::Other
-        | ExprKind::Payload => {
+        | ExprKind::Payload
+        | ExprKind::Entity(_) => {
             // No children to visit
         }
     }

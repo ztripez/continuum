@@ -7,8 +7,7 @@ use crate::reductions;
 use crate::soa_storage::MemberSignalBuffer;
 use crate::storage::{EntityStorage, EventBuffer, FieldBuffer, InputChannels, SignalStorage};
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
-use continuum_cdsl::ast::AggregateOp;
-use continuum_foundation::{EntityId, Path};
+use continuum_foundation::{AggregateOp, EntityId, Path};
 use indexmap::IndexMap;
 use tracing::instrument;
 
@@ -583,9 +582,92 @@ impl<'a> ExecutionContext for VMContext<'a> {
 
     fn load_payload(&self) -> std::result::Result<Value, ExecutionError> {
         Err(ExecutionError::InvalidOpcode {
-            opcode: "LoadPayload requires impulse context".to_string(),
+            opcode: "LoadPayload not yet supported in VM".to_string(),
             phase: self.phase,
         })
+    }
+
+    fn find_nearest(
+        &self,
+        seq: &[Value],
+        position: Value,
+    ) -> std::result::Result<Value, ExecutionError> {
+        let pos = position
+            .as_vec3()
+            .ok_or_else(|| ExecutionError::TypeMismatch {
+                expected: "Vec3".to_string(),
+                found: format!("{:?}", position),
+            })?;
+
+        let mut nearest = None;
+        let mut min_dist_sq = f64::MAX;
+
+        for instance in seq {
+            if let Some(inst_map) = instance.as_map() {
+                let inst_pos_val = inst_map
+                    .iter()
+                    .find(|(name, _)| name == "position")
+                    .map(|(_, v)| v);
+
+                if let Some(Value::Vec3(inst_pos)) = inst_pos_val {
+                    let dx = inst_pos[0] - pos[0];
+                    let dy = inst_pos[1] - pos[1];
+                    let dz = inst_pos[2] - pos[2];
+                    let dist_sq = dx * dx + dy * dy + dz * dz;
+                    if dist_sq < min_dist_sq {
+                        min_dist_sq = dist_sq;
+                        nearest = Some(instance.clone());
+                    }
+                }
+            }
+        }
+
+        nearest.ok_or_else(|| ExecutionError::InvalidOperand {
+            message: "No instances with 'position' field found in sequence for nearest lookup"
+                .to_string(),
+        })
+    }
+
+    fn filter_within(
+        &self,
+        seq: &[Value],
+        position: Value,
+        radius: Value,
+    ) -> std::result::Result<Vec<Value>, ExecutionError> {
+        let pos = position
+            .as_vec3()
+            .ok_or_else(|| ExecutionError::TypeMismatch {
+                expected: "Vec3".to_string(),
+                found: format!("{:?}", position),
+            })?;
+        let r = radius
+            .as_scalar()
+            .ok_or_else(|| ExecutionError::TypeMismatch {
+                expected: "Scalar".to_string(),
+                found: format!("{:?}", radius),
+            })?;
+        let r_sq = r * r;
+
+        let mut filtered = Vec::new();
+        for instance in seq {
+            if let Some(inst_map) = instance.as_map() {
+                let inst_pos_val = inst_map
+                    .iter()
+                    .find(|(name, _)| name == "position")
+                    .map(|(_, v)| v);
+
+                if let Some(Value::Vec3(inst_pos)) = inst_pos_val {
+                    let dx = inst_pos[0] - pos[0];
+                    let dy = inst_pos[1] - pos[1];
+                    let dz = inst_pos[2] - pos[2];
+                    let dist_sq = dx * dx + dy * dy + dz * dz;
+                    if dist_sq <= r_sq {
+                        filtered.push(instance.clone());
+                    }
+                }
+            }
+        }
+        Ok(filtered)
     }
 
     fn emit_signal(
@@ -701,18 +783,18 @@ impl<'a> ExecutionContext for VMContext<'a> {
 
         match op {
             AggregateOp::Sum => {
-                if let Some(values) = values
+                if let Some(v) = values
                     .iter()
                     .map(Value::as_scalar)
                     .collect::<Option<Vec<_>>>()
                 {
-                    Ok(Value::Scalar(reductions::sum(&values)))
-                } else if let Some(values) = values
+                    Ok(Value::Scalar(reductions::sum(&v)))
+                } else if let Some(v) = values
                     .iter()
                     .map(Value::as_vec3)
                     .collect::<Option<Vec<_>>>()
                 {
-                    Ok(Value::Vec3(reductions::sum_vec3(&values)))
+                    Ok(Value::Vec3(reductions::sum_vec3(&v)))
                 } else {
                     Err(ExecutionError::TypeMismatch {
                         expected: "Scalar or Vec3 values".to_string(),
@@ -720,13 +802,27 @@ impl<'a> ExecutionContext for VMContext<'a> {
                     })
                 }
             }
-            AggregateOp::Max => {
-                if let Some(values) = values
+            AggregateOp::Product => {
+                if let Some(v) = values
                     .iter()
                     .map(Value::as_scalar)
                     .collect::<Option<Vec<_>>>()
                 {
-                    Ok(Value::Scalar(reductions::max(&values)))
+                    Ok(Value::Scalar(reductions::product(&v)))
+                } else {
+                    Err(ExecutionError::TypeMismatch {
+                        expected: "Scalar values".to_string(),
+                        found: format!("{values:?}"),
+                    })
+                }
+            }
+            AggregateOp::Max => {
+                if let Some(v) = values
+                    .iter()
+                    .map(Value::as_scalar)
+                    .collect::<Option<Vec<_>>>()
+                {
+                    Ok(Value::Scalar(reductions::max(&v)))
                 } else {
                     Err(ExecutionError::TypeMismatch {
                         expected: "Scalar values".to_string(),
@@ -735,12 +831,26 @@ impl<'a> ExecutionContext for VMContext<'a> {
                 }
             }
             AggregateOp::Min => {
-                if let Some(values) = values
+                if let Some(v) = values
                     .iter()
                     .map(Value::as_scalar)
                     .collect::<Option<Vec<_>>>()
                 {
-                    Ok(Value::Scalar(reductions::min(&values)))
+                    Ok(Value::Scalar(reductions::min(&v)))
+                } else {
+                    Err(ExecutionError::TypeMismatch {
+                        expected: "Scalar values".to_string(),
+                        found: format!("{values:?}"),
+                    })
+                }
+            }
+            AggregateOp::Mean => {
+                if let Some(v) = values
+                    .iter()
+                    .map(Value::as_scalar)
+                    .collect::<Option<Vec<_>>>()
+                {
+                    Ok(Value::Scalar(reductions::mean(&v)))
                 } else {
                     Err(ExecutionError::TypeMismatch {
                         expected: "Scalar values".to_string(),
@@ -788,6 +898,20 @@ impl<'a> ExecutionContext for VMContext<'a> {
                     .all(|&value| value);
                 Ok(Value::Boolean(all))
             }
+            AggregateOp::None => {
+                let any = values
+                    .iter()
+                    .map(Value::as_bool)
+                    .collect::<Option<Vec<_>>>()
+                    .ok_or_else(|| ExecutionError::TypeMismatch {
+                        expected: "Boolean values".to_string(),
+                        found: format!("{values:?}"),
+                    })?
+                    .iter()
+                    .any(|&value| value);
+                Ok(Value::Boolean(!any))
+            }
+            AggregateOp::First => Ok(values[0].clone()),
             AggregateOp::Map => Err(ExecutionError::InvalidOperand {
                 message: "Aggregate Map is not a runtime reduction".to_string(),
             }),
@@ -900,7 +1024,7 @@ mod tests {
             },
         );
 
-        let mut runtime = Runtime::new(era_id, eras, dags, blocks);
+        let mut runtime = Runtime::new(era_id, eras, dags, blocks, WorldPolicy::default());
         runtime.init_signal(signal_id.clone(), Value::Scalar(10.0));
 
         // 4. Execute tick
@@ -1008,7 +1132,7 @@ mod tests {
             },
         );
 
-        let mut runtime = Runtime::new(era_id, eras, dags, blocks);
+        let mut runtime = Runtime::new(era_id, eras, dags, blocks, WorldPolicy::default());
         runtime.init_signal(signal_id.clone(), Value::Scalar(100.0));
 
         // 5. Execute tick

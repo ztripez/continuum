@@ -75,7 +75,11 @@ fn handle_emit_value<F>(
     emit: F,
 ) -> Result<(), ExecutionError>
 where
-    F: Fn(&mut dyn ExecutionContext, &continuum_foundation::Path, Value) -> Result<(), ExecutionError>,
+    F: Fn(
+        &mut dyn ExecutionContext,
+        &continuum_foundation::Path,
+        Value,
+    ) -> Result<(), ExecutionError>,
 {
     let target = operand_signal_path(&instruction.operands[0])?;
     let value = runtime.pop()?;
@@ -280,65 +284,205 @@ pub(crate) fn handle_call_kernel(
     Ok(())
 }
 
-/// Performs a distributed aggregate operation (sum, map, count, etc.) over an entity set.
-///
-/// Iterates over all instances of the specified entity type, executing a sub-block
-/// for each instance and reducing the results.
+/// Loads all instances of an entity type as a sequence.
 ///
 /// # Operands
-/// 0. Entity type ID ([`Operand::Entity`]).
-/// 1. VM slot to bind the current instance to ([`Operand::Slot`]).
-/// 2. ID of the bytecode block to execute ([`Operand::Block`]).
-/// 3. Aggregate operation kind ([`Operand::AggregateOp`]).
+/// - 0: Entity type ID ([`Operand::Entity`]).
+///
+/// # Stack
+/// - [ ] → [Seq]
+pub(crate) fn handle_load_entity(
+    instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let entity = operand_entity(&instruction.operands[0])?;
+    let instances = ctx.iter_entity(&entity)?;
+    runtime.push(Value::Seq(std::sync::Arc::new(instances)))?;
+    Ok(())
+}
+
+/// Filters a sequence using a predicate block.
+///
+/// # Operands
+/// - 0: VM slot to bind the current instance to ([`Operand::Slot`]).
+/// - 1: ID of the predicate bytecode block ([`Operand::Block`]).
+///
+/// # Stack
+/// - [Seq] → [Filtered Seq]
+pub(crate) fn handle_filter(
+    instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    program: &BytecodeProgram,
+    ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let binding_slot = operand_slot(&instruction.operands[0])?;
+    let block_id = operand_block(&instruction.operands[1])?;
+    let seq_value = runtime.pop()?;
+    let seq = seq_value
+        .as_seq()
+        .ok_or_else(|| ExecutionError::TypeMismatch {
+            expected: "Seq".to_string(),
+            found: format!("{seq_value:?}"),
+        })?;
+
+    let mut filtered = Vec::new();
+    for instance in seq {
+        runtime.store_slot(binding_slot, instance.clone())?;
+        let result = runtime
+            .execute_block(block_id, program, ctx)?
+            .ok_or(ExecutionError::MissingReturn)?;
+        let is_match = result
+            .as_bool()
+            .ok_or_else(|| ExecutionError::TypeMismatch {
+                expected: "Boolean".to_string(),
+                found: format!("{:?}", result),
+            })?;
+        if is_match {
+            filtered.push(instance.clone());
+        }
+    }
+    runtime.push(Value::Seq(std::sync::Arc::new(filtered)))?;
+    Ok(())
+}
+
+/// Finds the instance in a sequence nearest to a position.
+///
+/// # Stack
+/// - [Seq, Position] → [Nearest Instance]
+pub(crate) fn handle_nearest(
+    _instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let position = runtime.pop()?;
+    let seq_value = runtime.pop()?;
+    let seq = seq_value
+        .as_seq()
+        .ok_or_else(|| ExecutionError::TypeMismatch {
+            expected: "Seq".to_string(),
+            found: format!("{seq_value:?}"),
+        })?;
+
+    if seq.is_empty() {
+        return Err(ExecutionError::InvalidOperand {
+            message: "Nearest lookup on empty sequence".to_string(),
+        });
+    }
+
+    let nearest = ctx.find_nearest(seq, position)?;
+    runtime.push(nearest)?;
+    Ok(())
+}
+
+/// Filters a sequence to instances within a radius of a position.
+///
+/// # Stack
+/// - [Seq, Position, Radius] → [Filtered Seq]
+pub(crate) fn handle_within(
+    _instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let radius = runtime.pop()?;
+    let position = runtime.pop()?;
+    let seq_value = runtime.pop()?;
+    let seq = seq_value
+        .as_seq()
+        .ok_or_else(|| ExecutionError::TypeMismatch {
+            expected: "Seq".to_string(),
+            found: format!("{seq_value:?}"),
+        })?;
+
+    let filtered = ctx.filter_within(seq, position, radius)?;
+    runtime.push(Value::Seq(std::sync::Arc::new(filtered)))?;
+    Ok(())
+}
+
+/// Performs a distributed aggregate operation (sum, map, count, etc.) over a sequence.
+///
+/// # Operands
+/// 0. VM slot to bind the current instance to ([`Operand::Slot`]).
+/// 1. ID of the bytecode block to execute ([`Operand::Block`]).
+/// 2. Aggregate operation kind ([`Operand::AggregateOp`]).
+///
+/// # Stack
+/// - [Seq] → [Result]
 pub(crate) fn handle_aggregate(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
     program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    let entity = operand_entity(&instruction.operands[0])?;
-    let binding_slot = operand_slot(&instruction.operands[1])?;
-    let block_id = operand_block(&instruction.operands[2])?;
-    let op = operand_aggregate_op(&instruction.operands[3])?;
+    let binding_slot = operand_slot(&instruction.operands[0])?;
+    let block_id = operand_block(&instruction.operands[1])?;
+    let op = operand_aggregate_op(&instruction.operands[2])?;
+    let seq_value = runtime.pop()?;
+    let seq = seq_value
+        .as_seq()
+        .ok_or_else(|| ExecutionError::TypeMismatch {
+            expected: "Seq".to_string(),
+            found: format!("{seq_value:?}"),
+        })?;
 
-    let instances = ctx.iter_entity(&entity)?;
-    let mut values = Vec::with_capacity(instances.len());
-    for instance in instances {
-        runtime.store_slot(binding_slot, instance)?;
-        let value = runtime
-            .execute_block(block_id, program, ctx)?
-            .ok_or(ExecutionError::MissingReturn)?;
-        values.push(value);
+    if matches!(op, AggregateOp::Map) {
+        let mut results = Vec::with_capacity(seq.len());
+        for instance in seq {
+            runtime.store_slot(binding_slot, instance.clone())?;
+            let value = runtime
+                .execute_block(block_id, program, ctx)?
+                .ok_or(ExecutionError::MissingReturn)?;
+            results.push(value);
+        }
+        runtime.push(Value::Seq(std::sync::Arc::new(results)))?;
+    } else {
+        let mut values = Vec::with_capacity(seq.len());
+        for instance in seq {
+            runtime.store_slot(binding_slot, instance.clone())?;
+            let value = runtime
+                .execute_block(block_id, program, ctx)?
+                .ok_or(ExecutionError::MissingReturn)?;
+            values.push(value);
+        }
+        let reduced = ctx.reduce_aggregate(op, values)?;
+        runtime.push(reduced)?;
     }
-    let reduced = ctx.reduce_aggregate(op, values)?;
-    runtime.push(reduced)?;
     Ok(())
 }
 
-/// Performs a stateful fold operation over an entity set.
-///
-/// Iterates over all instances of the specified entity type, maintaining an
-/// accumulator value across sub-block executions.
+/// Performs a stateful fold operation over a sequence.
 ///
 /// # Operands
-/// 0. Entity type ID ([`Operand::Entity`]).
-/// 1. VM slot for the accumulator ([`Operand::Slot`]).
-/// 2. VM slot for the current instance ([`Operand::Slot`]).
-/// 3. ID of the bytecode block to execute ([`Operand::Block`]).
+/// 0. VM slot for the accumulator ([`Operand::Slot`]).
+/// 1. VM slot for the current instance ([`Operand::Slot`]).
+/// 2. ID of the bytecode block to execute ([`Operand::Block`]).
+///
+/// # Stack
+/// - [Seq, InitialValue] → [Result]
 pub(crate) fn handle_fold(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
     program: &BytecodeProgram,
     ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    let entity = operand_entity(&instruction.operands[0])?;
-    let acc_slot = operand_slot(&instruction.operands[1])?;
-    let elem_slot = operand_slot(&instruction.operands[2])?;
-    let block_id = operand_block(&instruction.operands[3])?;
+    let acc_slot = operand_slot(&instruction.operands[0])?;
+    let elem_slot = operand_slot(&instruction.operands[1])?;
+    let block_id = operand_block(&instruction.operands[2])?;
+    let init_value = runtime.pop()?;
+    let seq_value = runtime.pop()?;
+    let seq = seq_value
+        .as_seq()
+        .ok_or_else(|| ExecutionError::TypeMismatch {
+            expected: "Seq".to_string(),
+            found: format!("{seq_value:?}"),
+        })?;
 
-    let instances = ctx.iter_entity(&entity)?;
-    for instance in instances {
-        runtime.store_slot(elem_slot, instance)?;
+    runtime.store_slot(acc_slot, init_value)?;
+    for instance in seq {
+        runtime.store_slot(elem_slot, instance.clone())?;
         let next_acc = runtime
             .execute_block(block_id, program, ctx)?
             .ok_or(ExecutionError::MissingReturn)?;

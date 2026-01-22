@@ -552,6 +552,7 @@ mod tests {
     use super::*;
     use crate::ast::{
         Attribute, BlockBody, Entity, EraDecl, Expr, Node, RoleData, Stratum, UnitExpr, WorldDecl,
+        WorldPolicy,
     };
     use crate::foundation::{EntityId, Span, StratumId};
 
@@ -572,6 +573,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: WorldPolicy::default(),
         };
 
         let stratum_id = StratumId::new("fast");
@@ -655,6 +657,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: WorldPolicy::default(),
         };
 
         let era = EraDecl {
@@ -690,6 +693,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: WorldPolicy::default(),
         };
 
         let initial_attr = Attribute {
@@ -747,6 +751,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: WorldPolicy::default(),
         };
 
         let initial_attr = Attribute {
@@ -787,6 +792,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: WorldPolicy::default(),
         };
 
         let era = EraDecl {
@@ -826,6 +832,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: WorldPolicy::default(),
         };
 
         let era = EraDecl {
@@ -866,6 +873,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: WorldPolicy::default(),
         };
 
         let decls = vec![Declaration::World(metadata)];
@@ -887,6 +895,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: WorldPolicy::default(),
         };
 
         let era = EraDecl {
@@ -922,6 +931,7 @@ mod tests {
             span,
             doc: None,
             debug: true,
+            policy: WorldPolicy::default(),
         };
 
         let era = EraDecl {

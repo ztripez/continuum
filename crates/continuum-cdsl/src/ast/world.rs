@@ -19,7 +19,7 @@ use indexmap::IndexMap;
 ///
 /// # Examples
 /// ```rust
-/// use continuum_cdsl::ast::{World, WorldDecl};
+/// use continuum_cdsl::ast::{World, WorldDecl, WorldPolicy};
 /// use continuum_cdsl::foundation::{Path, Span};
 ///
 /// let decl = WorldDecl {
@@ -31,6 +31,7 @@ use indexmap::IndexMap;
 ///     span: Span::new(0, 0, 0, 0),
 ///     doc: None,
 ///     debug: false,
+///     policy: WorldPolicy::default(),
 /// };
 /// let world = World::new(decl);
 /// assert!(world.eras.is_empty());
@@ -76,7 +77,7 @@ impl World {
     ///
     /// # Examples
     /// ```rust
-    /// use continuum_cdsl::ast::{World, WorldDecl};
+    /// use continuum_cdsl::ast::{World, WorldDecl, WorldPolicy};
     /// use continuum_cdsl::foundation::{Path, Span};
     ///
     /// let decl = WorldDecl {
@@ -88,6 +89,7 @@ impl World {
     ///     span: Span::new(0, 0, 0, 0),
     ///     doc: None,
     ///     debug: false,
+    ///     policy: WorldPolicy::default(),
     /// };
 
     /// let world = World::new(decl);
@@ -114,7 +116,7 @@ impl World {
 ///
 /// # Examples
 /// ```rust
-/// use continuum_cdsl::ast::{CompiledWorld, World, WorldDecl};
+/// use continuum_cdsl::ast::{CompiledWorld, World, WorldDecl, WorldPolicy};
 /// use continuum_cdsl::foundation::{Path, Span};
 /// use continuum_cdsl::resolve::graph::DagSet;
 ///
@@ -127,6 +129,7 @@ impl World {
 ///     span: Span::new(0, 0, 0, 0),
 ///     doc: None,
 ///     debug: false,
+///     policy: WorldPolicy::default(),
 /// };
 /// let world = World::new(decl);
 /// let dag_set = DagSet::default();
@@ -155,7 +158,7 @@ impl CompiledWorld {
     ///
     /// # Examples
     /// ```rust
-    /// use continuum_cdsl::ast::{CompiledWorld, World, WorldDecl};
+    /// use continuum_cdsl::ast::{CompiledWorld, World, WorldDecl, WorldPolicy};
     /// use continuum_cdsl::foundation::{Path, Span};
     /// use continuum_cdsl::resolve::graph::DagSet;
     ///
@@ -168,6 +171,7 @@ impl CompiledWorld {
     ///     span: Span::new(0, 0, 0, 0),
     ///     doc: None,
     ///     debug: false,
+    ///     policy: WorldPolicy::default(),
     /// };
 
     /// let world = World::new(decl);

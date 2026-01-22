@@ -91,7 +91,9 @@ pub const fn fnv1a64_path(parts: &[&str]) -> u64 {
 /// Intentionally only accepts string literals to keep it const + stable.
 #[macro_export]
 macro_rules! stable_id {
-    ($path:literal) => {{ $crate::stable_hash::fnv1a64_str($path) }};
+    ($path:literal) => {{
+        $crate::stable_hash::fnv1a64_str($path)
+    }};
 }
 
 #[cfg(test)]

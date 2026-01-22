@@ -72,8 +72,8 @@ impl ExecutionContext for TestContext {
 
     fn emit_event(
         &mut self,
-        _chronicle_id: &str,
-        _name: &str,
+        _chronicle_id: String,
+        _name: String,
         _fields: Vec<(String, Value)>,
     ) -> Result<(), ExecutionError> {
         Ok(())
@@ -109,6 +109,19 @@ impl ExecutionContext for TestContext {
 
     fn call_kernel(&self, _kernel: &KernelId, args: &[Value]) -> Result<Value, ExecutionError> {
         Ok(Value::Scalar(args.len() as f64))
+    }
+
+    fn find_nearest(&self, _seq: &[Value], _position: Value) -> Result<Value, ExecutionError> {
+        Ok(Value::Scalar(0.0))
+    }
+
+    fn filter_within(
+        &self,
+        _seq: &[Value],
+        _position: Value,
+        _radius: Value,
+    ) -> Result<Vec<Value>, ExecutionError> {
+        Ok(vec![])
     }
 }
 

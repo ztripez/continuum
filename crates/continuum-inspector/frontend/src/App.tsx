@@ -5,14 +5,16 @@ import { TabPanel } from './components/TabPanel';
 import { DetailPanel } from './components/DetailPanel';
 import { LogPanel } from './components/LogPanel';
 import { AssertionPanel } from './components/AssertionPanel';
+import { ImpulseModal } from './components/ImpulseModal';
 import type { TickEvent, AssertionFailure } from './types/ipc';
 
 export function App() {
   const ws = useWebSocket(`ws://${location.host}/ws`);
-  const [currentTab, setCurrentTab] = useState<'signals' | 'fields' | 'entities' | 'chronicles'>('signals');
+  const [currentTab, setCurrentTab] = useState<'signals' | 'fields' | 'entities' | 'chronicles' | 'impulses'>('signals');
   const [selectedItem, setSelectedItem] = useState<any>(null);
   const [tickInfo, setTickInfo] = useState<TickEvent | null>(null);
   const [assertionCount, setAssertionCount] = useState(0);
+  const [isImpulseModalOpen, setIsImpulseModalOpen] = useState(false);
 
   const handleSimulationChange = () => {
     // Reconnect WebSocket if needed
@@ -72,6 +74,7 @@ export function App() {
           currentTab={currentTab}
           onTabChange={setCurrentTab}
           onSelectItem={setSelectedItem}
+          onEmitImpulse={() => setIsImpulseModalOpen(true)}
           ws={ws}
         />
         <div class="center-panel">
@@ -80,6 +83,11 @@ export function App() {
         </div>
         <AssertionPanel ws={ws} onSelectAssertion={handleSelectAssertion} />
       </div>
+      <ImpulseModal 
+        isOpen={isImpulseModalOpen} 
+        onClose={() => setIsImpulseModalOpen(false)} 
+        ws={ws} 
+      />
     </div>
   );
 }

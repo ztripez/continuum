@@ -32,8 +32,9 @@
 //! - **Before:** uses validation on typed expressions
 
 use crate::ast::{
-    Attribute, BlockBody, Declaration, Entity, EraDecl, Expr, Index, KernelId, Node, ObserveBlock,
-    ObserveWhen, Stmt, Stratum, UntypedKind as ExprKind, WarmupBlock, WhenBlock, WorldDecl,
+    Attribute, BinaryOp, BlockBody, Declaration, Entity, EraDecl, Expr, Index, KernelId, Node,
+    ObserveBlock, ObserveWhen, Stmt, Stratum, UnaryOp, UntypedKind as ExprKind, WarmupBlock,
+    WhenBlock, WorldDecl,
 };
 use crate::foundation::Span;
 
@@ -42,6 +43,34 @@ fn kernel_call(kernel: KernelId, args: Vec<Expr>, span: Span) -> Expr {
     Expr {
         kind: ExprKind::KernelCall { kernel, args },
         span,
+    }
+}
+
+/// Get the kernel ID for a binary operator
+fn binary_kernel(op: BinaryOp) -> KernelId {
+    match op {
+        BinaryOp::Add => KernelId::new("maths", "add"),
+        BinaryOp::Sub => KernelId::new("maths", "sub"),
+        BinaryOp::Mul => KernelId::new("maths", "mul"),
+        BinaryOp::Div => KernelId::new("maths", "div"),
+        BinaryOp::Mod => KernelId::new("maths", "mod"),
+        BinaryOp::Pow => KernelId::new("maths", "pow"),
+        BinaryOp::Eq => KernelId::new("compare", "eq"),
+        BinaryOp::Ne => KernelId::new("compare", "ne"),
+        BinaryOp::Lt => KernelId::new("compare", "lt"),
+        BinaryOp::Le => KernelId::new("compare", "le"),
+        BinaryOp::Gt => KernelId::new("compare", "gt"),
+        BinaryOp::Ge => KernelId::new("compare", "ge"),
+        BinaryOp::And => KernelId::new("logic", "and"),
+        BinaryOp::Or => KernelId::new("logic", "or"),
+    }
+}
+
+/// Get the kernel ID for a unary operator
+fn unary_kernel(op: UnaryOp) -> KernelId {
+    match op {
+        UnaryOp::Neg => KernelId::new("maths", "neg"),
+        UnaryOp::Not => KernelId::new("logic", "not"),
     }
 }
 
@@ -69,13 +98,13 @@ pub fn desugar_expr(expr: Expr) -> Expr {
 
     match expr.kind {
         ExprKind::Binary { op, left, right } => kernel_call(
-            op.kernel(),
+            binary_kernel(op),
             vec![desugar_expr(*left), desugar_expr(*right)],
             span,
         ),
 
         ExprKind::Unary { op, operand } => {
-            kernel_call(op.kernel(), vec![desugar_expr(*operand)], span)
+            kernel_call(unary_kernel(op), vec![desugar_expr(*operand)], span)
         }
 
         ExprKind::If {
@@ -124,13 +153,13 @@ pub fn desugar_expr(expr: Expr) -> Expr {
 
         ExprKind::Aggregate {
             op,
-            entity,
+            source,
             binding,
             body,
         } => Expr {
             kind: ExprKind::Aggregate {
                 op,
-                entity,
+                source: Box::new(desugar_expr(*source)),
                 binding,
                 body: Box::new(desugar_expr(*body)),
             },
@@ -138,18 +167,47 @@ pub fn desugar_expr(expr: Expr) -> Expr {
         },
 
         ExprKind::Fold {
-            entity,
+            source,
             init,
             acc,
             elem,
             body,
         } => Expr {
             kind: ExprKind::Fold {
-                entity,
+                source: Box::new(desugar_expr(*source)),
                 init: Box::new(desugar_expr(*init)),
                 acc,
                 elem,
                 body: Box::new(desugar_expr(*body)),
+            },
+            span,
+        },
+
+        ExprKind::Nearest { entity, position } => Expr {
+            kind: ExprKind::Nearest {
+                entity,
+                position: Box::new(desugar_expr(*position)),
+            },
+            span,
+        },
+
+        ExprKind::Within {
+            entity,
+            position,
+            radius,
+        } => Expr {
+            kind: ExprKind::Within {
+                entity,
+                position: Box::new(desugar_expr(*position)),
+                radius: Box::new(desugar_expr(*radius)),
+            },
+            span,
+        },
+
+        ExprKind::Filter { source, predicate } => Expr {
+            kind: ExprKind::Filter {
+                source: Box::new(desugar_expr(*source)),
+                predicate: Box::new(desugar_expr(*predicate)),
             },
             span,
         },
@@ -835,8 +893,7 @@ mod tests {
 
     #[test]
     fn test_desugar_aggregate_and_fold() {
-        use crate::ast::AggregateOp;
-        use crate::foundation::EntityId;
+        use crate::foundation::{AggregateOp, EntityId};
 
         // Aggregate: sum(entity) { a + b }
         let body = Expr::binary(
@@ -845,14 +902,15 @@ mod tests {
             make_literal(2.0),
             make_span(),
         );
+        let span = make_span();
         let aggregate = Expr {
             kind: ExprKind::Aggregate {
                 op: AggregateOp::Sum,
-                entity: EntityId::new("plate"),
+                source: Box::new(Expr::new(ExprKind::Entity(EntityId::new("plate")), span)),
                 binding: "p".to_string(),
                 body: Box::new(body),
             },
-            span: make_span(),
+            span,
         };
 
         let desugared_agg = desugar_expr(aggregate);
@@ -872,13 +930,13 @@ mod tests {
         );
         let fold = Expr {
             kind: ExprKind::Fold {
-                entity: EntityId::new("plate"),
+                source: Box::new(Expr::new(ExprKind::Entity(EntityId::new("plate")), span)),
                 init: Box::new(make_literal(0.0)),
                 acc: "acc".to_string(),
                 elem: "elem".to_string(),
                 body: Box::new(fold_body),
             },
-            span: make_span(),
+            span,
         };
 
         let desugared_fold = desugar_expr(fold);
@@ -1045,6 +1103,7 @@ mod tests {
             span: make_span(),
             doc: None,
             debug: false,
+            policy: crate::ast::WorldPolicy::default(),
         };
         // Add attribute with expression arg
         use crate::ast::Attribute;

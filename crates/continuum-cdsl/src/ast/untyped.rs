@@ -55,9 +55,8 @@
 //! // and produces TypedExpr with ty: Scalar<m>
 //! ```
 
-use crate::foundation::{Path, Span};
+use crate::foundation::{AggregateOp, BinaryOp, Path, Span, UnaryOp};
 
-use super::expr::AggregateOp;
 use crate::foundation::EntityId;
 use continuum_kernel_types::KernelId;
 
@@ -418,13 +417,42 @@ pub enum ExprKind {
     Other,
 
     /// Impulse payload
-    ///
-    /// # Examples
-    ///
-    /// ```cdsl
-    /// payload
-    /// ```
     Payload,
+
+    /// Entity reference
+    Entity(EntityId),
+
+    /// Spatial lookup: nearest(entity, pos)
+    Nearest {
+        /// Entity to search in
+        entity: EntityId,
+        /// Reference position
+        position: Box<Expr>,
+    },
+
+    /// Spatial filter: within(entity, pos, radius)
+    Within {
+        /// Entity to search in
+        entity: EntityId,
+        /// Center position
+        position: Box<Expr>,
+        /// Search radius
+        radius: Box<Expr>,
+    },
+
+    /// Filtered entity set: filter(entity, predicate)
+    Filter {
+        /// Entity or Seq to filter
+        source: Box<Expr>,
+        /// Predicate expression (uses self)
+        predicate: Box<Expr>,
+    },
+
+    /// All other entities except self
+    OtherInstances(EntityId),
+
+    /// All unique pairs of entities
+    PairsInstances(EntityId),
 
     // === Operators (desugar to kernel calls) ===
     /// Binary operator
@@ -504,19 +532,11 @@ pub enum ExprKind {
     },
 
     /// Aggregate operation over entity instances
-    ///
-    /// # Examples
-    ///
-    /// ```cdsl
-    /// sum(plates, |p| p.mass)
-    /// max(bodies, |b| b.temperature)
-    /// count(stars, |s| s.active)
-    /// ```
     Aggregate {
         /// Aggregate operation
         op: AggregateOp,
-        /// Entity to iterate over
-        entity: EntityId,
+        /// Source of instances (Entity or Filtered set)
+        source: Box<Expr>,
         /// Binding name for loop variable
         binding: String,
         /// Body expression (can reference binding)
@@ -524,15 +544,9 @@ pub enum ExprKind {
     },
 
     /// Custom fold/reduction over entity instances
-    ///
-    /// # Examples
-    ///
-    /// ```cdsl
-    /// fold(plates, 0.0<kg>, |total, p| total + p.mass)
-    /// ```
     Fold {
-        /// Entity to iterate over
-        entity: EntityId,
+        /// Source of instances
+        source: Box<Expr>,
         /// Initial accumulator value
         init: Box<Expr>,
         /// Accumulator binding name
@@ -652,134 +666,6 @@ pub enum ExprKind {
     /// The error message is preserved in the AST and can be reported later
     /// during type checking or validation.
     ParseError(String),
-}
-
-/// Binary operators
-///
-/// All binary operators desugar to kernel calls during type resolution.
-///
-/// # Kernel Mapping
-///
-/// | Operator | Kernel |
-/// |----------|--------|
-/// | `+` | `maths.add` |
-/// | `-` | `maths.sub` |
-/// | `*` | `maths.mul` |
-/// | `/` | `maths.div` |
-/// | `%` | `maths.mod` |
-/// | `**` | `maths.pow` |
-/// | `==` | `compare.eq` |
-/// | `!=` | `compare.ne` |
-/// | `<` | `compare.lt` |
-/// | `<=` | `compare.le` |
-/// | `>` | `compare.gt` |
-/// | `>=` | `compare.ge` |
-/// | `&&` | `logic.and` |
-/// | `\|\|` | `logic.or` |
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum BinaryOp {
-    // Arithmetic
-    /// Addition: `a + b` → `maths.add(a, b)`
-    Add,
-    /// Subtraction: `a - b` → `maths.sub(a, b)`
-    Sub,
-    /// Multiplication: `a * b` → `maths.mul(a, b)`
-    Mul,
-    /// Division: `a / b` → `maths.div(a, b)`
-    Div,
-    /// Modulo: `a % b` → `maths.mod(a, b)`
-    Mod,
-    /// Power: `a ** b` → `maths.pow(a, b)`
-    Pow,
-
-    // Comparison
-    /// Equal: `a == b` → `compare.eq(a, b)`
-    Eq,
-    /// Not equal: `a != b` → `compare.ne(a, b)`
-    Ne,
-    /// Less than: `a < b` → `compare.lt(a, b)`
-    Lt,
-    /// Less than or equal: `a <= b` → `compare.le(a, b)`
-    Le,
-    /// Greater than: `a > b` → `compare.gt(a, b)`
-    Gt,
-    /// Greater than or equal: `a >= b` → `compare.ge(a, b)`
-    Ge,
-
-    // Logical
-    /// Logical AND: `a && b` → `logic.and(a, b)`
-    And,
-    /// Logical OR: `a || b` → `logic.or(a, b)`
-    Or,
-}
-
-impl BinaryOp {
-    /// Get the kernel that implements this operator
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::ast::{BinaryOp, KernelId};
-    ///
-    /// assert_eq!(BinaryOp::Add.kernel(), KernelId::new("maths", "add"));
-    /// assert_eq!(BinaryOp::Lt.kernel(), KernelId::new("compare", "lt"));
-    /// assert_eq!(BinaryOp::And.kernel(), KernelId::new("logic", "and"));
-    /// ```
-    pub fn kernel(self) -> KernelId {
-        match self {
-            Self::Add => KernelId::new("maths", "add"),
-            Self::Sub => KernelId::new("maths", "sub"),
-            Self::Mul => KernelId::new("maths", "mul"),
-            Self::Div => KernelId::new("maths", "div"),
-            Self::Mod => KernelId::new("maths", "mod"),
-            Self::Pow => KernelId::new("maths", "pow"),
-            Self::Eq => KernelId::new("compare", "eq"),
-            Self::Ne => KernelId::new("compare", "ne"),
-            Self::Lt => KernelId::new("compare", "lt"),
-            Self::Le => KernelId::new("compare", "le"),
-            Self::Gt => KernelId::new("compare", "gt"),
-            Self::Ge => KernelId::new("compare", "ge"),
-            Self::And => KernelId::new("logic", "and"),
-            Self::Or => KernelId::new("logic", "or"),
-        }
-    }
-}
-
-/// Unary operators
-///
-/// All unary operators desugar to kernel calls during type resolution.
-///
-/// # Kernel Mapping
-///
-/// | Operator | Kernel |
-/// |----------|--------|
-/// | `-` | `maths.neg` |
-/// | `!` | `logic.not` |
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-pub enum UnaryOp {
-    /// Negation: `-x` → `maths.neg(x)`
-    Neg,
-    /// Logical NOT: `!x` → `logic.not(x)`
-    Not,
-}
-
-impl UnaryOp {
-    /// Get the kernel that implements this operator
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use continuum_cdsl::ast::{UnaryOp, KernelId};
-    ///
-    /// assert_eq!(UnaryOp::Neg.kernel(), KernelId::new("maths", "neg"));
-    /// assert_eq!(UnaryOp::Not.kernel(), KernelId::new("logic", "not"));
-    /// ```
-    pub fn kernel(self) -> KernelId {
-        match self {
-            Self::Neg => KernelId::new("maths", "neg"),
-            Self::Not => KernelId::new("logic", "not"),
-        }
-    }
 }
 
 /// Type expression from source (before type resolution)
@@ -1219,15 +1105,16 @@ mod tests {
 
     #[test]
     fn expr_kind_aggregate() {
-        let body = Expr::local("p", make_span());
+        let span = make_span();
+        let body = Expr::local("p", span);
         let expr = Expr::new(
             ExprKind::Aggregate {
                 op: AggregateOp::Sum,
-                entity: EntityId::new("plate"),
+                source: Box::new(Expr::new(ExprKind::Entity(EntityId::new("plate")), span)),
                 binding: "p".to_string(),
                 body: Box::new(body),
             },
-            make_span(),
+            span,
         );
         match expr.kind {
             ExprKind::Aggregate { op, binding, .. } => {
@@ -1240,17 +1127,18 @@ mod tests {
 
     #[test]
     fn expr_kind_fold() {
-        let init = Expr::literal(0.0, None, make_span());
-        let body = Expr::local("acc", make_span());
+        let span = make_span();
+        let init = Expr::literal(0.0, None, span);
+        let body = Expr::local("acc", span);
         let expr = Expr::new(
             ExprKind::Fold {
-                entity: EntityId::new("plate"),
+                source: Box::new(Expr::new(ExprKind::Entity(EntityId::new("plate")), span)),
                 init: Box::new(init),
                 acc: "acc".to_string(),
                 elem: "elem".to_string(),
                 body: Box::new(body),
             },
-            make_span(),
+            span,
         );
         match expr.kind {
             ExprKind::Fold { acc, elem, .. } => {

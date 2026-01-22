@@ -9,7 +9,7 @@ use super::derivation::derive_return_type;
 use super::type_expression;
 use crate::ast::{Expr, ExprKind, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{KernelType, Path, Shape, Type, Unit};
+use crate::foundation::{AggregateOp, KernelType, Path, Shape, Type, Unit};
 use crate::resolve::units::resolve_unit_expr;
 use std::collections::HashMap;
 
@@ -433,38 +433,51 @@ pub fn type_struct(
 /// # Parameters
 /// - `ctx`: The typing context.
 /// - `op`: The aggregate operation being performed.
-/// - `entity`: Identifier for the entity type being iterated.
+/// - `source`: The expression producing the sequence to iterate.
 /// - `binding`: Binding name for the instance in the body.
 /// - `body`: Expression evaluated for each instance.
-/// - `_span`: Source location (unused).
+/// - `span`: Source location.
 pub fn type_aggregate(
     ctx: &TypingContext,
-    op: &crate::ast::AggregateOp,
-    entity: &continuum_foundation::EntityId,
+    op: &AggregateOp,
+    source: &Expr,
     binding: &str,
     body: &Expr,
-    _span: crate::foundation::Span,
+    span: crate::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
-    let element_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
+    let typed_source = type_expression(source, ctx)?;
+
+    let element_ty = match &typed_source.ty {
+        Type::Seq(inner) => *inner.clone(),
+        _ => {
+            return Err(err_type_mismatch(
+                source.span,
+                "Seq<T>",
+                &format!("{:?}", typed_source.ty),
+            ))
+        }
+    };
+
     let extended_ctx = ctx.with_binding(binding.to_string(), element_ty);
     let typed_body = type_expression(body, &extended_ctx)?;
 
     let aggregate_ty = match op {
-        crate::ast::AggregateOp::Map => Type::Seq(Box::new(typed_body.ty.clone())),
-        crate::ast::AggregateOp::Sum => typed_body.ty.clone(),
-        crate::ast::AggregateOp::Max | crate::ast::AggregateOp::Min => typed_body.ty.clone(),
-        crate::ast::AggregateOp::Count => Type::Kernel(KernelType {
+        AggregateOp::Map => Type::Seq(Box::new(typed_body.ty.clone())),
+        AggregateOp::Sum | AggregateOp::Product | AggregateOp::Mean => typed_body.ty.clone(),
+        AggregateOp::Max | AggregateOp::Min => typed_body.ty.clone(),
+        AggregateOp::Count => Type::Kernel(KernelType {
             shape: Shape::Scalar,
             unit: Unit::DIMENSIONLESS,
             bounds: None,
         }),
-        crate::ast::AggregateOp::Any | crate::ast::AggregateOp::All => Type::Bool,
+        AggregateOp::Any | AggregateOp::All | AggregateOp::None => Type::Bool,
+        AggregateOp::First => typed_body.ty.clone(),
     };
 
     Ok((
         ExprKind::Aggregate {
             op: *op,
-            entity: entity.clone(),
+            source: Box::new(typed_source),
             binding: binding.to_string(),
             body: Box::new(typed_body),
         },
@@ -476,7 +489,7 @@ pub fn type_aggregate(
 ///
 /// # Parameters
 /// - `ctx`: The typing context.
-/// - `entity`: Identifier for the entity type being iterated.
+/// - `source`: The expression producing the sequence to iterate.
 /// - `init`: Initial value for the accumulator.
 /// - `acc`: Binding name for the accumulator in the body.
 /// - `elem`: Binding name for the entity instance in the body.
@@ -484,20 +497,31 @@ pub fn type_aggregate(
 /// - `span`: Source location for error reporting.
 pub fn type_fold(
     ctx: &TypingContext,
-    entity: &continuum_foundation::EntityId,
+    source: &Expr,
     init: &Expr,
     acc: &str,
     elem: &str,
     body: &Expr,
     span: crate::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    let typed_source = type_expression(source, ctx)?;
     let typed_init = type_expression(init, ctx)?;
-    let elem_ty = Type::User(continuum_foundation::TypeId::from(entity.0.to_string()));
+
+    let element_ty = match &typed_source.ty {
+        Type::Seq(inner) => *inner.clone(),
+        _ => {
+            return Err(err_type_mismatch(
+                source.span,
+                "Seq<T>",
+                &format!("{:?}", typed_source.ty),
+            ))
+        }
+    };
 
     let mut extended_ctx = ctx.with_binding(acc.to_string(), typed_init.ty.clone());
     extended_ctx
         .local_bindings
-        .insert(elem.to_string(), elem_ty);
+        .insert(elem.to_string(), element_ty);
 
     let typed_body = type_expression(body, &extended_ctx)?;
 
@@ -514,7 +538,7 @@ pub fn type_fold(
 
     Ok((
         ExprKind::Fold {
-            entity: entity.clone(),
+            source: Box::new(typed_source),
             init: Box::new(typed_init),
             acc: acc.to_string(),
             elem: elem.to_string(),

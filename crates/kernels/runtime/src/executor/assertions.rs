@@ -33,7 +33,7 @@ use tracing::{debug, error, warn};
 
 use crate::error::{Error, Result};
 use crate::storage::{EntityStorage, SignalStorage};
-use crate::types::{AssertionSeverity, Dt, SignalId, Value};
+use crate::types::{AssertionSeverity, Dt, FaultPolicy, SignalId, Value};
 
 use super::context::AssertContext;
 
@@ -75,6 +75,8 @@ pub struct AssertionChecker {
     failures: Vec<AssertionFailure>,
     /// Maximum number of failures to retain
     max_failures: usize,
+    /// Fault policy for Error-level assertions
+    policy: FaultPolicy,
 }
 
 impl AssertionChecker {
@@ -84,6 +86,7 @@ impl AssertionChecker {
             assertions: Vec::new(),
             failures: Vec::new(),
             max_failures: 1000,
+            policy: FaultPolicy::Warn,
         }
     }
 
@@ -93,7 +96,13 @@ impl AssertionChecker {
             assertions: Vec::new(),
             failures: Vec::new(),
             max_failures,
+            policy: FaultPolicy::Warn,
         }
+    }
+
+    /// Set the fault policy
+    pub fn set_policy(&mut self, policy: FaultPolicy) {
+        self.policy = policy;
     }
 
     /// Register an assertion for a signal
@@ -166,18 +175,34 @@ impl AssertionChecker {
                     AssertionSeverity::Warn => {
                         warn!(signal = %signal, message = %message, "assertion warning");
                     }
-                    AssertionSeverity::Error => {
-                        error!(signal = %signal, message = %message, "assertion error");
-                        return Err(Error::AssertionFailed {
-                            signal: signal.clone(),
-                            message,
-                        });
-                    }
+                    AssertionSeverity::Error => match self.policy {
+                        FaultPolicy::Fatal => {
+                            error!(signal = %signal, message = %message, "assertion error (Policy: Fatal)");
+                            return Err(Error::AssertionFailed {
+                                signal: signal.clone(),
+                                message,
+                            });
+                        }
+                        FaultPolicy::Warn => {
+                            error!(
+                                signal = %signal,
+                                message = %message,
+                                "assertion error (continuing per policy)"
+                            );
+                        }
+                        FaultPolicy::Ignore => {
+                            debug!(
+                                signal = %signal,
+                                message = %message,
+                                "assertion error (ignored per policy)"
+                            );
+                        }
+                    },
                     AssertionSeverity::Fatal => {
                         panic!(
-                        "FATAL ASSERTION FAILURE: signal={}, message={:?}, tick={}, era={}, time={}",
-                        signal, message, tick, era, sim_time
-                    );
+                            "FATAL ASSERTION FAILURE: signal={}, message={:?}, tick={}, era={}, time={}",
+                            signal, message, tick, era, sim_time
+                        );
                     }
                 }
             }
@@ -284,6 +309,7 @@ mod tests {
     #[test]
     fn test_assertion_fail() {
         let mut checker = AssertionChecker::new();
+        checker.set_policy(FaultPolicy::Fatal);
         let signal: SignalId = "test.signal".into();
 
         // Assertion: value must be positive

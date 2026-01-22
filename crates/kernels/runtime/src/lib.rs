@@ -87,6 +87,7 @@ pub use soa_storage::{
     SIMD_ALIGNMENT, TypedBuffer, ValueType,
 };
 pub use types::*;
+pub use continuum_foundation::WorldPolicy;
 pub use vectorized::{
     Cardinality, EntityIndex, FieldPrimitive, FieldSampleIdentity, FractureIdentity,
     FracturePrimitive, GlobalSignal, IndexSpace, MemberSignal, MemberSignalId,
@@ -194,7 +195,13 @@ pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
 
     let (dag_set, bytecode_blocks, impulse_map) = compile_bytecode_and_dags(&compiled);
 
-    let mut runtime = Runtime::new(initial_era, era_configs, dag_set, bytecode_blocks);
+    let mut runtime = Runtime::new(
+        initial_era,
+        era_configs,
+        dag_set,
+        bytecode_blocks,
+        compiled.world.metadata.policy,
+    );
     for (id, idx) in impulse_map {
         runtime.add_impulse_mapping(id, idx);
     }
@@ -234,6 +241,7 @@ mod tests {
             span: Span::new(0, 0, 0, 0),
             doc: None,
             debug: false,
+            policy: WorldPolicy::default(),
         })
     }
 

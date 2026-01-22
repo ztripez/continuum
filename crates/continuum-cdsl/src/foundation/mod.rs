@@ -15,15 +15,21 @@ pub use continuum_kernel_types::{Shape, Unit, UnitDimensions, UnitKind};
 
 // Re-export from runtime foundation
 pub use continuum_foundation::{
+    // Operators
+    AggregateOp,
     // Typed IDs
     AnalyzerId,
     // Execution phases and capabilities
     AssertionSeverity,
+    BinaryOp,
     Capability,
     CapabilitySet,
     ChronicleId,
+    // Policy
+    DeterminismPolicy,
     EntityId,
     EraId,
+    FaultPolicy,
     FieldId,
     FnId,
     FractureId,
@@ -36,4 +42,6 @@ pub use continuum_foundation::{
     SignalId,
     StratumId,
     TypeId,
+    UnaryOp,
+    WorldPolicy,
 };

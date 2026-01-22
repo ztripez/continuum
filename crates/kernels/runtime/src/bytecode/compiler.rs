@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 
 use continuum_cdsl::ast::{Execution, ExecutionBody, ExprKind, TypedExpr, TypedStmt};
-use continuum_foundation::{Path, Phase, Value};
+use continuum_foundation::{AggregateOp, Path, Phase, Value};
 
 use crate::bytecode::opcode::{Instruction, OpcodeKind};
 use crate::bytecode::operand::{BlockId, Operand, Slot};
@@ -282,6 +282,25 @@ impl Compiler {
                     .instructions
                     .push(Instruction::new(OpcodeKind::LoadOther, vec![]));
             }
+            ExprKind::OtherInstances(entity) => {
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::LoadEntity,
+                    vec![Operand::Entity(entity.clone())],
+                ));
+                block
+                    .instructions
+                    .push(Instruction::new(OpcodeKind::LoadOther, vec![]));
+            }
+            ExprKind::PairsInstances(entity) => {
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::LoadEntity,
+                    vec![Operand::Entity(entity.clone())],
+                ));
+                // TODO: LoadPairs opcode?
+                block
+                    .instructions
+                    .push(Instruction::new(OpcodeKind::Pop, vec![]));
+            }
             ExprKind::Payload => {
                 block
                     .instructions
@@ -292,20 +311,26 @@ impl Compiler {
             }
             ExprKind::Aggregate {
                 op,
-                entity,
+                source,
                 binding,
                 body,
             } => {
-                self.compile_aggregate(block, *op, entity, binding, body)?;
+                self.compile_aggregate(block, *op, source, binding, body)?;
             }
             ExprKind::Fold {
-                entity,
+                source,
                 init,
                 acc,
                 elem,
                 body,
             } => {
-                self.compile_fold(block, entity, init, acc, elem, body)?;
+                self.compile_fold(block, source, init, acc, elem, body)?;
+            }
+            ExprKind::Entity(entity) => {
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::LoadEntity,
+                    vec![Operand::Entity(entity.clone())],
+                ));
             }
             ExprKind::Call { kernel, args } => {
                 self.compile_call(block, kernel.clone(), args)?;
@@ -315,6 +340,48 @@ impl Compiler {
             }
             ExprKind::FieldAccess { object, field } => {
                 self.compile_field_access(block, object, field)?;
+            }
+            ExprKind::Nearest { entity, position } => {
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::LoadEntity,
+                    vec![Operand::Entity(entity.clone())],
+                ));
+                self.compile_expr(block, position)?;
+                block
+                    .instructions
+                    .push(Instruction::new(OpcodeKind::Nearest, vec![]));
+            }
+            ExprKind::Within {
+                entity,
+                position,
+                radius,
+            } => {
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::LoadEntity,
+                    vec![Operand::Entity(entity.clone())],
+                ));
+                self.compile_expr(block, position)?;
+                self.compile_expr(block, radius)?;
+                block
+                    .instructions
+                    .push(Instruction::new(OpcodeKind::Within, vec![]));
+            }
+            ExprKind::Filter { source, predicate } => {
+                self.compile_expr(block, source)?;
+                let binding_slot = self.alloc_slot();
+                let mut filter_block = BytecodeBlock::new(true);
+                self.push_scope();
+                self.bind_local("self".to_string(), binding_slot);
+                self.compile_expr(&mut filter_block, predicate)?;
+                filter_block
+                    .instructions
+                    .push(Instruction::new(OpcodeKind::Return, vec![]));
+                self.pop_scope();
+                let block_id = self.program.add_block(filter_block);
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::Filter,
+                    vec![Operand::Slot(binding_slot), Operand::Block(block_id)],
+                ));
             }
         }
 
@@ -392,12 +459,14 @@ impl Compiler {
     fn compile_aggregate(
         &mut self,
         block: &mut BytecodeBlock,
-        op: continuum_cdsl::ast::AggregateOp,
-        entity: &continuum_foundation::EntityId,
+        op: AggregateOp,
+        source: &TypedExpr,
         binding: &String,
         body: &TypedExpr,
     ) -> Result<(), CompileError> {
         ensure_aggregate_supported(op)?;
+        self.compile_expr(block, source)?;
+
         let binding_slot = self.alloc_slot();
         let mut aggregate_block = BytecodeBlock::new(true);
         self.push_scope();
@@ -411,7 +480,6 @@ impl Compiler {
         block.instructions.push(Instruction::new(
             OpcodeKind::Aggregate,
             vec![
-                Operand::Entity(entity.clone()),
                 Operand::Slot(binding_slot),
                 Operand::Block(block_id),
                 Operand::AggregateOp(op),
@@ -424,12 +492,13 @@ impl Compiler {
     fn compile_fold(
         &mut self,
         block: &mut BytecodeBlock,
-        entity: &continuum_foundation::EntityId,
+        source: &TypedExpr,
         init: &TypedExpr,
         acc: &String,
         elem: &String,
         body: &TypedExpr,
     ) -> Result<(), CompileError> {
+        self.compile_expr(block, source)?;
         let acc_slot = self.alloc_slot();
         let elem_slot = self.alloc_slot();
         self.compile_expr(block, init)?;
@@ -451,7 +520,6 @@ impl Compiler {
         block.instructions.push(Instruction::new(
             OpcodeKind::Fold,
             vec![
-                Operand::Entity(entity.clone()),
                 Operand::Slot(acc_slot),
                 Operand::Slot(elem_slot),
                 Operand::Block(block_id),
@@ -568,8 +636,8 @@ impl Default for Compiler {
 }
 
 /// Validates that an aggregate operation is supported by the bytecode VM.
-fn ensure_aggregate_supported(op: continuum_cdsl::ast::AggregateOp) -> Result<(), CompileError> {
-    if matches!(op, continuum_cdsl::ast::AggregateOp::Map) {
+fn ensure_aggregate_supported(op: AggregateOp) -> Result<(), CompileError> {
+    if matches!(op, AggregateOp::Map) {
         return Err(CompileError::InvalidIR {
             message: "Aggregate Map is not a runtime reduction opcode".to_string(),
         });

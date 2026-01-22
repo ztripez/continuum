@@ -442,11 +442,12 @@ fn test_type_struct_valid_construction() {
 #[test]
 fn test_type_aggregate_map() {
     let ctx = make_context();
+    let span = Span::new(0, 0, 10, 1);
     let entity = continuum_foundation::EntityId::new("Plate");
     let expr = Expr::new(
         UntypedKind::Aggregate {
-            op: crate::ast::AggregateOp::Map,
-            entity: entity.clone(),
+            op: crate::foundation::AggregateOp::Map,
+            source: Box::new(Expr::new(UntypedKind::Entity(entity.clone()), span)),
             binding: "p".to_string(),
             body: Box::new(Expr::new(
                 UntypedKind::Literal {
@@ -456,7 +457,7 @@ fn test_type_aggregate_map() {
                 Span::new(0, 0, 3, 1),
             )),
         },
-        Span::new(0, 0, 10, 1),
+        span,
     );
 
     let typed = type_expression(&expr, &ctx).unwrap();
@@ -471,10 +472,11 @@ fn test_type_aggregate_map() {
 #[test]
 fn test_type_fold_valid() {
     let ctx = make_context();
+    let span = Span::new(0, 0, 10, 1);
     let entity = continuum_foundation::EntityId::new("Plate");
     let expr = Expr::new(
         UntypedKind::Fold {
-            entity: entity.clone(),
+            source: Box::new(Expr::new(UntypedKind::Entity(entity.clone()), span)),
             init: Box::new(Expr::new(
                 UntypedKind::Literal {
                     value: 0.0,
@@ -489,7 +491,7 @@ fn test_type_fold_valid() {
                 Span::new(0, 0, 3, 1),
             )),
         },
-        Span::new(0, 0, 10, 1),
+        span,
     );
 
     let typed = type_expression(&expr, &ctx).unwrap();

@@ -412,6 +412,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: crate::ast::WorldPolicy::default(),
         };
 
         // signal a { resolve { 1.0 } }
@@ -486,6 +487,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: crate::ast::WorldPolicy::default(),
         };
 
         // signal a { resolve { signal.b } }
@@ -552,6 +554,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: crate::ast::WorldPolicy::default(),
         };
 
         // field temperature { resolve { 1.0 } }  // INVALID: Fields can't execute in Resolve
@@ -614,6 +617,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: crate::ast::WorldPolicy::default(),
         };
 
         // Three signals with no dependencies - should sort alphabetically in same level
@@ -724,6 +728,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: crate::ast::WorldPolicy::default(),
         };
 
         let mut world = World::new(metadata);
@@ -755,6 +760,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: crate::ast::WorldPolicy::default(),
         };
 
         // signal slow_signal { : stratum(slow); resolve { 1.0 } }
@@ -838,6 +844,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: crate::ast::WorldPolicy::default(),
         };
 
         // operator op1 { measure { field.a <- 1.0 } }
@@ -911,6 +918,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
+            policy: crate::ast::WorldPolicy::default(),
         };
 
         // signal a { resolve { prev } }

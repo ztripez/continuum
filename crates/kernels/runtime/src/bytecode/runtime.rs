@@ -1,7 +1,6 @@
 //! Runtime traits and errors for bytecode execution.
 
-use continuum_cdsl::ast::AggregateOp;
-use continuum_foundation::{EntityId, Path, Phase, Value};
+use continuum_foundation::{AggregateOp, EntityId, Path, Phase, Value};
 use continuum_kernel_types::KernelId;
 
 use crate::bytecode::operand::{BlockId, Slot};
@@ -187,18 +186,21 @@ pub trait ExecutionContext {
     /// Returns an error if execution was not triggered by an impulse.
     fn load_payload(&self) -> Result<Value, ExecutionError>;
 
-    /// Emits a value to a signal path.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the signal is read-only or if called outside of the Collect phase.
+    /// Finds the instance in a sequence nearest to a position.
+    fn find_nearest(&self, seq: &[Value], position: Value) -> Result<Value, ExecutionError>;
+
+    /// Filters a sequence to instances within a radius of a position.
+    fn filter_within(
+        &self,
+        seq: &[Value],
+        position: Value,
+        radius: Value,
+    ) -> Result<Vec<Value>, ExecutionError>;
+
+    /// Emits a value to a signal.
     fn emit_signal(&mut self, target: &Path, value: Value) -> Result<(), ExecutionError>;
 
-    /// Emits a value to a spatial field at a specific position.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if called outside of the Measure phase.
+    /// Emits a value to a spatial field at a given position.
     fn emit_field(
         &mut self,
         target: &Path,
@@ -206,46 +208,24 @@ pub trait ExecutionContext {
         value: Value,
     ) -> Result<(), ExecutionError>;
 
-    /// Emits an event from a chronicle.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if called outside of the Measure phase.
+    /// Emits an event to a chronicle.
     fn emit_event(
         &mut self,
-        chronicle_id: &str,
-        name: &str,
+        chronicle_id: String,
+        name: String,
         fields: Vec<(String, Value)>,
     ) -> Result<(), ExecutionError>;
 
-    /// Spawns a new entity instance of the specified type with initial data.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if called outside of the Fracture phase.
-    fn spawn(&mut self, entity: &EntityId, value: Value) -> Result<(), ExecutionError>;
+    /// Spawns a new instance of an entity type.
+    fn spawn(&mut self, entity: &EntityId, data: Value) -> Result<(), ExecutionError>;
 
     /// Marks an entity instance for destruction.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if called outside of the Fracture phase.
     fn destroy(&mut self, entity: &EntityId, instance: Value) -> Result<(), ExecutionError>;
 
-    /// Returns all instances of an entity type in deterministic order.
-    ///
-    /// Used for aggregate and fold operations over index spaces.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the entity type is unknown.
+    /// Returns a sequence of all instances of an entity type.
     fn iter_entity(&self, entity: &EntityId) -> Result<Vec<Value>, ExecutionError>;
 
-    /// Reduces a collection of values using a specified aggregate operation.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the values cannot be reduced (e.g., type mismatch).
+    /// Performs a reduction operation over a collection of values.
     fn reduce_aggregate(
         &self,
         op: AggregateOp,
@@ -253,10 +233,6 @@ pub trait ExecutionContext {
     ) -> Result<Value, ExecutionError>;
 
     /// Dispatches a call to an engine kernel primitive.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the kernel name is unknown or arguments are invalid.
     fn call_kernel(&self, kernel: &KernelId, args: &[Value]) -> Result<Value, ExecutionError>;
 }
 

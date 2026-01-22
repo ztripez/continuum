@@ -391,10 +391,13 @@ pub fn validate_expr(
         // === Aggregates (introduce scope) ===
         ExprKind::Aggregate {
             op: _,
-            entity: _,
+            source,
             binding,
             body,
         } => {
+            // Validate source
+            validate_expr(source, table, scope, errors);
+
             // Push new scope for body
             scope.push();
             scope.bind(binding.clone());
@@ -407,13 +410,14 @@ pub fn validate_expr(
         }
 
         ExprKind::Fold {
-            entity: _,
+            source,
             init,
             acc,
             elem,
             body,
         } => {
-            // Validate init in current scope
+            // Validate source and init in current scope
+            validate_expr(source, table, scope, errors);
             validate_expr(init, table, scope, errors);
 
             // Push new scope for body
@@ -426,6 +430,37 @@ pub fn validate_expr(
 
             // Pop scope
             scope.pop();
+        }
+
+        ExprKind::Filter { source, predicate } => {
+            validate_expr(source, table, scope, errors);
+
+            // Predicate has 'self' in scope
+            scope.push();
+            scope.bind("self".to_string());
+            validate_expr(predicate, table, scope, errors);
+            scope.pop();
+        }
+
+        ExprKind::Nearest { entity, position } => {
+            // Validate entity reference
+            // For now, let's just make sure it's a valid entity type in the future.
+            // SymbolTable currently doesn't track entity IDs directly, but world nodes.
+            // But we can check if it exists if we want.
+            validate_expr(position, table, scope, errors);
+        }
+
+        ExprKind::Within {
+            entity,
+            position,
+            radius,
+        } => {
+            validate_expr(position, table, scope, errors);
+            validate_expr(radius, table, scope, errors);
+        }
+
+        ExprKind::Entity(_) | ExprKind::OtherInstances(_) | ExprKind::PairsInstances(_) => {
+            // These are direct references to entity sets
         }
 
         // === Recursive cases (no scoping) ===
@@ -499,8 +534,8 @@ pub fn validate_expr(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{AggregateOp, Node, RoleData};
-    use crate::foundation::Span;
+    use crate::ast::{Node, RoleData};
+    use crate::foundation::{AggregateOp, Span};
 
     fn make_path(s: &str) -> Path {
         Path::from_path_str(s)
@@ -764,18 +799,19 @@ mod tests {
     #[test]
     fn test_validate_aggregate_binding() {
         let table = SymbolTable::new();
+        let span = Span::new(0, 0, 10, 1);
 
         let expr = Expr::new(
             ExprKind::Aggregate {
                 op: AggregateOp::Count,
-                entity: EntityId::new("plates"),
+                source: Box::new(Expr::new(ExprKind::Entity(EntityId::new("plates")), span)),
                 binding: "p".to_string(),
                 body: Box::new(Expr::new(
                     ExprKind::Local("p".to_string()),
                     Span::new(0, 0, 1, 1),
                 )),
             },
-            Span::new(0, 0, 10, 1),
+            span,
         );
 
         let mut errors = Vec::new();
@@ -892,6 +928,7 @@ mod tests {
     #[test]
     fn test_validate_aggregate_scope_isolation() {
         let table = SymbolTable::new();
+        let span = Span::new(0, 0, 5, 1);
 
         // aggregate(..., p) { p }; p  (p should be undefined here)
         let expr = Expr::new(
@@ -900,7 +937,10 @@ mod tests {
                 value: Box::new(Expr::new(
                     ExprKind::Aggregate {
                         op: AggregateOp::Count,
-                        entity: EntityId::new("plates"),
+                        source: Box::new(Expr::new(
+                            ExprKind::Entity(EntityId::new("plates")),
+                            span,
+                        )),
                         binding: "p".to_string(),
                         body: Box::new(Expr::new(
                             ExprKind::Local("p".to_string()),
@@ -914,7 +954,7 @@ mod tests {
                     Span::new(0, 4, 5, 1),
                 )),
             },
-            Span::new(0, 0, 5, 1),
+            span,
         );
 
         let mut errors = Vec::new();
@@ -928,11 +968,12 @@ mod tests {
     #[test]
     fn test_validate_fold_bindings() {
         let table = SymbolTable::new();
+        let span = Span::new(0, 0, 5, 1);
 
         // fold(init, acc, elem) { acc + elem }
         let expr = Expr::new(
             ExprKind::Fold {
-                entity: EntityId::new("plates"),
+                source: Box::new(Expr::new(ExprKind::Entity(EntityId::new("plates")), span)),
                 init: Box::new(Expr::new(
                     ExprKind::Literal {
                         value: 0.0,
@@ -953,7 +994,7 @@ mod tests {
                     Span::new(0, 2, 5, 1),
                 )),
             },
-            Span::new(0, 0, 5, 1),
+            span,
         );
 
         let mut errors = Vec::new();
@@ -966,6 +1007,7 @@ mod tests {
     #[test]
     fn test_validate_fold_scope_isolation() {
         let table = SymbolTable::new();
+        let span = Span::new(0, 0, 5, 1);
 
         // let x = fold(0, acc, elem) { acc }; elem  (elem should be undefined here)
         let expr = Expr::new(
@@ -973,7 +1015,10 @@ mod tests {
                 name: "x".to_string(),
                 value: Box::new(Expr::new(
                     ExprKind::Fold {
-                        entity: EntityId::new("plates"),
+                        source: Box::new(Expr::new(
+                            ExprKind::Entity(EntityId::new("plates")),
+                            span,
+                        )),
                         init: Box::new(Expr::new(
                             ExprKind::Literal {
                                 value: 0.0,
@@ -995,7 +1040,7 @@ mod tests {
                     Span::new(0, 4, 5, 1),
                 )),
             },
-            Span::new(0, 0, 5, 1),
+            span,
         );
 
         let mut errors = Vec::new();

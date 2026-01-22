@@ -230,9 +230,13 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
             | ExprKind::Self_
             | ExprKind::Other
             | ExprKind::Payload
+            | ExprKind::Entity(_)
             | ExprKind::Let { .. }
             | ExprKind::Aggregate { .. }
             | ExprKind::Fold { .. }
+            | ExprKind::Filter { .. }
+            | ExprKind::Nearest { .. }
+            | ExprKind::Within { .. }
             | ExprKind::Struct { .. }
             | ExprKind::FieldAccess { .. } => {}
         }
@@ -389,19 +393,36 @@ fn collect_required_uses_untyped(
             }
         }
 
-        UntypedKind::Aggregate { body, .. } => {
+        UntypedKind::Aggregate { source, body, .. } => {
+            collect_required_uses_untyped(source, registry, required);
             collect_required_uses_untyped(body, registry, required);
         }
 
-        UntypedKind::Fold { init, body, .. } => {
+        UntypedKind::Fold {
+            source, init, body, ..
+        } => {
+            collect_required_uses_untyped(source, registry, required);
             collect_required_uses_untyped(init, registry, required);
             collect_required_uses_untyped(body, registry, required);
         }
 
+        UntypedKind::Filter { source, predicate } => {
+            collect_required_uses_untyped(source, registry, required);
+            collect_required_uses_untyped(predicate, registry, required);
+        }
+
+        UntypedKind::Nearest { position, .. } => {
+            collect_required_uses_untyped(position, registry, required);
+        }
+
+        UntypedKind::Within {
+            position, radius, ..
+        } => {
+            collect_required_uses_untyped(position, registry, required);
+            collect_required_uses_untyped(radius, registry, required);
+        }
+
         // Leaf nodes - no recursion needed
-        // Note: ParseError nodes represent parser failures and generate their own errors in
-        // a prior parsing pass. They are treated as leaf nodes here since validation can't
-        // proceed on malformed AST.
         UntypedKind::Literal { .. }
         | UntypedKind::BoolLiteral(_)
         | UntypedKind::Signal(_)
@@ -415,6 +436,9 @@ fn collect_required_uses_untyped(
         | UntypedKind::Self_
         | UntypedKind::Other
         | UntypedKind::Payload
+        | UntypedKind::Entity(_)
+        | UntypedKind::OtherInstances(_)
+        | UntypedKind::PairsInstances(_)
         | UntypedKind::ParseError(_)
         | UntypedKind::StringLiteral(_) => {}
     }
