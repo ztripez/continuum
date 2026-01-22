@@ -57,6 +57,28 @@ fn test_type_scalar_kelvin() {
     assert_type_parses("Scalar<K>");
 }
 
+// === Dimensionless Scalar Tests ===
+
+#[test]
+fn test_type_scalar_dimensionless_empty() {
+    assert_type_parses("Scalar<>");
+}
+
+#[test]
+fn test_type_scalar_dimensionless_one() {
+    assert_type_parses("Scalar<1>");
+}
+
+#[test]
+fn test_type_scalar_dimensionless_with_bounds() {
+    assert_type_parses("Scalar<1, 0.0..1.0>");
+}
+
+#[test]
+fn test_type_scalar_dimensionless_empty_with_bounds() {
+    assert_type_parses("Scalar<, 0.0..100.0>");
+}
+
 #[test]
 fn test_type_scalar_with_bounds() {
     assert_type_parses("Scalar<K, 0.0..1000.0>");
