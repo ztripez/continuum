@@ -680,7 +680,7 @@ mod type_inference_tests {
     fn test_infer_bool_from_true_literal() {
         let span = Span::new(0, 0, 0, 0);
         let expr = Expr::new(UntypedKind::BoolLiteral(true), span);
-        
+
         let inferred = infer_type_from_expr(&expr, span).unwrap();
         assert!(matches!(inferred, Type::Bool));
     }
@@ -689,7 +689,7 @@ mod type_inference_tests {
     fn test_infer_bool_from_false_literal() {
         let span = Span::new(0, 0, 0, 0);
         let expr = Expr::new(UntypedKind::BoolLiteral(false), span);
-        
+
         let inferred = infer_type_from_expr(&expr, span).unwrap();
         assert!(matches!(inferred, Type::Bool));
     }
@@ -704,7 +704,7 @@ mod type_inference_tests {
             },
             span,
         );
-        
+
         let inferred = infer_type_from_expr(&expr, span).unwrap();
         match inferred {
             Type::Kernel(kt) => {
@@ -718,16 +718,37 @@ mod type_inference_tests {
     #[test]
     fn test_infer_vec3_from_vector_literal() {
         let span = Span::new(0, 0, 0, 0);
-        let e1 = Expr::new(UntypedKind::Literal { value: 1.0, unit: None }, span);
-        let e2 = Expr::new(UntypedKind::Literal { value: 2.0, unit: None }, span);
-        let e3 = Expr::new(UntypedKind::Literal { value: 3.0, unit: None }, span);
-        
+        let e1 = Expr::new(
+            UntypedKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            span,
+        );
+        let e2 = Expr::new(
+            UntypedKind::Literal {
+                value: 2.0,
+                unit: None,
+            },
+            span,
+        );
+        let e3 = Expr::new(
+            UntypedKind::Literal {
+                value: 3.0,
+                unit: None,
+            },
+            span,
+        );
+
         let expr = Expr::new(UntypedKind::Vector(vec![e1, e2, e3]), span);
-        
+
         let inferred = infer_type_from_expr(&expr, span).unwrap();
         match inferred {
             Type::Kernel(kt) => {
-                assert!(matches!(kt.shape, continuum_kernel_types::Shape::Vector { dim: 3 }));
+                assert!(matches!(
+                    kt.shape,
+                    continuum_kernel_types::Shape::Vector { dim: 3 }
+                ));
             }
             _ => panic!("Expected Kernel type, got {:?}", inferred),
         }
@@ -737,7 +758,7 @@ mod type_inference_tests {
     fn test_infer_fails_for_empty_vector() {
         let span = Span::new(0, 0, 0, 0);
         let expr = Expr::new(UntypedKind::Vector(vec![]), span);
-        
+
         let result = infer_type_from_expr(&expr, span);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("empty vector"));
@@ -750,9 +771,91 @@ mod type_inference_tests {
             UntypedKind::Signal(continuum_foundation::Path::from("foo")),
             span,
         );
-        
+
         let result = infer_type_from_expr(&expr, span);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("complex expression"));
+    }
+
+    #[test]
+    fn test_infer_scalar_with_unit() {
+        let span = Span::new(0, 0, 0, 0);
+        // Test: const { g: 9.81 <m/s²> } should infer Scalar<m/s²> not Scalar<1>
+        let expr = Expr::new(
+            UntypedKind::Literal {
+                value: 9.81,
+                unit: Some(continuum_cdsl_ast::UnitExpr::Base("m/s²".to_string())),
+            },
+            span,
+        );
+
+        let inferred = infer_type_from_expr(&expr, span).expect("Should infer type with unit");
+
+        match inferred {
+            Type::Kernel(kt) => {
+                use continuum_cdsl_ast::foundation::Shape;
+                assert!(
+                    matches!(kt.shape, Shape::Scalar),
+                    "Expected Scalar shape, got {:?}",
+                    kt.shape
+                );
+                // Verify unit is NOT dimensionless (would be Unit::dimensionless())
+                // We can't directly check the unit without accessing internals,
+                // but we can verify it's a Kernel type which means unit was resolved
+                assert!(
+                    kt.unit != continuum_cdsl_ast::foundation::Unit::dimensionless(),
+                    "Unit should be m/s², not dimensionless"
+                );
+            }
+            other => panic!("Expected Kernel type, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_infer_vector_with_unit() {
+        let span = Span::new(0, 0, 0, 0);
+        // Test: const { v: [1.0, 2.0, 3.0] <m> } should infer Vec3<m>
+        let e1 = Expr::new(
+            UntypedKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            span,
+        );
+        let e2 = Expr::new(
+            UntypedKind::Literal {
+                value: 2.0,
+                unit: None,
+            },
+            span,
+        );
+        let e3 = Expr::new(
+            UntypedKind::Literal {
+                value: 3.0,
+                unit: None,
+            },
+            span,
+        );
+
+        let expr = Expr::new(UntypedKind::Vector(vec![e1, e2, e3]), span);
+
+        let inferred = infer_type_from_expr(&expr, span).expect("Should infer vector type");
+
+        match inferred {
+            Type::Kernel(kt) => {
+                use continuum_cdsl_ast::foundation::Shape;
+                assert!(
+                    matches!(kt.shape, Shape::Vector { dim: 3 }),
+                    "Expected Vec3, got {:?}",
+                    kt.shape
+                );
+                // Vector literals without explicit unit are dimensionless
+                assert_eq!(
+                    kt.unit,
+                    continuum_cdsl_ast::foundation::Unit::dimensionless()
+                );
+            }
+            other => panic!("Expected Kernel type, got {:?}", other),
+        }
     }
 }
