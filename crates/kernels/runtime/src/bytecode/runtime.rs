@@ -94,6 +94,15 @@ pub enum ExecutionError {
         /// The requested vector dimension.
         size: usize,
     },
+
+    /// Assertion failed: a runtime assertion condition evaluated to false.
+    #[error("Assertion failed: {message} (severity: {severity})")]
+    AssertionFailed {
+        /// The severity level of the assertion ('warn', 'error', 'fatal').
+        severity: String,
+        /// Descriptive message about what failed.
+        message: String,
+    },
 }
 
 /// Execution context required by the bytecode executor to interface with the simulation.
@@ -234,6 +243,34 @@ pub trait ExecutionContext {
 
     /// Dispatches a call to an engine kernel primitive.
     fn call_kernel(&self, kernel: &KernelId, args: &[Value]) -> Result<Value, ExecutionError>;
+
+    /// Triggers an assertion fault with optional severity and message.
+    ///
+    /// Emits a structured fault to the runtime's fault handler. The handling policy
+    /// determines the response based on severity:
+    ///
+    /// - `'warn'`: Log the fault and continue execution
+    /// - `'error'`: Halt the current tick but continue the simulation
+    /// - `'fatal'`: Halt the simulation immediately
+    ///
+    /// # Parameters
+    ///
+    /// - `severity`: Optional severity level. Defaults to `'error'` if not provided.
+    /// - `message`: Optional descriptive message. Defaults to `'assertion failed'` if not provided.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutionError::AssertionFailed`] with structured fault data.
+    ///
+    /// # Phase Restrictions
+    ///
+    /// Only valid in Resolve and Fracture phases. Assertions in Measure phase violate
+    /// the observer boundary (see AGENTS.md - Observer Boundary Is Absolute).
+    fn trigger_assertion_fault(
+        &mut self,
+        severity: Option<&str>,
+        message: Option<&str>,
+    ) -> Result<(), ExecutionError>;
 }
 
 /// Runtime interface provided by the executor to opcode handlers.

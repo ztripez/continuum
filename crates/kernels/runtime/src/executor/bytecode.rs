@@ -932,6 +932,17 @@ impl<'a> ExecutionContext for VMContext<'a> {
             message: format!("Kernel not found: {}", kernel.qualified_name()),
         })
     }
+
+    fn trigger_assertion_fault(
+        &mut self,
+        severity: Option<&str>,
+        message: Option<&str>,
+    ) -> std::result::Result<(), ExecutionError> {
+        Err(ExecutionError::AssertionFailed {
+            severity: severity.unwrap_or("error").to_string(),
+            message: message.unwrap_or("assertion failed").to_string(),
+        })
+    }
 }
 
 #[cfg(test)]

@@ -123,6 +123,17 @@ impl ExecutionContext for TestContext {
     ) -> Result<Vec<Value>, ExecutionError> {
         Ok(vec![])
     }
+
+    fn trigger_assertion_fault(
+        &mut self,
+        severity: Option<&str>,
+        message: Option<&str>,
+    ) -> Result<(), ExecutionError> {
+        Err(ExecutionError::AssertionFailed {
+            severity: severity.unwrap_or("error").to_string(),
+            message: message.unwrap_or("assertion failed").to_string(),
+        })
+    }
 }
 
 #[test]
