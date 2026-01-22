@@ -19,7 +19,7 @@
 //! 12. World
 //! 13. Const/Config blocks
 
-use continuum_cdsl_ast::{Declaration, RoleData};
+use continuum_cdsl_ast::{BlockBody, Declaration, RoleData, Stmt};
 use continuum_cdsl_lexer::Token;
 use continuum_cdsl_parser::parse_declarations;
 use logos::Logos;
@@ -521,6 +521,178 @@ fn test_multiple_execution_blocks() {
             assert_eq!(node.execution_blocks[0].0, "resolve");
             assert_eq!(node.execution_blocks[1].0, "collect");
             assert_eq!(node.execution_blocks[2].0, "assert");
+        }
+        _ => panic!("Expected Node"),
+    }
+}
+
+#[test]
+fn test_assertion_with_severity() {
+    let source = r#"
+        signal temp {
+            assert {
+                prev > 0 : fatal
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => {
+            assert_eq!(node.execution_blocks.len(), 1);
+            assert_eq!(node.execution_blocks[0].0, "assert");
+
+            // Verify it's a statement block
+            match &node.execution_blocks[0].1 {
+                BlockBody::Statements(stmts) => {
+                    assert_eq!(stmts.len(), 1);
+                    match &stmts[0] {
+                        Stmt::Assert {
+                            severity, message, ..
+                        } => {
+                            assert_eq!(severity.as_deref(), Some("fatal"));
+                            assert_eq!(message.as_deref(), None);
+                        }
+                        _ => panic!("Expected Stmt::Assert"),
+                    }
+                }
+                _ => panic!("Expected BlockBody::Statements for assert block"),
+            }
+        }
+        _ => panic!("Expected Node"),
+    }
+}
+
+#[test]
+fn test_assertion_with_message() {
+    let source = r#"
+        signal temp {
+            assert {
+                prev > 0 : "temperature must be positive"
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => match &node.execution_blocks[0].1 {
+            BlockBody::Statements(stmts) => match &stmts[0] {
+                Stmt::Assert {
+                    severity, message, ..
+                } => {
+                    assert_eq!(severity.as_deref(), None);
+                    assert_eq!(message.as_deref(), Some("temperature must be positive"));
+                }
+                _ => panic!("Expected Stmt::Assert"),
+            },
+            _ => panic!("Expected BlockBody::Statements"),
+        },
+        _ => panic!("Expected Node"),
+    }
+}
+
+#[test]
+fn test_assertion_with_severity_and_message() {
+    let source = r#"
+        signal temp {
+            assert {
+                prev > 0 : fatal, "temperature must be positive"
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => match &node.execution_blocks[0].1 {
+            BlockBody::Statements(stmts) => match &stmts[0] {
+                Stmt::Assert {
+                    severity, message, ..
+                } => {
+                    assert_eq!(severity.as_deref(), Some("fatal"));
+                    assert_eq!(message.as_deref(), Some("temperature must be positive"));
+                }
+                _ => panic!("Expected Stmt::Assert"),
+            },
+            _ => panic!("Expected BlockBody::Statements"),
+        },
+        _ => panic!("Expected Node"),
+    }
+}
+
+#[test]
+fn test_multiple_assertions_with_mixed_metadata() {
+    let source = r#"
+        signal temp {
+            assert {
+                prev > 0;
+                prev < 10000 : fatal;
+                prev != 273.15 : "not exactly freezing";
+                prev >= 100 : warn, "high temperature"
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => {
+            match &node.execution_blocks[0].1 {
+                BlockBody::Statements(stmts) => {
+                    assert_eq!(stmts.len(), 4);
+
+                    // First: no metadata
+                    match &stmts[0] {
+                        Stmt::Assert {
+                            severity, message, ..
+                        } => {
+                            assert_eq!(severity.as_deref(), None);
+                            assert_eq!(message.as_deref(), None);
+                        }
+                        _ => panic!("Expected Stmt::Assert"),
+                    }
+
+                    // Second: severity only
+                    match &stmts[1] {
+                        Stmt::Assert {
+                            severity, message, ..
+                        } => {
+                            assert_eq!(severity.as_deref(), Some("fatal"));
+                            assert_eq!(message.as_deref(), None);
+                        }
+                        _ => panic!("Expected Stmt::Assert"),
+                    }
+
+                    // Third: message only
+                    match &stmts[2] {
+                        Stmt::Assert {
+                            severity, message, ..
+                        } => {
+                            assert_eq!(severity.as_deref(), None);
+                            assert_eq!(message.as_deref(), Some("not exactly freezing"));
+                        }
+                        _ => panic!("Expected Stmt::Assert"),
+                    }
+
+                    // Fourth: both
+                    match &stmts[3] {
+                        Stmt::Assert {
+                            severity, message, ..
+                        } => {
+                            assert_eq!(severity.as_deref(), Some("warn"));
+                            assert_eq!(message.as_deref(), Some("high temperature"));
+                        }
+                        _ => panic!("Expected Stmt::Assert"),
+                    }
+                }
+                _ => panic!("Expected BlockBody::Statements"),
+            }
         }
         _ => panic!("Expected Node"),
     }

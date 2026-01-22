@@ -18,7 +18,13 @@ pub fn parse_execution_blocks(
             if let Some(block_name) = super::token_utils::execution_block_name(tok) {
                 // Clone token and name before advancing stream
                 let keyword_token = tok.clone();
-                blocks.push(parse_execution_block(stream, keyword_token, block_name)?);
+                let is_assert = matches!(keyword_token, Token::Assert);
+                blocks.push(parse_execution_block(
+                    stream,
+                    keyword_token,
+                    block_name,
+                    is_assert,
+                )?);
             } else {
                 return Err(ParseError::unexpected_token(
                     token,
@@ -43,12 +49,18 @@ fn parse_execution_block(
     stream: &mut TokenStream,
     keyword: Token,
     name: &str,
+    is_assert: bool,
 ) -> Result<(String, BlockBody), ParseError> {
     stream.expect(keyword)?;
 
     stream.expect(Token::LBrace)?;
 
-    let body = parse_block_body(stream)?;
+    let body = if is_assert {
+        // Parse assert block with metadata support
+        parse_assert_block_body(stream)?
+    } else {
+        parse_block_body(stream)?
+    };
 
     stream.expect(Token::RBrace)?;
 
@@ -156,6 +168,112 @@ fn parse_block_body(stream: &mut TokenStream) -> Result<BlockBody, ParseError> {
         let expr = super::expr::parse_expr(stream)?;
         Ok(BlockBody::Expression(expr))
     }
+}
+
+/// Parse assert block body as a list of assertion statements.
+///
+/// Each assertion can have optional severity and message metadata:
+/// ```cdsl
+/// assert {
+///     x > 0;                                      // Basic assertion
+///     y < 100 : fatal;                            // With severity
+///     z != 0 : "z cannot be zero";               // With message
+///     w > 0 : fatal, "w must be positive";       // Both
+/// }
+/// ```
+fn parse_assert_block_body(stream: &mut TokenStream) -> Result<BlockBody, ParseError> {
+    let mut assertions = Vec::new();
+
+    while !matches!(stream.peek(), Some(Token::RBrace)) {
+        assertions.push(parse_assertion_statement(stream)?);
+
+        // Consume optional semicolon
+        if matches!(stream.peek(), Some(Token::Semicolon)) {
+            stream.advance();
+        }
+    }
+
+    Ok(BlockBody::Statements(assertions))
+}
+
+/// Parse a single assertion statement with optional metadata.
+///
+/// Syntax:
+/// - `condition`
+/// - `condition : severity`
+/// - `condition : "message"`
+/// - `condition : severity, "message"`
+fn parse_assertion_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
+    let start = stream.current_pos();
+
+    // Parse condition expression
+    let condition = super::expr::parse_expr(stream)?;
+
+    // Check for optional metadata after ':'
+    let (severity, message) = if matches!(stream.peek(), Some(Token::Colon)) {
+        stream.advance(); // consume ':'
+        parse_assertion_metadata(stream)?
+    } else {
+        (None, None)
+    };
+
+    Ok(Stmt::Assert {
+        condition,
+        severity,
+        message,
+        span: stream.span_from(start),
+    })
+}
+
+/// Parse assertion metadata: severity and/or message.
+///
+/// Valid patterns:
+/// - `fatal` - severity only
+/// - `"message"` - message only
+/// - `fatal, "message"` - both (severity first)
+fn parse_assertion_metadata(
+    stream: &mut TokenStream,
+) -> Result<(Option<String>, Option<String>), ParseError> {
+    let mut severity = None;
+    let mut message = None;
+
+    // First item can be severity (identifier) or message (string)
+    match stream.peek() {
+        Some(Token::Ident(name)) => {
+            severity = Some(name.clone());
+            stream.advance();
+
+            // Check for comma and message
+            if matches!(stream.peek(), Some(Token::Comma)) {
+                stream.advance(); // consume comma
+
+                // Expect string literal for message
+                if let Some(Token::String(msg)) = stream.peek() {
+                    message = Some(msg.clone());
+                    stream.advance();
+                } else {
+                    return Err(ParseError::unexpected_token(
+                        stream.peek(),
+                        "string literal for assertion message",
+                        stream.current_span(),
+                    ));
+                }
+            }
+        }
+        Some(Token::String(msg)) => {
+            message = Some(msg.clone());
+            stream.advance();
+        }
+        other => {
+            return Err(ParseError::unexpected_token(
+                other,
+                "severity identifier or message string",
+                stream.current_span(),
+            ));
+        }
+    }
+
+    Ok((severity, message))
 }
 
 /// Check if the next token can start a statement.

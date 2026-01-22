@@ -3,8 +3,8 @@
 //! This module defines block body types used in execution blocks.
 //! These types are shared between declaration.rs and node.rs.
 
-use crate::ast::TypedExpr;
 use crate::ast::untyped::Expr;
+use crate::ast::TypedExpr;
 use crate::foundation::{Path, Span};
 
 /// A single simulation statement within a procedural block body.
@@ -66,6 +66,42 @@ pub enum Stmt<E = Expr> {
     ///
     /// An expression evaluated for its side effects (usually a function call).
     Expr(E),
+
+    /// Assertion with optional severity and message
+    ///
+    /// Represents an assertion condition with optional metadata for severity
+    /// level and descriptive message. Assertions validate invariants and emit
+    /// structured faults when conditions fail.
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// assert { x > 0 }                          // Basic assertion
+    /// assert { x > 0 : fatal }                  // With severity
+    /// assert { x > 0 : "must be positive" }     // With message
+    /// assert { x > 0 : fatal, "must be positive" }  // Both
+    /// ```
+    ///
+    /// # Syntax
+    ///
+    /// ```text
+    /// assert { condition }
+    /// assert { condition : severity }
+    /// assert { condition : message }
+    /// assert { condition : severity, message }
+    /// ```
+    ///
+    /// Valid severity levels: `fatal`, `error`, `warn`
+    Assert {
+        /// Condition expression that must evaluate to Bool
+        condition: E,
+        /// Optional severity level ("fatal", "error", "warn")
+        severity: Option<String>,
+        /// Optional descriptive message
+        message: Option<String>,
+        /// Source location
+        span: Span,
+    },
 }
 
 /// A compiled and type-validated simulation statement.

@@ -142,6 +142,11 @@ pub fn extract_stmt_dependencies(
             temporal_reads.extend(t1);
             temporal_reads.extend(t2);
         }
+        TypedStmt::Assert { condition, .. } => {
+            let (r, t) = extract_dependencies(condition, current_node_path);
+            reads.extend(r);
+            temporal_reads.extend(t);
+        }
         TypedStmt::Expr(expr) => {
             let (r, t) = extract_dependencies(expr, current_node_path);
             reads.extend(r);

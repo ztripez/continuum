@@ -230,6 +230,34 @@ pub fn compile_statements(
                     (Err(mut e), _) | (_, Err(mut e)) => errors.append(&mut e),
                 }
             }
+            Stmt::Assert {
+                condition,
+                severity,
+                message,
+                span,
+            } => match type_expression(condition, &current_ctx) {
+                Ok(typed_condition) => {
+                    // Validate condition is Bool type
+                    if typed_condition.ty != continuum_cdsl_ast::foundation::Type::Bool {
+                        errors.push(CompileError::new(
+                            ErrorKind::TypeMismatch,
+                            *span,
+                            format!(
+                                "assertion condition must be Bool, got {:?}",
+                                typed_condition.ty
+                            ),
+                        ));
+                    }
+
+                    typed_stmts.push(TypedStmt::Assert {
+                        condition: typed_condition,
+                        severity: severity.clone(),
+                        message: message.clone(),
+                        span: *span,
+                    });
+                }
+                Err(mut e) => errors.append(&mut e),
+            },
             Stmt::Expr(expr) => match type_expression(expr, &current_ctx) {
                 Ok(typed_expr) => typed_stmts.push(TypedStmt::Expr(typed_expr)),
                 Err(mut e) => errors.append(&mut e),
@@ -259,7 +287,10 @@ pub fn compile_statements(
                 TypedStmt::Expr(expr)
                 | TypedStmt::Let { value: expr, .. }
                 | TypedStmt::SignalAssign { value: expr, .. }
-                | TypedStmt::FieldAssign { value: expr, .. } => {
+                | TypedStmt::FieldAssign { value: expr, .. }
+                | TypedStmt::Assert {
+                    condition: expr, ..
+                } => {
                     errors.extend(validate_effect_purity(
                         expr,
                         &effect_ctx,
@@ -573,13 +604,60 @@ pub fn compile_execution_blocks<I: Index>(
         let execution = Execution::new(
             phase_name.clone(),
             phase,
-            body,
+            body.clone(),
             reads,
             temporal_reads,
             emits,
             node.span,
         );
         executions.push(execution);
+
+        // 6.1 Extract assertions from Assert phase blocks
+        if phase == Phase::Assert {
+            if let ExecutionBody::Statements(stmts) = &body {
+                for stmt in stmts {
+                    if let TypedStmt::Assert {
+                        condition,
+                        severity,
+                        message,
+                        span,
+                    } = stmt
+                    {
+                        // Parse severity string to AssertionSeverity enum
+                        let severity_enum = if let Some(sev_str) = severity {
+                            match sev_str.to_lowercase().as_str() {
+                                "fatal" => continuum_cdsl_ast::foundation::AssertionSeverity::Fatal,
+                                "error" => continuum_cdsl_ast::foundation::AssertionSeverity::Error,
+                                "warn" | "warning" => {
+                                    continuum_cdsl_ast::foundation::AssertionSeverity::Warn
+                                }
+                                unknown => {
+                                    errors.push(CompileError::new(
+                                        ErrorKind::InvalidCapability,
+                                        *span,
+                                        format!(
+                                            "unknown assertion severity '{}', valid values: fatal, error, warn",
+                                            unknown
+                                        ),
+                                    ));
+                                    continue;
+                                }
+                            }
+                        } else {
+                            // Default severity if not specified
+                            continuum_cdsl_ast::foundation::AssertionSeverity::Error
+                        };
+
+                        node.assertions.push(continuum_cdsl_ast::Assertion::new(
+                            condition.clone(),
+                            message.clone(),
+                            severity_enum,
+                            *span,
+                        ));
+                    }
+                }
+            }
+        }
     }
 
     if !errors.is_empty() {
