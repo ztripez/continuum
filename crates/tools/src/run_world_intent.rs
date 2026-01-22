@@ -2,8 +2,9 @@ use std::path::PathBuf;
 
 use continuum_cdsl::ast::{BinaryBundle, CompiledWorld};
 use continuum_cdsl::compile;
+use continuum_cdsl::resolve::error::CompileError;
 use continuum_runtime::build_runtime;
-use continuum_runtime::executor::{RunError, RunOptions, RunReport, run_simulation};
+use continuum_runtime::executor::{run_simulation, RunError, RunOptions, RunReport};
 
 /// The source of a world to execute.
 #[derive(Debug, Clone)]
@@ -122,10 +123,10 @@ pub enum RunWorldError {
 }
 
 impl RunWorldError {
-    fn from_compile(errors: Vec<continuum_cdsl::error::CompileError>) -> Self {
+    fn from_compile(errors: Vec<CompileError>) -> Self {
         let message = errors
             .iter()
-            .map(|err| err.to_string())
+            .map(|err: &CompileError| err.to_string())
             .collect::<Vec<_>>()
             .join("\n");
         RunWorldError::Compile(message)
