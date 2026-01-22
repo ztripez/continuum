@@ -264,42 +264,35 @@ fn parse_assertion_statement(stream: &mut TokenStream) -> Result<Stmt, ParseErro
 fn parse_assertion_metadata(
     stream: &mut TokenStream,
 ) -> Result<(Option<String>, Option<String>), ParseError> {
-    let mut severity = None;
-    let mut message = None;
-
-    // First item can be severity (identifier) or message (string)
-    match stream.peek() {
-        Some(Token::Ident(name)) => {
-            severity = Some(name.clone());
-            stream.advance();
-
-            // Check for comma and message
-            if matches!(stream.peek(), Some(Token::Comma)) {
-                stream.advance(); // consume comma
-
-                // Expect string literal for message
-                if let Some(Token::String(msg)) = stream.peek() {
-                    message = Some(msg.clone());
-                    stream.advance();
-                } else {
-                    return Err(ParseError::unexpected_token(
-                        stream.peek(),
-                        "string literal for assertion message",
-                        stream.current_span(),
-                    ));
-                }
-            }
-        }
-        Some(Token::String(msg)) => {
-            message = Some(msg.clone());
-            stream.advance();
-        }
+    // Parse first item (severity or message)
+    let (mut severity, mut message) = match stream.peek() {
+        Some(Token::Ident(name)) => (Some(name.clone()), None),
+        Some(Token::String(msg)) => (None, Some(msg.clone())),
         other => {
             return Err(ParseError::unexpected_token(
                 other,
                 "severity identifier or message string",
                 stream.current_span(),
-            ));
+            ))
+        }
+    };
+    stream.advance();
+
+    // If comma, parse second item (must be message)
+    if matches!(stream.peek(), Some(Token::Comma)) {
+        stream.advance();
+        match stream.peek() {
+            Some(Token::String(msg)) => {
+                message = Some(msg.clone());
+                stream.advance();
+            }
+            other => {
+                return Err(ParseError::unexpected_token(
+                    other,
+                    "string literal for assertion message",
+                    stream.current_span(),
+                ))
+            }
         }
     }
 
