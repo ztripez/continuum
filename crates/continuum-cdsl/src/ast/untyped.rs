@@ -693,18 +693,22 @@ pub enum ExprKind {
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum TypeExpr {
     /// Scalar type: `Scalar<m/s>` or `Scalar<>` or just `Scalar`
+    /// Optionally with bounds: `Scalar<K, 273..373>`
     ///
     /// # Examples
     ///
     /// ```cdsl
-    /// Scalar<m>      // meters
-    /// Scalar<m/s>    // meters per second
-    /// Scalar<>       // dimensionless
-    /// Scalar         // dimensionless (unit omitted)
+    /// Scalar<m>           // meters
+    /// Scalar<m/s>         // meters per second
+    /// Scalar<>            // dimensionless
+    /// Scalar              // dimensionless (unit omitted)
+    /// Scalar<K, 273..373> // temperature with bounds [273, 373]
     /// ```
     Scalar {
         /// Unit expression (None = dimensionless)
         unit: Option<UnitExpr>,
+        /// Optional bounds (min, max)
+        bounds: Option<(Expr, Expr)>,
     },
 
     /// Vector type: `Vector<dim, unit>`
@@ -896,9 +900,15 @@ mod tests {
 
     #[test]
     fn type_expr_scalar() {
-        let ty = TypeExpr::Scalar { unit: None };
+        let ty = TypeExpr::Scalar {
+            unit: None,
+            bounds: None,
+        };
         match ty {
-            TypeExpr::Scalar { unit } => assert_eq!(unit, None),
+            TypeExpr::Scalar { unit, bounds } => {
+                assert_eq!(unit, None);
+                assert_eq!(bounds, None);
+            }
             _ => panic!("expected scalar"),
         }
     }

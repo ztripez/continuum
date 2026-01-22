@@ -629,9 +629,15 @@ fn type_expr_parser<'src>(
                 .then_ignore(just(Token::Gt))
                 .or_not(),
         )
-        .map(|(_, unit_and_bounds)| {
-            let unit = unit_and_bounds.map(|(u, _bounds)| u);
-            TypeExpr::Scalar { unit }
+        .map(|(_, unit_and_bounds)| match unit_and_bounds {
+            Some((u, bounds)) => TypeExpr::Scalar {
+                unit: Some(u),
+                bounds,
+            },
+            None => TypeExpr::Scalar {
+                unit: None,
+                bounds: None,
+            },
         });
     let vector_type = just(Token::Ident("Vector".to_string()))
         .ignore_then(just(Token::Lt))

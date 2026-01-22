@@ -1145,7 +1145,7 @@ mod tests {
                     make_literal(2.0),
                     make_span(),
                 ),
-                type_expr: TypeExpr::Scalar { unit: None },
+                type_expr: TypeExpr::Scalar { unit: None, bounds: None },
                 span: make_span(),
                 doc: None,
             }]),

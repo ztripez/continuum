@@ -346,8 +346,10 @@ pub fn resolve_type_expr(
     span: Span,
 ) -> Result<Type, CompileError> {
     match type_expr {
-        TypeExpr::Scalar { unit } => {
+        TypeExpr::Scalar { unit, bounds } => {
             let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
+            // TODO: Resolve and validate bounds expressions
+            let _ = bounds; // Ignore for now, will implement validation later
             Ok(Type::kernel(Shape::Scalar, resolved_unit, None))
         }
 
@@ -412,7 +414,10 @@ mod tests {
     #[test]
     fn test_resolve_scalar_type() {
         let type_table = TypeTable::new();
-        let scalar_type = TypeExpr::Scalar { unit: None };
+        let scalar_type = TypeExpr::Scalar {
+            unit: None,
+            bounds: None,
+        };
         let resolved = resolve_type_expr(&scalar_type, &type_table, test_span()).unwrap();
         assert!(resolved.is_kernel());
     }

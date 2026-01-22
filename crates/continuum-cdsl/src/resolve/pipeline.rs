@@ -589,7 +589,7 @@ mod tests {
 
         let member_path = Path::from_path_str("plate.mass");
         let mut member = Node::new(member_path, span, RoleData::Signal, entity_id);
-        member.type_expr = Some(crate::ast::TypeExpr::Scalar { unit: None });
+        member.type_expr = Some(crate::ast::TypeExpr::Scalar { unit: None, bounds: None });
         member.attributes.push(Attribute {
             name: "stratum".to_string(),
             args: vec![Expr::new(
@@ -962,7 +962,7 @@ mod tests {
 
         let signal_path = Path::from_path_str("gravity");
         let mut signal = Node::new(signal_path.clone(), span, RoleData::Signal, ());
-        signal.type_expr = Some(crate::ast::TypeExpr::Scalar { unit: None });
+        signal.type_expr = Some(crate::ast::TypeExpr::Scalar { unit: None, bounds: None });
         signal.attributes.push(Attribute {
             name: "strata".to_string(),
             args: vec![Expr::new(
@@ -986,7 +986,7 @@ mod tests {
             RoleData::Signal,
             entity_id.clone(),
         );
-        member.type_expr = Some(crate::ast::TypeExpr::Scalar { unit: None });
+        member.type_expr = Some(crate::ast::TypeExpr::Scalar { unit: None, bounds: None });
         member.attributes.push(Attribute {
             name: "strata".to_string(),
             args: vec![Expr::new(
