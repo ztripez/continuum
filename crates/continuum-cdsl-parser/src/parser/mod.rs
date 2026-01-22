@@ -28,49 +28,25 @@ mod stream;
 pub use error::ParseError;
 use stream::TokenStream;
 
+mod blocks;
+mod decl;
+mod expr;
+pub mod token_utils;
+mod types;
+
+// Public API wrappers matching old chumsky-based interface
 use continuum_cdsl_ast::{Declaration, Expr};
 use continuum_cdsl_lexer::Token;
 
-/// Parse an expression from a token stream.
+/// Parse a sequence of tokens into declarations.
 ///
 /// # Parameters
-/// - `tokens`: Token stream to parse.
-/// - `file_id`: SourceMap file identifier for spans.
+/// - `tokens`: Slice of tokens to parse
+/// - `file_id`: File identifier for span tracking
 ///
 /// # Returns
-/// Parsed [`Expr`] with spans referencing `file_id`.
-///
-/// # Errors
-/// Returns parse errors if the tokens are not a valid expression.
-pub fn parse_expr(tokens: &[Token], file_id: u16) -> Result<Expr, Vec<ParseError>> {
-    let mut stream = TokenStream::new(tokens, file_id);
-    match expr::parse_expr(&mut stream) {
-        Ok(expr) => {
-            if !stream.at_end() {
-                Err(vec![ParseError::unexpected_token(
-                    stream.peek(),
-                    "end of expression",
-                    stream.current_span(),
-                )])
-            } else {
-                Ok(expr)
-            }
-        }
-        Err(e) => Err(vec![e]),
-    }
-}
-
-/// Parse declarations from a token stream.
-///
-/// # Parameters
-/// - `tokens`: Token stream for a full CDSL file.
-/// - `file_id`: SourceMap file identifier for spans.
-///
-/// # Returns
-/// Parsed declarations in source order.
-///
-/// # Errors
-/// Returns parse errors if the token stream is invalid.
+/// - `Ok(Vec<Declaration>)` if parsing succeeds
+/// - `Err(Vec<ParseError>)` if parsing fails
 pub fn parse_declarations(
     tokens: &[Token],
     file_id: u16,
@@ -79,7 +55,16 @@ pub fn parse_declarations(
     decl::parse_declarations(&mut stream)
 }
 
-mod blocks;
-mod decl;
-mod expr;
-mod types;
+/// Parse a sequence of tokens into an expression.
+///
+/// # Parameters
+/// - `tokens`: Slice of tokens to parse
+/// - `file_id`: File identifier for span tracking
+///
+/// # Returns
+/// - `Ok(Expr)` if parsing succeeds
+/// - `Err(Vec<ParseError>)` if parsing fails (single error wrapped in Vec for API compatibility)
+pub fn parse_expr(tokens: &[Token], file_id: u16) -> Result<Expr, Vec<ParseError>> {
+    let mut stream = TokenStream::new(tokens, file_id);
+    expr::parse_expr(&mut stream).map_err(|e| vec![e])
+}

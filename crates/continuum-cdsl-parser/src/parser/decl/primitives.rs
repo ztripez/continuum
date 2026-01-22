@@ -1,6 +1,6 @@
 //! Primitive node declarations: signal, field, operator, impulse, fracture, chronicle.
 
-use super::{ParseError, TokenStream, parse_node_declaration};
+use super::{parse_node_declaration, ParseError, TokenStream};
 use continuum_cdsl_ast::{Declaration, RoleData};
 use continuum_cdsl_lexer::Token;
 

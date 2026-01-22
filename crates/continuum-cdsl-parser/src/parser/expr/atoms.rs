@@ -148,13 +148,10 @@ fn parse_identifier(stream: &mut TokenStream) -> Result<Expr, ParseError> {
 
     let name = match stream.advance() {
         Some(Token::Ident(s)) => s.clone(),
-        Some(Token::Config) => "config".to_string(),
-        Some(Token::Const) => "const".to_string(),
-        Some(Token::Signal) => "signal".to_string(),
-        Some(Token::Field) => "field".to_string(),
-        Some(Token::Dt) => "dt".to_string(),
-        other => {
-            return Err(ParseError::unexpected_token(other, "identifier", span));
+        Some(token) => super::super::token_utils::keyword_to_string(&token)
+            .ok_or_else(|| ParseError::unexpected_token(Some(&token), "identifier", span))?,
+        None => {
+            return Err(ParseError::unexpected_token(None, "identifier", span));
         }
     };
 

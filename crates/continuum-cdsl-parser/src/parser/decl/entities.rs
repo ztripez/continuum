@@ -1,6 +1,6 @@
 //! Entity and member declarations.
 
-use super::{ParseError, TokenStream, parse_attributes};
+use super::{parse_attributes, ParseError, TokenStream};
 use continuum_cdsl_ast::foundation::EntityId;
 use continuum_cdsl_ast::{Declaration, Entity, Node, RoleData};
 use continuum_cdsl_lexer::Token;

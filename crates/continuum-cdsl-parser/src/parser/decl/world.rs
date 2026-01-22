@@ -1,6 +1,6 @@
 //! World declaration and policy parsing.
 
-use super::{ParseError, TokenStream, parse_attribute, parse_attributes};
+use super::{parse_attribute, parse_attributes, ParseError, TokenStream};
 use continuum_cdsl_ast::foundation::{DeterminismPolicy, FaultPolicy, WorldPolicy};
 use continuum_cdsl_ast::{Declaration, RawWarmupPolicy};
 use continuum_cdsl_lexer::Token;

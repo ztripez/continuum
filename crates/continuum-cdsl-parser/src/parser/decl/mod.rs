@@ -78,14 +78,11 @@ pub(super) fn parse_attribute(stream: &mut TokenStream) -> Result<Attribute, Par
         let span = stream.current_span();
         match stream.advance() {
             Some(Token::Ident(s)) => s.clone(),
-            Some(Token::Dt) => "dt".to_string(),
-            Some(Token::Strata) => "strata".to_string(),
-            Some(Token::Type) => "type".to_string(),
-            Some(Token::Signal) => "signal".to_string(),
-            Some(Token::Field) => "field".to_string(),
-            Some(Token::Entity) => "entity".to_string(),
-            other => {
-                return Err(ParseError::unexpected_token(other, "attribute name", span));
+            Some(token) => super::token_utils::keyword_to_string(&token).ok_or_else(|| {
+                ParseError::unexpected_token(Some(&token), "attribute name", span)
+            })?,
+            None => {
+                return Err(ParseError::unexpected_token(None, "attribute name", span));
             }
         }
     };

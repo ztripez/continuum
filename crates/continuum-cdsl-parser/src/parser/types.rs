@@ -14,15 +14,10 @@ pub fn parse_path(stream: &mut TokenStream) -> Result<Path, ParseError> {
             let span = stream.current_span();
             match stream.advance() {
                 Some(Token::Ident(s)) => s.clone(),
-                Some(Token::Config) => "config".to_string(),
-                Some(Token::Const) => "const".to_string(),
-                Some(Token::Signal) => "signal".to_string(),
-                Some(Token::Field) => "field".to_string(),
-                Some(Token::Entity) => "entity".to_string(),
-                Some(Token::Strata) => "strata".to_string(),
-                Some(Token::Type) => "type".to_string(),
-                other => {
-                    return Err(ParseError::unexpected_token(other, "in path", span));
+                Some(token) => super::token_utils::keyword_to_string(&token)
+                    .ok_or_else(|| ParseError::unexpected_token(Some(&token), "in path", span))?,
+                None => {
+                    return Err(ParseError::unexpected_token(None, "in path", span));
                 }
             }
         };

@@ -1,6 +1,6 @@
 //! Time-related declarations: stratum and era.
 
-use super::{ParseError, TokenStream, parse_attributes};
+use super::{parse_attributes, ParseError, TokenStream};
 use continuum_cdsl_ast::foundation::StratumId;
 use continuum_cdsl_ast::{Declaration, EraDecl, Stratum, StratumPolicyEntry, TransitionDecl};
 use continuum_cdsl_lexer::Token;
