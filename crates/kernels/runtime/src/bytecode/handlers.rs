@@ -1,6 +1,6 @@
 //! Opcode handlers for bytecode execution.
 
-use continuum_foundation::Value;
+use continuum_foundation::{AggregateOp, Value};
 
 use crate::bytecode::opcode::Instruction;
 use crate::bytecode::operand::{

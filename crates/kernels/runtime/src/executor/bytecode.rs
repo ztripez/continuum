@@ -714,8 +714,8 @@ impl<'a> ExecutionContext for VMContext<'a> {
 
     fn emit_event(
         &mut self,
-        chronicle_id: &str,
-        name: &str,
+        chronicle_id: String,
+        name: String,
         fields: Vec<(String, Value)>,
     ) -> std::result::Result<(), ExecutionError> {
         if self.phase != Phase::Measure {
@@ -724,8 +724,7 @@ impl<'a> ExecutionContext for VMContext<'a> {
                 phase: self.phase,
             });
         }
-        self.event_buffer
-            .emit(chronicle_id.to_string(), name.to_string(), fields);
+        self.event_buffer.emit(chronicle_id, name, fields);
         Ok(())
     }
 

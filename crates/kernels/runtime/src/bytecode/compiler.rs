@@ -282,25 +282,6 @@ impl Compiler {
                     .instructions
                     .push(Instruction::new(OpcodeKind::LoadOther, vec![]));
             }
-            ExprKind::OtherInstances(entity) => {
-                block.instructions.push(Instruction::new(
-                    OpcodeKind::LoadEntity,
-                    vec![Operand::Entity(entity.clone())],
-                ));
-                block
-                    .instructions
-                    .push(Instruction::new(OpcodeKind::LoadOther, vec![]));
-            }
-            ExprKind::PairsInstances(entity) => {
-                block.instructions.push(Instruction::new(
-                    OpcodeKind::LoadEntity,
-                    vec![Operand::Entity(entity.clone())],
-                ));
-                // TODO: LoadPairs opcode?
-                block
-                    .instructions
-                    .push(Instruction::new(OpcodeKind::Pop, vec![]));
-            }
             ExprKind::Payload => {
                 block
                     .instructions
