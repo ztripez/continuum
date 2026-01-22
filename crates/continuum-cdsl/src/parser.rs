@@ -647,7 +647,16 @@ fn token_span(span: SimpleSpan, file_id: u16) -> Span {
 
 fn path_parser<'src>(
 ) -> impl Parser<'src, &'src [Token], Path, extra::Err<Rich<'src, Token>>> + Clone {
-    select! { Token::Ident(name) => name }
+    let segment = select! {
+        Token::Ident(name) => name,
+        Token::Config => "config".to_string(),
+        Token::Const => "const".to_string(),
+        Token::Signal => "signal".to_string(),
+        Token::Field => "field".to_string(),
+        Token::Entity => "entity".to_string(),
+        Token::Dt => "dt".to_string(),
+    };
+    segment
         .separated_by(just(Token::Dot))
         .at_least(1)
         .collect::<Vec<_>>()
@@ -668,6 +677,9 @@ fn attribute_parser<'src>(
     let attribute_name = select! {
         Token::Ident(name) => name,
         Token::Dt => "dt".to_string(),
+        Token::Strata => "strata".to_string(),
+        Token::Type => "type".to_string(),
+        Token::Entity => "entity".to_string(),
     };
     just(Token::Colon)
         .ignore_then(attribute_name)
