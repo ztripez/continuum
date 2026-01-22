@@ -123,13 +123,83 @@ pub(super) fn parse_attributes(stream: &mut TokenStream) -> Result<Vec<Attribute
     Ok(attributes)
 }
 
-/// Parse a node declaration with common structure.
+/// Parse a node declaration (signal, field, operator, impulse, fracture, chronicle).
 ///
-/// This helper eliminates duplication across signal, field, operator,
-/// impulse, fracture, and chronicle declarations which all follow the pattern:
+/// All node declarations follow the pattern:
 /// ```text
-/// <keyword> <path> { [attributes] [execution_blocks] }
+/// <keyword> <path> { [: TypeExpr] [attributes] [special_blocks] [execution_blocks] }
 /// ```
+///
+/// # Type Expression Detection
+///
+/// Type expressions can appear as the first element inside the body:
+/// ```text
+/// signal foo.bar {
+///     : Scalar<m>      # Type expression (detected via is_type_keyword)
+///     : strata(fast)   # Regular attribute
+///     resolve { ... }
+/// }
+/// ```
+///
+/// This function uses **semantic lookahead** (`peek_nth(1)`) to distinguish type
+/// expressions from named attributes. After seeing `:`, it checks if the next token
+/// is a type keyword (`Bool`, `Scalar`, `Vec2`, etc.) via [`is_type_keyword()`].
+///
+/// **Rationale for semantic lookahead in parser**:
+/// - Grammar is inherently ambiguous: both `:Scalar` and `:strata` start with `:`
+/// - Cannot be resolved syntactically without unlimited lookahead (`<` may be far ahead)
+/// - Resolver cannot disambiguate because both forms are valid AST attributes
+/// - Parser-level disambiguation required to populate correct `Node.type_expr` field
+///
+/// # Parameters
+///
+/// - `stream`: Token stream positioned at the keyword token
+/// - `keyword`: The expected declaration keyword (Signal, Field, Operator, etc.)
+/// - `role`: The role data to associate with the parsed node
+///
+/// # Returns
+///
+/// `Declaration::Node` containing:
+/// - Parsed path
+/// - Optional type expression (if `: TypeKeyword<...>` present)
+/// - Attributes (`:name` or `:name(args)`)
+/// - Special blocks (`when`, `warmup`, `observe`)
+/// - Execution blocks (`resolve`, `collect`, `emit`, `assert`, `measure`)
+///
+/// # Errors
+///
+/// Returns `ParseError` if:
+/// - Keyword token doesn't match `keyword` parameter
+/// - Path syntax is invalid
+/// - Type expression syntax is malformed
+/// - Attribute syntax is invalid
+/// - Special block syntax is invalid
+/// - Execution block syntax is invalid
+/// - Missing closing `}`
+///
+/// # Examples
+///
+/// ```text
+/// // Type expression detected via lookahead
+/// signal plate.velocity {
+///     : Vec3<m/s>      # is_type_keyword("Vec3") → true, parse as type
+///     : strata(fast)   # is_type_keyword("strata") → false, parse as attribute
+///     resolve { ... }
+/// }
+///
+/// // Fracture with special blocks
+/// fracture overstress {
+///     when { tension > 100.0 }
+///     collect { ... }
+/// }
+/// ```
+///
+/// # See Also
+///
+/// - [`is_type_keyword()`]: Determines if identifier is a type keyword (semantic check)
+/// - [`parse_type_expr()`]: Parses type expression syntax
+/// - [`parse_attribute()`]: Parses individual attributes
+/// - [`parse_when_block()`], [`parse_warmup_block()`], [`parse_observe_block()`]: Special blocks
 pub(super) fn parse_node_declaration(
     stream: &mut TokenStream,
     keyword: Token,
@@ -144,6 +214,16 @@ pub(super) fn parse_node_declaration(
     stream.expect(Token::LBrace)?;
 
     // Check for type expression as first attribute: `: Scalar<unit>`
+    //
+    // RATIONALE FOR SEMANTIC LOOKAHEAD:
+    // The DSL allows both `: TypeExpr` and `: attr_name(...)` after `{`.
+    // Syntactically indistinguishable without infinite lookahead (need to see `<` or `(`).
+    // We use is_type_keyword() to perform semantic disambiguation at parse time.
+    //
+    // This is an architectural tradeoff:
+    // - Parser does semantic check (violates phase boundary)
+    // - Alternative: Parse ambiguously, resolve in semantic analysis (harder to implement)
+    // - Grammar ambiguity cannot be eliminated without changing DSL syntax
     let type_expr = if matches!(stream.peek(), Some(Token::Colon)) {
         // Peek ahead to see if this is a type keyword
         let is_type = if let Some(Token::Ident(name)) = stream.peek_nth(1) {
