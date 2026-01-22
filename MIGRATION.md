@@ -2,13 +2,19 @@
 
 This document lists all syntax changes required to migrate existing `.cdsl` files from the old compiler to the new compiler (compiler-rewrite branch).
 
+⚠️ **CRITICAL**: Some features listed as "not supported" are **TEMPORARY PARSER BUGS**, not intentional removals. See tracked issues:
+- `continuum-lmjt`: Namespace function calls (CRITICAL - needed for kernels)
+- `continuum-9jon`: Type bounds (IMPORTANT - needed for validation)
+- `continuum-5g4r`: Assertion severity/messages (CRITICAL - needed for debugging)
+- `continuum-puny`: Emit block parsing (IMPORTANT - needed for fractures)
+
 ## Parser Fixes Applied
 
 The new parser was updated to accept:
 - Keywords (`config`, `const`, `signal`, `field`, `entity`, `dt`, `strata`, `type`) in path segments
 - Keywords (`strata`, `type`, `entity`, `dt`) as attribute names
 
-## Breaking Syntax Changes
+## Permanent Syntax Changes
 
 ### 1. Attribute Placement
 
@@ -47,17 +53,21 @@ signal x : type Scalar<K> {
 }
 ```
 
-### 3. Type Bounds (NOT SUPPORTED)
+## Temporary Parser Bugs (NEEDS FIXING)
 
-**Old syntax:** Range bounds in type parameters
+### 3. Type Bounds - ⚠️ PARSER BUG (Issue: continuum-9jon)
+
+**Should work:** Range bounds in type parameters
 ```cdsl
-signal x : type Scalar<K, 100..10000> { ... }
+signal x : type Scalar<K, 273..373> { ... }
 ```
 
-**New syntax:** Bounds removed (not yet supported by parser)
+**Current workaround:** Remove bounds (TEMPORARY)
 ```cdsl
 signal x : type Scalar<K> { ... }
 ```
+
+**Status**: Parser sees comma and thinks it's an expression operator. Type expr parser needs to handle bounds syntax.
 
 ### 4. Transition Blocks
 
@@ -96,9 +106,32 @@ resolve {
 }
 ```
 
-### 6. Config/Const References (NOT FULLY SUPPORTED)
+### 6. Namespace Function Calls - ⚠️ CRITICAL PARSER BUG (Issue: continuum-lmjt)
 
-**Old syntax:** Dotted paths
+**Should work:** Kernel and namespace function calls
+```cdsl
+resolve {
+    let decayed = dt.decay(prev, halflife) in
+    let abs_val = maths.abs(gradient) in
+    maths.clamp(value, min, max)
+}
+```
+
+**Current workaround:** Remove calls (TEMPORARY - breaks functionality!)
+```cdsl
+resolve {
+    prev  // dt.decay not available - THIS IS BROKEN
+}
+```
+
+**Status**: Expression parser doesn't handle dotted paths. This is **CRITICAL** - kernel calls are essential. Parser needs to:
+1. Accept keywords as path starts in expressions
+2. Parse `.` member access operator
+3. Handle `namespace.function(args)` syntax
+
+### 7. Config/Const Dotted Paths - ⚠️ PARSER BUG (Same as #6)
+
+**Should work:** Namespaced config references
 ```cdsl
 config {
     thermal.decay_halflife : type Scalar<s> = 1.42e17 <s>
@@ -109,7 +142,7 @@ resolve {
 }
 ```
 
-**Current workaround:** Flatten paths (no dots)
+**Current workaround:** Flatten paths (TEMPORARY)
 ```cdsl
 config {
     decay_halflife : type Scalar<s> = 1.42e17 <s>
@@ -120,31 +153,11 @@ resolve {
 }
 ```
 
-**Issue:** Parser doesn't support dotted path expressions yet. Namespace paths like `config.X.Y` don't parse in expressions.
+**Status**: Same root cause as #6 - no dotted path expression support.
 
-### 7. Namespace Function Calls (NOT SUPPORTED)
+### 8. Assertion Severity/Messages - ⚠️ CRITICAL PARSER BUG (Issue: continuum-5g4r)
 
-**Old syntax:** Namespace function calls
-```cdsl
-resolve {
-    let decayed = dt.decay(prev, halflife) in
-    let abs_val = maths.abs(gradient) in
-    maths.clamp(value, min, max)
-}
-```
-
-**Current workaround:** Remove or inline
-```cdsl
-resolve {
-    prev  // dt.decay not available
-}
-```
-
-**Issue:** Dotted paths in expressions not yet supported.
-
-### 8. Assertion Syntax (PARTIAL SUPPORT)
-
-**Old syntax:** Severity levels and messages
+**Should work:** Severity levels and error messages
 ```cdsl
 assert {
     prev >= 100 <K> : fatal, "temperature too low"
@@ -152,18 +165,23 @@ assert {
 }
 ```
 
-**New syntax:** Boolean expressions only (no severity/message)
+**Current workaround:** Boolean only (TEMPORARY - loses critical debugging info)
 ```cdsl
 assert {
     prev >= 100 <K>
 }
 ```
 
-Multiple assertions require separate `assert` blocks or may not be supported yet.
+**Status**: Assertion parser only handles boolean expressions. This is **CRITICAL** for:
+- Distinguishing fatal errors from warnings
+- Providing descriptive error messages
+- Debugging simulation failures
 
-### 9. Fracture Emit Blocks (NOT WORKING)
+Parser needs to handle: `expr : severity, "message"` suffix.
 
-**Old syntax:** Signal assignment in emit
+### 9. Fracture Emit Blocks - ⚠️ PARSER BUG (Issue: continuum-puny)
+
+**Should work:** Signal assignment in emit
 ```cdsl
 fracture core.decay_heat {
     when { core.temp < 5498 <K> }
@@ -171,9 +189,9 @@ fracture core.decay_heat {
 }
 ```
 
-**Issue:** Parser tries to parse emit body as expression before trying statement, so `<-` operator fails. Semicolons don't help.
+**Current workaround:** Comment out (TEMPORARY - fractures non-functional)
 
-**Workaround:** Comment out fractures for now.
+**Status**: `block_body_parser` tries expression first via `choice((expr, stmt_list))`, fails on `<-`, doesn't backtrack. Fix: reorder choice or improve lookahead.
 
 ### 10. Chronicle Observe Blocks (NOT WORKING)
 
