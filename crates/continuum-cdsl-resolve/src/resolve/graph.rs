@@ -26,10 +26,12 @@ pub fn compile_graphs(world: &World) -> Result<DagSet, Vec<CompileError>> {
     let mut errors = Vec::new();
 
     // The set of all eras defined in the world
-    let eras: Vec<_> = world.eras.keys().cloned().collect();
+    let mut eras: Vec<_> = world.eras.keys().cloned().collect();
+    eras.sort(); // Explicit ordering for determinism (see docs/execution/determinism.md §5)
 
     // The set of all strata defined in the world
-    let strata: Vec<_> = world.strata.keys().cloned().collect();
+    let mut strata: Vec<_> = world.strata.keys().cloned().collect();
+    strata.sort(); // Explicit ordering for determinism
 
     // Phases that have execution DAGs
     let phases = [
