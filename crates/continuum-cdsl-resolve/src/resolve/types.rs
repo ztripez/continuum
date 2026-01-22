@@ -16,7 +16,7 @@ use crate::resolve::units::resolve_unit_expr;
 use continuum_cdsl_ast::foundation::{
     Bounds, EntityId, Path, Shape, Span, Type, Unit, UserType, UserTypeId,
 };
-use continuum_cdsl_ast::{Declaration, Expr, ExprKind, TypeExpr, UntypedKind};
+use continuum_cdsl_ast::{Declaration, Expr, TypeExpr, UntypedKind};
 use std::collections::HashMap;
 
 /// Registry of user-defined types keyed by fully-qualified [`Path`].
@@ -306,6 +306,86 @@ pub fn resolve_node_types<I: continuum_cdsl_ast::Index>(
     }
 }
 
+/// Infers a type from an untyped expression (for const/config type inference).
+///
+/// # Type Inference Rules
+///
+/// - `BoolLiteral` → `Type::Bool`
+/// - `Literal { value, unit }` → `Type::kernel(Scalar, resolved_unit, None)`
+/// - `Vector([e1, ..., en])` → `Type::kernel(Vector { dim: n }, dimensionless, None)`
+/// - Other expressions → Error (cannot infer from complex expressions)
+///
+/// # Parameters
+///
+/// - `expr`: Untyped expression to infer type from
+/// - `span`: Source location for error reporting
+///
+/// # Returns
+///
+/// Inferred [`Type`] or error if type cannot be inferred from expression.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// // Infer Bool from boolean literal
+/// infer_type_from_expr(&Expr::new(UntypedKind::BoolLiteral(true), span))
+/// // => Type::Bool
+///
+/// // Infer Scalar from numeric literal
+/// infer_type_from_expr(&Expr::new(UntypedKind::Literal { value: 3.14, unit: None }, span))
+/// // => Type::kernel(Scalar, dimensionless, None)
+///
+/// // Infer Vec3 from vector literal
+/// infer_type_from_expr(&Expr::new(UntypedKind::Vector(vec![e1, e2, e3]), span))
+/// // => Type::kernel(Vector { dim: 3 }, dimensionless, None)
+/// ```
+pub(crate) fn infer_type_from_expr(expr: &Expr, span: Span) -> Result<Type, CompileError> {
+    match &expr.kind {
+        UntypedKind::BoolLiteral(_) => Ok(Type::Bool),
+
+        UntypedKind::Literal { unit, .. } => {
+            // Resolve unit if present, otherwise dimensionless
+            let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
+            Ok(Type::kernel(Shape::Scalar, resolved_unit, None))
+        }
+
+        UntypedKind::Vector(elements) => {
+            if elements.is_empty() {
+                return Err(CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    span,
+                    "Cannot infer type from empty vector literal".to_string(),
+                ));
+            }
+
+            let dim = elements.len();
+            if dim > 255 {
+                return Err(CompileError::new(
+                    ErrorKind::DimensionMismatch,
+                    span,
+                    format!("Vector dimension {} exceeds maximum of 255", dim),
+                ));
+            }
+
+            // Infer dimensionless vector (units must be specified explicitly for vectors)
+            Ok(Type::kernel(
+                Shape::Vector { dim: dim as u8 },
+                Unit::dimensionless(),
+                None,
+            ))
+        }
+
+        _ => Err(CompileError::new(
+            ErrorKind::TypeMismatch,
+            span,
+            format!(
+                "Cannot infer type from complex expression. Explicit type annotation required.\nExpression kind: {:?}",
+                expr.kind
+            ),
+        )),
+    }
+}
+
 /// Resolves types for all constants and configurations.
 pub fn resolve_const_config_types(
     declarations: &mut [Declaration],
@@ -317,16 +397,41 @@ pub fn resolve_const_config_types(
         match decl {
             Declaration::Const(entries) => {
                 for entry in entries {
-                    match resolve_type_expr(&entry.type_expr, type_table, entry.span) {
-                        Ok(_) => {} // Validation only for now
+                    let resolved_type = if matches!(entry.type_expr, TypeExpr::Infer) {
+                        // Infer type from value expression
+                        infer_type_from_expr(&entry.value, entry.span)
+                    } else {
+                        // Resolve explicit type annotation
+                        resolve_type_expr(&entry.type_expr, type_table, entry.span)
+                    };
+
+                    match resolved_type {
+                        Ok(_) => {} // Type resolved successfully (validation only for now)
                         Err(e) => errors.push(e),
                     }
                 }
             }
             Declaration::Config(entries) => {
                 for entry in entries {
-                    match resolve_type_expr(&entry.type_expr, type_table, entry.span) {
-                        Ok(_) => {} // Validation only for now
+                    let resolved_type = if matches!(entry.type_expr, TypeExpr::Infer) {
+                        // Infer type from default value if present
+                        if let Some(default) = &entry.default {
+                            infer_type_from_expr(default, entry.span)
+                        } else {
+                            Err(CompileError::new(
+                                ErrorKind::TypeMismatch,
+                                entry.span,
+                                "Config entry with inferred type must have a default value"
+                                    .to_string(),
+                            ))
+                        }
+                    } else {
+                        // Resolve explicit type annotation
+                        resolve_type_expr(&entry.type_expr, type_table, entry.span)
+                    };
+
+                    match resolved_type {
+                        Ok(_) => {} // Type resolved successfully
                         Err(e) => errors.push(e),
                     }
                 }
@@ -429,10 +534,13 @@ pub fn resolve_type_expr(
         TypeExpr::Bool => Ok(Type::Bool),
 
         TypeExpr::Infer => {
-            // Type inference for const/config entries without explicit types
-            // This should be handled by inferring from the value expression
-            // For now, return a generic Scalar type as placeholder
-            Ok(Type::kernel(Shape::Scalar, Unit::dimensionless(), None))
+            // Type inference requires the value expression
+            // This should only be called from resolve_const_config_types with the value
+            Err(CompileError::new(
+                ErrorKind::TypeMismatch,
+                span,
+                "Type inference requires value expression (internal error - should be resolved in resolve_const_config_types)".to_string(),
+            ))
         }
     }
 }
@@ -560,5 +668,91 @@ fn evaluate_const_expr(expr: &Expr, span: Span) -> Result<f64, CompileError> {
             span,
             "Type bounds must be constant literals (for now)".to_string(),
         )),
+    }
+}
+#[cfg(test)]
+mod type_inference_tests {
+    use super::*;
+    use continuum_cdsl_ast::foundation::Type;
+    use continuum_cdsl_ast::{Declaration, Expr, TypeExpr, UntypedKind};
+
+    #[test]
+    fn test_infer_bool_from_true_literal() {
+        let span = Span::new(0, 0, 0, 0);
+        let expr = Expr::new(UntypedKind::BoolLiteral(true), span);
+        
+        let inferred = infer_type_from_expr(&expr, span).unwrap();
+        assert!(matches!(inferred, Type::Bool));
+    }
+
+    #[test]
+    fn test_infer_bool_from_false_literal() {
+        let span = Span::new(0, 0, 0, 0);
+        let expr = Expr::new(UntypedKind::BoolLiteral(false), span);
+        
+        let inferred = infer_type_from_expr(&expr, span).unwrap();
+        assert!(matches!(inferred, Type::Bool));
+    }
+
+    #[test]
+    fn test_infer_scalar_from_numeric_literal() {
+        let span = Span::new(0, 0, 0, 0);
+        let expr = Expr::new(
+            UntypedKind::Literal {
+                value: 3.14,
+                unit: None,
+            },
+            span,
+        );
+        
+        let inferred = infer_type_from_expr(&expr, span).unwrap();
+        match inferred {
+            Type::Kernel(kt) => {
+                assert!(matches!(kt.shape, continuum_kernel_types::Shape::Scalar));
+                assert_eq!(kt.unit, continuum_kernel_types::Unit::dimensionless());
+            }
+            _ => panic!("Expected Kernel type, got {:?}", inferred),
+        }
+    }
+
+    #[test]
+    fn test_infer_vec3_from_vector_literal() {
+        let span = Span::new(0, 0, 0, 0);
+        let e1 = Expr::new(UntypedKind::Literal { value: 1.0, unit: None }, span);
+        let e2 = Expr::new(UntypedKind::Literal { value: 2.0, unit: None }, span);
+        let e3 = Expr::new(UntypedKind::Literal { value: 3.0, unit: None }, span);
+        
+        let expr = Expr::new(UntypedKind::Vector(vec![e1, e2, e3]), span);
+        
+        let inferred = infer_type_from_expr(&expr, span).unwrap();
+        match inferred {
+            Type::Kernel(kt) => {
+                assert!(matches!(kt.shape, continuum_kernel_types::Shape::Vector { dim: 3 }));
+            }
+            _ => panic!("Expected Kernel type, got {:?}", inferred),
+        }
+    }
+
+    #[test]
+    fn test_infer_fails_for_empty_vector() {
+        let span = Span::new(0, 0, 0, 0);
+        let expr = Expr::new(UntypedKind::Vector(vec![]), span);
+        
+        let result = infer_type_from_expr(&expr, span);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("empty vector"));
+    }
+
+    #[test]
+    fn test_infer_fails_for_complex_expression() {
+        let span = Span::new(0, 0, 0, 0);
+        let expr = Expr::new(
+            UntypedKind::Signal(continuum_foundation::Path::from("foo")),
+            span,
+        );
+        
+        let result = infer_type_from_expr(&expr, span);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().message.contains("complex expression"));
     }
 }
