@@ -62,9 +62,80 @@ pub(super) fn parse_type_decl(stream: &mut TokenStream) -> Result<Declaration, P
 /// Parse const/config entry syntax (shared logic).
 ///
 /// Supports:
-/// - `path: TYPE = value` (explicit type)
-/// - `path: value` (inferred type)
-/// - `path: TYPE` (explicit type, no value - only valid for config)
+/// Parse a const or config entry with flexible syntax.
+///
+/// This function handles three distinct parsing modes depending on the input syntax:
+///
+/// 1. **Explicit type with value**: `path: TYPE = value`
+///    - Type is parsed explicitly
+///    - Value is required
+///    - Common for clarity or when type inference would be ambiguous
+///
+/// 2. **Inferred type**: `path: value`
+///    - Type is inferred from the value expression during resolution
+///    - Uses `TypeExpr::Infer` which is later resolved by `infer_type_from_expr()`
+///    - Value is required
+///
+/// 3. **Type-only (config)**: `path: TYPE`
+///    - Type is parsed explicitly
+///    - No value provided (no default)
+///    - Only valid when `allow_missing_value` is true (config blocks)
+///    - Used for required configuration parameters
+///
+/// # Parameters
+///
+/// - `stream`: Token stream positioned at the start of an entry
+/// - `allow_missing_value`: Whether to allow entries without values
+///   - `true` for config blocks (supports type-only declarations)
+///   - `false` for const blocks (value always required)
+///
+/// # Returns
+///
+/// Returns a tuple: `(path, type_expr, value, span)` where:
+/// - `path`: Canonical path to the const/config value
+/// - `type_expr`: Either explicit type or `TypeExpr::Infer`
+/// - `value`: Optional value expression (`None` only if `allow_missing_value` is true)
+/// - `span`: Source span covering the entire entry
+///
+/// # Errors
+///
+/// Returns `ParseError` if:
+/// - Path syntax is invalid
+/// - Missing `:` after path
+/// - Type syntax is malformed (when explicit type is used)
+/// - Value is missing when `allow_missing_value` is false
+/// - Value expression syntax is invalid
+///
+/// # Examples
+///
+/// ```text
+/// // Explicit type with value
+/// gravity: Scalar<m/s²> = 9.81
+///
+/// // Inferred type (resolved to Scalar<1> from literal)
+/// max_iterations: 100
+///
+/// // Inferred type with units (resolved to Scalar<m/s²>)
+/// terminal_velocity: 53.0 m/s
+///
+/// // Type-only (config only, no default)
+/// population_growth_rate: Scalar<1/yr>
+/// ```
+///
+/// # Type Inference
+///
+/// When `TypeExpr::Infer` is used, the resolver performs type inference via
+/// `infer_type_from_expr()` which applies these rules:
+/// - `BoolLiteral` → `Type::Bool`
+/// - `Literal { value, unit }` → `Type::kernel(Scalar, unit, None)`
+/// - `Vector([e1, ..., en])` → `Type::kernel(Vector { dim: n }, dimensionless, None)`
+/// - Complex expressions → Error (explicit type required)
+///
+/// # See Also
+///
+/// - `parse_const_block()`: Uses this with `allow_missing_value = false`
+/// - `parse_config_block()`: Uses this with `allow_missing_value = true`
+/// - `continuum-cdsl-resolve::infer_type_from_expr()`: Performs type inference
 fn parse_const_or_config_entry(
     stream: &mut TokenStream,
     allow_missing_value: bool,
