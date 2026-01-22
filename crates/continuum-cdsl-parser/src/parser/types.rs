@@ -61,6 +61,57 @@ pub fn parse_type_expr(stream: &mut TokenStream) -> Result<TypeExpr, ParseError>
 }
 
 /// Parse Scalar type with optional unit and bounds.
+///
+/// # Syntax
+///
+/// ```text
+/// Scalar                    # Dimensionless scalar, no bounds
+/// Scalar<m/s²>              # Scalar with unit
+/// Scalar<>                  # Dimensionless (explicit)
+/// Scalar<1>                 # Dimensionless shorthand
+/// Scalar<K, 0.0..1000.0>    # Dimensionless with bounds
+/// Scalar<m/s, -100..100>    # Unit with bounds
+/// ```
+///
+/// # Dimensionless Shortcuts
+///
+/// Three forms represent dimensionless scalars:
+/// - `Scalar` (no `<>` brackets)
+/// - `Scalar<>` (empty brackets)
+/// - `Scalar<1>` (shorthand: `<1>` means dimensionless)
+///
+/// # Bounds Parsing
+///
+/// When bounds are present (`, min..max`), this function uses [`parse_primary()`]
+/// instead of [`parse_expr()`] to avoid consuming the closing `>` as a comparison
+/// operator. This allows negative bounds like `-273.15` via unary operators while
+/// preventing binary operator parsing.
+///
+/// # Parameters
+///
+/// - `stream`: Token stream positioned **after** the `Scalar` keyword
+///
+/// # Returns
+///
+/// `TypeExpr::Scalar` with:
+/// - `unit`: `None` (bare `Scalar`), `Some(Dimensionless)`, or `Some(UnitExpr)`
+/// - `bounds`: `None` or `Some((min_expr, max_expr))`
+///
+/// # Errors
+///
+/// Returns `ParseError` if:
+/// - Missing `>` after unit/bounds
+/// - Unit expression syntax is invalid
+/// - Bounds expressions are invalid (must be primary expressions)
+/// - Missing `..` between min and max bounds
+///
+/// # Examples
+///
+/// ```text
+/// Scalar<K, 0.0..373.15>     # Temperature with bounds
+/// Scalar<1, -1.0..1.0>       # Normalized dimensionless
+/// Scalar<m/s²>               # Acceleration
+/// ```
 fn parse_scalar_type(stream: &mut TokenStream) -> Result<TypeExpr, ParseError> {
     if !matches!(stream.peek(), Some(Token::Lt)) {
         // Scalar without unit
