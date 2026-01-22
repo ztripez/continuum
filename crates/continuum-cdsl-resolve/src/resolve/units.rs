@@ -6,9 +6,9 @@
 //! - **Dimensional analysis** - Ensuring physical consistency during compilation.
 //! - **Overflow protection** - Checked arithmetic for dimensional exponents.
 
-use crate::ast::UnitExpr;
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{Span, Unit, UnitDimensions, UnitKind};
+use continuum_cdsl_ast::UnitExpr;
+use continuum_cdsl_ast::foundation::{Span, Unit, UnitDimensions, UnitKind};
 
 /// Resolves a parsed [`UnitExpr`] into a semantic [`Unit`].
 ///
@@ -216,7 +216,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::Span;
+    use continuum_cdsl_ast::foundation::Span;
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)

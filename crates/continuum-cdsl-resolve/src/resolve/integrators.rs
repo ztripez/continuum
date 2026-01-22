@@ -49,11 +49,11 @@
 //! }
 //! ```
 
-use crate::ast::{
+use crate::error::{CompileError, ErrorKind};
+use continuum_cdsl_ast::foundation::Span;
+use continuum_cdsl_ast::{
     Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node, TypedExpr,
 };
-use crate::error::{CompileError, ErrorKind};
-use crate::foundation::Span;
 
 /// Valid integrator method names
 const VALID_INTEGRATORS: &[&str] = &["euler", "rk4", "verlet", "symplectic_euler"];
@@ -169,8 +169,8 @@ fn extract_integrator_declaration(
 /// Handles various expression forms that might represent a method name:
 /// - Signal/Config/Const path (last segment is the method name)
 /// - String literals
-fn extract_method_from_expr(expr: &crate::ast::Expr) -> Option<String> {
-    use crate::ast::UntypedKind;
+fn extract_method_from_expr(expr: &continuum_cdsl_ast::Expr) -> Option<String> {
+    use continuum_cdsl_ast::UntypedKind;
 
     match &expr.kind {
         // : integrator(rk4) - parsed as Signal path
@@ -193,10 +193,10 @@ fn collect_integration_calls(expr: &TypedExpr, calls: &mut Vec<IntegrationCall>)
 
 /// Walk compiled statement collecting integration calls from its expressions
 fn collect_integration_calls_typed_stmt(
-    stmt: &crate::ast::TypedStmt,
+    stmt: &continuum_cdsl_ast::TypedStmt,
     calls: &mut Vec<IntegrationCall>,
 ) {
-    use crate::ast::TypedStmt;
+    use continuum_cdsl_ast::TypedStmt;
     match stmt {
         TypedStmt::Let { value, .. } => collect_integration_calls(value, calls),
         TypedStmt::SignalAssign { value, .. } => collect_integration_calls(value, calls),
@@ -340,8 +340,8 @@ pub fn validate_integrators<I: Index>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Execution, Expr, RoleData, UntypedKind};
-    use crate::foundation::{Path, Phase, Shape, Type, Unit};
+    use continuum_cdsl_ast::foundation::{Path, Phase, Shape, Type, Unit};
+    use continuum_cdsl_ast::{Execution, Expr, RoleData, UntypedKind};
     use continuum_kernel_types::KernelId;
 
     fn make_span() -> Span {

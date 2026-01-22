@@ -62,9 +62,9 @@
 //! // Ready for Phase 12.5-D: Execution block compilation
 //! ```
 
-use crate::ast::Era;
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{EraId, KernelType, StratumId, Type};
+use continuum_cdsl_ast::Era;
+use continuum_cdsl_ast::foundation::{EraId, KernelType, StratumId, Type};
 use std::collections::{HashMap, HashSet};
 
 /// Validate all era declarations.
@@ -260,9 +260,9 @@ fn dfs_cycle<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{EraTransition, StratumPolicy};
-    use crate::ast::{ExprKind, TypedExpr};
-    use crate::foundation::{Path, Shape, Span, Unit};
+    use continuum_cdsl_ast::foundation::{Path, Shape, Span, Unit};
+    use continuum_cdsl_ast::{EraTransition, StratumPolicy};
+    use continuum_cdsl_ast::{ExprKind, TypedExpr};
 
     fn make_time_expr(span: Span) -> TypedExpr {
         TypedExpr {

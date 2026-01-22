@@ -1,31 +1,18 @@
-//! Placeholder error types for AST
+//! Placeholder error module for AST crate.
 //!
-//! The real CompileError is in continuum-cdsl-resolve, but we need
-//! a type here for ValidationError alias.
+//! The AST crate doesn't define its own errors - compile errors
+//! are defined in continuum-cdsl-resolve. This module exists
+//! only to satisfy module structure.
 
-use crate::foundation::Span;
+/// Placeholder error type.
+/// Actual CompileError is in continuum-cdsl-resolve.
+#[derive(Debug, Clone)]
+pub struct PlaceholderError;
 
-/// Placeholder compile error
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct CompileError {
-    pub kind: ErrorKind,
-    pub span: Span,
-    pub message: String,
-}
-
-impl CompileError {
-    pub fn new(kind: ErrorKind, span: Span, message: String) -> Self {
-        Self {
-            kind,
-            span,
-            message,
-        }
+impl std::fmt::Display for PlaceholderError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PlaceholderError - should not be constructed")
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[repr(u8)]
-pub enum ErrorKind {
-    TypeMismatch = 4,
-    // Add others as needed
-}
+impl std::error::Error for PlaceholderError {}

@@ -52,9 +52,9 @@
 //! }
 //! ```
 
-use crate::ast::{Declaration, Expr, UntypedKind as ExprKind};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{EntityId, Path};
+use continuum_cdsl_ast::foundation::{EntityId, Path};
+use continuum_cdsl_ast::{Declaration, Expr, UntypedKind as ExprKind};
 use std::collections::{HashMap, HashSet};
 
 /// Symbol table for name resolution
@@ -186,7 +186,7 @@ impl SymbolTable {
 /// # Returns
 /// Symbol table containing all declared symbols, separated by kind.
 pub fn build_symbol_table(declarations: &[Declaration]) -> SymbolTable {
-    use crate::ast::RoleId;
+    use continuum_cdsl_ast::RoleId;
 
     let mut table = SymbolTable::new();
 
@@ -534,8 +534,8 @@ pub fn validate_expr(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Node, RoleData};
-    use crate::foundation::{AggregateOp, Span};
+    use continuum_cdsl_ast::foundation::{AggregateOp, Span};
+    use continuum_cdsl_ast::{Node, RoleData};
 
     fn make_path(s: &str) -> Path {
         Path::from_path_str(s)

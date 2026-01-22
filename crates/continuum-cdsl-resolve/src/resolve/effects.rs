@@ -48,8 +48,8 @@
 //! }
 //! ```
 
-use crate::ast::{ExprKind, KernelRegistry, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
+use continuum_cdsl_ast::{ExprKind, KernelRegistry, TypedExpr};
 use continuum_foundation::Phase;
 
 /// Context for validating effect purity in expressions.
@@ -227,8 +227,8 @@ fn scan_for_effect_violations(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::KernelId;
-    use crate::foundation::{Shape, Span, Type, Unit};
+    use continuum_cdsl_ast::KernelId;
+    use continuum_cdsl_ast::foundation::{Shape, Span, Type, Unit};
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)

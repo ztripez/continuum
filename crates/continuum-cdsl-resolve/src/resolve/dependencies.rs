@@ -4,8 +4,8 @@
 //! dependencies (signals, fields, config, constants) and structural
 //! dependencies (entity set references) from expression trees.
 
-use crate::ast::{ExprKind, ExpressionVisitor, TypedExpr, TypedStmt};
-use crate::foundation::{Path, Type};
+use continuum_cdsl_ast::foundation::{Path, Type};
+use continuum_cdsl_ast::{ExprKind, ExpressionVisitor, TypedExpr, TypedStmt};
 use std::collections::HashSet;
 
 /// Extracts signal and field paths from an expression tree.

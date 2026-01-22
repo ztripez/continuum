@@ -11,37 +11,10 @@
 //! 4. **Topological Order** - Nodes are sorted into levels for parallel execution.
 //! 5. **Cycle Detection** - Circular dependencies are detected and reported as errors.
 
-use crate::ast::{RoleId, World};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{Path, Phase, Span, StratumId};
+use continuum_cdsl_ast::foundation::{Path, Phase, Span, StratumId};
+use continuum_cdsl_ast::{DagSet, ExecutionDag, ExecutionLevel, RoleId, World};
 use indexmap::IndexMap;
-
-/// An execution graph for a specific phase and stratum.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ExecutionDag {
-    /// The phase this DAG executes in.
-    pub phase: Phase,
-    /// The stratum this DAG belongs to.
-    pub stratum: StratumId,
-    /// Execution levels in topological order.
-    /// Nodes in the same level can execute in parallel.
-    pub levels: Vec<ExecutionLevel>,
-}
-
-/// A set of nodes that can execute in parallel.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ExecutionLevel {
-    /// Paths to the nodes in this level.
-    pub nodes: Vec<Path>,
-}
-
-/// Collection of DAGs for a simulation.
-#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
-pub struct DagSet {
-    /// DAGs indexed by (phase, stratum).
-    /// Using a Map for efficient lookup by the runtime.
-    pub dags: IndexMap<(Phase, StratumId), ExecutionDag>,
-}
 
 /// Compiles execution DAGs for all phases and strata in the world.
 pub fn compile_graphs(world: &World) -> Result<DagSet, Vec<CompileError>> {

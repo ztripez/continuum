@@ -12,7 +12,7 @@ use indexmap::IndexMap;
 
 // TODO: Move DagSet to continuum-cdsl-ast or make it generic
 // For now, use a placeholder type
-pub type DagSet = std::collections::HashSet<Path>;
+pub use super::dag::{DagSet, ExecutionDag, ExecutionLevel};
 
 /// A compiled and resolved Continuum world.
 ///

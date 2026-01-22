@@ -20,7 +20,7 @@
 //! # Phase→Capability Mapping
 //!
 //! The authoritative mapping of which capabilities are available in each phase
-//! is defined in `crate::ast::RoleSpec::capabilities_for_phase()`. This ensures
+//! is defined in `continuum_cdsl_ast::RoleSpec::capabilities_for_phase()`. This ensures
 //! a single source of truth - no ad-hoc context construction with potentially
 //! invalid capability sets.
 //!
@@ -58,8 +58,8 @@
 //! assert!(errors.iter().any(|e| matches!(e.kind, ErrorKind::MissingCapability)));
 //! ```
 
-use crate::ast::{ExprKind, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
+use continuum_cdsl_ast::{ExprKind, TypedExpr};
 use continuum_foundation::{Capability, CapabilitySet};
 
 /// Execution context for capability validation.
@@ -413,8 +413,8 @@ fn scan_for_capability_violations(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::KernelId;
-    use crate::foundation::{Shape, Span, Type, Unit};
+    use continuum_cdsl_ast::KernelId;
+    use continuum_cdsl_ast::foundation::{Shape, Span, Type, Unit};
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)
@@ -772,7 +772,7 @@ mod tests {
 
     #[test]
     fn test_field_access_on_capability_expr() {
-        use crate::foundation::UserTypeId;
+        use continuum_cdsl_ast::foundation::UserTypeId;
 
         let ctx = CapabilityContext::new(CapabilitySet::empty());
 
@@ -798,7 +798,7 @@ mod tests {
 
     #[test]
     fn test_struct_field_with_capability_violation() {
-        use crate::foundation::UserTypeId;
+        use continuum_cdsl_ast::foundation::UserTypeId;
 
         let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Dt));
 
@@ -958,7 +958,7 @@ mod tests {
 
     #[test]
     fn test_signal_access_allowed() {
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
 
         let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Signals));
 
@@ -974,7 +974,7 @@ mod tests {
 
     #[test]
     fn test_signal_access_denied() {
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
 
         let ctx = CapabilityContext::new(CapabilitySet::empty());
 
@@ -993,7 +993,7 @@ mod tests {
 
     #[test]
     fn test_field_access_allowed() {
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
 
         let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Fields));
 
@@ -1009,7 +1009,7 @@ mod tests {
 
     #[test]
     fn test_field_access_denied() {
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
 
         let ctx = CapabilityContext::new(CapabilitySet::empty());
 
@@ -1028,7 +1028,7 @@ mod tests {
 
     #[test]
     fn test_signal_in_causal_phase_denied() {
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
 
         // Configure phase has no Signals capability
         let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Scoping));
@@ -1046,7 +1046,7 @@ mod tests {
 
     #[test]
     fn test_field_in_causal_phase_denied() {
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
 
         // Resolve phase has no Fields capability (fields are observer-only)
         let ctx = CapabilityContext::new(

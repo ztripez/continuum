@@ -1,8 +1,8 @@
 #[cfg(test)]
 mod coverage_gap_tests {
     use super::*;
-    use crate::ast::{Execution, ExecutionBody, ExprKind, Node, RoleData, TypedExpr};
-    use crate::foundation::{KernelType, Path, Phase, Shape, Span, Type, Unit};
+    use continuum_cdsl_ast::{Execution, ExecutionBody, ExprKind, Node, RoleData, TypedExpr};
+    use continuum_cdsl_ast::foundation::{KernelType, Path, Phase, Shape, Span, Type, Unit};
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)
@@ -29,14 +29,14 @@ mod coverage_gap_tests {
         let expr1 = TypedExpr::new(ExprKind::Signal(path1.clone()), scalar_type(), span);
         node.execution_blocks.push((
             "collect".to_string(),
-            crate::ast::BlockBody::TypedExpression(expr1),
+            continuum_cdsl_ast::BlockBody::TypedExpression(expr1),
         ));
 
         // Execution 2 reads signal.b
         let expr2 = TypedExpr::new(ExprKind::Signal(path2.clone()), scalar_type(), span);
         node.execution_blocks.push((
             "resolve".to_string(),
-            crate::ast::BlockBody::TypedExpression(expr2),
+            continuum_cdsl_ast::BlockBody::TypedExpression(expr2),
         ));
 
         // Compile

@@ -31,12 +31,12 @@
 //! - **Before:** name resolution and typing
 //! - **Before:** uses validation on typed expressions
 
-use crate::ast::{
+use continuum_cdsl_ast::foundation::Span;
+use continuum_cdsl_ast::{
     Attribute, BinaryOp, BlockBody, Declaration, Entity, EraDecl, Expr, Index, KernelId, Node,
     ObserveBlock, ObserveWhen, Stmt, Stratum, UnaryOp, UntypedKind as ExprKind, WarmupBlock,
     WhenBlock, WorldDecl,
 };
-use crate::foundation::Span;
 
 /// Construct a kernel call expression
 fn kernel_call(kernel: KernelId, args: Vec<Expr>, span: Span) -> Expr {
@@ -411,8 +411,8 @@ pub fn desugar_declarations(decls: Vec<Declaration>) -> Vec<Declaration> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{BinaryOp, UnaryOp};
-    use crate::foundation::Span;
+    use continuum_cdsl_ast::foundation::Span;
+    use continuum_cdsl_ast::{BinaryOp, UnaryOp};
 
     fn make_span() -> Span {
         Span::new(0, 0, 10, 1)
@@ -797,7 +797,7 @@ mod tests {
 
     #[test]
     fn test_desugar_recurses_in_call_args() {
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
 
         let arg1 = Expr::binary(
             BinaryOp::Add,
@@ -833,7 +833,7 @@ mod tests {
 
     #[test]
     fn test_desugar_recurses_in_struct_fields() {
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
 
         let field1_value = Expr::binary(
             BinaryOp::Add,
@@ -874,7 +874,7 @@ mod tests {
 
     #[test]
     fn test_desugar_preserves_spans() {
-        use crate::foundation::Span;
+        use continuum_cdsl_ast::foundation::Span;
 
         // Create a custom span to verify preservation
         let custom_span = Span::new(0, 42, 100, 5);
@@ -893,7 +893,7 @@ mod tests {
 
     #[test]
     fn test_desugar_aggregate_and_fold() {
-        use crate::foundation::{AggregateOp, EntityId};
+        use continuum_cdsl_ast::foundation::{AggregateOp, EntityId};
 
         // Aggregate: sum(entity) { a + b }
         let body = Expr::binary(
@@ -951,8 +951,8 @@ mod tests {
 
     #[test]
     fn test_desugar_statements() {
-        use crate::ast::Stmt;
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::Stmt;
+        use continuum_cdsl_ast::foundation::Path;
 
         // Let statement: let x = a + b;
         let stmt = Stmt::Let {
@@ -1023,8 +1023,8 @@ mod tests {
 
     #[test]
     fn test_desugar_node_structure() {
-        use crate::ast::{BlockBody, Node, RoleData};
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
+        use continuum_cdsl_ast::{BlockBody, Node, RoleData};
 
         let mut node = Node::new(
             Path::from_path_str("test"),
@@ -1055,8 +1055,8 @@ mod tests {
 
     #[test]
     fn test_desugar_era_and_world() {
-        use crate::ast::{EraDecl, TransitionDecl, WorldDecl};
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
+        use continuum_cdsl_ast::{EraDecl, TransitionDecl, WorldDecl};
 
         // Era: dt = a + b
         let era = EraDecl {
@@ -1103,10 +1103,10 @@ mod tests {
             span: make_span(),
             doc: None,
             debug: false,
-            policy: crate::ast::WorldPolicy::default(),
+            policy: continuum_cdsl_ast::WorldPolicy::default(),
         };
         // Add attribute with expression arg
-        use crate::ast::Attribute;
+        use continuum_cdsl_ast::Attribute;
         world.attributes.push(Attribute {
             name: "test".to_string(),
             args: vec![Expr::binary(
@@ -1127,8 +1127,8 @@ mod tests {
 
     #[test]
     fn test_desugar_declarations_mix() {
-        use crate::ast::{ConstEntry, Declaration, Node, RoleData, TypeExpr};
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
+        use continuum_cdsl_ast::{ConstEntry, Declaration, Node, RoleData, TypeExpr};
 
         let decls = vec![
             Declaration::Node(Node::new(

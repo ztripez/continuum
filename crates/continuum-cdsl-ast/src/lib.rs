@@ -15,4 +15,3 @@ pub use foundation::{
 };
 
 pub use ast::*;
-pub use error::{CompileError, ErrorKind};

@@ -47,12 +47,12 @@
 //! }
 //! ```
 
-use crate::ast::{
+use continuum_cdsl_ast::{
     Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node, TypedExpr,
 };
 
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::Span;
+use continuum_cdsl_ast::foundation::Span;
 use std::collections::HashSet;
 
 /// Hint message for raw dt usage violations
@@ -136,8 +136,8 @@ fn extract_uses_declarations(
 /// Handles various expression forms that might represent a uses key:
 /// - Signal/Config/Const path expressions
 /// - Direct path strings
-fn extract_uses_key_from_expr(expr: &crate::ast::Expr) -> Option<String> {
-    use crate::ast::UntypedKind;
+fn extract_uses_key_from_expr(expr: &continuum_cdsl_ast::Expr) -> Option<String> {
+    use continuum_cdsl_ast::UntypedKind;
 
     match &expr.kind {
         // : uses(maths.clamping) - parsed as Signal path
@@ -164,11 +164,11 @@ fn collect_required_uses(
 
 /// Walk compiled statement collecting required uses from its expressions
 fn collect_required_uses_typed_stmt(
-    stmt: &crate::ast::TypedStmt,
+    stmt: &continuum_cdsl_ast::TypedStmt,
     registry: &KernelRegistry,
     required: &mut Vec<RequiredUse>,
 ) {
-    use crate::ast::TypedStmt;
+    use continuum_cdsl_ast::TypedStmt;
     match stmt {
         TypedStmt::Let { value, .. } => collect_required_uses(value, registry, required),
         TypedStmt::SignalAssign { value, .. } => collect_required_uses(value, registry, required),
@@ -245,11 +245,11 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
 
 /// Walk untyped statement collecting required uses from its expressions
 fn collect_required_uses_untyped_stmt(
-    stmt: &crate::ast::Stmt<crate::ast::Expr>,
+    stmt: &continuum_cdsl_ast::Stmt<continuum_cdsl_ast::Expr>,
     registry: &KernelRegistry,
     required: &mut Vec<RequiredUse>,
 ) {
-    use crate::ast::Stmt;
+    use continuum_cdsl_ast::Stmt;
     match stmt {
         Stmt::Let { value, .. } => collect_required_uses_untyped(value, registry, required),
         Stmt::SignalAssign { value, .. } => {
@@ -276,11 +276,11 @@ fn collect_required_uses_untyped_stmt(
 /// - KernelCall nodes (desugared operators)
 /// - Raw `dt` access
 fn collect_required_uses_untyped(
-    expr: &crate::ast::Expr,
+    expr: &continuum_cdsl_ast::Expr,
     registry: &KernelRegistry,
     required: &mut Vec<RequiredUse>,
 ) {
-    use crate::ast::UntypedKind;
+    use continuum_cdsl_ast::UntypedKind;
 
     match &expr.kind {
         // Explicit call - might be a kernel call like maths.clamp(...)
@@ -545,15 +545,15 @@ pub fn validate_uses<I: Index>(nodes: &[Node<I>], registry: &KernelRegistry) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Execution, RoleData};
-    use crate::foundation::{Path, Phase, Type};
+    use continuum_cdsl_ast::foundation::{Path, Phase, Type};
+    use continuum_cdsl_ast::{Execution, RoleData};
 
     fn make_span() -> Span {
         Span::new(0, 0, 10, 1)
     }
 
     fn make_attr_uses(keys: Vec<&str>) -> Attribute {
-        use crate::ast::{Expr, UntypedKind};
+        use continuum_cdsl_ast::{Expr, UntypedKind};
 
         Attribute {
             name: "uses".to_string(),
@@ -600,7 +600,7 @@ mod tests {
 
     #[test]
     fn test_extract_uses_declarations_invalid_argument() {
-        use crate::ast::{Expr, UntypedKind};
+        use continuum_cdsl_ast::{Expr, UntypedKind};
 
         // : uses(42) - invalid, not a path
         let attrs = vec![Attribute {
@@ -667,7 +667,7 @@ mod tests {
 
         let clamp_call = TypedExpr::new(
             ExprKind::Call {
-                kernel: crate::ast::KernelId::new("maths", "clamp"),
+                kernel: continuum_cdsl_ast::KernelId::new("maths", "clamp"),
                 args: vec![value, min, max],
             },
             Type::Bool,
@@ -722,7 +722,7 @@ mod tests {
 
         let clamp_call = TypedExpr::new(
             ExprKind::Call {
-                kernel: crate::ast::KernelId::new("maths", "clamp"),
+                kernel: continuum_cdsl_ast::KernelId::new("maths", "clamp"),
                 args: vec![value, min, max],
             },
             Type::Bool,
@@ -755,7 +755,7 @@ mod tests {
 
         let call = TypedExpr::new(
             ExprKind::Call {
-                kernel: crate::ast::KernelId::new("maths", "add"),
+                kernel: continuum_cdsl_ast::KernelId::new("maths", "add"),
                 args: vec![prev_expr, dt_expr],
             },
             Type::Bool,
@@ -795,7 +795,7 @@ mod tests {
 
         let clamp_call = TypedExpr::new(
             ExprKind::Call {
-                kernel: crate::ast::KernelId::new("maths", "clamp"),
+                kernel: continuum_cdsl_ast::KernelId::new("maths", "clamp"),
                 args: vec![value, min, max],
             },
             Type::Bool,
@@ -822,7 +822,7 @@ mod tests {
 
         let saturate_call = TypedExpr::new(
             ExprKind::Call {
-                kernel: crate::ast::KernelId::new("maths", "saturate"),
+                kernel: continuum_cdsl_ast::KernelId::new("maths", "saturate"),
                 args: vec![value],
             },
             Type::Bool,
@@ -865,7 +865,7 @@ mod tests {
 
         let wrap_call = TypedExpr::new(
             ExprKind::Call {
-                kernel: crate::ast::KernelId::new("maths", "wrap"),
+                kernel: continuum_cdsl_ast::KernelId::new("maths", "wrap"),
                 args: vec![value, min, max],
             },
             Type::Bool,
@@ -912,7 +912,7 @@ mod tests {
 
         let clamp_call = TypedExpr::new(
             ExprKind::Call {
-                kernel: crate::ast::KernelId::new("maths", "clamp"),
+                kernel: continuum_cdsl_ast::KernelId::new("maths", "clamp"),
                 args: vec![dt_expr, min, max],
             },
             Type::Bool,
@@ -959,7 +959,7 @@ mod tests {
 
     #[test]
     fn test_warmup_block_missing_dt_raw() {
-        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+        use continuum_cdsl_ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
         let path = Path::from_path_str("test.signal");
@@ -970,7 +970,7 @@ mod tests {
         // warmup { iterate { prev + dt } }
         let prev_expr = Expr::new(UntypedKind::Prev, span);
         let dt_expr = Expr::new(UntypedKind::Dt, span);
-        let add_expr = Expr::binary(crate::ast::BinaryOp::Add, prev_expr, dt_expr, span);
+        let add_expr = Expr::binary(continuum_cdsl_ast::BinaryOp::Add, prev_expr, dt_expr, span);
 
         node.warmup = Some(WarmupBlock {
             attrs: vec![],
@@ -988,7 +988,7 @@ mod tests {
 
     #[test]
     fn test_warmup_block_with_dt_raw_declared() {
-        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+        use continuum_cdsl_ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
         let path = Path::from_path_str("test.signal");
@@ -999,7 +999,7 @@ mod tests {
         // warmup { iterate { prev + dt } }
         let prev_expr = Expr::new(UntypedKind::Prev, span);
         let dt_expr = Expr::new(UntypedKind::Dt, span);
-        let add_expr = Expr::binary(crate::ast::BinaryOp::Add, prev_expr, dt_expr, span);
+        let add_expr = Expr::binary(continuum_cdsl_ast::BinaryOp::Add, prev_expr, dt_expr, span);
 
         node.warmup = Some(WarmupBlock {
             attrs: vec![],
@@ -1015,7 +1015,7 @@ mod tests {
 
     #[test]
     fn test_warmup_block_missing_maths_clamping() {
-        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+        use continuum_cdsl_ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
         let path = Path::from_path_str("test.signal");
@@ -1063,7 +1063,7 @@ mod tests {
 
     #[test]
     fn test_when_block_missing_dt_raw() {
-        use crate::ast::{Expr, UntypedKind, WhenBlock};
+        use continuum_cdsl_ast::{Expr, UntypedKind, WhenBlock};
 
         let span = make_span();
         let path = Path::from_path_str("test.fracture");
@@ -1079,7 +1079,7 @@ mod tests {
             },
             span,
         );
-        let condition = Expr::binary(crate::ast::BinaryOp::Gt, dt_expr, threshold, span);
+        let condition = Expr::binary(continuum_cdsl_ast::BinaryOp::Gt, dt_expr, threshold, span);
 
         node.when = Some(WhenBlock {
             conditions: vec![condition],
@@ -1096,7 +1096,7 @@ mod tests {
 
     #[test]
     fn test_observe_block_missing_maths_clamping() {
-        use crate::ast::{Expr, ObserveBlock, ObserveWhen, UntypedKind};
+        use continuum_cdsl_ast::{Expr, ObserveBlock, ObserveWhen, UntypedKind};
 
         let span = make_span();
         let path = Path::from_path_str("test.chronicle");
@@ -1125,7 +1125,12 @@ mod tests {
             },
             span,
         );
-        let condition = Expr::binary(crate::ast::BinaryOp::Gt, saturate_call, threshold, span);
+        let condition = Expr::binary(
+            continuum_cdsl_ast::BinaryOp::Gt,
+            saturate_call,
+            threshold,
+            span,
+        );
 
         node.observe = Some(ObserveBlock {
             when_clauses: vec![ObserveWhen {
@@ -1146,7 +1151,7 @@ mod tests {
 
     #[test]
     fn test_warmup_nested_let_with_dt() {
-        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+        use continuum_cdsl_ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
         let path = Path::from_path_str("test.signal");
@@ -1158,7 +1163,7 @@ mod tests {
         let dt_value = Expr::new(UntypedKind::Dt, span);
         let x_local = Expr::new(UntypedKind::Local("x".to_string()), span);
         let prev_expr = Expr::new(UntypedKind::Prev, span);
-        let body = Expr::binary(crate::ast::BinaryOp::Add, x_local, prev_expr, span);
+        let body = Expr::binary(continuum_cdsl_ast::BinaryOp::Add, x_local, prev_expr, span);
         let let_expr = Expr::new(
             UntypedKind::Let {
                 name: "x".to_string(),
@@ -1185,7 +1190,7 @@ mod tests {
 
     #[test]
     fn test_when_if_with_dt_in_condition() {
-        use crate::ast::{Expr, UntypedKind, WhenBlock};
+        use continuum_cdsl_ast::{Expr, UntypedKind, WhenBlock};
 
         let span = make_span();
         let path = Path::from_path_str("test.fracture");
@@ -1202,7 +1207,7 @@ mod tests {
             },
             span,
         );
-        let condition = Expr::binary(crate::ast::BinaryOp::Gt, dt_expr, threshold, span);
+        let condition = Expr::binary(continuum_cdsl_ast::BinaryOp::Gt, dt_expr, threshold, span);
         let true_branch = Expr::new(UntypedKind::BoolLiteral(true), span);
         let false_branch = Expr::new(UntypedKind::BoolLiteral(false), span);
 
@@ -1231,7 +1236,7 @@ mod tests {
 
     #[test]
     fn test_warmup_nested_clamp_in_binary() {
-        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+        use continuum_cdsl_ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
         let path = Path::from_path_str("test.signal");
@@ -1264,7 +1269,12 @@ mod tests {
             },
             span,
         );
-        let add_expr = Expr::binary(crate::ast::BinaryOp::Add, prev_expr, clamp_call, span);
+        let add_expr = Expr::binary(
+            continuum_cdsl_ast::BinaryOp::Add,
+            prev_expr,
+            clamp_call,
+            span,
+        );
 
         node.warmup = Some(WarmupBlock {
             attrs: vec![],
@@ -1283,7 +1293,7 @@ mod tests {
 
     #[test]
     fn test_untyped_kernel_call_with_dt() {
-        use crate::ast::{Expr, KernelId, UntypedKind, WarmupBlock};
+        use continuum_cdsl_ast::{Expr, KernelId, UntypedKind, WarmupBlock};
 
         let span = make_span();
         let path = Path::from_path_str("test.signal");
@@ -1317,7 +1327,7 @@ mod tests {
 
     #[test]
     fn test_unary_operator_with_dt() {
-        use crate::ast::{Expr, UntypedKind, WarmupBlock};
+        use continuum_cdsl_ast::{Expr, UntypedKind, WarmupBlock};
 
         let span = make_span();
         let path = Path::from_path_str("test.signal");
@@ -1325,7 +1335,7 @@ mod tests {
 
         // -dt
         let dt_expr = Expr::new(UntypedKind::Dt, span);
-        let neg_expr = Expr::unary(crate::ast::UnaryOp::Neg, dt_expr, span);
+        let neg_expr = Expr::unary(continuum_cdsl_ast::UnaryOp::Neg, dt_expr, span);
 
         node.warmup = Some(WarmupBlock {
             attrs: vec![],
@@ -1350,7 +1360,7 @@ mod tests {
         let dt_expr = TypedExpr::new(ExprKind::Dt, Type::Bool, span);
         let local_x = TypedExpr::new(ExprKind::Local("x".to_string()), Type::Bool, span);
         let prev_expr = TypedExpr::new(ExprKind::Prev, Type::Bool, span);
-        let kernel_id = crate::ast::KernelId::new("maths", "add");
+        let kernel_id = continuum_cdsl_ast::KernelId::new("maths", "add");
         let body = TypedExpr::new(
             ExprKind::Call {
                 kernel: kernel_id,

@@ -38,10 +38,10 @@
 //! }
 //! ```
 
-use crate::ast::{ExprKind, KernelId, KernelRegistry, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{Span, Type};
 use crate::resolve::types::TypeTable;
+use continuum_cdsl_ast::foundation::{Span, Type};
+use continuum_cdsl_ast::{ExprKind, KernelId, KernelRegistry, TypedExpr};
 
 /// Context for validating typed CDSL expressions using user-defined types and kernel signatures.
 ///
@@ -142,8 +142,8 @@ impl<'a> ValidationContext<'a> {
 /// Seq types are intermediate results of `map` operations and must be
 /// consumed by an aggregate (sum, max, etc.) or fold. They cannot be
 /// stored in signals, fields, constants, or configurations.
-pub fn validate_seq_escape<I: crate::ast::Index>(
-    nodes: &[crate::ast::Node<I>],
+pub fn validate_seq_escape<I: continuum_cdsl_ast::Index>(
+    nodes: &[continuum_cdsl_ast::Node<I>],
 ) -> Vec<CompileError> {
     let mut errors = Vec::new();
 
@@ -167,8 +167,8 @@ pub fn validate_seq_escape<I: crate::ast::Index>(
 ///
 /// This includes execution blocks, warmup logic, fracture conditions,
 /// and chronicle observers.
-pub fn validate_node<I: crate::ast::Index>(
-    node: &crate::ast::Node<I>,
+pub fn validate_node<I: continuum_cdsl_ast::Index>(
+    node: &continuum_cdsl_ast::Node<I>,
     type_table: &TypeTable,
     registry: &KernelRegistry,
 ) -> Result<(), Vec<CompileError>> {
@@ -178,14 +178,16 @@ pub fn validate_node<I: crate::ast::Index>(
     // 1. Execution blocks
     for execution in &node.executions {
         match &execution.body {
-            crate::ast::ExecutionBody::Expr(expr) => errors.extend(validate_expr(expr, &ctx)),
-            crate::ast::ExecutionBody::Statements(stmts) => {
+            continuum_cdsl_ast::ExecutionBody::Expr(expr) => {
+                errors.extend(validate_expr(expr, &ctx))
+            }
+            continuum_cdsl_ast::ExecutionBody::Statements(stmts) => {
                 for stmt in stmts {
                     match stmt {
-                        crate::ast::TypedStmt::Let { value, .. } => {
+                        continuum_cdsl_ast::TypedStmt::Let { value, .. } => {
                             errors.extend(validate_expr(value, &ctx))
                         }
-                        crate::ast::TypedStmt::SignalAssign { value, .. } => {
+                        continuum_cdsl_ast::TypedStmt::SignalAssign { value, .. } => {
                             if value.ty.is_seq() {
                                 errors.push(CompileError::new(
                                     ErrorKind::TypeMismatch,
@@ -195,7 +197,7 @@ pub fn validate_node<I: crate::ast::Index>(
                             }
                             errors.extend(validate_expr(value, &ctx))
                         }
-                        crate::ast::TypedStmt::FieldAssign {
+                        continuum_cdsl_ast::TypedStmt::FieldAssign {
                             position, value, ..
                         } => {
                             if value.ty.is_seq() {
@@ -208,7 +210,7 @@ pub fn validate_node<I: crate::ast::Index>(
                             errors.extend(validate_expr(position, &ctx));
                             errors.extend(validate_expr(value, &ctx));
                         }
-                        crate::ast::TypedStmt::Expr(expr) => {
+                        continuum_cdsl_ast::TypedStmt::Expr(expr) => {
                             errors.extend(validate_expr(expr, &ctx))
                         }
                     }
@@ -537,7 +539,7 @@ fn validate_struct_fields(
     span: Span,
     ctx: &ValidationContext<'_>,
 ) -> Vec<CompileError> {
-    use crate::foundation::Path;
+    use continuum_cdsl_ast::foundation::Path;
 
     let mut errors = Vec::new();
 
@@ -601,7 +603,7 @@ fn validate_field_access(
     span: Span,
     ctx: &ValidationContext<'_>,
 ) -> Vec<CompileError> {
-    use crate::foundation::Path;
+    use continuum_cdsl_ast::foundation::Path;
 
     let mut errors = Vec::new();
 
@@ -644,14 +646,14 @@ fn validate_field_access(
 /// Vector of validation errors (empty if shape satisfies constraint).
 fn validate_shape_constraint(
     arg_type: &Type,
-    constraint: &crate::ast::ShapeConstraint,
+    constraint: &continuum_cdsl_ast::ShapeConstraint,
     arg_index: usize,
     all_args: &[TypedExpr],
     kernel: &KernelId,
     span: Span,
 ) -> Vec<CompileError> {
-    use crate::ast::ShapeConstraint;
-    use crate::foundation::Shape;
+    use continuum_cdsl_ast::ShapeConstraint;
+    use continuum_cdsl_ast::foundation::Shape;
 
     let mut errors = Vec::new();
 
@@ -863,8 +865,11 @@ fn validate_shape_constraint(
 /// - `Ok(true)` if dimension satisfies constraint
 /// - `Ok(false)` if dimension does not satisfy constraint
 /// - `Err(message)` if constraint is unsupported
-fn matches_dim_constraint(dim: u8, constraint: &crate::ast::DimConstraint) -> Result<bool, String> {
-    use crate::ast::DimConstraint;
+fn matches_dim_constraint(
+    dim: u8,
+    constraint: &continuum_cdsl_ast::DimConstraint,
+) -> Result<bool, String> {
+    use continuum_cdsl_ast::DimConstraint;
 
     match constraint {
         DimConstraint::Exact(expected) => Ok(dim == *expected),
@@ -892,13 +897,13 @@ fn matches_dim_constraint(dim: u8, constraint: &crate::ast::DimConstraint) -> Re
 /// Vector of validation errors (empty if unit satisfies constraint).
 fn validate_unit_constraint(
     arg_type: &Type,
-    constraint: &crate::ast::UnitConstraint,
+    constraint: &continuum_cdsl_ast::UnitConstraint,
     arg_index: usize,
     all_args: &[TypedExpr],
     kernel: &KernelId,
     span: Span,
 ) -> Vec<CompileError> {
-    use crate::ast::UnitConstraint;
+    use continuum_cdsl_ast::UnitConstraint;
 
     let mut errors = Vec::new();
 
@@ -1024,8 +1029,8 @@ fn validate_unit_constraint(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::{Bounds, Shape, Unit};
     use crate::resolve::types::TypeTable;
+    use continuum_cdsl_ast::foundation::{Bounds, Shape, Unit};
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)
@@ -1162,7 +1167,7 @@ mod tests {
 
     #[test]
     fn test_validate_literal_below_minimum() {
-        use crate::foundation::Bounds;
+        use continuum_cdsl_ast::foundation::Bounds;
 
         let type_table = test_type_table();
         let ctx = test_ctx(&type_table);
@@ -1195,7 +1200,7 @@ mod tests {
 
     #[test]
     fn test_validate_literal_above_maximum() {
-        use crate::foundation::Bounds;
+        use continuum_cdsl_ast::foundation::Bounds;
 
         let type_table = test_type_table();
         let ctx = test_ctx(&type_table);
@@ -1228,7 +1233,7 @@ mod tests {
 
     #[test]
     fn test_validate_literal_within_bounds() {
-        use crate::foundation::Bounds;
+        use continuum_cdsl_ast::foundation::Bounds;
 
         let type_table = test_type_table();
         let ctx = test_ctx(&type_table);
@@ -1454,7 +1459,7 @@ mod tests {
 
     #[test]
     fn test_validate_struct_field_type_mismatch() {
-        use crate::foundation::{Path, UserType};
+        use continuum_cdsl_ast::foundation::{Path, UserType};
 
         // Create type table with a user type
         let mut type_table = TypeTable::new();
@@ -1504,7 +1509,7 @@ mod tests {
 
     #[test]
     fn test_validate_struct_unknown_field() {
-        use crate::foundation::{Path, UserType};
+        use continuum_cdsl_ast::foundation::{Path, UserType};
 
         // Create type table with a user type
         let mut type_table = TypeTable::new();
@@ -1581,7 +1586,7 @@ mod tests {
 
     #[test]
     fn test_validate_field_access_unknown_field() {
-        use crate::foundation::{Path, UserType};
+        use continuum_cdsl_ast::foundation::{Path, UserType};
 
         // Create type table with a user type
         let mut type_table = TypeTable::new();
@@ -1628,7 +1633,7 @@ mod tests {
 
     #[test]
     fn test_validate_struct_valid() {
-        use crate::foundation::{Path, UserType};
+        use continuum_cdsl_ast::foundation::{Path, UserType};
 
         // Create type table with a user type
         let mut type_table = TypeTable::new();
@@ -1685,7 +1690,7 @@ mod tests {
 
     #[test]
     fn test_validate_call_propagates_arg_errors() {
-        use crate::foundation::Bounds;
+        use continuum_cdsl_ast::foundation::Bounds;
 
         let type_table = test_type_table();
         let ctx = test_ctx(&type_table);
@@ -1724,7 +1729,7 @@ mod tests {
 
     #[test]
     fn test_validate_field_access_valid() {
-        use crate::foundation::{Path, UserType};
+        use continuum_cdsl_ast::foundation::{Path, UserType};
 
         // Create type table with a user type
         let mut type_table = TypeTable::new();

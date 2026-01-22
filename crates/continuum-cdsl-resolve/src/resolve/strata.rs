@@ -77,9 +77,9 @@
 //! // Pass stratum_ids to era resolution for validation...
 //! ```
 
-use crate::ast::{Expr, Node, Stratum, UntypedKind};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::StratumId;
+use continuum_cdsl_ast::foundation::StratumId;
+use continuum_cdsl_ast::{Expr, Node, Stratum, UntypedKind};
 use std::collections::BTreeMap;
 
 /// Extract identifier string from expression (for attribute arguments).
@@ -133,7 +133,7 @@ fn extract_identifier(expr: &Expr) -> Option<String> {
 /// resolve_strata(&mut nodes, &[stratum]).unwrap();
 /// assert!(nodes[0].stratum.is_some());
 /// ```
-pub fn resolve_strata<I: crate::ast::Index>(
+pub fn resolve_strata<I: continuum_cdsl_ast::Index>(
     nodes: &mut [Node<I>],
     strata: &[Stratum],
 ) -> Result<(), Vec<CompileError>> {
@@ -381,8 +381,8 @@ pub fn resolve_cadences(strata: &mut [Stratum]) -> Result<(), Vec<CompileError>>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Attribute, RoleData};
-    use crate::foundation::{Path, Span};
+    use continuum_cdsl_ast::foundation::{Path, Span};
+    use continuum_cdsl_ast::{Attribute, RoleData};
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)
@@ -402,7 +402,7 @@ mod tests {
     }
 
     fn make_attr(name: &str, arg_names: Vec<&str>) -> Attribute {
-        use crate::foundation::Path;
+        use continuum_cdsl_ast::foundation::Path;
 
         let span = test_span();
         let args = arg_names
@@ -610,7 +610,7 @@ mod tests {
 
     #[test]
     fn test_resolve_stratum_attribute_non_identifier() {
-        use crate::ast::UntypedKind;
+        use continuum_cdsl_ast::UntypedKind;
 
         let strata = vec![make_stratum("fast", vec![])];
 

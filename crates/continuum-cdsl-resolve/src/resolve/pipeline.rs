@@ -3,10 +3,8 @@
 //! This module orchestrates the various resolution and validation passes
 //! to transform raw parsed declarations into a fully resolved [`World`].
 
-use crate::ast::{CompiledWorld, Declaration, Era, Expr, KernelRegistry, Node, World, WorldDecl};
 use crate::desugar::desugar_declarations;
 use crate::error::CompileError;
-use crate::foundation::{EntityId, Path, Type};
 use crate::resolve::blocks::compile_execution_blocks;
 use crate::resolve::eras::resolve_eras;
 use crate::resolve::expr_typing::{TypingContext, type_expression};
@@ -20,6 +18,10 @@ use crate::resolve::types::{
 };
 use crate::resolve::uses::validate_uses;
 use crate::resolve::validation::{validate_node, validate_seq_escape};
+use continuum_cdsl_ast::foundation::{EntityId, Path, Type};
+use continuum_cdsl_ast::{
+    CompiledWorld, Declaration, Era, Expr, KernelRegistry, Node, World, WorldDecl,
+};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 
@@ -108,7 +110,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     let Some(mut metadata) = world_decl else {
         return Err(vec![CompileError::new(
             crate::error::ErrorKind::Internal,
-            crate::foundation::Span::new(0, 0, 0, 0),
+            continuum_cdsl_ast::foundation::Span::new(0, 0, 0, 0),
             "No 'world' declaration found".to_string(),
         )]);
     };
@@ -197,7 +199,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     );
 
     let mut resolved_eras = IndexMap::new();
-    let mut initial_candidates: Vec<(Path, crate::foundation::Span)> = Vec::new();
+    let mut initial_candidates: Vec<(Path, continuum_cdsl_ast::foundation::Span)> = Vec::new();
     for era_decl in &era_decls {
         let initial_attrs: Vec<_> = era_decl
             .attributes
@@ -248,7 +250,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
         };
 
         let mut era = Era::new(
-            crate::foundation::EraId::new(era_decl.path.to_string()),
+            continuum_cdsl_ast::foundation::EraId::new(era_decl.path.to_string()),
             era_decl.path.clone(),
             dt,
             era_decl.span,
@@ -293,14 +295,14 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
         match decl {
             Declaration::Node(node) => {
                 for (_, body) in &node.execution_blocks {
-                    if let crate::ast::BlockBody::Expression(expr) = body {
+                    if let continuum_cdsl_ast::BlockBody::Expression(expr) = body {
                         validate_expr(expr, &symbol_table, &mut scope, &mut errors);
                     }
                 }
             }
             Declaration::Member(node) => {
                 for (_, body) in &node.execution_blocks {
-                    if let crate::ast::BlockBody::Expression(expr) = body {
+                    if let continuum_cdsl_ast::BlockBody::Expression(expr) = body {
                         validate_expr(expr, &symbol_table, &mut scope, &mut errors);
                     }
                 }
@@ -385,7 +387,9 @@ fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileErro
                     continue;
                 }
                 match &attr.args[0].kind {
-                    crate::ast::UntypedKind::StringLiteral(s) => metadata.title = Some(s.clone()),
+                    continuum_cdsl_ast::UntypedKind::StringLiteral(s) => {
+                        metadata.title = Some(s.clone())
+                    }
                     _ => errors.push(CompileError::new(
                         crate::error::ErrorKind::TypeMismatch,
                         attr.args[0].span,
@@ -403,7 +407,9 @@ fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileErro
                     continue;
                 }
                 match &attr.args[0].kind {
-                    crate::ast::UntypedKind::StringLiteral(s) => metadata.version = Some(s.clone()),
+                    continuum_cdsl_ast::UntypedKind::StringLiteral(s) => {
+                        metadata.version = Some(s.clone())
+                    }
                     _ => errors.push(CompileError::new(
                         crate::error::ErrorKind::TypeMismatch,
                         attr.args[0].span,
@@ -442,7 +448,7 @@ fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileErro
 }
 
 fn inject_debug_fields(global_nodes: &mut Vec<Node<()>>, member_nodes: &mut Vec<Node<EntityId>>) {
-    use crate::ast::RoleId;
+    use continuum_cdsl_ast::RoleId;
 
     let mut debug_globals = Vec::new();
     for node in global_nodes.iter() {
@@ -461,8 +467,8 @@ fn inject_debug_fields(global_nodes: &mut Vec<Node<()>>, member_nodes: &mut Vec<
     member_nodes.extend(debug_members);
 }
 
-fn create_debug_node<I: crate::ast::Index>(source: &Node<I>, index: I) -> Node<I> {
-    use crate::ast::{BlockBody, RoleData};
+fn create_debug_node<I: continuum_cdsl_ast::Index>(source: &Node<I>, index: I) -> Node<I> {
+    use continuum_cdsl_ast::{BlockBody, RoleData};
 
     let mut debug_path = Path::from("debug");
     for segment in &source.path.segments {
@@ -487,7 +493,7 @@ fn create_debug_node<I: crate::ast::Index>(source: &Node<I>, index: I) -> Node<I
 
     // Create measure block: signal.path
     let expr = Expr::new(
-        crate::ast::UntypedKind::Signal(source.path.clone()),
+        continuum_cdsl_ast::UntypedKind::Signal(source.path.clone()),
         source.span,
     );
     debug_node
@@ -499,10 +505,10 @@ fn create_debug_node<I: crate::ast::Index>(source: &Node<I>, index: I) -> Node<I
 
 fn resolve_initial_era(
     eras: &IndexMap<Path, Era>,
-    initial_candidates: &[(Path, crate::foundation::Span)],
-    world_span: crate::foundation::Span,
+    initial_candidates: &[(Path, continuum_cdsl_ast::foundation::Span)],
+    world_span: continuum_cdsl_ast::foundation::Span,
     errors: &mut Vec<CompileError>,
-) -> Option<crate::foundation::EraId> {
+) -> Option<continuum_cdsl_ast::foundation::EraId> {
     if initial_candidates.len() > 1 {
         let mut error = CompileError::new(
             crate::error::ErrorKind::Conflict,
@@ -555,11 +561,11 @@ fn resolve_initial_era(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{
+    use continuum_cdsl_ast::foundation::{EntityId, Span, StratumId};
+    use continuum_cdsl_ast::{
         Attribute, BlockBody, Entity, EraDecl, Expr, Node, RoleData, Stratum, UnitExpr, WorldDecl,
         WorldPolicy,
     };
-    use crate::foundation::{EntityId, Span, StratumId};
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)
@@ -589,14 +595,14 @@ mod tests {
 
         let member_path = Path::from_path_str("plate.mass");
         let mut member = Node::new(member_path, span, RoleData::Signal, entity_id);
-        member.type_expr = Some(crate::ast::TypeExpr::Scalar {
+        member.type_expr = Some(continuum_cdsl_ast::TypeExpr::Scalar {
             unit: None,
             bounds: None,
         });
         member.attributes.push(Attribute {
             name: "stratum".to_string(),
             args: vec![Expr::new(
-                crate::ast::UntypedKind::Signal(Path::from_path_str("fast")),
+                continuum_cdsl_ast::UntypedKind::Signal(Path::from_path_str("fast")),
                 span,
             )],
             span,
@@ -877,7 +883,7 @@ mod tests {
         let compiled = compile(decls).expect("expected compile success");
         assert_eq!(
             compiled.world.initial_era,
-            Some(crate::foundation::EraId::new("main"))
+            Some(continuum_cdsl_ast::foundation::EraId::new("main"))
         );
     }
 
@@ -981,14 +987,14 @@ mod tests {
 
         let signal_path = Path::from_path_str("gravity");
         let mut signal = Node::new(signal_path.clone(), span, RoleData::Signal, ());
-        signal.type_expr = Some(crate::ast::TypeExpr::Scalar {
+        signal.type_expr = Some(continuum_cdsl_ast::TypeExpr::Scalar {
             unit: None,
             bounds: None,
         });
         signal.attributes.push(Attribute {
             name: "strata".to_string(),
             args: vec![Expr::new(
-                crate::ast::UntypedKind::Signal(Path::from_path_str("sim")),
+                continuum_cdsl_ast::UntypedKind::Signal(Path::from_path_str("sim")),
                 span,
             )],
             span,
@@ -1008,14 +1014,14 @@ mod tests {
             RoleData::Signal,
             entity_id.clone(),
         );
-        member.type_expr = Some(crate::ast::TypeExpr::Scalar {
+        member.type_expr = Some(continuum_cdsl_ast::TypeExpr::Scalar {
             unit: None,
             bounds: None,
         });
         member.attributes.push(Attribute {
             name: "strata".to_string(),
             args: vec![Expr::new(
-                crate::ast::UntypedKind::Signal(Path::from_path_str("sim")),
+                continuum_cdsl_ast::UntypedKind::Signal(Path::from_path_str("sim")),
                 span,
             )],
             span,
@@ -1055,11 +1061,11 @@ mod tests {
             .globals
             .get(&Path::from_path_str("debug.gravity"))
             .unwrap();
-        assert_eq!(debug_node.role_id(), crate::ast::RoleId::Field);
+        assert_eq!(debug_node.role_id(), continuum_cdsl_ast::RoleId::Field);
         assert_eq!(debug_node.executions.len(), 1);
         assert_eq!(
             debug_node.executions[0].phase,
-            crate::foundation::Phase::Measure
+            continuum_cdsl_ast::foundation::Phase::Measure
         );
 
         // Verify member signal
@@ -1081,7 +1087,7 @@ mod tests {
             .members
             .get(&Path::from_path_str("debug.plate.mass"))
             .unwrap();
-        assert_eq!(debug_member.role_id(), crate::ast::RoleId::Field);
+        assert_eq!(debug_member.role_id(), continuum_cdsl_ast::RoleId::Field);
         assert_eq!(debug_member.index, EntityId::new("plate"));
     }
 }

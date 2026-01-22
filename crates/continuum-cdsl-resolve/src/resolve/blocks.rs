@@ -20,13 +20,15 @@
 //!                                                         YOU ARE HERE
 //! ```
 
-use crate::ast::{BlockBody, Execution, ExecutionBody, Expr, Index, Node, RoleId, Stmt, TypedStmt};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::Phase;
 use crate::resolve::dependencies::{extract_dependencies, extract_stmt_dependencies};
 use crate::resolve::effects::{EffectContext, validate_effect_purity};
 use crate::resolve::expr_typing::{TypingContext, type_expression};
 use crate::resolve::utils::sort_unique;
+use continuum_cdsl_ast::foundation::Phase;
+use continuum_cdsl_ast::{
+    BlockBody, Execution, ExecutionBody, Expr, Index, Node, RoleId, Stmt, TypedStmt,
+};
 use std::collections::HashSet;
 
 /// Compiles a sequence of untyped statements into a type-validated IR representation.
@@ -299,7 +301,10 @@ pub fn compile_statements(
 /// let phase = parse_phase_name("resolve", span).unwrap();
 /// assert_eq!(phase, Phase::Resolve);
 /// ```
-pub fn parse_phase_name(name: &str, span: crate::foundation::Span) -> Result<Phase, CompileError> {
+pub fn parse_phase_name(
+    name: &str,
+    span: continuum_cdsl_ast::foundation::Span,
+) -> Result<Phase, CompileError> {
     match name.to_lowercase().as_str() {
         "resolve" => Ok(Phase::Resolve),
         "collect" => Ok(Phase::Collect),
@@ -349,7 +354,7 @@ pub fn parse_phase_name(name: &str, span: crate::foundation::Span) -> Result<Pha
 fn validate_phase_for_role(
     phase: Phase,
     role_id: RoleId,
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(), CompileError> {
     let spec = role_id.spec();
     if spec.allowed_phases.contains(phase) {
@@ -620,8 +625,8 @@ pub fn compile_execution_blocks<I: Index>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Expr, ExprKind, KernelRegistry, TypedExpr, TypedStmt, UntypedKind};
-    use crate::foundation::{KernelType, Path, Shape, Span, Type, Unit};
+    use continuum_cdsl_ast::foundation::{KernelType, Path, Shape, Span, Type, Unit};
+    use continuum_cdsl_ast::{Expr, ExprKind, KernelRegistry, TypedExpr, TypedStmt, UntypedKind};
     use std::collections::HashMap;
 
     fn test_span() -> Span {
@@ -1059,7 +1064,7 @@ mod tests {
 
     #[test]
     fn test_extract_dependencies_nested() {
-        use crate::ast::KernelId;
+        use continuum_cdsl_ast::KernelId;
 
         let span = test_span();
         let ty = scalar_type();
@@ -1088,8 +1093,8 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_with_typed_expression() {
-        use crate::ast::RoleData;
-        use crate::foundation::{KernelType, Shape, Unit};
+        use continuum_cdsl_ast::RoleData;
+        use continuum_cdsl_ast::foundation::{KernelType, Shape, Unit};
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1161,8 +1166,8 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_populates_node_reads() {
-        use crate::ast::RoleData;
-        use crate::foundation::{KernelType, Shape, Unit};
+        use continuum_cdsl_ast::RoleData;
+        use continuum_cdsl_ast::foundation::{KernelType, Shape, Unit};
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1209,8 +1214,8 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_union_multiple_blocks() {
-        use crate::ast::RoleData;
-        use crate::foundation::{KernelType, Shape, Unit};
+        use continuum_cdsl_ast::RoleData;
+        use continuum_cdsl_ast::foundation::{KernelType, Shape, Unit};
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1264,8 +1269,8 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_includes_assertions() {
-        use crate::ast::{Assertion, RoleData};
-        use crate::foundation::{AssertionSeverity, KernelType, Shape, Unit};
+        use continuum_cdsl_ast::foundation::{AssertionSeverity, KernelType, Shape, Unit};
+        use continuum_cdsl_ast::{Assertion, RoleData};
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1310,7 +1315,7 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_untyped_expression_success() {
-        use crate::ast::{Expr, RoleData, UntypedKind};
+        use continuum_cdsl_ast::{Expr, RoleData, UntypedKind};
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1351,7 +1356,7 @@ mod tests {
 
     #[test]
     fn test_extract_dependencies_aggregate() {
-        use crate::foundation::{AggregateOp, EntityId};
+        use continuum_cdsl_ast::foundation::{AggregateOp, EntityId};
 
         let span = test_span();
         let ty = scalar_type();
@@ -1389,7 +1394,7 @@ mod tests {
 
     #[test]
     fn test_extract_dependencies_fold() {
-        use crate::foundation::EntityId;
+        use continuum_cdsl_ast::foundation::EntityId;
 
         let span = test_span();
         let ty = scalar_type();
@@ -1435,8 +1440,8 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_union_duplicates() {
-        use crate::ast::{Assertion, RoleData};
-        use crate::foundation::{AssertionSeverity, KernelType, Shape, Unit};
+        use continuum_cdsl_ast::foundation::{AssertionSeverity, KernelType, Shape, Unit};
+        use continuum_cdsl_ast::{Assertion, RoleData};
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1492,8 +1497,8 @@ mod tests {
 
     #[test]
     fn test_compile_execution_blocks_multiple_assertions() {
-        use crate::ast::{Assertion, RoleData};
-        use crate::foundation::{AssertionSeverity, KernelType, Shape, Unit};
+        use continuum_cdsl_ast::foundation::{AssertionSeverity, KernelType, Shape, Unit};
+        use continuum_cdsl_ast::{Assertion, RoleData};
 
         let span = Span::new(0, 0, 10, 1);
         let path = Path::from("test.signal");
@@ -1547,7 +1552,7 @@ mod tests {
 
     #[test]
     fn test_extract_dependencies_field_access_member() {
-        use crate::foundation::TypeId;
+        use continuum_cdsl_ast::foundation::TypeId;
 
         let span = test_span();
         let scalar_ty = scalar_type();
@@ -1594,7 +1599,7 @@ mod tests {
 
     #[test]
     fn test_prev_field_extraction_fix() {
-        use crate::foundation::TypeId;
+        use continuum_cdsl_ast::foundation::TypeId;
 
         let span = test_span();
         let scalar_ty = scalar_type();

@@ -62,6 +62,7 @@
 
 mod block;
 mod capability;
+mod dag;
 mod declaration;
 mod expr;
 mod kernel;
@@ -76,6 +77,7 @@ mod world;
 
 pub use block::*;
 pub use capability::*;
+pub use dag::*;
 pub use declaration::*;
 pub use expr::*;
 pub use kernel::*;

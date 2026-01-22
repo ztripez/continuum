@@ -11,10 +11,12 @@
 //!                                      YOU ARE HERE
 //! ```
 
-use crate::ast::{Declaration, Expr, ExprKind, TypeExpr};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{Bounds, EntityId, Path, Shape, Span, Type, UserType, UserTypeId};
 use crate::resolve::units::resolve_unit_expr;
+use continuum_cdsl_ast::foundation::{
+    Bounds, EntityId, Path, Shape, Span, Type, UserType, UserTypeId,
+};
+use continuum_cdsl_ast::{Declaration, Expr, ExprKind, TypeExpr, UntypedKind};
 use std::collections::HashMap;
 
 /// Registry of user-defined types keyed by fully-qualified [`Path`].
@@ -72,8 +74,8 @@ impl TypeTable {
     }
 }
 
-/// Synthesizes [`UserType`] definitions from [`Entity`](crate::ast::Entity) and
-/// [`Member`](crate::ast::Declaration::Member) declarations.
+/// Synthesizes [`UserType`] definitions from [`Entity`](continuum_cdsl_ast::Entity) and
+/// [`Member`](continuum_cdsl_ast::Declaration::Member) declarations.
 ///
 /// This pass performs hierarchical projection:
 /// 1. Group members by entity.
@@ -130,9 +132,9 @@ pub fn project_entity_types(
 }
 
 /// Recursively build nested types for an entity's hierarchical members.
-fn project_hierarchical_entity<I: crate::ast::Index>(
+fn project_hierarchical_entity<I: continuum_cdsl_ast::Index>(
     root_path: &Path,
-    members: &[&crate::ast::Node<I>],
+    members: &[&continuum_cdsl_ast::Node<I>],
     type_table: &mut TypeTable,
 ) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
@@ -279,8 +281,8 @@ pub fn resolve_user_types(
 }
 
 /// Resolves `type_expr` into `output` for all nodes in the world.
-pub fn resolve_node_types<I: crate::ast::Index>(
-    nodes: &mut [crate::ast::Node<I>],
+pub fn resolve_node_types<I: continuum_cdsl_ast::Index>(
+    nodes: &mut [continuum_cdsl_ast::Node<I>],
     type_table: &TypeTable,
 ) -> Result<(), Vec<CompileError>> {
     let mut errors = Vec::new();
@@ -449,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_project_entity_types_nested() {
-        use crate::ast::{Entity, Node, RoleData};
+        use continuum_cdsl_ast::{Entity, Node, RoleData};
 
         let span = test_span();
         let entity_id = EntityId::new("plate");
@@ -489,7 +491,7 @@ mod tests {
 
     #[test]
     fn test_project_entity_types_circular_references() {
-        use crate::ast::{Entity, Node, RoleData};
+        use continuum_cdsl_ast::{Entity, Node, RoleData};
 
         let span = test_span();
 
@@ -535,7 +537,7 @@ mod tests {
 /// Future: Support config values, const values, and simple arithmetic.
 fn evaluate_const_expr(expr: &Expr, span: Span) -> Result<f64, CompileError> {
     match &expr.kind {
-        ExprKind::Literal { value, unit } => {
+        UntypedKind::Literal { value, unit } => {
             // Bounds must be dimensionless
             if unit.is_some() {
                 return Err(CompileError::new(

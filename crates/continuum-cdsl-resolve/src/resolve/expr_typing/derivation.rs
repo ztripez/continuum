@@ -5,9 +5,9 @@
 //! includes shape derivation (e.g., Scalar, Vector) and unit derivation
 //! (e.g., multiplication, division of units).
 
-use crate::ast::TypedExpr;
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{KernelType, Shape, Type, Unit};
+use continuum_cdsl_ast::TypedExpr;
+use continuum_cdsl_ast::foundation::{KernelType, Shape, Type, Unit};
 use continuum_kernel_types::ValueType;
 
 /// Extracts the [`KernelType`] from a typed argument at the specified index.
@@ -27,7 +27,7 @@ use continuum_kernel_types::ValueType;
 pub fn get_kernel_arg<'a>(
     args: &'a [TypedExpr],
     idx: usize,
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
     derivation_kind: &str,
 ) -> Result<&'a KernelType, Vec<CompileError>> {
     let arg = args.get(idx).ok_or_else(|| {
@@ -65,11 +65,11 @@ pub fn get_kernel_arg<'a>(
 /// - A unit operation (multiplication/division) is invalid.
 /// - An argument index in the signature's derivation rules is out of bounds.
 pub fn derive_return_type(
-    sig: &crate::ast::KernelSignature,
+    sig: &continuum_cdsl_ast::KernelSignature,
     args: &[TypedExpr],
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<Type, Vec<CompileError>> {
-    use crate::ast::{ShapeDerivation, UnitDerivation};
+    use continuum_cdsl_ast::{ShapeDerivation, UnitDerivation};
 
     if sig.returns.value_type == ValueType::Bool {
         return Ok(Type::Bool);

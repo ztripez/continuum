@@ -24,7 +24,7 @@
 //! );
 //! ```
 
-use crate::foundation::{SourceMap, Span};
+use continuum_cdsl_ast::foundation::{SourceMap, Span};
 use std::fmt;
 
 /// Compilation diagnostic with source location and message.
@@ -583,7 +583,7 @@ impl<'a> DiagnosticFormatter<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::foundation::SourceMap;
+    use continuum_cdsl_ast::foundation::SourceMap;
     use std::path::PathBuf;
 
     fn dummy_span() -> Span {

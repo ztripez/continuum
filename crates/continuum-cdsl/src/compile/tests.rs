@@ -1,5 +1,5 @@
 use super::*;
-use crate::foundation::Path;
+use crate::Path;
 use std::fs;
 use tempfile::tempdir;
 

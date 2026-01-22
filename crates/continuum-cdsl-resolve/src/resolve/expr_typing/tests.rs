@@ -1,10 +1,10 @@
 use super::*;
-use crate::ast::Expr;
-use crate::ast::KernelRegistry;
-use crate::ast::UntypedKind;
-use crate::foundation::{KernelType, Shape, Type, Unit};
-use crate::foundation::{Path, Span, UserType};
 use crate::resolve::types::TypeTable;
+use continuum_cdsl_ast::Expr;
+use continuum_cdsl_ast::KernelRegistry;
+use continuum_cdsl_ast::UntypedKind;
+use continuum_cdsl_ast::foundation::{KernelType, Shape, Type, Unit};
+use continuum_cdsl_ast::foundation::{Path, Span, UserType};
 use continuum_foundation::Phase;
 use continuum_foundation::TypeId;
 use std::collections::HashMap;
@@ -450,7 +450,7 @@ fn test_type_aggregate_map() {
     let entity = continuum_foundation::EntityId::new("Plate");
     let expr = Expr::new(
         UntypedKind::Aggregate {
-            op: crate::foundation::AggregateOp::Map,
+            op: continuum_cdsl_ast::foundation::AggregateOp::Map,
             source: Box::new(Expr::new(UntypedKind::Entity(entity.clone()), span)),
             binding: "p".to_string(),
             body: Box::new(Expr::new(

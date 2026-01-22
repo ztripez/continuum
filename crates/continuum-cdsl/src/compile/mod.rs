@@ -1,10 +1,10 @@
-use crate::ast::CompiledWorld;
-use crate::error::{CompileError, DiagnosticFormatter};
-use crate::foundation::{SourceMap, Span};
-use crate::lexer::Token;
-use crate::parser::parse_declarations;
-use crate::resolve::pipeline;
-use logos::Logos;
+use crate::CompileError;
+use crate::CompiledWorld;
+use crate::Token;
+use crate::parse_declarations;
+use crate::pipeline;
+use crate::{SourceMap, Span};
+use continuum_cdsl_lexer::logos::Logos;
 use std::path::Path;
 use walkdir::WalkDir;
 

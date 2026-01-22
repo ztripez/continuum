@@ -653,7 +653,7 @@ pub use super::untyped::TypeExpr;
 ///     "expected Scalar<m>, found Scalar<s>".to_string(),
 /// );
 /// ```
-pub type ValidationError = crate::error::CompileError;
+pub type ValidationError = String; // Placeholder - actual errors from continuum-cdsl-resolve
 
 #[cfg(test)]
 mod tests {

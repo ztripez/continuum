@@ -7,10 +7,10 @@
 use super::context::TypingContext;
 use super::derivation::derive_return_type;
 use super::type_expression;
-use crate::ast::{Expr, ExprKind, TypedExpr};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{AggregateOp, KernelType, Path, Shape, Type, Unit};
 use crate::resolve::units::resolve_unit_expr;
+use continuum_cdsl_ast::foundation::{AggregateOp, KernelType, Path, Shape, Type, Unit};
+use continuum_cdsl_ast::{Expr, ExprKind, TypedExpr};
 use std::collections::HashMap;
 
 // === Error Helpers ===
@@ -21,7 +21,11 @@ use std::collections::HashMap;
 /// - `span`: Source location where the undefined name was used.
 /// - `name`: The name that was not found.
 /// - `kind`: The kind of symbol expected (e.g., "local variable", "signal").
-pub fn err_undefined(span: crate::foundation::Span, name: &str, kind: &str) -> Vec<CompileError> {
+pub fn err_undefined(
+    span: continuum_cdsl_ast::foundation::Span,
+    name: &str,
+    kind: &str,
+) -> Vec<CompileError> {
     vec![CompileError::new(
         ErrorKind::UndefinedName,
         span,
@@ -36,7 +40,7 @@ pub fn err_undefined(span: crate::foundation::Span, name: &str, kind: &str) -> V
 /// - `expected`: Description of the expected type.
 /// - `found`: Description of the actual type found.
 pub fn err_type_mismatch(
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
     expected: &str,
     found: &str,
 ) -> Vec<CompileError> {
@@ -53,7 +57,7 @@ pub fn err_type_mismatch(
 /// - `span`: Source location related to the error.
 /// - `message`: Descriptive message about the internal failure.
 pub fn err_internal(
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
     message: impl Into<String>,
 ) -> Vec<CompileError> {
     vec![CompileError::new(ErrorKind::Internal, span, message.into())]
@@ -75,7 +79,7 @@ pub fn err_internal(
 pub fn lookup_path_type(
     _ctx: &TypingContext,
     path: &Path,
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
     registry_name: &str,
     registry: &HashMap<Path, Type>,
 ) -> Result<Type, Vec<CompileError>> {
@@ -95,7 +99,7 @@ pub fn lookup_path_type(
 /// # Errors
 /// Returns [`ErrorKind::Internal`] if the type is not available in the current context.
 pub fn require_context_type(
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
     name: &str,
     ty: &Option<Type>,
 ) -> Result<Type, Vec<CompileError>> {
@@ -119,9 +123,9 @@ pub fn require_context_type(
 /// # Returns
 /// A tuple containing the typed expression kind and the resolved [`Type`].
 pub fn type_literal(
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
     value: f64,
-    unit: Option<&crate::ast::UnitExpr>,
+    unit: Option<&continuum_cdsl_ast::UnitExpr>,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let resolved_unit = match unit {
         Some(unit_expr) => resolve_unit_expr(Some(unit_expr), span).map_err(|e| vec![e])?,
@@ -156,7 +160,7 @@ pub fn type_field_access(
     ctx: &TypingContext,
     object: &Expr,
     field: &str,
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let typed_object = type_expression(object, ctx)?;
 
@@ -240,7 +244,7 @@ pub fn type_field_access(
 pub fn type_vector(
     ctx: &TypingContext,
     elements: &[Expr],
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     if elements.is_empty() {
         return Err(vec![CompileError::new(
@@ -333,7 +337,7 @@ pub fn type_let(
     name: &str,
     value: &Expr,
     body: &Expr,
-    _span: crate::foundation::Span,
+    _span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let typed_value = type_expression(value, ctx)?;
     let extended_ctx = ctx.with_binding(name.to_string(), typed_value.ty.clone());
@@ -361,7 +365,7 @@ pub fn type_struct(
     ctx: &TypingContext,
     ty_path: &Path,
     fields: &[(String, Expr)],
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let type_id = ctx
         .type_table
@@ -443,7 +447,7 @@ pub fn type_aggregate(
     source: &Expr,
     binding: &str,
     body: &Expr,
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let typed_source = type_expression(source, ctx)?;
 
@@ -502,7 +506,7 @@ pub fn type_fold(
     acc: &str,
     elem: &str,
     body: &Expr,
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let typed_source = type_expression(source, ctx)?;
     let typed_init = type_expression(init, ctx)?;
@@ -559,7 +563,7 @@ pub fn type_call(
     ctx: &TypingContext,
     func: &Path,
     args: &[Expr],
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let typed_args: Vec<TypedExpr> = args
         .iter()
@@ -613,7 +617,7 @@ pub fn type_as_kernel_call(
     ctx: &TypingContext,
     kernel: &continuum_kernel_types::KernelId,
     args: &[Expr],
-    span: crate::foundation::Span,
+    span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let typed_args: Vec<TypedExpr> = args
         .iter()

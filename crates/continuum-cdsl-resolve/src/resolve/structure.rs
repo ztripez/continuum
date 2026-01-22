@@ -56,9 +56,9 @@
 //! }
 //! ```
 
-use crate::ast::{Declaration, Node};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{EntityId, Path, Span};
+use continuum_cdsl_ast::foundation::{EntityId, Path, Span};
+use continuum_cdsl_ast::{Declaration, Node};
 use std::collections::{HashMap, HashSet};
 
 /// Validates that the AST contains no circular dependencies.
@@ -326,8 +326,8 @@ fn check_parent_collisions(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Entity, RoleData};
-    use crate::foundation::Span;
+    use continuum_cdsl_ast::foundation::Span;
+    use continuum_cdsl_ast::{Entity, RoleData};
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)

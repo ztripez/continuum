@@ -24,10 +24,10 @@ pub mod helpers;
 #[cfg(test)]
 mod tests;
 
-use crate::ast::{Expr, ExprKind, TypedExpr, UntypedKind};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{KernelType, Shape, Type, Unit};
 pub use context::TypingContext;
+use continuum_cdsl_ast::foundation::{KernelType, Shape, Type, Unit};
+use continuum_cdsl_ast::{Expr, ExprKind, TypedExpr, UntypedKind};
 use continuum_foundation::Phase;
 use helpers::*;
 

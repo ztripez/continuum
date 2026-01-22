@@ -4,9 +4,9 @@
 //! registries, local bindings, and execution context state required to
 //! resolve the type of an expression.
 
-use crate::ast::KernelRegistry;
-use crate::foundation::{Path, Type};
 use crate::resolve::types::TypeTable;
+use continuum_cdsl_ast::KernelRegistry;
+use continuum_cdsl_ast::foundation::{Path, Type};
 use continuum_foundation::Phase;
 use std::collections::HashMap;
 
