@@ -758,14 +758,18 @@ pub(crate) fn handle_assert(
         })?;
 
     if !is_true {
+        // Extract optional severity and message operands
+        // Propagate errors instead of silently discarding them with .ok()
         let severity = instruction
             .operands
             .get(0)
-            .and_then(|op| operand_string(op).ok());
+            .map(|op| operand_string(op))
+            .transpose()?;
         let message = instruction
             .operands
             .get(1)
-            .and_then(|op| operand_string(op).ok());
+            .map(|op| operand_string(op))
+            .transpose()?;
         return ctx.trigger_assertion_fault(severity.as_deref(), message.as_deref());
     }
     Ok(())
