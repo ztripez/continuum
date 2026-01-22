@@ -45,6 +45,32 @@ use continuum_cdsl_ast::{Declaration, Expr};
 use continuum_cdsl_lexer::Token;
 use std::ops::Range;
 
+/// Create fake byte spans for backward compatibility with old API.
+///
+/// Converts a slice of tokens to (token, span) pairs using enumeration indices
+/// as fake byte offsets. This maintains API compatibility while the new span-aware
+/// API (`parse_declarations_with_spans`, `parse_expr_with_spans`) accepts real spans.
+///
+/// # Parameters
+///
+/// * `tokens` - Slice of tokens without span information
+///
+/// # Returns
+///
+/// Vector of (token, fake_span) pairs where each span is `i..i+1`
+///
+/// # Note
+///
+/// Fake spans use token index as byte offset, which is incorrect but preserves
+/// backward compatibility. New code should use span-aware APIs with real byte offsets.
+fn tokens_with_fake_spans(tokens: &[Token]) -> Vec<(Token, Range<usize>)> {
+    tokens
+        .iter()
+        .enumerate()
+        .map(|(i, tok)| (tok.clone(), i..i + 1))
+        .collect()
+}
+
 /// Parse a sequence of tokens into declarations.
 ///
 /// # Parameters
@@ -62,13 +88,7 @@ pub fn parse_declarations(
     tokens: &[Token],
     file_id: u16,
 ) -> Result<Vec<Declaration>, Vec<ParseError>> {
-    // Create fake spans for backward compatibility
-    let tokens_with_spans: Vec<(Token, Range<usize>)> = tokens
-        .iter()
-        .enumerate()
-        .map(|(i, tok)| (tok.clone(), i..i + 1))
-        .collect();
-
+    let tokens_with_spans = tokens_with_fake_spans(tokens);
     let mut stream = TokenStream::new(&tokens_with_spans, file_id);
     decl::parse_declarations(&mut stream)
 }
@@ -104,13 +124,7 @@ pub fn parse_declarations_with_spans(
 /// This function creates fake byte spans for backward compatibility.
 /// Use `parse_expr_with_spans` for accurate error locations.
 pub fn parse_expr(tokens: &[Token], file_id: u16) -> Result<Expr, Vec<ParseError>> {
-    // Create fake spans for backward compatibility
-    let tokens_with_spans: Vec<(Token, Range<usize>)> = tokens
-        .iter()
-        .enumerate()
-        .map(|(i, tok)| (tok.clone(), i..i + 1))
-        .collect();
-
+    let tokens_with_spans = tokens_with_fake_spans(tokens);
     let mut stream = TokenStream::new(&tokens_with_spans, file_id);
     expr::parse_expr(&mut stream).map_err(|e| vec![e])
 }
