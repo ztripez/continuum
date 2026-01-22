@@ -12,29 +12,26 @@ pub fn parse_execution_blocks(
     let mut blocks = Vec::new();
 
     while !matches!(stream.peek(), Some(Token::RBrace)) {
-        match stream.peek() {
-            Some(Token::Resolve) => {
-                blocks.push(parse_execution_block(stream, Token::Resolve, "resolve")?);
-            }
-            Some(Token::Collect) => {
-                blocks.push(parse_execution_block(stream, Token::Collect, "collect")?);
-            }
-            Some(Token::Emit) => {
-                blocks.push(parse_execution_block(stream, Token::Emit, "emit")?);
-            }
-            Some(Token::Assert) => {
-                blocks.push(parse_execution_block(stream, Token::Assert, "assert")?);
-            }
-            Some(Token::Measure) => {
-                blocks.push(parse_execution_block(stream, Token::Measure, "measure")?);
-            }
-            other => {
+        let token = stream.peek();
+
+        if let Some(tok) = token {
+            if let Some(block_name) = super::token_utils::execution_block_name(tok) {
+                // Clone token and name before advancing stream
+                let keyword_token = tok.clone();
+                blocks.push(parse_execution_block(stream, keyword_token, block_name)?);
+            } else {
                 return Err(ParseError::unexpected_token(
-                    other,
+                    token,
                     "execution block keyword (resolve, collect, emit, assert, measure)",
                     stream.current_span(),
                 ));
             }
+        } else {
+            return Err(ParseError::unexpected_token(
+                None,
+                "execution block keyword (resolve, collect, emit, assert, measure)",
+                stream.current_span(),
+            ));
         }
     }
 
