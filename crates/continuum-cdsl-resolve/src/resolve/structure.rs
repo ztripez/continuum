@@ -257,27 +257,15 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
                 &mut path_index,
                 &mut errors,
             ),
-            Declaration::Const(entries) => {
-                for entry in entries {
-                    register_path(
-                        &entry.path,
-                        entry.span,
-                        DeclKind::Other,
-                        &mut path_index,
-                        &mut errors,
-                    );
-                }
+            Declaration::Const(_entries) => {
+                // Config/const entries are in a separate namespace (const.*, config.*)
+                // and don't participate in collision checking with other declarations.
+                // They're only accessible via their respective prefixes.
             }
-            Declaration::Config(entries) => {
-                for entry in entries {
-                    register_path(
-                        &entry.path,
-                        entry.span,
-                        DeclKind::Other,
-                        &mut path_index,
-                        &mut errors,
-                    );
-                }
+            Declaration::Config(_entries) => {
+                // Config/const entries are in a separate namespace (const.*, config.*)
+                // and don't participate in collision checking with other declarations.
+                // They're only accessible via their respective prefixes.
             }
         }
     }

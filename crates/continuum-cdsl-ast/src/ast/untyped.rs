@@ -102,11 +102,19 @@ pub struct Expr {
 impl Expr {
     /// Attempt to interpret this expression as a static [`Path`].
     ///
-    /// Succeeds if the expression is a [`Local`] identifier or a chain of
-    /// [`FieldAccess`] operations on a path.
+    /// Succeeds if the expression is a [`Local`] identifier, a keyword expression
+    /// (Prev, Current, Inputs, Dt, Self_, Payload), or a chain of [`FieldAccess`]
+    /// operations on a path.
     pub fn as_path(&self) -> Option<Path> {
         match &self.kind {
             ExprKind::Local(name) => Some(Path::from(name.as_str())),
+            // Keyword expressions can be used as path roots
+            ExprKind::Prev => Some(Path::from("prev")),
+            ExprKind::Current => Some(Path::from("current")),
+            ExprKind::Inputs => Some(Path::from("inputs")),
+            ExprKind::Dt => Some(Path::from("dt")),
+            ExprKind::Self_ => Some(Path::from("self")),
+            ExprKind::Payload => Some(Path::from("payload")),
             ExprKind::FieldAccess { object, field } => {
                 let mut path = object.as_path()?;
                 path.segments.push(field.clone());
