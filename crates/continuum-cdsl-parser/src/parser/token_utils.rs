@@ -114,6 +114,29 @@ pub fn is_execution_block_keyword(token: &Token) -> bool {
     execution_block_name(token).is_some()
 }
 
+/// Check if a token/identifier is a type keyword.
+///
+/// Type keywords are: Scalar, Vec2, Vec3, Vec4, Quat, Mat2, Mat3, Mat4, Tensor, Bool
+///
+/// These can appear after `:` in attribute position to declare a node's type.
+///
+/// # Examples
+/// ```
+/// use continuum_cdsl_lexer::Token;
+/// use continuum_cdsl_parser::parser::token_utils::is_type_keyword;
+///
+/// assert!(is_type_keyword("Scalar"));
+/// assert!(is_type_keyword("Vec3"));
+/// assert!(!is_type_keyword("signal"));
+/// assert!(!is_type_keyword("resolve"));
+/// ```
+pub fn is_type_keyword(name: &str) -> bool {
+    matches!(
+        name,
+        "Bool" | "Scalar" | "Vec2" | "Vec3" | "Vec4" | "Quat" | "Mat2" | "Mat3" | "Mat4" | "Tensor"
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -143,16 +143,58 @@ pub(super) fn parse_node_declaration(
 
     stream.expect(Token::LBrace)?;
 
-    // Parse attributes inside the body (before execution blocks)
+    // Check for type expression as first attribute: `: Scalar<unit>`
+    let type_expr = if matches!(stream.peek(), Some(Token::Colon)) {
+        // Peek ahead to see if this is a type keyword
+        let is_type = if let Some(Token::Ident(name)) = stream.peek_nth(1) {
+            super::token_utils::is_type_keyword(name)
+        } else {
+            false
+        };
+
+        if is_type {
+            stream.advance(); // consume ':'
+            Some(super::types::parse_type_expr(stream)?)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Parse remaining attributes inside the body (before special/execution blocks)
     while matches!(stream.peek(), Some(Token::Colon)) {
         attributes.push(parse_attribute(stream)?);
     }
+
+    // Parse special blocks (when, warmup, observe)
+    let when = if matches!(stream.peek(), Some(Token::When)) {
+        Some(super::blocks::parse_when_block(stream)?)
+    } else {
+        None
+    };
+
+    let warmup = if matches!(stream.peek(), Some(Token::WarmUp)) {
+        Some(super::blocks::parse_warmup_block(stream)?)
+    } else {
+        None
+    };
+
+    let observe = if matches!(stream.peek(), Some(Token::Observe)) {
+        Some(super::blocks::parse_observe_block(stream)?)
+    } else {
+        None
+    };
 
     let execution_blocks = super::blocks::parse_execution_blocks(stream)?;
     stream.expect(Token::RBrace)?;
 
     let mut node = Node::new(path, stream.span_from(start), role, ());
     node.attributes = attributes;
+    node.type_expr = type_expr;
+    node.when = when;
+    node.warmup = warmup;
+    node.observe = observe;
     node.execution_blocks = execution_blocks;
 
     Ok(Declaration::Node(node))

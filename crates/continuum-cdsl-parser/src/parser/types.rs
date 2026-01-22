@@ -72,7 +72,17 @@ fn parse_scalar_type(stream: &mut TokenStream) -> Result<TypeExpr, ParseError> {
 
     stream.expect(Token::Lt)?;
 
-    let unit = parse_unit_expr(stream)?;
+    // Check for dimensionless: <> or <1> or <1, bounds>
+    let unit = if matches!(stream.peek(), Some(Token::Gt | Token::Comma)) {
+        // Empty unit <> or <, ...> = dimensionless
+        UnitExpr::Dimensionless
+    } else if matches!(stream.peek(), Some(Token::Integer(n)) if *n == 1) {
+        // Shorthand: <1> = dimensionless
+        stream.advance();
+        UnitExpr::Dimensionless
+    } else {
+        parse_unit_expr(stream)?
+    };
 
     // Check for optional bounds: , min..max
     // Use parse_primary instead of parse_expr to avoid consuming > as comparison operator
