@@ -6,6 +6,17 @@
 //! - filter operations
 //! - aggregate operations (agg.sum, agg.mean, etc.)
 //! - spatial queries (nearest, within)
+//!
+//! ## Known Limitations (Ignored Tests)
+//!
+//! **Let-in expressions** (9 tests ignored) - Issue: continuum-3omu
+//! The parser's `is_statement_start()` function treats `Token::Let` as a statement
+//! keyword, preventing `let x = val in body` from parsing as an expression.
+//! This requires grammar refactoring to support context-sensitive parsing.
+//!
+//! **agg.first()** (1 test ignored) - Related to above
+//! The identifier "first" is a reserved keyword token, causing parse failures in
+//! aggregate function calls. Requires keyword context sensitivity fix.
 
 use continuum_cdsl_lexer::Token;
 use continuum_cdsl_parser::parse_declarations;

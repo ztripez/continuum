@@ -1,6 +1,17 @@
 //! Type and unit expression parsing tests.
 //!
 //! Tests type/unit expressions parse successfully in signal declarations.
+//!
+//! ## Known Limitations (Ignored Tests)
+//!
+//! **Scalar bounds** (2 tests ignored) - Issue: continuum-014k
+//! Type bounds syntax `Scalar<K, 0.0..1000.0>` is not yet supported in type declarations.
+//! Requires additional parser lookahead or context-sensitive parsing logic.
+//!
+//! **Negative unit exponents** (2 tests ignored) - Issue: continuum-014k  
+//! Unit expressions like `s^-1` or `kg*m^2*s^-2` require the lexer to recognize
+//! negative numbers as atomic tokens in unit contexts. Currently `-1` is lexed as
+//! two tokens (Minus, Number) which breaks unit power parsing.
 
 use continuum_cdsl_lexer::Token;
 use continuum_cdsl_parser::parse_declarations;

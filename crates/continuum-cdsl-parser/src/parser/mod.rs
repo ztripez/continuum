@@ -31,6 +31,12 @@ use stream::TokenStream;
 mod blocks;
 mod decl;
 mod expr;
+
+/// Token utility functions for canonical keyword-to-string mappings.
+///
+/// Provides the single source of truth for converting keyword tokens to their
+/// string representations. Used throughout the parser when keywords can appear
+/// as identifiers or when dispatching on keyword types.
 pub mod token_utils;
 mod types;
 

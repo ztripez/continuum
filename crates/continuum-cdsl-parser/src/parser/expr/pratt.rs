@@ -13,40 +13,26 @@ enum Assoc {
     Right,
 }
 
-/// Get precedence and associativity for a binary operator token.
+/// Get binary operator metadata (precedence, associativity, and operator enum).
 ///
-/// Returns (precedence, associativity) where higher precedence = tighter binding.
-fn binary_precedence(token: &Token) -> Option<(u8, Assoc)> {
+/// Returns (precedence, associativity, op) where higher precedence = tighter binding.
+/// This is the single source of truth for binary operator parsing.
+fn binary_op_info(token: &Token) -> Option<(u8, Assoc, BinaryOp)> {
     match token {
-        Token::Or => Some((10, Assoc::Left)),
-        Token::And => Some((20, Assoc::Left)),
-        Token::EqEq | Token::BangEq | Token::Lt | Token::LtEq | Token::Gt | Token::GtEq => {
-            Some((30, Assoc::Left))
-        }
-        Token::Plus | Token::Minus => Some((40, Assoc::Left)),
-        Token::Star | Token::Slash | Token::Percent => Some((50, Assoc::Left)),
-        Token::Caret => Some((60, Assoc::Right)),
-        _ => None,
-    }
-}
-
-/// Convert token to BinaryOp.
-fn token_to_binary_op(token: &Token) -> Option<BinaryOp> {
-    match token {
-        Token::Plus => Some(BinaryOp::Add),
-        Token::Minus => Some(BinaryOp::Sub),
-        Token::Star => Some(BinaryOp::Mul),
-        Token::Slash => Some(BinaryOp::Div),
-        Token::Percent => Some(BinaryOp::Mod),
-        Token::Caret => Some(BinaryOp::Pow),
-        Token::EqEq => Some(BinaryOp::Eq),
-        Token::BangEq => Some(BinaryOp::Ne),
-        Token::Lt => Some(BinaryOp::Lt),
-        Token::LtEq => Some(BinaryOp::Le),
-        Token::Gt => Some(BinaryOp::Gt),
-        Token::GtEq => Some(BinaryOp::Ge),
-        Token::And => Some(BinaryOp::And),
-        Token::Or => Some(BinaryOp::Or),
+        Token::Or => Some((10, Assoc::Left, BinaryOp::Or)),
+        Token::And => Some((20, Assoc::Left, BinaryOp::And)),
+        Token::EqEq => Some((30, Assoc::Left, BinaryOp::Eq)),
+        Token::BangEq => Some((30, Assoc::Left, BinaryOp::Ne)),
+        Token::Lt => Some((30, Assoc::Left, BinaryOp::Lt)),
+        Token::LtEq => Some((30, Assoc::Left, BinaryOp::Le)),
+        Token::Gt => Some((30, Assoc::Left, BinaryOp::Gt)),
+        Token::GtEq => Some((30, Assoc::Left, BinaryOp::Ge)),
+        Token::Plus => Some((40, Assoc::Left, BinaryOp::Add)),
+        Token::Minus => Some((40, Assoc::Left, BinaryOp::Sub)),
+        Token::Star => Some((50, Assoc::Left, BinaryOp::Mul)),
+        Token::Slash => Some((50, Assoc::Left, BinaryOp::Div)),
+        Token::Percent => Some((50, Assoc::Left, BinaryOp::Mod)),
+        Token::Caret => Some((60, Assoc::Right, BinaryOp::Pow)),
         _ => None,
     }
 }
@@ -56,17 +42,11 @@ pub(super) fn parse_pratt(stream: &mut TokenStream, min_prec: u8) -> Result<Expr
     let mut left = parse_prefix(stream)?;
 
     while let Some(token) = stream.peek() {
-        if let Some((prec, assoc)) = binary_precedence(token) {
+        if let Some((prec, assoc, op)) = binary_op_info(token) {
             if prec < min_prec {
                 break;
             }
 
-            // SAFETY: If binary_precedence returned Some, token_to_binary_op must also return Some
-            // because they match on the same token set. If this fails, it's a logic error in the
-            // parser implementation, not a user input error.
-            let op = token_to_binary_op(token).expect(
-                "internal parser error: binary_precedence and token_to_binary_op out of sync",
-            );
             let span_start = stream.current_pos();
             stream.advance();
 
