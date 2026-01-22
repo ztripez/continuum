@@ -298,4 +298,52 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn test_is_type_keyword_recognizes_all_types() {
+        let type_keywords = [
+            "Bool", "Scalar", "Vec2", "Vec3", "Vec4", "Quat", "Mat2", "Mat3", "Mat4", "Tensor",
+        ];
+
+        for keyword in &type_keywords {
+            assert!(
+                is_type_keyword(keyword),
+                "{} should be recognized as type keyword",
+                keyword
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_type_keyword_rejects_non_types() {
+        let non_types = [
+            "signal", "resolve", "Vector", // Vector is not a keyword (it's Vec2/Vec3/etc.)
+            "scalar", // lowercase
+            "SCALAR", // uppercase
+            "collect", "field", "operator", "config", "const", "strata",
+        ];
+
+        for name in &non_types {
+            assert!(
+                !is_type_keyword(name),
+                "{} should NOT be recognized as type keyword",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn test_is_type_keyword_case_sensitive() {
+        // Correct case
+        assert!(is_type_keyword("Scalar"));
+        assert!(is_type_keyword("Bool"));
+        assert!(is_type_keyword("Vec3"));
+
+        // Wrong case
+        assert!(!is_type_keyword("scalar"));
+        assert!(!is_type_keyword("bool"));
+        assert!(!is_type_keyword("vec3"));
+        assert!(!is_type_keyword("SCALAR"));
+        assert!(!is_type_keyword("VEC3"));
+    }
 }
