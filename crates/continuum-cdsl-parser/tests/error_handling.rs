@@ -9,7 +9,7 @@
 
 use continuum_cdsl_ast::Declaration;
 use continuum_cdsl_lexer::Token;
-use continuum_cdsl_parser::{ParseError, parse_declarations};
+use continuum_cdsl_parser::{parse_declarations, ParseError};
 use logos::Logos;
 
 /// Helper to verify that parsing fails with at least one error.
@@ -377,20 +377,20 @@ fn test_span_accuracy_with_spans() {
     // Test that spans point to correct byte offsets
     let source = "signal test { resolve { bad_syntax } }";
     //            0123456789...
-    
+
     let mut lexer = Token::lexer(source);
     let mut tokens_with_spans = Vec::new();
-    
+
     while let Some(result) = lexer.next() {
         if let Ok(token) = result {
             let span = lexer.span();
             tokens_with_spans.push((token, span));
         }
     }
-    
+
     // Parse with accurate spans
     let result = continuum_cdsl_parser::parse_declarations_with_spans(&tokens_with_spans, 0);
-    
+
     // Should succeed since this is actually valid syntax (identifier in expression)
     assert!(result.is_ok(), "This is valid syntax");
 }
@@ -400,25 +400,25 @@ fn test_span_points_to_actual_error() {
     // Test with a real syntax error: missing closing brace
     let source = "signal test {\n    resolve { 1.0 + 2.0\n}";
     //            Position:         ^error here (missing })
-    
+
     let mut lexer = Token::lexer(source);
     let mut tokens_with_spans = Vec::new();
-    
+
     while let Some(result) = lexer.next() {
         if let Ok(token) = result {
             let span = lexer.span();
             tokens_with_spans.push((token, span));
         }
     }
-    
+
     let result = continuum_cdsl_parser::parse_declarations_with_spans(&tokens_with_spans, 0);
-    
+
     // Should fail
     assert!(result.is_err(), "Should have parse error");
-    
+
     let errors = result.unwrap_err();
     assert!(!errors.is_empty(), "Should have at least one error");
-    
+
     // Verify the span is reasonable (not just token indices like 0, 1, 2)
     let first_error = &errors[0];
     println!("Error: {:?}", first_error);
@@ -449,19 +449,39 @@ fn test_eof_in_assertion_metadata() {
 }
 
 #[test]
-fn test_unicode_source_span_accuracy() {
-    // Unicode characters have multi-byte UTF-8 encoding, which can break
-    // byte offset tracking if not handled correctly
+fn test_unicode_source_graceful_handling() {
+    // Unicode characters have multi-byte UTF-8 encoding. Verify parser
+    // handles them gracefully (either accepts or errors, but doesn't panic)
     let source = "signal 🌡️ { resolve { 42 } }";
 
     // This should parse successfully (invalid identifier is caught at lex)
-    // OR fail gracefully with accurate span (not crash or panic)
-    let tokens: Vec<continuum_cdsl_lexer::Token> =
-        continuum_cdsl_lexer::Token::lexer(source)
-            .filter_map(Result::ok)
-            .collect();
+    // OR fail gracefully (not crash or panic)
+    let tokens: Vec<continuum_cdsl_lexer::Token> = continuum_cdsl_lexer::Token::lexer(source)
+        .filter_map(Result::ok)
+        .collect();
 
-    // Just verify we don't panic on unicode
+    // Verify we don't panic on unicode (accept either success or error)
     let _result = continuum_cdsl_parser::parse_declarations(&tokens, 0);
-    // Accept either success or error, just don't crash
+    // Test passes if we reach here without panicking
+}
+
+#[test]
+fn test_assertion_metadata_trailing_comma_error() {
+    // Trailing comma after severity with no message should error
+    let source = r#"
+        signal temp {
+            assert {
+                prev > 0 : fatal,
+            }
+        }
+    "#;
+
+    let errors = expect_error(source);
+    assert!(
+        errors
+            .iter()
+            .any(|e| e.message.contains("expected") || e.message.contains("string")),
+        "Should reject trailing comma without message, got: {:?}",
+        errors
+    );
 }

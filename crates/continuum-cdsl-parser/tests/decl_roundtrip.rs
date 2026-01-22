@@ -744,14 +744,17 @@ fn test_assertion_condition_ast_verification() {
         Declaration::Node(node) => match &node.execution_blocks[0].1 {
             BlockBody::Statements(stmts) => match &stmts[0] {
                 Stmt::Assert { condition, .. } => {
-                    // Verify condition is a BinaryOp (&&) with two BinaryOp operands (>, <)
+                    // Verify condition is parsed as a binary expression AST
+                    // (not just a literal or identifier)
                     use continuum_cdsl_ast::UntypedKind;
                     match &condition.kind {
                         UntypedKind::Binary { .. } => {
-                            // Successfully parsed as binary operation
+                            // Successfully parsed as binary operation.
+                            // Operator precedence determines exact tree structure,
+                            // but we've verified it's not a trivial expression.
                         }
                         _ => panic!(
-                            "Expected Binary op for condition, got: {:?}",
+                            "Expected Binary expression for complex condition, got: {:?}",
                             condition.kind
                         ),
                     }
@@ -786,6 +789,38 @@ fn test_assertion_with_unicode_in_message() {
                         .as_ref()
                         .unwrap()
                         .contains("温度必须为正 (temperature must be positive) 🌡️"));
+                }
+                _ => panic!("Expected Stmt::Assert"),
+            },
+            _ => panic!("Expected BlockBody::Statements"),
+        },
+        _ => panic!("Expected Node"),
+    }
+}
+
+#[test]
+fn test_assertion_with_empty_string_message() {
+    // Empty string message should be preserved
+    let source = r#"
+        signal temp {
+            assert {
+                prev > 0 : ""
+            }
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Node(node) => match &node.execution_blocks[0].1 {
+            BlockBody::Statements(stmts) => match &stmts[0] {
+                Stmt::Assert { message, .. } => {
+                    assert_eq!(
+                        message.as_deref(),
+                        Some(""),
+                        "Empty string message should be preserved"
+                    );
                 }
                 _ => panic!("Expected Stmt::Assert"),
             },
