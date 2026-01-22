@@ -3,10 +3,12 @@
 //! These types are used throughout the compiler but are distinct from
 //! runtime foundation types. They represent compile-time constructs.
 
+pub mod severity_conv;
 pub mod span;
 pub mod types;
 
 pub use continuum_foundation::Path;
+pub use severity_conv::{default_severity, parse_severity, valid_severity_strings};
 pub use span::{SourceFile, SourceMap, Span};
 pub use types::{Bounds, KernelType, Type, UserType, UserTypeId};
 

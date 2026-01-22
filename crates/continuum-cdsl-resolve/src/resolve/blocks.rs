@@ -625,27 +625,20 @@ pub fn compile_execution_blocks<I: Index>(
                     {
                         // Parse severity string to AssertionSeverity enum
                         let severity_enum = if let Some(sev_str) = severity {
-                            match sev_str.to_lowercase().as_str() {
-                                "fatal" => continuum_cdsl_ast::foundation::AssertionSeverity::Fatal,
-                                "error" => continuum_cdsl_ast::foundation::AssertionSeverity::Error,
-                                "warn" | "warning" => {
-                                    continuum_cdsl_ast::foundation::AssertionSeverity::Warn
-                                }
-                                unknown => {
+                            match continuum_cdsl_ast::foundation::parse_severity(sev_str) {
+                                Ok(sev) => sev,
+                                Err(msg) => {
                                     errors.push(CompileError::new(
                                         ErrorKind::InvalidCapability,
                                         *span,
-                                        format!(
-                                            "unknown assertion severity '{}', valid values: fatal, error, warn",
-                                            unknown
-                                        ),
+                                        msg,
                                     ));
                                     continue;
                                 }
                             }
                         } else {
                             // Default severity if not specified
-                            continuum_cdsl_ast::foundation::AssertionSeverity::Error
+                            continuum_cdsl_ast::foundation::default_severity()
                         };
 
                         node.assertions.push(continuum_cdsl_ast::Assertion::new(
