@@ -33,6 +33,7 @@ All structure comes from the DSL and the graph it produces.
 These rules must remain true regardless of implementation details.
 
 ### Determinism
+
 - All ordering is explicit and stable:
   - file discovery
   - symbol registration
@@ -41,6 +42,7 @@ These rules must remain true regardless of implementation details.
   - execution scheduling
 - Randomness is allowed only via explicit seeded derivation.
 - A run is replayable from:
+
 ```
 
 { world, scenario, seed, era sequence, dt sequence }
@@ -48,16 +50,19 @@ These rules must remain true regardless of implementation details.
 ```
 
 ### Signals Are Authority
+
 - Authoritative simulation state is expressed as **resolved signals**.
 - If something influences causality, it must be a signal.
 - Operators may read only resolved signals and authoritative state.
 
 ### Fields Are Observation
+
 - Fields are derived measurements, not state.
 - Fields exist only for observation (Measure phase).
 - Kernel execution must never depend on fields.
 
 ### Observer Boundary Is Absolute
+
 - Observers may be removed entirely without changing outcomes.
 - Lens, chronicles, and analysis are strictly non-causal.
 
@@ -70,24 +75,21 @@ These rules must remain true regardless of implementation details.
 
 #### **Canonical Truth Law**
 
-* Every concept has exactly **one canonical representation**.
-* Parallel models, DTO variants, shadow types, or “equivalent” shapes are forbidden.
-* All other shapes are **boundary-only adapters** to/from the canonical one.
-* Any transformation between shapes must go through a **single, named converter**.
+- Every concept has exactly **one canonical representation**.
+- Parallel models, DTO variants, shadow types, or “equivalent” shapes are forbidden.
+- All other shapes are **boundary-only adapters** to/from the canonical one.
+- Any transformation between shapes must go through a **single, named converter**.
 
 ---
 
 #### **Refactor-or-Die Rule**
 
-* Discovering a second representation or conversion for the same concept is a **hard refactor trigger**.
-* Inline mapping, partial copying, or “temporary” parallel types are not allowed.
-* Lossy transformations must be explicit and named.
-
-
-
-
+- Discovering a second representation or conversion for the same concept is a **hard refactor trigger**.
+- Inline mapping, partial copying, or “temporary” parallel types are not allowed.
+- Lossy transformations must be explicit and named.
 
 ### Fail Loudly
+
 - No hidden clamps.
 - No silent correction.
 - Impossible or runaway states are detected via assertions and surfaced as faults.
@@ -102,47 +104,46 @@ These rules must remain true regardless of implementation details.
 
 1. **No large `match` / `if-else`**
 
-   * Especially over enums
-   * If adding a variant requires editing a `match`, it’s wrong
-   * Use traits, tables, or derived order instead
+   - Especially over enums
+   - If adding a variant requires editing a `match`, it’s wrong
+   - Use traits, tables, or derived order instead
 
 2. **No duplicated structs**
 
-   * If structs differ only by defaults or constants → use one struct + trait/defaults
+   - If structs differ only by defaults or constants → use one struct + trait/defaults
 
 3. **Enums are not polymorphism**
 
-   * Enums may represent state
-   * Behavior must live behind traits, not `match`
+   - Enums may represent state
+   - Behavior must live behind traits, not `match`
 
 4. **No implicit ordering**
 
-   * Never rely on enum order
-   * Ordering must be explicit (arrays, metadata, config)
+   - Never rely on enum order
+   - Ordering must be explicit (arrays, metadata, config)
 
 5. **No baked-in knowledge**
 
-   * Code must not “know” domain rules
-   * Domain rules must be declared, not hard-coded
+   - Code must not “know” domain rules
+   - Domain rules must be declared, not hard-coded
 
 6. **If it repeats, generate it**
 
-   * No copy-paste variants
-   * Use generics, traits, or codegen
+   - No copy-paste variants
+   - Use generics, traits, or codegen
 
-### Auto-reject if:
+### Auto-reject if
 
-* Adding a case touches multiple files
-* Behavior is expressed via `match`
-* Structure encodes policy
-* Ordering is implicit
+- Adding a case touches multiple files
+- Behavior is expressed via `match`
+- Structure encodes policy
+- Ordering is implicit
 
 **One-liner for agents:**
 
 > *If logic lives in syntax instead of data or dispatch, it’s wrong.*
 
 If you want it even shorter (like a single paragraph or lint comments), say so.
-
 
 ---
 
@@ -188,11 +189,13 @@ See: `world.md`
 The manifest defines **how execution runs**, not simulation logic.
 
 It may define:
+
 - derived time units
 - fault and determinism policy
 - engine feature flags
 
 It must not define:
+
 - signals
 - operators
 - fields
@@ -251,6 +254,7 @@ Execution graphs are built per:
 ```
 
 Each graph is a DAG executed as:
+
 - stable topological levels
 - full barriers between levels
 - parallel execution within a level where safe
@@ -299,10 +303,12 @@ These documents explain the system.
 They do not override the invariants above.
 
 ### Philosophy & Principles
+
 - `@docs/manifesto.md`
 - `@docs/principles.md`
 
 ### World, Scenario, Time
+
 - `@docs/world.md`
 - `@docs/scenario.md`
 - `@docs/time.md`
@@ -310,6 +316,7 @@ They do not override the invariants above.
 - `@docs/eras.md`
 
 ### Core Concepts
+
 - `@docs/signals.md`
 - `@docs/observers/fields.md`
 - `@docs/impulses.md`
@@ -317,6 +324,7 @@ They do not override the invariants above.
 - `@docs/observers/chronicles.md`
 
 ### DSL
+
 - `@docs/dsl/language.md`
 - `@docs/dsl/syntax.md`
 - `@docs/dsl/types-and-units.md`
@@ -326,6 +334,7 @@ They do not override the invariants above.
 - `@docs/dsl/assertions.md`
 
 ### Execution
+
 - `@docs/execution/lifecycle.md`
 - `@docs/execution/phases.md`
 - `@docs/execution/ir.md`
@@ -336,9 +345,11 @@ They do not override the invariants above.
 - `@docs/execution/determinism.md`
 
 ### Observers
+
 - `@docs/observers/lens.md`
 
 ### Tooling
+
 - `tools/run.md`
 - `tools/analyze.md`
 
@@ -364,49 +375,50 @@ When in doubt:
 
 **MANDATORY WORKFLOW:**
 
+1. **Review** - Ask all review subagents for a review, we don't mark anything complete until they have signed off.
 1. **File issues for remaining work** - Create issues for anything that needs follow-up
-2. **Run quality gates** (if code changed) - Tests, linters, builds
-3. **Update issue status** - Close finished work, update in-progress items
-4. **PUSH TO REMOTE** - This is MANDATORY:
+1. **Run quality gates** (if code changed) - Tests, linters, builds
+1. **Update issue status** - Close finished work, update in-progress items
+1. **PUSH TO REMOTE** - This is MANDATORY:
+
    ```bash
    git pull --rebase
    bd sync
    git push
    git status  # MUST show "up to date with origin"
    ```
-5. **Clean up** - Clear stashes, prune remote branches
-6. **Verify** - All changes committed AND pushed
-7. **Hand off** - Provide context for next session
+1. **Clean up** - Clear stashes, prune remote branches
+1. **Verify** - All changes committed AND pushed
+1. **Hand off** - Provide context for next session
 
 **CRITICAL RULES:**
+
 - Work is NOT complete until `git push` succeeds
 - NEVER stop before pushing - that leaves work stranded locally
 - NEVER say "ready to push when you are" - YOU must push
 - If push fails, resolve and retry until it succeeds
 Use 'bd' for task tracking
 
-
-
 # Agent behavior (concise)
 
-* Be **direct and critical**, not encouraging by default.
-* No hype, no praise unless it’s **specific and technical**.
-* Never declare things *done*, *ready*, or *production-ready*.
-* If something is wrong, **say it plainly** and give a fix.
-* If unsure, state uncertainty and how to verify.
-* And don't be pissy, passive agressvie or condesending either.
-* No filler. No moral support. No “great idea”.
+- Be **direct and critical**, not encouraging by default.
+- No hype, no praise unless it’s **specific and technical**.
+- Never declare things *done*, *ready*, or *production-ready*.
+- If something is wrong, **say it plainly** and give a fix.
+- If unsure, state uncertainty and how to verify.
+- And don't be pissy, passive agressvie or condesending either.
+- No filler. No moral support. No “great idea”.
 
 ### Decision ownership
 
 When asked for go/no-go:
 
-* Give **criteria and risks**, not a verdict.
-* End with: *decision belongs to the user*.
+- Give **criteria and risks**, not a verdict.
+- End with: *decision belongs to the user*.
 
 ### Hard bans
 
-* No cheerleading (“awesome”, “love this”, etc.)
-* No corporate fluff.
-* No “obviously / simply / just”.
-* User decides what is production ready or functionally complete
+- No cheerleading (“awesome”, “love this”, etc.)
+- No corporate fluff.
+- No “obviously / simply / just”.
+- User decides what is production ready or functionally complete
