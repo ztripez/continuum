@@ -396,6 +396,7 @@ dependencies = [
  "continuum-cdsl-lexer",
  "continuum-foundation",
  "continuum-kernel-types",
+ "logos",
 ]
 
 [[package]]

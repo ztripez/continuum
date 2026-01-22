@@ -10,3 +10,6 @@ continuum-cdsl-ast = { path = "../continuum-cdsl-ast" }
 continuum-cdsl-lexer = { path = "../continuum-cdsl-lexer" }
 continuum-foundation = { path = "../kernels/foundation" }
 continuum-kernel-types = { path = "../continuum-kernel-types" }
+
+[dev-dependencies]
+logos = "0.14"
