@@ -2,16 +2,14 @@
 //!
 //! Tests type/unit expressions parse successfully in signal declarations.
 //!
-//! ## Known Limitations (Ignored Tests)
+//! ## Features Tested
 //!
-//! **Scalar bounds** (2 tests ignored) - Issue: continuum-014k
-//! Type bounds syntax `Scalar<K, 0.0..1000.0>` is not yet supported in type declarations.
-//! Requires additional parser lookahead or context-sensitive parsing logic.
+//! **Scalar bounds**: `Scalar<K, 0.0..1000.0>`, `Scalar<C, -273.15..1000.0>`
+//! - Bounds are parsed using `parse_primary` which handles unary operators
+//!   but not binary operators (to avoid consuming `>` as comparison)
 //!
-//! **Negative unit exponents** (2 tests ignored) - Issue: continuum-014k  
-//! Unit expressions like `s^-1` or `kg*m^2*s^-2` require the lexer to recognize
-//! negative numbers as atomic tokens in unit contexts. Currently `-1` is lexed as
-//! two tokens (Minus, Number) which breaks unit power parsing.
+//! **Negative unit exponents**: `s^-1`, `kg*m^2*s^-2`
+//! - Parser handles `^-N` by consuming minus token after caret
 
 use continuum_cdsl_lexer::Token;
 use continuum_cdsl_parser::parse_declarations;
@@ -60,13 +58,11 @@ fn test_type_scalar_kelvin() {
 }
 
 #[test]
-#[ignore] // Bounds parsing has issues in type declarations
 fn test_type_scalar_with_bounds() {
     assert_type_parses("Scalar<K, 0.0..1000.0>");
 }
 
 #[test]
-#[ignore] // Bounds parsing has issues in type declarations
 fn test_type_scalar_negative_bounds() {
     assert_type_parses("Scalar<C, -273.15..1000.0>");
 }
@@ -114,9 +110,13 @@ fn test_unit_power_positive() {
 }
 
 #[test]
-#[ignore] // Parser doesn't support negative exponents (lexer produces Minus + Integer separately)
 fn test_unit_power_negative() {
     assert_type_parses("Scalar<s^-1>");
+}
+
+#[test]
+fn test_unit_mixed_operations() {
+    assert_type_parses("Scalar<kg*m^2*s^-2>");
 }
 
 #[test]
@@ -179,12 +179,6 @@ fn test_unit_multiple_multiply() {
 #[test]
 fn test_unit_multiple_divide() {
     assert_type_parses("Scalar<m/s/s>");
-}
-
-#[test]
-#[ignore] // Contains negative exponent
-fn test_unit_mixed_operations() {
-    assert_type_parses("Scalar<kg*m^2*s^-2>");
 }
 
 #[test]

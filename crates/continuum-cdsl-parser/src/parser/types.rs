@@ -75,11 +75,13 @@ fn parse_scalar_type(stream: &mut TokenStream) -> Result<TypeExpr, ParseError> {
     let unit = parse_unit_expr(stream)?;
 
     // Check for optional bounds: , min..max
+    // Use parse_primary instead of parse_expr to avoid consuming > as comparison operator
+    // parse_primary handles unary operators (-273.15) but not binary ops
     let bounds = if matches!(stream.peek(), Some(Token::Comma)) {
         stream.advance();
-        let min = super::expr::parse_expr(stream)?;
+        let min = super::expr::parse_primary(stream)?;
         stream.expect(Token::DotDot)?;
-        let max = super::expr::parse_expr(stream)?;
+        let max = super::expr::parse_primary(stream)?;
         Some((min, max))
     } else {
         None
@@ -161,10 +163,26 @@ fn parse_unit_power(stream: &mut TokenStream) -> Result<UnitExpr, ParseError> {
 
     if matches!(stream.peek(), Some(Token::Caret)) {
         stream.advance();
-        let exp = {
+
+        // Handle both positive and negative exponents: s^2 or s^-1
+        let (is_negative, span) = if matches!(stream.peek(), Some(Token::Minus)) {
             let span = stream.current_span();
+            stream.advance();
+            (true, span)
+        } else {
+            (false, stream.current_span())
+        };
+
+        let exp = {
             match stream.advance() {
-                Some(Token::Integer(n)) => *n as i8,
+                Some(Token::Integer(n)) => {
+                    let exp = *n as i8;
+                    if is_negative {
+                        -exp
+                    } else {
+                        exp
+                    }
+                }
                 other => {
                     return Err(ParseError::unexpected_token(other, "unit exponent", span));
                 }
@@ -195,5 +213,31 @@ fn parse_unit_base(stream: &mut TokenStream) -> Result<UnitExpr, ParseError> {
             "in unit expression",
             stream.current_span(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use continuum_cdsl_lexer::Token;
+    use logos::Logos;
+
+    #[test]
+    fn test_scalar_with_bounds_tokens() {
+        let source = "Scalar<K, 0.0..1000.0>";
+        let tokens: Vec<Token> = Token::lexer(source).filter_map(Result::ok).collect();
+        eprintln!("Tokens for '{}':", source);
+        for (i, tok) in tokens.iter().enumerate() {
+            eprintln!("  {}: {:?}", i, tok);
+        }
+
+        let mut stream = TokenStream::new(&tokens, 0);
+        // Skip 'Scalar' token
+        assert!(matches!(stream.peek(), Some(Token::Ident(_))));
+        stream.advance();
+
+        let result = parse_scalar_type(&mut stream);
+        eprintln!("Result: {:?}", result);
+        assert!(result.is_ok(), "Failed to parse: {:?}", result.err());
     }
 }
