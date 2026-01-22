@@ -1,7 +1,10 @@
 //! Type, const, and config declarations.
 
 use super::{ParseError, TokenStream};
-use continuum_cdsl_ast::{ConfigEntry, ConstEntry, Declaration, TypeDecl, TypeField};
+use continuum_cdsl_ast::foundation::{Path, Span};
+use continuum_cdsl_ast::{
+    ConfigEntry, ConstEntry, Declaration, Expr, TypeDecl, TypeExpr, TypeField,
+};
 use continuum_cdsl_lexer::Token;
 
 /// Parse type declaration.
@@ -56,6 +59,59 @@ pub(super) fn parse_type_decl(stream: &mut TokenStream) -> Result<Declaration, P
     }))
 }
 
+/// Parse const/config entry syntax (shared logic).
+///
+/// Supports:
+/// - `path: TYPE = value` (explicit type)
+/// - `path: value` (inferred type)
+/// - `path: TYPE` (explicit type, no value - only valid for config)
+fn parse_const_or_config_entry(
+    stream: &mut TokenStream,
+    allow_missing_value: bool,
+) -> Result<(Path, TypeExpr, Option<Expr>, Span), ParseError> {
+    let entry_start = stream.current_pos();
+    let path = super::super::types::parse_path(stream)?;
+    stream.expect(Token::Colon)?;
+
+    // Check if next token is a type keyword
+    let has_explicit_type = matches!(
+        stream.peek(),
+        Some(Token::Ident(name)) if matches!(
+            name.as_str(),
+            "Bool" | "Scalar" | "Vec2" | "Vec3" | "Vec4" | "Quat" | "Mat2" | "Mat3" | "Mat4" | "Tensor"
+        )
+    );
+
+    let type_expr = if has_explicit_type {
+        let t = super::super::types::parse_type_expr(stream)?;
+        // After explicit type, expect '=' if value follows
+        if matches!(stream.peek(), Some(Token::Eq)) {
+            stream.advance();
+        }
+        t
+    } else {
+        TypeExpr::Infer
+    };
+
+    // Parse value if present
+    let value = if matches!(stream.peek(), Some(Token::RBrace)) {
+        // End of block - no value
+        if !allow_missing_value {
+            return Err(ParseError::unexpected_token(
+                stream.peek(),
+                "value expression",
+                stream.current_span(),
+            ));
+        }
+        None
+    } else {
+        // Value present
+        Some(super::super::expr::parse_expr(stream)?)
+    };
+
+    Ok((path, type_expr, value, stream.span_from(entry_start)))
+}
+
 /// Parse const block.
 pub(super) fn parse_const_block(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
     stream.expect(Token::Const)?;
@@ -64,18 +120,13 @@ pub(super) fn parse_const_block(stream: &mut TokenStream) -> Result<Declaration,
     let mut entries = Vec::new();
 
     while !matches!(stream.peek(), Some(Token::RBrace)) {
-        let entry_start = stream.current_pos();
-        let path = super::super::types::parse_path(stream)?;
-        stream.expect(Token::Colon)?;
-        let type_expr = super::super::types::parse_type_expr(stream)?;
-        stream.expect(Token::Eq)?;
-        let value = super::super::expr::parse_expr(stream)?;
+        let (path, type_expr, value, span) = parse_const_or_config_entry(stream, false)?;
 
         entries.push(ConstEntry {
             path,
-            value,
+            value: value.expect("const value must be present"),
             type_expr,
-            span: stream.span_from(entry_start),
+            span,
             doc: None,
         });
     }
@@ -93,23 +144,13 @@ pub(super) fn parse_config_block(stream: &mut TokenStream) -> Result<Declaration
     let mut entries = Vec::new();
 
     while !matches!(stream.peek(), Some(Token::RBrace)) {
-        let entry_start = stream.current_pos();
-        let path = super::super::types::parse_path(stream)?;
-        stream.expect(Token::Colon)?;
-        let type_expr = super::super::types::parse_type_expr(stream)?;
-
-        let default = if matches!(stream.peek(), Some(Token::Eq)) {
-            stream.advance();
-            Some(super::super::expr::parse_expr(stream)?)
-        } else {
-            None
-        };
+        let (path, type_expr, default, span) = parse_const_or_config_entry(stream, true)?;
 
         entries.push(ConfigEntry {
             path,
             default,
             type_expr,
-            span: stream.span_from(entry_start),
+            span,
             doc: None,
         });
     }

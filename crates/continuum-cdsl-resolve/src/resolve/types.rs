@@ -14,7 +14,7 @@
 use crate::error::{CompileError, ErrorKind};
 use crate::resolve::units::resolve_unit_expr;
 use continuum_cdsl_ast::foundation::{
-    Bounds, EntityId, Path, Shape, Span, Type, UserType, UserTypeId,
+    Bounds, EntityId, Path, Shape, Span, Type, Unit, UserType, UserTypeId,
 };
 use continuum_cdsl_ast::{Declaration, Expr, ExprKind, TypeExpr, UntypedKind};
 use std::collections::HashMap;
@@ -427,6 +427,13 @@ pub fn resolve_type_expr(
         }
 
         TypeExpr::Bool => Ok(Type::Bool),
+
+        TypeExpr::Infer => {
+            // Type inference for const/config entries without explicit types
+            // This should be handled by inferring from the value expression
+            // For now, return a generic Scalar type as placeholder
+            Ok(Type::kernel(Shape::Scalar, Unit::dimensionless(), None))
+        }
     }
 }
 

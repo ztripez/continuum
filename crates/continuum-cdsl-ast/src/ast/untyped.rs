@@ -763,6 +763,20 @@ pub enum TypeExpr {
     /// Bool
     /// ```
     Bool,
+
+    /// Type to be inferred from value
+    ///
+    /// Used when const/config entries don't have explicit type annotations.
+    /// The type resolver will infer the type from the value expression.
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// const {
+    ///     physics.stefan_boltzmann: 5.67e-8  // Type inferred as Scalar
+    /// }
+    /// ```
+    Infer,
 }
 
 /// Unit expression from source (before unit resolution)

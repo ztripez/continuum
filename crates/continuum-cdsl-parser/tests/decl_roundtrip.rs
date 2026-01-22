@@ -430,6 +430,54 @@ fn test_config_block() {
 }
 
 // =============================================================================
+// Type Inference for Const/Config
+// =============================================================================
+
+#[test]
+fn test_const_type_inference() {
+    let source = r#"
+        const {
+            physics.g: 9.81
+            math.pi: 3.14159
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Const(entries) => {
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0].path.to_string(), "physics.g");
+            assert_eq!(entries[1].path.to_string(), "math.pi");
+        }
+        _ => panic!("Expected Const declaration"),
+    }
+}
+
+#[test]
+fn test_config_type_inference() {
+    let source = r#"
+        config {
+            sim.timestep: 1.0
+            sim.iterations: 100.0
+        }
+    "#;
+
+    let decls = parse(source);
+    assert_eq!(decls.len(), 1);
+
+    match &decls[0] {
+        Declaration::Config(entries) => {
+            assert_eq!(entries.len(), 2);
+            assert_eq!(entries[0].path.to_string(), "sim.timestep");
+            assert_eq!(entries[1].path.to_string(), "sim.iterations");
+        }
+        _ => panic!("Expected Config declaration"),
+    }
+}
+
+// =============================================================================
 // Multiple Declarations
 // =============================================================================
 
