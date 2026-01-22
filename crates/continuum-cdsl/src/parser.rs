@@ -146,9 +146,15 @@ fn expr_parser<'src>(
         }
         .map_with(move |kind, e| Expr::new(kind, token_span(e.span(), file_id)));
 
-        // Identifiers
+        // Identifiers (including keywords that can start paths)
         let identifier = select! {
             Token::Ident(name) => name,
+            Token::Config => "config".to_string(),
+            Token::Const => "const".to_string(),
+            Token::Signal => "signal".to_string(),
+            Token::Field => "field".to_string(),
+            Token::Entity => "entity".to_string(),
+            Token::Dt => "dt".to_string(),
         }
         .map_with(move |name, e| {
             Expr::new(UntypedKind::Local(name), token_span(e.span(), file_id))
@@ -335,7 +341,17 @@ fn expr_parser<'src>(
         let postfix = atom.foldl(
             choice((
                 just(Token::Dot)
-                    .ignore_then(select! { Token::Ident(name) => name })
+                    .ignore_then(select! {
+                        Token::Ident(name) => name,
+                        Token::Config => "config".to_string(),
+                        Token::Const => "const".to_string(),
+                        Token::Signal => "signal".to_string(),
+                        Token::Field => "field".to_string(),
+                        Token::Entity => "entity".to_string(),
+                        Token::Dt => "dt".to_string(),
+                        Token::Strata => "strata".to_string(),
+                        Token::Type => "type".to_string(),
+                    })
                     .map(Postfix::Field),
                 expr.clone()
                     .separated_by(just(Token::Comma))
@@ -602,10 +618,21 @@ fn type_expr_parser<'src>(
         .then(
             just(Token::Lt)
                 .ignore_then(unit_expr_parser(file_id))
+                // Optional bounds: , min..max (parsed but ignored for now)
+                .then(
+                    just(Token::Comma)
+                        .ignore_then(expr_parser(file_id))
+                        .then_ignore(just(Token::DotDot))
+                        .then(expr_parser(file_id))
+                        .or_not(),
+                )
                 .then_ignore(just(Token::Gt))
                 .or_not(),
         )
-        .map(|(_, unit)| TypeExpr::Scalar { unit });
+        .map(|(_, unit_and_bounds)| {
+            let unit = unit_and_bounds.map(|(u, _bounds)| u);
+            TypeExpr::Scalar { unit }
+        });
     let vector_type = just(Token::Ident("Vector".to_string()))
         .ignore_then(just(Token::Lt))
         .ignore_then(select! { Token::Integer(n) => n as u8 })
@@ -749,7 +776,22 @@ fn block_body_parser<'src>(
         .at_least(1)
         .collect::<Vec<_>>()
         .map(BlockBody::Statements);
+    // Try expression first (default for pure blocks)
     choice((expr.map(BlockBody::Expression), stmt_list))
+}
+
+// Statement-first parser for emit/collect blocks
+fn effect_body_parser<'src>(
+    file_id: u16,
+) -> impl Parser<'src, &'src [Token], BlockBody, extra::Err<Rich<'src, Token>>> + Clone {
+    let expr = expr_parser(file_id);
+    let stmt_list = stmt_parser(expr.clone(), file_id)
+        .separated_by(just(Token::Semicolon))
+        .at_least(1)
+        .collect::<Vec<_>>()
+        .map(BlockBody::Statements);
+    // Try statements first for effect blocks (emit, collect)
+    choice((stmt_list, expr.map(BlockBody::Expression)))
 }
 
 fn warmup_parser<'src>(
@@ -835,16 +877,68 @@ fn transition_parser<'src>(
 fn execution_block_parser<'src>(
     file_id: u16,
 ) -> impl Parser<'src, &'src [Token], (String, BlockBody), extra::Err<Rich<'src, Token>>> + Clone {
-    choice((
-        just(Token::Resolve).to("resolve"),
+    // Assert blocks need special handling for severity/message syntax
+    let assert_block = just(Token::Assert)
+        .ignore_then(
+            assert_body_parser(file_id).delimited_by(just(Token::LBrace), just(Token::RBrace)),
+        )
+        .map(|body| ("assert".to_string(), body));
+
+    // Effect blocks (emit, collect) need statement-first parsing for `<-` operator
+    let effect_block = choice((
+        just(Token::Emit).to("emit"),
         just(Token::Collect).to("collect"),
+    ))
+    .then(effect_body_parser(file_id).delimited_by(just(Token::LBrace), just(Token::RBrace)))
+    .map(|(name, body)| (name.to_string(), body));
+
+    // Pure blocks use expression-first parsing
+    let pure_block = choice((
+        just(Token::Resolve).to("resolve"),
         just(Token::Apply).to("apply"),
         just(Token::Measure).to("measure"),
-        just(Token::Assert).to("assert"),
-        just(Token::Emit).to("emit"),
     ))
     .then(block_body_parser(file_id).delimited_by(just(Token::LBrace), just(Token::RBrace)))
-    .map(|(name, body)| (name.to_string(), body))
+    .map(|(name, body)| (name.to_string(), body));
+
+    choice((assert_block, effect_block, pure_block))
+}
+
+// Parse assert block body with optional severity and message
+fn assert_body_parser<'src>(
+    file_id: u16,
+) -> impl Parser<'src, &'src [Token], BlockBody, extra::Err<Rich<'src, Token>>> + Clone {
+    let expr = expr_parser(file_id);
+
+    // Single assertion: expr (: severity (, "message")?)?
+    let assertion = expr
+        .clone()
+        .then(
+            just(Token::Colon)
+                .ignore_then(select! { Token::Ident(s) => s }) // severity: fatal, warn, etc.
+                .then(
+                    just(Token::Comma)
+                        .ignore_then(select! { Token::String(s) => s }) // optional message
+                        .or_not(),
+                )
+                .or_not(),
+        )
+        .map(|(expr, _metadata)| expr); // Ignore metadata for now
+
+    // Multiple assertions or single
+    assertion
+        .separated_by(just(Token::Semicolon))
+        .allow_trailing()
+        .at_least(1)
+        .collect::<Vec<_>>()
+        .map(|exprs| {
+            if exprs.len() == 1 {
+                BlockBody::Expression(exprs.into_iter().next().unwrap())
+            } else {
+                // Multiple assertions - wrap each in Stmt::Expr
+                BlockBody::Statements(exprs.into_iter().map(Stmt::Expr).collect())
+            }
+        })
 }
 
 fn signal_parser<'src>(
