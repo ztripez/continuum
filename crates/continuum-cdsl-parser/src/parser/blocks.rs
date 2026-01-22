@@ -148,7 +148,7 @@ pub fn parse_observe_block(stream: &mut TokenStream) -> Result<ObserveBlock, Par
 /// Parse block body (expression or statements).
 fn parse_block_body(stream: &mut TokenStream) -> Result<BlockBody, ParseError> {
     // Try to parse as statement list first
-    if is_statement_start(stream.peek()) {
+    if is_statement_start(stream) {
         let statements = parse_statements(stream)?;
         Ok(BlockBody::Statements(statements))
     } else {
@@ -159,11 +159,19 @@ fn parse_block_body(stream: &mut TokenStream) -> Result<BlockBody, ParseError> {
 }
 
 /// Check if the next token can start a statement.
-fn is_statement_start(token: Option<&Token>) -> bool {
-    matches!(
-        token,
-        Some(Token::Let) | Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field)
-    )
+///
+/// Special handling for `Token::Let`:
+/// - `let x = val` → statement (returns true)
+/// - `let x = val in body` → expression (returns false)
+fn is_statement_start(stream: &TokenStream) -> bool {
+    match stream.peek() {
+        Some(Token::Let) => {
+            // Disambiguate: let-statement vs let-expression
+            !is_let_expression(stream)
+        }
+        Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => true,
+        _ => false,
+    }
 }
 
 /// Parse a list of statements.
@@ -216,6 +224,70 @@ fn is_assignment(stream: &TokenStream) -> bool {
             _ => return false,
         }
     }
+}
+
+/// Check if this looks like a let-expression (has 'in' keyword) vs let-statement.
+///
+/// Uses bounded lookahead to find the pattern: `let <ident> = <expr> in`
+///
+/// # Returns
+/// - `true`: let-expression (continue with expression parsing)
+/// - `false`: let-statement (use statement parsing)
+///
+/// # Algorithm
+/// 1. Verify `let <ident> =` prefix
+/// 2. Scan forward tracking delimiter depth to skip past value expression
+/// 3. Return true if we find `in` at depth 0 before closing brace
+/// 4. Use MAX_LOOKAHEAD bound to prevent infinite loops
+fn is_let_expression(stream: &TokenStream) -> bool {
+    // Pattern: let <ident> = ...anything... in
+
+    if !matches!(stream.peek(), Some(Token::Let)) {
+        return false;
+    }
+
+    if !matches!(stream.peek_nth(1), Some(Token::Ident(_))) {
+        return false; // Invalid let syntax, let statement parser handle error
+    }
+
+    if !matches!(stream.peek_nth(2), Some(Token::Eq)) {
+        return false; // Invalid let syntax
+    }
+
+    // Now we need to skip past the value expression to find 'in'
+    // Use depth-based scanning to handle nested parens/brackets/braces
+    let mut pos = 3; // Start after '='
+    let mut depth = 0;
+    const MAX_LOOKAHEAD: usize = 100; // Prevent infinite loops
+
+    while pos < MAX_LOOKAHEAD {
+        match stream.peek_nth(pos) {
+            // Increase depth on opening delimiters
+            Some(Token::LParen) | Some(Token::LBracket) | Some(Token::LBrace) => {
+                depth += 1;
+            }
+            // Decrease depth on closing delimiters
+            Some(Token::RParen) | Some(Token::RBracket) | Some(Token::RBrace) => {
+                if depth == 0 {
+                    // Found closing brace of block body, no 'in' found
+                    return false;
+                }
+                depth -= 1;
+            }
+            // Found 'in' at top level (depth 0) → let-expression
+            Some(Token::In) if depth == 0 => {
+                return true;
+            }
+            // End of tokens → not a let-expression
+            None => return false,
+            // Continue scanning
+            _ => {}
+        }
+        pos += 1;
+    }
+
+    // Exceeded lookahead limit → assume statement (safer default)
+    false
 }
 
 /// Parse let statement.

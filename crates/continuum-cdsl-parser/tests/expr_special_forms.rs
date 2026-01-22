@@ -9,12 +9,7 @@
 //!
 //! ## Known Limitations (Ignored Tests)
 //!
-//! **Let-in expressions** (9 tests ignored) - Issue: continuum-3omu
-//! The parser's `is_statement_start()` function treats `Token::Let` as a statement
-//! keyword, preventing `let x = val in body` from parsing as an expression.
-//! This requires grammar refactoring to support context-sensitive parsing.
-//!
-//! **agg.first()** (1 test ignored) - Related to above
+//! **agg.first()** (1 test ignored)
 //! The identifier "first" is a reserved keyword token, causing parse failures in
 //! aggregate function calls. Requires keyword context sensitivity fix.
 
@@ -74,37 +69,31 @@ fn test_if_with_computation() {
 // in resolve blocks. These tests are ignored until parser disambiguation is fixed.
 
 #[test]
-#[ignore] // Parser disambiguation issue: Let treated as statement, not expression
 fn test_let_simple() {
     assert_expr_parses("let x = 10.0 in x");
 }
 
 #[test]
-#[ignore] // Parser disambiguation issue
 fn test_let_with_expression() {
     assert_expr_parses("let x = 10.0 in x * 2.0");
 }
 
 #[test]
-#[ignore] // Parser disambiguation issue
 fn test_let_with_computation() {
     assert_expr_parses("let area = width * height in area");
 }
 
 #[test]
-#[ignore] // Parser disambiguation issue
 fn test_let_nested() {
     assert_expr_parses("let x = 10.0 in let y = x * 2.0 in y");
 }
 
 #[test]
-#[ignore] // Parser disambiguation issue
 fn test_let_in_if() {
     assert_expr_parses("let threshold = 5.0 in if x > threshold { x } else { 0.0 }");
 }
 
 #[test]
-#[ignore] // Parser disambiguation issue
 fn test_if_with_let_in_branch() {
     assert_expr_parses("if active { let v = velocity in v * mass } else { 0.0 }");
 }
@@ -244,7 +233,6 @@ fn test_filter_on_nearest() {
 }
 
 #[test]
-#[ignore] // Contains let-in (parser disambiguation issue)
 fn test_let_with_agg() {
     assert_expr_parses("let total = agg.sum(items, self.value) in total / 10.0");
 }
@@ -255,7 +243,6 @@ fn test_if_with_agg() {
 }
 
 #[test]
-#[ignore] // Contains let-in (parser disambiguation issue)
 fn test_complex_nested() {
     assert_expr_parses(
         "let nearby = filter(within(particles, self.position, 10.0), self.active) in agg.sum(nearby, self.mass)"
@@ -265,7 +252,6 @@ fn test_complex_nested() {
 // === Edge Cases ===
 
 #[test]
-#[ignore] // Contains let-in (parser disambiguation issue)
 fn test_multiple_let_bindings() {
     assert_expr_parses("let x = 1.0 in let y = 2.0 in let z = 3.0 in x + y + z");
 }
@@ -276,7 +262,6 @@ fn test_agg_with_complex_body() {
 }
 
 #[test]
-#[ignore] // Contains let-in (parser disambiguation issue)
 fn test_nested_if_in_let() {
     assert_expr_parses("let x = if active { 10.0 } else { 5.0 } in x * 2.0");
 }
