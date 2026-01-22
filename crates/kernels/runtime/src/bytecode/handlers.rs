@@ -210,12 +210,9 @@ pub(crate) fn handle_build_vector(
     let vector = match values.as_slice() {
         [Value::Scalar(x), Value::Scalar(y)] => Value::Vec2([*x, *y]),
         [Value::Scalar(x), Value::Scalar(y), Value::Scalar(z)] => Value::Vec3([*x, *y, *z]),
-        [
-            Value::Scalar(x),
-            Value::Scalar(y),
-            Value::Scalar(z),
-            Value::Scalar(w),
-        ] => Value::Vec4([*x, *y, *z, *w]),
+        [Value::Scalar(x), Value::Scalar(y), Value::Scalar(z), Value::Scalar(w)] => {
+            Value::Vec4([*x, *y, *z, *w])
+        }
         [..] if count >= 2 && count <= 4 => {
             return Err(ExecutionError::TypeMismatch {
                 expected: "Scalar vector components".to_string(),
@@ -718,4 +715,58 @@ pub(crate) fn handle_destroy(
     let entity = operand_entity(&instruction.operands[0])?;
     let value = runtime.pop()?;
     ctx.destroy(&entity, value)
+}
+
+/// Validates an assertion condition and triggers a fault if it fails.
+///
+/// # Operands
+///
+/// - operand[0]: Optional severity level string ("warn", "error", "fatal")
+/// - operand[1]: Optional custom message string
+///
+/// # Stack
+///
+/// - Pops: Bool condition value
+///
+/// # Phase Restrictions
+///
+/// Only valid in Resolve and Fracture phases (enforced at compile time).
+/// Assertions in Measure phase violate the observer boundary.
+///
+/// # Behavior
+///
+/// If the condition is `true`, execution continues normally.
+/// If the condition is `false`, triggers an assertion fault via
+/// [`ExecutionContext::trigger_assertion_fault`].
+///
+/// Fault handling is policy-driven:
+/// - 'warn': Log and continue
+/// - 'error': Halt tick, continue simulation (default)
+/// - 'fatal': Halt simulation immediately
+pub(crate) fn handle_assert(
+    instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let condition = runtime.pop()?;
+    let is_true = condition
+        .as_bool()
+        .ok_or_else(|| ExecutionError::TypeMismatch {
+            expected: "Bool".into(),
+            found: format!("{:?}", condition),
+        })?;
+
+    if !is_true {
+        let severity = instruction
+            .operands
+            .get(0)
+            .and_then(|op| operand_string(op).ok());
+        let message = instruction
+            .operands
+            .get(1)
+            .and_then(|op| operand_string(op).ok());
+        return ctx.trigger_assertion_fault(severity.as_deref(), message.as_deref());
+    }
+    Ok(())
 }
