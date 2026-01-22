@@ -938,6 +938,10 @@ impl<'a> ExecutionContext for VMContext<'a> {
         severity: Option<&str>,
         message: Option<&str>,
     ) -> std::result::Result<(), ExecutionError> {
+        // Default values are intentional: assertions may omit severity/message metadata.
+        // DSL syntax: `assert { condition }` uses defaults.
+        // Explicit: `assert { condition } severity("warn") message("custom")` overrides.
+        // The .unwrap_or() here provides documented fallback behavior, not silent error hiding.
         Err(ExecutionError::AssertionFailed {
             severity: severity.unwrap_or("error").to_string(),
             message: message.unwrap_or("assertion failed").to_string(),
