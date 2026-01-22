@@ -25,8 +25,8 @@
 mod aggregate;
 mod atoms;
 mod pratt;
-mod special;
 mod spatial;
+mod special;
 
 use super::{ParseError, TokenStream};
 use continuum_cdsl_ast::Expr;

@@ -11,9 +11,23 @@ pub(super) fn parse_stratum(stream: &mut TokenStream) -> Result<Declaration, Par
     stream.expect(Token::Strata)?;
 
     let path = super::super::types::parse_path(stream)?;
-    let attributes = parse_attributes(stream)?;
+    let mut attributes = parse_attributes(stream)?;
 
     stream.expect(Token::LBrace)?;
+
+    // Parse attributes inside the body
+    while !matches!(stream.peek(), Some(Token::RBrace)) {
+        if matches!(stream.peek(), Some(Token::Colon)) {
+            attributes.push(super::parse_attribute(stream)?);
+        } else {
+            return Err(ParseError::unexpected_token(
+                stream.peek(),
+                "in stratum body",
+                stream.current_span(),
+            ));
+        }
+    }
+
     stream.expect(Token::RBrace)?;
 
     let mut stratum = Stratum::new(
@@ -43,7 +57,7 @@ pub(super) fn parse_era(stream: &mut TokenStream) -> Result<Declaration, ParseEr
             Some(Token::Colon) => {
                 attributes.push(super::parse_attribute(stream)?);
             }
-            Some(Token::Ident(name)) if name == "strata" => {
+            Some(Token::Strata) => {
                 strata_policy = parse_strata_policy_block(stream)?;
             }
             Some(Token::Ident(name)) if name == "transition" => {

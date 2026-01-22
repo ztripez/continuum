@@ -364,6 +364,7 @@ dependencies = [
  "continuum-functions",
  "continuum-kernel-types",
  "continuum-runtime",
+ "logos",
  "rmp-serde",
  "serde",
  "tempfile",

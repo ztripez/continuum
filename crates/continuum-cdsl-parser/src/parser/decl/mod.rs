@@ -8,10 +8,10 @@
 //! - `definitions` - type, const, config
 //! - `world` - world, warmup, policy
 
+mod definitions;
 mod entities;
 mod primitives;
 mod time;
-mod definitions;
 mod world;
 
 use super::{ParseError, TokenStream};
@@ -79,6 +79,11 @@ pub(super) fn parse_attribute(stream: &mut TokenStream) -> Result<Attribute, Par
         match stream.advance() {
             Some(Token::Ident(s)) => s.clone(),
             Some(Token::Dt) => "dt".to_string(),
+            Some(Token::Strata) => "strata".to_string(),
+            Some(Token::Type) => "type".to_string(),
+            Some(Token::Signal) => "signal".to_string(),
+            Some(Token::Field) => "field".to_string(),
+            Some(Token::Entity) => "entity".to_string(),
             other => {
                 return Err(ParseError::unexpected_token(other, "attribute name", span));
             }
@@ -126,7 +131,7 @@ pub(super) fn parse_attributes(stream: &mut TokenStream) -> Result<Vec<Attribute
 /// This helper eliminates duplication across signal, field, operator,
 /// impulse, fracture, and chronicle declarations which all follow the pattern:
 /// ```text
-/// <keyword> <path> [attributes] { [execution_blocks] }
+/// <keyword> <path> { [attributes] [execution_blocks] }
 /// ```
 pub(super) fn parse_node_declaration(
     stream: &mut TokenStream,
@@ -137,9 +142,15 @@ pub(super) fn parse_node_declaration(
     stream.expect(keyword)?;
 
     let path = super::types::parse_path(stream)?;
-    let attributes = parse_attributes(stream)?;
+    let mut attributes = parse_attributes(stream)?;
 
     stream.expect(Token::LBrace)?;
+
+    // Parse attributes inside the body (before execution blocks)
+    while matches!(stream.peek(), Some(Token::Colon)) {
+        attributes.push(parse_attribute(stream)?);
+    }
+
     let execution_blocks = super::blocks::parse_execution_blocks(stream)?;
     stream.expect(Token::RBrace)?;
 
