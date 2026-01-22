@@ -40,7 +40,7 @@
 
 use crate::error::{CompileError, ErrorKind};
 use crate::resolve::types::TypeTable;
-use continuum_cdsl_ast::foundation::{Span, Type};
+use continuum_cdsl_ast::foundation::{Phase, Span, Type};
 use continuum_cdsl_ast::{ExprKind, KernelId, KernelRegistry, TypedExpr};
 
 /// Context for validating typed CDSL expressions using user-defined types and kernel signatures.
@@ -216,6 +216,18 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                             span,
                             ..
                         } => {
+                            // Verify assertions only in causal phases (observer boundary)
+                            if !matches!(execution.phase, Phase::Resolve | Phase::Fracture) {
+                                errors.push(CompileError::new(
+                                    ErrorKind::PhaseBoundaryViolation,
+                                    *span,
+                                    format!(
+                                        "Assertions only valid in Resolve/Fracture phases (current: {:?})",
+                                        execution.phase
+                                    ),
+                                ));
+                            }
+
                             errors.extend(validate_expr(condition, &ctx));
 
                             // Enforce Bool type for assertion condition (fail loudly)
