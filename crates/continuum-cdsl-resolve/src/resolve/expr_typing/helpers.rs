@@ -156,12 +156,53 @@ pub fn type_literal(
 /// - `object`: The expression being accessed.
 /// - `field`: The name of the field to access.
 /// - `span`: Source location of the access.
+/// Attempts to interpret an expression as a bare path reference.
+///
+/// Recursively extracts path segments from Local and FieldAccess chains.
+/// Returns None if the expression contains anything other than Local/FieldAccess.
+///
+/// # Examples
+/// - `Local("foo")` → `Some(Path::from("foo"))`
+/// - `FieldAccess { object: Local("foo"), field: "bar" }` → `Some(Path::from("foo.bar"))`
+/// - `Literal { value: 42.0, unit: None }` → `None`
+fn try_extract_path(expr: &Expr) -> Option<Path> {
+    use continuum_cdsl_ast::UntypedKind;
+
+    match &expr.kind {
+        UntypedKind::Local(name) => Some(Path::from(name.as_str())),
+        UntypedKind::FieldAccess { object, field } => {
+            let mut path = try_extract_path(object)?;
+            path.segments.push(field.clone());
+            Some(path)
+        }
+        _ => None,
+    }
+}
+
 pub fn type_field_access(
     ctx: &TypingContext,
     object: &Expr,
     field: &str,
     span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    // Before typing as a field access, check if this might be a bare signal reference.
+    // This allows `core.temp` to resolve as `signal.core.temp` when `core` is not a local variable.
+    if let Some(mut path) = try_extract_path(object) {
+        path.segments.push(field.to_string());
+
+        // Check if this path matches a signal
+        if let Some(signal_type) = ctx.signal_types.get(&path) {
+            return Ok((ExprKind::Signal(path), signal_type.clone()));
+        }
+
+        // Also check field types (for bare field references)
+        if let Some(field_type) = ctx.field_types.get(&path) {
+            return Ok((ExprKind::Field(path), field_type.clone()));
+        }
+
+        // Path doesn't match a signal or field, continue with normal field access typing
+    }
+
     let typed_object = type_expression(object, ctx)?;
 
     let field_type = match &typed_object.ty {
