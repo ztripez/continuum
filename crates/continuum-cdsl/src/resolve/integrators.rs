@@ -221,10 +221,15 @@ impl<'a> ExpressionVisitor for IntegrationCallVisitor<'a> {
             // Check if this is a dt.integrate_* kernel
             if kernel.namespace == "dt" && kernel.name.starts_with("integrate_") {
                 // Extract method from kernel name (e.g., "integrate_rk4" -> "rk4")
-                let method = kernel.name.strip_prefix("integrate_").unwrap().to_string();
+                let method = kernel.name.strip_prefix("integrate_").unwrap();
+
+                // Skip generic dt.integrate() - allowed regardless of hint
+                if method.is_empty() {
+                    return;
+                }
 
                 self.calls.push(IntegrationCall {
-                    method,
+                    method: method.to_string(),
                     span: expr.span,
                     kernel_name: kernel.qualified_name(),
                 });
@@ -236,8 +241,8 @@ impl<'a> ExpressionVisitor for IntegrationCallVisitor<'a> {
 /// Validate integrator declarations for a single node
 ///
 /// Checks:
-/// 1. If integration kernels are used, integrator hint should be present (warning)
-/// 2. If integrator hint is present, it should match usage (error)
+/// 1. If integration kernels are used, integrator hint must be present (error)
+/// 2. If integrator hint is present, it must match usage (error)
 /// 3. Generic dt.integrate() calls are allowed regardless of hint
 fn validate_node_integrator<I: Index>(
     node: &mut Node<I>,
@@ -289,15 +294,15 @@ fn validate_node_integrator<I: Index>(
         }
     } else if !calls.is_empty() {
         // Integrator hint missing but specific methods are used
-        // This is a warning, not an error - the code is correct, just lacks documentation
+        // Require explicit integrator declarations for all specific dt.integrate_* usage
         let first_call = &calls[0];
         errors.push(CompileError::new(
             ErrorKind::MissingIntegratorHint,
             first_call.span,
             format!(
-                "using {} but no : integrator({}) declaration. \
-                 Add the declaration to document author intent",
-                first_call.kernel_name, first_call.method
+                "missing required : integrator({}) declaration for {}. \
+                 Integration method must be explicitly declared to document author intent",
+                first_call.method, first_call.kernel_name
             ),
         ));
     }
@@ -524,6 +529,159 @@ mod tests {
         let errors = validate_node_integrator(&node, &registry);
 
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("no : integrator"));
+        assert_eq!(errors[0].kind, ErrorKind::MissingIntegratorHint);
+        assert!(errors[0].message.contains("missing required"));
+    }
+
+    // Helper to make execution with integration call
+    fn make_execution(method: &str) -> Execution {
+        Execution {
+            name: "resolve".to_string(),
+            phase: Phase::Resolve,
+            body: ExecutionBody::Expr(TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("dt", &format!("integrate_{}", method)),
+                    args: vec![],
+                },
+                Type::kernel(Shape::Scalar, Unit::dimensionless(), None),
+                make_span(),
+            )),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span: make_span(),
+        }
+    }
+
+    #[test]
+    fn test_integrator_wrong_arg_count_zero() {
+        let attrs = vec![Attribute {
+            name: "integrator".to_string(),
+            args: vec![],
+            span: make_span(),
+        }];
+
+        let mut errors = Vec::new();
+        let integrator = extract_integrator_declaration(&attrs, make_span(), &mut errors);
+
+        assert_eq!(integrator, None);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+        assert!(errors[0].message.contains("expects 1 argument, got 0"));
+    }
+
+    #[test]
+    fn test_integrator_wrong_arg_count_multiple() {
+        let attrs = vec![Attribute {
+            name: "integrator".to_string(),
+            args: vec![
+                Expr::new(UntypedKind::Signal(Path::from_path_str("rk4")), make_span()),
+                Expr::new(
+                    UntypedKind::Signal(Path::from_path_str("euler")),
+                    make_span(),
+                ),
+            ],
+            span: make_span(),
+        }];
+
+        let mut errors = Vec::new();
+        let integrator = extract_integrator_declaration(&attrs, make_span(), &mut errors);
+
+        assert_eq!(integrator, None);
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
+        assert!(errors[0].message.contains("expects 1 argument, got 2"));
+    }
+
+    #[test]
+    fn test_multiple_calls_same_method() {
+        let registry = KernelRegistry::global();
+        let mut node = make_node();
+
+        node.attributes.push(Attribute {
+            name: "integrator".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Signal(Path::from_path_str("rk4")),
+                make_span(),
+            )],
+            span: make_span(),
+        });
+
+        // Two calls to rk4
+        node.executions.push(make_execution("rk4"));
+        node.executions.push(make_execution("rk4"));
+
+        let errors = validate_node_integrator(&mut node, &registry);
+        assert!(
+            errors.is_empty(),
+            "Multiple calls to same method should pass"
+        );
+    }
+
+    #[test]
+    fn test_multiple_calls_different_methods() {
+        let registry = KernelRegistry::global();
+        let mut node = make_node();
+
+        node.attributes.push(Attribute {
+            name: "integrator".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Signal(Path::from_path_str("rk4")),
+                make_span(),
+            )],
+            span: make_span(),
+        });
+
+        // Use both rk4 and euler
+        node.executions.push(make_execution("rk4"));
+        node.executions.push(make_execution("euler"));
+
+        let errors = validate_node_integrator(&mut node, &registry);
+
+        // Should report mismatch for euler call only
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].kind, ErrorKind::IntegratorMismatch);
+        assert!(errors[0].message.contains("euler"));
+    }
+
+    #[test]
+    fn test_generic_integrate_skipped() {
+        let registry = KernelRegistry::global();
+        let mut node = make_node();
+
+        node.attributes.push(Attribute {
+            name: "integrator".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Signal(Path::from_path_str("rk4")),
+                make_span(),
+            )],
+            span: make_span(),
+        });
+
+        // Use generic dt.integrate (no specific method suffix)
+        node.executions.push(Execution {
+            name: "resolve".to_string(),
+            phase: Phase::Resolve,
+            body: ExecutionBody::Expr(TypedExpr::new(
+                ExprKind::Call {
+                    kernel: KernelId::new("dt", "integrate"),
+                    args: vec![],
+                },
+                Type::kernel(Shape::Scalar, Unit::dimensionless(), None),
+                make_span(),
+            )),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span: make_span(),
+        });
+
+        let errors = validate_node_integrator(&mut node, &registry);
+
+        // Generic integrate should be allowed regardless of hint
+        assert!(
+            errors.is_empty(),
+            "Generic dt.integrate() should be allowed with any hint"
+        );
     }
 }
