@@ -1185,7 +1185,6 @@ fn const_block_parser<'src>(
     file_id: u16,
 ) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     let entry = path_parser()
-        .then_ignore(just(Token::Colon))
         .then(type_annotation_parser(file_id))
         .then_ignore(just(Token::Eq))
         .then(expr_parser(file_id))
@@ -1210,7 +1209,6 @@ fn config_block_parser<'src>(
     file_id: u16,
 ) -> impl Parser<'src, &'src [Token], Declaration, extra::Err<Rich<'src, Token>>> + Clone {
     let entry = path_parser()
-        .then_ignore(just(Token::Colon))
         .then(type_annotation_parser(file_id))
         .then(just(Token::Eq).ignore_then(expr_parser(file_id)).or_not())
         .map_with(move |((path, type_expr), default), e| ConfigEntry {

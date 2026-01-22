@@ -34,7 +34,7 @@ use logos::Logos;
 #[derive(Logos, Debug, Clone, PartialEq)]
 #[repr(u16)]
 #[logos(skip r"[ \t\r\n]+")] // Skip whitespace
-#[logos(skip r"//[^\n]*")] // Skip // comments (non-doc)
+#[logos(skip r"//[^/\n][^\n]*")] // Skip // comments (non-doc, don't match ///)
 #[logos(skip r"#[^\n]*")] // Skip # comments
 #[logos(skip r"/\*([^*]|\*[^/])*\*/")] // Skip /* */ comments
 pub enum Token {
