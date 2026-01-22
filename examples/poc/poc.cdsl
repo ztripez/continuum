@@ -1,5 +1,5 @@
-// Minimal Thermal Simulation
-// A simple cooling simulation demonstrating the DSL and let expressions.
+//! Minimal Thermal Simulation
+//! A simple cooling simulation demonstrating the DSL and let expressions.
 
 world minimal {
     : title("Minimal Thermal Simulation")
@@ -8,7 +8,7 @@ world minimal {
 
 const {
     stefan_boltzmann : type Scalar = 5.67e-8
-    boltzmann : type Scalar = 1.380649e-23
+    boltzmann_const : type Scalar = 1.380649e-23
     ambient_temp : type Scalar<K> = 290.0
 }
 
@@ -31,7 +31,7 @@ strata thermal {
 era early {
     : initial
     : title("Early Cooling")
-    : dt(1 <s>)
+    : dt(3.15576e13 <s>)
 
     strata {
         thermal: active
@@ -46,7 +46,7 @@ era early {
 era stable {
     : terminal
     : title("Stable")
-    : dt(100 <s>)
+    : dt(3.15576e12 <s>)
 
     strata {
         thermal: active
@@ -55,37 +55,53 @@ era stable {
 
 
 
-signal core.temp : type Scalar<K> : strata(thermal) : title("Core Temperature") : symbol("T_core") {
+signal core.temp : type Scalar<K, 100..10000> : strata(thermal) : title("Core Temperature") : symbol("T_core") {
     resolve {
-        // Simplified (removed dt.decay call - not supported by new parser yet)
-        prev + collected
+        // Demonstrating let expressions for readable multi-step calculations
+        let decayed = dt.decay(prev, config.decay_halflife) in
+        let with_inputs = decayed + collected in
+        with_inputs
     }
 
     assert {
-        prev >= 100 <K>
+        prev >= 100 <K>;
+        prev <= 10000 <K>;
+        prev > 0 : fatal, "temperature cannot be negative or zero"
     }
 }
 
 
 
-signal surface.temp : type Scalar<K> : strata(thermal) : title("Surface Temperature") : symbol("T_surf") {
+signal surface.temp : type Scalar<K, 100..1000> : strata(thermal) : title("Surface Temperature") : symbol("T_surf") {
     resolve {
         // Heat transfer from core to surface using let for clarity
         let temp_diff = core.temp - prev in
-        let heat_transfer = temp_diff * coupling_factor in
-        let radiation_loss = (prev - ambient_temp) * radiation_factor in
-        prev + heat_transfer - radiation_loss + collected
+        let heat_transfer = temp_diff * config.coupling_factor in
+        let radiation_loss = (prev - const.ambient_temp) * config.radiation_factor in
+        let new_temp = prev + heat_transfer - radiation_loss + collected in
+        maths.clamp(new_temp, 100.0, 1000.0)
     }
 }
 
 
 
-signal temp_gradient : type Scalar<K> : strata(thermal) : title("Core-Surface Gradient") {
+signal temp_gradient : type Scalar<K, 0..10000> : strata(thermal) : title("Core-Surface Gradient") {
     resolve {
-        // Simplified (removed maths.abs call - not supported by new parser yet)
-        core.temp - surface.temp
+        let core = core.temp in
+        let surface = surface.temp in
+        let gradient = core - surface in
+        maths.abs(gradient)
     }
 }
 
 
 
+fracture core.decay_heat {
+    when {
+        core.temp < 5498 <K>
+    }
+
+    emit {
+        core.temp <- 5.0 <K>
+    }
+}
