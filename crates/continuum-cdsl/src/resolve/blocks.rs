@@ -26,6 +26,7 @@ use crate::ast::{
 use crate::error::{CompileError, ErrorKind};
 use crate::foundation::Phase;
 use crate::resolve::dependencies::{extract_dependencies, extract_stmt_dependencies};
+use crate::resolve::effects::{validate_effect_purity, EffectContext};
 use crate::resolve::expr_typing::{type_expression, TypingContext};
 use crate::resolve::utils::sort_unique;
 use std::collections::HashSet;
@@ -233,6 +234,25 @@ pub fn compile_statements(
                 Ok(typed_expr) => typed_stmts.push(TypedStmt::Expr(typed_expr)),
                 Err(mut e) => errors.append(&mut e),
             },
+        }
+    }
+
+    // Validate effect purity: ensure pure phases don't call effect kernels
+    if let Some(phase) = ctx.phase {
+        let effect_ctx = EffectContext::new(phase);
+        for stmt in &typed_stmts {
+            match stmt {
+                TypedStmt::Expr(expr)
+                | TypedStmt::Let { value: expr, .. }
+                | TypedStmt::SignalAssign { value: expr, .. }
+                | TypedStmt::FieldAssign { value: expr, .. } => {
+                    errors.extend(validate_effect_purity(
+                        expr,
+                        &effect_ctx,
+                        ctx.kernel_registry,
+                    ));
+                }
+            }
         }
     }
 
