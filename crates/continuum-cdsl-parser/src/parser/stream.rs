@@ -81,19 +81,30 @@ impl<'src> TokenStream<'src> {
     /// Create a span from a starting position to the current position.
     ///
     /// Uses actual byte offsets from the source file for accurate error locations.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `start` position is out of bounds for the token stream.
     pub fn span_from(&self, start: usize) -> Span {
+        assert!(
+            start < self.tokens.len(),
+            "span_from: start position {} out of bounds (stream length: {})",
+            start,
+            self.tokens.len()
+        );
+
         let start_byte = self
             .tokens
             .get(start)
             .map(|(_, span)| span.start)
-            .unwrap_or(0);
+            .expect("BUG: start position validated but token not found");
 
         let end_byte = if self.pos > 0 && self.pos <= self.tokens.len() {
             // Use the end of the previous token (last consumed token)
             self.tokens
                 .get(self.pos - 1)
                 .map(|(_, span)| span.end)
-                .unwrap_or(start_byte)
+                .expect("BUG: pos-1 in valid range but token not found")
         } else {
             // At EOF or start, use start position
             start_byte
@@ -103,6 +114,11 @@ impl<'src> TokenStream<'src> {
     }
 
     /// Get a span for the current token.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on an empty token stream. The parser should always
+    /// validate non-empty input before creating a TokenStream.
     pub fn current_span(&self) -> Span {
         if let Some((_, span)) = self.tokens.get(self.pos) {
             Span::new(self.file_id, span.start as u32, span.end as u32, 0)
@@ -111,8 +127,11 @@ impl<'src> TokenStream<'src> {
             if let Some((_, span)) = self.tokens.last() {
                 Span::new(self.file_id, span.end as u32, span.end as u32, 0)
             } else {
-                // Empty token stream
-                Span::new(self.file_id, 0, 0, 0)
+                // Empty token stream is a bug - should be validated before parsing
+                panic!(
+                    "BUG: current_span() called on empty token stream (file_id: {})",
+                    self.file_id
+                );
             }
         }
     }
