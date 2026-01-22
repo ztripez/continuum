@@ -7,7 +7,7 @@ use clap::Parser;
 use continuum_tools::ipc_server::SimulationServer;
 use continuum_tools::run_world_intent::{RunWorldIntent, WorldSource};
 use std::path::PathBuf;
-use tracing::{info, error};
+use tracing::{error, info};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[derive(Parser, Debug)]

@@ -1,0 +1,10 @@
+[package]
+name = "continuum-cdsl-lexer"
+version.workspace = true
+edition.workspace = true
+description = "Lexer for Continuum DSL"
+license = "MIT"
+
+[dependencies]
+# Fast lexer generator
+logos = "0.14"

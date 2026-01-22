@@ -1,0 +1,15 @@
+[package]
+name = "continuum-cdsl-parser"
+version.workspace = true
+edition.workspace = true
+description = "Hand-written parser for Continuum DSL (no chumsky!)"
+license = "MIT"
+
+[dependencies]
+continuum-cdsl-ast = { path = "../continuum-cdsl-ast" }
+continuum-cdsl-lexer = { path = "../continuum-cdsl-lexer" }
+continuum-foundation = { path = "../kernels/foundation" }
+continuum-kernel-types = { path = "../continuum-kernel-types" }
+
+[dev-dependencies]
+logos = "0.14"

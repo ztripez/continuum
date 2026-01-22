@@ -1,0 +1,49 @@
+//! Compiler foundation types
+//!
+//! These types are used throughout the compiler but are distinct from
+//! runtime foundation types. They represent compile-time constructs.
+
+pub mod severity_conv;
+pub mod span;
+pub mod types;
+
+pub use continuum_foundation::Path;
+pub use severity_conv::{default_severity, parse_severity, valid_severity_strings};
+pub use span::{SourceFile, SourceMap, Span};
+pub use types::{Bounds, KernelType, Type, UserType, UserTypeId};
+
+// Re-export Shape and Unit from kernel-types (single source of truth)
+pub use continuum_kernel_types::{Shape, Unit, UnitDimensions, UnitKind};
+
+// Re-export from runtime foundation
+pub use continuum_foundation::{
+    // Operators
+    AggregateOp,
+    // Typed IDs
+    AnalyzerId,
+    // Execution phases and capabilities
+    AssertionSeverity,
+    BinaryOp,
+    Capability,
+    CapabilitySet,
+    ChronicleId,
+    // Policy
+    DeterminismPolicy,
+    EntityId,
+    EraId,
+    FaultPolicy,
+    FieldId,
+    FnId,
+    FractureId,
+    ImpulseId,
+    InstanceId,
+    MemberId,
+    OperatorId,
+    Phase,
+    PhaseSet,
+    SignalId,
+    StratumId,
+    TypeId,
+    UnaryOp,
+    WorldPolicy,
+};

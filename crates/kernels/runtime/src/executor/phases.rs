@@ -40,15 +40,15 @@ use crate::storage::{
 };
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 
+use super::AggregateResolverFn;
 use super::assertions::AssertionChecker;
 use super::context::{
     ChronicleContext, CollectContext, FractureContext, ImpulseContext, MeasureContext,
     ResolveContext,
 };
 use super::member_executor::{
-    resolve_scalar_l1, resolve_vec3_l1, ChunkConfig, ScalarResolverFn, Vec3ResolverFn,
+    ChunkConfig, ScalarResolverFn, Vec3ResolverFn, resolve_scalar_l1, resolve_vec3_l1,
 };
-use super::AggregateResolverFn;
 use crate::soa_storage::MemberSignalBuffer;
 
 /// Function that resolves a signal value

@@ -55,8 +55,8 @@
 //! runtime.tick();
 //! ```
 
-pub mod checkpoint;
 pub mod bytecode;
+pub mod checkpoint;
 pub mod dag;
 pub mod error;
 pub mod executor;
@@ -67,12 +67,13 @@ pub mod storage;
 pub mod types;
 pub mod vectorized;
 
-pub use error::{Error, Result};
-pub use executor::cost_model::{ComplexityScore, ComplexityThresholds, CostModel, CostWeights};
 pub use bytecode::{
     BytecodeExecutor, CompiledBlock, Compiler, ExecutionContext, ExecutionError, ExecutionRuntime,
     Instruction, OpcodeKind, OpcodeMetadata,
 };
+pub use continuum_foundation::WorldPolicy;
+pub use error::{Error, Result};
+pub use executor::cost_model::{ComplexityScore, ComplexityThresholds, CostModel, CostWeights};
 pub use executor::{
     AssertContext, AssertionChecker, AssertionFn, AssertionSeverity, ChunkConfig, CollectContext,
     CollectFn, EraConfig, FractureContext, FractureFn, ImpulseContext, ImpulseFn, LaneKernel,
@@ -87,7 +88,6 @@ pub use soa_storage::{
     SIMD_ALIGNMENT, TypedBuffer, ValueType,
 };
 pub use types::*;
-pub use continuum_foundation::WorldPolicy;
 pub use vectorized::{
     Cardinality, EntityIndex, FieldPrimitive, FieldSampleIdentity, FractureIdentity,
     FracturePrimitive, GlobalSignal, IndexSpace, MemberSignal, MemberSignalId,
@@ -154,9 +154,9 @@ pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
                 era.path
             );
         }
-        let dt = literal_scalar(&era.dt).map(Dt).unwrap_or_else(|| {
-            panic!("Era {} has non-literal dt expression", era.path)
-        });
+        let dt = literal_scalar(&era.dt)
+            .map(Dt)
+            .unwrap_or_else(|| panic!("Era {} has non-literal dt expression", era.path));
         let mut strata = IndexMap::new();
         for policy in &era.strata_policy {
             let state = if policy.active {
@@ -181,11 +181,8 @@ pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
         );
     }
 
-    let initial_era = compiled
-        .world
-        .initial_era
-        .clone()
-        .unwrap_or_else(|| {
+    let initial_era =
+        compiled.world.initial_era.clone().unwrap_or_else(|| {
             panic!("world missing initial era; mark exactly one era with :initial")
         });
 
@@ -267,14 +264,15 @@ mod tests {
             Type::kernel(Shape::Scalar, Unit::seconds(), None),
             span,
         );
-        world
-            .eras
-            .insert(Path::from_path_str("main"), continuum_cdsl::ast::Era::new(
+        world.eras.insert(
+            Path::from_path_str("main"),
+            continuum_cdsl::ast::Era::new(
                 EraId::new("main"),
                 Path::from_path_str("main"),
                 dt,
                 span,
-            ));
+            ),
+        );
 
         let compiled = CompiledWorld::new(world, Default::default());
         let _runtime = build_runtime(compiled);
@@ -312,14 +310,15 @@ mod tests {
             span,
         );
 
-        world
-            .eras
-            .insert(Path::from_path_str("main"), continuum_cdsl::ast::Era::new(
+        world.eras.insert(
+            Path::from_path_str("main"),
+            continuum_cdsl::ast::Era::new(
                 EraId::new("main"),
                 Path::from_path_str("main"),
                 dt,
                 span,
-            ));
+            ),
+        );
 
         let compiled = CompiledWorld::new(world, Default::default());
         let _runtime = build_runtime(compiled);
@@ -354,11 +353,8 @@ mod tests {
             dt,
             span,
         );
-        era.transitions.push(EraTransition::new(
-            EraId::new("next"),
-            condition,
-            span,
-        ));
+        era.transitions
+            .push(EraTransition::new(EraId::new("next"), condition, span));
         world.eras.insert(Path::from_path_str("main"), era);
 
         let compiled = CompiledWorld::new(world, Default::default());
@@ -366,7 +362,13 @@ mod tests {
     }
 }
 
-fn compile_bytecode_and_dags(compiled: &CompiledWorld) -> (crate::dag::DagSet, Vec<CompiledBlock>, std::collections::HashMap<ImpulseId, usize>) {
+fn compile_bytecode_and_dags(
+    compiled: &CompiledWorld,
+) -> (
+    crate::dag::DagSet,
+    Vec<CompiledBlock>,
+    std::collections::HashMap<ImpulseId, usize>,
+) {
     let mut compiler = crate::bytecode::Compiler::new();
     let mut bytecode_blocks = Vec::new();
     let mut block_indices: IndexMap<(continuum_foundation::Path, Phase), usize> = IndexMap::new();
@@ -379,7 +381,8 @@ fn compile_bytecode_and_dags(compiled: &CompiledWorld) -> (crate::dag::DagSet, V
         for level in &dag.levels {
             let mut nodes = Vec::with_capacity(level.nodes.len());
             for path in &level.nodes {
-                let (role_id, exec, node_path) = if let Some(node) = compiled.world.globals.get(path)
+                let (role_id, exec, node_path) = if let Some(node) =
+                    compiled.world.globals.get(path)
                 {
                     let exec = node
                         .executions
@@ -438,9 +441,7 @@ fn compile_bytecode_and_dags(compiled: &CompiledWorld) -> (crate::dag::DagSet, V
                     },
                     _ => panic!(
                         "Unsupported execution for {} in phase {:?} ({:?})",
-                        path,
-                        phase,
-                        role_id
+                        path, phase, role_id
                     ),
                 };
 

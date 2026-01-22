@@ -40,7 +40,7 @@ use std::ptr::NonNull;
 use indexmap::IndexMap;
 
 use crate::types::{EntityId, Value};
-use continuum_foundation::{primitive_type_by_name, PrimitiveStorageClass, PrimitiveTypeId};
+use continuum_foundation::{PrimitiveStorageClass, PrimitiveTypeId, primitive_type_by_name};
 
 /// Alignment for SIMD-friendly allocation (64 bytes = cache line).
 pub const SIMD_ALIGNMENT: usize = 64;

@@ -50,10 +50,8 @@ mod phases;
 mod warmup;
 
 // Re-export public types
-pub use assertions::{
-    AssertionChecker, AssertionFailure, AssertionFn, SignalAssertion,
-};
 pub use crate::types::AssertionSeverity;
+pub use assertions::{AssertionChecker, AssertionFailure, AssertionFn, SignalAssertion};
 pub use context::{
     AssertContext, ChronicleContext, CollectContext, FractureContext, ImpulseContext,
     MeasureContext, ResolveContext, WarmupContext,
@@ -90,8 +88,8 @@ use crate::storage::{
     FractureQueue, InputChannels, SignalStorage,
 };
 use crate::types::{
-    Dt, EntityId, EraId, FieldId, ImpulseId, Phase, SignalId, StratumId, StratumState,
-    TickContext, Value, WarmupConfig, WarmupResult, WorldPolicy, DeterminismPolicy,
+    DeterminismPolicy, Dt, EntityId, EraId, FieldId, ImpulseId, Phase, SignalId, StratumId,
+    StratumState, TickContext, Value, WarmupConfig, WarmupResult, WorldPolicy,
 };
 use std::path::PathBuf;
 
@@ -186,9 +184,9 @@ pub fn run_simulation(
         if options.print_signals {
             let mut line = format!("Tick {:04}: ", runtime.tick());
             for id in &options.signals {
-                let val = runtime.get_signal(id).ok_or_else(|| {
-                    RunError::Execution(format!("Signal '{}' not found", id))
-                })?;
+                let val = runtime
+                    .get_signal(id)
+                    .ok_or_else(|| RunError::Execution(format!("Signal '{}' not found", id)))?;
                 line.push_str(&format!("{}={} ", id, val));
             }
             tracing::info!("{}", line);
@@ -261,8 +259,8 @@ pub fn run_simulation(
 
 /// Prune old checkpoints, keeping only the last N.
 fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) -> Result<()> {
-    let entries = std::fs::read_dir(checkpoint_dir)
-        .map_err(|e| Error::Checkpoint(e.to_string()))?;
+    let entries =
+        std::fs::read_dir(checkpoint_dir).map_err(|e| Error::Checkpoint(e.to_string()))?;
 
     let mut checkpoints = Vec::new();
     for entry in entries {
@@ -293,8 +291,7 @@ fn prune_old_checkpoints(checkpoint_dir: &std::path::Path, keep_n: usize) -> Res
     // Remove oldest checkpoints
     let to_remove = checkpoints.len() - keep_n;
     for entry in checkpoints.iter().take(to_remove) {
-        std::fs::remove_file(entry.path())
-            .map_err(|e| Error::Checkpoint(e.to_string()))?;
+        std::fs::remove_file(entry.path()).map_err(|e| Error::Checkpoint(e.to_string()))?;
         debug!("Pruned old checkpoint: {}", entry.path().display());
     }
     Ok(())
@@ -447,7 +444,10 @@ impl Runtime {
 
     /// Inject an impulse by its ID
     pub fn inject_impulse_by_id(&mut self, id: &ImpulseId, payload: Value) -> Result<()> {
-        let idx = self.impulse_map.get(id).ok_or_else(|| Error::Generic(format!("Impulse '{}' not found", id)))?;
+        let idx = self
+            .impulse_map
+            .get(id)
+            .ok_or_else(|| Error::Generic(format!("Impulse '{}' not found", id)))?;
         self.inject_impulse(*idx, payload);
         Ok(())
     }
@@ -1148,7 +1148,13 @@ mod tests {
                 transition: None,
             },
         );
-        Runtime::new(era_id, eras, DagSet::default(), Vec::new(), WorldPolicy::default())
+        Runtime::new(
+            era_id,
+            eras,
+            DagSet::default(),
+            Vec::new(),
+            WorldPolicy::default(),
+        )
     }
 
     #[test]
@@ -1163,7 +1169,13 @@ mod tests {
                 transition: None,
             },
         );
-        let runtime = Runtime::new(era_id, eras, DagSet::default(), Vec::new(), WorldPolicy::default());
+        let runtime = Runtime::new(
+            era_id,
+            eras,
+            DagSet::default(),
+            Vec::new(),
+            WorldPolicy::default(),
+        );
         assert_eq!(runtime.tick(), 0);
         assert_eq!(runtime.sim_time(), 0.0);
     }
@@ -1616,7 +1628,13 @@ mod tests {
         eras.insert(era_a.clone(), era_a_config);
         eras.insert(era_b.clone(), era_b_config);
 
-        let mut runtime = Runtime::new(era_a.clone(), eras, dags, Vec::new(), WorldPolicy::default());
+        let mut runtime = Runtime::new(
+            era_a.clone(),
+            eras,
+            dags,
+            Vec::new(),
+            WorldPolicy::default(),
+        );
 
         // Register resolver: increment by 1 each tick
         runtime.register_resolver(Box::new(|ctx| {

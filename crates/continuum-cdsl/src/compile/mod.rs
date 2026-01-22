@@ -1,9 +1,10 @@
-use crate::ast::CompiledWorld;
-use crate::error::{CompileError, DiagnosticFormatter};
-use crate::foundation::{SourceMap, Span};
-use crate::lexer::Token;
-use crate::parser::parse_declarations;
-use crate::resolve::pipeline;
+use crate::CompileError;
+use crate::CompiledWorld;
+use crate::Token;
+use crate::parse_declarations;
+use crate::pipeline;
+use crate::{SourceMap, Span};
+use continuum_cdsl_resolve::error::ErrorKind;
 use logos::Logos;
 use std::path::Path;
 use walkdir::WalkDir;
@@ -40,7 +41,7 @@ pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
             }
             Err(err) => {
                 all_errors.push(CompileError::new(
-                    crate::error::ErrorKind::Internal,
+                    ErrorKind::Internal,
                     Span::new(0, 0, 0, 1),
                     format!("Directory traversal error: {}", err),
                 ));
@@ -53,7 +54,7 @@ pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
 
     if cdsl_files.is_empty() {
         return Err(vec![CompileError::new(
-            crate::error::ErrorKind::Internal,
+            ErrorKind::Internal,
             Span::new(0, 0, 0, 1),
             format!("No .cdsl files found in {}", root.display()),
         )]);
@@ -65,7 +66,7 @@ pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
             Ok(s) => s,
             Err(e) => {
                 all_errors.push(CompileError::new(
-                    crate::error::ErrorKind::Internal,
+                    ErrorKind::Internal,
                     Span::new(0, 0, 0, 1),
                     format!("Failed to read file {}: {}", file_path.display(), e),
                 ));
@@ -78,7 +79,6 @@ pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
         // Lexing
         let mut lexer = Token::lexer(&source);
         let mut tokens = Vec::new();
-        let mut token_spans = Vec::new();
         let mut lex_failed = false;
 
         while let Some(result) = lexer.next() {
@@ -86,11 +86,10 @@ pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
             match result {
                 Ok(token) => {
                     tokens.push(token);
-                    token_spans.push(span);
                 }
                 Err(_) => {
                     all_errors.push(CompileError::new(
-                        crate::error::ErrorKind::Syntax,
+                        ErrorKind::Syntax,
                         Span::new(file_id, span.start as u32, span.end as u32, 0),
                         format!("Invalid token in {}", file_path.display()),
                     ));
@@ -104,33 +103,12 @@ pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
         }
 
         // Parsing
-        match parse_declarations(&tokens, file_id).into_result() {
+        match parse_declarations(&tokens, file_id) {
             Ok(decls) => declarations.extend(decls),
             Err(errors) => {
                 for err in errors {
-                    // Map chumsky error to CompileError
-                    let chumsky_span = err.span();
-
-                    let byte_span = if chumsky_span.start == chumsky_span.end {
-                        Span::new(file_id, 0, 0, 1)
-                    } else {
-                        // Chumsky errors use indices into the token slice
-                        let start_token_idx = chumsky_span.start;
-                        let end_token_idx = chumsky_span.end.saturating_sub(1);
-
-                        let start_byte = token_spans
-                            .get(start_token_idx)
-                            .map_or(0, |s| s.start as u32);
-                        let end_byte = token_spans.get(end_token_idx).map_or(0, |s| s.end as u32);
-
-                        Span::new(file_id, start_byte, end_byte, 0)
-                    };
-
-                    all_errors.push(CompileError::new(
-                        crate::error::ErrorKind::Syntax,
-                        byte_span,
-                        err.to_string(),
-                    ));
+                    // Map ParseError to CompileError
+                    all_errors.push(CompileError::new(ErrorKind::Syntax, err.span, err.message));
                 }
             }
         }
@@ -155,9 +133,12 @@ pub fn deserialize_world(data: &[u8]) -> Result<CompiledWorld, rmp_serde::decode
 }
 
 /// Formats compilation errors with source context.
-pub fn format_errors(errors: &[CompileError], source_map: &SourceMap) -> String {
-    let formatter = DiagnosticFormatter::new(source_map);
-    formatter.format_all(errors)
+pub fn format_errors(errors: &[CompileError], _source_map: &SourceMap) -> String {
+    errors
+        .iter()
+        .map(|e| format!("Error: {}", e.message))
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 #[cfg(test)]

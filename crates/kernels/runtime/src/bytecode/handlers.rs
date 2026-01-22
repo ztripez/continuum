@@ -210,14 +210,17 @@ pub(crate) fn handle_build_vector(
     let vector = match values.as_slice() {
         [Value::Scalar(x), Value::Scalar(y)] => Value::Vec2([*x, *y]),
         [Value::Scalar(x), Value::Scalar(y), Value::Scalar(z)] => Value::Vec3([*x, *y, *z]),
-        [Value::Scalar(x), Value::Scalar(y), Value::Scalar(z), Value::Scalar(w)] => {
-            Value::Vec4([*x, *y, *z, *w])
-        }
+        [
+            Value::Scalar(x),
+            Value::Scalar(y),
+            Value::Scalar(z),
+            Value::Scalar(w),
+        ] => Value::Vec4([*x, *y, *z, *w]),
         [..] if count >= 2 && count <= 4 => {
             return Err(ExecutionError::TypeMismatch {
                 expected: "Scalar vector components".to_string(),
                 found: format!("{values:?}"),
-            })
+            });
         }
         _ => return Err(ExecutionError::UnsupportedVectorSize { size: count }),
     };

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use continuum_cdsl::ast::{BinaryBundle, CompiledWorld};
 use continuum_cdsl::compile;
 use continuum_runtime::build_runtime;
-use continuum_runtime::executor::{run_simulation, RunError, RunOptions, RunReport};
+use continuum_runtime::executor::{RunError, RunOptions, RunReport, run_simulation};
 
 /// The source of a world to execute.
 #[derive(Debug, Clone)]

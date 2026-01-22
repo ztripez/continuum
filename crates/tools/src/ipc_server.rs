@@ -1,14 +1,14 @@
-use std::path::Path;
-use tokio::net::UnixListener;
-use tokio::io::{AsyncRead, AsyncWrite};
-use crate::world_api::{WorldMessage, WorldRequest, WorldResponse};
-use crate::world_api::framing::{read_message, write_message};
+use crate::ipc_types::{AssertionInfo, FieldInfo, ImpulseInfo, SignalInfo};
 use crate::run_world_intent::RunWorldIntent;
-use crate::ipc_types::{SignalInfo, FieldInfo, ImpulseInfo, AssertionInfo};
-use continuum_runtime::{Runtime, build_runtime};
+use crate::world_api::framing::{read_message, write_message};
+use crate::world_api::{WorldMessage, WorldRequest, WorldResponse};
 use continuum_cdsl::ast::{CompiledWorld, RoleData, RoleId};
-use tracing::{info, error, debug, warn};
+use continuum_runtime::{Runtime, build_runtime};
+use std::path::Path;
 use std::sync::{Arc, Mutex};
+use tokio::io::{AsyncRead, AsyncWrite};
+use tokio::net::UnixListener;
+use tracing::{debug, error, info, warn};
 
 /// Shared state for the simulation server.
 struct ServerState {
@@ -26,7 +26,7 @@ impl SimulationServer {
     pub fn new(intent: RunWorldIntent) -> Result<Self, crate::run_world_intent::RunWorldError> {
         let compiled = intent.load()?;
         let runtime = build_runtime(compiled.clone());
-        
+
         Ok(Self {
             state: Arc::new(ServerState {
                 compiled,
@@ -71,8 +71,10 @@ impl SimulationServer {
     }
 }
 
-async fn handle_connection<S>(mut stream: S, state: Arc<ServerState>) -> Result<(), std::io::Error> 
-where S: AsyncRead + AsyncWrite + Unpin {
+async fn handle_connection<S>(mut stream: S, state: Arc<ServerState>) -> Result<(), std::io::Error>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
     loop {
         let msg = match read_message(&mut stream).await {
             Ok(msg) => msg,
@@ -119,25 +121,27 @@ where S: AsyncRead + AsyncWrite + Unpin {
 
 fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
     let mut rt = state.runtime.lock().unwrap();
-    
+
     match req.kind.as_str() {
-        "world.get" => {
-            WorldResponse {
-                id: req.id,
-                ok: true,
-                payload: Some(serde_json::to_value(&state.compiled.world.metadata).unwrap()),
-                error: None,
-            }
-        }
+        "world.get" => WorldResponse {
+            id: req.id,
+            ok: true,
+            payload: Some(serde_json::to_value(&state.compiled.world.metadata).unwrap()),
+            error: None,
+        },
         "run.step" => {
             let steps = match req.payload.get("steps").and_then(|v| v.as_u64()) {
                 Some(s) => s,
-                None => return WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some("Missing or invalid 'steps' parameter (requires u64)".to_string()),
-                },
+                None => {
+                    return WorldResponse {
+                        id: req.id,
+                        ok: false,
+                        payload: None,
+                        error: Some(
+                            "Missing or invalid 'steps' parameter (requires u64)".to_string(),
+                        ),
+                    };
+                }
             };
 
             for _ in 0..steps {
@@ -163,25 +167,29 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
         "signal.get" => {
             let path = match req.payload.get("path").and_then(|v| v.as_str()) {
                 Some(p) => p,
-                None => return WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some("Missing 'path' parameter".to_string()),
-                },
+                None => {
+                    return WorldResponse {
+                        id: req.id,
+                        ok: false,
+                        payload: None,
+                        error: Some("Missing 'path' parameter".to_string()),
+                    };
+                }
             };
-            
+
             let signal_id = continuum_foundation::SignalId::from(path);
             match rt.get_signal(&signal_id) {
                 Some(val) => {
                     let payload = match serde_json::to_value(val) {
                         Ok(p) => p,
-                        Err(e) => return WorldResponse {
-                            id: req.id,
-                            ok: false,
-                            payload: None,
-                            error: Some(format!("Serialization error: {}", e)),
-                        },
+                        Err(e) => {
+                            return WorldResponse {
+                                id: req.id,
+                                ok: false,
+                                payload: None,
+                                error: Some(format!("Serialization error: {}", e)),
+                            };
+                        }
                     };
                     WorldResponse {
                         id: req.id,
@@ -199,7 +207,11 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
             }
         }
         "signal.list" => {
-            let signals: Vec<_> = state.compiled.world.globals.iter()
+            let signals: Vec<_> = state
+                .compiled
+                .world
+                .globals
+                .iter()
                 .filter(|(_, node)| node.role_id() == RoleId::Signal)
                 .map(|(path, node)| {
                     SignalInfo {
@@ -208,13 +220,13 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
                         symbol: None, // TODO: add symbol to Node
                         doc: node.doc.clone(),
                         value_type: node.output.as_ref().map(|t| t.to_string()),
-                        unit: None, // TODO: extract unit from Type
+                        unit: None,  // TODO: extract unit from Type
                         range: None, // TODO: extract range from Type
                         stratum: node.stratum.as_ref().map(|s| s.to_string()),
                     }
                 })
                 .collect();
-            
+
             match serde_json::to_value(signals) {
                 Ok(payload) => WorldResponse {
                     id: req.id,
@@ -231,7 +243,11 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
             }
         }
         "field.list" => {
-            let fields: Vec<_> = state.compiled.world.globals.iter()
+            let fields: Vec<_> = state
+                .compiled
+                .world
+                .globals
+                .iter()
                 .filter(|(_, node)| node.role_id() == RoleId::Field)
                 .map(|(path, node)| {
                     FieldInfo {
@@ -246,7 +262,7 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
                     }
                 })
                 .collect();
-            
+
             match serde_json::to_value(fields) {
                 Ok(payload) => WorldResponse {
                     id: req.id,
@@ -263,7 +279,11 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
             }
         }
         "impulse.list" => {
-            let impulses: Vec<_> = state.compiled.world.globals.iter()
+            let impulses: Vec<_> = state
+                .compiled
+                .world
+                .globals
+                .iter()
                 .filter(|(_, node)| node.role_id() == RoleId::Impulse)
                 .map(|(path, node)| {
                     let payload_type = if let RoleData::Impulse { payload } = &node.role {
@@ -278,7 +298,7 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
                     }
                 })
                 .collect();
-            
+
             match serde_json::to_value(impulses) {
                 Ok(payload) => WorldResponse {
                     id: req.id,
@@ -297,31 +317,37 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
         "impulse.emit" => {
             let path = match req.payload.get("path").and_then(|v| v.as_str()) {
                 Some(p) => p,
-                None => return WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some("Missing 'path' parameter".to_string()),
-                },
+                None => {
+                    return WorldResponse {
+                        id: req.id,
+                        ok: false,
+                        payload: None,
+                        error: Some("Missing 'path' parameter".to_string()),
+                    };
+                }
             };
             let payload = match req.payload.get("payload") {
                 Some(p) => match serde_json::from_value(p.clone()) {
                     Ok(v) => v,
-                    Err(e) => return WorldResponse {
+                    Err(e) => {
+                        return WorldResponse {
+                            id: req.id,
+                            ok: false,
+                            payload: None,
+                            error: Some(format!("Invalid payload format: {}", e)),
+                        };
+                    }
+                },
+                None => {
+                    return WorldResponse {
                         id: req.id,
                         ok: false,
                         payload: None,
-                        error: Some(format!("Invalid payload format: {}", e)),
-                    },
-                },
-                None => return WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some("Missing 'payload' parameter".to_string()),
-                },
+                        error: Some("Missing 'payload' parameter".to_string()),
+                    };
+                }
             };
-            
+
             let impulse_id = continuum_foundation::ImpulseId::from(path);
             match rt.inject_impulse_by_id(&impulse_id, payload) {
                 Ok(_) => WorldResponse {
