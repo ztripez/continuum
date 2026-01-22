@@ -237,7 +237,21 @@ pub fn compile_statements(
         }
     }
 
-    // Validate effect purity: ensure pure phases don't call effect kernels
+    // Validate effect purity: ensure pure phases don't call effect kernels.
+    //
+    // Continuum divides execution phases into two categories for determinism:
+    // - **Pure phases** (Configure, Resolve, Measure, Assert): Must be deterministic,
+    //   cannot call kernels with side effects.
+    // - **Effect phases** (Collect, Fracture): May call effect kernels that produce
+    //   side effects (emit, spawn, destroy, log).
+    //
+    // This validation scans all expressions in typed statements to detect effect kernel
+    // calls in pure phases. Violations break determinism guarantees and fail compilation.
+    //
+    // Note: Phase is optional to support test contexts. In production compilation via
+    // compile_execution_blocks(), phase is always present (set via with_phase()).
+    //
+    // See: crate::resolve::effects for enforcement rules.
     if let Some(phase) = ctx.phase {
         let effect_ctx = EffectContext::new(phase);
         for stmt in &typed_stmts {

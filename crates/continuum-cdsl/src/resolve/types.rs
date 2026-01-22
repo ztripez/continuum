@@ -348,8 +348,17 @@ pub fn resolve_type_expr(
     match type_expr {
         TypeExpr::Scalar { unit, bounds } => {
             let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
-            // TODO: Resolve and validate bounds expressions
-            let _ = bounds; // Ignore for now, will implement validation later
+
+            // Reject type bounds until validation is implemented
+            // Fail loudly: if we accept the syntax, we must enforce the semantics
+            if bounds.is_some() {
+                return Err(CompileError::new(
+                    ErrorKind::Unimplemented,
+                    span,
+                    "Type bounds are not yet implemented. Remove bounds specification or wait for validation support.".to_string(),
+                ));
+            }
+
             Ok(Type::kernel(Shape::Scalar, resolved_unit, None))
         }
 
