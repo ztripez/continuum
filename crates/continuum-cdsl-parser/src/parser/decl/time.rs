@@ -60,7 +60,7 @@ pub(super) fn parse_era(stream: &mut TokenStream) -> Result<Declaration, ParseEr
             Some(Token::Strata) => {
                 strata_policy = parse_strata_policy_block(stream)?;
             }
-            Some(Token::Ident(name)) if name == "transition" => {
+            Some(Token::Transition) => {
                 transitions.push(parse_transition(stream)?);
             }
             other => {
@@ -135,7 +135,7 @@ fn parse_strata_policy_block(
 /// Parse transition declaration.
 fn parse_transition(stream: &mut TokenStream) -> Result<TransitionDecl, ParseError> {
     let start = stream.current_pos();
-    stream.advance(); // consume "transition" identifier
+    stream.expect(Token::Transition)?;
 
     let target = super::super::types::parse_path(stream)?;
 

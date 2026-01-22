@@ -30,34 +30,47 @@ pub(super) fn parse_member(stream: &mut TokenStream) -> Result<Declaration, Pars
     let start = stream.current_pos();
     stream.expect(Token::Member)?;
 
-    let entity_path = super::super::types::parse_path(stream)?;
-    stream.expect(Token::Dot)?;
-    let member_path = super::super::types::parse_path(stream)?;
+    // Parse the full path (e.g., "terra.plate.velocity")
+    // parse_path is greedy and will consume the entire dotted path
+    let full_path = super::super::types::parse_path(stream)?;
 
-    // Determine role from next keyword
-    let role = match stream.peek() {
-        Some(Token::Signal) => {
-            stream.advance();
-            RoleData::Signal
-        }
-        Some(Token::Field) => {
-            stream.advance();
-            RoleData::Field {
-                reconstruction: None,
-            }
-        }
-        other => {
-            return Err(ParseError::unexpected_token(
-                other,
-                "member role (signal/field)",
-                stream.current_span(),
-            ));
-        }
+    // Split the path into entity path and member path
+    // The member path is the last segment, everything before is the entity path
+    let segments = full_path.segments();
+    if segments.is_empty() {
+        return Err(ParseError::unexpected_token(
+            None,
+            "member path",
+            stream.current_span(),
+        ));
+    }
+
+    // Split: entity = all but last segment, member = last segment
+    let (entity_segments, member_segments): (Vec<String>, Vec<String>) = if segments.len() == 1 {
+        // Just "velocity" - entity is implicit/empty, member is "velocity"
+        (vec![], segments.to_vec())
+    } else {
+        // "terra.plate.velocity" -> entity="terra.plate", member="velocity"
+        let split_at = segments.len() - 1;
+        (segments[..split_at].to_vec(), segments[split_at..].to_vec())
     };
 
-    let attributes = parse_attributes(stream)?;
+    let entity_path = continuum_foundation::Path::new(entity_segments);
+    let member_path = continuum_foundation::Path::new(member_segments);
+
+    // Role is NOT explicitly declared in member syntax
+    // Default to Signal; it will be inferred from execution blocks later
+    let role = RoleData::Signal;
+
+    let mut attributes = parse_attributes(stream)?;
 
     stream.expect(Token::LBrace)?;
+
+    // Parse attributes inside the body (before execution blocks)
+    while matches!(stream.peek(), Some(Token::Colon)) {
+        attributes.push(super::parse_attribute(stream)?);
+    }
+
     let execution_blocks = super::super::blocks::parse_execution_blocks(stream)?;
     stream.expect(Token::RBrace)?;
 
