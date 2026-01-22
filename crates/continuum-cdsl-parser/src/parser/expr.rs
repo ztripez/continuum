@@ -22,7 +22,7 @@
 //! - Spatial: `nearest(entity, pos)`, `within(entity, pos, radius)`
 
 use super::{ParseError, TokenStream};
-use continuum_cdsl_ast::foundation::{AggregateOp, BinaryOp, EntityId, Path, UnaryOp};
+use continuum_cdsl_ast::foundation::{AggregateOp, BinaryOp, EntityId, UnaryOp};
 use continuum_cdsl_ast::{Expr, UntypedKind};
 use continuum_cdsl_lexer::Token;
 

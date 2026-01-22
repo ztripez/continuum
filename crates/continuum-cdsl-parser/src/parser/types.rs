@@ -2,7 +2,7 @@
 
 use super::{ParseError, TokenStream};
 use continuum_cdsl_ast::foundation::Path;
-use continuum_cdsl_ast::{Expr, TypeExpr, UnitExpr};
+use continuum_cdsl_ast::{TypeExpr, UnitExpr};
 use continuum_cdsl_lexer::Token;
 
 /// Parse a path (dot-separated identifiers).
