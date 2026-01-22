@@ -29,7 +29,7 @@ pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Declaration, Parse
             Some(Token::WarmUp) => {
                 warmup = Some(parse_warmup_policy(stream)?);
             }
-            Some(Token::Ident(name)) if name == "policy" => {
+            Some(Token::Policy) => {
                 policy = parse_policy_block(stream)?;
             }
             other => {
@@ -116,6 +116,8 @@ fn parse_policy_block(stream: &mut TokenStream) -> Result<WorldPolicy, ParseErro
             let span = stream.current_span();
             match stream.advance() {
                 Some(Token::Ident(name)) => name.clone(),
+                Some(Token::Determinism) => "determinism".to_string(),
+                Some(Token::Faults) => "faults".to_string(),
                 other => {
                     return Err(ParseError::unexpected_token(
                         other,
