@@ -182,6 +182,29 @@ impl Compiler {
                     vec![Operand::Field(target.clone())],
                 ));
             }
+            Stmt::Assert {
+                condition,
+                severity,
+                message,
+                ..
+            } => {
+                // Compile condition expression
+                self.compile_expr(block, condition)?;
+
+                // Create operands for assertion
+                let mut operands = vec![];
+                if let Some(sev) = severity {
+                    operands.push(Operand::String(sev.clone()));
+                }
+                if let Some(msg) = message {
+                    operands.push(Operand::String(msg.clone()));
+                }
+
+                // Emit assertion instruction
+                block
+                    .instructions
+                    .push(Instruction::new(OpcodeKind::Assert, operands));
+            }
             Stmt::Expr(expr) => {
                 self.compile_expr(block, expr)?;
                 block

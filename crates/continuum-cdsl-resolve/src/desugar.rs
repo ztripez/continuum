@@ -290,6 +290,17 @@ pub fn desugar_stmt(stmt: Stmt<Expr>) -> Stmt<Expr> {
             value: desugar_expr(value),
             span,
         },
+        Stmt::Assert {
+            condition,
+            severity,
+            message,
+            span,
+        } => Stmt::Assert {
+            condition: desugar_expr(condition),
+            severity,
+            message,
+            span,
+        },
         Stmt::Expr(expr) => Stmt::Expr(desugar_expr(expr)),
     }
 }
@@ -951,8 +962,8 @@ mod tests {
 
     #[test]
     fn test_desugar_statements() {
-        use continuum_cdsl_ast::Stmt;
         use continuum_cdsl_ast::foundation::Path;
+        use continuum_cdsl_ast::Stmt;
 
         // Let statement: let x = a + b;
         let stmt = Stmt::Let {

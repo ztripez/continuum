@@ -206,6 +206,7 @@ fn collect_integration_calls_typed_stmt(
             collect_integration_calls(position, calls);
             collect_integration_calls(value, calls);
         }
+        TypedStmt::Assert { condition, .. } => collect_integration_calls(condition, calls),
         TypedStmt::Expr(expr) => collect_integration_calls(expr, calls),
     }
 }

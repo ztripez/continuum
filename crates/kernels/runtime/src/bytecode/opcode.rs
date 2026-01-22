@@ -197,6 +197,13 @@ pub enum OpcodeKind {
     /// Only valid in the Measure phase (preserving the observer boundary).
     LoadField,
 
+    // === Validation ===
+    /// Evaluates a runtime assertion.
+    ///
+    /// Pops a Bool value from the stack. If false, triggers a fault with optional severity and message.
+    /// Operands: [Severity (String), Message (String)] (both optional).
+    Assert,
+
     // === Structural ===
     /// Terminates the current block execution and returns the top stack value (if any).
     Return,

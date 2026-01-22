@@ -178,6 +178,7 @@ fn collect_required_uses_typed_stmt(
             collect_required_uses(position, registry, required);
             collect_required_uses(value, registry, required);
         }
+        TypedStmt::Assert { condition, .. } => collect_required_uses(condition, registry, required),
         TypedStmt::Expr(expr) => collect_required_uses(expr, registry, required),
     }
 }
@@ -260,6 +261,9 @@ fn collect_required_uses_untyped_stmt(
         } => {
             collect_required_uses_untyped(position, registry, required);
             collect_required_uses_untyped(value, registry, required);
+        }
+        Stmt::Assert { condition, .. } => {
+            collect_required_uses_untyped(condition, registry, required)
         }
         Stmt::Expr(expr) => collect_required_uses_untyped(expr, registry, required),
     }
