@@ -11,9 +11,9 @@
 //!                                      YOU ARE HERE
 //! ```
 
-use crate::ast::{Declaration, TypeExpr};
+use crate::ast::{Declaration, Expr, ExprKind, TypeExpr};
 use crate::error::{CompileError, ErrorKind};
-use crate::foundation::{EntityId, Path, Shape, Span, Type, UserType, UserTypeId};
+use crate::foundation::{Bounds, EntityId, Path, Shape, Span, Type, UserType, UserTypeId};
 use crate::resolve::units::resolve_unit_expr;
 use std::collections::HashMap;
 
@@ -349,17 +349,33 @@ pub fn resolve_type_expr(
         TypeExpr::Scalar { unit, bounds } => {
             let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
 
-            // Reject type bounds until validation is implemented
-            // Fail loudly: if we accept the syntax, we must enforce the semantics
-            if bounds.is_some() {
-                return Err(CompileError::new(
-                    ErrorKind::Unimplemented,
-                    span,
-                    "Type bounds are not yet implemented. Remove bounds specification or wait for validation support.".to_string(),
-                ));
-            }
+            // Resolve bounds expressions to constant values
+            let resolved_bounds = match bounds {
+                Some((min_expr, max_expr)) => {
+                    let min_val = evaluate_const_expr(min_expr, span)?;
+                    let max_val = evaluate_const_expr(max_expr, span)?;
 
-            Ok(Type::kernel(Shape::Scalar, resolved_unit, None))
+                    // Validate bounds make sense
+                    if min_val >= max_val {
+                        return Err(CompileError::new(
+                            ErrorKind::InvalidBounds,
+                            span,
+                            format!(
+                                "Type bounds invalid: min ({}) must be less than max ({})",
+                                min_val, max_val
+                            ),
+                        ));
+                    }
+
+                    Some(Bounds {
+                        min: Some(min_val),
+                        max: Some(max_val),
+                    })
+                }
+                None => None,
+            };
+
+            Ok(Type::kernel(Shape::Scalar, resolved_unit, resolved_bounds))
         }
 
         TypeExpr::Vector { dim, unit } => {
@@ -507,5 +523,33 @@ mod tests {
 
         let type_a = table.get(&path_a).unwrap();
         assert!(type_a.field("b").unwrap().is_user());
+    }
+}
+
+/// Evaluate a constant expression to an f64 value.
+///
+/// This is used for type bounds which must be compile-time constants.
+/// Currently supports:
+/// - Numeric literals
+///
+/// Future: Support config values, const values, and simple arithmetic.
+fn evaluate_const_expr(expr: &Expr, span: Span) -> Result<f64, CompileError> {
+    match &expr.kind {
+        ExprKind::Literal { value, unit } => {
+            // Bounds must be dimensionless
+            if unit.is_some() {
+                return Err(CompileError::new(
+                    ErrorKind::InvalidBounds,
+                    span,
+                    "Type bounds must be dimensionless numbers (no units)".to_string(),
+                ));
+            }
+            Ok(*value)
+        }
+        _ => Err(CompileError::new(
+            ErrorKind::InvalidBounds,
+            span,
+            "Type bounds must be constant literals (for now)".to_string(),
+        )),
     }
 }

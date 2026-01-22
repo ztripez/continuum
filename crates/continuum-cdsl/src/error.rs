@@ -145,6 +145,12 @@ pub enum ErrorKind {
     Internal = 24,
     /// Feature not yet supported in the current version
     UnsupportedDSLFeature = 26,
+
+    /// Invalid type bounds (min >= max, or non-constant expressions)
+    InvalidBounds = 29,
+
+    /// Unimplemented feature
+    Unimplemented = 30,
 }
 
 /// Human-readable names for error kinds.
@@ -180,6 +186,8 @@ const ERROR_KIND_NAMES: &[&str] = &[
     "unsupported dsl feature",  // 26: UnsupportedDSLFeature
     "integrator mismatch",      // 27: IntegratorMismatch
     "missing integrator hint",  // 28: MissingIntegratorHint
+    "invalid bounds",           // 29: InvalidBounds
+    "unimplemented",            // 30: Unimplemented
 ];
 
 /// Diagnostic severity level.
