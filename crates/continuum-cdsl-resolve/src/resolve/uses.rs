@@ -149,6 +149,10 @@ fn extract_uses_key_from_expr(expr: &continuum_cdsl_ast::Expr) -> Option<String>
         UntypedKind::Const(path) => Some(path.to_string()),
         // Field access might be used
         UntypedKind::Field(path) => Some(path.to_string()),
+        // FieldAccess chains like `maths.clamping` - convert to path
+        UntypedKind::FieldAccess { .. } | UntypedKind::Local(_) => {
+            expr.as_path().map(|p| p.to_string())
+        }
         _ => None,
     }
 }
