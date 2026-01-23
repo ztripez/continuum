@@ -428,6 +428,7 @@ const TOKEN_STRINGS: &[&str] = &[
     "prev",
     "current",
     "inputs",
+    "collected",
     "payload",
     "self",
     "other",

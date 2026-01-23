@@ -60,8 +60,8 @@ impl ParseError {
     /// Create an "expected token" error.
     pub fn expected_token(expected: Token, found: Option<Token>, span: Span) -> Self {
         let message = match &found {
-            Some(token) => format!("expected {:?}, found {:?}", expected, token),
-            None => format!("expected {:?}, found end of input", expected),
+            Some(token) => format!("expected '{}', found '{}'", expected, token),
+            None => format!("expected '{}', found end of input", expected),
         };
         Self {
             kind: if found.is_none() {
@@ -77,7 +77,7 @@ impl ParseError {
     /// Create an "unexpected token" error.
     pub fn unexpected_token(found: Option<&Token>, context: &str, span: Span) -> Self {
         let message = match found {
-            Some(token) => format!("unexpected {:?} {}", token, context),
+            Some(token) => format!("unexpected '{}' {}", token, context),
             None => format!("unexpected end of input {}", context),
         };
         Self {
