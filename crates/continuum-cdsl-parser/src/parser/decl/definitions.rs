@@ -172,12 +172,24 @@ pub(super) fn parse_const_block(stream: &mut TokenStream) -> Result<Declaration,
     let mut entries = Vec::new();
 
     while !matches!(stream.peek(), Some(Token::RBrace)) {
-        let (path, type_expr, value, span) = parse_const_or_config_entry(stream, false)?;
+        // Skip doc comments inside const blocks
+        while matches!(stream.peek(), Some(Token::DocComment(_))) {
+            stream.advance();
+        }
+
+        if matches!(stream.peek(), Some(Token::RBrace)) {
+            break;
+        }
+
+        let (path, type_expr, default, span) = parse_const_or_config_entry(stream, false)?;
+
+        // Const blocks always require a value (allow_missing_value = false)
+        let value = default.expect("const entry must have a value");
 
         entries.push(ConstEntry {
             path,
-            value: value.expect("const value must be present"),
             type_expr,
+            value,
             span,
             doc: None,
         });
@@ -196,6 +208,15 @@ pub(super) fn parse_config_block(stream: &mut TokenStream) -> Result<Declaration
     let mut entries = Vec::new();
 
     while !matches!(stream.peek(), Some(Token::RBrace)) {
+        // Skip doc comments inside config blocks
+        while matches!(stream.peek(), Some(Token::DocComment(_))) {
+            stream.advance();
+        }
+
+        if matches!(stream.peek(), Some(Token::RBrace)) {
+            break;
+        }
+
         let (path, type_expr, default, span) = parse_const_or_config_entry(stream, true)?;
 
         entries.push(ConfigEntry {

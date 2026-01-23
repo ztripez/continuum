@@ -24,6 +24,15 @@ pub fn parse_declarations(stream: &mut TokenStream) -> Result<Vec<Declaration>, 
     let mut errors = Vec::new();
 
     while !stream.at_end() {
+        // Skip doc comments at declaration level (not yet attached to declarations)
+        while matches!(stream.peek(), Some(Token::DocComment(_))) {
+            stream.advance();
+        }
+
+        if stream.at_end() {
+            break;
+        }
+
         match parse_declaration(stream) {
             Ok(decl) => declarations.push(decl),
             Err(e) => {
