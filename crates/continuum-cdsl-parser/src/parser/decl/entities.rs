@@ -89,23 +89,7 @@ fn parse_entity_member(
     let type_expr = super::super::helpers::try_parse_type_expr(stream)?;
     attributes.extend(super::super::helpers::parse_attributes(stream)?);
 
-    let when = if matches!(stream.peek(), Some(Token::When)) {
-        Some(super::super::blocks::parse_when_block(stream)?)
-    } else {
-        None
-    };
-
-    let warmup = if matches!(stream.peek(), Some(Token::WarmUp)) {
-        Some(super::super::blocks::parse_warmup_block(stream)?)
-    } else {
-        None
-    };
-
-    let observe = if matches!(stream.peek(), Some(Token::Observe)) {
-        Some(super::super::blocks::parse_observe_block(stream)?)
-    } else {
-        None
-    };
+    let special = super::super::helpers::parse_special_blocks(stream)?;
 
     let execution_blocks = super::super::blocks::parse_execution_blocks(stream)?;
     stream.expect(Token::RBrace)?;
@@ -114,9 +98,9 @@ fn parse_entity_member(
     let mut node = Node::new(member_path, stream.span_from(start), role, entity_id);
     node.attributes = attributes;
     node.type_expr = type_expr;
-    node.when = when;
-    node.warmup = warmup;
-    node.observe = observe;
+    node.when = special.when;
+    node.warmup = special.warmup;
+    node.observe = special.observe;
     node.execution_blocks = execution_blocks;
 
     Ok(node)

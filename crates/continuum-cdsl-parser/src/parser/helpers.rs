@@ -3,7 +3,7 @@
 ///! This module contains reusable parsing patterns that appear multiple times
 ///! throughout the parser codebase.
 use crate::parser::{error::ParseError, stream::TokenStream, token_utils, types};
-use continuum_cdsl_ast::{Attribute, TypeExpr};
+use continuum_cdsl_ast::{Attribute, ObserveBlock, TypeExpr, WarmupBlock, WhenBlock};
 use continuum_cdsl_lexer::Token;
 
 /// Attempts to parse a type expression preceded by a colon.
@@ -83,4 +83,69 @@ pub fn parse_attributes(stream: &mut TokenStream) -> Result<Vec<Attribute>, Pars
         attributes.push(super::decl::parse_attribute(stream)?);
     }
     Ok(attributes)
+}
+
+/// Container for optional special blocks (when, warmup, observe).
+///
+/// Used when parsing node bodies that may contain these blocks.
+#[derive(Debug, Default)]
+pub struct SpecialBlocks {
+    pub when: Option<WhenBlock>,
+    pub warmup: Option<WarmupBlock>,
+    pub observe: Option<ObserveBlock>,
+}
+
+/// Parses optional special blocks in a fixed order.
+///
+/// Special blocks are:
+/// - `when { }` — Condition blocks
+/// - `warmup { }` — Pre-simulation equilibration
+/// - `observe { }` — Observer-only logic
+///
+/// # Order
+///
+/// Blocks must appear in this order (if present):
+/// 1. when
+/// 2. warmup
+/// 3. observe
+///
+/// All blocks are optional.
+///
+/// # Returns
+///
+/// `SpecialBlocks` struct with parsed blocks (None if not present).
+///
+/// # Example
+///
+/// ```cdsl
+/// signal x {
+///     when { condition }
+///     warmup { : iterations(10) iterate { ... } }
+///     resolve { ... }
+/// }
+/// ```
+pub fn parse_special_blocks(stream: &mut TokenStream) -> Result<SpecialBlocks, ParseError> {
+    let when = if matches!(stream.peek(), Some(Token::When)) {
+        Some(super::blocks::parse_when_block(stream)?)
+    } else {
+        None
+    };
+
+    let warmup = if matches!(stream.peek(), Some(Token::WarmUp)) {
+        Some(super::blocks::parse_warmup_block(stream)?)
+    } else {
+        None
+    };
+
+    let observe = if matches!(stream.peek(), Some(Token::Observe)) {
+        Some(super::blocks::parse_observe_block(stream)?)
+    } else {
+        None
+    };
+
+    Ok(SpecialBlocks {
+        when,
+        warmup,
+        observe,
+    })
 }
