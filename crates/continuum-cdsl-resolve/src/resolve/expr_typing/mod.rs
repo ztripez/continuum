@@ -355,14 +355,18 @@ mod bare_path_integration_tests {
         let mut signal_types = HashMap::new();
         signal_types.insert(Path::from_path_str("temperature"), scalar_type());
 
-        let kernels = KernelRegistry::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let kernels = KernelRegistry::global();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
         let ctx = TypingContext::new(
-            &crate::resolve::types::TypeTable::new(),
-            &kernels,
+            &type_table,
+            kernels,
             &signal_types,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
+            &field_types,
+            &config_types,
+            &const_types,
         );
 
         let result = type_expression(&expr, &ctx);
@@ -387,14 +391,18 @@ mod bare_path_integration_tests {
         let mut signal_types = HashMap::new();
         signal_types.insert(Path::from_path_str("core.temp"), scalar_type());
 
-        let kernels = KernelRegistry::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let kernels = KernelRegistry::global();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
         let ctx = TypingContext::new(
-            &crate::resolve::types::TypeTable::new(),
-            &kernels,
+            &type_table,
+            kernels,
             &signal_types,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
+            &field_types,
+            &config_types,
+            &const_types,
         );
 
         let result = type_expression(&expr, &ctx);
@@ -421,14 +429,18 @@ mod bare_path_integration_tests {
         let mut field_types = HashMap::new();
         field_types.insert(Path::from_path_str("observation.value"), scalar_type());
 
-        let kernels = KernelRegistry::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let kernels = KernelRegistry::global();
+        let signal_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
         let ctx = TypingContext::new(
-            &crate::resolve::types::TypeTable::new(),
-            &kernels,
-            &HashMap::new(),
+            &type_table,
+            kernels,
+            &signal_types,
             &field_types,
-            &HashMap::new(),
-            &HashMap::new(),
+            &config_types,
+            &const_types,
         );
 
         let result = type_expression(&expr, &ctx);
@@ -453,14 +465,18 @@ mod bare_path_integration_tests {
         let mut signal_types = HashMap::new();
         signal_types.insert(Path::from_path_str("core.temp"), scalar_type());
 
-        let kernels = KernelRegistry::new();
+        let type_table = crate::resolve::types::TypeTable::new();
+        let kernels = KernelRegistry::global();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
         let mut ctx = TypingContext::new(
-            &crate::resolve::types::TypeTable::new(),
-            &kernels,
+            &type_table,
+            kernels,
             &signal_types,
-            &HashMap::new(),
-            &HashMap::new(),
-            &HashMap::new(),
+            &field_types,
+            &config_types,
+            &const_types,
         );
 
         // Add `core` as a local variable (struct type would be needed for proper test)

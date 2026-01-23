@@ -409,7 +409,7 @@ mod tests {
             span: make_span(),
         });
 
-        let errors = validate_node_integrator(&node, &registry);
+        let errors = validate_node_integrator(&mut node, &registry);
 
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("integrator mismatch"));
@@ -450,7 +450,7 @@ mod tests {
             span: make_span(),
         });
 
-        let errors = validate_node_integrator(&node, &registry);
+        let errors = validate_node_integrator(&mut node, &registry);
 
         assert!(errors.is_empty());
     }
@@ -480,7 +480,7 @@ mod tests {
             span: make_span(),
         });
 
-        let errors = validate_node_integrator(&node, &registry);
+        let errors = validate_node_integrator(&mut node, &registry);
 
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].kind, ErrorKind::MissingIntegratorHint);
@@ -489,12 +489,14 @@ mod tests {
 
     // Helper to make execution with integration call
     fn make_execution(method: &str) -> Execution {
+        // Leak string for test (acceptable in test code)
+        let method_name: &'static str = Box::leak(format!("integrate_{}", method).into_boxed_str());
         Execution {
             name: "resolve".to_string(),
             phase: Phase::Resolve,
             body: ExecutionBody::Expr(TypedExpr::new(
                 ExprKind::Call {
-                    kernel: KernelId::new("dt", &format!("integrate_{}", method)),
+                    kernel: KernelId::new("dt", method_name),
                     args: vec![],
                 },
                 Type::kernel(Shape::Scalar, Unit::dimensionless(), None),

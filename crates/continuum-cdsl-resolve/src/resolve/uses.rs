@@ -935,7 +935,7 @@ mod tests {
         let prev_expr = Expr::new(UntypedKind::Prev, span);
         let dt_expr = Expr::new(
             UntypedKind::Call {
-                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                func: Path::from_path_str("dt.raw"),
                 args: vec![],
             },
             span,
@@ -970,7 +970,7 @@ mod tests {
         let prev_expr = Expr::new(UntypedKind::Prev, span);
         let dt_expr = Expr::new(
             UntypedKind::Call {
-                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                func: Path::from_path_str("dt.raw"),
                 args: vec![],
             },
             span,
@@ -1049,7 +1049,7 @@ mod tests {
         // when { dt > 0.1 }
         let dt_expr = Expr::new(
             UntypedKind::Call {
-                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                func: Path::from_path_str("dt.raw"),
                 args: vec![],
             },
             span,
@@ -1144,7 +1144,7 @@ mod tests {
         // warmup { iterate { let x = dt in x + prev } }
         let dt_value = Expr::new(
             UntypedKind::Call {
-                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                func: Path::from_path_str("dt.raw"),
                 args: vec![],
             },
             span,
@@ -1189,7 +1189,7 @@ mod tests {
         // when { if dt > 0.1 { true } else { false } }
         let dt_expr = Expr::new(
             UntypedKind::Call {
-                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                func: Path::from_path_str("dt.raw"),
                 args: vec![],
             },
             span,
@@ -1296,7 +1296,7 @@ mod tests {
         // Desugared form: maths.add(prev, dt) as KernelCall
         let dt_expr = Expr::new(
             UntypedKind::Call {
-                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                func: Path::from_path_str("dt.raw"),
                 args: vec![],
             },
             span,
@@ -1336,7 +1336,7 @@ mod tests {
         // -dt.raw() (dt is now a pure namespace)
         let dt_expr = Expr::new(
             UntypedKind::Call {
-                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                func: Path::from_path_str("dt.raw"),
                 args: vec![],
             },
             span,
