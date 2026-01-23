@@ -4,14 +4,23 @@ Terra is an Earth-like planet simulation in `examples/terra/`
 
 ## Method 1: Web Inspector (Recommended)
 
+The inspector uses IPC to connect to a running simulation. You need two terminals:
+
+**Terminal 1 - Start simulation in IPC mode:**
 ```bash
-cargo run -p continuum_inspector -- examples/terra
+cargo run --bin continuum-run -- examples/terra
 ```
 
-This starts a web server with an interactive UI for:
-- Running simulations step-by-step
-- Visualizing fields and signals
-- Inspecting world state
+**Terminal 2 - Start web inspector:**
+```bash
+cargo run --bin continuum_inspector
+```
+
+**Browser:**
+Open http://localhost:8080 for interactive UI:
+- Run simulations step-by-step
+- Visualize fields and signals
+- Inspect world state
 
 **Note:** First compile takes ~5-10 minutes due to the large codebase.
 
@@ -48,18 +57,7 @@ cargo test -p continuum-tools run_terra --release -- --nocapture
 
 ## Scenarios
 
-Terra supports different initial conditions:
-
-```bash
-# Default modern Earth
-cargo run -p continuum_inspector -- examples/terra --scenario default
-
-# Early Earth (high volcanic activity)
-cargo run -p continuum_inspector -- examples/terra --scenario early_earth
-
-# Cold start (frozen planet)
-cargo run -p continuum_inspector -- examples/terra --scenario cold_start
-```
+Terra supports different initial conditions (feature not yet implemented in IPC mode)
 
 ## Validation Tests
 
