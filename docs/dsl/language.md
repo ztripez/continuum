@@ -88,7 +88,92 @@ Dependencies are inferred, not declared manually.
 
 ---
 
-## 5. Identifiers and Namespacing
+## 5. Config and Const Blocks
+
+### 5.1 Const Block
+
+A `const` block declares **global simulation constants**.
+
+```cdsl
+const {
+    physics.boltzmann: 1.380649e-23 <J/K>
+    physics.speed_of_light: 299792458 <m/s>
+    physics.stefan_boltzmann: 5.67e-8
+}
+```
+
+Const values:
+- Are immutable global constants
+- Never change during execution
+- Are NOT overridable by scenarios
+- Are loaded once during world initialization (lifecycle stage 4)
+- Must be compile-time literals (Scalar or Vec3 with literal components)
+- Are accessible via `load_const("path")` in all execution phases
+
+**Non-literal expressions are forbidden:**
+
+```cdsl
+const {
+    valid: 42.0                    // ✓ Literal scalar
+    valid_vec: [1.0, 2.0, 3.0]    // ✓ Literal Vec3
+    invalid: 1.0 + 2.0             // ✗ Kernel call - PANIC
+    invalid_ref: config.base       // ✗ Reference - PANIC
+}
+```
+
+Attempting to use non-literal expressions causes `build_runtime()` to panic with
+a clear error message identifying the problematic const path.
+
+### 5.2 Config Block
+
+A `config` block declares **configuration parameters with world defaults**.
+
+```cdsl
+config {
+    thermal.decay_halflife: 1.42e17 <s>
+    thermal.initial_temp: 5500.0 <K>
+    thermal.coupling_factor: 0.01
+}
+```
+
+Config values:
+- Define world-level default parameters
+- Scenarios may override config values (const values are NOT overridable)
+- Are frozen at scenario application (lifecycle stage 4)
+- Remain immutable during execution
+- Must be compile-time literals (Scalar or Vec3 with literal components)
+- Are accessible via `load_config("path")` in all execution phases
+
+**Config vs Const:**
+
+| Feature | Config | Const |
+|---------|--------|-------|
+| **Overridable** | ✓ Scenarios may override | ✗ Never overridable |
+| **Use case** | Parameterizing simulations | Physical constants |
+| **Mutability** | Frozen at scenario load | Frozen at world load |
+| **Example** | Decay rates, thresholds | Boltzmann constant, π |
+
+**Usage in DSL:**
+
+```cdsl
+signal core.temp {
+    : Scalar<K>
+    
+    resolve {
+        let gravity = load_config("physics.gravity")
+        let boltzmann = load_const("physics.boltzmann")
+        
+        prev * boltzmann / gravity
+    }
+}
+```
+
+Both `load_config()` and `load_const()` return frozen values and are available
+in all execution phases. They are NOT signals (no prev/current distinction).
+
+---
+
+## 6. Identifiers and Namespacing
 
 All identifiers are:
 - lowercase
@@ -109,7 +194,7 @@ They are part of replay identity.
 
 ---
 
-## 6. Phases and Execution Context
+## 7. Phases and Execution Context
 
 Every executable declaration is associated with a **phase**.
 
@@ -128,7 +213,7 @@ compilation fails.
 
 ---
 
-## 7. Signals
+## 8. Signals
 
 A `signal` declares an **authoritative, resolved value**.
 
@@ -141,7 +226,7 @@ Signals:
 Signals do not mutate directly.
 They resolve from inputs.
 
-### 7.1 Dangerous Function Declarations
+### 8.1 Dangerous Function Declarations
 
 Some kernel functions are considered dangerous because they silently mask errors or hide problems (violating principle 7: "Fail Hard, Never Mask Errors"). These functions require explicit opt-in via `: uses()` declarations.
 
@@ -188,7 +273,7 @@ signal terra.surface.albedo {
 
 ---
 
-## 8. Operators
+## 9. Operators
 
 An `operator` declares an executable logic block.
 
@@ -202,7 +287,7 @@ Operators exist to express logic that does not belong inside a signal resolver.
 
 ---
 
-## 9. Fields
+## 10. Fields
 
 A `field` declares **observable data**.
 
@@ -217,7 +302,7 @@ Fields must never influence causality.
 
 ---
 
-## 10. Impulses
+## 11. Impulses
 
 An `impulse` declares an **external causal input**.
 
@@ -233,7 +318,7 @@ Impulses are part of the causal model.
 
 ---
 
-## 11. Fractures
+## 12. Fractures
 
 A `fracture` declares an **emergent tension detector**.
 
@@ -253,7 +338,7 @@ They respond to emergent state.
 
 ---
 
-## 12. Chronicles
+## 13. Chronicles
 
 A `chronicle` declares an **observer-only interpretation rule**.
 
@@ -269,7 +354,7 @@ Chronicles exist outside causality.
 
 ---
 
-## 13. Analyzers
+## 14. Analyzers
 
 An `analyzer` declares a **post-hoc analysis query on field snapshots**.
 
@@ -287,7 +372,7 @@ Analyzers are pure observers that run outside the simulation loop on captured fi
 
 ---
 
-## 14. Expressions
+## 15. Expressions
 
 DSL expressions are:
 - pure
@@ -306,7 +391,7 @@ Expressions must not:
 
 ---
 
-## 15. Kernel Functions
+## 16. Kernel Functions
 
 The DSL may call namespaced kernel functions (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`, `stats.*`).
 
@@ -328,7 +413,7 @@ Analyzer-specific kernels (available only in analyzer compute blocks):
 
 ---
 
-## 16. Type System
+## 17. Type System
 
 The DSL is statically typed.
 
@@ -343,7 +428,7 @@ If a value cannot be typed, compilation fails.
 
 ---
 
-## 17. Dependency Inference
+## 18. Dependency Inference
 
 Dependencies are inferred by analyzing reads and writes.
 
@@ -361,7 +446,7 @@ Analyzers declare field requirements explicitly via `: requires(fields: [...])`.
 
 ---
 
-## 18. Errors and Assertions
+## 19. Errors and Assertions
 
 The DSL supports explicit assertions.
 
@@ -376,7 +461,7 @@ Silent correction is forbidden by default.
 
 ---
 
-## 19. What the DSL Must Never Do
+## 20. What the DSL Must Never Do
 
 The DSL must never:
 - mutate state outside declared outputs
@@ -390,7 +475,7 @@ it does not belong in the DSL.
 
 ---
 
-## 20. Summary
+## 21. Summary
 
 - The DSL declares causal structure
 - It is declarative and analyzable

@@ -97,15 +97,47 @@ A **Scenario** is applied to the World to produce a concrete run configuration.
 This stage includes:
 - applying initial signal values
 - applying signal parameters and constants
+- **loading and freezing config/const values**
 - validating scenario-defined bounds and assertions
 - fixing all instantiation-time choices
+
+### Config and Const Loading
+
+During scenario application, configuration and constant values are extracted from
+DSL declarations and frozen in the runtime execution context:
+
+**Const Values** (`const {}` blocks):
+- Global simulation constants that never change
+- Loaded from `value` field in `ConstEntry` declarations
+- NOT overridable by scenarios (immutable across all runs)
+- Must be compile-time literals (Scalar or Vec3 with literal components)
+- Example: `const { physics.stefan_boltzmann: 5.67e-8 }`
+
+**Config Values** (`config {}` blocks):
+- Configuration parameters with world-provided defaults
+- Loaded from `default` field in `ConfigEntry` declarations
+- Scenarios may override config values (but not const values)
+- Must be compile-time literals (Scalar or Vec3 with literal components)
+- Example: `config { thermal.decay_halflife: 1.42e17 }`
+
+Both config and const values are:
+- Extracted during `build_runtime()` function execution
+- Stored in `HashMap<Path, Value>` in the bytecode executor
+- Frozen before warmup begins
+- Available to all execution phases as immutable context
+- Never recomputed or modified after loading
+
+If a config or const declaration contains a non-literal expression (kernel calls,
+references, operators), `build_runtime()` panics with a clear error message
+(enforcing the Fail Loudly principle).
 
 Scenario application:
 - does not advance time
 - does not execute logic
 - does not produce causal history
 
-After this stage, the run has a fully specified **initial state**.
+After this stage, the run has a fully specified **initial state** with frozen
+config/const values.
 
 ---
 
