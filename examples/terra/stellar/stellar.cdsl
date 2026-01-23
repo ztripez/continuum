@@ -691,7 +691,7 @@ impulse.stellar.impact {
         rotation_coupling_factor: 1e-30   # Angular momentum transfer efficiency
     }
 
-    apply {
+    collect {
         # Compute impact energy: KE = 0.5 * m * v²
         let energy_j = 0.5 * payload.impactor_mass * payload.velocity * payload.velocity
 
@@ -755,7 +755,7 @@ impulse.stellar.orbital_change {
         min_significant_precession: 0.05  # ~2.9 degrees
     }
 
-    apply {
+    collect {
         # Clamp external impulse inputs to safety bounds to prevent simulation instability.
         # These are external inputs (not internal simulation state), so clamping is legitimate
         # to protect the simulation from bad external data.

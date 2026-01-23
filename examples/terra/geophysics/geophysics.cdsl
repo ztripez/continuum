@@ -191,8 +191,8 @@ signal.planet.radius {
     }
 
     assert {
-        prev >= 1e6 : fatal, "Planet radius below minimum"
-        prev <= 1e8 : fatal, "Planet radius above maximum"
+        prev >= 1e6 <m> : fatal, "Planet radius below minimum"
+        prev <= 1e8 <m> : fatal, "Planet radius above maximum"
     }
 }
 
@@ -207,8 +207,8 @@ signal.planet.mass {
     }
 
     assert {
-        prev >= 1e22 : fatal, "Planet mass below minimum"
-        prev <= 1e28 : fatal, "Planet mass above maximum"
+        prev >= 1e22 <kg> : fatal, "Planet mass below minimum"
+        prev <= 1e28 <kg> : fatal, "Planet mass above maximum"
     }
 }
 
@@ -2148,7 +2148,7 @@ impulse.tectonics.plate_collision {
         min_significant_energy_j: 1.0e18
     }
 
-    apply {
+    collect {
         # Only process collisions above threshold
         if payload.energy > config.impulse.tectonics.plate_collision.min_significant_energy_j {
             # Collision energy contributes to mountain building rate (m/Myr)
@@ -2198,7 +2198,7 @@ impulse.tectonics.volcanic {
         min_eruption_heat_j: 1.0e12
     }
 
-    apply {
+    collect {
         if payload.heat_j > config.impulse.tectonics.volcanic.min_eruption_heat_j {
             # Heat deposited increases local thermal budget
             let surface_heat =
