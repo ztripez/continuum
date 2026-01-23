@@ -144,7 +144,7 @@ mod tests {
         Span::new(0, 0, 10, 1)
     }
 
-    fn assertion_assertion_test_scalar_type() -> Type {
+    fn assertion_scalar_type() -> Type {
         Type::Kernel(KernelType {
             shape: Shape::Scalar,
             unit: Unit::DIMENSIONLESS,
@@ -152,56 +152,25 @@ mod tests {
         })
     }
 
-    fn assertion_assertion_test_bool_type() -> Type {
+    fn assertion_bool_type() -> Type {
         Type::Bool
     }
 
-    fn assertion_assertion_test_make_bool_expr(value: bool) -> TypedExpr {
+    fn assertion_make_bool_expr(value: bool) -> TypedExpr {
         TypedExpr::new(
             ExprKind::BoolLiteral(value),
-            assertion_test_bool_type(),
+            assertion_bool_type(),
             test_span(),
         )
     }
 
-    fn assertion_assertion_test_make_scalar_expr() -> TypedExpr {
+    fn assertion_make_scalar_expr() -> TypedExpr {
         TypedExpr::new(
             ExprKind::Literal {
                 value: 42.0,
                 unit: None,
             },
-            assertion_test_scalar_type(),
-            test_span(),
-        )
-    }
-
-    fn assertion_assertion_test_scalar_type() -> Type {
-        Type::Kernel(KernelType {
-            shape: Shape::Scalar,
-            unit: Unit::DIMENSIONLESS,
-            bounds: None,
-        })
-    }
-
-    fn assertion_assertion_test_bool_type() -> Type {
-        Type::Bool
-    }
-
-    fn assertion_assertion_test_make_bool_expr(value: bool) -> TypedExpr {
-        TypedExpr::new(
-            ExprKind::BoolLiteral(value),
-            assertion_test_bool_type(),
-            test_span(),
-        )
-    }
-
-    fn assertion_assertion_test_make_scalar_expr() -> TypedExpr {
-        TypedExpr::new(
-            ExprKind::Literal {
-                value: 42.0,
-                unit: None,
-            },
-            assertion_test_scalar_type(),
+            assertion_scalar_type(),
             test_span(),
         )
     }
@@ -214,7 +183,7 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         let assert_stmt = TypedStmt::Assert {
-            condition: assertion_test_make_bool_expr(true),
+            condition: assertion_make_bool_expr(true),
             severity: None,
             message: None,
             span,
@@ -248,7 +217,7 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Operator, ());
 
         let assert_stmt = TypedStmt::Assert {
-            condition: assertion_test_make_bool_expr(true),
+            condition: assertion_make_bool_expr(true),
             severity: None,
             message: None,
             span,
@@ -282,7 +251,7 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         let assert_stmt = TypedStmt::Assert {
-            condition: assertion_test_make_bool_expr(true),
+            condition: assertion_make_bool_expr(true),
             severity: None,
             message: None,
             span,
@@ -316,7 +285,7 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Field, ());
 
         let assert_stmt = TypedStmt::Assert {
-            condition: assertion_test_make_bool_expr(true),
+            condition: assertion_make_bool_expr(true),
             severity: None,
             message: None,
             span,
@@ -356,7 +325,7 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Operator, ());
 
         let assert_stmt = TypedStmt::Assert {
-            condition: assertion_test_make_bool_expr(true),
+            condition: assertion_make_bool_expr(true),
             severity: None,
             message: None,
             span,
@@ -393,7 +362,7 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         let assert_stmt = TypedStmt::Assert {
-            condition: assertion_test_make_scalar_expr(), // Wrong type: Scalar instead of Bool
+            condition: assertion_make_scalar_expr(), // Wrong type: Scalar instead of Bool
             severity: None,
             message: None,
             span,
@@ -433,7 +402,7 @@ mod tests {
             let mut node = Node::new(path, span, RoleData::Signal, ());
 
             let assert_stmt = TypedStmt::Assert {
-                condition: assertion_test_make_bool_expr(true),
+                condition: assertion_make_bool_expr(true),
                 severity: Some(severity.to_string()),
                 message: None,
                 span,
@@ -465,7 +434,7 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         let assert_stmt = TypedStmt::Assert {
-            condition: assertion_test_make_bool_expr(true),
+            condition: assertion_make_bool_expr(true),
             severity: Some("critical".to_string()), // Invalid severity
             message: None,
             span,
@@ -502,7 +471,7 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         let assert_stmt = TypedStmt::Assert {
-            condition: assertion_test_make_bool_expr(true),
+            condition: assertion_make_bool_expr(true),
             severity: Some("error".to_string()),
             message: Some("Temperature out of bounds".to_string()),
             span,
@@ -536,21 +505,21 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         let assert1 = TypedStmt::Assert {
-            condition: assertion_test_make_bool_expr(true),
+            condition: assertion_make_bool_expr(true),
             severity: Some("warn".to_string()),
             message: None,
             span,
         };
 
         let assert2 = TypedStmt::Assert {
-            condition: assertion_test_make_scalar_expr(), // Invalid: non-Bool
+            condition: assertion_make_scalar_expr(), // Invalid: non-Bool
             severity: Some("error".to_string()),
             message: None,
             span,
         };
 
         let assert3 = TypedStmt::Assert {
-            condition: assertion_test_make_bool_expr(true),
+            condition: assertion_make_bool_expr(true),
             severity: Some("invalid_level".to_string()), // Invalid severity
             message: None,
             span,

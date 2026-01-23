@@ -567,7 +567,16 @@ mod tests {
     #[test]
     fn test_collect_dt_usage() {
         let span = make_span();
-        let expr = TypedExpr::new(ExprKind::Dt, Type::Bool, span);
+        // dt is now accessed via kernel namespace (e.g. dt.raw())
+        let kernel_id = continuum_kernel_types::KernelId::new("dt", "raw");
+        let expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: kernel_id,
+                args: vec![],
+            },
+            Type::Bool,
+            span,
+        );
 
         let registry = KernelRegistry::global();
         let mut required = Vec::new();
@@ -688,8 +697,16 @@ mod tests {
     fn test_nested_expression_finds_dt_in_call() {
         let span = make_span();
 
-        // maths.add(prev, dt) - kernel call containing Dt
-        let dt_expr = TypedExpr::new(ExprKind::Dt, Type::Bool, span);
+        // maths.add(prev, dt.raw()) - kernel call containing dt access
+        let kernel_id = continuum_kernel_types::KernelId::new("dt", "raw");
+        let dt_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: kernel_id,
+                args: vec![],
+            },
+            Type::Bool,
+            span,
+        );
         let prev_expr = TypedExpr::new(ExprKind::Prev, Type::Bool, span);
 
         let call = TypedExpr::new(
@@ -830,8 +847,16 @@ mod tests {
         // Create node with BOTH clamp AND dt usage but NO declarations
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
-        // clamp(dt, 0.0, 1.0) - triggers both maths.clamping AND dt.raw
-        let dt_expr = TypedExpr::new(ExprKind::Dt, Type::Bool, span);
+        // clamp(dt.raw(), 0.0, 1.0) - triggers both maths.clamping AND dt.raw
+        let kernel_id = continuum_kernel_types::KernelId::new("dt", "raw");
+        let dt_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: kernel_id,
+                args: vec![],
+            },
+            Type::Bool,
+            span,
+        );
         let min = TypedExpr::new(
             ExprKind::Literal {
                 value: 0.0,
@@ -908,7 +933,13 @@ mod tests {
 
         // warmup { iterate { prev + dt } }
         let prev_expr = Expr::new(UntypedKind::Prev, span);
-        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let dt_expr = Expr::new(
+            UntypedKind::Call {
+                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                args: vec![],
+            },
+            span,
+        );
         let add_expr = Expr::binary(continuum_cdsl_ast::BinaryOp::Add, prev_expr, dt_expr, span);
 
         node.warmup = Some(WarmupBlock {
@@ -937,7 +968,13 @@ mod tests {
 
         // warmup { iterate { prev + dt } }
         let prev_expr = Expr::new(UntypedKind::Prev, span);
-        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let dt_expr = Expr::new(
+            UntypedKind::Call {
+                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                args: vec![],
+            },
+            span,
+        );
         let add_expr = Expr::binary(continuum_cdsl_ast::BinaryOp::Add, prev_expr, dt_expr, span);
 
         node.warmup = Some(WarmupBlock {
@@ -1010,7 +1047,13 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Fracture, ());
 
         // when { dt > 0.1 }
-        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let dt_expr = Expr::new(
+            UntypedKind::Call {
+                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                args: vec![],
+            },
+            span,
+        );
         let threshold = Expr::new(
             UntypedKind::Literal {
                 value: 0.1,
@@ -1099,7 +1142,13 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         // warmup { iterate { let x = dt in x + prev } }
-        let dt_value = Expr::new(UntypedKind::Dt, span);
+        let dt_value = Expr::new(
+            UntypedKind::Call {
+                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                args: vec![],
+            },
+            span,
+        );
         let x_local = Expr::new(UntypedKind::Local("x".to_string()), span);
         let prev_expr = Expr::new(UntypedKind::Prev, span);
         let body = Expr::binary(continuum_cdsl_ast::BinaryOp::Add, x_local, prev_expr, span);
@@ -1138,7 +1187,13 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Fracture, ());
 
         // when { if dt > 0.1 { true } else { false } }
-        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let dt_expr = Expr::new(
+            UntypedKind::Call {
+                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                args: vec![],
+            },
+            span,
+        );
         let threshold = Expr::new(
             UntypedKind::Literal {
                 value: 0.1,
@@ -1239,7 +1294,13 @@ mod tests {
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
         // Desugared form: maths.add(prev, dt) as KernelCall
-        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        let dt_expr = Expr::new(
+            UntypedKind::Call {
+                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                args: vec![],
+            },
+            span,
+        );
         let prev_expr = Expr::new(UntypedKind::Prev, span);
         let kernel_call = Expr::new(
             UntypedKind::KernelCall {
@@ -1272,8 +1333,14 @@ mod tests {
         let path = Path::from_path_str("test.signal");
         let mut node = Node::new(path, span, RoleData::Signal, ());
 
-        // -dt
-        let dt_expr = Expr::new(UntypedKind::Dt, span);
+        // -dt.raw() (dt is now a pure namespace)
+        let dt_expr = Expr::new(
+            UntypedKind::Call {
+                func: Box::new(Expr::new(UntypedKind::Local("dt.raw".to_string()), span)),
+                args: vec![],
+            },
+            span,
+        );
         let neg_expr = Expr::unary(continuum_cdsl_ast::UnaryOp::Neg, dt_expr, span);
 
         node.warmup = Some(WarmupBlock {
