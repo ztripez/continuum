@@ -50,6 +50,22 @@ async fn main() {
 
     let intent = RunWorldIntent::new(source, cli.steps);
 
+    // If steps > 0, run headless and exit
+    if cli.steps > 0 {
+        info!("Running {} steps (headless mode)...", cli.steps);
+        match intent.execute() {
+            Ok(_report) => {
+                info!("Simulation completed successfully");
+                std::process::exit(0);
+            }
+            Err(e) => {
+                error!("Simulation failed:\n{}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    // steps == 0: Start IPC server for interactive mode
     info!("Creating simulation server...");
     let server = match SimulationServer::new(intent) {
         Ok(s) => s,
