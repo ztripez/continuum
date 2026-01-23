@@ -655,18 +655,6 @@ signal stellar.moon_count {
     }
 }
 
-# Primary star variability (convenience signal for atmosphere coupling)
-signal stellar.primary_variability_factor {
-    : Scalar<1, 0.5..2.0>
-    : strata(stellar.orbit)  # Same stratum as the member it reads
-    : title("Primary Star Variability")
-    : symbol("f_var_0")
-
-    resolve {
-        entity.stellar.star.at(0).variability_factor
-    }
-}
-
 # =============================================================================
 # Stellar Impulses
 # =============================================================================
