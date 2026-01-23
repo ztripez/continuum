@@ -387,14 +387,31 @@ fn collect_node_types(globals: &[Node<()>], members: &[Node<EntityId>]) -> HashM
     map
 }
 
-/// Collect types for config entries.
+/// Generic helper to collect types from entries with optional inference.
 ///
-/// Resolves TypeExpr to Type for each config entry and builds a lookup map.
-/// If TypeExpr is Infer, infers type from default value expression.
-fn collect_config_types(
-    entries: &[ConfigEntry],
+/// This helper deduplicates the type collection logic for config and const entries.
+///
+/// # Type Parameters
+///
+/// * `T` - Entry type (ConfigEntry or ConstEntry)
+/// * `F` - Function type for extracting the value expression for inference
+///
+/// # Arguments
+///
+/// * `entries` - Slice of entries to process
+/// * `type_table` - Type table for resolving explicit TypeExpr
+/// * `get_value_expr` - Function that extracts the value expression for inference
+/// * `entry_kind` - String describing the entry kind ("Config" or "Const") for error messages
+fn collect_types_generic<T, F>(
+    entries: &[T],
     type_table: &TypeTable,
-) -> Result<HashMap<Path, Type>, Vec<CompileError>> {
+    get_value_expr: F,
+    entry_kind: &str,
+) -> Result<HashMap<Path, Type>, Vec<CompileError>>
+where
+    T: HasTypeInfo,
+    F: Fn(&T) -> Option<&Expr>,
+{
     use crate::resolve::types::{infer_type_from_expr, resolve_type_expr};
     use continuum_cdsl_ast::TypeExpr;
 
@@ -402,10 +419,10 @@ fn collect_config_types(
     let mut errors = Vec::new();
 
     for entry in entries {
-        let ty = if matches!(entry.type_expr, TypeExpr::Infer) {
-            // Type inference from default value
-            if let Some(default_expr) = &entry.default {
-                match infer_type_from_expr(default_expr, entry.span) {
+        let ty = if matches!(entry.type_expr(), TypeExpr::Infer) {
+            // Type inference from value expression (literal expressions only)
+            if let Some(value_expr) = get_value_expr(entry) {
+                match infer_type_from_expr(value_expr, entry.span()) {
                     Ok(ty) => ty,
                     Err(e) => {
                         errors.push(e);
@@ -415,17 +432,18 @@ fn collect_config_types(
             } else {
                 errors.push(CompileError::new(
                     crate::error::ErrorKind::TypeMismatch,
-                    entry.span,
+                    entry.span(),
                     format!(
-                        "Config entry '{}' requires explicit type or default value for inference",
-                        entry.path
+                        "{} entry '{}' requires explicit type or default value for inference",
+                        entry_kind,
+                        entry.path()
                     ),
                 ));
                 continue;
             }
         } else {
             // Explicit type
-            match resolve_type_expr(&entry.type_expr, type_table, entry.span) {
+            match resolve_type_expr(entry.type_expr(), type_table, entry.span()) {
                 Ok(ty) => ty,
                 Err(e) => {
                     errors.push(e);
@@ -434,7 +452,7 @@ fn collect_config_types(
             }
         };
 
-        map.insert(entry.path.clone(), ty);
+        map.insert(entry.path().clone(), ty);
     }
 
     if errors.is_empty() {
@@ -444,49 +462,98 @@ fn collect_config_types(
     }
 }
 
+/// Trait for extracting type information from config/const entries.
+trait HasTypeInfo {
+    fn type_expr(&self) -> &continuum_cdsl_ast::TypeExpr;
+    fn span(&self) -> continuum_cdsl_ast::foundation::Span;
+    fn path(&self) -> &Path;
+}
+
+impl HasTypeInfo for ConfigEntry {
+    fn type_expr(&self) -> &continuum_cdsl_ast::TypeExpr {
+        &self.type_expr
+    }
+    fn span(&self) -> continuum_cdsl_ast::foundation::Span {
+        self.span
+    }
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl HasTypeInfo for ConstEntry {
+    fn type_expr(&self) -> &continuum_cdsl_ast::TypeExpr {
+        &self.type_expr
+    }
+    fn span(&self) -> continuum_cdsl_ast::foundation::Span {
+        self.span
+    }
+    fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+/// Collect types for config entries.
+///
+/// Resolves TypeExpr to Type for each config entry and builds a lookup map.
+/// If TypeExpr is Infer, infers type from default value expression.
+///
+/// # Phase Boundary Safety
+///
+/// This function is called during type collection phase, BEFORE full expression typing.
+/// However, it's safe to call `infer_type_from_expr` (via `collect_types_generic`) here because:
+///
+/// 1. **Literal-only inference**: `infer_type_from_expr` ONLY handles literal expressions:
+///    - `BoolLiteral` → `Bool`
+///    - `Literal{value, unit}` → `Scalar<unit>`  
+///    - `Vector([elements])` → `Vector<dim>`
+///    - All other expressions → Error (requires explicit type)
+///
+/// 2. **No registry dependencies**: Literal type inference doesn't require signal/field/const registries
+///
+/// 3. **Fail loudly**: Complex expressions that would create circular dependencies are rejected
+///    with clear error messages
+///
+/// This is NOT a phase boundary violation - it's literal type inference, not full expression typing.
+fn collect_config_types(
+    entries: &[ConfigEntry],
+    type_table: &TypeTable,
+) -> Result<HashMap<Path, Type>, Vec<CompileError>> {
+    collect_types_generic(
+        entries,
+        type_table,
+        |entry| entry.default.as_ref(),
+        "Config",
+    )
+}
+
 /// Collect types for const entries.
 ///
 /// Resolves TypeExpr to Type for each const entry and builds a lookup map.
 /// If TypeExpr is Infer, infers type from value expression.
+///
+/// # Phase Boundary Safety
+///
+/// This function is called during type collection phase, BEFORE full expression typing.
+/// However, it's safe to call `infer_type_from_expr` (via `collect_types_generic`) here because:
+///
+/// 1. **Literal-only inference**: `infer_type_from_expr` ONLY handles literal expressions:
+///    - `BoolLiteral` → `Bool`
+///    - `Literal{value, unit}` → `Scalar<unit>`  
+///    - `Vector([elements])` → `Vector<dim>`
+///    - All other expressions → Error (requires explicit type)
+///
+/// 2. **No registry dependencies**: Literal type inference doesn't require signal/field/const registries
+///
+/// 3. **Fail loudly**: Complex expressions that would create circular dependencies are rejected
+///    with clear error messages
+///
+/// This is NOT a phase boundary violation - it's literal type inference, not full expression typing.
 fn collect_const_types(
     entries: &[ConstEntry],
     type_table: &TypeTable,
 ) -> Result<HashMap<Path, Type>, Vec<CompileError>> {
-    use crate::resolve::types::{infer_type_from_expr, resolve_type_expr};
-    use continuum_cdsl_ast::TypeExpr;
-
-    let mut map = HashMap::new();
-    let mut errors = Vec::new();
-
-    for entry in entries {
-        let ty = if matches!(entry.type_expr, TypeExpr::Infer) {
-            // Type inference from value expression
-            match infer_type_from_expr(&entry.value, entry.span) {
-                Ok(ty) => ty,
-                Err(e) => {
-                    errors.push(e);
-                    continue;
-                }
-            }
-        } else {
-            // Explicit type
-            match resolve_type_expr(&entry.type_expr, type_table, entry.span) {
-                Ok(ty) => ty,
-                Err(e) => {
-                    errors.push(e);
-                    continue;
-                }
-            }
-        };
-
-        map.insert(entry.path.clone(), ty);
-    }
-
-    if errors.is_empty() {
-        Ok(map)
-    } else {
-        Err(errors)
-    }
+    collect_types_generic(entries, type_table, |entry| Some(&entry.value), "Const")
 }
 
 fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileError>) {
