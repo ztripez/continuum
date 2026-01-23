@@ -972,6 +972,147 @@ mod tests {
     }
 
     #[test]
+    fn test_flatten_entity_members_basic() {
+        let span = test_span();
+        let mut entity = Entity::new(
+            EntityId::new("particle"),
+            Path::from_path_str("particle"),
+            span,
+        );
+
+        let member = Node::new(
+            Path::from_path_str("mass"),
+            span,
+            RoleData::Signal,
+            EntityId::new("particle"),
+        );
+        entity.members.push(member);
+
+        let declarations = vec![Declaration::Entity(entity)];
+        let mut errors = Vec::new();
+        let flattened = flatten_entity_members(declarations, &mut errors);
+
+        assert_eq!(flattened.len(), 2);
+        assert!(matches!(flattened[0], Declaration::Entity(_)));
+
+        if let Declaration::Member(member) = &flattened[1] {
+            assert_eq!(member.path, Path::from_path_str("particle.mass"));
+        } else {
+            panic!("Expected Declaration::Member");
+        }
+
+        assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_flatten_entity_members_stratum_inheritance() {
+        let span = test_span();
+        let mut entity = Entity::new(
+            EntityId::new("particle"),
+            Path::from_path_str("particle"),
+            span,
+        );
+
+        entity.attributes.push(Attribute {
+            name: "stratum".to_string(),
+            args: vec![Expr::new(
+                continuum_cdsl_ast::UntypedKind::Signal(Path::from_path_str("fast")),
+                span,
+            )],
+            span,
+        });
+
+        let member = Node::new(
+            Path::from_path_str("mass"),
+            span,
+            RoleData::Signal,
+            EntityId::new("particle"),
+        );
+        entity.members.push(member);
+
+        let declarations = vec![Declaration::Entity(entity)];
+        let mut errors = Vec::new();
+        let flattened = flatten_entity_members(declarations, &mut errors);
+
+        if let Declaration::Member(member) = &flattened[1] {
+            assert!(has_stratum_attribute(&member.attributes));
+            let stratum = extract_stratum_from_attributes(&member.attributes);
+            assert_eq!(stratum, Some(Path::from_path_str("fast")));
+        } else {
+            panic!("Expected Declaration::Member");
+        }
+    }
+
+    #[test]
+    fn test_flatten_entity_members_member_stratum_override() {
+        let span = test_span();
+        let mut entity = Entity::new(
+            EntityId::new("particle"),
+            Path::from_path_str("particle"),
+            span,
+        );
+
+        entity.attributes.push(Attribute {
+            name: "stratum".to_string(),
+            args: vec![Expr::new(
+                continuum_cdsl_ast::UntypedKind::Signal(Path::from_path_str("fast")),
+                span,
+            )],
+            span,
+        });
+
+        let mut member = Node::new(
+            Path::from_path_str("mass"),
+            span,
+            RoleData::Signal,
+            EntityId::new("particle"),
+        );
+        member.attributes.push(Attribute {
+            name: "stratum".to_string(),
+            args: vec![Expr::new(
+                continuum_cdsl_ast::UntypedKind::Signal(Path::from_path_str("slow")),
+                span,
+            )],
+            span,
+        });
+        entity.members.push(member);
+
+        let declarations = vec![Declaration::Entity(entity)];
+        let mut errors = Vec::new();
+        let flattened = flatten_entity_members(declarations, &mut errors);
+
+        if let Declaration::Member(member) = &flattened[1] {
+            let stratum = extract_stratum_from_attributes(&member.attributes);
+            assert_eq!(stratum, Some(Path::from_path_str("slow")));
+
+            let stratum_count = member
+                .attributes
+                .iter()
+                .filter(|a| a.name == "stratum")
+                .count();
+            assert_eq!(stratum_count, 1);
+        }
+    }
+
+    #[test]
+    fn test_flatten_entity_members_empty_entity() {
+        let span = test_span();
+        let entity = Entity::new(
+            EntityId::new("particle"),
+            Path::from_path_str("particle"),
+            span,
+        );
+
+        let declarations = vec![Declaration::Entity(entity)];
+        let mut errors = Vec::new();
+        let flattened = flatten_entity_members(declarations, &mut errors);
+
+        assert_eq!(flattened.len(), 1);
+        assert!(matches!(flattened[0], Declaration::Entity(_)));
+        assert!(errors.is_empty());
+    }
+
+    #[test]
     fn test_compile_basic_world() {
         let span = test_span();
         let world_path = Path::from_path_str("terra");
