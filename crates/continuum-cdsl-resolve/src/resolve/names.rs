@@ -507,8 +507,13 @@ pub fn validate_expr(
             //
             // This is safe because ALL expressions must pass through type resolution.
 
-            // Recursively validate the object (still check nested expressions)
-            validate_expr(object, table, scope, errors);
+            // Only validate the object if it's NOT a bare Local identifier that could be a bare path root.
+            // Bare path roots like `core` in `core.temp` should be resolved during type resolution,
+            // not rejected here as undefined variables.
+            if !matches!(object.kind, ExprKind::Local(_)) {
+                validate_expr(object, table, scope, errors);
+            }
+            // If object is Local, skip validation - will be validated as bare path in type resolution
         }
 
         ExprKind::If {
