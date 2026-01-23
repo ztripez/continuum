@@ -712,19 +712,19 @@ impulse stellar.impact {
 
     apply {
         # Compute impact energy: KE = 0.5 * m * v²
-        let energy_j = 0.5 * payload.impactor_mass * payload.velocity * payload.velocity in
+        let energy_j = 0.5 * payload.impactor_mass * payload.velocity * payload.velocity
 
         if energy_j > config.impulse.stellar.impact.min_significant_energy_j {
             # Partition energy into crust, mantle, and ejecta
-            let crust_energy = energy_j * config.impulse.stellar.impact.crust_partition in
-            let mantle_energy = energy_j * config.impulse.stellar.impact.mantle_partition in
+            let crust_energy = energy_j * config.impulse.stellar.impact.crust_partition
+            let mantle_energy = energy_j * config.impulse.stellar.impact.mantle_partition
 
             # Heat deposition into geophysics thermal budget
             mantle.heat_content <- mantle_energy;
             surface.temp <- crust_energy / 1.0e20;  # Normalize to temperature increment
 
             # Crustal thickening from ejecta/melt redistribution
-            let ejecta_thickness = maths.pow(energy_j, 0.333) * config.impulse.stellar.impact.ejecta_thickness_factor in
+            let ejecta_thickness = maths.pow(energy_j, 0.333) * config.impulse.stellar.impact.ejecta_thickness_factor
             crust.thickness <- ejecta_thickness;
 
             # Large impacts can trigger volcanic activity
@@ -732,9 +732,9 @@ impulse stellar.impact {
 
             # Very large impacts can alter rotation (angular momentum transfer)
             # Delta_omega ~ (m * v * R_impact) / (I_planet) where I ~ M_planet * R²
-            let angular_momentum = payload.impactor_mass * payload.velocity * planet.radius in
-            let moment_of_inertia = planet.mass * planet.radius * planet.radius in
-            let delta_omega = angular_momentum / moment_of_inertia * config.impulse.stellar.impact.rotation_coupling_factor in
+            let angular_momentum = payload.impactor_mass * payload.velocity * planet.radius
+            let moment_of_inertia = planet.mass * planet.radius * planet.radius
+            let delta_omega = angular_momentum / moment_of_inertia * config.impulse.stellar.impact.rotation_coupling_factor
             rotation.state <- vector.vec2(0.0, delta_omega)
         }
     }
@@ -781,17 +781,17 @@ impulse stellar.orbital_change {
             payload.delta_eccentricity,
             -config.impulse.stellar.orbital_change.max_delta_eccentricity,
             config.impulse.stellar.orbital_change.max_delta_eccentricity
-        ) in
+        )
         let clamped_dobl = maths.clamp(
             payload.delta_obliquity,
             -config.impulse.stellar.orbital_change.max_delta_obliquity,
             config.impulse.stellar.orbital_change.max_delta_obliquity
-        ) in
+        )
         let clamped_dprec = maths.clamp(
             payload.delta_precession,
             -config.impulse.stellar.orbital_change.max_delta_precession,
             config.impulse.stellar.orbital_change.max_delta_precession
-        ) in
+        )
 
         # Apply obliquity change (affects seasonal forcing)
         if maths.abs(clamped_dobl) > config.impulse.stellar.orbital_change.min_significant_obliquity {

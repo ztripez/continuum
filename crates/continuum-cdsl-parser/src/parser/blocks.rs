@@ -402,6 +402,15 @@ fn parse_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
     match stream.peek() {
         Some(Token::Let) => parse_let_statement(stream),
         Some(Token::Emit) => parse_emit_event_statement(stream),
+        Some(Token::If) => {
+            // If statement (parsed as expression, wrapped in Stmt::Expr)
+            let expr = super::expr::parse_expr(stream)?;
+            // Consume optional trailing semicolon
+            if matches!(stream.peek(), Some(Token::Semicolon)) {
+                stream.advance();
+            }
+            Ok(Stmt::Expr(expr))
+        }
         Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => {
             // Could be assignment or expression
             // Lookahead for assignment operator

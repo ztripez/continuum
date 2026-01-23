@@ -542,19 +542,19 @@ fracture atmosphere.stellar_insolation_coupling {
     collect {
         # Transfer stellar flux to atmosphere solar constant
         # This replaces the default reference value with actual stellar input
-        let flux = stellar.total_insolation in
+        let flux = stellar.total_insolation
         atmosphere.solar_constant <- flux;
 
         # Calculate absorbed power accounting for albedo
         # P_absorbed = S * (1 - α) * π * R² (disk area)
         # = S * (1 - α) / 4 * 4 * π * R² (full surface)
-        let albedo = atmosphere.albedo in
-        let absorbed_flux = flux * (1.0 - albedo) * config.fracture.atmosphere.stellar_insolation_coupling.geometric_factor in
+        let albedo = atmosphere.albedo
+        let absorbed_flux = flux * (1.0 - albedo) * config.fracture.atmosphere.stellar_insolation_coupling.geometric_factor
 
         # Convert to total power: P = F * A = F * 4πR²
-        let planet_radius = planet.radius in
-        let surface_area = 4.0 * PI * planet_radius * planet_radius in
-        let absorbed_power = absorbed_flux * surface_area in
+        let planet_radius = planet.radius
+        let surface_area = 4.0 * PI * planet_radius * planet_radius
+        let absorbed_power = absorbed_flux * surface_area
 
         atmosphere.external_power <- absorbed_power
     }
@@ -621,29 +621,29 @@ fracture atmosphere.co2_equilibrium {
     }
 
     collect {
-        let activity = maths.max(tectonics.activity, 0.1) in
-        let temp = atmosphere.surface_temp.x in
-        let ref_temp = config.fracture.atmosphere.co2_equilibrium.reference_temp_k in
-        let temp_anomaly = temp - ref_temp in
+        let activity = maths.max(tectonics.activity, 0.1)
+        let temp = atmosphere.surface_temp.x
+        let ref_temp = config.fracture.atmosphere.co2_equilibrium.reference_temp_k
+        let temp_anomaly = temp - ref_temp
 
         # 1. Base equilibrium from volcanic activity
-        let activity_factor = maths.pow(activity, config.fracture.atmosphere.co2_equilibrium.activity_exponent) in
+        let activity_factor = maths.pow(activity, config.fracture.atmosphere.co2_equilibrium.activity_exponent)
         let volcanic_equilibrium = maths.max(
             config.fracture.atmosphere.co2_equilibrium.base_equilibrium_ppmv * activity_factor,
             config.fracture.atmosphere.co2_equilibrium.min_equilibrium_ppmv
-        ) in
+        )
 
         # 2. Silicate weathering feedback (thermostat)
         # Warmer -> more weathering -> lower equilibrium
-        let weathering_factor = maths.exp(-config.fracture.atmosphere.co2_equilibrium.weathering_sensitivity * temp_anomaly) in
+        let weathering_factor = maths.exp(-config.fracture.atmosphere.co2_equilibrium.weathering_sensitivity * temp_anomaly)
 
         # 3. Ocean solubility feedback
         # Warmer -> less ocean capacity -> higher equilibrium
-        let ocean_factor = 1.0 + temp_anomaly * config.fracture.atmosphere.co2_equilibrium.ocean_sensitivity in
+        let ocean_factor = 1.0 + temp_anomaly * config.fracture.atmosphere.co2_equilibrium.ocean_sensitivity
 
         # Combined equilibrium with feedbacks
         # Note: weathering and ocean feedbacks partially cancel
-        let equilibrium_ppmv = volcanic_equilibrium * weathering_factor * ocean_factor in
+        let equilibrium_ppmv = volcanic_equilibrium * weathering_factor * ocean_factor
 
         atmosphere.co2_ppmv <- maths.clamp(equilibrium_ppmv, 50.0, 5000.0)
     }
@@ -669,7 +669,7 @@ fracture atmosphere.ch4_equilibrium {
 
     collect {
         # Methane equilibrium depends on volcanic/hydrothermal activity
-        let activity = tectonics.activity in
+        let activity = tectonics.activity
         let equilibrium_ppmv = maths.max(
             config.fracture.atmosphere.ch4_equilibrium.base_equilibrium_ppmv * 
             (1.0 + config.fracture.atmosphere.ch4_equilibrium.activity_sensitivity * (activity - 1.0)),

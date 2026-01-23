@@ -1575,8 +1575,8 @@ fracture thermal.mechanical_coupling {
 
     collect {
         # Compute heat ratio: >1 means hotter, <1 means cooler
-        let ratio = mantle.heat_content / config.fracture.thermal.mechanical_coupling.reference_heat_j in
-        let delta = (ratio - 1.0) * config.fracture.thermal.mechanical_coupling.coupling_strength * config.fracture.thermal.mechanical_coupling.base_flow_strength in
+        let ratio = mantle.heat_content / config.fracture.thermal.mechanical_coupling.reference_heat_j
+        let delta = (ratio - 1.0) * config.fracture.thermal.mechanical_coupling.coupling_strength * config.fracture.thermal.mechanical_coupling.base_flow_strength
         mantle.flow_strength <- delta
     }
 }
@@ -1606,20 +1606,20 @@ fracture thermal.heat_budget {
 
     collect {
         # Radiogenic heating contribution
-        let radiogenic = config.fracture.thermal.heat_budget.radiogenic_power_w in
+        let radiogenic = config.fracture.thermal.heat_budget.radiogenic_power_w
 
         # Core heat contribution (from core.heat_power with efficiency)
         # Guard against negative heat power feeding back
-        let core_contribution = maths.max(core.heat_power, 0.0) * config.fracture.thermal.heat_budget.core_transfer_efficiency in
+        let core_contribution = maths.max(core.heat_power, 0.0) * config.fracture.thermal.heat_budget.core_transfer_efficiency
 
         # Surface heat loss (proportional to heat content above reference)
-        let reference = 8.0e30 in
-        let excess_ratio = mantle.heat_content / reference in
-        let surface_loss = excess_ratio * config.fracture.thermal.heat_budget.surface_loss_coefficient * mantle.heat_content in
+        let reference = 8.0e30
+        let excess_ratio = mantle.heat_content / reference
+        let surface_loss = excess_ratio * config.fracture.thermal.heat_budget.surface_loss_coefficient * mantle.heat_content
 
         # Net power change - cap surface loss to not exceed available heat
-        let net_input = radiogenic + core_contribution in
-        let capped_loss = maths.min(surface_loss, net_input + maths.max(core.heat_power, 0.0)) in
+        let net_input = radiogenic + core_contribution
+        let capped_loss = maths.min(surface_loss, net_input + maths.max(core.heat_power, 0.0))
 
         # Emit net change (will be non-negative if current heat_power >= 0)
         core.heat_power <- net_input - capped_loss
@@ -1647,7 +1647,7 @@ fracture tectonics.convergent_uplift {
 
     collect {
         # Normalized convergence factor
-        let conv_factor = plates.boundary_shear / 0.1 in
+        let conv_factor = plates.boundary_shear / 0.1
 
         # Emit deltas assuming ~1 Myr timestep (rate configs are per Myr)
         # TODO: These should be true rates with signal dt.integrate() once
@@ -1673,7 +1673,7 @@ fracture tectonics.divergent_subsidence {
 
     collect {
         # Divergence driven by mantle upwelling
-        let div_factor = mantle.flow_strength / 10.0 in
+        let div_factor = mantle.flow_strength / 10.0
 
         # Emit delta assuming ~1 Myr timestep
         crust.thickness <- -div_factor * config.fracture.tectonics.divergent_subsidence.thin_m_per_myr
@@ -1780,7 +1780,7 @@ fracture tectonics.derive_motion {
 
     collect {
         # Plate motion derived from mantle flow
-        let flow_factor = mantle.flow_strength * config.fracture.tectonics.derive_motion.flow_coupling in
+        let flow_factor = mantle.flow_strength * config.fracture.tectonics.derive_motion.flow_coupling
 
         # Update tectonic activity based on flow-induced motion
         tectonics.activity <- flow_factor * 0.1
@@ -2146,12 +2146,12 @@ impulse tectonics.plate_collision {
             # Scale: 1e21 J collision -> ~300 m/Myr orogeny boost
             let orogeny_contribution =
                 payload.energy * config.impulse.tectonics.plate_collision.orogeny_efficiency
-                / 1.0e18 in
+                / 1.0e18
 
             tectonics.orogeny_rate <- orogeny_contribution;
 
             # Collision energy also increases volcanic activity in collision zones
-            let activity_boost = payload.energy / 1.0e22 in
+            let activity_boost = payload.energy / 1.0e22
             tectonics.activity <- activity_boost
         }
     }
@@ -2192,7 +2192,7 @@ impulse tectonics.volcanic {
         if payload.heat_j > config.impulse.tectonics.volcanic.min_eruption_heat_j {
             # Heat deposited increases local thermal budget
             let surface_heat =
-                payload.heat_j * config.impulse.tectonics.volcanic.surface_heat_efficiency in
+                payload.heat_j * config.impulse.tectonics.volcanic.surface_heat_efficiency
             thermal.surface_flux <- surface_heat / 1.0e18;
 
             # NOTE: CO2 release disabled - at geological timescales, CO2 is handled
