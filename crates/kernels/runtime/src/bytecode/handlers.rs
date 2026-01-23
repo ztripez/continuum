@@ -617,18 +617,18 @@ pub(crate) fn handle_load_dt(
     handle_load_ctx(runtime, ctx, |ctx| ctx.load_dt())
 }
 
-/// Loads collected signal inputs (sum of impulse/fracture contributions).
+/// Loads collected signal inputs (synonym for accumulated inputs).
 ///
-/// STUB: This opcode is not yet implemented. It will fail at runtime if executed.
+/// This is an alias for `handle_load_inputs` - both the DSL keywords `inputs`
+/// and `collected` refer to the same accumulated signal contributions from the
+/// Collect phase. The distinction in the DSL is historical/semantic only.
 pub(crate) fn handle_load_collected(
     _instruction: &Instruction,
-    _runtime: &mut dyn ExecutionRuntime,
+    runtime: &mut dyn ExecutionRuntime,
     _program: &BytecodeProgram,
-    _ctx: &mut dyn ExecutionContext,
+    ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
-    Err(ExecutionError::InvalidOperand {
-        message: "LoadCollected opcode not yet implemented".to_string(),
-    })
+    handle_load_ctx(runtime, ctx, |ctx| ctx.load_collected())
 }
 
 /// Loads the identity of the current entity instance.

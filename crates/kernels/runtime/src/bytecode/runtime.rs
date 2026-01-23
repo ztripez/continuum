@@ -171,6 +171,18 @@ pub trait ExecutionContext {
     /// Returns an error if called outside of the Resolve phase.
     fn load_inputs(&mut self) -> Result<Value, ExecutionError>;
 
+    /// Loads collected signal inputs (synonym for `load_inputs`).
+    ///
+    /// This is an alias for accumulated signal contributions during the Collect phase.
+    /// The DSL supports both `inputs` and `collected` keywords for the same concept.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if called outside of the Resolve phase.
+    fn load_collected(&mut self) -> Result<Value, ExecutionError> {
+        self.load_inputs()
+    }
+
     /// Returns the time step (delta time) for the current tick.
     fn load_dt(&self) -> Result<Value, ExecutionError>;
 
