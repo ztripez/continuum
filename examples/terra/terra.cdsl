@@ -15,10 +15,11 @@
 world terra {
     : title("Terra Geophysics Simulation")
     : version("0.1.0")
+    : description("Realistic crust dynamics with isostasy and dynamic topography")
 
-    policy {
-        description: "Realistic crust dynamics with isostasy and dynamic topography"
-    }
+    // policy {
+    //     // No custom policy needed, using defaults
+    // }
 }
 
 // =============================================================================
