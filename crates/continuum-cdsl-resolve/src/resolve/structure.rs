@@ -121,25 +121,41 @@ fn detect_cycle_dfs(
     rec_stack.insert(current.clone());
     path.push(current.clone());
 
-    if let Some((deps, _)) = graph.get(current) {
+    let result = if let Some((deps, _)) = graph.get(current) {
+        let mut found_cycle = None;
         for dep in deps {
             if !visited.contains(dep) {
                 if let Some(cycle) = detect_cycle_dfs(dep, graph, visited, rec_stack, path.clone())
                 {
-                    return Some(cycle);
+                    found_cycle = Some(cycle);
+                    break;
                 }
             } else if rec_stack.contains(dep) {
-                // Found cycle - construct cycle path
-                let cycle_start = path.iter().position(|p| p == dep).unwrap();
-                let mut cycle = path[cycle_start..].to_vec();
-                cycle.push(dep.clone()); // Close the cycle
-                return Some(cycle);
+                // Found cycle - dep is an ancestor in the current DFS path
+                match path.iter().position(|p| p == dep) {
+                    Some(cycle_start) => {
+                        let mut cycle = path[cycle_start..].to_vec();
+                        cycle.push(dep.clone()); // Close the cycle
+                        found_cycle = Some(cycle);
+                        break;
+                    }
+                    None => {
+                        // BUG: This should not happen if rec_stack is properly maintained
+                        // Return minimal cycle for error reporting
+                        found_cycle = Some(vec![current.clone(), dep.clone(), current.clone()]);
+                        break;
+                    }
+                }
             }
         }
-    }
+        found_cycle
+    } else {
+        None
+    };
 
+    // IMPORTANT: Always remove current from rec_stack before returning
     rec_stack.remove(current);
-    None
+    result
 }
 
 /// Formats a cycle error message showing the dependency chain.
