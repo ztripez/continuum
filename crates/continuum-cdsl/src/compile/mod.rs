@@ -62,6 +62,10 @@ pub type CompileResultWithSources = Result<CompiledWorld, (SourceMap, Vec<Compil
 /// Returns a tuple of [`SourceMap`] and list of [`CompileError`] if any stage fails.
 /// The source map can be used with [`DiagnosticFormatter`] to produce rich error messages.
 pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
+    eprintln!(
+        "compile_with_sources: discovering .cdsl files in {:?}",
+        root
+    );
     let mut source_map = SourceMap::new();
     let mut declarations = Vec::new();
     let mut all_errors = Vec::new();
@@ -88,6 +92,8 @@ pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
     // Ensure deterministic order
     cdsl_files.sort();
 
+    eprintln!("Found {} .cdsl files", cdsl_files.len());
+
     if cdsl_files.is_empty() {
         return Err((
             source_map,
@@ -100,7 +106,9 @@ pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
     }
 
     // 2. Lex & Parse each file
+    eprintln!("Lexing and parsing files...");
     for file_path in cdsl_files {
+        eprintln!("  Processing: {:?}", file_path);
         let source = match std::fs::read_to_string(&file_path) {
             Ok(s) => s,
             Err(e) => {
@@ -141,13 +149,19 @@ pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
         }
 
         if lex_failed {
+            eprintln!("    Lexing failed, skipping parse");
             continue;
         }
 
         // Parsing
+        eprintln!("    Parsing {} tokens...", tokens_with_spans.len());
         match parse_declarations_with_spans(&tokens_with_spans, file_id) {
-            Ok(decls) => declarations.extend(decls),
+            Ok(decls) => {
+                eprintln!("    Parsed {} declarations", decls.len());
+                declarations.extend(decls)
+            }
             Err(errors) => {
+                eprintln!("    Parse failed with {} errors", errors.len());
                 for err in errors {
                     // Map ParseError to CompileError
                     all_errors.push(CompileError::new(ErrorKind::Syntax, err.span, err.message));
@@ -156,12 +170,21 @@ pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
         }
     }
 
+    eprintln!(
+        "Lex/parse complete. Total declarations: {}",
+        declarations.len()
+    );
+
     if !all_errors.is_empty() {
+        eprintln!("Returning {} errors from lex/parse", all_errors.len());
         return Err((source_map, all_errors));
     }
 
     // 3. Pipeline Resolution
-    pipeline::compile(declarations).map_err(|errors| (source_map, errors))
+    eprintln!("Running resolution pipeline...");
+    let result = pipeline::compile(declarations).map_err(|errors| (source_map, errors));
+    eprintln!("Pipeline complete");
+    result
 }
 
 /// Compiles a Continuum world from a root directory (without source map in error).

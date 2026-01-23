@@ -83,23 +83,35 @@ pub fn run_simulation(
     // Lens sink is handled separately now - no manifest created here
     // The sink handles its own manifest/metadata
 
+    debug!("Checking warmup status...");
     if !runtime.is_warmup_complete() {
+        debug!("Executing warmup...");
         runtime
             .execute_warmup()
             .map_err(|e| RunError::Execution(e.to_string()))?;
+        debug!("Warmup complete");
+    } else {
+        debug!("Warmup already complete");
     }
 
     let mut last_checkpoint_time = std::time::Instant::now();
     // Setup checkpoint directory if enabled
     if let Some(checkpoint) = &options.checkpoint {
+        debug!(
+            "Creating checkpoint directory: {:?}",
+            checkpoint.checkpoint_dir
+        );
         std::fs::create_dir_all(&checkpoint.checkpoint_dir)
             .map_err(|e| RunError::Execution(e.to_string()))?;
     }
 
-    for _i in 0..options.steps {
+    debug!("Starting main simulation loop ({} steps)...", options.steps);
+    for i in 0..options.steps {
+        debug!("Executing tick {} / {}...", i + 1, options.steps);
         runtime
             .execute_tick()
             .map_err(|e| RunError::Execution(e.to_string()))?;
+        debug!("Tick {} complete", i + 1);
 
         if options.print_signals {
             let mut line = format!("Tick {:04}: ", runtime.tick());

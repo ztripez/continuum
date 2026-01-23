@@ -47,9 +47,13 @@ impl WorldSource {
 
     pub fn load(&self) -> Result<CompiledWorld, RunWorldError> {
         match self {
-            WorldSource::Directory(path) => compile_with_sources(path)
-                .map_err(|(sources, errors)| RunWorldError::from_compile(sources, errors)),
+            WorldSource::Directory(path) => {
+                tracing::debug!("Compiling world from directory: {:?}", path);
+                compile_with_sources(path)
+                    .map_err(|(sources, errors)| RunWorldError::from_compile(sources, errors))
+            }
             WorldSource::CompiledBundle(path) => {
+                tracing::debug!("Loading compiled bundle: {:?}", path);
                 let data = std::fs::read(path)
                     .map_err(|err| RunWorldError::Io(format!("{}: {}", path.display(), err)))?;
                 let bundle: BinaryBundle = bincode::deserialize(&data).map_err(|err| {
@@ -58,6 +62,7 @@ impl WorldSource {
                 Ok(bundle.world)
             }
             WorldSource::CompiledJson(path) => {
+                tracing::debug!("Loading compiled JSON: {:?}", path);
                 let data = std::fs::read_to_string(path)
                     .map_err(|err| RunWorldError::Io(format!("{}: {}", path.display(), err)))?;
                 serde_json::from_str(&data).map_err(|err| {
@@ -102,11 +107,19 @@ impl RunWorldIntent {
                 "Simulation requires at least 1 step".to_string(),
             ));
         }
+
+        tracing::debug!("Loading world...");
         let compiled = self.source.load()?;
+        tracing::debug!("World loaded, building runtime...");
+
         let mut runtime = build_runtime(compiled, None);
+        tracing::debug!("Runtime built, initializing seed...");
+
         if let Some(seed) = self.seed {
             runtime.set_initial_seed(seed);
         }
+
+        tracing::debug!("Starting simulation with {} steps...", self.options.steps);
         run_simulation(&mut runtime, self.options).map_err(RunWorldError::from_run_error)
     }
 }
