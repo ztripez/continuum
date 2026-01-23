@@ -10,7 +10,7 @@ use super::type_expression;
 use crate::error::{CompileError, ErrorKind};
 use crate::resolve::units::resolve_unit_expr;
 use continuum_cdsl_ast::foundation::{AggregateOp, KernelType, Path, Shape, Type, Unit};
-use continuum_cdsl_ast::{Expr, ExprKind, TypedExpr};
+use continuum_cdsl_ast::{Expr, ExprKind, TypedExpr, UntypedKind};
 use std::collections::HashMap;
 
 // === Error Helpers ===
@@ -158,24 +158,68 @@ pub fn type_literal(
 /// - `span`: Source location of the access.
 /// Attempts to interpret an expression as a bare path reference.
 ///
-/// Recursively extracts path segments from Local and FieldAccess chains.
-/// Returns None if the expression contains anything other than Local/FieldAccess.
+/// Attempts to extract a dot-separated path from an expression chain for bare path resolution.
+///
+/// Uses the canonical [`Expr::as_path()`] method from the AST, but filters out keyword expressions
+/// (prev, current, dt, etc.) since those should not be treated as bare signal/field paths.
+///
+/// This function enables bare path resolution by checking if an expression like `foo.bar.baz`
+/// could be a signal or field path before typing it as nested field accesses.
+///
+/// # Arguments
+///
+/// * `expr` - The expression to attempt path extraction from
+///
+/// # Returns
+///
+/// * `Some(Path)` - If the expression is a pure chain of `Local`/`FieldAccess` starting with a Local
+/// * `None` - If the expression is a keyword, literal, function call, or other non-path expression
 ///
 /// # Examples
-/// - `Local("foo")` → `Some(Path::from("foo"))`
-/// - `FieldAccess { object: Local("foo"), field: "bar" }` → `Some(Path::from("foo.bar"))`
-/// - `Literal { value: 42.0, unit: None }` → `None`
+///
+/// ```text
+/// Local("foo")                              → Some(Path("foo"))
+/// FieldAccess { Local("foo"), "bar" }       → Some(Path("foo.bar"))
+/// FieldAccess { FieldAccess {...}, "baz" }  → Some(Path("foo.bar.baz"))
+/// Prev                                      → None (keyword, not a bare path)
+/// Literal { value: 42.0 }                   → None (not a path)
+/// FunctionCall { ... }                      → None (not a path)
+/// ```
+///
+/// # Used For
+///
+/// This enables the bare signal/field reference feature, allowing DSL code to write:
+/// ```cdsl
+/// core.temp            // Instead of signal.core.temp
+/// atmosphere.pressure  // Instead of signal.atmosphere.pressure
+/// ```
 fn try_extract_path(expr: &Expr) -> Option<Path> {
     use continuum_cdsl_ast::UntypedKind;
 
+    // Use the canonical as_path() from AST
+    let path = expr.as_path()?;
+
+    // Filter out keyword expressions - they should not be treated as bare paths
+    // Only accept paths that start with a Local identifier
     match &expr.kind {
-        UntypedKind::Local(name) => Some(Path::from(name.as_str())),
-        UntypedKind::FieldAccess { object, field } => {
-            let mut path = try_extract_path(object)?;
-            path.segments.push(field.clone());
-            Some(path)
+        UntypedKind::Local(_) => Some(path),
+        UntypedKind::FieldAccess { object, .. } => {
+            // Check if the root is a Local (not a keyword)
+            if matches!(get_root_kind(object), UntypedKind::Local(_)) {
+                Some(path)
+            } else {
+                None
+            }
         }
         _ => None,
+    }
+}
+
+/// Helper to get the root expression kind from a FieldAccess chain.
+fn get_root_kind(expr: &Expr) -> &UntypedKind {
+    match &expr.kind {
+        UntypedKind::FieldAccess { object, .. } => get_root_kind(object),
+        other => other,
     }
 }
 

@@ -195,7 +195,27 @@ fn parse_entity_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> 
     ))
 }
 
-/// Parse config.path reference.
+/// Parse a `config.path` reference expression.
+///
+/// Parses the `config` keyword followed by a dot-separated path to a configuration value.
+/// Config references live in a separate namespace from simulation declarations.
+///
+/// # Syntax
+///
+/// ```text
+/// config.path.to.value
+/// ```
+///
+/// # Examples
+///
+/// ```cdsl
+/// config.world.gravity
+/// config.rendering.resolution
+/// ```
+///
+/// # Returns
+///
+/// An untyped expression of kind `Config(path)` containing the parsed path.
 fn parse_config_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Config)?;
@@ -209,7 +229,27 @@ fn parse_config_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> 
     ))
 }
 
-/// Parse const.path reference.
+/// Parse a `const.path` reference expression.
+///
+/// Parses the `const` keyword followed by a dot-separated path to a constant value.
+/// Const references live in a separate namespace from simulation declarations.
+///
+/// # Syntax
+///
+/// ```text
+/// const.path.to.value
+/// ```
+///
+/// # Examples
+///
+/// ```cdsl
+/// const.physics.gravitational
+/// const.math.pi
+/// ```
+///
+/// # Returns
+///
+/// An untyped expression of kind `Const(path)` containing the parsed path.
 fn parse_const_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Const)?;

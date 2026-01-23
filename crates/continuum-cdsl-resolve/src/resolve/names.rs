@@ -491,12 +491,24 @@ pub fn validate_expr(
             }
         }
 
-        ExprKind::FieldAccess { .. } => {
-            // Skip validation of FieldAccess chains during name resolution.
-            // Type resolution will handle these via bare path resolution:
-            // - If it's a bare signal/field path (e.g., core.temp), transforms to Signal/Field
-            // - If it's structural field access (e.g., entity.field), validates object type
-            // - This prevents premature errors on undefined Local within FieldAccess chains
+        ExprKind::FieldAccess { object, .. } => {
+            // FieldAccess chains are validated during type resolution, not name resolution.
+            //
+            // Rationale for deferring validation:
+            // - Bare path resolution requires type context (signal/field registries)
+            // - Name resolution doesn't distinguish `core.temp` (bare path) from `obj.field` (access)
+            // - Premature validation would reject valid bare paths as undefined locals
+            //
+            // Guaranteed validation in type resolution (expr_typing/helpers.rs:226-279):
+            // 1. Attempts bare path resolution via try_extract_path()
+            // 2. If bare path fails, types object via type_expression() (validates object)
+            // 3. Validates field exists on object's type (lines 252-279)
+            // 4. Returns error if field doesn't exist
+            //
+            // This is safe because ALL expressions must pass through type resolution.
+
+            // Recursively validate the object (still check nested expressions)
+            validate_expr(object, table, scope, errors);
         }
 
         ExprKind::If {
@@ -527,7 +539,7 @@ pub fn validate_expr(
         | ExprKind::Current
         | ExprKind::Inputs
         | ExprKind::Dt
-            | ExprKind::Collected
+        | ExprKind::Collected
         | ExprKind::Self_
         | ExprKind::Other
         | ExprKind::Payload => {
