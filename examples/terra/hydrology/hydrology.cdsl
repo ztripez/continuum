@@ -893,6 +893,141 @@ fracture hydrology.sediment_lithification {
 
 entity hydrology.cell {
     : count(100..10000)
+
+    signal water_mass {
+        : Scalar<kg/m², 0..1e6>
+        : uses(maths.clamping)
+        : strata(hydrology)
+        : title("Cell Water Mass")
+        : symbol("m_w")
+    
+        config {
+            initial_water_mass: 1e3
+        }
+    
+        initial { config.hydrology.cell.water_mass.initial_water_mass }
+    
+        resolve {
+            # Water mass changes from precipitation, evaporation, runoff
+            # Net rate integrated over time
+            maths.clamp(prev + inputs, 0.0, 1e6)
+        }
+    
+        assert {
+            prev >= 0.0 : warn, "Cell water mass cannot be negative"
+            prev <= 1e6 : warn, "Cell water mass exceeds maximum"
+        }
+    }
+
+    signal temperature {
+        : Scalar<K, 271..313>
+        : uses(maths.clamping)
+        : strata(hydrology)
+        : title("Cell Water Temperature")
+        : symbol("T_w")
+    
+        config {
+            initial_temperature_k: 288.0
+            relaxation_tau_s: 8.64e4  # ~1 day relaxation time
+        }
+    
+        initial { config.hydrology.cell.temperature.initial_temperature_k }
+    
+        resolve {
+            # Water temperature relaxes toward surface temperature
+            let surface_temp = signal.surface.temp in
+            let target_temp = maths.clamp(surface_temp, 271.0, 313.0) in
+            dt.relax_to(prev, target_temp, config.hydrology.cell.temperature.relaxation_tau_s) + inputs
+        }
+    
+        assert {
+            prev >= 271.0 : warn, "Water temperature below freezing minimum"
+            prev <= 313.0 : warn, "Water temperature above maximum"
+        }
+    }
+
+    signal sediment_mass {
+        : Scalar<kg/m², 0..10>
+        : uses(maths.clamping)
+        : strata(hydrology)
+        : title("Cell Sediment Mass")
+        : symbol("m_s")
+    
+        config {
+            initial_sediment: 0.2
+            max_sediment: 10.0
+        }
+    
+        initial { config.hydrology.cell.sediment_mass.initial_sediment }
+    
+        resolve {
+            # Sediment mass changes via erosion, transport, and deposition
+            maths.clamp(prev + inputs, 0.0, config.hydrology.cell.sediment_mass.max_sediment)
+        }
+    
+        assert {
+            prev >= 0.0 : warn, "Sediment mass cannot be negative"
+            prev <= config.hydrology.cell.sediment_mass.max_sediment : warn, "Sediment mass exceeds maximum"
+        }
+    }
+
+    signal ice_fraction {
+        : Scalar<1, 0..1>
+        : uses(maths.clamping)
+        : strata(hydrology)
+        : title("Cell Ice Fraction")
+        : symbol("f_ice")
+    
+        config {
+            freezing_point_k: 273.15
+            transition_width_k: 2.0
+        }
+    
+        initial { 0.0 }
+    
+        resolve {
+            # Ice fraction determined by water temperature
+            let temp = self.temperature in
+            let t_freeze = config.hydrology.cell.ice_fraction.freezing_point_k in
+            let width = config.hydrology.cell.ice_fraction.transition_width_k in
+    
+            if temp <= t_freeze - width {
+                # Fully frozen
+                1.0
+            } else if temp >= t_freeze + width {
+                # Fully liquid
+                0.0
+            } else {
+                # Smooth transition
+                let normalized = (temp - (t_freeze - width)) / (2.0 * width) in
+                maths.clamp(1.0 - normalized, 0.0, 1.0)
+            }
+        }
+    
+        assert {
+            prev >= 0.0 : warn, "Ice fraction cannot be negative"
+            prev <= 1.0 : warn, "Ice fraction cannot exceed 1"
+        }
+    }
+
+    signal phase {
+        : Scalar<1, 0..2>
+        : strata(hydrology)
+        : title("Cell Water Phase")
+        : symbol("phi")
+    
+        resolve {
+            # Phase determined from temperature
+            let temp = self.temperature in
+            hydrology.water_phase(temp)
+        }
+    
+        assert {
+            prev >= 0.0 : warn, "Phase indicator below minimum"
+            prev <= 2.0 : warn, "Phase indicator above maximum"
+        }
+    }
+
 }
 
 # -----------------------------------------------------------------------------
@@ -901,147 +1036,18 @@ entity hydrology.cell {
 
 # Water column mass per unit area (kg/m²)
 # Represents the total mass of water (liquid + ice) at this cell
-member hydrology.cell.water_mass {
-    : Scalar<kg/m², 0..1e6>
-    : uses(maths.clamping)
-    : strata(hydrology)
-    : title("Cell Water Mass")
-    : symbol("m_w")
-
-    config {
-        initial_water_mass: 1e3
-    }
-
-    initial { config.hydrology.cell.water_mass.initial_water_mass }
-
-    resolve {
-        # Water mass changes from precipitation, evaporation, runoff
-        # Net rate integrated over time
-        maths.clamp(prev + inputs, 0.0, 1e6)
-    }
-
-    assert {
-        prev >= 0.0 : warn, "Cell water mass cannot be negative"
-        prev <= 1e6 : warn, "Cell water mass exceeds maximum"
-    }
-}
 
 # Water temperature (K)
 # Local water body temperature - can differ from surface temp
-member hydrology.cell.temperature {
-    : Scalar<K, 271..313>
-    : uses(maths.clamping)
-    : strata(hydrology)
-    : title("Cell Water Temperature")
-    : symbol("T_w")
-
-    config {
-        initial_temperature_k: 288.0
-        relaxation_tau_s: 8.64e4  # ~1 day relaxation time
-    }
-
-    initial { config.hydrology.cell.temperature.initial_temperature_k }
-
-    resolve {
-        # Water temperature relaxes toward surface temperature
-        let surface_temp = signal.surface.temp in
-        let target_temp = maths.clamp(surface_temp, 271.0, 313.0) in
-        dt.relax_to(prev, target_temp, config.hydrology.cell.temperature.relaxation_tau_s) + inputs
-    }
-
-    assert {
-        prev >= 271.0 : warn, "Water temperature below freezing minimum"
-        prev <= 313.0 : warn, "Water temperature above maximum"
-    }
-}
 
 # Suspended sediment mass per unit area (kg/m²)
 # Particulate matter suspended in the water column
-member hydrology.cell.sediment_mass {
-    : Scalar<kg/m², 0..10>
-    : uses(maths.clamping)
-    : strata(hydrology)
-    : title("Cell Sediment Mass")
-    : symbol("m_s")
-
-    config {
-        initial_sediment: 0.2
-        max_sediment: 10.0
-    }
-
-    initial { config.hydrology.cell.sediment_mass.initial_sediment }
-
-    resolve {
-        # Sediment mass changes via erosion, transport, and deposition
-        maths.clamp(prev + inputs, 0.0, config.hydrology.cell.sediment_mass.max_sediment)
-    }
-
-    assert {
-        prev >= 0.0 : warn, "Sediment mass cannot be negative"
-        prev <= config.hydrology.cell.sediment_mass.max_sediment : warn, "Sediment mass exceeds maximum"
-    }
-}
 
 # Ice fraction (0-1)
 # Fraction of water mass that is frozen
-member hydrology.cell.ice_fraction {
-    : Scalar<1, 0..1>
-    : uses(maths.clamping)
-    : strata(hydrology)
-    : title("Cell Ice Fraction")
-    : symbol("f_ice")
-
-    config {
-        freezing_point_k: 273.15
-        transition_width_k: 2.0
-    }
-
-    initial { 0.0 }
-
-    resolve {
-        # Ice fraction determined by water temperature
-        let temp = self.temperature in
-        let t_freeze = config.hydrology.cell.ice_fraction.freezing_point_k in
-        let width = config.hydrology.cell.ice_fraction.transition_width_k in
-
-        if temp <= t_freeze - width {
-            # Fully frozen
-            1.0
-        } else if temp >= t_freeze + width {
-            # Fully liquid
-            0.0
-        } else {
-            # Smooth transition
-            let normalized = (temp - (t_freeze - width)) / (2.0 * width) in
-            maths.clamp(1.0 - normalized, 0.0, 1.0)
-        }
-    }
-
-    assert {
-        prev >= 0.0 : warn, "Ice fraction cannot be negative"
-        prev <= 1.0 : warn, "Ice fraction cannot exceed 1"
-    }
-}
 
 # Water phase state (enumerated: 0=ice, 1=liquid, 2=vapor)
 # Dominant phase at this cell
-member hydrology.cell.phase {
-    : Scalar<1, 0..2>
-    : strata(hydrology)
-    : title("Cell Water Phase")
-    : symbol("phi")
-
-    resolve {
-        # Phase determined from temperature
-        let temp = self.temperature in
-        hydrology.water_phase(temp)
-    }
-
-    assert {
-        prev >= 0.0 : warn, "Phase indicator below minimum"
-        prev <= 2.0 : warn, "Phase indicator above maximum"
-    }
-}
 
 # -----------------------------------------------------------------------------
 # Aggregate Cell Signals
