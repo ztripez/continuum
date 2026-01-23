@@ -512,12 +512,11 @@ impl<'a> DiagnosticFormatter<'a> {
             output.push_str(&format!("   |\n"));
             output.push_str(&format!("{:3} | {}\n", line, source_line));
 
-            // Underline
-            let start_col = col as usize;
+            // Underline: col is 1-based, so col-1 spaces positions ^ under the right char
+            let start_col = (col as usize).saturating_sub(1);
             let span_len = (error.span.end - error.span.start) as usize;
-            let end_col = (start_col + span_len).min(source_line.len() + 1);
-            let underline = " ".repeat(start_col.saturating_sub(1))
-                + &"^".repeat(end_col.saturating_sub(start_col).max(1));
+            let caret_count = span_len.max(1);
+            let underline = " ".repeat(start_col) + &"^".repeat(caret_count);
             output.push_str(&format!("   | {}\n", underline));
         }
 
