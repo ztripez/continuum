@@ -582,11 +582,22 @@ impl<'a> DiagnosticFormatter<'a> {
     /// assert!(output.contains("undefined"));
     /// ```
     pub fn format_all(&self, errors: &[CompileError]) -> String {
-        let mut output = errors
-            .iter()
-            .map(|e| self.format(e))
-            .collect::<Vec<_>>()
-            .join("\n");
+        use std::collections::BTreeMap;
+
+        // Group errors by (file_id, line, kind) to collapse same-line same-kind errors
+        // Use BTreeMap for deterministic ordering
+        let mut grouped: BTreeMap<(u16, u32, u8), Vec<&CompileError>> = BTreeMap::new();
+        for error in errors {
+            let (line, _) = self.sources.line_col(&error.span);
+            let key = (error.span.file_id, line, error.kind as u8);
+            grouped.entry(key).or_default().push(error);
+        }
+
+        let mut output = String::new();
+        for ((_file_id, _line, _kind), group) in grouped {
+            output.push_str(&self.format_group(&group));
+            output.push('\n');
+        }
 
         // Add summary line
         if !errors.is_empty() {
@@ -599,7 +610,6 @@ impl<'a> DiagnosticFormatter<'a> {
                 .filter(|e| e.severity == Severity::Warning)
                 .count();
 
-            output.push('\n');
             if warning_count > 0 {
                 output.push_str(&format!(
                     "compilation failed: {} error{}, {} warning{}\n",
@@ -614,6 +624,68 @@ impl<'a> DiagnosticFormatter<'a> {
                     error_count,
                     if error_count == 1 { "" } else { "s" }
                 ));
+            }
+        }
+
+        output
+    }
+
+    /// Formats a group of errors on the same line with the same kind.
+    fn format_group(&self, errors: &[&CompileError]) -> String {
+        let first = errors[0];
+        let mut output = String::new();
+
+        // Header: severity and message (use first error's message)
+        output.push_str(&format!(
+            "{}: {}: {}\n",
+            first.severity,
+            first.kind.name(),
+            first.message
+        ));
+
+        // Location
+        let file_path = self.sources.file_path(&first.span);
+        let (line, col) = self.sources.line_col(&first.span);
+        output.push_str(&format!("  --> {}:{}:{}\n", file_path.display(), line, col));
+
+        // Source line
+        let file = self.sources.file(&first.span);
+        if let Some(source_line) = file.line_text(line) {
+            let source_line = source_line.trim_end();
+            let line_num_width = line.to_string().len().max(3);
+            let padding = " ".repeat(line_num_width);
+
+            output.push_str(&format!("{} |\n", padding));
+            output.push_str(&format!(
+                "{:>width$} | {}\n",
+                line,
+                source_line,
+                width = line_num_width
+            ));
+
+            // Build combined underline for all errors in group
+            let mut underline_chars: Vec<char> = vec![' '; source_line.len() + 10];
+            for error in errors {
+                let (_, err_col) = self.sources.line_col(&error.span);
+                let start = (err_col as usize).saturating_sub(1);
+                let span_len = (error.span.end - error.span.start) as usize;
+                let caret_count = span_len.max(1);
+                for i in start..(start + caret_count).min(underline_chars.len()) {
+                    underline_chars[i] = '^';
+                }
+            }
+            let underline: String = underline_chars
+                .into_iter()
+                .collect::<String>()
+                .trim_end()
+                .to_string();
+            output.push_str(&format!("{} | {}\n", padding, underline));
+        }
+
+        // Notes from all errors
+        for error in errors {
+            for note in &error.notes {
+                output.push_str(&format!("   = help: {}\n", note));
             }
         }
 
