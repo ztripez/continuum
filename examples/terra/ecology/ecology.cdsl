@@ -76,7 +76,7 @@ config {
 
 signal.ecology.npp {
     : Scalar<1, 0..5>
-    : strata(ecology)
+    : stratum(ecology)
     : uses(maths.clamping)
     : title("Net Primary Productivity")
     : symbol("NPP")
@@ -104,7 +104,7 @@ signal.ecology.npp {
 # Limiting factor indicator (0=Temp, 1=Water, 2=Light, 3=CO2, 4=Ocean)
 signal.ecology.limiting_factor {
     : Scalar<1, 0..4>
-    : strata(ecology)
+    : stratum(ecology)
     : title("Limiting Factor")
     : symbol("LF")
 
@@ -120,7 +120,7 @@ signal.ecology.limiting_factor {
 
 signal.ecology.biomass {
     : Scalar<kg/m², 0..100>
-    : strata(ecology)
+    : stratum(ecology)
     : title("Biomass Stock")
     : symbol("B")
 
@@ -150,7 +150,7 @@ signal.ecology.biomass {
 
 signal.ecology.vegetation_cover {
     : Scalar<1, 0..1>
-    : strata(ecology)
+    : stratum(ecology)
     : title("Vegetation Cover Fraction")
     : symbol("V")
 
@@ -172,7 +172,7 @@ signal.ecology.vegetation_cover {
 
 signal.ecology.respiration_rate {
     : Scalar<1, 0..5>
-    : strata(ecology)
+    : stratum(ecology)
     : title("Ecosystem Respiration")
     : symbol("R_eco")
 
@@ -196,7 +196,7 @@ signal.ecology.respiration_rate {
 # Net Ecosystem Exchange (NEE = R - NPP, negative = carbon sink)
 signal.ecology.nee {
     : Scalar<1, -5..5>
-    : strata(ecology)
+    : stratum(ecology)
     : title("Net Ecosystem Exchange")
     : symbol("NEE")
 
@@ -212,7 +212,7 @@ signal.ecology.nee {
 # Soil organic carbon reservoir
 signal.ecology.soil_carbon {
     : Scalar<kg/m², 0..100>
-    : strata(ecology)
+    : stratum(ecology)
     : title("Soil Carbon")
     : symbol("SOC")
 
@@ -268,7 +268,7 @@ signal.ecology.soil_carbon {
 # Decomposition rate (derived)
 signal.ecology.decomposition_rate {
     : Scalar<kg/m²/yr, 0..10>
-    : strata(ecology)
+    : stratum(ecology)
     : title("Decomposition Rate")
     : symbol("D")
 
@@ -297,6 +297,8 @@ signal.ecology.decomposition_rate {
 
 # Mass extinction (temperature threshold)
 fracture.ecology.mass_extinction {
+    : stratum(ecology)
+
     when {
         surface.temp > 320.0 <K>
         ecology.biomass > 5.0
@@ -317,7 +319,7 @@ fracture.ecology.mass_extinction {
 # TODO: Integrate biosphere feedback into atmosphere.co2_equilibrium fracture
 #
 # fracture ecology.biosphere_co2_coupling {
-#     : strata(ecology)
+#     : stratum(ecology)
 #     config { equilibrium_sensitivity: 0.1 }
 #     when { ecology.npp > 0.0 }
 #     emit { ... }
@@ -326,7 +328,7 @@ fracture.ecology.mass_extinction {
 # Carrying capacity exceeded: triggers dieback when biomass > sustainable
 # K = NPP * turnover_time / maintenance_cost
 fracture.ecology.carrying_capacity_exceeded {
-    : strata(ecology)
+    : stratum(ecology)
 
     config {
         overshoot_threshold: 1.2             # Trigger when biomass > K * 1.2
@@ -359,7 +361,7 @@ fracture.ecology.carrying_capacity_exceeded {
 # Desertification risk: detects vegetation collapse conditions
 # Risk elevated when: low vegetation + drought + heat stress
 fracture.ecology.desertification_risk {
-    : strata(ecology)
+    : stratum(ecology)
 
     config {
         veg_threshold: 0.15                  # Low vegetation threshold
@@ -392,7 +394,7 @@ fracture.ecology.desertification_risk {
 # Fire disturbance: biomass loss and carbon release
 # Triggered by dry conditions and high biomass
 fracture.ecology.fire_disturbance {
-    : strata(ecology)
+    : stratum(ecology)
 
     config {
         biomass_threshold: 20.0              # Minimum biomass for fire spread
@@ -422,7 +424,7 @@ fracture.ecology.fire_disturbance {
 
 # Pest/disease outbreak: biomass reduction under stress
 fracture.ecology.pest_outbreak {
-    : strata(ecology)
+    : stratum(ecology)
 
     config {
         stress_temp_threshold_k: 305.0       # Heat stress increases pest activity
@@ -451,7 +453,7 @@ fracture.ecology.pest_outbreak {
 
 field.ecology.npp_map {
     : Scalar<1>
-    : strata(ecology)
+    : stratum(ecology)
     : topology(sphere_surface)
     : title("NPP Field")
 
@@ -462,7 +464,7 @@ field.ecology.npp_map {
 
 field.ecology.biomass_map {
     : Scalar<kg/m²>
-    : strata(ecology)
+    : stratum(ecology)
     : topology(sphere_surface)
     : title("Biomass Field")
 
@@ -473,7 +475,7 @@ field.ecology.biomass_map {
 
 field.ecology.vegetation_map {
     : Scalar<1>
-    : strata(ecology)
+    : stratum(ecology)
     : topology(sphere_surface)
     : title("Vegetation Cover Field")
 
@@ -484,7 +486,7 @@ field.ecology.vegetation_map {
 
 field.ecology.respiration_map {
     : Scalar<1>
-    : strata(ecology)
+    : stratum(ecology)
     : topology(sphere_surface)
     : title("Respiration Field")
 
@@ -495,7 +497,7 @@ field.ecology.respiration_map {
 
 field.ecology.nee_map {
     : Scalar<1>
-    : strata(ecology)
+    : stratum(ecology)
     : topology(sphere_surface)
     : title("Net Ecosystem Exchange Field")
 
@@ -506,7 +508,7 @@ field.ecology.nee_map {
 
 field.ecology.soil_carbon_map {
     : Scalar<kg/m²>
-    : strata(ecology)
+    : stratum(ecology)
     : topology(sphere_surface)
     : title("Soil Carbon Field")
 
@@ -517,7 +519,7 @@ field.ecology.soil_carbon_map {
 
 field.ecology.decomposition_map {
     : Scalar<kg/m²/yr>
-    : strata(ecology)
+    : stratum(ecology)
     : topology(sphere_surface)
     : title("Decomposition Rate Field")
 
@@ -532,6 +534,8 @@ field.ecology.decomposition_map {
 
 # Mass extinction event: catastrophic biomass loss
 chronicle.ecology.events.mass_extinction {
+    : stratum(ecology)
+
     observe {
         when ecology.biomass < 1.0 and
              surface.temp > 315.0 <K> {
@@ -549,6 +553,8 @@ chronicle.ecology.events.mass_extinction {
 
 # Biodiversity bloom: rapid biomass expansion
 chronicle.ecology.events.biodiversity_bloom {
+    : stratum(ecology)
+
     observe {
         when ecology.biomass > 50.0 and
              ecology.npp > 2.5 and
@@ -567,6 +573,8 @@ chronicle.ecology.events.biodiversity_bloom {
 
 # Soil carbon depletion: major soil degradation
 chronicle.ecology.events.soil_carbon_depletion {
+    : stratum(ecology)
+
     observe {
         when ecology.soil_carbon < 2.0 and
              ecology.decomposition_rate > 5.0 {
@@ -584,6 +592,8 @@ chronicle.ecology.events.soil_carbon_depletion {
 
 # Carbon cycle acceleration: extreme carbon turnover
 chronicle.ecology.events.carbon_cycle_acceleration {
+    : stratum(ecology)
+
     observe {
         when ecology.npp > 4.0 and
              ecology.decomposition_rate > 8.0 {
@@ -601,6 +611,8 @@ chronicle.ecology.events.carbon_cycle_acceleration {
 
 # Desertification event: vegetation collapse
 chronicle.ecology.events.desertification {
+    : stratum(ecology)
+
     observe {
         when ecology.vegetation_cover < 0.1 and
              ecology.biomass < 5.0 and
@@ -619,6 +631,8 @@ chronicle.ecology.events.desertification {
 
 # Biosphere recovery: post-extinction recovery
 chronicle.ecology.events.biosphere_recovery {
+    : stratum(ecology)
+
     observe {
         when ecology.biomass > 20.0 and
              ecology.npp > 1.5 and

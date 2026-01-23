@@ -97,7 +97,7 @@ entity.stellar.star {
 
     signal mass {
         : Scalar<kg, 1e28..1e32>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Star Mass")
         : symbol("M_star")
     
@@ -107,7 +107,7 @@ entity.stellar.star {
 
     signal radius {
         : Scalar<m, 1e8..1e10>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Star Radius")
         : symbol("R_star")
     
@@ -117,7 +117,7 @@ entity.stellar.star {
 
     signal luminosity_base {
         : Scalar<W, 1e24..1e30>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Base Luminosity")
         : symbol("L_base")
     
@@ -127,7 +127,7 @@ entity.stellar.star {
 
     signal teff {
         : Scalar<K, 2000..50000>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Effective Temperature")
         : symbol("T_eff")
     
@@ -137,7 +137,7 @@ entity.stellar.star {
 
     signal luminosity_evolution_rate {
         : Scalar<1/Myr, 0..1e-3>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Luminosity Evolution Rate")
         : symbol("dL/dt")
     
@@ -147,7 +147,7 @@ entity.stellar.star {
 
     signal orbit_radius {
         : Scalar<m, 0..1e14>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Orbit Semi-major Axis")
         : symbol("a_star")
     
@@ -157,7 +157,7 @@ entity.stellar.star {
 
     signal orbit_eccentricity {
         : Scalar<1, 0..0.99>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Orbit Eccentricity")
         : symbol("e_star")
     
@@ -167,7 +167,7 @@ entity.stellar.star {
 
     signal orbit_phase {
         : Scalar<rad, 0..TAU>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Orbit Phase")
         : symbol("phi_star")
         : uses(dt.raw)
@@ -183,7 +183,7 @@ entity.stellar.star {
 
     signal orbit_inclination {
         : Scalar<rad, 0..PI>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Orbit Inclination")
         : symbol("i_star")
     
@@ -193,7 +193,7 @@ entity.stellar.star {
 
     signal position {
         : Vec3<m>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Star Position")
         : symbol("r_star")
     
@@ -209,7 +209,7 @@ entity.stellar.star {
 
     signal direction {
         : Vec3
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Star Direction from Planet")
         : symbol("d_star")
     
@@ -220,7 +220,7 @@ entity.stellar.star {
 
     signal distance {
         : Scalar<m, 0..1e15>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Distance to Star")
         : symbol("r_star")
     
@@ -231,7 +231,7 @@ entity.stellar.star {
 
     signal rotation_period {
         : Scalar<day, 0.1..100>
-        : strata(stellar.activity)
+        : stratum(activity)
         : title("Rotation Period")
         : symbol("P_rot")
     
@@ -241,7 +241,7 @@ entity.stellar.star {
 
     signal spot_amplitude {
         : Scalar<1, 0..0.1>
-        : strata(stellar.activity)
+        : stratum(activity)
         : title("Starspot Amplitude")
         : symbol("A_spot")
     
@@ -251,7 +251,7 @@ entity.stellar.star {
 
     signal activity_cycle_period {
         : Scalar<yr, 1..100>
-        : strata(stellar.activity)
+        : stratum(activity)
         : title("Activity Cycle Period")
         : symbol("P_cycle")
     
@@ -261,7 +261,7 @@ entity.stellar.star {
 
     signal flare_rate {
         : Scalar<1/day, 0..10>
-        : strata(stellar.activity)
+        : stratum(activity)
         : title("Flare Rate")
         : symbol("R_flare")
     
@@ -271,7 +271,7 @@ entity.stellar.star {
 
     signal variability_factor {
         : Scalar<1, 0.5..2.0>
-        : strata(stellar.orbit)  # Must be in orbit stratum so it's computed before luminosity
+        : stratum(orbit)  # Must be in orbit stratum so it's computed before luminosity
         : title("Luminosity Variability Factor")
         : symbol("f_var")
     
@@ -293,7 +293,7 @@ entity.stellar.star {
 
     signal luminosity {
         : Scalar<W, 1e24..1e30>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Current Luminosity")
         : symbol("L_star")
     
@@ -307,7 +307,7 @@ entity.stellar.star {
 
     signal angular_radius {
         : Scalar<rad, 0..0.1>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Angular Radius")
         : symbol("theta_star")
     
@@ -318,7 +318,7 @@ entity.stellar.star {
 
     signal flux {
         : Scalar<W/m², 0..1e6>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Stellar Flux at Planet")
         : symbol("F_star")
     
@@ -388,7 +388,7 @@ entity.stellar.moon {
 
     signal mass {
         : Scalar<kg, 1e15..1e24>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Moon Mass")
         : symbol("M_moon")
     
@@ -398,7 +398,7 @@ entity.stellar.moon {
 
     signal radius {
         : Scalar<m, 1e3..1e7>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Moon Radius")
         : symbol("R_moon")
     
@@ -408,7 +408,7 @@ entity.stellar.moon {
 
     signal orbit_radius {
         : Scalar<m, 1e6..1e10>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Orbit Semi-major Axis")
         : symbol("a_moon")
     
@@ -421,7 +421,7 @@ entity.stellar.moon {
 
     signal orbit_eccentricity {
         : Scalar<1, 0..0.5>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Orbit Eccentricity")
         : symbol("e_moon")
     
@@ -431,7 +431,7 @@ entity.stellar.moon {
 
     signal orbit_phase {
         : Scalar<rad, 0..TAU>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Orbit Phase")
         : symbol("phi_moon")
         : uses(dt.raw)
@@ -447,7 +447,7 @@ entity.stellar.moon {
 
     signal orbit_inclination {
         : Scalar<rad, 0..PI>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Orbit Inclination")
         : symbol("i_moon")
     
@@ -457,7 +457,7 @@ entity.stellar.moon {
 
     signal tidal_recession_rate {
         : Scalar<m/s, 0..1e-6>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Tidal Recession Rate")
         : symbol("dr/dt")
     
@@ -467,7 +467,7 @@ entity.stellar.moon {
 
     signal position {
         : Vec3<m>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Moon Position")
         : symbol("r_moon")
     
@@ -482,7 +482,7 @@ entity.stellar.moon {
 
     signal direction {
         : Vec3
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Moon Direction from Planet")
         : symbol("d_moon")
     
@@ -493,7 +493,7 @@ entity.stellar.moon {
 
     signal distance {
         : Scalar<m, 0..1e10>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Distance to Moon")
         : symbol("r_moon")
     
@@ -504,7 +504,7 @@ entity.stellar.moon {
 
     signal angular_radius {
         : Scalar<rad, 0..0.1>
-        : strata(stellar.orbit)
+        : stratum(orbit)
         : title("Angular Radius")
         : symbol("theta_moon")
     
@@ -515,7 +515,7 @@ entity.stellar.moon {
 
     signal tidal_force {
         : Scalar<N/kg, 0..1e-5>
-        : strata(stellar.tides)
+        : stratum(tides)
         : title("Tidal Force per Unit Mass")
         : symbol("F_tidal")
     
@@ -528,7 +528,7 @@ entity.stellar.moon {
 
     signal tidal_heating {
         : Scalar<W, 0..1e15>
-        : strata(stellar.tides)
+        : stratum(tides)
         : title("Tidal Heating Power")
         : symbol("P_tidal")
     
@@ -583,7 +583,7 @@ entity.stellar.moon {
 # TODO: Fix entity member initial value propagation (continuum-wpqp)
 signal.stellar.total_insolation {
     : Scalar<W/m², 0..1e6>
-    : strata(stellar.orbit)
+    : stratum(orbit)
     : title("Total Stellar Insolation")
     : symbol("F_total")
 
@@ -601,7 +601,7 @@ signal.stellar.total_insolation {
 # Total tidal heating power from all moons
 signal.stellar.total_tidal_power {
     : Scalar<W, 0..1e16>
-    : strata(stellar.tides)
+    : stratum(tides)
     : title("Total Tidal Heating Power")
     : symbol("P_tidal_total")
 
@@ -614,7 +614,7 @@ signal.stellar.total_tidal_power {
 # Used for field visualization - aggregates tidal force contribution
 signal.stellar.total_tidal_amplitude {
     : Scalar<m, 0..1e6>
-    : strata(stellar.tides)
+    : stratum(tides)
     : title("Total Tidal Amplitude")
     : symbol("A_tidal_total")
 
@@ -626,7 +626,7 @@ signal.stellar.total_tidal_amplitude {
 # Star count
 signal.stellar.star_count {
     : Scalar<1, 0..4>
-    : strata(stellar.orbit)
+    : stratum(orbit)
     : title("Number of Stars")
     : symbol("N_star")
 
@@ -638,7 +638,7 @@ signal.stellar.star_count {
 # Moon count
 signal.stellar.moon_count {
     : Scalar<1, 0..20>
-    : strata(stellar.orbit)
+    : stratum(orbit)
     : title("Number of Moons")
     : symbol("N_moon")
 
@@ -670,6 +670,7 @@ type ImpactImpulsePayload {
 /// for very large impacts. Energy partitioned between thermal heating and mechanical deformation.
 impulse.stellar.impact {
     : ImpactImpulsePayload
+    : stratum(orbit)
     : title("Impact Impulse")
     : symbol("💥")
 
@@ -738,6 +739,7 @@ type OrbitalChangePayload {
 /// or close encounters. Changes eccentricity, obliquity, and precession of orbit.
 impulse.stellar.orbital_change {
     : OrbitalChangePayload
+    : stratum(orbit)
     : title("Orbital Change")
     : symbol("🌍")
 
@@ -796,7 +798,7 @@ impulse.stellar.orbital_change {
 
 field.stellar.insolation_map {
     : Scalar<W/m²>
-    : strata(stellar.orbit)
+    : stratum(orbit)
     : topology(sphere_surface)
     : title("Insolation Field")
 
@@ -807,7 +809,7 @@ field.stellar.insolation_map {
 
 field.stellar.tidal_amplitude_map {
     : Scalar<m>
-    : strata(stellar.tides)
+    : stratum(tides)
     : topology(sphere_surface)
     : title("Tidal Amplitude Field")
 

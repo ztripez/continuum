@@ -100,7 +100,7 @@ fn.atmosphere.effective_emissivity(base_emissivity, tau_greenhouse) {
 
 signal.atmosphere.external_power {
     : Scalar<W, 0..1e20>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : title("External Radiative Power")
     : symbol("P_ext")
 
@@ -128,7 +128,7 @@ signal.atmosphere.external_power {
 # Mean surface temperature
 signal.atmosphere.surface_temp {
     : Vec3<K>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : title("Surface Temperature")
     : symbol("T_surf")
 
@@ -191,7 +191,7 @@ signal.atmosphere.surface_temp {
 
 signal.atmosphere.water_vapor {
     : Scalar<kg/m², 0.1..200>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : title("Water Vapor Column")
     : symbol("W_v")
 
@@ -223,7 +223,7 @@ signal.atmosphere.water_vapor {
 
 signal.atmosphere.co2_ppmv {
     : Scalar<ppmv, 100..10000>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : uses(maths.clamping)
     : title("CO2 Concentration")
     : symbol("CO2")
@@ -257,7 +257,7 @@ signal.atmosphere.co2_ppmv {
 # At geological timescales, CH4 equilibrates rapidly
 signal.atmosphere.ch4_ppmv {
     : Scalar<ppmv, 0..50>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : uses(maths.clamping)
     : title("CH4 Concentration")
     : symbol("CH4")
@@ -291,7 +291,7 @@ signal.atmosphere.ch4_ppmv {
 
 signal.atmosphere.cloud_cover {
     : Scalar<1, 0..1>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : uses(maths.clamping)
     : title("Cloud Cover Fraction")
     : symbol("C")
@@ -323,7 +323,7 @@ signal.atmosphere.cloud_cover {
 
 signal.atmosphere.tau_greenhouse {
     : Scalar<1, 0..10>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : title("Greenhouse Optical Depth")
     : symbol("tau")
 
@@ -353,7 +353,7 @@ signal.atmosphere.tau_greenhouse {
 
 signal.atmosphere.pressure {
     : Scalar<Pa, 0..1e8>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : title("Surface Atmospheric Pressure")
     : symbol("P_surf")
 
@@ -381,7 +381,7 @@ signal.atmosphere.pressure {
 # Ice/snow fraction of planetary surface
 signal.atmosphere.ice_fraction {
     : Scalar<1, 0..1>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : uses(maths.clamping)
     : title("Ice Fraction")
     : symbol("f_ice")
@@ -431,7 +431,7 @@ signal.atmosphere.ice_fraction {
 # Effective planetary albedo with ice-albedo feedback
 signal.atmosphere.albedo {
     : Scalar<1, 0..1>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : uses(maths.clamping)
     : title("Effective Planetary Albedo")
     : symbol("α")
@@ -474,7 +474,7 @@ signal.atmosphere.albedo {
 
 signal.atmosphere.solar_constant {
     : Scalar<W/m², 0..1e5>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : title("Solar Constant")
     : symbol("S")
 
@@ -497,7 +497,7 @@ signal.atmosphere.solar_constant {
 # Absorbed solar radiation (after albedo reflection)
 signal.atmosphere.absorbed_radiation {
     : Scalar<W/m², 0..1e5>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : title("Absorbed Solar Radiation")
     : symbol("Q_abs")
 
@@ -527,7 +527,7 @@ signal.atmosphere.absorbed_radiation {
 # atmosphere's radiative budget, enabling star variability, orbital changes,
 # and binary/trinary star systems to affect planetary climate.
 fracture.atmosphere.stellar_insolation_coupling {
-    : strata(atmosphere)
+    : stratum(atmosphere)
 
     config {
         # Planet cross-section to surface area ratio (1/4 for sphere)
@@ -566,6 +566,8 @@ fracture.atmosphere.stellar_insolation_coupling {
 
 # Runaway greenhouse threshold
 fracture.atmosphere.runaway_greenhouse {
+    : stratum(atmosphere)
+
     when {
         atmosphere.surface_temp.x > 350.0 <K>
         atmosphere.water_vapor > 150.0
@@ -579,6 +581,8 @@ fracture.atmosphere.runaway_greenhouse {
 
 # Ice age trigger
 fracture.atmosphere.ice_age {
+    : stratum(atmosphere)
+
     when {
         atmosphere.surface_temp.x < 270.0 <K>
         atmosphere.co2_ppmv < 200.0
@@ -598,7 +602,7 @@ fracture.atmosphere.ice_age {
 # At geological timescales, CO2 equilibrates to balance sources and sinks
 # This single fracture computes the equilibrium including all feedbacks
 fracture.atmosphere.co2_equilibrium {
-    : strata(atmosphere)
+    : stratum(atmosphere)
 
     config {
         # Base equilibrium CO2 at Earth-like conditions (activity = 1.0, temp = 288K)
@@ -652,7 +656,7 @@ fracture.atmosphere.co2_equilibrium {
 # Methane equilibrium from volcanic/hydrothermal sources
 # CH4 has short atmospheric lifetime (~12 yr), equilibrates rapidly on geological timescales
 fracture.atmosphere.ch4_equilibrium {
-    : strata(atmosphere)
+    : stratum(atmosphere)
 
     config {
         # Base equilibrium CH4 at Earth-like conditions
@@ -686,7 +690,7 @@ fracture.atmosphere.ch4_equilibrium {
 
 field.atmosphere.temperature {
     : Scalar<K>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(point_cloud)
     : title("Surface Temperature Field")
 
@@ -697,7 +701,7 @@ field.atmosphere.temperature {
 
 field.atmosphere.water_vapor_map {
     : Scalar<kg/m²>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(point_cloud)
     : title("Water Vapor Column Field")
 
@@ -708,7 +712,7 @@ field.atmosphere.water_vapor_map {
 
 field.atmosphere.cloud_map {
     : Scalar<1>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(point_cloud)
     : title("Cloud Cover Field")
 
@@ -719,7 +723,7 @@ field.atmosphere.cloud_map {
 
 field.atmosphere.co2_map {
     : Scalar<ppmv>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(point_cloud)
     : title("CO2 Concentration Field")
 
@@ -730,7 +734,7 @@ field.atmosphere.co2_map {
 
 field.atmosphere.pressure_map {
     : Scalar<Pa>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(point_cloud)
     : title("Surface Pressure Field")
 
@@ -741,7 +745,7 @@ field.atmosphere.pressure_map {
 
 field.atmosphere.ice_fraction_map {
     : Scalar<1>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(sphere_surface)
     : title("Ice Fraction Field")
 
@@ -752,7 +756,7 @@ field.atmosphere.ice_fraction_map {
 
 field.atmosphere.albedo_map {
     : Scalar<1>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(sphere_surface)
     : title("Effective Albedo Field")
 
@@ -763,7 +767,7 @@ field.atmosphere.albedo_map {
 
 field.atmosphere.solar_constant_map {
     : Scalar<W/m²>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(point_cloud)
     : title("Solar Constant Field")
 
@@ -774,7 +778,7 @@ field.atmosphere.solar_constant_map {
 
 field.atmosphere.absorbed_radiation_map {
     : Scalar<W/m²>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(sphere_surface)
     : title("Absorbed Radiation Field")
 
@@ -785,7 +789,7 @@ field.atmosphere.absorbed_radiation_map {
 
 field.atmosphere.greenhouse_map {
     : Scalar<1>
-    : strata(atmosphere)
+    : stratum(atmosphere)
     : topology(point_cloud)
     : title("Greenhouse Optical Depth Field")
 
@@ -800,6 +804,8 @@ field.atmosphere.greenhouse_map {
 
 # Snowball Earth event: global glaciation
 chronicle.atmosphere.events.snowball_earth {
+    : stratum(atmosphere)
+
     observe {
         when atmosphere.ice_fraction > 0.9 {
             emit event.snowball_earth {
@@ -816,6 +822,8 @@ chronicle.atmosphere.events.snowball_earth {
 
 # Runaway greenhouse event: Venus-like conditions
 chronicle.atmosphere.events.runaway_greenhouse {
+    : stratum(atmosphere)
+
     observe {
         when atmosphere.surface_temp.x > 350.0 <K> {
             emit event.runaway_greenhouse {
@@ -848,6 +856,8 @@ chronicle.atmosphere.events.runaway_greenhouse {
 
 # Ice age onset: significant cooling and glaciation
 chronicle.atmosphere.events.ice_age_onset {
+    : stratum(atmosphere)
+
     observe {
         when atmosphere.surface_temp.x < 270.0 <K> and
              atmosphere.ice_fraction > 0.3 {
@@ -864,6 +874,8 @@ chronicle.atmosphere.events.ice_age_onset {
 
 # Atmospheric collapse: extreme pressure loss
 chronicle.atmosphere.events.atmospheric_collapse {
+    : stratum(atmosphere)
+
     observe {
         when atmosphere.pressure < 10000.0 {
             emit event.atmospheric_collapse {
