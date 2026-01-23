@@ -368,6 +368,26 @@ pub enum ExprKind {
     /// **Capability:** Requires `Capability::Dt` from phase
     Dt,
 
+    /// Collected signal inputs - sum of all impulse/fracture contributions
+    ///
+    /// Available in signal resolve blocks. Represents accumulated inputs from
+    /// the collect phase.
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// signal temperature : Scalar<K> {
+    ///     resolve {
+    ///         prev + collected  // Collected
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// **Type:** Matches the signal's type
+    ///
+    /// **Capability:** Requires resolve phase context
+    Collected,
+
     /// Current entity instance - requires `Capability::Index`
     ///
     /// Used in per-entity contexts (members) to reference the current instance.
@@ -728,6 +748,7 @@ impl TypedExpr {
             | ExprKind::Current
             | ExprKind::Inputs
             | ExprKind::Dt
+            | ExprKind::Collected
             | ExprKind::Self_
             | ExprKind::Other
             | ExprKind::Payload
@@ -839,6 +860,7 @@ impl TypedExpr {
             | ExprKind::Current
             | ExprKind::Inputs
             | ExprKind::Dt
+            | ExprKind::Collected
             | ExprKind::Self_
             | ExprKind::Other
             | ExprKind::Payload

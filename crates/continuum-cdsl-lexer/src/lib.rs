@@ -180,6 +180,9 @@ pub enum Token {
     /// Keyword `dt`
     #[token("dt")]
     Dt,
+    /// Keyword `collected`
+    #[token("collected")]
+    Collected,
     /// Keyword `payload`
     #[token("payload")]
     Payload,

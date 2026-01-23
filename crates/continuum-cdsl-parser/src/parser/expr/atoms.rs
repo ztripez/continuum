@@ -54,6 +54,10 @@ pub(super) fn parse_atom(stream: &mut TokenStream) -> Result<Expr, ParseError> {
             stream.advance();
             Ok(Expr::new(UntypedKind::Dt, stream.span_from(start)))
         }
+        Some(Token::Collected) => {
+            stream.advance();
+            Ok(Expr::new(UntypedKind::Collected, stream.span_from(start)))
+        }
         Some(Token::Self_) => {
             stream.advance();
             Ok(Expr::new(UntypedKind::Self_, stream.span_from(start)))

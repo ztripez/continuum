@@ -269,6 +269,11 @@ fn scan_for_capability_violations(
             }
         }
 
+        ExprKind::Collected => {
+            // Collected is available in signal resolve blocks
+            // TODO: Add capability check if needed
+        }
+
         ExprKind::Payload => {
             if !ctx.has_capability(Capability::Payload) {
                 errors.push(CompileError::new(
@@ -413,8 +418,8 @@ fn scan_for_capability_violations(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use continuum_cdsl_ast::KernelId;
     use continuum_cdsl_ast::foundation::{Shape, Span, Type, Unit};
+    use continuum_cdsl_ast::KernelId;
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)

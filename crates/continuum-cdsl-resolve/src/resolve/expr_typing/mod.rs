@@ -116,6 +116,17 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             (ExprKind::Dt, Type::Kernel(kernel_type))
         }
 
+        UntypedKind::Collected => {
+            // Collected has the same type as the signal being resolved.
+            // This requires access to the current node's output type from context.
+            let signal_type = ctx
+                .node_output
+                .clone()
+                .ok_or_else(|| err_internal(span, "collected used outside signal resolve context"))?;
+
+            (ExprKind::Collected, signal_type)
+        }
+
         // === Kernel calls ===
         UntypedKind::KernelCall { kernel, args } => {
             let (k, t) = type_as_kernel_call(ctx, kernel, args, span)?;

@@ -216,6 +216,9 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
                 });
             }
 
+            // Collected - no special use requirements
+            ExprKind::Collected => {}
+
             // Other leaf nodes and containers that don't require specific uses
             ExprKind::Literal { .. }
             | ExprKind::StringLiteral(_)
@@ -361,6 +364,9 @@ fn collect_required_uses_untyped(
                 hint: DT_RAW_HINT.to_string(),
             });
         }
+
+        // Collected - no special use requirements
+        UntypedKind::Collected => {}
 
         // Recurse into subexpressions
         UntypedKind::Let { value, body, .. } => {

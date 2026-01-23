@@ -527,6 +527,7 @@ pub fn validate_expr(
         | ExprKind::Current
         | ExprKind::Inputs
         | ExprKind::Dt
+            | ExprKind::Collected
         | ExprKind::Self_
         | ExprKind::Other
         | ExprKind::Payload => {

@@ -154,6 +154,7 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
         | ExprKind::Current
         | ExprKind::Inputs
         | ExprKind::Dt
+            | ExprKind::Collected
         | ExprKind::Self_
         | ExprKind::Other
         | ExprKind::Payload

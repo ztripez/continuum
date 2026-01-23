@@ -166,6 +166,8 @@ pub enum OpcodeKind {
     LoadInputs,
     /// Loads the current time step (dt).
     LoadDt,
+    /// Loads collected signal inputs (sum of impulse/fracture contributions).
+    LoadCollected,
     /// Loads the identity (Value::Entity) of the current entity instance.
     LoadSelf,
     /// Loads the identity of the "other" entity (e.g., in collision contexts).
