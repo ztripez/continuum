@@ -294,7 +294,7 @@ fn test_collected_in_expression() {
 #[test]
 fn test_collected_with_dt() {
     // Common pattern: integrate collected inputs over timestep
-    assert_expr_parses("prev + collected * dt");
+    assert_expr_parses("prev + collected * dt.raw()");
 }
 
 #[test]
@@ -319,8 +319,9 @@ fn test_inputs_keyword() {
 }
 
 #[test]
-fn test_dt_keyword() {
-    assert_expr_parses("dt");
+fn test_dt_namespace_call() {
+    // dt is now a namespace, not a keyword
+    assert_expr_parses("dt.raw()");
 }
 
 #[test]
@@ -342,11 +343,11 @@ fn test_keyword_field_access() {
 #[test]
 fn test_keyword_in_arithmetic() {
     // Keywords can be used in arithmetic expressions
-    assert_expr_parses("prev + dt * 0.5");
+    assert_expr_parses("prev + dt.raw() * 0.5");
 }
 
 #[test]
 fn test_multiple_keywords() {
     // Multiple keywords in one expression
-    assert_expr_parses("prev + collected * dt - current");
+    assert_expr_parses("prev + collected * dt.raw() - current");
 }
