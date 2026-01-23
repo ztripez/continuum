@@ -509,15 +509,24 @@ impl<'a> DiagnosticFormatter<'a> {
         // Source line
         let file = self.sources.file(&error.span);
         if let Some(source_line) = file.line_text(line) {
-            output.push_str(&format!("   |\n"));
-            output.push_str(&format!("{:3} | {}\n", line, source_line));
+            // Calculate width needed for line numbers
+            let line_num_width = line.to_string().len().max(3);
+            let padding = " ".repeat(line_num_width);
+
+            output.push_str(&format!("{} |\n", padding));
+            output.push_str(&format!(
+                "{:>width$} | {}\n",
+                line,
+                source_line,
+                width = line_num_width
+            ));
 
             // Underline: col is 1-based, so col-1 spaces positions ^ under the right char
             let start_col = (col as usize).saturating_sub(1);
             let span_len = (error.span.end - error.span.start) as usize;
             let caret_count = span_len.max(1);
             let underline = " ".repeat(start_col) + &"^".repeat(caret_count);
-            output.push_str(&format!("   | {}\n", underline));
+            output.push_str(&format!("{} | {}\n", padding, underline));
         }
 
         // Secondary labels
