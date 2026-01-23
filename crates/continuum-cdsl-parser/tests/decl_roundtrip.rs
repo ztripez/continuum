@@ -172,58 +172,12 @@ fn test_chronicle_declaration() {
 }
 
 // =============================================================================
-// Member Declarations
+// Entity Declaration (includes nested members)
 // =============================================================================
-
-#[test]
-fn test_member_signal_declaration() {
-    let source = r#"
-        member plate.velocity {
-            : title("Velocity")
-            
-            resolve { [0.0, 0.0, 0.0] }
-        }
-    "#;
-
-    let decls = parse(source);
-    assert_eq!(decls.len(), 1);
-
-    match &decls[0] {
-        Declaration::Member(node) => {
-            assert_eq!(node.path.to_string(), "velocity");
-            assert!(matches!(node.role, RoleData::Signal));
-            assert_eq!(node.index.to_string(), "plate");
-        }
-        _ => panic!("Expected Member declaration"),
-    }
-}
-
-#[test]
-fn test_member_field_declaration() {
-    let source = r#"
-        member plate.temperature {
-            : title("Temperature")
-            
-            measure { 300.0 }
-        }
-    "#;
-
-    let decls = parse(source);
-    assert_eq!(decls.len(), 1);
-
-    match &decls[0] {
-        Declaration::Member(node) => {
-            assert_eq!(node.path.to_string(), "temperature");
-            // Role defaults to Signal in parser; will be inferred from blocks later
-            assert!(matches!(node.role, RoleData::Signal));
-        }
-        _ => panic!("Expected Member declaration"),
-    }
-}
-
-// =============================================================================
-// Entity Declaration
-// =============================================================================
+//
+// NOTE: Standalone member declarations (e.g., "member plate.velocity { ... }")
+// were deprecated and removed. Members are now declared inside entity blocks
+// using nested syntax. See test_entity_declaration below for examples.
 
 #[test]
 fn test_entity_declaration() {
