@@ -558,8 +558,8 @@ mod tests {
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
-        assert!(errors[0].message.contains("exactly one argument"));
+        assert_eq!(errors[0].kind, ErrorKind::Syntax);
+        assert!(errors[0].message.contains("expects exactly 1 argument"));
     }
 
     #[test]
@@ -574,8 +574,8 @@ mod tests {
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
-        assert!(errors[0].message.contains("exactly one argument"));
+        assert_eq!(errors[0].kind, ErrorKind::Syntax);
+        assert!(errors[0].message.contains("expects exactly 1 argument"));
     }
 
     #[test]
@@ -605,8 +605,8 @@ mod tests {
         assert!(result.is_err());
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
-        assert!(errors[0].message.contains("must be an identifier"));
+        assert_eq!(errors[0].kind, ErrorKind::Syntax);
+        assert!(errors[0].message.contains("must be a path or identifier"));
     }
 
     // ===== Cadence Edge Case Tests =====

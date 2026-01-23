@@ -33,7 +33,9 @@ use continuum_kernel_registry::{eval_in_namespace, VRegBuffer, VectorizedResult}
     shape_in = [],
     unit_in = [],
     shape_out = Scalar,
-    unit_out = Dimensionless
+    unit_out = Dimensionless,
+    requires_uses = "raw",
+    requires_uses_hint = "Raw dt access makes code dt-fragile. Use dt-robust operators (dt.integrate, dt.decay, dt.relax) instead. If raw dt is physically correct (e.g., Energy = Power × dt), declare : uses(dt.raw)"
 )]
 pub fn raw() -> f64 {
     // NOTE: This function is special-cased in the compiler.
@@ -575,6 +577,14 @@ mod tests {
         assert_eq!(desc.arity, Arity::Fixed(0));
         // NOTE: dt.raw() is special-cased in bytecode emission
         // It emits LoadDt instruction, not a regular kernel call
+
+        // Check that requires_uses is set
+        assert!(
+            desc.requires_uses.is_some(),
+            "dt.raw should have requires_uses set"
+        );
+        let req = desc.requires_uses.as_ref().unwrap();
+        assert_eq!(req.key, "raw");
     }
 
     #[test]

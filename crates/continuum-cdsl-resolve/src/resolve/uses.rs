@@ -487,6 +487,11 @@ mod tests {
     use continuum_cdsl_ast::foundation::{Path, Phase, Type};
     use continuum_cdsl_ast::{Execution, RoleData};
 
+    // Force linking of continuum-functions crate so kernel signatures are available
+    // via distributed slice (KERNEL_SIGNATURES)
+    #[allow(unused)]
+    use continuum_functions as _;
+
     fn make_span() -> Span {
         Span::new(0, 0, 10, 1)
     }
@@ -584,7 +589,7 @@ mod tests {
 
         assert_eq!(required.len(), 1);
         assert_eq!(required[0].key, "dt.raw");
-        assert_eq!(required[0].source, "dt");
+        assert_eq!(required[0].source, "dt.raw");
     }
 
     #[test]

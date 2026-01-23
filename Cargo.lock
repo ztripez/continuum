@@ -405,6 +405,7 @@ version = "0.1.0"
 dependencies = [
  "continuum-cdsl-ast",
  "continuum-foundation",
+ "continuum-functions",
  "continuum-kernel-registry",
  "continuum-kernel-types",
  "indexmap",

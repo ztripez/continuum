@@ -781,10 +781,19 @@ mod type_inference_tests {
     fn test_infer_scalar_with_unit() {
         let span = Span::new(0, 0, 0, 0);
         // Test: const { g: 9.81 <m/s²> } should infer Scalar<m/s²> not Scalar<1>
+        // Unit expression for m/s²: m / (s^2)
+        let unit_expr = continuum_cdsl_ast::UnitExpr::Divide(
+            Box::new(continuum_cdsl_ast::UnitExpr::Base("m".to_string())),
+            Box::new(continuum_cdsl_ast::UnitExpr::Power(
+                Box::new(continuum_cdsl_ast::UnitExpr::Base("s".to_string())),
+                2,
+            )),
+        );
+
         let expr = Expr::new(
             UntypedKind::Literal {
                 value: 9.81,
-                unit: Some(continuum_cdsl_ast::UnitExpr::Base("m/s²".to_string())),
+                unit: Some(unit_expr),
             },
             span,
         );

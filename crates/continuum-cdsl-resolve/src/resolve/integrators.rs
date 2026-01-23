@@ -522,8 +522,8 @@ mod tests {
 
         assert_eq!(integrator, None);
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
-        assert!(errors[0].message.contains("expects 1 argument, got 0"));
+        assert_eq!(errors[0].kind, ErrorKind::Syntax);
+        assert!(errors[0].message.contains("expects exactly 1 argument"));
     }
 
     #[test]
@@ -545,8 +545,8 @@ mod tests {
 
         assert_eq!(integrator, None);
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
-        assert!(errors[0].message.contains("expects 1 argument, got 2"));
+        assert_eq!(errors[0].kind, ErrorKind::Syntax);
+        assert!(errors[0].message.contains("expects exactly 1 argument"));
     }
 
     #[test]

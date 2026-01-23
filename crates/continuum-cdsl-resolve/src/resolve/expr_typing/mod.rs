@@ -73,13 +73,20 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
 
         // === References ===
         UntypedKind::Local(name) => {
-            let ty = ctx
-                .local_bindings
-                .get(name)
-                .cloned()
-                .ok_or_else(|| err_undefined(span, name, "local variable"))?;
-
-            (ExprKind::Local(name.clone()), ty)
+            use continuum_cdsl_ast::foundation::Path;
+            
+            // First check local bindings
+            if let Some(ty) = ctx.local_bindings.get(name).cloned() {
+                (ExprKind::Local(name.clone()), ty)
+            }
+            // Bare signal path resolution: if not a local variable, try as a signal
+            else if let Some(ty) = ctx.signal_types.get(&Path::from(name.as_str())).cloned() {
+                (ExprKind::Signal(Path::from(name.as_str())), ty)
+            }
+            // Not found anywhere - error
+            else {
+                return Err(err_undefined(span, name, "local variable"));
+            }
         }
 
         UntypedKind::Signal(path) => {

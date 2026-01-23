@@ -97,20 +97,23 @@ pub(crate) fn flatten_entity_members(
                 full_segments.extend(member.path.segments.clone());
                 flattened_member.path = Path::new(full_segments);
 
-                // Inherit stratum if member doesn't have one
-                if !has_attribute(&flattened_member.attributes, "stratum") {
-                    if let Some(ref stratum_path) = entity_stratum {
-                        // Add :stratum(name) attribute to member
-                        let stratum_attr = Attribute {
-                            name: "stratum".to_string(),
-                            args: vec![Expr::new(
-                                UntypedKind::Signal(stratum_path.clone()),
-                                member.span,
-                            )],
-                            span: member.span,
-                        };
-                        flattened_member.attributes.push(stratum_attr);
-                    }
+                // Entity stratum is authoritative - override member's stratum if entity has one
+                if let Some(ref stratum_path) = entity_stratum {
+                    // Remove any existing stratum attribute from member
+                    flattened_member
+                        .attributes
+                        .retain(|attr| attr.name != "stratum");
+
+                    // Add entity's stratum attribute to member
+                    let stratum_attr = Attribute {
+                        name: "stratum".to_string(),
+                        args: vec![Expr::new(
+                            UntypedKind::Signal(stratum_path.clone()),
+                            member.span,
+                        )],
+                        span: member.span,
+                    };
+                    flattened_member.attributes.push(stratum_attr);
                 }
 
                 // Add as member declaration

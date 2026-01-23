@@ -161,8 +161,13 @@ fn test_type_prev_without_node_output() {
     assert!(errors[0].message.contains("prev"));
 }
 
+// NOTE: Phase validation for `prev` is performed in the separate capabilities validation pass
+// (resolve/validation/phases.rs), not during type checking. The typing pass only validates
+// that the node_output type is available. Phase constraints are enforced later in the pipeline.
 #[test]
 fn test_type_prev_in_wrong_phase() {
+    // This test used to expect typing to fail, but phase validation was moved to a separate pass.
+    // Now we just verify that typing succeeds as long as node_output is available.
     let ctx = make_context().with_phase(Phase::Measure);
     let output_type = Type::Kernel(KernelType {
         shape: Shape::Scalar,
@@ -172,12 +177,9 @@ fn test_type_prev_in_wrong_phase() {
     let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
 
     let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
-    let errors = type_expression(&expr, &ctx).unwrap_err();
-    assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
-    assert!(errors[0]
-        .message
-        .contains("may only be used in Resolve phase"));
+    let typed = type_expression(&expr, &ctx)
+        .expect("Typing should succeed; phase validation happens in separate pass");
+    assert_eq!(typed.ty, output_type);
 }
 
 #[test]
