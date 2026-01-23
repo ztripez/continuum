@@ -9,12 +9,19 @@ use crate::storage::{EntityStorage, EventBuffer, FieldBuffer, InputChannels, Sig
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 use continuum_foundation::{AggregateOp, EntityId, Path};
 use indexmap::IndexMap;
+use std::collections::HashMap;
 use tracing::instrument;
 
 /// Executes individual simulation phases using the bytecode VM.
 pub struct BytecodePhaseExecutor {
     /// The underlying bytecode interpreter.
     executor: BytecodeExecutor,
+    /// World configuration values loaded from config {} blocks.
+    /// Frozen at world initialization, immutable during execution.
+    config_values: HashMap<Path, Value>,
+    /// Global simulation constants loaded from const {} blocks.
+    /// Frozen at world initialization, immutable during execution.
+    const_values: HashMap<Path, Value>,
 }
 
 impl Default for BytecodePhaseExecutor {
@@ -28,7 +35,19 @@ impl BytecodePhaseExecutor {
     pub fn new() -> Self {
         Self {
             executor: BytecodeExecutor::new(),
+            config_values: HashMap::new(),
+            const_values: HashMap::new(),
         }
+    }
+
+    /// Set config values (called during world/scenario loading).
+    pub fn set_config_values(&mut self, values: HashMap<Path, Value>) {
+        self.config_values = values;
+    }
+
+    /// Set const values (called during world/scenario loading).
+    pub fn set_const_values(&mut self, values: HashMap<Path, Value>) {
+        self.const_values = values;
     }
 
     /// Execute the Configure phase (initial blocks)
@@ -91,6 +110,8 @@ impl BytecodePhaseExecutor {
                                 event_buffer: &mut EventBuffer::default(),
                                 target_signal: Some(signal.clone()),
                                 cached_inputs: None,
+                                config_values: &self.config_values,
+                                const_values: &self.const_values,
                             };
 
                             let block_id = compiled.root;
@@ -177,6 +198,8 @@ impl BytecodePhaseExecutor {
                             event_buffer: &mut EventBuffer::default(),
                             target_signal: None,
                             cached_inputs: None,
+                            config_values: &self.config_values,
+                            const_values: &self.const_values,
                         };
 
                         let block_id = compiled.root;
@@ -254,6 +277,8 @@ impl BytecodePhaseExecutor {
                                 event_buffer: &mut EventBuffer::default(),
                                 target_signal: Some(signal.clone()),
                                 cached_inputs: None,
+                                config_values: &self.config_values,
+                                const_values: &self.const_values,
                             };
 
                             let block_id = compiled.root;
@@ -363,6 +388,8 @@ impl BytecodePhaseExecutor {
                             event_buffer: &mut EventBuffer::default(),
                             target_signal: None, // TODO: Fracture nodes currently lack single-signal target context
                             cached_inputs: None,
+                            config_values: &self.config_values,
+                            const_values: &self.const_values,
                         };
                         let block_id = compiled.root;
                         self.executor
@@ -434,6 +461,8 @@ impl BytecodePhaseExecutor {
                                 event_buffer: &mut EventBuffer::default(),
                                 target_signal: None,
                                 cached_inputs: None,
+                                config_values: &self.config_values,
+                                const_values: &self.const_values,
                             };
 
                             let block_id = compiled.root;
@@ -507,6 +536,8 @@ impl BytecodePhaseExecutor {
                                 event_buffer,
                                 target_signal: None,
                                 cached_inputs: None,
+                                config_values: &self.config_values,
+                                const_values: &self.const_values,
                             };
 
                             let block_id = compiled.root;
@@ -550,6 +581,10 @@ pub struct VMContext<'a> {
     pub event_buffer: &'a mut EventBuffer,
     pub target_signal: Option<SignalId>,
     pub cached_inputs: Option<f64>,
+    /// World configuration values loaded from config {} blocks
+    pub config_values: &'a HashMap<Path, Value>,
+    /// Global simulation constants loaded from const {} blocks
+    pub const_values: &'a HashMap<Path, Value>,
 }
 
 impl<'a> ExecutionContext for VMContext<'a> {
@@ -573,18 +608,22 @@ impl<'a> ExecutionContext for VMContext<'a> {
         })
     }
 
-    fn load_config(&self, _path: &Path) -> std::result::Result<Value, ExecutionError> {
-        Err(ExecutionError::InvalidOpcode {
-            opcode: "LoadConfig not yet supported in VM".to_string(),
-            phase: self.phase,
-        })
+    fn load_config(&self, path: &Path) -> std::result::Result<Value, ExecutionError> {
+        self.config_values
+            .get(path)
+            .cloned()
+            .ok_or_else(|| ExecutionError::InvalidOperand {
+                message: format!("Config value not found: {}", path),
+            })
     }
 
-    fn load_const(&self, _path: &Path) -> std::result::Result<Value, ExecutionError> {
-        Err(ExecutionError::InvalidOpcode {
-            opcode: "LoadConst not yet supported in VM".to_string(),
-            phase: self.phase,
-        })
+    fn load_const(&self, path: &Path) -> std::result::Result<Value, ExecutionError> {
+        self.const_values
+            .get(path)
+            .cloned()
+            .ok_or_else(|| ExecutionError::InvalidOperand {
+                message: format!("Const value not found: {}", path),
+            })
     }
 
     fn load_prev(&self) -> std::result::Result<Value, ExecutionError> {
