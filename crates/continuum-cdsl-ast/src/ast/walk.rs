@@ -149,7 +149,6 @@ where
         | ExprKind::Prev
         | ExprKind::Current
         | ExprKind::Inputs
-        | ExprKind::Dt
         | ExprKind::Collected
         | ExprKind::Self_
         | ExprKind::Other
@@ -193,7 +192,7 @@ mod tests {
             ExprKind::Vector(vec![
                 TypedExpr::new(ExprKind::Prev, unit_type(), test_span()),
                 TypedExpr::new(ExprKind::Current, unit_type(), test_span()),
-                TypedExpr::new(ExprKind::Dt, unit_type(), test_span()),
+                TypedExpr::new(ExprKind::Collected, unit_type(), test_span()),
             ]),
             unit_type(),
             test_span(),
@@ -237,16 +236,19 @@ mod tests {
             ExprKind::Vector(vec![
                 TypedExpr::new(ExprKind::Prev, unit_type(), test_span()),
                 TypedExpr::new(ExprKind::Current, unit_type(), test_span()),
-                TypedExpr::new(ExprKind::Dt, unit_type(), test_span()),
+                TypedExpr::new(ExprKind::Collected, unit_type(), test_span()),
             ]),
             unit_type(),
             test_span(),
         );
 
-        // Count how many Prev/Current/Dt nodes
+        // Count how many Prev/Current/Collected nodes
         let mut capability_count = 0;
         walk_expr(&expr, &mut |node| {
-            if matches!(node.expr, ExprKind::Prev | ExprKind::Current | ExprKind::Dt) {
+            if matches!(
+                node.expr,
+                ExprKind::Prev | ExprKind::Current | ExprKind::Collected
+            ) {
                 capability_count += 1;
             }
         });
@@ -260,25 +262,25 @@ mod tests {
         let expr = TypedExpr::new(
             ExprKind::Vector(vec![
                 TypedExpr::new(ExprKind::Prev, unit_type(), test_span()),
-                TypedExpr::new(ExprKind::Dt, unit_type(), test_span()),
+                TypedExpr::new(ExprKind::Collected, unit_type(), test_span()),
             ]),
             unit_type(),
             test_span(),
         );
 
         let mut has_prev = false;
-        let mut has_dt = false;
+        let mut has_collected = false;
 
         walk_expr(&expr, &mut |node| {
             if matches!(node.expr, ExprKind::Prev) {
                 has_prev = true;
             }
-            if matches!(node.expr, ExprKind::Dt) {
-                has_dt = true;
+            if matches!(node.expr, ExprKind::Collected) {
+                has_collected = true;
             }
         });
 
         assert!(has_prev, "Should detect Prev node");
-        assert!(has_dt, "Should detect Dt node");
+        assert!(has_collected, "Should detect Collected node");
     }
 }

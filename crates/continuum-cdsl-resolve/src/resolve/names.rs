@@ -538,7 +538,6 @@ pub fn validate_expr(
         | ExprKind::Prev
         | ExprKind::Current
         | ExprKind::Inputs
-        | ExprKind::Dt
         | ExprKind::Collected
         | ExprKind::Self_
         | ExprKind::Other
@@ -847,7 +846,6 @@ mod tests {
             ExprKind::Prev,
             ExprKind::Current,
             ExprKind::Inputs,
-            ExprKind::Dt,
             ExprKind::Self_,
             ExprKind::Other,
             ExprKind::Payload,

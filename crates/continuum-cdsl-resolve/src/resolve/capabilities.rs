@@ -174,7 +174,7 @@ impl CapabilityContext {
 /// - **`ExprKind::Prev`** - Requires `Capability::Prev` (previous tick value)
 /// - **`ExprKind::Current`** - Requires `Capability::Current` (just-resolved value)
 /// - **`ExprKind::Inputs`** - Requires `Capability::Inputs` (accumulated signal inputs)
-/// - **`ExprKind::Dt`** - Requires `Capability::Dt` (time step)
+/// - **dt.raw()** - Requires `Capability::Dt` (time step, via kernel call)
 /// - **`ExprKind::Payload`** - Requires `Capability::Payload` (impulse trigger data)
 /// - **`ExprKind::Self_`** - Requires `Capability::Index` (entity self-reference)
 /// - **`ExprKind::Other`** - Requires `Capability::Index` (other entity access)
@@ -255,16 +255,6 @@ fn scan_for_capability_violations(
                     format!(
                         "inputs cannot be accessed in this context (requires Capability::Inputs)"
                     ),
-                ));
-            }
-        }
-
-        ExprKind::Dt => {
-            if !ctx.has_capability(Capability::Dt) {
-                errors.push(CompileError::new(
-                    ErrorKind::MissingCapability,
-                    expr.span,
-                    format!("dt cannot be accessed in this context (requires Capability::Dt)"),
                 ));
             }
         }
@@ -537,37 +527,6 @@ mod tests {
     }
 
     #[test]
-    fn test_dt_access_allowed() {
-        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Dt));
-
-        let expr = TypedExpr::new(
-            ExprKind::Dt,
-            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
-            test_span(),
-        );
-
-        let errors = validate_capability_access(&expr, &ctx);
-        assert_eq!(errors.len(), 0);
-    }
-
-    #[test]
-    fn test_dt_access_denied() {
-        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Prev));
-
-        let expr = TypedExpr::new(
-            ExprKind::Dt,
-            Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
-            test_span(),
-        );
-
-        let errors = validate_capability_access(&expr, &ctx);
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::MissingCapability);
-        assert!(errors[0].message.contains("dt"));
-        assert!(errors[0].message.contains("Capability::Dt"));
-    }
-
-    #[test]
     fn test_payload_access_allowed() {
         let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Payload));
 
@@ -665,15 +624,15 @@ mod tests {
 
     #[test]
     fn test_nested_capability_violation() {
-        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Dt));
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Current));
 
-        // Kernel call: maths.add(dt, prev) where prev is not allowed
+        // Kernel call: maths.add(current, prev) where prev is not allowed
         let expr = TypedExpr::new(
             ExprKind::Call {
                 kernel: KernelId::new("maths", "add"),
                 args: vec![
                     TypedExpr::new(
-                        ExprKind::Dt,
+                        ExprKind::Current,
                         Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
                         test_span(),
                     ),
@@ -752,9 +711,9 @@ mod tests {
 
     #[test]
     fn test_let_binding_with_capability_violation() {
-        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Dt));
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Current));
 
-        // Let binding where value uses prev (not allowed) but dt is allowed
+        // Let binding where value uses prev (not allowed) but current is allowed
         let expr = TypedExpr::new(
             ExprKind::Let {
                 name: "x".to_string(),
@@ -764,7 +723,7 @@ mod tests {
                     test_span(),
                 )),
                 body: Box::new(TypedExpr::new(
-                    ExprKind::Dt,
+                    ExprKind::Current,
                     Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
                     test_span(),
                 )),
@@ -809,7 +768,7 @@ mod tests {
     fn test_struct_field_with_capability_violation() {
         use continuum_cdsl_ast::foundation::UserTypeId;
 
-        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Dt));
+        let ctx = CapabilityContext::new(CapabilitySet::empty().with(Capability::Current));
 
         // Struct construction with field value using inputs (not allowed)
         let expr = TypedExpr::new(
@@ -817,9 +776,9 @@ mod tests {
                 ty: UserTypeId::new("State"),
                 fields: vec![
                     (
-                        "time".to_string(),
+                        "value".to_string(),
                         TypedExpr::new(
-                            ExprKind::Dt,
+                            ExprKind::Current,
                             Type::kernel(Shape::Scalar, Unit::DIMENSIONLESS, None),
                             test_span(),
                         ),
@@ -861,7 +820,6 @@ mod tests {
             ExprKind::Prev,
             ExprKind::Current,
             ExprKind::Inputs,
-            ExprKind::Dt,
             ExprKind::Payload,
         ];
 

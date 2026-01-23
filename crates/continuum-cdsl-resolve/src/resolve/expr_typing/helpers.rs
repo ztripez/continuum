@@ -769,10 +769,7 @@ mod tests {
 
     #[test]
     fn test_try_extract_path_field_access_nested() {
-        let expr = make_field_access(
-            make_field_access(make_local("foo"), "bar"),
-            "baz",
-        );
+        let expr = make_field_access(make_field_access(make_local("foo"), "bar"), "baz");
         let path = try_extract_path(&expr);
         assert_eq!(path, Some(Path::from_path_str("foo.bar.baz")));
     }
@@ -792,13 +789,6 @@ mod tests {
     }
 
     #[test]
-    fn test_try_extract_path_keyword_dt() {
-        let expr = make_keyword(UntypedKind::Dt);
-        let path = try_extract_path(&expr);
-        assert_eq!(path, None);
-    }
-
-    #[test]
     fn test_try_extract_path_keyword_collected() {
         let expr = make_keyword(UntypedKind::Collected);
         let path = try_extract_path(&expr);
@@ -810,7 +800,10 @@ mod tests {
         // prev.temperature should not be treated as bare path
         let expr = make_field_access(make_keyword(UntypedKind::Prev), "temperature");
         let path = try_extract_path(&expr);
-        assert_eq!(path, None, "Field access on keyword should not be bare path");
+        assert_eq!(
+            path, None,
+            "Field access on keyword should not be bare path"
+        );
     }
 
     #[test]
@@ -834,7 +827,6 @@ mod tests {
     }
 
     #[test]
-
     #[test]
     fn test_get_root_kind_local() {
         let expr = make_local("foo");
@@ -851,10 +843,7 @@ mod tests {
 
     #[test]
     fn test_get_root_kind_nested_field_access() {
-        let expr = make_field_access(
-            make_field_access(make_local("foo"), "bar"),
-            "baz",
-        );
+        let expr = make_field_access(make_field_access(make_local("foo"), "bar"), "baz");
         let root = get_root_kind(&expr);
         assert!(matches!(root, UntypedKind::Local(_)));
     }

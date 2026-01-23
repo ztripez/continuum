@@ -107,15 +107,6 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         // === Context values ===
-        UntypedKind::Dt => {
-            let kernel_type = KernelType {
-                shape: Shape::Scalar,
-                unit: Unit::seconds(),
-                bounds: None,
-            };
-            (ExprKind::Dt, Type::Kernel(kernel_type))
-        }
-
         UntypedKind::Collected => {
             // Collected has the same type as the signal being resolved.
             // This requires access to the current node's output type from context.

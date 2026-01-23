@@ -67,7 +67,7 @@
 //! - [`ExprKind::Prev`] - Previous tick value (requires `Capability::Prev`)
 //! - [`ExprKind::Current`] - Just-resolved value (requires `Capability::Current`)
 //! - [`ExprKind::Inputs`] - Accumulated inputs (requires `Capability::Inputs`)
-//! - [`ExprKind::Dt`] - Time step (requires `Capability::Dt`)
+//! - Time step via `dt.raw()` kernel (requires `Capability::Dt`)
 //! - [`ExprKind::Self_`] - Current entity instance (requires `Capability::Index`)
 //! - [`ExprKind::Other`] - Other entity instance (requires `Capability::Index`, n-body)
 //! - [`ExprKind::Payload`] - Impulse payload (requires `Capability::Payload`)
@@ -350,23 +350,6 @@ pub enum ExprKind {
     ///
     /// **Capability:** Requires `Capability::Inputs` from phase
     Inputs,
-
-    /// Time step - requires `Capability::Dt`
-    ///
-    /// # Examples
-    ///
-    /// ```cdsl
-    /// signal position : Vector<3, m> {
-    ///     resolve {
-    ///         prev + velocity * dt  // Dt
-    ///     }
-    /// }
-    /// ```
-    ///
-    /// **Type:** `Scalar<s>` (seconds)
-    ///
-    /// **Capability:** Requires `Capability::Dt` from phase
-    Dt,
 
     /// Collected signal inputs - sum of all impulse/fracture contributions
     ///
@@ -747,7 +730,6 @@ impl TypedExpr {
             | ExprKind::Prev
             | ExprKind::Current
             | ExprKind::Inputs
-            | ExprKind::Dt
             | ExprKind::Collected
             | ExprKind::Self_
             | ExprKind::Other
@@ -859,7 +841,6 @@ impl TypedExpr {
             | ExprKind::Prev
             | ExprKind::Current
             | ExprKind::Inputs
-            | ExprKind::Dt
             | ExprKind::Collected
             | ExprKind::Self_
             | ExprKind::Other
@@ -988,7 +969,7 @@ mod tests {
                 ExprKind::Prev,
                 ExprKind::Current,
                 ExprKind::Inputs,
-                ExprKind::Dt,
+                ExprKind::Collected,
                 ExprKind::Self_,
                 ExprKind::Other,
                 ExprKind::Payload,

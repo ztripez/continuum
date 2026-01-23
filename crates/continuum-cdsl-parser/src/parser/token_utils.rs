@@ -37,7 +37,6 @@ pub fn keyword_to_string(token: &Token) -> Option<String> {
         Token::Signal => Some("signal".to_string()),
         Token::Field => Some("field".to_string()),
         Token::Entity => Some("entity".to_string()),
-        Token::Dt => Some("dt".to_string()),
         Token::Collected => Some("collected".to_string()),
         Token::Strata => Some("strata".to_string()),
         Token::Type => Some("type".to_string()),
@@ -158,7 +157,6 @@ mod tests {
             keyword_to_string(&Token::Entity),
             Some("entity".to_string())
         );
-        assert_eq!(keyword_to_string(&Token::Dt), Some("dt".to_string()));
         assert_eq!(
             keyword_to_string(&Token::Strata),
             Some("strata".to_string())
@@ -200,7 +198,6 @@ mod tests {
             Token::Signal,
             Token::Field,
             Token::Entity,
-            Token::Dt,
             Token::Strata,
             Token::Type,
         ];
@@ -279,7 +276,6 @@ mod tests {
             Token::Signal,
             Token::Field,
             Token::Entity,
-            Token::Dt,
             Token::Strata,
             Token::Type,
             Token::Resolve,

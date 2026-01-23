@@ -214,8 +214,7 @@ fn scan_for_effect_violations(
         | ExprKind::Prev
         | ExprKind::Current
         | ExprKind::Inputs
-        | ExprKind::Dt
-            | ExprKind::Collected
+        | ExprKind::Collected
         | ExprKind::Self_
         | ExprKind::Other
         | ExprKind::Payload
@@ -228,8 +227,8 @@ fn scan_for_effect_violations(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use continuum_cdsl_ast::KernelId;
     use continuum_cdsl_ast::foundation::{Shape, Span, Type, Unit};
+    use continuum_cdsl_ast::KernelId;
 
     fn test_span() -> Span {
         Span::new(0, 10, 20, 1)

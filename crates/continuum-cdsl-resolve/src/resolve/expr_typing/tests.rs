@@ -1,10 +1,10 @@
 use super::*;
 use crate::resolve::types::TypeTable;
+use continuum_cdsl_ast::foundation::{KernelType, Shape, Type, Unit};
+use continuum_cdsl_ast::foundation::{Path, Span, UserType};
 use continuum_cdsl_ast::Expr;
 use continuum_cdsl_ast::KernelRegistry;
 use continuum_cdsl_ast::UntypedKind;
-use continuum_cdsl_ast::foundation::{KernelType, Shape, Type, Unit};
-use continuum_cdsl_ast::foundation::{Path, Span, UserType};
 use continuum_foundation::Phase;
 use continuum_foundation::TypeId;
 use std::collections::HashMap;
@@ -93,11 +93,9 @@ fn test_type_call_invalid_depth() {
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert_eq!(errors[0].kind, crate::error::ErrorKind::Syntax);
-    assert!(
-        errors[0]
-            .message
-            .contains("must be namespace.name or bare name")
-    );
+    assert!(errors[0]
+        .message
+        .contains("must be namespace.name or bare name"));
 }
 
 #[test]
@@ -124,22 +122,6 @@ fn test_type_bool_literal() {
 
     let typed = type_expression(&expr, &ctx).unwrap();
     assert!(matches!(typed.ty, Type::Bool));
-}
-
-#[test]
-fn test_type_dt() {
-    let ctx = make_context();
-    let expr = Expr::new(UntypedKind::Dt, Span::new(0, 0, 10, 1));
-
-    let typed = type_expression(&expr, &ctx).unwrap();
-    match &typed.ty {
-        Type::Kernel(kt) => {
-            assert_eq!(kt.shape, Shape::Scalar);
-            assert_eq!(kt.unit, Unit::seconds());
-            assert_eq!(kt.bounds, None);
-        }
-        _ => panic!("Expected Kernel type, got {:?}", typed.ty),
-    }
 }
 
 #[test]
@@ -193,11 +175,9 @@ fn test_type_prev_in_wrong_phase() {
     let errors = type_expression(&expr, &ctx).unwrap_err();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].kind, ErrorKind::InvalidCapability);
-    assert!(
-        errors[0]
-            .message
-            .contains("may only be used in Resolve phase")
-    );
+    assert!(errors[0]
+        .message
+        .contains("may only be used in Resolve phase"));
 }
 
 #[test]

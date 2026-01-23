@@ -206,16 +206,6 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
                 }
             }
 
-            // Raw dt access - requires dt.raw declaration
-            ExprKind::Dt => {
-                self.required.push(RequiredUse {
-                    key: "dt.raw".to_string(),
-                    span: expr.span,
-                    source: "dt".to_string(),
-                    hint: DT_RAW_HINT.to_string(),
-                });
-            }
-
             // Collected - no special use requirements
             ExprKind::Collected => {}
 
@@ -353,16 +343,6 @@ fn collect_required_uses_untyped(
 
         UntypedKind::Unary { operand, .. } => {
             collect_required_uses_untyped(operand, registry, required);
-        }
-
-        // Raw dt access - requires dt.raw declaration
-        UntypedKind::Dt => {
-            required.push(RequiredUse {
-                key: "dt.raw".to_string(),
-                span: expr.span,
-                source: "dt".to_string(),
-                hint: DT_RAW_HINT.to_string(),
-            });
         }
 
         // Collected - no special use requirements

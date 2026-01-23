@@ -290,11 +290,6 @@ impl Compiler {
                     .instructions
                     .push(Instruction::new(OpcodeKind::LoadInputs, vec![]));
             }
-            ExprKind::Dt => {
-                block
-                    .instructions
-                    .push(Instruction::new(OpcodeKind::LoadDt, vec![]));
-            }
             ExprKind::Collected => {
                 block
                     .instructions
@@ -342,7 +337,14 @@ impl Compiler {
                 ));
             }
             ExprKind::Call { kernel, args } => {
-                self.compile_call(block, kernel.clone(), args)?;
+                // Special case: dt.raw() emits LoadDt instruction instead of regular kernel call
+                if kernel.namespace == "dt" && kernel.name == "raw" {
+                    block
+                        .instructions
+                        .push(Instruction::new(OpcodeKind::LoadDt, vec![]));
+                } else {
+                    self.compile_call(block, kernel.clone(), args)?;
+                }
             }
             ExprKind::Struct { fields, .. } => {
                 self.compile_struct(block, fields)?;
