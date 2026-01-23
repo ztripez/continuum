@@ -310,7 +310,11 @@ fn is_statement_start(stream: &TokenStream) -> bool {
             // Disambiguate: let-statement vs let-expression
             !is_let_expression(stream)
         }
-        Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => true,
+        Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => {
+            // Only treat as statement if it's an assignment
+            // Single expressions like `maths.abs(x)` should be parsed as BlockBody::Expression
+            is_assignment(stream)
+        }
         _ => false,
     }
 }
