@@ -130,3 +130,455 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
         Err(errors)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use continuum_cdsl_ast::foundation::{KernelType, Shape, Span, Unit};
+    use continuum_cdsl_ast::{
+        Execution, ExecutionBody, ExprKind, Node, RoleData, TypedExpr, TypedStmt,
+    };
+    use continuum_foundation::Path;
+
+    fn test_span() -> Span {
+        Span::new(0, 0, 10, 1)
+    }
+
+    fn assertion_assertion_test_scalar_type() -> Type {
+        Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::DIMENSIONLESS,
+            bounds: None,
+        })
+    }
+
+    fn assertion_assertion_test_bool_type() -> Type {
+        Type::Bool
+    }
+
+    fn assertion_assertion_test_make_bool_expr(value: bool) -> TypedExpr {
+        TypedExpr::new(
+            ExprKind::BoolLiteral(value),
+            assertion_test_bool_type(),
+            test_span(),
+        )
+    }
+
+    fn assertion_assertion_test_make_scalar_expr() -> TypedExpr {
+        TypedExpr::new(
+            ExprKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            assertion_test_scalar_type(),
+            test_span(),
+        )
+    }
+
+    fn assertion_assertion_test_scalar_type() -> Type {
+        Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::DIMENSIONLESS,
+            bounds: None,
+        })
+    }
+
+    fn assertion_assertion_test_bool_type() -> Type {
+        Type::Bool
+    }
+
+    fn assertion_assertion_test_make_bool_expr(value: bool) -> TypedExpr {
+        TypedExpr::new(
+            ExprKind::BoolLiteral(value),
+            assertion_test_bool_type(),
+            test_span(),
+        )
+    }
+
+    fn assertion_assertion_test_make_scalar_expr() -> TypedExpr {
+        TypedExpr::new(
+            ExprKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            assertion_test_scalar_type(),
+            test_span(),
+        )
+    }
+
+    #[test]
+    fn test_assert_in_resolve_phase_allowed() {
+        // Assertions are allowed in Resolve phase
+        let span = test_span();
+        let path = Path::from("test.signal");
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        let assert_stmt = TypedStmt::Assert {
+            condition: assertion_test_make_bool_expr(true),
+            severity: None,
+            message: None,
+            span,
+        };
+
+        node.executions.push(Execution {
+            name: "resolve".to_string(),
+            phase: Phase::Resolve,
+            body: ExecutionBody::Statements(vec![assert_stmt]),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span,
+        });
+
+        let type_table = TypeTable::new();
+        let registry = KernelRegistry::global();
+        let result = validate_node(&node, &type_table, &registry);
+
+        assert!(
+            result.is_ok(),
+            "Assertions should be allowed in Resolve phase"
+        );
+    }
+
+    #[test]
+    fn test_assert_in_fracture_phase_allowed() {
+        // Assertions are allowed in Fracture phase
+        let span = test_span();
+        let path = Path::from("test.operator");
+        let mut node = Node::new(path, span, RoleData::Operator, ());
+
+        let assert_stmt = TypedStmt::Assert {
+            condition: assertion_test_make_bool_expr(true),
+            severity: None,
+            message: None,
+            span,
+        };
+
+        node.executions.push(Execution {
+            name: "fracture".to_string(),
+            phase: Phase::Fracture,
+            body: ExecutionBody::Statements(vec![assert_stmt]),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span,
+        });
+
+        let type_table = TypeTable::new();
+        let registry = KernelRegistry::global();
+        let result = validate_node(&node, &type_table, &registry);
+
+        assert!(
+            result.is_ok(),
+            "Assertions should be allowed in Fracture phase"
+        );
+    }
+
+    #[test]
+    fn test_assert_in_assert_phase_allowed() {
+        // Assertions are allowed in dedicated Assert phase
+        let span = test_span();
+        let path = Path::from("test.signal");
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        let assert_stmt = TypedStmt::Assert {
+            condition: assertion_test_make_bool_expr(true),
+            severity: None,
+            message: None,
+            span,
+        };
+
+        node.executions.push(Execution {
+            name: "assert".to_string(),
+            phase: Phase::Assert,
+            body: ExecutionBody::Statements(vec![assert_stmt]),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span,
+        });
+
+        let type_table = TypeTable::new();
+        let registry = KernelRegistry::global();
+        let result = validate_node(&node, &type_table, &registry);
+
+        assert!(
+            result.is_ok(),
+            "Assertions should be allowed in Assert phase"
+        );
+    }
+
+    #[test]
+    fn test_assert_in_measure_phase_rejected() {
+        // Assertions are NOT allowed in Measure phase (observer boundary violation)
+        let span = test_span();
+        let path = Path::from("test.field");
+        let mut node = Node::new(path, span, RoleData::Field, ());
+
+        let assert_stmt = TypedStmt::Assert {
+            condition: assertion_test_make_bool_expr(true),
+            severity: None,
+            message: None,
+            span,
+        };
+
+        node.executions.push(Execution {
+            name: "measure".to_string(),
+            phase: Phase::Measure,
+            body: ExecutionBody::Statements(vec![assert_stmt]),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span,
+        });
+
+        let type_table = TypeTable::new();
+        let registry = KernelRegistry::global();
+        let result = validate_node(&node, &type_table, &registry);
+
+        assert!(
+            result.is_err(),
+            "Assertions should be rejected in Measure phase"
+        );
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::PhaseBoundaryViolation));
+        assert!(errors[0]
+            .message
+            .contains("Assertions only valid in Resolve/Fracture/Assert phases"));
+    }
+
+    #[test]
+    fn test_assert_in_collect_phase_rejected() {
+        // Assertions are NOT allowed in Collect phase (effect phase, not validation)
+        let span = test_span();
+        let path = Path::from("test.operator");
+        let mut node = Node::new(path, span, RoleData::Operator, ());
+
+        let assert_stmt = TypedStmt::Assert {
+            condition: assertion_test_make_bool_expr(true),
+            severity: None,
+            message: None,
+            span,
+        };
+
+        node.executions.push(Execution {
+            name: "collect".to_string(),
+            phase: Phase::Collect,
+            body: ExecutionBody::Statements(vec![assert_stmt]),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span,
+        });
+
+        let type_table = TypeTable::new();
+        let registry = KernelRegistry::global();
+        let result = validate_node(&node, &type_table, &registry);
+
+        assert!(
+            result.is_err(),
+            "Assertions should be rejected in Collect phase"
+        );
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::PhaseBoundaryViolation));
+    }
+
+    #[test]
+    fn test_assert_non_bool_condition_rejected() {
+        // Assert condition must be Bool type
+        let span = test_span();
+        let path = Path::from("test.signal");
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        let assert_stmt = TypedStmt::Assert {
+            condition: assertion_test_make_scalar_expr(), // Wrong type: Scalar instead of Bool
+            severity: None,
+            message: None,
+            span,
+        };
+
+        node.executions.push(Execution {
+            name: "resolve".to_string(),
+            phase: Phase::Resolve,
+            body: ExecutionBody::Statements(vec![assert_stmt]),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span,
+        });
+
+        let type_table = TypeTable::new();
+        let registry = KernelRegistry::global();
+        let result = validate_node(&node, &type_table, &registry);
+
+        assert!(
+            result.is_err(),
+            "Assert with non-Bool condition should be rejected"
+        );
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0].message.contains("assert condition must be Bool"));
+    }
+
+    #[test]
+    fn test_assert_valid_severity_levels() {
+        // Valid severity levels: warn, error, fatal
+        let span = test_span();
+
+        for severity in ["warn", "error", "fatal"] {
+            let path = Path::from("test.signal");
+            let mut node = Node::new(path, span, RoleData::Signal, ());
+
+            let assert_stmt = TypedStmt::Assert {
+                condition: assertion_test_make_bool_expr(true),
+                severity: Some(severity.to_string()),
+                message: None,
+                span,
+            };
+
+            node.executions.push(Execution {
+                name: "resolve".to_string(),
+                phase: Phase::Resolve,
+                body: ExecutionBody::Statements(vec![assert_stmt]),
+                reads: vec![],
+                temporal_reads: vec![],
+                emits: vec![],
+                span,
+            });
+
+            let type_table = TypeTable::new();
+            let registry = KernelRegistry::global();
+            let result = validate_node(&node, &type_table, &registry);
+
+            assert!(result.is_ok(), "Severity '{}' should be valid", severity);
+        }
+    }
+
+    #[test]
+    fn test_assert_invalid_severity_rejected() {
+        // Invalid severity levels should be rejected
+        let span = test_span();
+        let path = Path::from("test.signal");
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        let assert_stmt = TypedStmt::Assert {
+            condition: assertion_test_make_bool_expr(true),
+            severity: Some("critical".to_string()), // Invalid severity
+            message: None,
+            span,
+        };
+
+        node.executions.push(Execution {
+            name: "resolve".to_string(),
+            phase: Phase::Resolve,
+            body: ExecutionBody::Statements(vec![assert_stmt]),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span,
+        });
+
+        let type_table = TypeTable::new();
+        let registry = KernelRegistry::global();
+        let result = validate_node(&node, &type_table, &registry);
+
+        assert!(result.is_err(), "Invalid severity should be rejected");
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(matches!(errors[0].kind, ErrorKind::TypeMismatch));
+        assert!(errors[0]
+            .message
+            .contains("Must be 'warn', 'error', or 'fatal'"));
+    }
+
+    #[test]
+    fn test_assert_with_custom_message() {
+        // Assertions can have custom messages
+        let span = test_span();
+        let path = Path::from("test.signal");
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        let assert_stmt = TypedStmt::Assert {
+            condition: assertion_test_make_bool_expr(true),
+            severity: Some("error".to_string()),
+            message: Some("Temperature out of bounds".to_string()),
+            span,
+        };
+
+        node.executions.push(Execution {
+            name: "resolve".to_string(),
+            phase: Phase::Resolve,
+            body: ExecutionBody::Statements(vec![assert_stmt]),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span,
+        });
+
+        let type_table = TypeTable::new();
+        let registry = KernelRegistry::global();
+        let result = validate_node(&node, &type_table, &registry);
+
+        assert!(
+            result.is_ok(),
+            "Assertions with custom messages should be valid"
+        );
+    }
+
+    #[test]
+    fn test_multiple_assertions_in_block() {
+        // Multiple assertions in the same block should all be validated
+        let span = test_span();
+        let path = Path::from("test.signal");
+        let mut node = Node::new(path, span, RoleData::Signal, ());
+
+        let assert1 = TypedStmt::Assert {
+            condition: assertion_test_make_bool_expr(true),
+            severity: Some("warn".to_string()),
+            message: None,
+            span,
+        };
+
+        let assert2 = TypedStmt::Assert {
+            condition: assertion_test_make_scalar_expr(), // Invalid: non-Bool
+            severity: Some("error".to_string()),
+            message: None,
+            span,
+        };
+
+        let assert3 = TypedStmt::Assert {
+            condition: assertion_test_make_bool_expr(true),
+            severity: Some("invalid_level".to_string()), // Invalid severity
+            message: None,
+            span,
+        };
+
+        node.executions.push(Execution {
+            name: "resolve".to_string(),
+            phase: Phase::Resolve,
+            body: ExecutionBody::Statements(vec![assert1, assert2, assert3]),
+            reads: vec![],
+            temporal_reads: vec![],
+            emits: vec![],
+            span,
+        });
+
+        let type_table = TypeTable::new();
+        let registry = KernelRegistry::global();
+        let result = validate_node(&node, &type_table, &registry);
+
+        assert!(
+            result.is_err(),
+            "Should report errors for invalid assertions"
+        );
+        let errors = result.unwrap_err();
+        assert_eq!(
+            errors.len(),
+            2,
+            "Should report both type mismatch and invalid severity"
+        );
+    }
+}
