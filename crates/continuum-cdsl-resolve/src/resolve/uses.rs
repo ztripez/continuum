@@ -210,6 +210,11 @@ fn collect_required_uses_untyped_stmt(
         Stmt::Assert { condition, .. } => {
             collect_required_uses_untyped(condition, registry, required)
         }
+        Stmt::EmitEvent { fields, .. } => {
+            for (_, expr) in fields {
+                collect_required_uses_untyped(expr, registry, required);
+            }
+        }
         Stmt::Expr(expr) => collect_required_uses_untyped(expr, registry, required),
     }
 }

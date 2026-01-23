@@ -139,6 +139,34 @@ pub enum Stmt<E = Expr> {
         /// Source location
         span: Span,
     },
+
+    /// Event emission: `emit event.<path> { field: expr, ... }`
+    ///
+    /// Emits a structured event with named fields for observer consumption.
+    /// Events are observer-only artifacts and do not influence simulation state.
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// emit event.rapid_cooling {
+    ///     gradient: temp_gradient,
+    ///     core_temp: core.temp,
+    ///     severity: "warning"
+    /// }
+    /// ```
+    ///
+    /// # Usage
+    ///
+    /// Valid only in observe blocks within chronicle declarations.
+    /// Event paths typically use dot-separated namespacing (e.g., `event.thermal.alert`).
+    EmitEvent {
+        /// Event path (e.g., "event.rapid_cooling")
+        path: Path,
+        /// Field name-value pairs
+        fields: Vec<(String, E)>,
+        /// Source location
+        span: Span,
+    },
 }
 
 impl<E: HasSpan> Stmt<E> {
@@ -150,6 +178,7 @@ impl<E: HasSpan> Stmt<E> {
             Stmt::FieldAssign { span, .. } => *span,
             Stmt::Expr(expr) => expr.span(),
             Stmt::Assert { span, .. } => *span,
+            Stmt::EmitEvent { span, .. } => *span,
         }
     }
 }
@@ -329,6 +358,7 @@ pub trait StatementVisitor {
     /// - [`Stmt::SignalAssign`] — visits the `value` expression  
     /// - [`Stmt::FieldAssign`] — visits `position` then `value` expressions
     /// - [`Stmt::Assert`] — visits the `condition` expression
+    /// - [`Stmt::EmitEvent`] — visits all field value expressions
     /// - [`Stmt::Expr`] — visits the wrapped expression
     #[inline]
     fn walk_stmt(&mut self, stmt: &TypedStmt) {
@@ -342,6 +372,11 @@ pub trait StatementVisitor {
                 self.visit_expr(value);
             }
             Stmt::Assert { condition, .. } => self.visit_expr(condition),
+            Stmt::EmitEvent { fields, .. } => {
+                for (_, value) in fields {
+                    self.visit_expr(value);
+                }
+            }
             Stmt::Expr(expr) => self.visit_expr(expr),
         }
     }

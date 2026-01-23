@@ -205,6 +205,19 @@ impl Compiler {
                     .instructions
                     .push(Instruction::new(OpcodeKind::Assert, operands));
             }
+            Stmt::EmitEvent { path, fields, .. } => {
+                // Events are observer-only; for now, compile as no-op
+                // Future: Add event emission to runtime traces
+                // Compile all field expressions (for side-effect validation)
+                for (_, expr) in fields {
+                    self.compile_expr(block, expr)?;
+                    block
+                        .instructions
+                        .push(Instruction::new(OpcodeKind::Pop, vec![]));
+                }
+                // TODO: Add OpcodeKind::EmitEvent with path and field count
+                // For now, this is effectively a no-op that validates expressions
+            }
             Stmt::Expr(expr) => {
                 self.compile_expr(block, expr)?;
                 block

@@ -170,3 +170,24 @@ entity heat_source {
         }
     }
 }
+
+# =============================================================================
+# Chronicles - Observer Events
+# =============================================================================
+
+# Detect rapid cooling events
+chronicle thermal_events.rapid_cooling {
+    : stratum(thermal)
+    : title("Rapid Cooling Event Detector")
+    : doc("Emits event when temperature gradient exceeds threshold")
+    
+    observe {
+        when temp_gradient > 100.0 <K> {
+            emit event.rapid_cooling {
+                gradient: temp_gradient
+                core_temp: core.temp
+                severity: "warning"
+            }
+        }
+    }
+}

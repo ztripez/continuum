@@ -301,6 +301,14 @@ pub fn desugar_stmt(stmt: Stmt<Expr>) -> Stmt<Expr> {
             message,
             span,
         },
+        Stmt::EmitEvent { path, fields, span } => Stmt::EmitEvent {
+            path,
+            fields: fields
+                .into_iter()
+                .map(|(name, expr)| (name, desugar_expr(expr)))
+                .collect(),
+            span,
+        },
         Stmt::Expr(expr) => Stmt::Expr(desugar_expr(expr)),
     }
 }

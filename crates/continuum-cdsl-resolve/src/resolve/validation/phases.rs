@@ -106,6 +106,12 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                                 }
                             }
                         }
+                        continuum_cdsl_ast::TypedStmt::EmitEvent { fields, .. } => {
+                            // Validate all field expressions
+                            for (_, expr) in fields {
+                                errors.extend(validate_expr(expr, &ctx));
+                            }
+                        }
                         continuum_cdsl_ast::TypedStmt::Expr(expr) => {
                             errors.extend(validate_expr(expr, &ctx))
                         }

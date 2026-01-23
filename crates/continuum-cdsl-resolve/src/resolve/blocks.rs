@@ -258,6 +258,22 @@ pub fn compile_statements(
                 }
                 Err(mut e) => errors.append(&mut e),
             },
+            Stmt::EmitEvent { path, fields, span } => {
+                // Type-check all field expressions
+                let mut typed_fields = Vec::new();
+                for (name, value) in fields {
+                    match type_expression(value, &current_ctx) {
+                        Ok(typed_value) => typed_fields.push((name.clone(), typed_value)),
+                        Err(mut e) => errors.append(&mut e),
+                    }
+                }
+                
+                typed_stmts.push(TypedStmt::EmitEvent {
+                    path: path.clone(),
+                    fields: typed_fields,
+                    span: *span,
+                });
+            }
             Stmt::Expr(expr) => match type_expression(expr, &current_ctx) {
                 Ok(typed_expr) => typed_stmts.push(TypedStmt::Expr(typed_expr)),
                 Err(mut e) => errors.append(&mut e),
@@ -296,6 +312,16 @@ pub fn compile_statements(
                         &effect_ctx,
                         ctx.kernel_registry,
                     ));
+                }
+                TypedStmt::EmitEvent { fields, .. } => {
+                    // Validate all field expressions for effect purity
+                    for (_, expr) in fields {
+                        errors.extend(validate_effect_purity(
+                            expr,
+                            &effect_ctx,
+                            ctx.kernel_registry,
+                        ));
+                    }
                 }
             }
         }

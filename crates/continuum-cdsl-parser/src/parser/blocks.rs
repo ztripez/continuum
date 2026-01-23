@@ -401,6 +401,7 @@ fn parse_statements(stream: &mut TokenStream) -> Result<Vec<Stmt>, ParseError> {
 fn parse_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
     match stream.peek() {
         Some(Token::Let) => parse_let_statement(stream),
+        Some(Token::Emit) => parse_emit_event_statement(stream),
         Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => {
             // Could be assignment or expression
             // Lookahead for assignment operator
@@ -601,4 +602,67 @@ fn parse_assignment_statement(stream: &mut TokenStream) -> Result<Stmt, ParseErr
             span: stream.span_from(start),
         })
     }
+}
+
+/// Parse emit event statement: `emit event.<path> { field: expr, ... }`
+///
+/// # Syntax
+///
+/// ```cdsl
+/// emit event.rapid_cooling {
+///     gradient: temp_gradient,
+///     core_temp: core.temp,
+///     severity: "warning"
+/// }
+/// ```
+fn parse_emit_event_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
+    let start = stream.current_pos();
+    
+    stream.expect(Token::Emit)?;
+    
+    // Parse event path (e.g., "event.rapid_cooling")
+    let path = super::types::parse_path(stream)?;
+    
+    // Parse field list in braces
+    stream.expect(Token::LBrace)?;
+    
+    let mut fields = Vec::new();
+    
+    while !matches!(stream.peek(), Some(Token::RBrace)) {
+        // Parse field name (identifier)
+        let field_name = match stream.peek() {
+            Some(Token::Ident(name)) => {
+                let name = name.to_string();
+                stream.advance();
+                name
+            }
+            other => {
+                return Err(ParseError::unexpected_token(
+                    other,
+                    "field name in event emission",
+                    stream.current_span(),
+                ))
+            }
+        };
+        
+        stream.expect(Token::Colon)?;
+        
+        // Parse field value expression
+        let value = super::expr::parse_expr(stream)?;
+        
+        fields.push((field_name, value));
+        
+        // Consume optional comma or semicolon
+        if matches!(stream.peek(), Some(Token::Comma) | Some(Token::Semicolon)) {
+            stream.advance();
+        }
+    }
+    
+    stream.expect(Token::RBrace)?;
+    
+    Ok(Stmt::EmitEvent {
+        path,
+        fields,
+        span: stream.span_from(start),
+    })
 }
