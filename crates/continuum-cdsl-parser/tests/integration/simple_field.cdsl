@@ -1,0 +1,6 @@
+// Simple field declaration
+field heat_map {
+    measure {
+        signal.temperature
+    }
+}

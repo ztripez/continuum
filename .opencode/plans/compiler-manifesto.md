@@ -1944,9 +1944,11 @@ All operators desugar to kernel calls. IR has one `Call` form, no special `Binar
 
 | Syntax | Desugars To |
 |--------|-------------|
-| `a && b` | `logic.and(a, b)` |
-| `a \|\| b` | `logic.or(a, b)` |
-| `!a` | `logic.not(a)` |
+| `a and b` | `logic.and(a, b)` |
+| `a or b` | `logic.or(a, b)` |
+| `not a` | `logic.not(a)` |
+
+**Note:** CDSL uses keyword-based logical operators (`and`, `or`, `not`), NOT C-style operators (`&&`, `||`, `!`). This is intentional to avoid confusion with bitwise operations and to maintain consistency with the declarative nature of the language.
 
 **Control flow:**
 

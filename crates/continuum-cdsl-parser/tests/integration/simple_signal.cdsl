@@ -1,0 +1,6 @@
+// Simple signal declaration
+signal temperature {
+    resolve {
+        300.0
+    }
+}

@@ -230,7 +230,7 @@ Predicates:
 let samples = field.samples(geophysics.elevation)
 let by_latitude = samples.filter(|s| 
     let lat = util.latitude(s.position)
-    lat >= -30.0 && lat <= 30.0
+    lat >= -30.0 and lat <= 30.0
 )
 ```
 
@@ -495,7 +495,7 @@ analyzer terra.latitude_distribution {
             
             let band_samples = samples.filter(|s|
                 let lat = util.latitude(s.position)
-                lat >= band_min && lat < band_max
+                lat >= band_min and lat < band_max
             )
             
             let mean = if band_samples.count() > 0 {

@@ -1,0 +1,7 @@
+// Simple operator declaration
+operator physics {
+    resolve {
+        let force = gravity
+        force
+    }
+}

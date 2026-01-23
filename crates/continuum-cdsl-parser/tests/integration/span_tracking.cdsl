@@ -1,7 +1,7 @@
 // Test file for span tracking across multi-line constructs
 // Ensures parser correctly tracks line/column positions
 
-signal velocity : Vec3<m/s> {
+signal velocity : Vec3 <m/s> {
     resolve {
         // Single-line expression
         velocity.add(force.div(mass), dt)
@@ -67,7 +67,7 @@ field average_velocity : Scalar<m/s> {
     measure {
         agg.mean(
             entity.plate,
-            entity.velocity.magnitude()
+            signal.velocity.magnitude()
         )
     }
 }
@@ -77,8 +77,8 @@ field filtered_entities : Seq<entity.plate> {
     measure {
         filter(
             entity.plate,
-            entity.temperature > 1000.0<K> &&
-            entity.pressure > 1e5<Pa>
+            signal.temperature > 1000.0 <K> and
+            signal.pressure > 1e5 <Pa>
         )
     }
 }

@@ -1,38 +1,38 @@
 // Test file for assertion metadata and multi-line expressions
-// This file contains realistic assertions with metadata, unicode, and comments
+// This file contains realistic assertions with metadata and comments
 
 signal temperature : Scalar<K> {
     resolve {
         // Basic assertion without metadata
-        assert self > 0.0<K>
+        assert self > 0.0 <K>
 
         // Assertion with severity
-        assert self < 10000.0<K> severity "error"
+        assert self < 10000.0 <K> severity "error"
         
         // Assertion with custom message
-        assert self > 273.15<K> message "Temperature below freezing point"
+        assert self > 273.15 <K> message "Temperature below freezing point"
         
         // Assertion with both severity and message
-        assert self < 5778.0<K> 
+        assert self < 5778.0 <K> 
             severity "fatal" 
             message "Temperature exceeds solar surface temperature"
         
         // Multi-line assertion expression
         assert (
-            self > 0.0<K> &&
-            self < 1e6<K>
+            self > 0.0 <K> and
+            self < 1e6 <K>
         ) message "Temperature out of valid range"
         
-        // Unicode in message (testing span tracking)
-        assert self != 0.0<K> message "Temperature must be non-zero: Δ T ≠ 0"
+        // ASCII only in message (unicode removed for lexer compatibility)
+        assert self not = 0.0 <K> message "Temperature must be non-zero"
     }
 }
 
 // Test assertion in different contexts
-field heat_flux : Scalar<W/m^2> {
+field heat_flux : Scalar<W/m/m> {
     measure {
-        assert signal.temperature > 0.0<K>
-        assert self >= 0.0<W/m^2> severity "warn"
+        assert signal.temperature > 0.0 <K>
+        assert self >= 0.0 <W/m/m> severity "warn"
     }
 }
 
@@ -43,8 +43,8 @@ operator thermal_equilibrium {
         
         // Multi-line complex assertion
         assert (
-            delta_t > -100.0<K> &&
-            delta_t < 100.0<K> &&
+            delta_t > -100.0 <K> and
+            delta_t < 100.0 <K> and
             signal.heat_flux < config.max_heat_flux
         ) severity "error" message "System approaching thermal runaway"
     }

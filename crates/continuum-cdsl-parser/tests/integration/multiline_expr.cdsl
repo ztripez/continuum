@@ -1,0 +1,13 @@
+// Multi-line expressions to test span tracking
+signal velocity {
+    resolve {
+        // Multi-line let binding
+        let result = if condition {
+            value_a
+        } else {
+            value_b
+        }
+        
+        result
+    }
+}
