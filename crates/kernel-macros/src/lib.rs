@@ -1,6 +1,5 @@
-// Allow unwrap in tests and proc macros (compile-time failures are acceptable)
+// Allow unwrap in tests only
 #![cfg_attr(test, allow(clippy::unwrap_used))]
-#![allow(clippy::unwrap_used)]
 
 //! Proc-macro for registering kernel functions.
 //!
@@ -793,8 +792,8 @@ fn generate_kernel_registration(
         }
 
         let param_count = user_params.len();
-        let shape_in_vec = args.shape_in.as_ref().unwrap();
-        let unit_in_vec = args.unit_in.as_ref().unwrap();
+        let shape_in_vec = args.shape_in.as_ref().expect("BUG: shape_in should be Some when any_constraint_present is true");
+        let unit_in_vec = args.unit_in.as_ref().expect("BUG: unit_in should be Some when any_constraint_present is true");
 
         // Validate shape_in arity matches parameter count
         if shape_in_vec.len() != param_count {
@@ -826,23 +825,23 @@ fn generate_kernel_registration(
         let signature_name = format_ident!("__KERNEL_SIG_{}", fn_name.to_string().to_uppercase());
 
         // Extract constraint expressions (all guaranteed to be Some at this point)
-        let purity_expr = args.purity.as_ref().unwrap();
+        let purity_expr = args.purity.as_ref().expect("BUG: purity should be Some when any_constraint_present is true");
         let shape_in_exprs: Vec<_> = args
             .shape_in
             .as_ref()
-            .unwrap()
+            .expect("BUG: shape_in should be Some when any_constraint_present is true")
             .iter()
             .map(|e| quote! { #e })
             .collect();
         let unit_in_exprs: Vec<_> = args
             .unit_in
             .as_ref()
-            .unwrap()
+            .expect("BUG: unit_in should be Some when any_constraint_present is true")
             .iter()
             .map(|e| quote! { #e })
             .collect();
-        let shape_out_expr = args.shape_out.as_ref().unwrap();
-        let unit_out_expr = args.unit_out.as_ref().unwrap();
+        let shape_out_expr = args.shape_out.as_ref().expect("BUG: shape_out should be Some when any_constraint_present is true");
+        let unit_out_expr = args.unit_out.as_ref().expect("BUG: unit_out should be Some when any_constraint_present is true");
 
         // Derive value type from function return type
         let value_type_expr = match &func.sig.output {
