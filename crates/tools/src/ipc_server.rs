@@ -25,7 +25,7 @@ impl SimulationServer {
     /// Create a new simulation server for the given intent.
     pub fn new(intent: RunWorldIntent) -> Result<Self, crate::run_world_intent::RunWorldError> {
         let compiled = intent.load()?;
-        let runtime = build_runtime(compiled.clone());
+        let runtime = build_runtime(compiled.clone(), None);
 
         Ok(Self {
             state: Arc::new(ServerState {

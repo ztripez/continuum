@@ -103,7 +103,7 @@ impl RunWorldIntent {
             ));
         }
         let compiled = self.source.load()?;
-        let mut runtime = build_runtime(compiled);
+        let mut runtime = build_runtime(compiled, None);
         if let Some(seed) = self.seed {
             runtime.set_initial_seed(seed);
         }

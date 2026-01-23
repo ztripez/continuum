@@ -99,24 +99,93 @@ pub use vectorized::{
 
 use crate::dag::NodeKind;
 use continuum_cdsl::ast::{CompiledWorld, ExprKind, RoleId, TypedExpr};
+use continuum_foundation::Path;
 use indexmap::IndexMap;
+use std::collections::HashMap;
 
-/// Build a runtime from a compiled world.
+/// Scenario configuration for a Continuum world.
 ///
-/// Initializes era configuration, compiles bytecode blocks, and seeds global
-/// signals from literal resolve expressions.
+/// A Scenario defines how a World is instantiated for execution. It provides
+/// initial conditions and parameter overrides without changing causal structure.
+///
+/// # Config Overrides
+///
+/// Scenarios may override config values declared in `config {}` blocks. Config
+/// overrides take precedence over world defaults but must target declared config
+/// paths.
+///
+/// **Const values cannot be overridden** - they are immutable world-level constants.
+///
+/// # Example
+///
+/// ```ignore
+/// // World defines:
+/// config {
+///     thermal.decay_halflife: 1.42e17 <s>
+///     thermal.initial_temp: 5500.0 <K>
+/// }
+///
+/// // Scenario overrides:
+/// let scenario = Scenario {
+///     config_overrides: [
+///         ("thermal.initial_temp".into(), Value::Scalar(6000.0))
+///     ].into_iter().collect()
+/// };
+/// ```
+///
+/// # Lifecycle
+///
+/// Scenario config overrides are applied during `build_runtime()` (lifecycle stage 4:
+/// Scenario Application). Overrides are merged with world defaults, with scenario
+/// values taking precedence.
+#[derive(Debug, Clone, Default)]
+pub struct Scenario {
+    /// Config value overrides keyed by Path.
+    ///
+    /// These override world defaults from `config {}` blocks. Only config values
+    /// may be overridden - const values are immutable.
+    pub config_overrides: HashMap<Path, Value>,
+}
+
+impl Scenario {
+    /// Creates an empty scenario with no overrides.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Creates a scenario with the given config overrides.
+    pub fn with_config_overrides(config_overrides: HashMap<Path, Value>) -> Self {
+        Self { config_overrides }
+    }
+}
+
+/// Build a runtime from a compiled world with optional scenario overrides.
+///
+/// Initializes era configuration, compiles bytecode blocks, loads config/const values
+/// (with scenario overrides applied), and seeds global signals from literal resolve
+/// expressions.
 ///
 /// # Parameters
 /// - `compiled`: Compiled CDSL world with resolved declarations and DAGs.
+/// - `scenario`: Optional scenario with config value overrides. If `None`, uses world
+///   defaults for all config values.
 ///
 /// # Returns
 /// A [`Runtime`] ready to execute ticks for the initial era.
 ///
 /// # Panics
 /// Panics if any era `dt` is not a literal scalar, if transitions are declared
-/// without a runtime compiler, or if the initial era is missing or unknown.
+/// without a runtime compiler, if the initial era is missing or unknown, or if
+/// config/const declarations contain non-literal expressions.
+///
+/// # Scenario Config Overrides
+///
+/// If `scenario` is provided with `config_overrides`, those values will override
+/// world defaults for matching config paths. Const values cannot be overridden.
 ///
 /// # Examples
+///
+/// Basic usage without scenario:
 /// ```rust
 /// use continuum_cdsl::compile;
 /// use continuum_runtime::build_runtime;
@@ -145,9 +214,21 @@ use indexmap::IndexMap;
 /// .unwrap();
 ///
 /// let compiled = compile(&root).unwrap();
-/// let _runtime = build_runtime(compiled);
+/// let _runtime = build_runtime(compiled, None);
 /// ```
-pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
+///
+/// With scenario config overrides:
+/// ```ignore
+/// use continuum_runtime::{build_runtime, Scenario, Value};
+///
+/// let scenario = Scenario::with_config_overrides(
+///     [("thermal.initial_temp".into(), Value::Scalar(6000.0))]
+///         .into_iter()
+///         .collect()
+/// );
+/// let runtime = build_runtime(compiled, Some(scenario));
+/// ```
+pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Runtime {
     let mut era_configs = IndexMap::new();
 
     for era in compiled.world.eras.values() {
@@ -212,6 +293,7 @@ pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
     let mut config_values = HashMap::new();
     let mut const_values = HashMap::new();
 
+    // Load world defaults for config and const
     for decl in &compiled.world.declarations {
         match decl {
             Declaration::Config(entries) => {
@@ -241,6 +323,13 @@ pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
                 }
             }
             _ => {}
+        }
+    }
+
+    // Apply scenario config overrides (const values cannot be overridden)
+    if let Some(scenario) = scenario {
+        for (path, value) in scenario.config_overrides {
+            config_values.insert(path, value);
         }
     }
 
@@ -292,7 +381,7 @@ mod tests {
     fn test_runtime_panics_without_initial_era() {
         let world = empty_world();
         let compiled = CompiledWorld::new(world, Default::default());
-        let _runtime = build_runtime(compiled);
+        let _runtime = build_runtime(compiled, None);
     }
 
     #[test]
@@ -320,7 +409,7 @@ mod tests {
         );
 
         let compiled = CompiledWorld::new(world, Default::default());
-        let _runtime = build_runtime(compiled);
+        let _runtime = build_runtime(compiled, None);
     }
 
     #[test]
@@ -366,7 +455,7 @@ mod tests {
         );
 
         let compiled = CompiledWorld::new(world, Default::default());
-        let _runtime = build_runtime(compiled);
+        let _runtime = build_runtime(compiled, None);
     }
 
     #[test]
@@ -403,8 +492,9 @@ mod tests {
         world.eras.insert(Path::from_path_str("main"), era);
 
         let compiled = CompiledWorld::new(world, Default::default());
-        let _runtime = build_runtime(compiled);
+        let _runtime = build_runtime(compiled, None);
     }
+
 }
 
 fn compile_bytecode_and_dags(
