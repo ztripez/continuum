@@ -70,6 +70,16 @@ signal core.temp {
 
     initial { 5500.0 <K> }
 
+    warmup {
+        : iterations(10)
+        : convergence(0.1)
+
+        iterate {
+            // Simple warmup: slightly adjust initial temp
+            prev * 1.001
+        }
+    }
+
     resolve {
         // Simple test: just return prev value (no decay for now)
         prev
@@ -141,5 +151,20 @@ field avg_temp {
     
     measure {
         (core.temp + surface.temp) / 2.0
+    }
+}
+
+
+entity heat_source {
+    : count(1)
+    : stratum(thermal)
+    
+    signal output {
+        : Scalar<K, 0..10000>
+        : title("Heat Output")
+        
+        resolve {
+            prev * 0.999
+        }
     }
 }
