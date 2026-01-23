@@ -651,7 +651,15 @@ pub fn compile_execution_blocks<I: Index>(
         None
     };
     
-    let base_ctx = ctx.with_execution_context(None, None, node.output.clone(), inputs_type, None);
+    // Preserve existing self_type from ctx (set for member nodes in pipeline)
+    // while setting up node-specific context (output, inputs, etc)
+    let base_ctx = ctx.with_execution_context(
+        ctx.self_type.clone(),
+        None,
+        node.output.clone(),
+        inputs_type,
+        None,
+    );
 
     // Process each execution block
     for (phase_name, block_body) in &node.execution_blocks {

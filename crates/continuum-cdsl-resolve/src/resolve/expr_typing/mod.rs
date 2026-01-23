@@ -233,7 +233,11 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
                 }
             };
 
-            let extended_ctx = ctx.with_binding("self".to_string(), element_ty.clone());
+            let mut extended_ctx = ctx.with_binding("self".to_string(), element_ty.clone());
+            // If element_ty is a User type (entity), also set self_type for member access
+            if matches!(element_ty, Type::User(_)) {
+                extended_ctx.self_type = Some(element_ty.clone());
+            }
             let typed_predicate = type_expression(predicate, &extended_ctx)?;
 
             if typed_predicate.ty != Type::Bool {

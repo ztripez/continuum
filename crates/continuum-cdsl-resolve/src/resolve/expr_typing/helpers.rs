@@ -547,7 +547,13 @@ pub fn type_aggregate(
         }
     };
 
-    let extended_ctx = ctx.with_binding(binding.to_string(), element_ty);
+    // Set up context for body expression
+    // If element_ty is a User type (entity), provide it as self context
+    // so that self.member references work inside the aggregate body
+    let mut extended_ctx = ctx.with_binding(binding.to_string(), element_ty.clone());
+    if matches!(element_ty, Type::User(_)) {
+        extended_ctx.self_type = Some(element_ty);
+    }
     let typed_body = type_expression(body, &extended_ctx)?;
 
     let aggregate_ty = match op {
@@ -610,7 +616,13 @@ pub fn type_fold(
     let mut extended_ctx = ctx.with_binding(acc.to_string(), typed_init.ty.clone());
     extended_ctx
         .local_bindings
-        .insert(elem.to_string(), element_ty);
+        .insert(elem.to_string(), element_ty.clone());
+
+    // If element_ty is a User type (entity), provide it as self context
+    // so that self.member references work inside the fold body
+    if matches!(element_ty, Type::User(_)) {
+        extended_ctx.self_type = Some(element_ty);
+    }
 
     let typed_body = type_expression(body, &extended_ctx)?;
 

@@ -332,9 +332,21 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     }
 
     // 7. Block Compilation
-    validate_node_pass!(errors, &mut global_nodes, &mut member_nodes, |node| {
-        compile_execution_blocks(node, &ctx)
-    });
+    // Compile global nodes with base context
+    for node in &mut global_nodes {
+        if let Err(mut e) = compile_execution_blocks(node, &ctx) {
+            errors.append(&mut e);
+        }
+    }
+    // Compile member nodes with self context set to entity type
+    for node in &mut member_nodes {
+        // Set up self context for member nodes so self.member references work
+        let entity_type = Type::User(continuum_foundation::TypeId::from(node.index.0.clone()));
+        let member_ctx = ctx.with_execution_context(Some(entity_type), None, None, None, None);
+        if let Err(mut e) = compile_execution_blocks(node, &member_ctx) {
+            errors.append(&mut e);
+        }
+    }
 
     // 8. Structural Validation (Cycles)
     errors.extend(validate_cycles(&global_nodes, &member_nodes));
