@@ -383,6 +383,41 @@ mod bare_path_integration_tests {
     }
 
     #[test]
+    fn test_local_binding_shadows_signal() {
+        // Test: When there's both a local binding AND a signal with the same name,
+        // the local binding takes precedence (no ambiguity)
+        let expr = Expr::new(UntypedKind::Local("temperature".to_string()), test_span());
+
+        let mut signal_types = HashMap::new();
+        signal_types.insert(Path::from_path_str("temperature"), scalar_type());
+
+        let type_table = crate::resolve::types::TypeTable::new();
+        let kernels = KernelRegistry::global();
+        let field_types = HashMap::new();
+        let config_types = HashMap::new();
+        let const_types = HashMap::new();
+        let mut ctx = TypingContext::new(
+            &type_table,
+            kernels,
+            &signal_types,
+            &field_types,
+            &config_types,
+            &const_types,
+        );
+
+        // Add local binding for 'temperature'
+        ctx.local_bindings.insert("temperature".to_string(), scalar_type());
+
+        let result = type_expression(&expr, &ctx);
+        // Should succeed: local binding found, signal is ignored
+        assert!(result.is_ok(), "Local binding should shadow signal with same name");
+        
+        let typed = result.unwrap();
+        assert!(matches!(typed.expr, ExprKind::Local(_)));
+        assert_eq!(typed.ty, scalar_type());
+    }
+
+    #[test]
     fn test_bare_signal_path_nested() {
         // Test: `core.temp` → `signal.core.temp`
         let expr = Expr::new(
