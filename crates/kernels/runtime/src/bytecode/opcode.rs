@@ -61,6 +61,7 @@ use super::registry::metadata_for;
 /// | `Spawn` | Effect | `entity: EntityId` | Creates a new instance of the specified entity type. | `Fracture` |
 /// | `Destroy` | Effect | `entity: EntityId` | Marks an entity instance for destruction. | `Fracture` |
 /// | `LoadField` | Observation | `path: Path` | Loads a value from a spatial field by its path. | `Measure` |
+/// | `Assert` | Validation | `severity: Str`, `message: Str` | Pops Bool, triggers fault if false. Fails loudly. | `Resolve`, `Fracture` |
 /// | `Return` | Structural | - | Terminates block execution and returns the top value. | All |
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 pub enum OpcodeKind {
@@ -198,10 +199,74 @@ pub enum OpcodeKind {
     LoadField,
 
     // === Validation ===
-    /// Evaluates a runtime assertion.
+    /// Evaluates a runtime assertion (fails loudly on violation).
     ///
-    /// Pops a Bool value from the stack. If false, triggers a fault with optional severity and message.
-    /// Operands: [Severity (String), Message (String)] (both optional).
+    /// # Stack Contract
+    ///
+    /// - **Pops**: `Bool` (assertion condition)
+    /// - **Pushes**: Nothing
+    /// - **Panics** if TOS is not `Bool` (indicates compiler bug)
+    ///
+    /// # Behavior
+    ///
+    /// - If `true`: Execution continues normally
+    /// - If `false`: Emits structured fault and triggers policy-defined response
+    ///
+    /// # Operands
+    ///
+    /// - `operands[0]`: Optional severity string (`Operand::Str`)
+    ///   - Valid values: `"fatal"`, `"error"`, `"warning"`
+    ///   - Default: `"error"`
+    /// - `operands[1]`: Optional message string (`Operand::Str`)
+    ///   - Default: `"assertion failed"`
+    ///
+    /// # Fault Emission
+    ///
+    /// When the assertion fails (`Bool` is `false`), emits:
+    ///
+    /// ```ignore
+    /// Fault {
+    ///     kind: FaultKind::AssertionViolation,
+    ///     severity: operands[0].unwrap_or("error"),
+    ///     message: operands[1].unwrap_or("assertion failed"),
+    ///     span: <from instruction metadata>,
+    ///     context: <current execution context>,
+    /// }
+    /// ```
+    ///
+    /// # Phase Restrictions
+    ///
+    /// Valid in **Resolve** and **Fracture** phases only.
+    ///
+    /// - **Not allowed in Measure**: Would violate observer boundary (causal assertions in observation)
+    /// - **Not allowed in Collect**: Premature - inputs not yet resolved
+    ///
+    /// # Fail-Loud Guarantee
+    ///
+    /// - Non-`Bool` TOS triggers **immediate panic** (VM consistency check)
+    /// - Invalid severity values are **not** silently corrected
+    /// - Faults are **never masked** - always propagated to policy handler
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Basic assertion
+    /// LoadSignal("temperature")
+    /// PushLiteral(273.15)
+    /// CallKernel(compare.gte)  // temp >= 273.15
+    /// Assert                    // Default: error, "assertion failed"
+    ///
+    /// // Custom message
+    /// LoadSignal("pressure")
+    /// PushLiteral(0.0)
+    /// CallKernel(compare.gt)   // pressure > 0.0
+    /// Assert("error", "pressure must be positive")
+    ///
+    /// // Fatal assertion
+    /// LoadCurrent
+    /// CallKernel(logic.isfinite)
+    /// Assert("fatal", "NaN/Inf detected in signal value")
+    /// ```
     Assert,
 
     // === Structural ===
