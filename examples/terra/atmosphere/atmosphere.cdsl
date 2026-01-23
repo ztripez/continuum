@@ -849,7 +849,7 @@ chronicle atmosphere.events.runaway_greenhouse {
 # Ice age onset: significant cooling and glaciation
 chronicle atmosphere.events.ice_age_onset {
     observe {
-        when signal.atmosphere.surface_temp.x < 270.0 <K> &&
+        when signal.atmosphere.surface_temp.x < 270.0 <K> and
              signal.atmosphere.ice_fraction > 0.3 {
             emit event.ice_age_onset {
                 surface_temp: signal.atmosphere.surface_temp.x

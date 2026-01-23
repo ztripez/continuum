@@ -533,7 +533,7 @@ field ecology.decomposition_map {
 # Mass extinction event: catastrophic biomass loss
 chronicle ecology.events.mass_extinction {
     observe {
-        when signal.ecology.biomass < 1.0 &&
+        when signal.ecology.biomass < 1.0 and
              signal.surface.temp > 315.0 <K> {
             emit event.mass_extinction {
                 biomass: signal.ecology.biomass
@@ -550,8 +550,8 @@ chronicle ecology.events.mass_extinction {
 # Biodiversity bloom: rapid biomass expansion
 chronicle ecology.events.biodiversity_bloom {
     observe {
-        when signal.ecology.biomass > 50.0 &&
-             signal.ecology.npp > 2.5 &&
+        when signal.ecology.biomass > 50.0 and
+             signal.ecology.npp > 2.5 and
              signal.ecology.vegetation_cover > 0.8 {
             emit event.biodiversity_bloom {
                 biomass: signal.ecology.biomass
@@ -568,7 +568,7 @@ chronicle ecology.events.biodiversity_bloom {
 # Soil carbon depletion: major soil degradation
 chronicle ecology.events.soil_carbon_depletion {
     observe {
-        when signal.ecology.soil_carbon < 2.0 &&
+        when signal.ecology.soil_carbon < 2.0 and
              signal.ecology.decomposition_rate > 5.0 {
             emit event.soil_carbon_depletion {
                 soil_carbon: signal.ecology.soil_carbon
@@ -585,7 +585,7 @@ chronicle ecology.events.soil_carbon_depletion {
 # Carbon cycle acceleration: extreme carbon turnover
 chronicle ecology.events.carbon_cycle_acceleration {
     observe {
-        when signal.ecology.npp > 4.0 &&
+        when signal.ecology.npp > 4.0 and
              signal.ecology.decomposition_rate > 8.0 {
             emit event.carbon_cycle_acceleration {
                 npp: signal.ecology.npp
@@ -602,8 +602,8 @@ chronicle ecology.events.carbon_cycle_acceleration {
 # Desertification event: vegetation collapse
 chronicle ecology.events.desertification {
     observe {
-        when signal.ecology.vegetation_cover < 0.1 &&
-             signal.ecology.biomass < 5.0 &&
+        when signal.ecology.vegetation_cover < 0.1 and
+             signal.ecology.biomass < 5.0 and
              signal.surface.temp > 300.0 <K> {
             emit event.desertification {
                 vegetation_cover: signal.ecology.vegetation_cover
@@ -620,8 +620,8 @@ chronicle ecology.events.desertification {
 # Biosphere recovery: post-extinction recovery
 chronicle ecology.events.biosphere_recovery {
     observe {
-        when signal.ecology.biomass > 20.0 &&
-             signal.ecology.npp > 1.5 &&
+        when signal.ecology.biomass > 20.0 and
+             signal.ecology.npp > 1.5 and
              signal.ecology.vegetation_cover > 0.5 {
             emit event.biosphere_recovery {
                 biomass: signal.ecology.biomass

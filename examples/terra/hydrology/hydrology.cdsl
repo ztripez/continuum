@@ -180,7 +180,7 @@ signal hydrology.evaporation_rate {
         let temp = signal.surface.temp in
         let phase = hydrology.water_phase(temp) in
 
-        if phase > 0.5 && phase < 1.5 {
+        if phase > 0.5 and phase < 1.5 {
             # Liquid water - normal evaporation
             let e_sat = hydrology.saturation_vapor_pressure(temp) in
             let q_sat = 0.622 * e_sat / 101325.0 in  # Mixing ratio at saturation
@@ -1116,7 +1116,7 @@ signal hydrology.cells.liquid_count {
     : symbol("N_liquid")
 
     resolve {
-        agg.sum(entity.hydrology.cell, if self.phase >= 0.5 && self.phase < 1.5 { 1.0 } else { 0.0 })
+        agg.sum(entity.hydrology.cell, if self.phase >= 0.5 and self.phase < 1.5 { 1.0 } else { 0.0 })
     }
 }
 
