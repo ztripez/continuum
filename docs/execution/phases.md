@@ -92,16 +92,20 @@ Resolve is the core of causality.
 
 ## 4. Fracture
 
-**Purpose:** detect and respond to tension.
+**Purpose:** detect tension and accumulate inputs for the next tick.
 
 Fracture is responsible for:
 - detecting instability, conflict, or threshold conditions
-- emitting additional signal inputs or tension tokens
+- accumulating signal inputs for the **next tick's Collect phase**
 
 Fracture:
-- reads resolved signals
-- may influence future resolution
+- reads resolved signals from the **current tick**
+- writes inputs for the **next tick**
+- may influence future resolution (one tick ahead)
 - must not read fields or observers
+- must not access current tick's inputs
+
+**Key insight:** Fractures bridge ticks. They detect emergent conditions in resolved state and schedule inputs for the next execution cycle.
 
 Fracture exists to model **emergent change**, not scripted events.
 

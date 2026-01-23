@@ -238,9 +238,13 @@ Impulses are part of the causal model.
 A `fracture` declares an **emergent tension detector**.
 
 Fractures:
-- run during the Fracture phase
-- inspect resolved signals
-- emit additional signal inputs when conditions hold
+- run during the Fracture phase (after Resolve, before Measure)
+- inspect resolved signals from current tick
+- accumulate signal inputs for the next tick's Collect phase
+
+Fractures use:
+- `when { }` blocks for tension conditions
+- `collect { }` blocks for input accumulation
 
 Fractures are not scripted events.
 They respond to emergent state.

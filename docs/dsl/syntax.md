@@ -676,7 +676,7 @@ fracture terra.climate.runaway_greenhouse {
     signal.terra.surface.avg_temp > 350 <K>
   }
 
-  emit {
+  collect {
     signal.terra.atmosphere.feedback <- 1.5
   }
 }
@@ -688,7 +688,7 @@ fracture terra.tectonics.subduction {
     signal.terra.tectonics.boundary.stress > config.subduction_threshold
   }
 
-  emit {
+  collect {
     signal.terra.tectonics.boundary.mode <- SubductionMode.Active
   }
 }

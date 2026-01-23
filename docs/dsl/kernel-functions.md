@@ -953,7 +953,7 @@ Orthographic projection matrix.
 These operators handle variable time steps correctly.
 They are essential for stable simulation under varying `dt`.
 
-**Important:** `dt.raw` cannot be used in fracture `emit` blocks. Fractures detect emergent conditions and should emit state-dependent inputs, not time-dependent ones. If you need dt-based integration, use signals with `dt.integrate()` or reorganize signal dependencies. See `@docs/fractures.md` section 7.1 for details.
+**Important:** `dt.raw` cannot be used in fracture `collect` blocks. Fractures detect emergent conditions and should accumulate state-dependent inputs, not time-dependent ones. If you need dt-based integration, use signals with `dt.integrate()` or reorganize signal dependencies. See `@docs/fractures.md` section 7.1 for details.
 
 ### 5.1 Integration
 

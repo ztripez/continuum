@@ -244,7 +244,7 @@ To migrate a `.cdsl` file:
 6. ⚠️ **Flatten config/const paths** (remove dots until path expressions supported)
 7. ⚠️ **Remove namespace function calls** (`dt.decay`, `maths.abs`) until supported
 8. ⚠️ **Simplify assertions** (remove severity/message)
-9. ⚠️ **Comment out fractures** (emit syntax broken)
+9. ✅ **Use collect blocks in fractures** (not emit - syntax is `fracture X { when { } collect { } }`)
 10. ⚠️ **Comment out chronicles** (observe syntax broken)
 11. ✅ **Rename signals** to avoid path prefix collisions
 12. ✅ **Replace unknown units** with base or defined units
@@ -254,10 +254,9 @@ To migrate a `.cdsl` file:
 These are fundamental limitations of the new parser that need fixing:
 
 1. **No dotted path expressions** - `config.X.Y`, `dt.decay()`, `maths.abs()` don't parse in expression contexts
-2. **Emit block parser bug** - `choice()` tries expression before statement, can't backtrack
-3. **Type bounds not implemented** - Range constraints in types not parsed
-4. **Assertion metadata removed** - Severity levels and messages not supported
-5. **Chronicle emit syntax unclear** - `emit` keyword not accepted in `when` blocks
+2. **Type bounds not implemented** - Range constraints in types not parsed
+3. **Assertion metadata removed** - Severity levels and messages not supported
+4. **Chronicle emit syntax unclear** - `emit` keyword not accepted in `when` blocks
 
 ## Files Modified in POC Migration
 
@@ -269,7 +268,6 @@ These are fundamental limitations of the new parser that need fixing:
 Terra migration will require the same changes across ~1000 lines. Consider:
 
 1. Fix path expression parser to support dotted paths
-2. Fix emit block parser (reorder choice or improve lookahead)
-3. Implement type bounds in type expression parser
-4. Document chronicle/fracture emit syntax properly
-5. Add assertion severity/message support if needed
+2. Implement type bounds in type expression parser
+3. Document chronicle syntax properly
+4. Add assertion severity/message support if needed

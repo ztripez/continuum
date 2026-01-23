@@ -27,12 +27,13 @@ Fractures execute during the **Fracture phase**.
 During this phase:
 - resolved signals are inspected
 - tension conditions are evaluated
-- additional signal inputs may be emitted
+- signal inputs are accumulated for the next tick's Collect phase
 
 Fractures do not:
 - read fields
 - mutate signals directly
 - observe future state
+- access the current tick's inputs (only write to next tick's inputs)
 
 ---
 
@@ -56,9 +57,9 @@ If something is authored “to happen”, it is not a fracture.
 Fractures are declared in the DSL.
 
 A fracture defines:
-- the condition to detect (signal-only)
-- the response (signal input emission)
-- scope and phase constraints
+- the condition to detect (signal-only, in `when` block)
+- the response (signal input accumulation, in `collect` block)
+- scope and phase constraints (via attributes)
 
 Fractures must be:
 - deterministic
@@ -97,17 +98,17 @@ If fracture outcomes differ, determinism is broken.
 
 Fractures have specific restrictions to maintain causality and determinism:
 
-### 7.1 No dt.raw in Emit Blocks
+### 7.1 No dt.raw in Collect Blocks
 
-Fractures **cannot use `dt.raw`** in their `emit` blocks.
+Fractures **cannot use `dt.raw`** in their `collect` blocks.
 
-**Why?** Fractures detect emergent conditions and emit signal inputs. The magnitude of these inputs should be condition-dependent, not time-step dependent. Using `dt.raw` would make fracture responses vary with simulation timestep, violating the principle that fractures respond to **state**, not **time**.
+**Why?** Fractures detect emergent conditions and accumulate signal inputs for the next tick. The magnitude of these inputs should be condition-dependent, not time-step dependent. Using `dt.raw` would make fracture responses vary with simulation timestep, violating the principle that fractures respond to **state**, not **time**.
 
 **Wrong:**
 ```cdsl
 fracture thermal.coupling {
     when { signal.temp > 1000 <K> }
-    emit {
+    collect {
         let energy = signal.power * dt.raw in  # ❌ NOT ALLOWED
         signal.heat <- energy
     }
@@ -118,8 +119,8 @@ fracture thermal.coupling {
 ```cdsl
 fracture thermal.coupling {
     when { signal.temp > 1000 <K> }
-    emit {
-        signal.heat_power <- signal.power  # Emit power, signal integrates
+    collect {
+        signal.heat_power <- signal.power  # Accumulate power, signal integrates
     }
 }
 
@@ -141,11 +142,11 @@ Fractures can emit two types of contributions:
 1. **Rates** — continuous processes (e.g., volcanic outgassing in kg/s)
 2. **Instantaneous deltas** — discrete events (e.g., meteor impact adds X mass)
 
-**For continuous processes, emit rates:**
+**For continuous processes, accumulate rates:**
 ```cdsl
 fracture atmosphere.volcanic_co2 {
-    emit {
-        # Emit ppmv/s rate - signal integrates
+    collect {
+        # Accumulate ppmv/s rate - signal integrates
         let emission_rate_ppmv_s = activity * base_rate * 1e-15 in
         signal.atmosphere.co2_ppmv <- emission_rate_ppmv_s
     }
@@ -159,12 +160,12 @@ signal atmosphere.co2_ppmv {
 }
 ```
 
-**For discrete events, emit the actual delta:**
+**For discrete events, accumulate the actual delta:**
 ```cdsl
 fracture impact.mass_delivery {
     when { signal.impact.detected }
-    emit {
-        # Emit actual mass delivered (not a rate)
+    collect {
+        # Accumulate actual mass delivered (not a rate)
         signal.atmosphere.dust_mass <- signal.impact.ejecta_kg
     }
 }
@@ -178,10 +179,10 @@ signal atmosphere.dust_mass {
 ```
 
 **The key distinction:**
-- If the process is **continuous** and the emission scales with time → emit a **rate**, signal uses `dt.integrate()`
-- If the process is **discrete** and happens instantaneously → emit the **delta**, signal uses `prev + inputs`
+- If the process is **continuous** and the emission scales with time → accumulate a **rate**, signal uses `dt.integrate()`
+- If the process is **discrete** and happens instantaneously → accumulate the **delta**, signal uses `prev + inputs`
 
-Never use `dt.s()` or `dt.raw` in fracture emit blocks. The signal's resolve block is responsible for dt-correct integration.
+Never use `dt.s()` or `dt.raw` in fracture collect blocks. The signal's resolve block is responsible for dt-correct integration.
 
 ### 7.3 Dangerous Functions
 
@@ -193,7 +194,7 @@ fracture thermal.safety_limit {
     : uses(maths.clamping)  // Required for maths.clamp
     
     when { signal.temp > 1000 <K> }
-    emit {
+    collect {
         // Clamp is legitimate here - physical safety limit
         signal.temp_adjustment <- maths.clamp(signal.delta, -10 <K>, 10 <K>)
     }
@@ -219,8 +220,9 @@ They are **emergent causal responses**.
 ## Summary
 
 - Fractures detect emergent tension
-- They run after resolution
-- They emit causal inputs
+- They run in the Fracture phase (after Resolve, before Measure)
+- They accumulate inputs for the next tick's Collect phase
+- They use `when { }` blocks for conditions and `collect { }` blocks for inputs
 - They are not authored outcomes
 
 If fractures feel like scripting,
