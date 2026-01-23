@@ -135,15 +135,7 @@ fn parse_transition(stream: &mut TokenStream) -> Result<TransitionDecl, ParseErr
     stream.expect(Token::LBrace)?;
 
     // Parse semicolon-separated conditions (same as WhenBlock)
-    let mut conditions = Vec::new();
-    loop {
-        conditions.push(super::super::expr::parse_expr(stream)?);
-
-        if !matches!(stream.peek(), Some(Token::Semicolon)) {
-            break;
-        }
-        stream.advance(); // consume semicolon
-    }
+    let conditions = super::super::helpers::parse_semicolon_separated_exprs(stream)?;
 
     stream.expect(Token::RBrace)?;
 

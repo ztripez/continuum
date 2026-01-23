@@ -162,15 +162,7 @@ pub fn parse_when_block(stream: &mut TokenStream) -> Result<WhenBlock, ParseErro
     stream.expect(Token::LBrace)?;
 
     // Parse semicolon-separated condition expressions
-    let mut conditions = Vec::new();
-    loop {
-        conditions.push(super::expr::parse_expr(stream)?);
-
-        if !matches!(stream.peek(), Some(Token::Semicolon)) {
-            break;
-        }
-        stream.advance(); // consume semicolon
-    }
+    let conditions = super::helpers::parse_semicolon_separated_exprs(stream)?;
 
     stream.expect(Token::RBrace)?;
 

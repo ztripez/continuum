@@ -2,8 +2,8 @@
 ///!
 ///! This module contains reusable parsing patterns that appear multiple times
 ///! throughout the parser codebase.
-use crate::parser::{error::ParseError, stream::TokenStream, token_utils, types};
-use continuum_cdsl_ast::{Attribute, ObserveBlock, TypeExpr, WarmupBlock, WhenBlock};
+use crate::parser::{error::ParseError, expr, stream::TokenStream, token_utils, types};
+use continuum_cdsl_ast::{Attribute, Expr, ObserveBlock, TypeExpr, WarmupBlock, WhenBlock};
 use continuum_cdsl_lexer::Token;
 
 /// Attempts to parse a type expression preceded by a colon.
@@ -176,4 +176,48 @@ pub fn expect_ident(stream: &mut TokenStream, context: &str) -> Result<String, P
         Some(Token::Ident(s)) => Ok(s.clone()),
         other => Err(ParseError::unexpected_token(other, context, span)),
     }
+}
+
+/// Parses a semicolon-separated list of expressions.
+///
+/// This pattern is common in when blocks and transition conditions where multiple
+/// conditions are listed with semicolons between them.
+///
+/// # Grammar
+///
+/// ```text
+/// expr ; expr ; expr
+/// ```
+///
+/// Note: No trailing semicolon is expected. The list terminates at the first
+/// non-semicolon token (typically `}`).
+///
+/// # Returns
+///
+/// Vector of parsed expressions (at least one required).
+///
+/// # Errors
+///
+/// Returns error if no expressions are found or if expression parsing fails.
+///
+/// # Example
+///
+/// ```cdsl
+/// when {
+///     signal.temp > 1000 <K>;
+///     signal.pressure < 100 <Pa>;
+///     signal.active
+/// }
+/// ```
+pub fn parse_semicolon_separated_exprs(stream: &mut TokenStream) -> Result<Vec<Expr>, ParseError> {
+    let mut exprs = Vec::new();
+    loop {
+        exprs.push(expr::parse_expr(stream)?);
+
+        if !matches!(stream.peek(), Some(Token::Semicolon)) {
+            break;
+        }
+        stream.advance(); // consume semicolon
+    }
+    Ok(exprs)
 }
