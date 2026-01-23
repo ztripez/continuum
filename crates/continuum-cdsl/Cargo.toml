@@ -29,3 +29,6 @@ logos = "0.14"
 [dev-dependencies]
 continuum-runtime = { path = "../kernels/runtime" }
 tempfile = "3.10"
+
+[lints]
+workspace = true

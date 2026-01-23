@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! Continuum Foundation
 //!
 //! Core foundational utilities for the Continuum simulation engine.

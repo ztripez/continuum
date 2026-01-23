@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! Continuum Runtime.
 //!
 //! This crate provides the execution engine for Continuum simulations.

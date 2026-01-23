@@ -8,3 +8,6 @@ license = "MIT"
 [dependencies]
 # Fast lexer generator
 logos = "0.14"
+
+[lints]
+workspace = true

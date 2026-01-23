@@ -6,3 +6,6 @@ edition = "2024"
 [dependencies]
 continuum-foundation = { path = "../kernels/foundation" }
 linkme = "0.3"
+
+[lints]
+workspace = true

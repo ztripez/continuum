@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! Resolution and validation for Continuum DSL
 //!
 //! This crate performs name resolution, type resolution, and validation

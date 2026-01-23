@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! AST types for Continuum DSL
 //!
 //! This crate contains all AST node definitions, type system types,

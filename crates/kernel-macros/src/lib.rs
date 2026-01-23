@@ -1,3 +1,7 @@
+// Allow unwrap in tests and proc macros (compile-time failures are acceptable)
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+#![allow(clippy::unwrap_used)]
+
 //! Proc-macro for registering kernel functions.
 //!
 //! # Usage

@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! Compile-time kernel type signatures
 //!
 //! This crate defines **pure type definitions** for kernel operations used during

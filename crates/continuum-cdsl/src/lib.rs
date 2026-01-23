@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! # Continuum DSL Compiler
 //!
 //! Complete compiler pipeline for Continuum DSL (CDSL).

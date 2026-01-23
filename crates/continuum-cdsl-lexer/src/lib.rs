@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! Lexical analysis for Continuum DSL.
 //!
 //! This module provides tokenization of CDSL source code using logos.

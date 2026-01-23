@@ -33,6 +33,10 @@ members = [
 version = "0.1.0"
 edition = "2024"
 
+[workspace.lints.clippy]
+# Deny unwrap in production code (allow in tests via crate-level override)
+unwrap_used = "deny"
+
 [profile.release]
 lto = false
 opt-level = 2

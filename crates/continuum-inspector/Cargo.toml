@@ -29,3 +29,6 @@ clap = { version = "4", features = ["derive"] }
 
 [dev-dependencies]
 anyhow = "1"
+
+[lints]
+workspace = true

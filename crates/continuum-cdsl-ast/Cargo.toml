@@ -15,3 +15,6 @@ indexmap = { version = "2", features = ["serde"] }
 
 [dev-dependencies]
 continuum-functions = { path = "../kernels/functions" }
+
+[lints]
+workspace = true

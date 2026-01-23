@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! Kernel Function Registry.
 //!
 //! Provides distributed registration for kernel functions callable from DSL

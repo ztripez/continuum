@@ -26,3 +26,6 @@ continuum-functions = { version = "0.1.0", path = "../functions" }
 [[bench]]
 name = "chunking_strategies"
 harness = false
+
+[lints]
+workspace = true

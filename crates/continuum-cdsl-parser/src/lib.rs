@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! Hand-written recursive descent parser for Continuum DSL
 //!
 //! This crate provides fast, hand-written parsing with no generic explosion.

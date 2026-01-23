@@ -1,3 +1,6 @@
+// Allow unwrap in tests
+#![cfg_attr(test, allow(clippy::unwrap_used))]
+
 //! Continuum Kernel Functions
 //!
 //! Kernel functions available for use in DSL expressions.

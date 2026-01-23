@@ -14,3 +14,6 @@ nalgebra = "0.33"
 [[test]]
 name = "test_signatures"
 path = "tests/test_signatures.rs"
+
+[lints]
+workspace = true

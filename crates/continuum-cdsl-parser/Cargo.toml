@@ -13,3 +13,6 @@ continuum-kernel-types = { path = "../continuum-kernel-types" }
 
 [dev-dependencies]
 logos = "0.14"
+
+[lints]
+workspace = true
