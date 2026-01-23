@@ -5,7 +5,45 @@
 
 use continuum_foundation::{Dt, Value};
 use continuum_kernel_macros::{kernel_fn, vectorized_kernel_fn};
-use continuum_kernel_registry::{VRegBuffer, VectorizedResult, eval_in_namespace};
+use continuum_kernel_registry::{eval_in_namespace, VRegBuffer, VectorizedResult};
+
+/// Raw timestep access: `raw()` → current dt value in seconds
+///
+/// **SAFETY**: Requires `: uses(dt.raw)` declaration. Raw dt usage is
+/// dt-fragile - prefer dt-robust operators like `dt.integrate()`, `dt.decay()`,
+/// or `dt.relax()` which provide numerically stable behavior.
+///
+/// # Returns
+///
+/// Current timestep duration in seconds.
+///
+/// # Examples
+///
+/// ```cdsl
+/// signal example {
+///     : uses(dt.raw)
+///     resolve { prev + rate * dt.raw() }
+/// }
+/// ```
+#[kernel_fn(
+    namespace = "dt",
+    name = "raw",
+    category = "simulation",
+    purity = Pure,
+    shape_in = [],
+    unit_in = [],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
+pub fn raw() -> f64 {
+    // NOTE: This function is special-cased in the compiler.
+    // Calls to dt.raw() emit LoadDt bytecode instruction directly,
+    // not a regular kernel call. This placeholder exists for:
+    // 1. Type system (registers dt.raw in kernel registry)
+    // 2. Uses validation (detects dt.raw calls)
+    // The actual dt value comes from runtime context, not this function.
+    0.0
+}
 
 /// Integration: `integrate(prev, rate)` → `prev + rate * dt`
 /// Default uses Euler method
@@ -527,8 +565,28 @@ pub fn damp_vectorized(
 #[cfg(test)]
 mod tests {
     use continuum_kernel_registry::{
-        Arity, Value, eval_in_namespace, get_in_namespace, is_known_in,
+        eval_in_namespace, get_in_namespace, is_known_in, Arity, Value,
     };
+
+    #[test]
+    fn test_raw_registered() {
+        assert!(is_known_in("dt", "raw"));
+        let desc = get_in_namespace("dt", "raw").unwrap();
+        assert_eq!(desc.arity, Arity::Fixed(0));
+        // NOTE: dt.raw() is special-cased in bytecode emission
+        // It emits LoadDt instruction, not a regular kernel call
+    }
+
+    #[test]
+    fn test_raw_placeholder() {
+        // NOTE: This tests the placeholder function.
+        // In actual execution, dt.raw() is handled specially by the compiler
+        // and emits LoadDt bytecode instruction directly.
+        let args = [];
+        let result = eval_in_namespace("dt", "raw", &args, 0.1).unwrap();
+        // Placeholder returns 0.0 - actual value comes from LoadDt at runtime
+        assert_eq!(result.as_scalar().unwrap(), 0.0);
+    }
 
     #[test]
     fn test_integrate_registered() {

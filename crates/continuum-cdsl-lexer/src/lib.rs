@@ -177,9 +177,6 @@ pub enum Token {
     /// Keyword `inputs`
     #[token("inputs")]
     Inputs,
-    /// Keyword `dt`
-    #[token("dt")]
-    Dt,
     /// Keyword `collected`
     #[token("collected")]
     Collected,
@@ -431,7 +428,6 @@ const TOKEN_STRINGS: &[&str] = &[
     "prev",
     "current",
     "inputs",
-    "dt",
     "payload",
     "self",
     "other",
