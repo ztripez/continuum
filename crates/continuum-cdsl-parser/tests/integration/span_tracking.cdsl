@@ -1,0 +1,84 @@
+// Test file for span tracking across multi-line constructs
+// Ensures parser correctly tracks line/column positions
+
+signal velocity : Vec3<m/s> {
+    resolve {
+        // Single-line expression
+        velocity.add(force.div(mass), dt)
+        
+        // Multi-line expression with nested calls
+        velocity.add(
+            force.div(mass),
+            dt
+        )
+        
+        // Deeply nested multi-line expression
+        let acceleration = force.div(
+            mass.mul(
+                config.mass_scale
+            )
+        )
+        
+        // Multi-line vector literal
+        let position = [
+            self.x + velocity.x * dt,
+            self.y + velocity.y * dt,
+            self.z + velocity.z * dt
+        ]
+        
+        // Multi-line conditional
+        if self.magnitude() > config.max_velocity {
+            self.normalize().mul(config.max_velocity)
+        } else {
+            self
+        }
+    }
+}
+
+// Test let bindings spanning multiple lines
+operator physics {
+    resolve {
+        let force = gravity.add(
+            friction
+        ).add(
+            drag
+        )
+        
+        let net_acceleration = 
+            force
+                .div(mass)
+                .sub(damping.mul(velocity))
+        
+        // Complex nested expression
+        let result = if condition.check() {
+            force
+                .mul(dt)
+                .add(velocity)
+        } else {
+            velocity
+                .mul(0.95)
+                .add(fallback_force.div(mass))
+        }
+    }
+}
+
+// Test aggregate expressions with multi-line bodies
+field average_velocity : Scalar<m/s> {
+    measure {
+        agg.mean(
+            entity.plate,
+            entity.velocity.magnitude()
+        )
+    }
+}
+
+// Test filter expressions spanning lines
+field filtered_entities : Seq<entity.plate> {
+    measure {
+        filter(
+            entity.plate,
+            entity.temperature > 1000.0<K> &&
+            entity.pressure > 1e5<Pa>
+        )
+    }
+}

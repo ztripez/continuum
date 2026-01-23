@@ -1,0 +1,126 @@
+// Realistic CDSL declarations testing parser robustness
+// Includes comments, attributes, type annotations, and execution blocks
+
+// ===== Type Definitions =====
+
+type Position {
+    x: Scalar<m>
+    y: Scalar<m>
+    z: Scalar<m>
+}
+
+type Velocity {
+    vx: Scalar<m/s>
+    vy: Scalar<m/s>
+    vz: Scalar<m/s>
+}
+
+// ===== Config and Const =====
+
+config {
+    gravity: 9.81<m/s^2>
+    timestep: 0.001<s>
+    max_iterations: 1000
+}
+
+const {
+    SPEED_OF_LIGHT: 299792458.0<m/s>
+    BOLTZMANN: 1.380649e-23<J/K>
+}
+
+// ===== Entity with Members =====
+
+entity :stratum("fast") particle {
+    position: Position
+    velocity: Velocity
+    mass: Scalar<kg>
+    temperature: Scalar<K>
+}
+
+// ===== Signals with Multiple Phases =====
+
+signal :stratum("default") global_temperature : Scalar<K> {
+    initial {
+        300.0<K>
+    }
+    
+    collect {
+        // Accumulate temperature from all entities
+        agg.mean(entity.particle, entity.particle.temperature)
+    }
+    
+    resolve {
+        // Validate temperature range
+        assert self > 0.0<K> message "Temperature must be positive"
+        assert self < 1e6<K> severity "error"
+        
+        // Apply damping
+        self * 0.99
+    }
+}
+
+// ===== Field with Comments =====
+
+field :stratum("visual") heat_map : Scalar<K> {
+    // This field provides a spatial heat distribution
+    // for visualization purposes only
+    measure {
+        let nearest_entity = nearest(entity.particle, self.position)
+        nearest_entity.temperature
+    }
+}
+
+// ===== Operator with Complex Logic =====
+
+operator :stratum("fast") thermal_transfer {
+    resolve {
+        // For each pair of nearby particles
+        let pairs = pairs(entity.particle)
+        
+        // Calculate heat transfer
+        let distance = pairs.other.position.sub(pairs.self.position).magnitude()
+        let temp_diff = pairs.other.temperature - pairs.self.temperature
+        
+        // Fourier's law: Q = k * A * ΔT / d
+        let heat_flow = if distance > 0.0<m> {
+            const.BOLTZMANN * temp_diff / distance
+        } else {
+            0.0<W>
+        }
+        
+        emit(signal.heat_transfer_rate, heat_flow)
+    }
+}
+
+// ===== Impulse =====
+
+impulse user_heat_injection {
+    collect {
+        // External heat source
+        when trigger.activate {
+            emit(signal.global_temperature, payload.heat_amount)
+        }
+    }
+}
+
+// ===== Fracture =====
+
+fracture particle_split {
+    when entity.particle.temperature > 2000.0<K> {
+        destroy entity.particle.self
+        
+        spawn entity.particle {
+            position: entity.particle.self.position
+            velocity: entity.particle.self.velocity.add([1.0<m/s>, 0.0<m/s>, 0.0<m/s>])
+            mass: entity.particle.self.mass * 0.5
+            temperature: entity.particle.self.temperature * 0.8
+        }
+        
+        spawn entity.particle {
+            position: entity.particle.self.position
+            velocity: entity.particle.self.velocity.add([-1.0<m/s>, 0.0<m/s>, 0.0<m/s>])
+            mass: entity.particle.self.mass * 0.5
+            temperature: entity.particle.self.temperature * 0.8
+        }
+    }
+}
