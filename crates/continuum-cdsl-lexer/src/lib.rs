@@ -18,6 +18,7 @@
 //! ```
 
 use logos::Logos;
+use std::rc::Rc;
 
 /// CDSL token.
 ///
@@ -324,33 +325,40 @@ pub enum Token {
     Float(f64),
 
     /// String literal (e.g., "hello", "world")
+    ///
+    /// Uses `Rc<str>` for cheap cloning throughout the parser pipeline.
     #[regex(r#""([^"\\]|\\.)*""#, |lex| {
         let s = lex.slice();
         // Strip quotes and unescape
         let content = &s[1..s.len()-1];
-        unescape_string(content)
+        unescape_string(content).map(|s| Rc::from(s.as_str()))
     })]
-    String(String),
+    String(Rc<str>),
 
     /// Identifier (e.g., velocity, temperature, Scalar, Vec3, m, kg)
     ///
     /// Simple identifier without dots. Dotted paths are parsed as
     /// sequences of Ident separated by Dot tokens.
     /// Allows both lowercase and uppercase (for type names).
-    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| lex.slice().to_string())]
-    Ident(String),
+    ///
+    /// Uses `Rc<str>` for cheap cloning throughout the parser pipeline.
+    #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*", |lex| Rc::from(lex.slice()))]
+    Ident(Rc<str>),
 
     /// Doc comment `/// ...`
     ///
     /// Captures documentation comments that start with `///`.
     /// The captured string excludes the `///` prefix and leading whitespace.
     /// High priority ensures it's matched before `//` skip rule.
+    ///
+    /// Uses `Rc<str>` for cheap cloning throughout the parser pipeline.
     #[regex(r"///[^\n]*", |lex| {
         let s = lex.slice();
         // Strip /// prefix and trim leading/trailing whitespace
-        s.strip_prefix("///").unwrap_or(s).trim().to_string()
+        let trimmed = s.strip_prefix("///").unwrap_or(s).trim();
+        Rc::from(trimmed)
     }, priority = 10)]
-    DocComment(String),
+    DocComment(Rc<str>),
 }
 
 /// Unescape a string literal content.
@@ -537,6 +545,21 @@ mod tests {
             .expect("Lexing failed - invalid token encountered")
     }
 
+    /// Test helper: create an identifier token.
+    fn ident(s: &str) -> Token {
+        Token::Ident(Rc::from(s))
+    }
+
+    /// Test helper: create a string literal token.
+    fn string(s: &str) -> Token {
+        Token::String(Rc::from(s))
+    }
+
+    /// Test helper: create a doc comment token.
+    fn doc(s: &str) -> Token {
+        Token::DocComment(Rc::from(s))
+    }
+
     #[test]
     fn test_keywords() {
         let tokens = lex("signal field operator impulse");
@@ -552,10 +575,10 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                Token::Ident("velocity".to_string()),
-                Token::Ident("temperature".to_string()),
-                Token::Ident("my_var".to_string()),
-                Token::Ident("x".to_string()),
+                ident("velocity"),
+                ident("temperature"),
+                ident("my_var"),
+                ident("x"),
             ]
         );
     }
@@ -580,8 +603,8 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                Token::String("hello".to_string()),
-                Token::String("world".to_string()),
+                string("hello"),
+                string("world"),
             ]
         );
     }
@@ -597,21 +620,21 @@ mod tests {
             vec![
                 // <m>
                 Token::Lt,
-                Token::Ident("m".to_string()),
+                ident("m"),
                 Token::Gt,
                 // <kg/s>
                 Token::Lt,
-                Token::Ident("kg".to_string()),
+                ident("kg"),
                 Token::Slash,
-                Token::Ident("s".to_string()),
+                ident("s"),
                 Token::Gt,
                 // <W/m²/K⁴> - superscripts are skipped
                 Token::Lt,
-                Token::Ident("W".to_string()),
+                ident("W"),
                 Token::Slash,
-                Token::Ident("m".to_string()),
+                ident("m"),
                 Token::Slash,
-                Token::Ident("K".to_string()),
+                ident("K"),
                 Token::Gt,
             ]
         );
@@ -663,11 +686,11 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                Token::Ident("terra".to_string()),
+                ident("terra"),
                 Token::Dot,
-                Token::Ident("core".to_string()),
+                ident("core"),
                 Token::Dot,
-                Token::Ident("temperature".to_string()),
+                ident("temperature"),
             ]
         );
     }
@@ -680,11 +703,11 @@ mod tests {
             tokens,
             vec![
                 Token::Signal,
-                Token::Ident("temp".to_string()),
+                ident("temp"),
                 Token::Colon,
-                Token::Ident("Scalar".to_string()),
+                ident("Scalar"),
                 Token::Lt,
-                Token::Ident("K".to_string()),
+                ident("K"),
                 Token::Gt,
                 Token::LBrace,
                 Token::Resolve,
@@ -704,7 +727,7 @@ mod tests {
         let tokens = lex(source);
         assert_eq!(
             tokens,
-            vec![Token::Signal, Token::Ident("temp".to_string()),]
+            vec![Token::Signal, ident("temp"),]
         );
     }
 
@@ -714,7 +737,7 @@ mod tests {
         let tokens = lex(source);
         assert_eq!(
             tokens,
-            vec![Token::Signal, Token::Ident("temp".to_string()),]
+            vec![Token::Signal, ident("temp"),]
         );
     }
 
@@ -724,7 +747,7 @@ mod tests {
         let tokens = lex(source);
         assert_eq!(
             tokens,
-            vec![Token::Signal, Token::Ident("temp".to_string()),]
+            vec![Token::Signal, ident("temp"),]
         );
     }
 
@@ -758,11 +781,11 @@ mod tests {
             tokens,
             vec![
                 Token::Pipe,
-                Token::Ident("p".to_string()),
+                ident("p"),
                 Token::Pipe,
-                Token::Ident("p".to_string()),
+                ident("p"),
                 Token::Dot,
-                Token::Ident("mass".to_string()),
+                ident("mass"),
             ]
         );
     }
@@ -775,11 +798,11 @@ mod tests {
             tokens,
             vec![
                 Token::Let,
-                Token::Ident("x".to_string()),
+                ident("x"),
                 Token::Eq,
                 Token::Integer(42),
                 Token::In,
-                Token::Ident("x".to_string()),
+                ident("x"),
                 Token::Plus,
                 Token::Integer(1),
             ]
@@ -794,7 +817,7 @@ mod tests {
             tokens,
             vec![
                 Token::If,
-                Token::Ident("x".to_string()),
+                ident("x"),
                 Token::Gt,
                 Token::Integer(0),
                 Token::LBrace,
@@ -814,7 +837,7 @@ mod tests {
         let tokens = lex(source);
         assert_eq!(
             tokens,
-            vec![Token::Signal, Token::Ident("temp".to_string()),]
+            vec![Token::Signal, ident("temp"),]
         );
     }
 
@@ -830,7 +853,7 @@ mod tests {
             vec![
                 Token::Signal,
                 // @ is skipped (error filtered by helper)
-                Token::Ident("temp".to_string()),
+                ident("temp"),
             ]
         );
     }
@@ -873,7 +896,7 @@ mod tests {
         let tokens: Vec<_> = results.into_iter().filter_map(|r| r.ok()).collect();
         assert_eq!(
             tokens,
-            vec![Token::Lt, Token::Ident("K".to_string()), Token::Gt]
+            vec![Token::Lt, ident("K"), Token::Gt]
         );
     }
 
@@ -900,11 +923,11 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                Token::Ident("temp".to_string()),
+                ident("temp"),
                 Token::Dot,
-                Token::Ident("x".to_string()),
+                ident("x"),
                 Token::LeftArrow,
-                Token::Ident("value".to_string()),
+                ident("value"),
             ]
         );
     }
@@ -916,8 +939,8 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                Token::DocComment("This is a doc comment".to_string()),
-                Token::DocComment("Another line".to_string()),
+                doc("This is a doc comment"),
+                doc("Another line"),
                 Token::Signal,
             ]
         );
@@ -930,7 +953,7 @@ mod tests {
         // Regular and hash comments are skipped, only doc comment captured
         assert_eq!(
             tokens,
-            vec![Token::DocComment("Doc comment".to_string()), Token::Signal,]
+            vec![doc("Doc comment"), Token::Signal,]
         );
     }
 
@@ -941,13 +964,13 @@ mod tests {
         assert_eq!(
             tokens,
             vec![
-                Token::Ident("a".to_string()),
+                ident("a"),
                 Token::And,
-                Token::Ident("b".to_string()),
+                ident("b"),
                 Token::Or,
-                Token::Ident("c".to_string()),
+                ident("c"),
                 Token::Not,
-                Token::Ident("d".to_string()),
+                ident("d"),
             ]
         );
     }
