@@ -296,6 +296,22 @@ impl Scope {
 /// - Unresolved config/const paths
 /// - Unresolved type paths (in Struct literals)
 /// - Unresolved local variables
+///
+/// # Special Handling
+///
+/// **FieldAccess with Local roots**: When a FieldAccess expression has a Local
+/// identifier as its root (e.g., `core.temp`), the root is NOT validated here.
+/// This is because such expressions could be:
+/// 1. Bare path references to signals/fields (`core.temp` → signal path)
+/// 2. Actual field access on local variables (`obj.field`)
+///
+/// Distinguishing these cases requires type context, so validation is deferred
+/// to type resolution (see `type_field_access()` in `expr_typing/helpers.rs`).
+///
+/// This deferral is safe because:
+/// - ALL expressions must pass through type resolution before execution
+/// - Type resolution validates bare paths against signal/field registries
+/// - Invalid paths are caught and reported with proper diagnostics
 pub fn validate_expr(
     expr: &Expr,
     table: &SymbolTable,

@@ -300,10 +300,39 @@ fn parse_assertion_metadata(
 }
 
 /// Check if the next token can start a statement.
+/// Check if the next token can start a statement.
 ///
-/// Special handling for `Token::Let`:
+/// Disambiguates between single expressions and statement blocks to ensure
+/// correct parse tree structure. This is critical for purity validation during
+/// compilation.
+///
+/// # Rationale
+///
+/// The parser must distinguish:
+/// - `{ x + y }` → `BlockBody::Expression` (pure, allowed in resolve phase)
+/// - `{ signal <- x }` → `BlockBody::Statements` (effect, restricted to collect/fracture)
+///
+/// Previously, ANY identifier was treated as a statement start, causing
+/// single-expression blocks like `{ maths.abs(x) }` to incorrectly parse as
+/// statement blocks. This triggered false "effect in pure context" errors
+/// because the resolve phase purity checker rejects statement blocks even
+/// if the statement is just a pure expression.
+///
+/// # Special Cases
+///
 /// - `let x = val` → statement (returns true)
-/// - `let x = val in body` → expression (returns false)
+/// - `let x = val in body` → expression (returns false, handled by [`is_let_expression`])
+/// - `signal.path <- value` → statement (returns true if followed by `<-`)
+/// - `maths.abs(x)` → expression (returns false, no assignment operator)
+///
+/// # Parameters
+///
+/// - `stream`: Token stream positioned at the potential statement start
+///
+/// # Returns
+///
+/// - `true`: Next tokens form a statement (let-statement or assignment)
+/// - `false`: Next tokens form an expression (let-expression or function call)
 fn is_statement_start(stream: &TokenStream) -> bool {
     match stream.peek() {
         Some(Token::Let) => {
@@ -353,20 +382,45 @@ fn parse_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
     }
 }
 
-/// Check if this looks like an assignment.
+/// Check if the current position is the start of an assignment statement.
+///
+/// Uses lookahead to detect the assignment pattern:
+/// `<path> <- <expr>` where `<path>` is a dot-separated identifier chain.
+///
+/// # Algorithm
+///
+/// Scans forward through identifier and dot tokens until hitting:
+/// - `<-` (LeftArrow) → assignment detected, return true
+/// - Any other token → not an assignment, return false
+///
+/// # Examples
+///
+/// ```cdsl
+/// signal.value <- 10       // true (assignment)
+/// core.temp <- x + y       // true (assignment)
+/// maths.abs(x)            // false (function call, no <-)
+/// x                       // false (bare identifier)
+/// ```
+///
+/// # Parameters
+///
+/// - `stream`: Token stream positioned at potential assignment start
+///
+/// # Returns
+///
+/// - `true`: Token sequence matches assignment pattern `<path> <- ...`
+/// - `false`: Not an assignment (expression or other construct)
 fn is_assignment(stream: &TokenStream) -> bool {
-    // Lookahead for '<-' token
-    // This is a simplified check - in a full implementation you'd need
-    // to parse the path and check for '<-'
-    // For now, assume any identifier followed by more tokens could be assignment
+    // Scan forward through path tokens (ident, dot, signal, field)
+    // looking for the assignment operator '<-'
     let mut pos = 0;
     loop {
         match stream.peek_nth(pos) {
             Some(Token::Ident(_)) | Some(Token::Dot) | Some(Token::Signal) | Some(Token::Field) => {
                 pos += 1;
             }
-            Some(Token::LeftArrow) => return true,
-            _ => return false,
+            Some(Token::LeftArrow) => return true, // Found assignment operator
+            _ => return false,                     // Not an assignment
         }
     }
 }
