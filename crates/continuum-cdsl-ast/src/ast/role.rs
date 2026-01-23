@@ -424,9 +424,11 @@ pub static ROLE_REGISTRY: [RoleSpec; RoleId::COUNT] = [
         allowed_phases: PhaseSet::empty()
             .with(Phase::Resolve)
             .with(Phase::Assert)
-            .with(Phase::Configure),
+            .with(Phase::Configure)
+            .with(Phase::WarmUp),
         phase_capabilities: phase_caps![
-            Phase::Configure => [Capability::Scoping], // Initial values (literals only, no dependencies)
+            Phase::Configure => [Capability::Scoping],
+            Phase::WarmUp => [Capability::Scoping, Capability::Signals, Capability::Prev, Capability::Dt],
             Phase::Resolve => [Capability::Scoping, Capability::Signals, Capability::Prev, Capability::Inputs, Capability::Dt],
             Phase::Assert => [Capability::Scoping, Capability::Signals, Capability::Prev, Capability::Current, Capability::Dt]
         ],

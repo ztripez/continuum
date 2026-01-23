@@ -334,8 +334,6 @@ fn parse_phase_name_for_role(
     match name.to_lowercase().as_str() {
         "resolve" => Ok(Phase::Resolve),
         "collect" => {
-            // For Fracture role, "collect" blocks execute in Fracture phase
-            // For all other roles, they execute in Collect phase
             if role_id == RoleId::Fracture {
                 Ok(Phase::Fracture)
             } else {
@@ -346,9 +344,9 @@ fn parse_phase_name_for_role(
         "measure" => Ok(Phase::Measure),
         "assert" => Ok(Phase::Assert),
         "configure" => Ok(Phase::Configure),
-        "initial" => Ok(Phase::Configure), // Initial blocks execute during Configure phase
+        "initial" => Ok(Phase::Configure),
+        "warmup" => Ok(Phase::WarmUp),
 
-        // Handle legacy names with helpful error messages
         "apply" | "emit" => Err(CompileError::new(
             ErrorKind::InvalidCapability,
             span,
@@ -362,7 +360,7 @@ fn parse_phase_name_for_role(
             ErrorKind::InvalidCapability,
             span,
             format!(
-                "unknown execution phase '{}'. Valid phases are: resolve, collect, fracture, measure, assert, configure, initial",
+                "unknown execution phase '{}'. Valid phases are: resolve, collect, fracture, measure, assert, configure, initial, warmup",
                 name
             ),
         )),

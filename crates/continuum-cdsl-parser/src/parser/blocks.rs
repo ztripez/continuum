@@ -48,24 +48,53 @@ pub fn parse_execution_blocks(
             if let Some(block_name) = super::token_utils::execution_block_name(tok) {
                 // Clone token and name before advancing stream
                 let keyword_token = tok.clone();
-                let is_assert = matches!(keyword_token, Token::Assert);
-                blocks.push(parse_execution_block(
-                    stream,
-                    keyword_token,
-                    block_name,
-                    is_assert,
-                )?);
+
+                if matches!(keyword_token, Token::WarmUp) {
+                    stream.expect(Token::WarmUp)?;
+                    stream.expect(Token::LBrace)?;
+
+                    while matches!(stream.peek(), Some(Token::Colon)) {
+                        stream.advance();
+                        while !matches!(
+                            stream.peek(),
+                            Some(Token::Iterate) | Some(Token::Colon) | Some(Token::RBrace)
+                        ) {
+                            stream.advance();
+                        }
+                    }
+
+                    let body = if matches!(stream.peek(), Some(Token::Iterate)) {
+                        stream.expect(Token::Iterate)?;
+                        stream.expect(Token::LBrace)?;
+                        let iterate_body = parse_block_body(stream)?;
+                        stream.expect(Token::RBrace)?;
+                        iterate_body
+                    } else {
+                        BlockBody::Statements(Vec::new())
+                    };
+
+                    stream.expect(Token::RBrace)?;
+                    blocks.push((block_name.to_string(), body));
+                } else {
+                    let is_assert = matches!(keyword_token, Token::Assert);
+                    blocks.push(parse_execution_block(
+                        stream,
+                        keyword_token,
+                        block_name,
+                        is_assert,
+                    )?);
+                }
             } else {
                 return Err(ParseError::unexpected_token(
                     token,
-                    "execution block keyword (resolve, collect, emit, assert, measure)",
+                    "execution block keyword (resolve, collect, emit, assert, measure, warmup)",
                     stream.current_span(),
                 ));
             }
         } else {
             return Err(ParseError::unexpected_token(
                 None,
-                "execution block keyword (resolve, collect, emit, assert, measure)",
+                "execution block keyword (resolve, collect, emit, assert, measure, warmup)",
                 stream.current_span(),
             ));
         }

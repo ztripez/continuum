@@ -94,6 +94,7 @@ pub fn execution_block_name(token: &Token) -> Option<&'static str> {
         Token::Initial => Some("initial"),
         Token::Assert => Some("assert"),
         Token::Measure => Some("measure"),
+        Token::WarmUp => Some("warmup"),
         _ => None,
     }
 }
