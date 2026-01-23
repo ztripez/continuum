@@ -21,15 +21,18 @@ export function TabPanel({ currentTab, onTabChange, onSelectItem, onEmitImpulse,
 
     // Load lists
     ws.sendRequest('signal.list').then((data: any) => {
-      setSignals(data.signals || []);
+      // Backend returns array directly, not wrapped in {signals: [...]}
+      setSignals(Array.isArray(data) ? data.map((s: any) => s.id) : []);
     }).catch(console.error);
 
     ws.sendRequest('field.list').then((data: any) => {
-      setFields(data.fields || []);
+      // Backend returns array directly, not wrapped in {fields: [...]}
+      setFields(Array.isArray(data) ? data.map((f: any) => f.id) : []);
     }).catch(console.error);
 
     ws.sendRequest('entity.list').then((data: any) => {
-      setEntities(data.entities || []);
+      // Backend returns array directly, not wrapped in {entities: [...]}
+      setEntities(Array.isArray(data) ? data.map((e: any) => e.id) : []);
     }).catch(console.error);
 
     ws.sendRequest('impulse.list').then((data: any) => {
