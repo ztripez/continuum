@@ -54,7 +54,7 @@ async fn main() {
     let server = match SimulationServer::new(intent) {
         Ok(s) => s,
         Err(e) => {
-            error!("Failed to load world: {:?}", e);
+            error!("Failed to load world:\n{}", e);
             std::process::exit(1);
         }
     };

@@ -64,7 +64,10 @@ pub use continuum_cdsl_resolve::*;
 // Keep compile module (high-level API)
 pub mod compile;
 
-pub use compile::{compile, deserialize_world, format_errors, serialize_world};
+pub use compile::{
+    compile, compile_with_sources, deserialize_world, format_errors, serialize_world,
+    CompileResultWithSources,
+};
 
 // Version info
 /// Compiler version

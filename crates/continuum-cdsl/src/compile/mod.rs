@@ -9,7 +9,10 @@ use logos::Logos;
 use std::path::Path;
 use walkdir::WalkDir;
 
-/// Compiles a Continuum world from a root directory.
+/// Result type for compilation with source map.
+pub type CompileResultWithSources = Result<CompiledWorld, (SourceMap, Vec<CompileError>)>;
+
+/// Compiles a Continuum world from a root directory, returning source map on error.
 ///
 /// This is the high-level public API for the CDSL compiler.
 /// It performs the following steps:
@@ -24,8 +27,9 @@ use walkdir::WalkDir;
 /// - `root`: Path to the world root directory.
 ///
 /// # Errors
-/// Returns a list of [`CompileError`] if any stage of the pipeline fails.
-pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
+/// Returns a tuple of [`SourceMap`] and list of [`CompileError`] if any stage fails.
+/// The source map can be used with [`DiagnosticFormatter`] to produce rich error messages.
+pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
     let mut source_map = SourceMap::new();
     let mut declarations = Vec::new();
     let mut all_errors = Vec::new();
@@ -53,11 +57,14 @@ pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
     cdsl_files.sort();
 
     if cdsl_files.is_empty() {
-        return Err(vec![CompileError::new(
-            ErrorKind::Internal,
-            Span::new(0, 0, 0, 1),
-            format!("No .cdsl files found in {}", root.display()),
-        )]);
+        return Err((
+            source_map,
+            vec![CompileError::new(
+                ErrorKind::Internal,
+                Span::new(0, 0, 0, 1),
+                format!("No .cdsl files found in {}", root.display()),
+            )],
+        ));
     }
 
     // 2. Lex & Parse each file
@@ -115,11 +122,26 @@ pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
     }
 
     if !all_errors.is_empty() {
-        return Err(all_errors);
+        return Err((source_map, all_errors));
     }
 
     // 3. Pipeline Resolution
-    pipeline::compile(declarations)
+    pipeline::compile(declarations).map_err(|errors| (source_map, errors))
+}
+
+/// Compiles a Continuum world from a root directory (without source map in error).
+///
+/// This is a compatibility wrapper around [`compile_with_sources`] that discards
+/// the source map on error. For better error messages, use [`compile_with_sources`]
+/// and format errors with [`DiagnosticFormatter`].
+///
+/// # Parameters
+/// - `root`: Path to the world root directory.
+///
+/// # Errors
+/// Returns a list of [`CompileError`] if any stage of the pipeline fails.
+pub fn compile(root: &Path) -> Result<CompiledWorld, Vec<CompileError>> {
+    compile_with_sources(root).map_err(|(_, errors)| errors)
 }
 
 /// Serializes a [`CompiledWorld`] to a MessagePack byte vector.

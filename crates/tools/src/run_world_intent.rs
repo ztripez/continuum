@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use continuum_cdsl::ast::{BinaryBundle, CompiledWorld};
-use continuum_cdsl::compile;
-use continuum_cdsl::resolve::error::CompileError;
+use continuum_cdsl::compile_with_sources;
+use continuum_cdsl::foundation::SourceMap;
+use continuum_cdsl::resolve::error::{CompileError, DiagnosticFormatter};
 use continuum_runtime::build_runtime;
 use continuum_runtime::executor::{run_simulation, RunError, RunOptions, RunReport};
 
@@ -46,7 +47,8 @@ impl WorldSource {
 
     pub fn load(&self) -> Result<CompiledWorld, RunWorldError> {
         match self {
-            WorldSource::Directory(path) => compile(path).map_err(RunWorldError::from_compile),
+            WorldSource::Directory(path) => compile_with_sources(path)
+                .map_err(|(sources, errors)| RunWorldError::from_compile(sources, errors)),
             WorldSource::CompiledBundle(path) => {
                 let data = std::fs::read(path)
                     .map_err(|err| RunWorldError::Io(format!("{}: {}", path.display(), err)))?;
@@ -115,7 +117,10 @@ pub enum RunWorldError {
     /// Underlying IO failure.
     Io(String),
     /// Compilation failure for CDSL sources.
-    Compile(String),
+    Compile {
+        sources: SourceMap,
+        errors: Vec<CompileError>,
+    },
     /// Deserialize error for compiled worlds.
     Deserialize(String),
     /// Runtime execution failure.
@@ -123,13 +128,8 @@ pub enum RunWorldError {
 }
 
 impl RunWorldError {
-    fn from_compile(errors: Vec<CompileError>) -> Self {
-        let message = errors
-            .iter()
-            .map(|err: &CompileError| err.to_string())
-            .collect::<Vec<_>>()
-            .join("\n");
-        RunWorldError::Compile(message)
+    fn from_compile(sources: SourceMap, errors: Vec<CompileError>) -> Self {
+        RunWorldError::Compile { sources, errors }
     }
 
     fn from_run_error(error: RunError) -> Self {
@@ -141,7 +141,10 @@ impl std::fmt::Display for RunWorldError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             RunWorldError::Io(message) => write!(f, "io error: {}", message),
-            RunWorldError::Compile(message) => write!(f, "compile error: {}", message),
+            RunWorldError::Compile { sources, errors } => {
+                let formatter = DiagnosticFormatter::new(sources);
+                write!(f, "{}", formatter.format_all(errors))
+            }
             RunWorldError::Deserialize(message) => write!(f, "deserialize error: {}", message),
             RunWorldError::Runtime(message) => write!(f, "runtime error: {}", message),
         }
