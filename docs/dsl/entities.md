@@ -95,12 +95,60 @@ entity stellar.star {}  // no constraints
 |-----------|-------------|
 | `: count(config.path)` | Instance count from scenario configuration |
 | `: count(min..max)` | Count validation bounds |
+| `: stratum(path)` | Default stratum for all members (optional convenience) |
+
+**Stratum Inheritance**:
+- Entity-level `: stratum(name)` provides a **default** for all members
+- Member-level `: stratum(name)` **overrides** the entity default (specificity wins)
+- This allows convenient entity-wide defaults while preserving member-level control
 
 Entities do **not** have:
-- Strata (member signals have their own strata)
 - Schema blocks (state defined via member signals)
 - Resolve blocks (no behavior, just identity)
 - Config blocks (per-instance config via scenario)
+
+### Nested Member Syntax
+
+Members can be declared **inside** the entity block as syntactic sugar. The entity's `: stratum(name)` attribute becomes the default for all nested members:
+
+```cdsl
+entity test.particle {
+    : count(10)
+    : stratum(simulation)  // Default for all members
+    
+    signal mass {
+        : Scalar<kg>
+        // Inherits stratum(simulation) from entity
+        resolve { prev * 1.1 }
+    }
+    
+    signal temperature {
+        : Scalar<K>
+        : stratum(thermal)  // Overrides entity default
+        resolve { prev * 0.95 }
+    }
+}
+```
+
+This is equivalent to:
+
+```cdsl
+entity test.particle {
+    : count(10)
+}
+
+member test.particle.mass {
+    : Scalar<kg>
+    : stratum(simulation)  // Inherited from entity
+    resolve { prev * 1.1 }
+}
+
+member test.particle.temperature {
+    : Scalar<K>
+    : stratum(thermal)  // Explicit override
+    resolve { prev * 0.95 }
+}
+```
 
 ---
 

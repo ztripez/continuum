@@ -97,23 +97,21 @@ pub(crate) fn flatten_entity_members(
                 full_segments.extend(member.path.segments.clone());
                 flattened_member.path = Path::new(full_segments);
 
-                // Entity stratum is authoritative - override member's stratum if entity has one
-                if let Some(ref stratum_path) = entity_stratum {
-                    // Remove any existing stratum attribute from member
-                    flattened_member
-                        .attributes
-                        .retain(|attr| attr.name != "stratum");
-
-                    // Add entity's stratum attribute to member
-                    let stratum_attr = Attribute {
-                        name: "stratum".to_string(),
-                        args: vec![Expr::new(
-                            UntypedKind::Signal(stratum_path.clone()),
-                            member.span,
-                        )],
-                        span: member.span,
-                    };
-                    flattened_member.attributes.push(stratum_attr);
+                // Entity stratum provides default: inherit if member doesn't have one
+                // This allows entity-level convenience while permitting member-level specificity
+                if !has_attribute(&flattened_member.attributes, "stratum") {
+                    if let Some(ref stratum_path) = entity_stratum {
+                        // Add entity's stratum attribute to member
+                        let stratum_attr = Attribute {
+                            name: "stratum".to_string(),
+                            args: vec![Expr::new(
+                                UntypedKind::Signal(stratum_path.clone()),
+                                member.span,
+                            )],
+                            span: member.span,
+                        };
+                        flattened_member.attributes.push(stratum_attr);
+                    }
                 }
 
                 // Add as member declaration
@@ -214,7 +212,8 @@ mod tests {
     }
 
     #[test]
-    fn test_flatten_entity_members_member_stratum_override() {
+    fn test_flatten_entity_members_member_stratum_overrides_entity() {
+        // Test that member-level stratum takes precedence over entity-level (specificity model)
         let span = test_span();
         let mut entity = Entity::new(
             EntityId::new("particle"),
@@ -251,6 +250,52 @@ mod tests {
         let mut errors = Vec::new();
         let flattened = flatten_entity_members(declarations, &mut errors);
 
+        // Member stratum should be preserved (member wins over entity)
+        if let Declaration::Member(member) = &flattened[1] {
+            assert!(has_attribute(&member.attributes, "stratum"));
+            let mut test_errors = Vec::new();
+            let stratum =
+                extract_single_path(&member.attributes, "stratum", span, &mut test_errors);
+            assert_eq!(stratum, Some(Path::from_path_str("slow")));
+            assert!(test_errors.is_empty());
+        } else {
+            panic!("Expected Declaration::Member");
+        }
+    }
+
+    #[test]
+    fn test_flatten_entity_members_inherits_entity_stratum() {
+        // Test that member without stratum inherits from entity (default/convenience model)
+        let span = test_span();
+        let mut entity = Entity::new(
+            EntityId::new("particle"),
+            Path::from_path_str("particle"),
+            span,
+        );
+
+        entity.attributes.push(Attribute {
+            name: "stratum".to_string(),
+            args: vec![Expr::new(
+                continuum_cdsl_ast::UntypedKind::Signal(Path::from_path_str("fast")),
+                span,
+            )],
+            span,
+        });
+
+        // Member WITHOUT stratum attribute
+        let member = Node::new(
+            Path::from_path_str("mass"),
+            span,
+            RoleData::Signal,
+            EntityId::new("particle"),
+        );
+        entity.members.push(member);
+
+        let declarations = vec![Declaration::Entity(entity)];
+        let mut errors = Vec::new();
+        let flattened = flatten_entity_members(declarations, &mut errors);
+
+        // Member should inherit entity's stratum
         if let Declaration::Member(member) = &flattened[1] {
             assert!(has_attribute(&member.attributes, "stratum"));
             let mut test_errors = Vec::new();

@@ -73,20 +73,15 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
 
         // === References ===
         UntypedKind::Local(name) => {
-            use continuum_cdsl_ast::foundation::Path;
-            
-            // First check local bindings
-            if let Some(ty) = ctx.local_bindings.get(name).cloned() {
-                (ExprKind::Local(name.clone()), ty)
-            }
-            // Bare signal path resolution: if not a local variable, try as a signal
-            else if let Some(ty) = ctx.signal_types.get(&Path::from(name.as_str())).cloned() {
-                (ExprKind::Signal(Path::from(name.as_str())), ty)
-            }
-            // Not found anywhere - error
-            else {
-                return Err(err_undefined(span, name, "local variable"));
-            }
+            // Local identifiers must be explicitly bound in scope
+            // Bare signal references require explicit signal. prefix to avoid ambiguity
+            let ty = ctx
+                .local_bindings
+                .get(name)
+                .cloned()
+                .ok_or_else(|| err_undefined(span, name, "local variable"))?;
+
+            (ExprKind::Local(name.clone()), ty)
         }
 
         UntypedKind::Signal(path) => {
@@ -355,8 +350,9 @@ mod bare_path_integration_tests {
     }
 
     #[test]
-    fn test_bare_signal_path_single() {
-        // Test: `temperature` → `signal.temperature`
+    fn test_bare_identifier_requires_explicit_signal_prefix() {
+        // Test: bare `temperature` must fail (ambiguous)
+        // Signals require explicit `signal.temperature` prefix
         let expr = Expr::new(UntypedKind::Local("temperature".to_string()), test_span());
 
         let mut signal_types = HashMap::new();
@@ -377,11 +373,13 @@ mod bare_path_integration_tests {
         );
 
         let result = type_expression(&expr, &ctx);
-        assert!(result.is_ok(), "Bare signal path should resolve successfully");
-
-        let typed = result.unwrap();
-        // Should resolve as Signal, not Local
-        assert!(matches!(typed.expr, ExprKind::Signal(_)));
+        // Should fail: bare identifiers don't fall back to signals (ambiguous)
+        assert!(result.is_err(), "Bare identifier without explicit signal. prefix should fail");
+        
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("not found"));
+        assert!(errors[0].message.contains("temperature"));
     }
 
     #[test]
