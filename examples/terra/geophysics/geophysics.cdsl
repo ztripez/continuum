@@ -326,7 +326,7 @@ signal rotation.precession {
 # Spin axis in world coordinates (computed from obliquity and precession)
 # +Y is ecliptic normal, spin axis tilts from +Y by obliquity
 signal rotation.spin_axis {
-    : Vec3<1>
+    : Vec3
     : strata(rotation)
     : title("Spin Axis World")
     : symbol("n_spin")
@@ -1025,7 +1025,7 @@ signal tectonics.spreading_rate {
 
 entity terra.plate {
     : count(config.plates.count)
-    : count(5..64)
+    : count_bounds(5, 64)
 
     signal kind {
         : Scalar<1, 0..1>
@@ -1117,7 +1117,7 @@ entity terra.plate {
     }
 
     signal seed_direction {
-        : Vec3<1>
+        : Vec3
         : strata(tectonics)
         : title("Plate Seed Direction")
         : symbol("n_plate")

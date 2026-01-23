@@ -93,7 +93,7 @@ strata stellar.tides {
 
 entity stellar.star {
     : count(config.stellar.star_count)
-    : count(1..4)
+    : count_bounds(1, 4)
 
     signal mass {
         : Scalar<kg, 1e28..1e32>
@@ -208,7 +208,7 @@ entity stellar.star {
     }
 
     signal direction {
-        : Vec3<1>
+        : Vec3
         : strata(stellar.orbit)
         : title("Star Direction from Planet")
         : symbol("d_star")
@@ -389,7 +389,7 @@ entity stellar.star {
 
 entity stellar.moon {
     : count(config.stellar.moon_count)
-    : count(0..20)
+    : count_bounds(0, 20)
 
     signal mass {
         : Scalar<kg, 1e15..1e24>
@@ -486,7 +486,7 @@ entity stellar.moon {
     }
 
     signal direction {
-        : Vec3<1>
+        : Vec3
         : strata(stellar.orbit)
         : title("Moon Direction from Planet")
         : symbol("d_moon")

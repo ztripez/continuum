@@ -466,7 +466,7 @@ fn is_assignment(stream: &TokenStream) -> bool {
 
 /// Check if this looks like a let-expression (has 'in' keyword) vs let-statement.
 ///
-/// Uses bounded lookahead to find the pattern: `let <ident> = <expr> in`
+/// Uses bounded lookahead to find the pattern: `let <ident> = <expr> in <body>`
 ///
 /// # Returns
 /// - `true`: let-expression (continue with expression parsing)
@@ -475,10 +475,11 @@ fn is_assignment(stream: &TokenStream) -> bool {
 /// # Algorithm
 /// 1. Verify `let <ident> =` prefix
 /// 2. Scan forward tracking delimiter depth to skip past value expression
-/// 3. Return true if we find `in` at depth 0 before closing brace
-/// 4. Use MAX_LOOKAHEAD bound to prevent infinite loops
+/// 3. If we find `in` at depth 0, check what follows
+/// 4. If body looks like a statement (path followed by `<-`), return false
+/// 5. Use MAX_LOOKAHEAD bound to prevent infinite loops
 fn is_let_expression(stream: &TokenStream) -> bool {
-    // Pattern: let <ident> = ...anything... in
+    // Pattern: let <ident> = ...anything... in <expr>
 
     if !matches!(stream.peek(), Some(Token::Let)) {
         return false;
@@ -512,9 +513,12 @@ fn is_let_expression(stream: &TokenStream) -> bool {
                 }
                 depth -= 1;
             }
-            // Found 'in' at top level (depth 0) → let-expression
+            // Found 'in' at top level (depth 0) → check what follows
             Some(Token::In) if depth == 0 => {
-                return true;
+                // Look at what comes after 'in' to see if it looks like a statement
+                // If the body starts with ident.ident...ident <- then it's not a let-expression
+                // (it's a let followed by a statement, which should be parsed as let-statement)
+                return !is_assignment_after_in(stream, pos + 1);
             }
             // End of tokens → not a let-expression
             None => return false,
@@ -525,6 +529,36 @@ fn is_let_expression(stream: &TokenStream) -> bool {
     }
 
     // Exceeded lookahead limit → assume statement (safer default)
+    false
+}
+
+/// Check if tokens after 'in' look like an assignment statement.
+///
+/// Returns true if we see a path followed by `<-`.
+fn is_assignment_after_in(stream: &TokenStream, start_pos: usize) -> bool {
+    let mut pos = start_pos;
+    const MAX_LOOKAHEAD: usize = 20;
+
+    // Scan through identifier.identifier... pattern looking for <-
+    while pos < start_pos + MAX_LOOKAHEAD {
+        match stream.peek_nth(pos) {
+            Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => {
+                pos += 1;
+            }
+            Some(Token::Dot) => {
+                pos += 1;
+            }
+            Some(Token::LeftArrow) => {
+                // Found assignment after path
+                return true;
+            }
+            _ => {
+                // Not a simple path, so not an assignment pattern
+                return false;
+            }
+        }
+    }
+
     false
 }
 
@@ -617,17 +651,17 @@ fn parse_assignment_statement(stream: &mut TokenStream) -> Result<Stmt, ParseErr
 /// ```
 fn parse_emit_event_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
     let start = stream.current_pos();
-    
+
     stream.expect(Token::Emit)?;
-    
+
     // Parse event path (e.g., "event.rapid_cooling")
     let path = super::types::parse_path(stream)?;
-    
+
     // Parse field list in braces
     stream.expect(Token::LBrace)?;
-    
+
     let mut fields = Vec::new();
-    
+
     while !matches!(stream.peek(), Some(Token::RBrace)) {
         // Parse field name (identifier)
         let field_name = match stream.peek() {
@@ -644,22 +678,22 @@ fn parse_emit_event_statement(stream: &mut TokenStream) -> Result<Stmt, ParseErr
                 ))
             }
         };
-        
+
         stream.expect(Token::Colon)?;
-        
+
         // Parse field value expression
         let value = super::expr::parse_expr(stream)?;
-        
+
         fields.push((field_name, value));
-        
+
         // Consume optional comma or semicolon
         if matches!(stream.peek(), Some(Token::Comma) | Some(Token::Semicolon)) {
             stream.advance();
         }
     }
-    
+
     stream.expect(Token::RBrace)?;
-    
+
     Ok(Stmt::EmitEvent {
         path,
         fields,

@@ -892,7 +892,7 @@ fracture hydrology.sediment_lithification {
 # temperature, phase transitions, and sediment load.
 
 entity hydrology.cell {
-    : count(100..10000)
+    : count_bounds(100, 10000)
 
     signal water_mass {
         : Scalar<kg/m², 0..1e6>
