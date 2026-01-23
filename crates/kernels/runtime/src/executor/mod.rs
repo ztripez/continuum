@@ -419,14 +419,79 @@ impl Runtime {
         }
     }
 
-    /// Set configuration values (called during world loading).
-    /// Values are frozen and immutable during execution.
+    /// Loads configuration values into the runtime.
+    ///
+    /// Configuration values are world-level defaults declared in `config{}` blocks
+    /// that can be overridden by scenarios. They are frozen after loading and remain
+    /// immutable throughout execution.
+    ///
+    /// # Lifecycle
+    ///
+    /// Called during `build_runtime()` (stage 4: Scenario Application) after compiling
+    /// the world but before warmup. Values are extracted from world defaults and merged
+    /// with scenario overrides (when implemented).
+    ///
+    /// # Access
+    ///
+    /// Config values are accessible in all DSL phases via `load_config("path")` and
+    /// the `LoadConfig` opcode. They behave like frozen parameters, not signals (no
+    /// prev/current distinction).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // In world DSL:
+    /// config { physics.gravity: 9.81 }
+    ///
+    /// // In signal resolve:
+    /// signal velocity {
+    ///     resolve { prev - load_config("physics.gravity") * dt }
+    /// }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// The caller (`build_runtime`) panics if any config value contains a non-literal
+    /// expression (enforcing Fail Loudly).
     pub fn set_config_values(&mut self, values: std::collections::HashMap<continuum_foundation::Path, Value>) {
         self.bytecode_executor.set_config_values(values);
     }
 
-    /// Set constant values (called during world loading).
-    /// Values are frozen and immutable during execution.
+    /// Loads constant values into the runtime.
+    ///
+    /// Constant values are world-level immutable globals declared in `const{}` blocks.
+    /// Unlike config, constants are NOT scenario-overridable. They are frozen after
+    /// loading and remain immutable throughout execution.
+    ///
+    /// # Lifecycle
+    ///
+    /// Called during `build_runtime()` (stage 4: Scenario Application) after compiling
+    /// the world but before warmup. Values are extracted from world const declarations.
+    ///
+    /// # Access
+    ///
+    /// Const values are accessible in all DSL phases via `load_const("path")` and
+    /// the `LoadConst` opcode. They behave like frozen parameters, not signals (no
+    /// prev/current distinction).
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // In world DSL:
+    /// const { physics.stefan_boltzmann: 5.67e-8 }
+    ///
+    /// // In signal resolve:
+    /// signal radiation {
+    ///     resolve { 
+    ///         load_const("physics.stefan_boltzmann") * temp^4 
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// # Panics
+    ///
+    /// The caller (`build_runtime`) panics if any const value contains a non-literal
+    /// expression (enforcing Fail Loudly).
     pub fn set_const_values(&mut self, values: std::collections::HashMap<continuum_foundation::Path, Value>) {
         self.bytecode_executor.set_const_values(values);
     }

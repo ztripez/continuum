@@ -574,8 +574,37 @@ fn literal_scalar(expr: &TypedExpr) -> Option<f64> {
     }
 }
 
-/// Evaluate a literal expression to a Value (Scalar or Vec3).
-/// Returns None if the expression is not a simple literal.
+/// Evaluates a literal DSL expression to a runtime Value.
+///
+/// This function extracts compile-time constant values from config and const
+/// declarations during world loading. Only simple literal expressions are supported:
+///
+/// - **Scalar literals**: `42.0`, `1.5e-8`, `290.0 <K>`
+/// - **Vec3 literals**: `[1.0, 2.0, 3.0]` (all components must be literals)
+///
+/// # Returns
+///
+/// - `Some(Value::Scalar(f64))` for scalar literals
+/// - `Some(Value::Vec3([f64; 3]))` for 3-element vector literals
+/// - `None` for any non-literal expression (kernel calls, references, operators, etc.)
+///
+/// # Usage Context
+///
+/// Called during `build_runtime()` (lifecycle stage 4: Scenario Application) to extract
+/// default values from `config{}` and `const{}` blocks. Non-literal expressions cause
+/// a panic with a clear error message (enforcing the Fail Loudly principle).
+///
+/// # Examples
+///
+/// ```ignore
+/// // Valid expressions (return Some):
+/// config { physics.gravity: 9.81 }           // Scalar
+/// const { physics.origin: [0.0, 0.0, 0.0] }  // Vec3
+///
+/// // Invalid expressions (return None, causing panic):
+/// config { foo: 1.0 + 2.0 }                  // Kernel call
+/// config { bar: const.base_value }           // Reference
+/// ```
 fn evaluate_literal(expr: &continuum_cdsl::ast::Expr) -> Option<Value> {
     use continuum_cdsl::ast::UntypedKind;
     

@@ -40,12 +40,44 @@ impl BytecodePhaseExecutor {
         }
     }
 
-    /// Set config values (called during world/scenario loading).
+    /// Stores configuration values for access during execution.
+    ///
+    /// Config values are world-level defaults that can be overridden by scenarios.
+    /// They are loaded once during `build_runtime()` and remain frozen throughout
+    /// all execution phases.
+    ///
+    /// # Storage
+    ///
+    /// Values are stored in `self.config_values` HashMap and passed to all `VMContext`
+    /// instances via reference. This allows `LoadConfig` opcodes to retrieve values
+    /// without copying.
+    ///
+    /// # Immutability
+    ///
+    /// Once set, config values cannot be modified. Operators may read them via
+    /// `ctx.load_config()` but cannot write to them (enforcing the frozen parameter
+    /// model).
     pub fn set_config_values(&mut self, values: HashMap<Path, Value>) {
         self.config_values = values;
     }
 
-    /// Set const values (called during world/scenario loading).
+    /// Stores constant values for access during execution.
+    ///
+    /// Const values are world-level immutable globals that are NOT scenario-overridable.
+    /// They are loaded once during `build_runtime()` and remain frozen throughout
+    /// all execution phases.
+    ///
+    /// # Storage
+    ///
+    /// Values are stored in `self.const_values` HashMap and passed to all `VMContext`
+    /// instances via reference. This allows `LoadConst` opcodes to retrieve values
+    /// without copying.
+    ///
+    /// # Immutability
+    ///
+    /// Once set, const values cannot be modified. Operators may read them via
+    /// `ctx.load_const()` but cannot write to them (enforcing the frozen parameter
+    /// model).
     pub fn set_const_values(&mut self, values: HashMap<Path, Value>) {
         self.const_values = values;
     }

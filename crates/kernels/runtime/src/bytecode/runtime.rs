@@ -134,18 +134,80 @@ pub trait ExecutionContext {
     /// Returns an error if the field is unavailable or if called from a kernel phase.
     fn load_field(&self, path: &Path) -> Result<Value, ExecutionError>;
 
-    /// Loads a world configuration parameter by its canonical path.
+    /// Loads a world configuration value by its canonical path.
+    ///
+    /// Configuration values are world-level defaults declared in `config{}` blocks that
+    /// can be overridden by scenarios. They are frozen after world loading and remain
+    /// immutable throughout execution.
+    ///
+    /// # Parameters
+    ///
+    /// - `path`: Dot-separated canonical path (e.g., `"physics.gravity"`)
+    ///
+    /// # Returns
+    ///
+    /// The frozen configuration value (Scalar or Vec3).
     ///
     /// # Errors
     ///
-    /// Returns an error if the configuration value is missing.
+    /// Returns [`ExecutionError::InvalidOperand`] if the path doesn't exist in the
+    /// loaded config values. This indicates either:
+    /// - A typo in the DSL `load_config("path")` call
+    /// - Missing config declaration in the world
+    /// - Config value was silently skipped (should not happen after fix in continuum-7h2y)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // In DSL:
+    /// config { physics.gravity: 9.81 }
+    ///
+    /// signal velocity {
+    ///     resolve { prev - load_config("physics.gravity") * dt }
+    /// }
+    ///
+    /// // Compiled to:
+    /// // LoadConfig("physics.gravity") → ctx.load_config(&path)
+    /// ```
     fn load_config(&self, path: &Path) -> Result<Value, ExecutionError>;
 
-    /// Loads a global simulation constant by its path.
+    /// Loads a global simulation constant by its canonical path.
+    ///
+    /// Constants are world-level immutable globals declared in `const{}` blocks that
+    /// are NOT scenario-overridable. They are frozen after world loading and remain
+    /// immutable throughout execution.
+    ///
+    /// # Parameters
+    ///
+    /// - `path`: Dot-separated canonical path (e.g., `"physics.stefan_boltzmann"`)
+    ///
+    /// # Returns
+    ///
+    /// The frozen constant value (Scalar or Vec3).
     ///
     /// # Errors
     ///
-    /// Returns an error if the constant is missing.
+    /// Returns [`ExecutionError::InvalidOperand`] if the path doesn't exist in the
+    /// loaded const values. This indicates either:
+    /// - A typo in the DSL `load_const("path")` call
+    /// - Missing const declaration in the world
+    /// - Const value was silently skipped (should not happen after fix in continuum-7h2y)
+    ///
+    /// # Example
+    ///
+    /// ```ignore
+    /// // In DSL:
+    /// const { physics.stefan_boltzmann: 5.67e-8 }
+    ///
+    /// signal radiation {
+    ///     resolve {
+    ///         load_const("physics.stefan_boltzmann") * temp^4
+    ///     }
+    /// }
+    ///
+    /// // Compiled to:
+    /// // LoadConst("physics.stefan_boltzmann") → ctx.load_const(&path)
+    /// ```
     fn load_const(&self, path: &Path) -> Result<Value, ExecutionError>;
 
     /// Loads the value of the current signal as it was at the end of the previous tick.
