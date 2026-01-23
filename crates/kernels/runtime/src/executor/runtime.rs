@@ -507,6 +507,12 @@ impl Runtime {
     // Phase Execution Handlers (Internal)
     // ============================================================================
 
+    /// Determine execution mode (bytecode vs procedural)
+    #[inline(always)]
+    fn has_bytecode(&self) -> bool {
+        !self.bytecode_blocks.is_empty()
+    }
+
     /// Execute Configure phase: Initialize tick context and run Configure DAG
     fn execute_configure_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<()> {
         trace!("phase: configure");
@@ -518,7 +524,7 @@ impl Runtime {
         });
         
         // Execute Configure phase DAG (initial blocks)
-        if !self.bytecode_blocks.is_empty() {
+        if self.has_bytecode() {
             self.bytecode_executor.execute_configure(
                 &self.current_era,
                 self.tick,
@@ -541,7 +547,7 @@ impl Runtime {
     /// Execute Collect phase: Accumulate inputs, impulses
     fn execute_collect_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<()> {
         trace!("phase: collect");
-        if self.bytecode_blocks.is_empty() {
+        if !self.has_bytecode() {
             self.phase_executor.execute_collect(
                 &self.current_era,
                 self.tick,
@@ -589,7 +595,7 @@ impl Runtime {
     /// Execute Resolve phase: Resolve signals, check breakpoints
     fn execute_resolve_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<Option<SignalId>> {
         trace!("phase: resolve");
-        let signal = if self.bytecode_blocks.is_empty() {
+        let signal = if !self.has_bytecode() {
             self.phase_executor.execute_resolve(
                 &self.current_era,
                 self.tick,
@@ -628,7 +634,7 @@ impl Runtime {
     /// Execute Fracture phase: Detect tension and queue fracture signals
     fn execute_fracture_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<()> {
         trace!("phase: fracture");
-        if self.bytecode_blocks.is_empty() {
+        if !self.has_bytecode() {
             self.phase_executor.execute_fracture(
                 &self.current_era,
                 dt,
@@ -660,7 +666,7 @@ impl Runtime {
     /// Execute Measure phase: Emit fields and chronicle events
     fn execute_measure_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<()> {
         trace!("phase: measure");
-        if self.bytecode_blocks.is_empty() {
+        if !self.has_bytecode() {
             self.phase_executor.execute_measure(
                 &self.current_era,
                 self.tick,
