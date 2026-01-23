@@ -171,7 +171,11 @@ pub fn mix(a: f64, b: f64, t: f64) -> f64 {
     unit_out = Dimensionless
 )]
 pub fn step(edge: f64, x: f64) -> f64 {
-    if x < edge { 0.0 } else { 1.0 }
+    if x < edge {
+        0.0
+    } else {
+        1.0
+    }
 }
 
 /// Smooth Hermite interpolation: `smoothstep(e0, e1, x)`
@@ -564,7 +568,11 @@ pub fn trunc(x: f64) -> f64 {
     unit_out = Dimensionless
 )]
 pub fn sign(x: f64) -> f64 {
-    if x == 0.0 { 0.0 } else { x.signum() }
+    if x == 0.0 {
+        0.0
+    } else {
+        x.signum()
+    }
 }
 
 /// Modulo: `mod(a, b)` → `a % b` (always positive)
@@ -693,6 +701,34 @@ pub fn max_4(a: f64, b: f64, c: f64, d: f64) -> f64 {
     a.max(b).max(c).max(d)
 }
 
+// === Canonical min/max (aliases for 2-arg versions) ===
+
+/// Minimum of two values (canonical): `min(a, b)` → min(a, b)
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn min(a: f64, b: f64) -> f64 {
+    a.min(b)
+}
+
+/// Maximum of two values (canonical): `max(a, b)` → max(a, b)
+#[kernel_fn(
+    namespace = "maths",
+    purity = Pure,
+    shape_in = [Any, SameAs(0)],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeSameAs(0),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn max(a: f64, b: f64) -> f64 {
+    a.max(b)
+}
+
 // === Sum Functions ===
 
 /// Sum of two values: `sum(a, b)` → a + b
@@ -736,7 +772,7 @@ pub fn sum_4(a: f64, b: f64, c: f64, d: f64) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use continuum_kernel_registry::{Value, eval_in_namespace, get_in_namespace, is_known_in};
+    use continuum_kernel_registry::{eval_in_namespace, get_in_namespace, is_known_in, Value};
 
     /// Table of all maths kernels that should be registered
     const MATHS_KERNELS: &[&str] = &[

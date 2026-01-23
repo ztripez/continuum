@@ -9,11 +9,39 @@ use super::derivation::derive_return_type;
 use super::type_expression;
 use crate::error::{CompileError, ErrorKind};
 use crate::resolve::units::resolve_unit_expr;
+use continuum_cdsl_ast::ast::{DimConstraint, ShapeConstraint};
 use continuum_cdsl_ast::foundation::{AggregateOp, KernelType, Path, Shape, Type, Unit};
 use continuum_cdsl_ast::{Expr, ExprKind, TypedExpr, UntypedKind};
 use std::collections::HashMap;
 
 // === Error Helpers ===
+
+/// Check if a shape constraint is satisfied by an actual shape
+///
+/// # Parameters
+/// - `constraint`: Shape constraint from kernel parameter
+/// - `actual`: Actual argument shape
+///
+/// # Returns
+/// `true` if the constraint is satisfied
+fn shape_satisfies_constraint(constraint: &ShapeConstraint, actual: &Shape) -> bool {
+    match constraint {
+        ShapeConstraint::Exact(expected) => expected == actual,
+        ShapeConstraint::AnyScalar => matches!(actual, Shape::Scalar),
+        ShapeConstraint::AnyVector => matches!(actual, Shape::Vector { .. }),
+        ShapeConstraint::Any => true,
+        ShapeConstraint::VectorDim(dim_constraint) => {
+            if let Shape::Vector { dim } = actual {
+                matches!(dim_constraint, DimConstraint::Exact(expected) if expected == dim)
+                    || matches!(dim_constraint, DimConstraint::Any)
+            } else {
+                false
+            }
+        }
+        // For other constraints, use strict equality for now
+        _ => false,
+    }
+}
 
 /// Creates an undefined name error.
 ///
@@ -686,10 +714,73 @@ pub fn type_call(
         (segments[0].as_str(), segments[1].as_str())
     };
 
-    let sig = ctx
-        .kernel_registry
-        .get_by_name(namespace, name)
-        .ok_or_else(|| err_undefined(span, &func.to_string(), "kernel"))?;
+    // Try exact match first
+    let sig = if let Some(sig) = ctx.kernel_registry.get_by_name(namespace, name) {
+        sig
+    } else {
+        // Try overload resolution by searching for name_* variants
+        let candidates = ctx
+            .kernel_registry
+            .get_overloads(namespace, &format!("{}_", name));
+
+        if candidates.is_empty() {
+            return Err(err_undefined(span, &func.to_string(), "kernel"));
+        }
+
+        // Find best match based on argument shapes and copy its ID
+        let matching_id = candidates
+            .iter()
+            .find(|sig| {
+                // Check if argument count matches
+                if sig.params.len() != typed_args.len() {
+                    return false;
+                }
+
+                // Check if argument shapes satisfy parameter constraints
+                sig.params
+                    .iter()
+                    .zip(typed_args.iter())
+                    .all(|(param, arg)| {
+                        if let Type::Kernel(kt) = &arg.ty {
+                            shape_satisfies_constraint(&param.shape, &kt.shape)
+                        } else {
+                            false
+                        }
+                    })
+            })
+            .ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    span,
+                    format!(
+                        "no overload of '{}' matches argument types: {}",
+                        func,
+                        typed_args
+                            .iter()
+                            .map(|a| match &a.ty {
+                                Type::Kernel(kt) => format!("{}", kt.shape),
+                                other => format!("{:?}", other),
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                )]
+            })?
+            .id
+            .clone();
+
+        // Look up the signature again from the registry (which has 'static lifetime)
+        ctx.kernel_registry.get(&matching_id).ok_or_else(|| {
+            vec![CompileError::new(
+                ErrorKind::Internal,
+                span,
+                format!(
+                    "kernel '{}' disappeared from registry",
+                    matching_id.qualified_name()
+                ),
+            )]
+        })?
+    };
 
     let kernel_id = sig.id.clone();
     let return_type = derive_return_type(sig, &typed_args, span)?;

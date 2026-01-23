@@ -675,6 +675,31 @@ impl KernelRegistry {
             .map(|(_, sig)| sig)
     }
 
+    /// Get all kernel signatures matching a name prefix within a namespace
+    ///
+    /// # Parameters
+    ///
+    /// - `namespace`: Namespace to search in
+    /// - `name_prefix`: Prefix to match kernel names against
+    ///
+    /// # Returns
+    ///
+    /// Vector of matching kernel signatures
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// let overloads = registry.get_overloads("vector", "length");
+    /// // Returns: length_vec2, length_vec3, length_vec4, length_scalar
+    /// ```
+    pub fn get_overloads(&self, namespace: &str, name_prefix: &str) -> Vec<&KernelSignature> {
+        self.signatures
+            .iter()
+            .filter(|(id, _)| id.namespace == namespace && id.name.starts_with(name_prefix))
+            .map(|(_, sig)| sig)
+            .collect()
+    }
+
     /// Get all registered kernel IDs
     ///
     /// # Parameters
