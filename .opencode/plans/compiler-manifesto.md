@@ -1019,6 +1019,8 @@ pub struct Entity {
     pub path: Path,
     pub span: Span,
     pub doc: Option<String>,
+    pub attributes: Vec<Attribute>,
+    pub members: Vec<Node<EntityId>>,  // Nested members (flattened during resolution)
 }
 ```
 
@@ -1029,17 +1031,91 @@ Entity itself has no executions. It creates an index type that parameterizes `No
 Any Role can be per-entity: Signal, Field, Fracture, Operator.
 Impulse and Chronicle are always global.
 
+**Nested member syntax:**
+
+Members are declared inside entity blocks using standard keywords (`signal`, `field`, `fracture`, `operator`):
+
 ```cdsl
 entity plate {
-    member area : Scalar<m2>       // Signal per plate
-    field stress : Scalar<Pa>      // Field per plate
-    fracture rift { ... }          // Fracture per plate
-    operator apply_friction { ... } // Operator per plate
+    : count(10)
+    : stratum(tectonics)
+    
+    signal area {
+        : Scalar<m^2, 1e6..1e8>
+        
+        resolve {
+            prev * 1.001
+        }
+    }
+    
+    field stress {
+        : Scalar<Pa>
+        
+        measure {
+            plate.area * plate.pressure
+        }
+    }
+    
+    fracture rift {
+        when { stress > 1e9 <Pa> }
+        
+        collect {
+            plate.area <- -1e5 <m^2>
+        }
+    }
 }
 ```
 
+**Stratum inheritance:**
+
+If an entity declares `:stratum(name)`, all nested members inherit that stratum unless they override it:
+
+```cdsl
+entity heat_source {
+    : count(5)
+    : stratum(thermal)      // Inherited by all members
+    
+    signal output {
+        // Implicitly has stratum(thermal)
+        : Scalar<K>
+        resolve { prev * 0.95 }
+    }
+    
+    field temperature {
+        // Can override: : stratum(observation)
+        : Scalar<K>
+        measure { heat_source.output }
+    }
+}
+```
+
+**Member paths:**
+
+During resolution, nested members are flattened into `world.members` with full paths:
+- Entity path: `"heat_source"`
+- Member path: `"output"`
+- Flattened path: `"heat_source.output"`
+
+**Member-to-member references:**
+
+Members reference their siblings using the full member path:
+
+```cdsl
+entity particle {
+    signal mass {
+        resolve { prev + 0.1 }
+    }
+    
+    signal energy {
+        resolve { particle.mass * 9.8 }  // Reference sibling
+    }
+}
+```
+
+> **Note:** `self.` prefix for member references not yet implemented. Use full paths for now.
+
 **Entity lifecycle:**
-- Entity instance count is **fixed at scenario initialization**
+- Entity instance count is **fixed at scenario initialization** via `:count(N)` attribute
 - **No runtime creation** (spawn) — not yet supported
 - **No runtime destruction** (destroy) — not yet supported
 - Instance IDs are stable throughout simulation
