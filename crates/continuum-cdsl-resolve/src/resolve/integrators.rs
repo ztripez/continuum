@@ -50,6 +50,7 @@
 //! ```
 
 use crate::error::{CompileError, ErrorKind};
+use crate::resolve::attributes::extract_single_identifier;
 use continuum_cdsl_ast::foundation::Span;
 use continuum_cdsl_ast::{
     Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node,
@@ -99,91 +100,46 @@ fn extract_integrator_declaration(
     node_span: Span,
     errors: &mut Vec<CompileError>,
 ) -> Option<String> {
-    let mut integrator = None;
-    let mut found_count = 0;
+    // Check for duplicate attributes
+    let integrator_attrs: Vec<_> = attrs.iter().filter(|a| a.name == "integrator").collect();
 
-    for attr in attrs {
-        if attr.name == "integrator" {
-            found_count += 1;
-
-            if found_count > 1 {
-                errors.push(CompileError::new(
-                    ErrorKind::Conflict,
-                    attr.span,
-                    "duplicate :integrator attribute; declare only one integration method"
-                        .to_string(),
-                ));
-                continue;
-            }
-
-            // Should have exactly one argument
-            if attr.args.len() != 1 {
-                errors.push(CompileError::new(
-                    ErrorKind::InvalidCapability,
-                    attr.span,
-                    format!(
-                        "integrator attribute expects 1 argument, got {}",
-                        attr.args.len()
-                    ),
-                ));
-                continue;
-            }
-
-            // Extract the method name
-            match extract_method_from_expr(&attr.args[0]) {
-                Some(method) => {
-                    // Validate it's a known integrator
-                    if !VALID_INTEGRATORS.contains(&method.as_str()) {
-                        errors.push(CompileError::new(
-                            ErrorKind::InvalidCapability,
-                            attr.args[0].span,
-                            format!(
-                                "unknown integrator method '{}'. Valid methods: {}",
-                                method,
-                                VALID_INTEGRATORS.join(", ")
-                            ),
-                        ));
-                        continue;
-                    }
-
-                    integrator = Some(method);
-                }
-                None => {
-                    errors.push(CompileError::new(
-                        ErrorKind::Internal,
-                        attr.args[0].span,
-                        format!(
-                            "invalid integrator() argument: expected method name like 'rk4', got {:?}",
-                            attr.args[0].kind
-                        ),
-                    ));
-                }
-            }
+    if integrator_attrs.len() > 1 {
+        for attr in integrator_attrs.iter().skip(1) {
+            errors.push(CompileError::new(
+                ErrorKind::Conflict,
+                attr.span,
+                "duplicate :integrator attribute; declare only one integration method".to_string(),
+            ));
         }
+        // Continue with first attribute
     }
 
-    integrator
-}
+    // Extract method using common utility
+    let method = extract_single_identifier(attrs, "integrator", node_span, errors)?;
 
-/// Extract method name from attribute argument expression
-///
-/// Handles various expression forms that might represent a method name:
-/// - Signal/Config/Const path (last segment is the method name)
-/// - String literals
-fn extract_method_from_expr(expr: &continuum_cdsl_ast::Expr) -> Option<String> {
-    use continuum_cdsl_ast::UntypedKind;
+    // Validate it's a known integrator
+    if !VALID_INTEGRATORS.contains(&method.as_str()) {
+        // Find the attribute span for precise error location
+        let attr_span = attrs
+            .iter()
+            .find(|a| a.name == "integrator")
+            .and_then(|a| a.args.first())
+            .map(|arg| arg.span)
+            .unwrap_or(node_span);
 
-    match &expr.kind {
-        // : integrator(rk4) - parsed as Signal path
-        UntypedKind::Signal(path) => Some(path.segments.last()?.clone()),
-        // : integrator(euler) - might be parsed as Config
-        UntypedKind::Config(path) => Some(path.segments.last()?.clone()),
-        // Fall back to const
-        UntypedKind::Const(path) => Some(path.segments.last()?.clone()),
-        // String literal
-        UntypedKind::StringLiteral(s) => Some(s.clone()),
-        _ => None,
+        errors.push(CompileError::new(
+            ErrorKind::InvalidCapability,
+            attr_span,
+            format!(
+                "unknown integrator method '{}'. Valid methods: {}",
+                method,
+                VALID_INTEGRATORS.join(", ")
+            ),
+        ));
+        return None;
     }
+
+    Some(method)
 }
 
 /// Walk typed expression tree collecting integration kernel calls
