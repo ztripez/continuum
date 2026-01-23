@@ -120,6 +120,12 @@ pub enum Token {
     /// Keyword `emit`
     #[token("emit")]
     Emit,
+    /// Keyword `initial`
+    #[token("initial")]
+    Initial,
+    /// Keyword `terminal`
+    #[token("terminal")]
+    Terminal,
     /// Keyword `observe`
     #[token("observe")]
     Observe,
@@ -408,6 +414,8 @@ const TOKEN_STRINGS: &[&str] = &[
     "to",
     "for",
     "emit",
+    "initial",
+    "terminal",
     "observe",
     "world",
     "policy",

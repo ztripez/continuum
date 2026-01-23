@@ -416,6 +416,10 @@ fn compile_bytecode_and_dags(
                 };
 
                 let node_kind = match (role_id, *phase) {
+                    (RoleId::Signal, Phase::Configure) => NodeKind::SignalResolve {
+                        signal: SignalId::from(path.to_string()),
+                        resolver_idx: block_idx,
+                    },
                     (RoleId::Signal, Phase::Resolve) => NodeKind::SignalResolve {
                         signal: SignalId::from(path.to_string()),
                         resolver_idx: block_idx,

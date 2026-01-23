@@ -718,12 +718,31 @@ impl Runtime {
                 });
             }
             crate::types::TickPhase::Simulation(Phase::Configure) => {
+                trace!("phase: configure");
                 self.active_tick_ctx = Some(TickContext {
                     tick: self.tick,
                     sim_time: self.sim_time,
                     dt,
                     era: self.current_era.clone(),
                 });
+                
+                // Execute Configure phase DAG (initial blocks)
+                if !self.bytecode_blocks.is_empty() {
+                    self.bytecode_executor.execute_configure(
+                        &self.current_era,
+                        self.tick,
+                        dt,
+                        self.sim_time,
+                        &strata_states,
+                        &self.dags,
+                        &self.bytecode_blocks,
+                        &mut self.signals,
+                        &self.entities,
+                        &mut self.member_signals,
+                        &mut self.input_channels,
+                    )?;
+                }
+                
                 self.current_phase = crate::types::TickPhase::Simulation(Phase::Collect);
             }
             crate::types::TickPhase::Simulation(Phase::Collect) => {

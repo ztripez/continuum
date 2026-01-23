@@ -346,6 +346,7 @@ fn parse_phase_name_for_role(
         "measure" => Ok(Phase::Measure),
         "assert" => Ok(Phase::Assert),
         "configure" => Ok(Phase::Configure),
+        "initial" => Ok(Phase::Configure), // Initial blocks execute during Configure phase
 
         // Handle legacy names with helpful error messages
         "apply" | "emit" => Err(CompileError::new(
@@ -361,7 +362,7 @@ fn parse_phase_name_for_role(
             ErrorKind::InvalidCapability,
             span,
             format!(
-                "unknown execution phase '{}'. Valid phases are: resolve, collect, fracture, measure, assert, configure",
+                "unknown execution phase '{}'. Valid phases are: resolve, collect, fracture, measure, assert, configure, initial",
                 name
             ),
         )),
@@ -403,6 +404,7 @@ pub fn parse_phase_name(
         "measure" => Ok(Phase::Measure),
         "assert" => Ok(Phase::Assert),
         "configure" => Ok(Phase::Configure),
+        "initial" => Ok(Phase::Configure), // Initial blocks execute during Configure phase
 
         // Handle legacy names with helpful error messages
         "apply" | "emit" => Err(CompileError::new(
@@ -418,7 +420,7 @@ pub fn parse_phase_name(
             ErrorKind::InvalidCapability,
             span,
             format!(
-                "unknown execution phase '{}'. Valid phases are: resolve, collect, fracture, measure, assert, configure",
+                "unknown execution phase '{}'. Valid phases are: resolve, collect, fracture, measure, assert, configure, initial",
                 name
             ),
         )),

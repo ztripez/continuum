@@ -31,6 +31,99 @@ impl BytecodePhaseExecutor {
         }
     }
 
+    /// Execute the Configure phase (initial blocks)
+    #[instrument(skip_all, name = "configure")]
+    pub fn execute_configure(
+        &mut self,
+        era: &EraId,
+        tick: u64,
+        dt: Dt,
+        sim_time: f64,
+        strata_states: &IndexMap<StratumId, StratumState>,
+        dags: &DagSet,
+        compiled_blocks: &[CompiledBlock],
+        signals: &mut SignalStorage,
+        entities: &EntityStorage,
+        member_signals: &mut MemberSignalBuffer,
+        input_channels: &mut InputChannels,
+    ) -> Result<()> {
+        let era_dags = dags.get_era(era).unwrap();
+
+        let mut placeholder_field_buffer = FieldBuffer::default();
+        for dag in era_dags.for_phase(Phase::Configure) {
+            let stratum_state = strata_states
+                .get(&dag.stratum)
+                .copied()
+                .unwrap_or_else(|| panic!("stratum {:?} not found in strata_states", dag.stratum));
+
+            if !stratum_state.is_eligible(tick) {
+                continue;
+            }
+
+            for level in &dag.levels {
+                let mut level_results = Vec::new();
+
+                for node in &level.nodes {
+                    match &node.kind {
+                        NodeKind::SignalResolve {
+                            signal,
+                            resolver_idx,
+                        } => {
+                            let compiled = compiled_blocks.get(*resolver_idx).ok_or_else(|| {
+                                Error::ExecutionFailure {
+                                    message: format!(
+                                        "Missing bytecode block for signal configure {}",
+                                        resolver_idx
+                                    ),
+                                }
+                            })?;
+
+                            let mut ctx = VMContext {
+                                phase: Phase::Configure,
+                                era,
+                                dt,
+                                sim_time,
+                                signals,
+                                entities,
+                                member_signals,
+                                channels: input_channels,
+                                field_buffer: &mut placeholder_field_buffer,
+                                event_buffer: &mut EventBuffer::default(),
+                                target_signal: Some(signal.clone()),
+                                cached_inputs: None,
+                            };
+
+                            let block_id = compiled.root;
+                            let value = self
+                                .executor
+                                .execute_block(block_id, &compiled.program, &mut ctx)
+                                .map_err(|e| Error::ExecutionFailure {
+                                    message: e.to_string(),
+                                })?
+                                .ok_or_else(|| Error::ExecutionFailure {
+                                    message: format!(
+                                        "Signal configure for '{}' returned no value",
+                                        signal
+                                    ),
+                                })?;
+
+                            level_results.push((signal.clone(), value));
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Commit results to signal storage (sets current AND prev)
+                // Using init() to set both previous and current for first-time initialization
+                for (signal, value) in level_results {
+                    signals.init(signal, value);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Execute the Collect phase
     #[instrument(skip_all, name = "collect")]
     pub fn execute_collect(

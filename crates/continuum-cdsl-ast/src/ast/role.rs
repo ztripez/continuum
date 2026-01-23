@@ -421,8 +421,12 @@ pub static ROLE_REGISTRY: [RoleSpec; RoleId::COUNT] = [
     // Signal - resolve authoritative state
     RoleSpec {
         name: "signal",
-        allowed_phases: PhaseSet::empty().with(Phase::Resolve).with(Phase::Assert),
+        allowed_phases: PhaseSet::empty()
+            .with(Phase::Resolve)
+            .with(Phase::Assert)
+            .with(Phase::Configure),
         phase_capabilities: phase_caps![
+            Phase::Configure => [Capability::Scoping], // Initial values (literals only, no dependencies)
             Phase::Resolve => [Capability::Scoping, Capability::Signals, Capability::Prev, Capability::Inputs, Capability::Dt],
             Phase::Assert => [Capability::Scoping, Capability::Signals, Capability::Prev, Capability::Current, Capability::Dt]
         ],

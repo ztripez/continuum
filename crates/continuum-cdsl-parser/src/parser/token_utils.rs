@@ -39,6 +39,8 @@ pub fn keyword_to_string(token: &Token) -> Option<String> {
         Token::Entity => Some("entity".to_string()),
         Token::Strata => Some("strata".to_string()),
         Token::Type => Some("type".to_string()),
+        Token::Initial => Some("initial".to_string()),
+        Token::Terminal => Some("terminal".to_string()),
         _ => None,
     }
 }
@@ -89,6 +91,7 @@ pub fn execution_block_name(token: &Token) -> Option<&'static str> {
         Token::Resolve => Some("resolve"),
         Token::Collect => Some("collect"),
         Token::Emit => Some("emit"),
+        Token::Initial => Some("initial"),
         Token::Assert => Some("assert"),
         Token::Measure => Some("measure"),
         _ => None,

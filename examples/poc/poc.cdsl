@@ -61,11 +61,11 @@ signal core.temp {
     : title("Core Temperature")
     : symbol("T_core")
 
+    initial { 5500.0 <K> }
+
     resolve {
-        // Demonstrating let expressions for readable multi-step calculations
-        let decayed = dt.decay(prev, config.thermal.decay_halflife) in
-        let with_inputs = decayed + inputs in
-        with_inputs
+        // Simple test: just return prev value (no decay for now)
+        prev
     }
 
     assert {
@@ -83,14 +83,11 @@ signal surface.temp {
     : title("Surface Temperature")
     : symbol("T_surf")
 
+    initial { 290.0 <K> }
+
     resolve {
-        // Heat transfer from core to surface using let for clarity
-        let temp_diff = core.temp - prev in
-        let heat_transfer = temp_diff * config.thermal.coupling_factor in
-        let radiation_loss = (prev - const.physics.ambient_temp) * config.thermal.radiation_factor in
-        let new_temp = prev + heat_transfer - radiation_loss + inputs in
-        // Using bounds instead of clamp to avoid uses() attribute bug
-        new_temp
+        // Simple test: just return prev value (no transfer for now)
+        prev
     }
 }
 
@@ -100,6 +97,8 @@ signal temp_gradient {
     : Scalar<K, 0..10000>
     : strata(thermal)
     : title("Core-Surface Gradient")
+
+    initial { 0.0 <K> }
 
     resolve {
         maths.abs(core.temp - surface.temp)
