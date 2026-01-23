@@ -217,17 +217,27 @@ pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
             Declaration::Config(entries) => {
                 for entry in entries {
                     if let Some(default) = &entry.default {
-                        if let Some(value) = evaluate_literal(default) {
-                            config_values.insert(entry.path.clone(), value);
-                        }
+                        let value = evaluate_literal(default).unwrap_or_else(|| {
+                            panic!(
+                                "Config '{}' has non-literal default expression. \
+                                 Config defaults must be compile-time literals (Scalar or Vec3 with literal components).",
+                                entry.path
+                            )
+                        });
+                        config_values.insert(entry.path.clone(), value);
                     }
                 }
             }
             Declaration::Const(entries) => {
                 for entry in entries {
-                    if let Some(value) = evaluate_literal(&entry.value) {
-                        const_values.insert(entry.path.clone(), value);
-                    }
+                    let value = evaluate_literal(&entry.value).unwrap_or_else(|| {
+                        panic!(
+                            "Const '{}' has non-literal expression. \
+                             Const values must be compile-time literals (Scalar or Vec3 with literal components).",
+                            entry.path
+                        )
+                    });
+                    const_values.insert(entry.path.clone(), value);
                 }
             }
             _ => {}
