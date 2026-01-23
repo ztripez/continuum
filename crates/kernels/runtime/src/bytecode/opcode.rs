@@ -183,6 +183,15 @@ pub enum OpcodeKind {
     ///
     /// Pops [Value, Position] and writes to field path in operand[0]. Only valid in Measure phase.
     EmitField,
+    /// Emits a structured event for observer consumption.
+    ///
+    /// Operand[0]: event path (Path)
+    /// Operand[1..]: field names (String)
+    /// Stack: pops one value per field (in reverse order)
+    ///
+    /// Observer-only operation - logs event but does not affect simulation state.
+    /// Valid in Measure phase (chronicles execute after fields).
+    EmitEvent,
     /// Spawns a new instance of the entity type in operand[0].
     ///
     /// Only valid in the Fracture phase.

@@ -182,7 +182,7 @@ chronicle thermal_events.rapid_cooling {
     : doc("Emits event when temperature gradient exceeds threshold")
     
     observe {
-        when temp_gradient > 100.0 <K> {
+        when temp_gradient > 10.0 <K> {
             emit event.rapid_cooling {
                 gradient: temp_gradient
                 core_temp: core.temp

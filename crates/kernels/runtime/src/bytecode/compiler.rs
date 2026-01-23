@@ -206,17 +206,21 @@ impl Compiler {
                     .push(Instruction::new(OpcodeKind::Assert, operands));
             }
             Stmt::EmitEvent { path, fields, .. } => {
-                // Events are observer-only; for now, compile as no-op
-                // Future: Add event emission to runtime traces
-                // Compile all field expressions (for side-effect validation)
-                for (_, expr) in fields {
+                // Compile all field value expressions onto the stack (reverse order for pop)
+                for (_, expr) in fields.iter().rev() {
                     self.compile_expr(block, expr)?;
-                    block
-                        .instructions
-                        .push(Instruction::new(OpcodeKind::Pop, vec![]));
                 }
-                // TODO: Add OpcodeKind::EmitEvent with path and field count
-                // For now, this is effectively a no-op that validates expressions
+
+                // Build operands: path (as Signal) + field names
+                let mut operands = vec![Operand::Signal(path.clone())];
+                for (name, _) in fields {
+                    operands.push(Operand::String(name.clone()));
+                }
+
+                // Emit event instruction
+                block
+                    .instructions
+                    .push(Instruction::new(OpcodeKind::EmitEvent, operands));
             }
             Stmt::Expr(expr) => {
                 self.compile_expr(block, expr)?;

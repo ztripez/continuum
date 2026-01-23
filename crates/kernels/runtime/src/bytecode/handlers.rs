@@ -689,6 +689,52 @@ pub(crate) fn handle_emit_field(
     ctx.emit_field(&target, position, value)
 }
 
+/// Emits a structured event for observer consumption.
+///
+/// Operand[0]: event path
+/// Operand[1..]: field names
+/// Stack: pops one value per field (in forward order)
+pub(crate) fn handle_emit_event(
+    instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    _ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    // Decode event path from operand[0]
+    let path = match &instruction.operands[0] {
+        crate::bytecode::operand::Operand::Signal(p) => p.clone(),
+        _ => {
+            return Err(ExecutionError::InvalidOperand {
+                message: "EmitEvent operand[0] must be Signal (event path)".to_string(),
+            })
+        }
+    };
+
+    // Decode field names from operand[1..]
+    let field_count = instruction.operands.len() - 1;
+    let mut fields = Vec::with_capacity(field_count);
+
+    for operand in &instruction.operands[1..] {
+        let name = operand_string(operand)?;
+        fields.push(name);
+    }
+
+    // Pop field values from stack (in forward order)
+    let mut values = Vec::with_capacity(field_count);
+    for _ in 0..field_count {
+        values.push(runtime.pop()?);
+    }
+
+    // Log event emission
+    tracing::info!(
+        event_path = %path,
+        fields = ?fields.iter().zip(&values).map(|(n, v)| format!("{}: {:?}", n, v)).collect::<Vec<_>>(),
+        "Chronicle event emitted"
+    );
+
+    Ok(())
+}
+
 /// Spawns a new instance of an entity type.
 ///
 /// Pops initial value from stack. Entity type is in operand[0].

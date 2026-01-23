@@ -6,12 +6,12 @@ use continuum_foundation::Phase;
 
 use super::handlers::{
     handle_aggregate, handle_assert, handle_build_struct, handle_build_vector, handle_call_kernel,
-    handle_destroy, handle_dup, handle_emit, handle_emit_field, handle_field_access, handle_filter,
-    handle_fold, handle_load, handle_load_config, handle_load_const, handle_load_current,
-    handle_load_dt, handle_load_entity, handle_load_field, handle_load_inputs, handle_load_other,
-    handle_load_payload, handle_load_prev, handle_load_self, handle_load_signal, handle_nearest,
-    handle_noop, handle_pop, handle_push_literal, handle_spawn, handle_store, handle_within,
-    Handler,
+    handle_destroy, handle_dup, handle_emit, handle_emit_event, handle_emit_field,
+    handle_field_access, handle_filter, handle_fold, handle_load, handle_load_config,
+    handle_load_const, handle_load_current, handle_load_dt, handle_load_entity, handle_load_field,
+    handle_load_inputs, handle_load_other, handle_load_payload, handle_load_prev, handle_load_self,
+    handle_load_signal, handle_nearest, handle_noop, handle_pop, handle_push_literal, handle_spawn,
+    handle_store, handle_within, Handler,
 };
 use super::opcode::{OpcodeKind, OpcodeMetadata, OperandCount};
 
@@ -46,7 +46,7 @@ pub fn opcode_specs() -> &'static [OpcodeSpec] {
 ///
 /// This constant must match the number of variants in [`OpcodeKind`]. It is used
 /// to size the internal jump tables for O(1) metadata and handler lookups.
-const OPCODE_COUNT: usize = 34;
+const OPCODE_COUNT: usize = 35;
 
 /// Retrieves metadata for a specific opcode kind in O(1) time.
 ///
@@ -183,6 +183,16 @@ fn build_specs() -> Vec<OpcodeSpec> {
             true,
             Some(&[Phase::Measure]),
             handle_emit_field
+        ),
+        op!(
+            EmitEvent,
+            OperandCount::Variable {
+                min: 1,
+                max: Some(100),
+            }, // path + up to 99 field names
+            true,
+            Some(&[Phase::Measure]),
+            handle_emit_event
         ),
         op!(
             Spawn,
