@@ -98,7 +98,7 @@ pub use vectorized::{
 };
 
 use crate::dag::NodeKind;
-use continuum_cdsl::ast::{CompiledWorld, ExprKind, RoleId, TypedExpr};
+use continuum_cdsl::ast::{CompiledWorld, ExprKind, RoleId, TypedExpr, TypeExpr};
 use continuum_foundation::Path;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -156,6 +156,47 @@ impl Scenario {
     /// Creates a scenario with the given config overrides.
     pub fn with_config_overrides(config_overrides: HashMap<Path, Value>) -> Self {
         Self { config_overrides }
+    }
+}
+
+/// Validates that a runtime Value matches the expected TypeExpr.
+///
+/// Returns `true` if the value is compatible with the declared type.
+/// This performs basic shape matching without unit checking (units are
+/// tracked separately in the type system).
+fn value_matches_type_expr(value: &Value, type_expr: &TypeExpr) -> bool {
+    match (value, type_expr) {
+        // Scalar matches Scalar type
+        (Value::Scalar(_), TypeExpr::Scalar { .. }) => true,
+        
+        // Integer can match Scalar (implicit conversion)
+        (Value::Integer(_), TypeExpr::Scalar { .. }) => true,
+        
+        // Vec2 matches Vector<2, _>
+        (Value::Vec2(_), TypeExpr::Vector { dim: 2, .. }) => true,
+        
+        // Vec3 matches Vector<3, _>
+        (Value::Vec3(_), TypeExpr::Vector { dim: 3, .. }) => true,
+        
+        // Vec4 matches Vector<4, _>
+        (Value::Vec4(_), TypeExpr::Vector { dim: 4, .. }) => true,
+        
+        // Boolean matches Bool type
+        (Value::Boolean(_), TypeExpr::Bool) => true,
+        
+        // Infer accepts anything (type will be inferred)
+        (_, TypeExpr::Infer) => true,
+        
+        // Matrix types (Mat2, Mat3, Mat4)
+        (Value::Mat2(_), TypeExpr::Matrix { rows: 2, cols: 2, .. }) => true,
+        (Value::Mat3(_), TypeExpr::Matrix { rows: 3, cols: 3, .. }) => true,
+        (Value::Mat4(_), TypeExpr::Matrix { rows: 4, cols: 4, .. }) => true,
+        
+        // Quaternion could match Vector<4, _> or a custom type
+        (Value::Quat(_), TypeExpr::Vector { dim: 4, .. }) => true,
+        
+        // All other combinations are mismatches
+        _ => false,
     }
 }
 
@@ -292,12 +333,16 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
     use std::collections::HashMap;
     let mut config_values = HashMap::new();
     let mut const_values = HashMap::new();
+    let mut config_types = HashMap::new();
 
     // Load world defaults for config and const
     for decl in &compiled.world.declarations {
         match decl {
             Declaration::Config(entries) => {
                 for entry in entries {
+                    // Store type information for validation
+                    config_types.insert(entry.path.clone(), entry.type_expr.clone());
+                    
                     if let Some(default) = &entry.default {
                         let value = evaluate_literal(default).unwrap_or_else(|| {
                             panic!(
@@ -329,6 +374,35 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
     // Apply scenario config overrides (const values cannot be overridden)
     if let Some(scenario) = scenario {
         for (path, value) in scenario.config_overrides {
+            // Validation 1: Ensure path is NOT a const value (check this FIRST)
+            if const_values.contains_key(&path) {
+                panic!(
+                    "Scenario attempts to override immutable const path '{}'. \
+                     Const values cannot be overridden by scenarios.",
+                    path
+                );
+            }
+            
+            // Validation 2: Check if path exists in config
+            if !config_types.contains_key(&path) {
+                let valid_paths: Vec<_> = config_types.keys().collect();
+                panic!(
+                    "Scenario attempts to override non-existent config path '{}'. \
+                     This may be a typo. Valid config paths: {:?}",
+                    path, valid_paths
+                );
+            }
+            
+            // Validation 3: Type validation
+            let type_expr = config_types.get(&path).unwrap();
+            if !value_matches_type_expr(&value, type_expr) {
+                panic!(
+                    "Scenario override for '{}' has incompatible type. \
+                     Expected type matching {:?}, got value {:?}",
+                    path, type_expr, value
+                );
+            }
+            
             config_values.insert(path, value);
         }
     }
@@ -493,6 +567,347 @@ mod tests {
 
         let compiled = CompiledWorld::new(world, Default::default());
         let _runtime = build_runtime(compiled, None);
+    }
+
+    // ========== Scenario Config Override Validation Tests ==========
+
+    #[test]
+    #[should_panic(expected = "non-existent config path")]
+    fn test_scenario_rejects_non_existent_config_path() {
+        use continuum_cdsl::ast::{ConfigEntry, Declaration, Expr, UntypedKind};
+
+        let span = Span::new(0, 0, 0, 0);
+        let mut world = empty_world();
+        world.initial_era = Some(EraId::new("main"));
+
+        // Add a valid config entry
+        let config_entry = ConfigEntry {
+            path: Path::from_path_str("thermal.decay_halflife"),
+            default: Some(Expr {
+                kind: UntypedKind::Literal {
+                    value: 1.42e17,
+                    unit: None,
+                },
+                span,
+            }),
+            type_expr: TypeExpr::Scalar {
+                unit: None,
+                bounds: None,
+            },
+            span,
+            doc: None,
+        };
+        world
+            .declarations
+            .push(Declaration::Config(vec![config_entry]));
+
+        // Add era
+        let dt = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+        world.eras.insert(
+            Path::from_path_str("main"),
+            continuum_cdsl::ast::Era::new(
+                EraId::new("main"),
+                Path::from_path_str("main"),
+                dt,
+                span,
+            ),
+        );
+
+        let compiled = CompiledWorld::new(world, Default::default());
+
+        // Try to override a NON-EXISTENT path (typo: "inital" instead of "initial")
+        let scenario = Scenario::with_config_overrides(
+            [(
+                Path::from_path_str("thermal.inital_temp"),
+                Value::Scalar(6000.0),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        let _runtime = build_runtime(compiled, Some(scenario));
+    }
+
+    #[test]
+    #[should_panic(expected = "override immutable const path")]
+    fn test_scenario_rejects_const_override() {
+        use continuum_cdsl::ast::{ConstEntry, Declaration, Expr, UntypedKind};
+
+        let span = Span::new(0, 0, 0, 0);
+        let mut world = empty_world();
+        world.initial_era = Some(EraId::new("main"));
+
+        // Add a const entry
+        let const_entry = ConstEntry {
+            path: Path::from_path_str("physics.stefan_boltzmann"),
+            value: Expr {
+                kind: UntypedKind::Literal {
+                    value: 5.67e-8,
+                    unit: None,
+                },
+                span,
+            },
+            type_expr: TypeExpr::Scalar {
+                unit: None,
+                bounds: None,
+            },
+            span,
+            doc: None,
+        };
+        world
+            .declarations
+            .push(Declaration::Const(vec![const_entry]));
+
+        // Add era
+        let dt = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+        world.eras.insert(
+            Path::from_path_str("main"),
+            continuum_cdsl::ast::Era::new(
+                EraId::new("main"),
+                Path::from_path_str("main"),
+                dt,
+                span,
+            ),
+        );
+
+        let compiled = CompiledWorld::new(world, Default::default());
+
+        // Try to override a CONST value (should fail)
+        let scenario = Scenario::with_config_overrides(
+            [(
+                Path::from_path_str("physics.stefan_boltzmann"),
+                Value::Scalar(6.0e-8),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        let _runtime = build_runtime(compiled, Some(scenario));
+    }
+
+    #[test]
+    #[should_panic(expected = "incompatible type")]
+    fn test_scenario_rejects_wrong_value_type() {
+        use continuum_cdsl::ast::{ConfigEntry, Declaration, Expr, UntypedKind};
+
+        let span = Span::new(0, 0, 0, 0);
+        let mut world = empty_world();
+        world.initial_era = Some(EraId::new("main"));
+
+        // Add a config entry expecting Scalar
+        let config_entry = ConfigEntry {
+            path: Path::from_path_str("thermal.initial_temp"),
+            default: Some(Expr {
+                kind: UntypedKind::Literal {
+                    value: 5500.0,
+                    unit: None,
+                },
+                span,
+            }),
+            type_expr: TypeExpr::Scalar {
+                unit: None,
+                bounds: None,
+            },
+            span,
+            doc: None,
+        };
+        world
+            .declarations
+            .push(Declaration::Config(vec![config_entry]));
+
+        // Add era
+        let dt = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+        world.eras.insert(
+            Path::from_path_str("main"),
+            continuum_cdsl::ast::Era::new(
+                EraId::new("main"),
+                Path::from_path_str("main"),
+                dt,
+                span,
+            ),
+        );
+
+        let compiled = CompiledWorld::new(world, Default::default());
+
+        // Try to override with WRONG TYPE (Vec3 instead of Scalar)
+        let scenario = Scenario::with_config_overrides(
+            [(
+                Path::from_path_str("thermal.initial_temp"),
+                Value::Vec3([1.0, 2.0, 3.0]),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        let _runtime = build_runtime(compiled, Some(scenario));
+    }
+
+    #[test]
+    fn test_scenario_valid_override_succeeds() {
+        use continuum_cdsl::ast::{ConfigEntry, Declaration, Expr, UntypedKind};
+
+        let span = Span::new(0, 0, 0, 0);
+        let mut world = empty_world();
+        world.initial_era = Some(EraId::new("main"));
+
+        // Add a config entry
+        let config_entry = ConfigEntry {
+            path: Path::from_path_str("thermal.initial_temp"),
+            default: Some(Expr {
+                kind: UntypedKind::Literal {
+                    value: 5500.0,
+                    unit: None,
+                },
+                span,
+            }),
+            type_expr: TypeExpr::Scalar {
+                unit: None,
+                bounds: None,
+            },
+            span,
+            doc: None,
+        };
+        world
+            .declarations
+            .push(Declaration::Config(vec![config_entry]));
+
+        // Add era
+        let dt = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+        world.eras.insert(
+            Path::from_path_str("main"),
+            continuum_cdsl::ast::Era::new(
+                EraId::new("main"),
+                Path::from_path_str("main"),
+                dt,
+                span,
+            ),
+        );
+
+        let compiled = CompiledWorld::new(world, Default::default());
+
+        // Valid override with correct type
+        let scenario = Scenario::with_config_overrides(
+            [(
+                Path::from_path_str("thermal.initial_temp"),
+                Value::Scalar(6000.0),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        // Should succeed without panic
+        let _runtime = build_runtime(compiled, Some(scenario));
+    }
+
+    #[test]
+    #[should_panic(expected = "incompatible type")]
+    fn test_scenario_rejects_vector_dimension_mismatch() {
+        use continuum_cdsl::ast::{ConfigEntry, Declaration, Expr, UntypedKind};
+
+        let span = Span::new(0, 0, 0, 0);
+        let mut world = empty_world();
+        world.initial_era = Some(EraId::new("main"));
+
+        // Add a config entry expecting Vector<3>
+        let config_entry = ConfigEntry {
+            path: Path::from_path_str("physics.position"),
+            default: Some(Expr {
+                kind: UntypedKind::Vector(vec![
+                    Expr {
+                        kind: UntypedKind::Literal {
+                            value: 0.0,
+                            unit: None,
+                        },
+                        span,
+                    },
+                    Expr {
+                        kind: UntypedKind::Literal {
+                            value: 0.0,
+                            unit: None,
+                        },
+                        span,
+                    },
+                    Expr {
+                        kind: UntypedKind::Literal {
+                            value: 0.0,
+                            unit: None,
+                        },
+                        span,
+                    },
+                ]),
+                span,
+            }),
+            type_expr: TypeExpr::Vector {
+                dim: 3,
+                unit: None,
+            },
+            span,
+            doc: None,
+        };
+        world
+            .declarations
+            .push(Declaration::Config(vec![config_entry]));
+
+        // Add era
+        let dt = TypedExpr::new(
+            continuum_cdsl::ast::ExprKind::Literal {
+                value: 1.0,
+                unit: Some(Unit::seconds()),
+            },
+            Type::kernel(Shape::Scalar, Unit::seconds(), None),
+            span,
+        );
+        world.eras.insert(
+            Path::from_path_str("main"),
+            continuum_cdsl::ast::Era::new(
+                EraId::new("main"),
+                Path::from_path_str("main"),
+                dt,
+                span,
+            ),
+        );
+
+        let compiled = CompiledWorld::new(world, Default::default());
+
+        // Try to override with WRONG VECTOR DIMENSION (Vec2 instead of Vec3)
+        let scenario = Scenario::with_config_overrides(
+            [(
+                Path::from_path_str("physics.position"),
+                Value::Vec2([1.0, 2.0]),
+            )]
+            .into_iter()
+            .collect(),
+        );
+
+        let _runtime = build_runtime(compiled, Some(scenario));
     }
 
 }
