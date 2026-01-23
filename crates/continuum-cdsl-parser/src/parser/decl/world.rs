@@ -4,6 +4,7 @@ use super::{parse_attribute, parse_attributes, ParseError, TokenStream};
 use continuum_cdsl_ast::foundation::{DeterminismPolicy, FaultPolicy, WorldPolicy};
 use continuum_cdsl_ast::{Declaration, RawWarmupPolicy};
 use continuum_cdsl_lexer::Token;
+use std::rc::Rc;
 
 /// Parse world declaration.
 pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
@@ -116,8 +117,8 @@ fn parse_policy_block(stream: &mut TokenStream) -> Result<WorldPolicy, ParseErro
             let span = stream.current_span();
             match stream.advance() {
                 Some(Token::Ident(name)) => name.clone(),
-                Some(Token::Determinism) => "determinism".to_string(),
-                Some(Token::Faults) => "faults".to_string(),
+                Some(Token::Determinism) => Rc::from("determinism"),
+                Some(Token::Faults) => Rc::from("faults"),
                 other => {
                     return Err(ParseError::unexpected_token(
                         other,
@@ -134,9 +135,9 @@ fn parse_policy_block(stream: &mut TokenStream) -> Result<WorldPolicy, ParseErro
 
         stream.expect(Token::Semicolon)?;
 
-        match field_name.as_str() {
+        match &*field_name {
             "determinism" => {
-                determinism = match value.as_str() {
+                determinism = match &*value {
                     "strict" => DeterminismPolicy::Strict,
                     "relaxed" => DeterminismPolicy::Relaxed,
                     _ => {

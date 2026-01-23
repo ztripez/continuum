@@ -173,7 +173,7 @@ pub fn parse_special_blocks(stream: &mut TokenStream) -> Result<SpecialBlocks, P
 pub fn expect_ident(stream: &mut TokenStream, context: &str) -> Result<String, ParseError> {
     let span = stream.current_span();
     match stream.advance() {
-        Some(Token::Ident(s)) => Ok(s.clone()),
+        Some(Token::Ident(s)) => Ok(s.to_string()),
         other => Err(ParseError::unexpected_token(other, context, span)),
     }
 }

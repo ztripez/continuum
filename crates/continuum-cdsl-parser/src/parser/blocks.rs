@@ -3,6 +3,7 @@
 use super::{ParseError, TokenStream};
 use continuum_cdsl_ast::{BlockBody, ObserveBlock, ObserveWhen, Stmt, WarmupBlock, WhenBlock};
 use continuum_cdsl_lexer::Token;
+use std::rc::Rc;
 
 /// Parse execution blocks inside a primitive declaration body.
 ///
@@ -286,7 +287,7 @@ fn parse_assertion_metadata(
     stream: &mut TokenStream,
 ) -> Result<(Option<String>, Option<String>), ParseError> {
     // Parse first item (severity or message)
-    let (mut severity, mut message) = match stream.peek() {
+    let (severity, mut message) = match stream.peek() {
         Some(Token::Ident(name)) => (Some(name.clone()), None),
         Some(Token::String(msg)) => (None, Some(msg.clone())),
         other => {
@@ -317,7 +318,10 @@ fn parse_assertion_metadata(
         }
     }
 
-    Ok((severity, message))
+    Ok((
+        severity.map(|s| s.to_string()),
+        message.map(|s| s.to_string()),
+    ))
 }
 
 /// Check if the next token can start a statement.

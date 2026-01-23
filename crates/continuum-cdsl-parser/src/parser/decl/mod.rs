@@ -107,7 +107,7 @@ pub(super) fn parse_attribute(stream: &mut TokenStream) -> Result<Attribute, Par
     };
 
     Ok(Attribute {
-        name,
+        name: name.to_string(),
         args,
         span: stream.span_from(start),
     })

@@ -81,7 +81,7 @@ fn parse_entity_member(
         }
     };
 
-    let member_path = continuum_foundation::Path::new(vec![member_name]);
+    let member_path = continuum_foundation::Path::new(vec![member_name.to_string()]);
     let mut attributes = parse_attributes(stream)?;
 
     stream.expect(Token::LBrace)?;

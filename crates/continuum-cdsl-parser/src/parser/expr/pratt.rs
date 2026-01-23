@@ -129,7 +129,7 @@ fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
                 expr = Expr::new(
                     UntypedKind::FieldAccess {
                         object: Box::new(expr),
-                        field,
+                        field: field.to_string(),
                     },
                     span,
                 );

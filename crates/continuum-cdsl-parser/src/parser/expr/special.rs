@@ -56,7 +56,7 @@ pub(super) fn parse_let(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let span = stream.span_from(start);
     Ok(Expr::new(
         UntypedKind::Let {
-            name,
+            name: name.to_string(),
             value: Box::new(value),
             body: Box::new(body),
         },

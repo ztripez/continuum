@@ -21,7 +21,7 @@ pub fn parse_path(stream: &mut TokenStream) -> Result<Path, ParseError> {
                 }
             }
         };
-        segments.push(segment);
+        segments.push(segment.to_string());
 
         if !matches!(stream.peek(), Some(Token::Dot)) {
             break;
@@ -35,15 +35,15 @@ pub fn parse_path(stream: &mut TokenStream) -> Result<Path, ParseError> {
 /// Parse a type expression.
 pub fn parse_type_expr(stream: &mut TokenStream) -> Result<TypeExpr, ParseError> {
     match stream.peek() {
-        Some(Token::Ident(name)) if name == "Bool" => {
+        Some(Token::Ident(name)) if &**name == "Bool" => {
             stream.advance();
             Ok(TypeExpr::Bool)
         }
-        Some(Token::Ident(name)) if name == "Scalar" => {
+        Some(Token::Ident(name)) if &**name == "Scalar" => {
             stream.advance();
             parse_scalar_type(stream)
         }
-        Some(Token::Ident(name)) if name == "Vector" => {
+        Some(Token::Ident(name)) if &**name == "Vector" => {
             stream.advance();
             parse_vector_type(stream)
         }
@@ -267,7 +267,7 @@ fn parse_unit_base(stream: &mut TokenStream) -> Result<UnitExpr, ParseError> {
         Some(Token::Ident(name)) => {
             let unit_name = name.clone();
             stream.advance();
-            Ok(UnitExpr::Base(unit_name))
+            Ok(UnitExpr::Base(unit_name.to_string()))
         }
         other => Err(ParseError::unexpected_token(
             other,

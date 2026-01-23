@@ -30,7 +30,7 @@ pub(super) fn parse_atom(stream: &mut TokenStream) -> Result<Expr, ParseError> {
             let span = stream.current_span();
             match stream.advance() {
                 Some(Token::String(s)) => Ok(Expr::new(
-                    UntypedKind::StringLiteral(s.clone()),
+                    UntypedKind::StringLiteral(s.to_string()),
                     stream.span_from(start),
                 )),
                 other => Err(ParseError::unexpected_token(other, "string literal", span)),
@@ -151,7 +151,10 @@ fn parse_identifier(stream: &mut TokenStream) -> Result<Expr, ParseError> {
         }
     };
 
-    Ok(Expr::new(UntypedKind::Local(name), stream.span_from(start)))
+    Ok(Expr::new(
+        UntypedKind::Local(name.to_string()),
+        stream.span_from(start),
+    ))
 }
 
 /// Parse `other` keyword or `other(entity)`.

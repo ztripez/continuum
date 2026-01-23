@@ -14,7 +14,7 @@ pub(super) fn parse_aggregate(stream: &mut TokenStream) -> Result<Expr, ParseErr
     let op = {
         let span = stream.current_span();
         match stream.advance() {
-            Some(Token::Ident(s)) => match s.as_str() {
+            Some(Token::Ident(s)) => match s.as_ref() {
                 "sum" => AggregateOp::Sum,
                 "product" => AggregateOp::Product,
                 "min" => AggregateOp::Min,

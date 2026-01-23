@@ -7,6 +7,7 @@
 //! types without hardcoded match statements.
 
 use continuum_cdsl_lexer::Token;
+use std::rc::Rc;
 
 /// Convert a keyword token to its string representation.
 ///
@@ -30,17 +31,17 @@ use continuum_cdsl_lexer::Token;
 /// assert_eq!(keyword_to_string(&Token::Signal), Some("signal".to_string()));
 /// assert_eq!(keyword_to_string(&Token::Plus), None);
 /// ```
-pub fn keyword_to_string(token: &Token) -> Option<String> {
+pub fn keyword_to_string(token: &Token) -> Option<Rc<str>> {
     match token {
-        Token::Config => Some("config".to_string()),
-        Token::Const => Some("const".to_string()),
-        Token::Signal => Some("signal".to_string()),
-        Token::Field => Some("field".to_string()),
-        Token::Entity => Some("entity".to_string()),
-        Token::Strata => Some("strata".to_string()),
-        Token::Type => Some("type".to_string()),
-        Token::Initial => Some("initial".to_string()),
-        Token::Terminal => Some("terminal".to_string()),
+        Token::Config => Some(Rc::from("config")),
+        Token::Const => Some(Rc::from("const")),
+        Token::Signal => Some(Rc::from("signal")),
+        Token::Field => Some(Rc::from("field")),
+        Token::Entity => Some(Rc::from("entity")),
+        Token::Strata => Some(Rc::from("strata")),
+        Token::Type => Some(Rc::from("type")),
+        Token::Initial => Some(Rc::from("initial")),
+        Token::Terminal => Some(Rc::from("terminal")),
         _ => None,
     }
 }
@@ -146,25 +147,13 @@ mod tests {
 
     #[test]
     fn test_keyword_to_string_all_keywords() {
-        assert_eq!(
-            keyword_to_string(&Token::Config),
-            Some("config".to_string())
-        );
-        assert_eq!(keyword_to_string(&Token::Const), Some("const".to_string()));
-        assert_eq!(
-            keyword_to_string(&Token::Signal),
-            Some("signal".to_string())
-        );
-        assert_eq!(keyword_to_string(&Token::Field), Some("field".to_string()));
-        assert_eq!(
-            keyword_to_string(&Token::Entity),
-            Some("entity".to_string())
-        );
-        assert_eq!(
-            keyword_to_string(&Token::Strata),
-            Some("strata".to_string())
-        );
-        assert_eq!(keyword_to_string(&Token::Type), Some("type".to_string()));
+        assert_eq!(keyword_to_string(&Token::Config), Some(Rc::from("config")));
+        assert_eq!(keyword_to_string(&Token::Const), Some(Rc::from("const")));
+        assert_eq!(keyword_to_string(&Token::Signal), Some(Rc::from("signal")));
+        assert_eq!(keyword_to_string(&Token::Field), Some(Rc::from("field")));
+        assert_eq!(keyword_to_string(&Token::Entity), Some(Rc::from("entity")));
+        assert_eq!(keyword_to_string(&Token::Strata), Some(Rc::from("strata")));
+        assert_eq!(keyword_to_string(&Token::Type), Some(Rc::from("type")));
     }
 
     #[test]
