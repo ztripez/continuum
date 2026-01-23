@@ -37,6 +37,7 @@ use continuum_cdsl_ast::{
     ObserveBlock, ObserveWhen, Stmt, Stratum, UnaryOp, UntypedKind as ExprKind, WarmupBlock,
     WhenBlock, WorldDecl,
 };
+use continuum_kernel_registry::get_constant_mapping;
 
 /// Construct a kernel call expression
 fn kernel_call(kernel: KernelId, args: Vec<Expr>, span: Span) -> Expr {
@@ -231,13 +232,14 @@ pub fn desugar_expr(expr: Expr) -> Expr {
             span,
         },
 
-        // Mathematical constants: desugar bare PI/TAU to maths.PI()/maths.TAU()
-        ExprKind::Local(ref name) if name == "PI" => {
-            kernel_call(KernelId::new("maths", "PI"), vec![], span)
-        }
-
-        ExprKind::Local(ref name) if name == "TAU" => {
-            kernel_call(KernelId::new("maths", "TAU"), vec![], span)
+        // Mathematical constants: desugar bare identifiers registered as constants
+        // Example: PI, π → maths.PI(), TAU, τ → maths.TAU()
+        ExprKind::Local(ref name) => {
+            if let Some((namespace, kernel_name)) = get_constant_mapping(name) {
+                kernel_call(KernelId::new(namespace, kernel_name), vec![], span)
+            } else {
+                expr
+            }
         }
 
         // Leaf cases

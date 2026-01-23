@@ -382,6 +382,19 @@ impl KernelDescriptor {
     }
 }
 
+/// Descriptor for a constant alias that desugars to a kernel call.
+///
+/// Example: `PI` → `maths.PI()`, `π` → `maths.PI()`
+#[derive(Debug, Clone, Copy)]
+pub struct KernelConstant {
+    /// The bare identifier to desugar (e.g., "PI", "π")
+    pub alias: &'static str,
+    /// Target kernel namespace (e.g., "maths")
+    pub namespace: &'static str,
+    /// Target kernel name (e.g., "PI")
+    pub kernel_name: &'static str,
+}
+
 /// Distributed slice collecting all kernel function registrations.
 ///
 /// Populated at link time by the `#[kernel_fn]` macro.
@@ -399,6 +412,12 @@ pub static VECTOR_KERNELS: [VectorizedKernelDescriptor];
 /// Populated at link time by namespace descriptor definitions.
 #[distributed_slice]
 pub static NAMESPACES: [NamespaceDescriptor];
+
+/// Distributed slice collecting constant alias mappings for desugaring.
+///
+/// Populated at link time by the `#[kernel_fn(constant, aliases = [...])]` macro.
+#[distributed_slice]
+pub static KERNEL_CONSTANTS: [KernelConstant];
 
 /// Get all registered kernel function names (namespace, name)
 pub fn all_names() -> impl Iterator<Item = (&'static str, &'static str)> {
@@ -430,6 +449,19 @@ pub fn namespace_exists(name: &str) -> bool {
 /// Check if a function name is a known kernel in a namespace
 pub fn is_known_in(namespace: &str, name: &str) -> bool {
     get_in_namespace(namespace, name).is_some()
+}
+
+/// Look up a constant alias for desugaring.
+///
+/// Returns `Some((namespace, kernel_name))` if the identifier should be desugared
+/// to a kernel call, `None` otherwise.
+///
+/// Example: `get_constant_mapping("π")` → `Some(("maths", "PI"))`
+pub fn get_constant_mapping(alias: &str) -> Option<(&'static str, &'static str)> {
+    KERNEL_CONSTANTS
+        .iter()
+        .find(|c| c.alias == alias)
+        .map(|c| (c.namespace, c.kernel_name))
 }
 
 /// Evaluate a kernel by namespace/name

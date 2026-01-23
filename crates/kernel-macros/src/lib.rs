@@ -145,6 +145,10 @@ struct KernelFnArgs {
     unit_in: Option<Vec<Expr>>,
     shape_out: Option<Expr>,
     unit_out: Option<Expr>,
+    // Mark this as a constant for desugaring bare identifiers
+    constant: bool,
+    // Aliases for desugaring bare identifiers (e.g., PI, π, TAU, τ)
+    aliases: Vec<String>,
 }
 
 /// Arguments to the vectorized_kernel_fn attribute
@@ -169,6 +173,8 @@ impl Parse for KernelFnArgs {
         let mut unit_in = None;
         let mut shape_out = None;
         let mut unit_out = None;
+        let mut constant = false;
+        let mut aliases = Vec::new();
 
         let args = Punctuated::<KernelArg, Token![,]>::parse_terminated(input)?;
         for arg in args {
@@ -187,6 +193,8 @@ impl Parse for KernelFnArgs {
                 KernelArg::UnitIn(u) => unit_in = Some(u),
                 KernelArg::ShapeOut(s) => shape_out = Some(s),
                 KernelArg::UnitOut(u) => unit_out = Some(u),
+                KernelArg::Constant => constant = true,
+                KernelArg::Aliases(a) => aliases = a,
             }
         }
 
@@ -207,6 +215,8 @@ impl Parse for KernelFnArgs {
             unit_in,
             shape_out,
             unit_out,
+            constant,
+            aliases,
         })
     }
 }
@@ -232,7 +242,9 @@ impl Parse for VectorizedKernelArgs {
                 | KernelArg::ShapeIn(_)
                 | KernelArg::UnitIn(_)
                 | KernelArg::ShapeOut(_)
-                | KernelArg::UnitOut(_) => {}
+                | KernelArg::UnitOut(_)
+                | KernelArg::Constant
+                | KernelArg::Aliases(_) => {}
             }
         }
 
@@ -258,6 +270,10 @@ enum KernelArg {
     UnitIn(Vec<Expr>),
     ShapeOut(Expr),
     UnitOut(Expr),
+    // Mark as constant for desugaring
+    Constant,
+    // Aliases for desugaring
+    Aliases(Vec<String>),
 }
 
 impl Parse for KernelArg {
@@ -301,6 +317,7 @@ impl Parse for KernelArg {
             }
             "variadic" => Ok(KernelArg::Variadic),
             "vectorized" => Ok(KernelArg::Vectorized),
+            "constant" => Ok(KernelArg::Constant),
             // New Rust-syntax type constraints (token forwarding)
             "purity" => {
                 input.parse::<Token![=]>()?;
@@ -330,6 +347,13 @@ impl Parse for KernelArg {
                 input.parse::<Token![=]>()?;
                 let expr: Expr = input.parse()?;
                 Ok(KernelArg::UnitOut(expr))
+            }
+            "aliases" => {
+                input.parse::<Token![=]>()?;
+                let content;
+                syn::bracketed!(content in input);
+                let lits = Punctuated::<LitStr, Token![,]>::parse_terminated(&content)?;
+                Ok(KernelArg::Aliases(lits.into_iter().map(|lit| lit.value()).collect()))
             }
             other => Err(syn::Error::new(
                 ident.span(),
@@ -916,6 +940,27 @@ fn generate_kernel_registration(
         quote! {}
     };
 
+    // Generate constant alias registrations if marked as constant
+    let constant_registrations = if args.constant && !args.aliases.is_empty() {
+        let mut regs = Vec::new();
+        for (i, alias) in args.aliases.iter().enumerate() {
+            let const_name = format_ident!("__{}_CONSTANT_{}", fn_name.to_string().to_uppercase(), i);
+            regs.push(quote! {
+                #[allow(non_upper_case_globals)]
+                #[::continuum_kernel_registry::linkme::distributed_slice(::continuum_kernel_registry::KERNEL_CONSTANTS)]
+                static #const_name: ::continuum_kernel_registry::KernelConstant = 
+                    ::continuum_kernel_registry::KernelConstant {
+                        alias: #alias,
+                        namespace: #namespace,
+                        kernel_name: #dsl_name,
+                    };
+            });
+        }
+        quote! { #(#regs)* }
+    } else {
+        quote! {}
+    };
+
     Ok(quote! {
         #func
 
@@ -939,6 +984,8 @@ fn generate_kernel_registration(
         };
 
         #signature_registration
+
+        #constant_registrations
     })
 }
 
