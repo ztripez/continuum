@@ -35,46 +35,35 @@ era main {
     }
 }
 
-# Define an entity with 5 particles
+# Define an entity with 5 particles and their nested signals
 entity test.particle {
-    : count(5..5)
-}
+    : count(5)
+    : stratum(simulation)
+    
+    # Scalar member: mass (increases over time based on growth rate)
+    signal mass {
+        : Scalar<kg, 0..1000>
+        : title("Particle Mass")
+        : symbol("m")
 
-# Scalar member: mass (increases over time based on growth rate)
-member test.particle.mass {
-    : Scalar<kg, 0..1000>
-    : strata(simulation)
-    : title("Particle Mass")
-    : symbol("m")
-    : uses(dt.raw)
+        initial { 100.0 <kg> }
 
-    resolve {
-        prev + const.physics.growth_rate * dt.raw
+        resolve {
+            prev * 1.1
+        }
     }
-}
 
-# Scalar member: energy (decays over time)
-member test.particle.energy {
-    : Scalar<J, 0..1000>
-    : strata(simulation)
-    : title("Particle Energy")
-    : symbol("E")
-    : uses(dt.raw)
+    # Scalar member: energy (decays over time)
+    signal energy {
+        : Scalar<kg*m^2/s^2, 0..1000>
+        : title("Particle Energy")
+        : symbol("E")
 
-    resolve {
-        prev * (1.0 - config.test.decay_rate * dt.raw)
-    }
-}
+        initial { 50.0 <kg*m^2/s^2> }
 
-# Scalar member: combined (demonstrates self-reference)
-member test.particle.combined {
-    : Scalar<1, 0..10000>
-    : strata(simulation)
-    : title("Combined Value")
-    : symbol("C")
-
-    resolve {
-        self.mass + self.energy
+        resolve {
+            prev * 0.9
+        }
     }
 }
 
@@ -86,19 +75,19 @@ signal test.total_mass {
     : symbol("M_total")
 
     resolve {
-        agg.sum(entity.test.particle, self.mass)
+        agg.sum(entity.test.particle, test.particle.mass)
     }
 }
 
 # Global signal: mean energy of all particles
 signal test.mean_energy {
-    : Scalar<J, 0..1000>
+    : Scalar<kg*m^2/s^2, 0..1000>
     : strata(simulation)
     : title("Mean Energy")
     : symbol("E_mean")
 
     resolve {
-        agg.mean(entity.test.particle, self.energy)
+        agg.mean(entity.test.particle, test.particle.energy)
     }
 }
 
@@ -121,6 +110,8 @@ signal test.counter {
     : title("Counter")
     : symbol("counter")
 
+    initial { 100.0 }
+
     resolve {
         prev + 10.0
     }
@@ -134,6 +125,6 @@ field test.total_mass_field {
     : title("Total Mass Field")
 
     measure {
-        signal.test.total_mass
+        test.total_mass
     }
 }
