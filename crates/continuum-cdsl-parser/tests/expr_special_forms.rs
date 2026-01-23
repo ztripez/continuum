@@ -1,4 +1,4 @@
-//! Tests for special expression forms: if, let, filter, aggregates, spatial queries.
+//! Tests for special expression forms: if, let, filter, aggregates, spatial queries, special keywords.
 //!
 //! These tests verify that the parser correctly handles:
 //! - if-then-else expressions
@@ -6,6 +6,7 @@
 //! - filter operations
 //! - aggregate operations (agg.sum, agg.mean, etc.)
 //! - spatial queries (nearest, within)
+//! - special keyword expressions (prev, current, inputs, dt, collected, self, payload)
 //!
 //! ## Known Limitations (Ignored Tests)
 //!
@@ -274,4 +275,78 @@ fn test_filter_with_or() {
 #[test]
 fn test_agg_chain() {
     assert_expr_parses("agg.mean(items, self.value) + agg.max(items, self.value)");
+}
+
+// === Special Keyword Expression Tests ===
+
+#[test]
+fn test_collected_keyword() {
+    // collected is used in signal resolve blocks to access accumulated inputs
+    assert_expr_parses("collected");
+}
+
+#[test]
+fn test_collected_in_expression() {
+    // collected can be used in arithmetic expressions
+    assert_expr_parses("collected + 10.0");
+}
+
+#[test]
+fn test_collected_with_dt() {
+    // Common pattern: integrate collected inputs over timestep
+    assert_expr_parses("prev + collected * dt");
+}
+
+#[test]
+fn test_collected_in_if() {
+    // collected can be used in conditionals
+    assert_expr_parses("if collected > 0.0 { prev + collected } else { prev }");
+}
+
+#[test]
+fn test_prev_keyword() {
+    assert_expr_parses("prev");
+}
+
+#[test]
+fn test_current_keyword() {
+    assert_expr_parses("current");
+}
+
+#[test]
+fn test_inputs_keyword() {
+    assert_expr_parses("inputs");
+}
+
+#[test]
+fn test_dt_keyword() {
+    assert_expr_parses("dt");
+}
+
+#[test]
+fn test_self_keyword() {
+    assert_expr_parses("self");
+}
+
+#[test]
+fn test_payload_keyword() {
+    assert_expr_parses("payload");
+}
+
+#[test]
+fn test_keyword_field_access() {
+    // Keywords can be used as object in field access
+    assert_expr_parses("prev.temperature");
+}
+
+#[test]
+fn test_keyword_in_arithmetic() {
+    // Keywords can be used in arithmetic expressions
+    assert_expr_parses("prev + dt * 0.5");
+}
+
+#[test]
+fn test_multiple_keywords() {
+    // Multiple keywords in one expression
+    assert_expr_parses("prev + collected * dt - current");
 }

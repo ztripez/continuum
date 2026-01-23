@@ -724,3 +724,145 @@ pub fn type_as_kernel_call(
         return_type,
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use continuum_cdsl_ast::foundation::{Path, Span};
+    use continuum_cdsl_ast::{Expr, UntypedKind};
+
+    fn test_span() -> Span {
+        Span::new(0, 0, 0, 1)
+    }
+
+    fn make_local(name: &str) -> Expr {
+        Expr::new(UntypedKind::Local(name.to_string()), test_span())
+    }
+
+    fn make_field_access(object: Expr, field: &str) -> Expr {
+        Expr::new(
+            UntypedKind::FieldAccess {
+                object: Box::new(object),
+                field: field.to_string(),
+            },
+            test_span(),
+        )
+    }
+
+    fn make_keyword(kind: UntypedKind) -> Expr {
+        Expr::new(kind, test_span())
+    }
+
+    #[test]
+    fn test_try_extract_path_local() {
+        let expr = make_local("foo");
+        let path = try_extract_path(&expr);
+        assert_eq!(path, Some(Path::from_path_str("foo")));
+    }
+
+    #[test]
+    fn test_try_extract_path_field_access_simple() {
+        let expr = make_field_access(make_local("foo"), "bar");
+        let path = try_extract_path(&expr);
+        assert_eq!(path, Some(Path::from_path_str("foo.bar")));
+    }
+
+    #[test]
+    fn test_try_extract_path_field_access_nested() {
+        let expr = make_field_access(
+            make_field_access(make_local("foo"), "bar"),
+            "baz",
+        );
+        let path = try_extract_path(&expr);
+        assert_eq!(path, Some(Path::from_path_str("foo.bar.baz")));
+    }
+
+    #[test]
+    fn test_try_extract_path_keyword_prev() {
+        let expr = make_keyword(UntypedKind::Prev);
+        let path = try_extract_path(&expr);
+        assert_eq!(path, None, "Keywords should not be treated as bare paths");
+    }
+
+    #[test]
+    fn test_try_extract_path_keyword_current() {
+        let expr = make_keyword(UntypedKind::Current);
+        let path = try_extract_path(&expr);
+        assert_eq!(path, None);
+    }
+
+    #[test]
+    fn test_try_extract_path_keyword_dt() {
+        let expr = make_keyword(UntypedKind::Dt);
+        let path = try_extract_path(&expr);
+        assert_eq!(path, None);
+    }
+
+    #[test]
+    fn test_try_extract_path_keyword_collected() {
+        let expr = make_keyword(UntypedKind::Collected);
+        let path = try_extract_path(&expr);
+        assert_eq!(path, None);
+    }
+
+    #[test]
+    fn test_try_extract_path_keyword_field_access() {
+        // prev.temperature should not be treated as bare path
+        let expr = make_field_access(make_keyword(UntypedKind::Prev), "temperature");
+        let path = try_extract_path(&expr);
+        assert_eq!(path, None, "Field access on keyword should not be bare path");
+    }
+
+    #[test]
+    fn test_try_extract_path_literal() {
+        let expr = Expr::new(
+            UntypedKind::Literal {
+                value: 42.0,
+                unit: None,
+            },
+            test_span(),
+        );
+        let path = try_extract_path(&expr);
+        assert_eq!(path, None, "Literals are not paths");
+    }
+
+    #[test]
+    fn test_try_extract_path_bool_literal() {
+        let expr = Expr::new(UntypedKind::BoolLiteral(true), test_span());
+        let path = try_extract_path(&expr);
+        assert_eq!(path, None);
+    }
+
+    #[test]
+
+    #[test]
+    fn test_get_root_kind_local() {
+        let expr = make_local("foo");
+        let root = get_root_kind(&expr);
+        assert!(matches!(root, UntypedKind::Local(_)));
+    }
+
+    #[test]
+    fn test_get_root_kind_field_access() {
+        let expr = make_field_access(make_local("foo"), "bar");
+        let root = get_root_kind(&expr);
+        assert!(matches!(root, UntypedKind::Local(_)));
+    }
+
+    #[test]
+    fn test_get_root_kind_nested_field_access() {
+        let expr = make_field_access(
+            make_field_access(make_local("foo"), "bar"),
+            "baz",
+        );
+        let root = get_root_kind(&expr);
+        assert!(matches!(root, UntypedKind::Local(_)));
+    }
+
+    #[test]
+    fn test_get_root_kind_keyword_field_access() {
+        let expr = make_field_access(make_keyword(UntypedKind::Prev), "temp");
+        let root = get_root_kind(&expr);
+        assert!(matches!(root, UntypedKind::Prev));
+    }
+}
