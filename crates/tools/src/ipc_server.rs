@@ -407,6 +407,29 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
                 },
             }
         }
+        "status" => {
+            let status = serde_json::json!({
+                "tick": rt.tick(),
+                "sim_time": rt.sim_time(),
+                "era": rt.era().to_string(),
+                "warmup_complete": rt.is_warmup_complete(),
+            });
+            WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(status),
+                error: None,
+            }
+        }
+        "entity.list" => {
+            // POC doesn't have entities yet, return empty array
+            WorldResponse {
+                id: req.id,
+                ok: true,
+                payload: Some(serde_json::json!([])),
+                error: None,
+            }
+        }
         _ => WorldResponse {
             id: req.id,
             ok: false,
