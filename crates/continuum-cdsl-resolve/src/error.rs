@@ -509,6 +509,7 @@ impl<'a> DiagnosticFormatter<'a> {
         // Source line
         let file = self.sources.file(&error.span);
         if let Some(source_line) = file.line_text(line) {
+            let source_line = source_line.trim_end();
             // Calculate width needed for line numbers
             let line_num_width = line.to_string().len().max(3);
             let padding = " ".repeat(line_num_width);
