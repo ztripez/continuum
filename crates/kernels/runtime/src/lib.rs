@@ -446,22 +446,27 @@ fn compile_bytecode_and_dags(
                     ),
                 };
 
+                // Filter reads to only include runtime dependencies (signals).
+                // Config/const values are compile-time constants and don't need DAG tracking.
+                // Entity reads are also filtered out - they're structural dependencies, not signal reads.
                 let reads = exec
                     .reads
                     .iter()
-                    .map(|read| {
+                    .filter_map(|read| {
                         if let Some(read_node) = compiled.world.globals.get(read) {
                             if read_node.role_id() != RoleId::Signal {
                                 panic!("read '{}' is not a signal", read);
                             }
-                            SignalId::from(read.to_string())
+                            Some(SignalId::from(read.to_string()))
                         } else if let Some(read_node) = compiled.world.members.get(read) {
                             if read_node.role_id() != RoleId::Signal {
                                 panic!("read '{}' is not a signal", read);
                             }
-                            SignalId::from(read.to_string())
+                            Some(SignalId::from(read.to_string()))
                         } else {
-                            panic!("read '{}' references unknown node", read);
+                            // Not a node - must be config, const, or entity dependency
+                            // These don't need runtime DAG tracking
+                            None
                         }
                     })
                     .collect();

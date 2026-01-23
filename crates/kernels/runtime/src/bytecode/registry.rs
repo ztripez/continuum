@@ -174,7 +174,7 @@ fn build_specs() -> Vec<OpcodeSpec> {
             Emit,
             OperandCount::Fixed(1),
             true,
-            Some(&[Phase::Collect]),
+            Some(&[Phase::Collect, Phase::Fracture]),
             handle_emit
         ),
         op!(
