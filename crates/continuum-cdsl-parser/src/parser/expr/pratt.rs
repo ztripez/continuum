@@ -104,6 +104,14 @@ fn parse_unary(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     ))
 }
 
+/// Check if an identifier is a kernel namespace that should not be desugared.
+fn is_kernel_namespace(ident: &str) -> bool {
+    matches!(
+        ident,
+        "dt" | "maths" | "vector" | "physics" | "stats" | "util" | "field"
+    )
+}
+
 /// Parse postfix expressions (field access, function calls, method calls).
 fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let mut expr = atoms::parse_atom(stream)?;
@@ -127,20 +135,38 @@ fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
                 };
 
                 // Check for method call syntax: `.method(...)`
-                // This handles `.at(n)` for entity indexing and vector component access
                 if matches!(stream.peek(), Some(Token::LParen)) {
-                    let mut args = parse_call_args(stream)?;
+                    let args = parse_call_args(stream)?;
                     let span = expr.span;
 
-                    // Method call: obj.method(args) becomes method(obj, args)
-                    // Insert the object as the first argument
-                    args.insert(0, expr);
+                    // Check if this is a kernel namespace call (dt.relax, maths.pow, etc)
+                    // These should NOT be desugared as method calls
+                    if let Some(namespace_path) = expr.as_path() {
+                        if namespace_path.segments().len() == 1
+                            && is_kernel_namespace(namespace_path.segments()[0].as_str())
+                        {
+                            // Kernel namespace call: preserve as namespace.function
+                            let kernel_path = namespace_path.append(field.as_ref());
+                            expr = Expr::new(
+                                UntypedKind::Call {
+                                    func: kernel_path,
+                                    args,
+                                },
+                                span,
+                            );
+                            continue;
+                        }
+                    }
 
-                    // Create a call with the method name as the function
+                    // Regular method call: obj.method(args) becomes method(obj, args)
+                    // Insert the object as the first argument
+                    let mut method_args = args;
+                    method_args.insert(0, expr);
+
                     expr = Expr::new(
                         UntypedKind::Call {
                             func: continuum_cdsl_ast::foundation::Path::from(field.as_ref()),
-                            args,
+                            args: method_args,
                         },
                         span,
                     );
