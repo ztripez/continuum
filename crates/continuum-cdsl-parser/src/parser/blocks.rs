@@ -11,6 +11,19 @@ use std::rc::Rc;
 /// (e.g., operator, signal, field). Each block is tagged with a phase name
 /// that determines when it executes in the simulation lifecycle.
 ///
+/// **Phase Validation Architecture**: This function performs **syntax parsing only**.
+/// It recognizes phase keywords and converts them to strings, but does NOT validate:
+/// - Whether a phase name is semantically valid (e.g., "emit" is legacy)
+/// - Whether a phase is allowed for the node's role (e.g., signals can't have "collect")
+/// - Whether the phase makes sense in context
+///
+/// All semantic validation happens in the **resolver** via:
+/// - `continuum_cdsl_resolve::resolve::blocks::parse_phase_name()` - validates phase names
+/// - `continuum_cdsl_resolve::resolve::blocks::validate_phase_for_role()` - validates role compatibility
+///
+/// This separation ensures the parser focuses on syntax while the resolver handles
+/// all semantic rules, maintaining clean layer boundaries.
+///
 /// # Arguments
 ///
 /// * `stream` - Token stream positioned after the opening `{` of the declaration body,

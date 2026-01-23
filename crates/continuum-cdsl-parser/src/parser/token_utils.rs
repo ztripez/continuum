@@ -70,6 +70,16 @@ pub fn is_keyword_identifier(token: &Token) -> bool {
 /// operator/signal/field declarations. This function provides the canonical
 /// mapping from phase keyword tokens to their lowercase block names.
 ///
+/// **IMPORTANT**: This function performs **syntactic recognition only**.
+/// It does NOT validate whether a phase name is semantically valid or allowed
+/// for a particular role. All semantic validation (legacy name rejection,
+/// role compatibility checks) happens in the resolver via `parse_phase_name()`
+/// and `validate_phase_for_role()`.
+///
+/// For example, this function returns `Some("emit")` for `Token::Emit`,
+/// but the resolver will reject "emit" as a legacy phase name. The parser
+/// just converts tokens to strings; the resolver validates them.
+///
 /// # Parameters
 /// - `token`: The token to convert
 ///
@@ -84,7 +94,7 @@ pub fn is_keyword_identifier(token: &Token) -> bool {
 ///
 /// assert_eq!(execution_block_name(&Token::Resolve), Some("resolve"));
 /// assert_eq!(execution_block_name(&Token::Collect), Some("collect"));
-/// assert_eq!(execution_block_name(&Token::Emit), Some("emit"));
+/// assert_eq!(execution_block_name(&Token::Emit), Some("emit")); // Note: resolver rejects this as legacy
 /// assert_eq!(execution_block_name(&Token::Plus), None);
 /// ```
 pub fn execution_block_name(token: &Token) -> Option<&'static str> {
