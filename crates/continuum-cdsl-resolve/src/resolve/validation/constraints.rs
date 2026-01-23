@@ -5,8 +5,8 @@
 
 use crate::error::{CompileError, ErrorKind};
 use continuum_cdsl_ast::foundation::Span;
-use continuum_cdsl_ast::{KernelId, TypedExpr};
 use continuum_cdsl_ast::foundation::Type;
+use continuum_cdsl_ast::{KernelId, TypedExpr};
 
 pub(super) fn validate_shape_constraint(
     arg_type: &Type,
@@ -296,7 +296,7 @@ pub(super) fn validate_unit_constraint(
                     ErrorKind::InvalidKernelUnit,
                     span,
                     format!(
-                        "kernel {} argument {} must have unit {:?}, found {:?}",
+                        "{} argument {} expected '{}', found '{}'",
                         kernel.qualified_name(),
                         arg_index,
                         expected,
@@ -312,7 +312,7 @@ pub(super) fn validate_unit_constraint(
                     ErrorKind::InvalidKernelUnit,
                     span,
                     format!(
-                        "kernel {} argument {} must be dimensionless, found {:?}",
+                        "{} argument {} must be dimensionless, found '{}'",
                         kernel.qualified_name(),
                         arg_index,
                         arg_unit
@@ -328,7 +328,7 @@ pub(super) fn validate_unit_constraint(
                     ErrorKind::InvalidKernelUnit,
                     span,
                     format!(
-                        "kernel {} argument {} must be an angle unit, found {:?}",
+                        "{} argument {} must be an angle unit, found '{}'",
                         kernel.qualified_name(),
                         arg_index,
                         arg_unit
@@ -375,10 +375,9 @@ pub(super) fn validate_unit_constraint(
                     ErrorKind::InvalidKernelUnit,
                     span,
                     format!(
-                        "kernel {} argument {} must have same unit as argument {}, expected {:?}, found {:?}",
+                        "{} argument {} expected '{}', found '{}'",
                         kernel.qualified_name(),
                         arg_index,
-                        param_index,
                         expected_unit,
                         arg_unit
                     ),
@@ -389,4 +388,3 @@ pub(super) fn validate_unit_constraint(
 
     errors
 }
-
