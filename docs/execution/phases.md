@@ -50,28 +50,11 @@ Configure does **not**:
 - advance time
 - mutate signals
 - emit fields
-- modify config/const values (already frozen at world initialization)
+- modify config/const values (already frozen at scenario application)
 
-### Config and Const Values
-
-Config and const values are **frozen execution parameters** that are loaded once
-during world initialization (lifecycle stage 4: Scenario Application) and remain
-immutable throughout all execution phases.
-
-- `const.*` — Global simulation constants loaded from `const {}` blocks
-  - Immutable, not scenario-overridable
-  - Example: `const { physics.boltzmann: 1.380649e-23 }`
-
-- `config.*` — Configuration parameters loaded from `config {}` blocks
-  - World provides defaults via `default` field
-  - Scenarios may override config values (not const values)
-  - Example: `config { thermal.decay_halflife: 1.42e17 }`
-
-Both config and const values:
-- Are available to all phases via `load_config()` and `load_const()`
-- Behave like frozen parameters (no prev/current distinction like signals)
-- Are NOT recomputed per-tick (frozen at initialization)
-- Must be compile-time literals (Scalar or Vec3 with literal components)
+Config and const values are frozen execution parameters loaded during Scenario
+Application (see `execution/lifecycle.md` § 4 and `dsl/language.md` § 5). The
+Configure phase does not modify these values.
 
 Configure prepares the tick; it does not execute simulation logic.
 

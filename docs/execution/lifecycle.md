@@ -122,7 +122,8 @@ DSL declarations and frozen in the runtime execution context:
 
 Both config and const values are:
 - Extracted during `build_runtime()` function execution
-- Stored in `HashMap<Path, Value>` in the bytecode executor
+- Stored in `BytecodePhaseExecutor.config_values` and `BytecodePhaseExecutor.const_values` HashMap fields
+- Passed by reference to all `VMContext` instances during phase execution
 - Frozen before warmup begins
 - Available to all execution phases as immutable context
 - Never recomputed or modified after loading
