@@ -231,6 +231,15 @@ pub fn desugar_expr(expr: Expr) -> Expr {
             span,
         },
 
+        // Mathematical constants: desugar bare PI/TAU to maths.PI()/maths.TAU()
+        ExprKind::Local(ref name) if name == "PI" => {
+            kernel_call(KernelId::new("maths", "PI"), vec![], span)
+        }
+
+        ExprKind::Local(ref name) if name == "TAU" => {
+            kernel_call(KernelId::new("maths", "TAU"), vec![], span)
+        }
+
         // Leaf cases
         _ => expr,
     }

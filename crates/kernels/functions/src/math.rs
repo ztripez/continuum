@@ -71,6 +71,40 @@ pub fn div(a: f64, b: f64) -> f64 {
     a / b
 }
 
+// === Mathematical Constants ===
+
+/// Pi constant (π ≈ 3.14159...): `PI()`
+///
+/// Returns the mathematical constant π, the ratio of a circle's circumference to its diameter.
+#[kernel_fn(
+    namespace = "maths",
+    name = "PI",
+    purity = Pure,
+    shape_in = [],
+    unit_in = [],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
+pub fn pi() -> f64 {
+    std::f64::consts::PI
+}
+
+/// Tau constant (τ = 2π ≈ 6.28318...): `TAU()`
+///
+/// Returns the mathematical constant τ (tau), equal to 2π, representing a full turn in radians.
+#[kernel_fn(
+    namespace = "maths",
+    name = "TAU",
+    purity = Pure,
+    shape_in = [],
+    unit_in = [],
+    shape_out = Scalar,
+    unit_out = Dimensionless
+)]
+pub fn tau() -> f64 {
+    std::f64::consts::TAU
+}
+
 // === Basic math ===
 
 /// Absolute value: `abs(x)`
