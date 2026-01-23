@@ -269,6 +269,36 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
             era_decl.span,
         );
         era.doc = era_decl.doc.clone();
+
+        // Convert parsed strata policy entries to resolved StratumPolicy
+        for entry in &era_decl.strata_policy {
+            let stratum_id =
+                continuum_cdsl_ast::foundation::StratumId::new(entry.stratum.to_string());
+
+            // Parse state_name into active flag
+            let active = match entry.state_name.to_lowercase().as_str() {
+                "active" => true,
+                "gated" => false,
+                other => {
+                    errors.push(CompileError::new(
+                        crate::error::ErrorKind::InvalidCapability,
+                        entry.span,
+                        format!(
+                            "unknown stratum state '{}', expected 'active' or 'gated'",
+                            other
+                        ),
+                    ));
+                    continue;
+                }
+            };
+
+            era.strata_policy.push(continuum_cdsl_ast::StratumPolicy {
+                stratum: stratum_id,
+                active,
+                cadence_override: entry.stride,
+            });
+        }
+
         resolved_eras.insert(era.path.clone(), era);
     }
 
@@ -1261,10 +1291,7 @@ mod tests {
     }
 
     fn make_literal(value: f64) -> Expr {
-        Expr::new(
-            UntypedKind::Literal { value, unit: None },
-            test_span(),
-        )
+        Expr::new(UntypedKind::Literal { value, unit: None }, test_span())
     }
 
     fn scalar_type() -> Type {
@@ -1287,7 +1314,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let result = collect_config_types(&entries, &type_table);
-        
+
         // Should succeed with explicit type
         assert!(result.is_ok(), "Explicit type should resolve");
     }
@@ -1304,7 +1331,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let result = collect_config_types(&entries, &type_table);
-        
+
         assert!(result.is_ok(), "Type inference from literal should succeed");
         let types = result.unwrap();
         assert_eq!(types.len(), 1);
@@ -1323,12 +1350,14 @@ mod tests {
 
         let type_table = TypeTable::new();
         let result = collect_config_types(&entries, &type_table);
-        
+
         // Should fail - cannot infer without default
         assert!(result.is_err(), "Inference without default should fail");
         let errors = result.unwrap_err();
         assert_eq!(errors.len(), 1);
-        assert!(errors[0].message.contains("requires explicit type or default"));
+        assert!(errors[0]
+            .message
+            .contains("requires explicit type or default"));
     }
 
     #[test]
@@ -1352,7 +1381,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let result = collect_config_types(&entries, &type_table);
-        
+
         assert!(result.is_ok());
         let types = result.unwrap();
         assert_eq!(types.len(), 2);
@@ -1370,7 +1399,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let result = collect_const_types(&entries, &type_table);
-        
+
         assert!(result.is_ok(), "Const type inference should succeed");
         let types = result.unwrap();
         assert_eq!(types.len(), 1);
@@ -1389,7 +1418,7 @@ mod tests {
 
         let type_table = TypeTable::new();
         let result = collect_const_types(&entries, &type_table);
-        
+
         assert!(result.is_ok());
         let types = result.unwrap();
         assert_eq!(types[&Path::from_path_str("const.enabled")], Type::Bool);
@@ -1408,11 +1437,13 @@ mod tests {
 
         let type_table = TypeTable::new();
         let result = collect_const_types(&entries, &type_table);
-        
+
         // Should fail - cannot infer from complex expressions
         assert!(result.is_err(), "Complex expression inference should fail");
         let errors = result.unwrap_err();
-        assert!(errors[0].message.contains("Cannot infer type from complex expression"));
+        assert!(errors[0]
+            .message
+            .contains("Cannot infer type from complex expression"));
     }
 
     #[test]
