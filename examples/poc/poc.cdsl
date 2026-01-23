@@ -163,6 +163,8 @@ entity heat_source {
         : Scalar<K, 0..10000>
         : title("Heat Output")
         
+        initial { 1000.0 <K> }
+        
         resolve {
             prev * 0.999
         }
