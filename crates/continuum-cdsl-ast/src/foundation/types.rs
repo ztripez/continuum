@@ -158,6 +158,79 @@ impl Type {
         Type::Unit
     }
 
+    /// Check if this type can be assigned to an expected type.
+    ///
+    /// This implements looser compatibility rules than strict equality:
+    /// - Unbounded values (`bounds: None`) are compatible with bounded targets
+    /// - Shape, unit, and value type must match exactly
+    ///
+    /// This allows ergonomic assignment of literals (which have no bounds) to
+    /// bounded signals, while still enforcing unit/shape safety.
+    ///
+    /// # Parameters
+    ///
+    /// - `expected`: The target type being assigned to
+    ///
+    /// # Returns
+    ///
+    /// `true` if assignment is valid, `false` if types are incompatible
+    ///
+    /// # Examples
+    ///
+    /// ```rust,ignore
+    /// // Unbounded literal can be assigned to bounded signal
+    /// let value_ty = Type::Kernel(KernelType {
+    ///     shape: Scalar,
+    ///     unit: K,
+    ///     bounds: None
+    /// });
+    /// let target_ty = Type::Kernel(KernelType {
+    ///     shape: Scalar,
+    ///     unit: K,
+    ///     bounds: Some(Bounds { min: Some(100.0), max: Some(1000.0) })
+    /// });
+    /// assert!(value_ty.is_assignable_to(&target_ty));
+    ///
+    /// // Different units are incompatible
+    /// let value_ty = Type::Kernel(KernelType {
+    ///     shape: Scalar,
+    ///     unit: K,
+    ///     bounds: None
+    /// });
+    /// let target_ty = Type::Kernel(KernelType {
+    ///     shape: Scalar,
+    ///     unit: M,
+    ///     bounds: None
+    /// });
+    /// assert!(!value_ty.is_assignable_to(&target_ty));
+    /// ```
+    ///
+    /// # Bounds Compatibility Rules
+    ///
+    /// - `None → Any`: Unbounded values can be assigned to any target (bounded or unbounded)
+    /// - `Some(b1) → Some(b2)`: Bounded values must have exact bounds match (`b1 == b2`)
+    /// - `Some(_) → None`: Cannot assign bounded value to unbounded target (would lose constraint)
+    pub fn is_assignable_to(&self, expected: &Type) -> bool {
+        match (self, expected) {
+            (Type::Kernel(value_kt), Type::Kernel(expected_kt)) => {
+                // Shape and unit must match exactly
+                if value_kt.shape != expected_kt.shape || value_kt.unit != expected_kt.unit {
+                    return false;
+                }
+
+                // Bounds compatibility: None (unbounded) is compatible with any bounds
+                // This allows literals without bounds to be assigned to bounded signals
+                match (&value_kt.bounds, &expected_kt.bounds) {
+                    (None, _) => true,                // Unbounded value can be assigned to any target
+                    (Some(vb), Some(eb)) => vb == eb, // Bounded values must have exact bounds
+                    (Some(_), None) => false, // Cannot assign bounded value to unbounded target (would lose constraint)
+                }
+            }
+            // For non-kernel types, require exact equality
+            _ => self == expected,
+        }
+    }
+
     /// Create a Seq type wrapping another type.
     pub fn seq(inner: Type) -> Self {
         Type::Seq(Box::new(inner))

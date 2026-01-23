@@ -97,57 +97,6 @@ use std::collections::HashSet;
 /// let typed = compile_statements(&stmts, &ctx).unwrap();
 /// assert_eq!(typed.len(), 1);
 /// ```
-/// Check if a value type is compatible with an expected type for signal assignment.
-///
-/// This implements looser compatibility rules than strict equality:
-/// - Unbounded values (`bounds: None`) are compatible with bounded targets
-/// - Shape, unit, and value type must match exactly
-///
-/// # Parameters
-///
-/// - `value_ty`: The type of the value being assigned
-/// - `expected_ty`: The target signal's declared type
-///
-/// # Returns
-///
-/// `true` if assignment is valid, `false` if types are incompatible
-///
-/// # Examples
-///
-/// ```rust,ignore
-/// // Unbounded literal can be assigned to bounded signal
-/// let value_ty = Type::Kernel(KernelType { shape: Scalar, unit: K, bounds: None });
-/// let target_ty = Type::Kernel(KernelType { shape: Scalar, unit: K, bounds: Some(100..1000) });
-/// assert!(is_assignable(&value_ty, &target_ty));
-///
-/// // Different units are incompatible
-/// let value_ty = Type::Kernel(KernelType { shape: Scalar, unit: K, bounds: None });
-/// let target_ty = Type::Kernel(KernelType { shape: Scalar, unit: M, bounds: None });
-/// assert!(!is_assignable(&value_ty, &target_ty));
-/// ```
-fn is_assignable(value_ty: &continuum_cdsl_ast::foundation::Type, expected_ty: &continuum_cdsl_ast::foundation::Type) -> bool {
-    use continuum_cdsl_ast::foundation::Type;
-    
-    match (value_ty, expected_ty) {
-        (Type::Kernel(value_kt), Type::Kernel(expected_kt)) => {
-            // Shape and unit must match exactly
-            if value_kt.shape != expected_kt.shape || value_kt.unit != expected_kt.unit {
-                return false;
-            }
-            
-            // Bounds compatibility: None (unbounded) is compatible with any bounds
-            // This allows literals without bounds to be assigned to bounded signals
-            match (&value_kt.bounds, &expected_kt.bounds) {
-                (None, _) => true,  // Unbounded value can be assigned to any target
-                (Some(vb), Some(eb)) => vb == eb,  // Bounded values must have exact bounds
-                (Some(_), None) => false,  // Cannot assign bounded value to unbounded target (would lose constraint)
-            }
-        }
-        // For non-kernel types, require exact equality
-        _ => value_ty == expected_ty,
-    }
-}
-
 pub fn compile_statements(
     stmts: &[Stmt<Expr>],
     ctx: &TypingContext,
@@ -195,7 +144,7 @@ pub fn compile_statements(
                     Ok(typed_value) => {
                         // Validate target signal exists and type is compatible
                         if let Some(expected_ty) = current_ctx.signal_types.get(target) {
-                            if !is_assignable(&typed_value.ty, expected_ty) {
+                            if !typed_value.ty.is_assignable_to(expected_ty) {
                                 errors.push(CompileError::new(
                                     ErrorKind::TypeMismatch,
                                     *span,
