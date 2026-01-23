@@ -1,9 +1,9 @@
-use crate::parse_declarations;
 use crate::pipeline;
 use crate::CompileError;
 use crate::CompiledWorld;
 use crate::Token;
 use crate::{SourceMap, Span};
+use continuum_cdsl_parser::parse_declarations_with_spans;
 use continuum_cdsl_resolve::error::ErrorKind;
 use logos::Logos;
 use std::path::Path;
@@ -85,14 +85,14 @@ pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
 
         // Lexing
         let mut lexer = Token::lexer(&source);
-        let mut tokens = Vec::new();
+        let mut tokens_with_spans = Vec::new();
         let mut lex_failed = false;
 
         while let Some(result) = lexer.next() {
             let span = lexer.span();
             match result {
                 Ok(token) => {
-                    tokens.push(token);
+                    tokens_with_spans.push((token, span));
                 }
                 Err(_) => {
                     all_errors.push(CompileError::new(
@@ -110,7 +110,7 @@ pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
         }
 
         // Parsing
-        match parse_declarations(&tokens, file_id) {
+        match parse_declarations_with_spans(&tokens_with_spans, file_id) {
             Ok(decls) => declarations.extend(decls),
             Err(errors) => {
                 for err in errors {

@@ -138,7 +138,7 @@ fn build_dag(
                 if node.role_id() == RoleId::Field && phase != Phase::Measure {
                     return Err(vec![CompileError::new(
                         ErrorKind::PhaseBoundaryViolation,
-                        node.span,
+                        exec.span,
                         format!(
                             "Field '{}' has execution in {:?} phase. Fields are observation-only and may only execute in Measure phase.",
                             node.path, phase
@@ -159,7 +159,7 @@ fn build_dag(
                 if node.role_id() == RoleId::Field && phase != Phase::Measure {
                     return Err(vec![CompileError::new(
                         ErrorKind::PhaseBoundaryViolation,
-                        node.span,
+                        exec.span,
                         format!(
                             "Field '{}' has execution in {:?} phase. Fields are observation-only and may only execute in Measure phase.",
                             node.path, phase

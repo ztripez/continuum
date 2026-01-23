@@ -508,7 +508,7 @@ pub fn compile_execution_blocks<I: Index>(
         if is_pure_phase && has_statements {
             errors.push(CompileError::new(
                 ErrorKind::EffectInPureContext,
-                node.span,
+                block_body.span(),
                 format!(
                     "{:?} phase is pure and cannot contain statement blocks",
                     phase
@@ -584,7 +584,7 @@ pub fn compile_execution_blocks<I: Index>(
         if phase == Phase::Resolve && !emits.is_empty() {
             errors.push(CompileError::new(
                 ErrorKind::PhaseBoundaryViolation,
-                node.span,
+                block_body.span(),
                 format!(
                     "Resolve phase execution at '{}' has explicit emissions: {:?}. \
                      Resolve phase must be pure; signals implicitly resolve to themselves.",

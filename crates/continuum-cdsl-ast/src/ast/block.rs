@@ -7,6 +7,24 @@ use crate::ast::untyped::Expr;
 use crate::ast::TypedExpr;
 use crate::foundation::{Path, Span};
 
+/// Trait for types that have a source span.
+pub trait HasSpan {
+    /// Returns the source span of this item.
+    fn span(&self) -> Span;
+}
+
+impl HasSpan for Expr {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
+impl HasSpan for TypedExpr {
+    fn span(&self) -> Span {
+        self.span
+    }
+}
+
 /// A single simulation statement within a procedural block body.
 ///
 /// Statements represent effectful operations or local bindings. They are exclusively
@@ -123,6 +141,19 @@ pub enum Stmt<E = Expr> {
     },
 }
 
+impl<E: HasSpan> Stmt<E> {
+    /// Returns the source span of this statement.
+    pub fn span(&self) -> Span {
+        match self {
+            Stmt::Let { span, .. } => *span,
+            Stmt::SignalAssign { span, .. } => *span,
+            Stmt::FieldAssign { span, .. } => *span,
+            Stmt::Expr(expr) => expr.span(),
+            Stmt::Assert { span, .. } => *span,
+        }
+    }
+}
+
 /// A compiled and type-validated simulation statement.
 ///
 /// `TypedStmt` is the IR representation of a statement after it has passed through
@@ -160,4 +191,30 @@ pub enum BlockBody {
     /// It is produced during the statement compilation pass and is used during
     /// Phase 13 DAG construction to extract side effects ([`Execution::emits`][crate::ast::Execution::emits]).
     TypedStatements(Vec<TypedStmt>),
+}
+
+impl BlockBody {
+    /// Returns the source span of the block body content.
+    ///
+    /// For expressions, returns the expression's span.
+    /// For statement lists, returns the span of the first statement.
+    ///
+    /// # Panics
+    ///
+    /// Panics if called on an empty statement list. Empty statement lists
+    /// should be rejected during parsing or validation before this is called.
+    pub fn span(&self) -> Span {
+        match self {
+            BlockBody::Expression(expr) => expr.span,
+            BlockBody::TypedExpression(expr) => expr.span,
+            BlockBody::Statements(stmts) => stmts
+                .first()
+                .expect("BlockBody::Statements must not be empty")
+                .span(),
+            BlockBody::TypedStatements(stmts) => stmts
+                .first()
+                .expect("BlockBody::TypedStatements must not be empty")
+                .span(),
+        }
+    }
 }
