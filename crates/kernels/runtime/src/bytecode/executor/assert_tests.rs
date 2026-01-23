@@ -396,3 +396,81 @@ fn test_assert_with_message_only() {
         other => panic!("Expected AssertionFailed, got {:?}", other),
     }
 }
+
+#[test]
+fn test_assert_with_too_many_operands() {
+    // Assert with 3+ operands is rejected by the executor's operand count validation.
+    // The Assert opcode metadata specifies max=2, so instructions with more operands
+    // are considered malformed and fail validation before execution.
+    let program = BytecodeProgram::from_blocks(vec![BytecodeBlock {
+        instructions: vec![
+            Instruction::new(
+                OpcodeKind::PushLiteral,
+                vec![Operand::Literal(Value::Boolean(false))],
+            ),
+            Instruction::new(
+                OpcodeKind::Assert,
+                vec![
+                    Operand::String("error".to_string()),
+                    Operand::String("test message".to_string()),
+                    Operand::String("extra operand 1".to_string()),
+                    Operand::String("extra operand 2".to_string()),
+                ],
+            ),
+        ],
+        returns_value: false,
+    }]);
+
+    let block = CompiledBlock {
+        phase: Phase::Resolve,
+        program,
+        root: BlockId::new(0),
+        slot_count: 0,
+        reads: vec![],
+        temporal_reads: vec![],
+        emits: vec![],
+    };
+
+    let mut executor = BytecodeExecutor::new();
+    let mut ctx = TestContext;
+    let result = executor.execute(&block, &mut ctx);
+
+    // Should fail with InvalidOperand error due to operand count mismatch
+    assert!(result.is_err(), "Expected operand count error");
+    assert!(
+        matches!(result.unwrap_err(), ExecutionError::InvalidOperand { .. }),
+        "Expected InvalidOperand error for too many operands"
+    );
+}
+
+#[test]
+fn test_assert_with_empty_stack() {
+    // Assert with empty stack should fail with StackUnderflow
+    let program = BytecodeProgram::from_blocks(vec![BytecodeBlock {
+        instructions: vec![
+            // No PushLiteral - stack is empty
+            Instruction::new(OpcodeKind::Assert, vec![]),
+        ],
+        returns_value: false,
+    }]);
+
+    let block = CompiledBlock {
+        phase: Phase::Resolve,
+        program,
+        root: BlockId::new(0),
+        slot_count: 0,
+        reads: vec![],
+        temporal_reads: vec![],
+        emits: vec![],
+    };
+
+    let mut executor = BytecodeExecutor::new();
+    let mut ctx = TestContext;
+    let result = executor.execute(&block, &mut ctx);
+
+    assert!(result.is_err(), "Expected stack underflow error");
+    assert!(
+        matches!(result.unwrap_err(), ExecutionError::StackUnderflow),
+        "Expected StackUnderflow error"
+    );
+}

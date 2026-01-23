@@ -617,6 +617,20 @@ pub(crate) fn handle_load_dt(
     handle_load_ctx(runtime, ctx, |ctx| ctx.load_dt())
 }
 
+/// Loads collected signal inputs (sum of impulse/fracture contributions).
+///
+/// STUB: This opcode is not yet implemented. It will fail at runtime if executed.
+pub(crate) fn handle_load_collected(
+    _instruction: &Instruction,
+    _runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    _ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    Err(ExecutionError::InvalidOperand {
+        message: "LoadCollected opcode not yet implemented".to_string(),
+    })
+}
+
 /// Loads the identity of the current entity instance.
 ///
 /// # Stack
