@@ -31,6 +31,7 @@ use stream::TokenStream;
 mod blocks;
 mod decl;
 mod expr;
+mod helpers;
 
 /// Token utility functions for canonical keyword-to-string mappings.
 ///

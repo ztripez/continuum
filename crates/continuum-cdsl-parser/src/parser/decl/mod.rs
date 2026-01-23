@@ -218,33 +218,10 @@ pub(super) fn parse_node_declaration(
     // The DSL allows both `: TypeExpr` and `: attr_name(...)` after `{`.
     // Syntactically indistinguishable without infinite lookahead (need to see `<` or `(`).
     // We use is_type_keyword() to perform semantic disambiguation at parse time.
-    //
-    // This is an architectural tradeoff:
-    // - Parser does semantic check (violates phase boundary)
-    // - Alternative: Parse ambiguously, resolve in semantic analysis (harder to implement)
-    // - Grammar ambiguity cannot be eliminated without changing DSL syntax
-    let type_expr = if matches!(stream.peek(), Some(Token::Colon)) {
-        // Peek ahead to see if this is a type keyword
-        let is_type = if let Some(Token::Ident(name)) = stream.peek_nth(1) {
-            super::token_utils::is_type_keyword(name)
-        } else {
-            false
-        };
-
-        if is_type {
-            stream.advance(); // consume ':'
-            Some(super::types::parse_type_expr(stream)?)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let type_expr = super::helpers::try_parse_type_expr(stream)?;
 
     // Parse remaining attributes inside the body (before special/execution blocks)
-    while matches!(stream.peek(), Some(Token::Colon)) {
-        attributes.push(parse_attribute(stream)?);
-    }
+    attributes.extend(super::helpers::parse_attributes(stream)?);
 
     // Parse special blocks (when, warmup, observe)
     let when = if matches!(stream.peek(), Some(Token::When)) {

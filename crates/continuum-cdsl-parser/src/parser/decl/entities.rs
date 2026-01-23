@@ -86,26 +86,8 @@ fn parse_entity_member(
 
     stream.expect(Token::LBrace)?;
 
-    let type_expr = if matches!(stream.peek(), Some(Token::Colon)) {
-        let is_type = if let Some(Token::Ident(name)) = stream.peek_nth(1) {
-            super::super::token_utils::is_type_keyword(name)
-        } else {
-            false
-        };
-
-        if is_type {
-            stream.advance();
-            Some(super::super::types::parse_type_expr(stream)?)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    while matches!(stream.peek(), Some(Token::Colon)) {
-        attributes.push(super::parse_attribute(stream)?);
-    }
+    let type_expr = super::super::helpers::try_parse_type_expr(stream)?;
+    attributes.extend(super::super::helpers::parse_attributes(stream)?);
 
     let when = if matches!(stream.peek(), Some(Token::When)) {
         Some(super::super::blocks::parse_when_block(stream)?)
