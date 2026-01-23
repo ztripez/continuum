@@ -303,18 +303,25 @@ signal stellar.moon_count {
 
 ### Index Access
 
+Access entity instances by index using `.at(n)`:
+
 ```cdsl
 signal terra.primary_moon.distance {
     : Scalar<m>
     : strata(terra.orbital)
 
     resolve {
-        entity.stellar.moon[0].orbit_radius
+        entity.stellar.moon.at(0).orbit_radius
     }
 }
 ```
 
+**Note:** Prefer named access or aggregate operations over numeric indices when possible,
+as numeric indices couple to instance ordering which may be fragile.
+
 ### Named Access
+
+Access entity instances by name using `.at("name")`:
 
 ```cdsl
 signal terra.luna.phase {
@@ -322,7 +329,7 @@ signal terra.luna.phase {
     : strata(terra.orbital)
 
     resolve {
-        entity.stellar.moon["luna"].orbit_phase
+        entity.stellar.moon.at("luna").orbit_phase
     }
 }
 ```
@@ -520,7 +527,7 @@ Dependencies are inferred from self/signal reads.
 | `other(entity)` | All instances except self |
 | `pairs(entity)` | All unique pairs |
 | Aggregations | `sum/max/min/mean/count` |
-| Index/named access | `entity[i]` / `entity["name"]` |
+| Index/named access | `entity.at(i)` / `entity.at("name")` |
 
 Key principles:
 - Entities are pure index spaces (no behavior)

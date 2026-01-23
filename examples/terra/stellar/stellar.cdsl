@@ -663,7 +663,7 @@ signal stellar.primary_variability_factor {
     : symbol("f_var_0")
 
     resolve {
-        entity.stellar.star[0].variability_factor
+        entity.stellar.star.at(0).variability_factor
     }
 }
 

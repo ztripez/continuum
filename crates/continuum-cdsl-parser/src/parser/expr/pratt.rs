@@ -104,7 +104,7 @@ fn parse_unary(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     ))
 }
 
-/// Parse postfix expressions (field access, function calls).
+/// Parse postfix expressions (field access, function calls, method calls).
 fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let mut expr = atoms::parse_atom(stream)?;
 
@@ -125,14 +125,36 @@ fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
                         }
                     }
                 };
-                let span = expr.span;
-                expr = Expr::new(
-                    UntypedKind::FieldAccess {
-                        object: Box::new(expr),
-                        field: field.to_string(),
-                    },
-                    span,
-                );
+
+                // Check for method call syntax: `.method(...)`
+                // This handles `.at(n)` for entity indexing and vector component access
+                if matches!(stream.peek(), Some(Token::LParen)) {
+                    let mut args = parse_call_args(stream)?;
+                    let span = expr.span;
+
+                    // Method call: obj.method(args) becomes method(obj, args)
+                    // Insert the object as the first argument
+                    args.insert(0, expr);
+
+                    // Create a call with the method name as the function
+                    expr = Expr::new(
+                        UntypedKind::Call {
+                            func: continuum_cdsl_ast::foundation::Path::from(field.as_ref()),
+                            args,
+                        },
+                        span,
+                    );
+                } else {
+                    // Regular field access
+                    let span = expr.span;
+                    expr = Expr::new(
+                        UntypedKind::FieldAccess {
+                            object: Box::new(expr),
+                            field: field.to_string(),
+                        },
+                        span,
+                    );
+                }
             }
             Some(Token::LParen) => {
                 let args = parse_call_args(stream)?;

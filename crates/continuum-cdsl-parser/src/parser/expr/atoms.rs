@@ -177,12 +177,52 @@ fn parse_other_or_field_access(stream: &mut TokenStream) -> Result<Expr, ParseEr
 }
 
 /// Parse entity.path reference.
+///
+/// Parses `entity.path.segments` but stops before segments that are followed
+/// by `(` to allow method calls like `.at(0)` to be handled by postfix parsing.
 fn parse_entity_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Entity)?;
     stream.expect(Token::Dot)?;
 
-    let path = super::super::types::parse_path(stream)?;
+    // Parse path segments, but stop if the next segment would be followed by `(`
+    // This allows `.at(0)` method calls to be handled by postfix parsing
+    let mut segments = Vec::new();
+
+    loop {
+        let segment = {
+            let span = stream.current_span();
+            match stream.advance() {
+                Some(Token::Ident(s)) => s.clone(),
+                Some(token) => {
+                    super::super::token_utils::keyword_to_string(&token).ok_or_else(|| {
+                        ParseError::unexpected_token(Some(&token), "in entity path", span)
+                    })?
+                }
+                None => {
+                    return Err(ParseError::unexpected_token(None, "in entity path", span));
+                }
+            }
+        };
+        segments.push(segment.to_string());
+
+        // Check if next token is `.` followed by identifier followed by `(`
+        // If so, stop here and let postfix parsing handle the method call
+        if matches!(stream.peek(), Some(Token::Dot)) {
+            // Look ahead: is next segment followed by `(`?
+            if let (Some(Token::Ident(_)), Some(Token::LParen)) =
+                (stream.peek_nth(1), stream.peek_nth(2))
+            {
+                // Stop here - let postfix parsing handle `.method(...)`
+                break;
+            }
+            stream.advance(); // consume '.'
+        } else {
+            break;
+        }
+    }
+
+    let path = continuum_cdsl_ast::foundation::Path { segments };
 
     Ok(Expr::new(
         UntypedKind::Entity(EntityId::new(path.to_string())),
