@@ -491,8 +491,12 @@ pub fn validate_expr(
             }
         }
 
-        ExprKind::FieldAccess { object, .. } => {
-            validate_expr(object, table, scope, errors);
+        ExprKind::FieldAccess { .. } => {
+            // Skip validation of FieldAccess chains during name resolution.
+            // Type resolution will handle these via bare path resolution:
+            // - If it's a bare signal/field path (e.g., core.temp), transforms to Signal/Field
+            // - If it's structural field access (e.g., entity.field), validates object type
+            // - This prevents premature errors on undefined Local within FieldAccess chains
         }
 
         ExprKind::If {

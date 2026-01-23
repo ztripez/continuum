@@ -101,10 +101,7 @@ signal temp_gradient {
     : title("Core-Surface Gradient")
 
     resolve {
-        let core = core.temp in
-        let surface = surface.temp in
-        let gradient = core - surface in
-        maths.abs(gradient)
+        maths.abs(core.temp - surface.temp)
     }
 }
 
