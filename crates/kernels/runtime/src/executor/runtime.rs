@@ -503,8 +503,249 @@ impl Runtime {
         self.current_phase
     }
 
+    // ============================================================================
+    // Phase Execution Handlers (Internal)
+    // ============================================================================
+
+    /// Execute Configure phase: Initialize tick context and run Configure DAG
+    fn execute_configure_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<()> {
+        trace!("phase: configure");
+        self.active_tick_ctx = Some(TickContext {
+            tick: self.tick,
+            sim_time: self.sim_time,
+            dt,
+            era: self.current_era.clone(),
+        });
+        
+        // Execute Configure phase DAG (initial blocks)
+        if !self.bytecode_blocks.is_empty() {
+            self.bytecode_executor.execute_configure(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &self.bytecode_blocks,
+                &mut self.signals,
+                &self.entities,
+                &mut self.member_signals,
+                &mut self.input_channels,
+            )?;
+        }
+        
+        self.current_phase = crate::types::TickPhase::Simulation(Phase::Collect);
+        Ok(())
+    }
+
+    /// Execute Collect phase: Accumulate inputs, impulses
+    fn execute_collect_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<()> {
+        trace!("phase: collect");
+        if self.bytecode_blocks.is_empty() {
+            self.phase_executor.execute_collect(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &self.signals,
+                &self.entities,
+                &mut self.input_channels,
+                &mut self.pending_impulses,
+            )?;
+        } else {
+            self.bytecode_executor.execute_collect(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &self.bytecode_blocks,
+                &self.signals,
+                &self.entities,
+                &self.member_signals,
+                &mut self.input_channels,
+            )?;
+        }
+        // Apply pending impulses (procedural for now)
+        let impulses = std::mem::take(&mut self.pending_impulses);
+        for (handler_idx, payload) in impulses {
+            let handler = &self.phase_executor.impulse_handlers[handler_idx];
+            let mut ctx = ImpulseContext {
+                signals: &self.signals,
+                entities: &self.entities,
+                channels: &mut self.input_channels,
+                dt,
+                sim_time: self.sim_time,
+            };
+            handler(&mut ctx, &payload);
+        }
+        self.current_phase = crate::types::TickPhase::Simulation(Phase::Resolve);
+        Ok(())
+    }
+
+    /// Execute Resolve phase: Resolve signals, check breakpoints
+    fn execute_resolve_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<Option<SignalId>> {
+        trace!("phase: resolve");
+        let signal = if self.bytecode_blocks.is_empty() {
+            self.phase_executor.execute_resolve(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &mut self.signals,
+                &self.entities,
+                &mut self.member_signals,
+                &mut self.input_channels,
+                &mut self.assertion_checker,
+                &self.breakpoints,
+            )?
+        } else {
+            self.bytecode_executor.execute_resolve(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &self.bytecode_blocks,
+                &mut self.signals,
+                &self.entities,
+                &mut self.member_signals,
+                &mut self.input_channels,
+                &mut self.assertion_checker,
+                &self.breakpoints,
+            )?
+        };
+        self.current_phase = crate::types::TickPhase::Simulation(Phase::Fracture);
+        Ok(signal)
+    }
+
+    /// Execute Fracture phase: Detect tension and queue fracture signals
+    fn execute_fracture_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<()> {
+        trace!("phase: fracture");
+        if self.bytecode_blocks.is_empty() {
+            self.phase_executor.execute_fracture(
+                &self.current_era,
+                dt,
+                self.sim_time,
+                &self.dags,
+                &self.signals,
+                &self.entities,
+                &mut self.fracture_queue,
+            )?;
+        } else {
+            self.bytecode_executor.execute_fracture(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &self.bytecode_blocks,
+                &self.signals,
+                &mut self.entities,
+                &self.member_signals,
+                &mut self.input_channels,
+            )?;
+        }
+        self.current_phase = crate::types::TickPhase::Simulation(Phase::Measure);
+        Ok(())
+    }
+
+    /// Execute Measure phase: Emit fields and chronicle events
+    fn execute_measure_phase(&mut self, dt: Dt, strata_states: &IndexMap<StratumId, StratumState>) -> Result<()> {
+        trace!("phase: measure");
+        if self.bytecode_blocks.is_empty() {
+            self.phase_executor.execute_measure(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &self.signals,
+                &self.entities,
+                &mut self.field_buffer,
+            )?;
+
+            self.phase_executor.execute_chronicles(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &self.signals,
+                &self.entities,
+                &mut self.event_buffer,
+            )?;
+        } else {
+            self.bytecode_executor.execute_measure(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &self.bytecode_blocks,
+                &self.signals,
+                &self.entities,
+                &self.member_signals,
+                &mut self.field_buffer,
+            )?;
+
+            self.bytecode_executor.execute_chronicles(
+                &self.current_era,
+                self.tick,
+                dt,
+                self.sim_time,
+                strata_states,
+                &self.dags,
+                &self.bytecode_blocks,
+                &self.signals,
+                &self.entities,
+                &self.member_signals,
+                &mut self.event_buffer,
+            )?;
+        }
+        self.current_phase = crate::types::TickPhase::EraTransition;
+        Ok(())
+    }
+
+    /// Execute EraTransition phase: Check and apply era transitions
+    fn execute_era_transition_phase(&mut self) -> Result<()> {
+        trace!("phase: era transition");
+        self.check_era_transition()?;
+        self.current_phase = crate::types::TickPhase::PostTick;
+        Ok(())
+    }
+
+    /// Execute PostTick phase: Finalize tick, advance time
+    fn execute_post_tick_phase(&mut self, dt: Dt) -> Result<()> {
+        trace!("phase: post tick");
+        self.signals.advance_tick();
+        self.entities.advance_tick();
+        self.member_signals.advance_tick();
+        self.fracture_queue.drain_into(&mut self.input_channels);
+        self.sim_time += dt.seconds();
+        self.tick += 1;
+        self.validate_determinism()?;
+        self.current_phase = crate::types::TickPhase::Simulation(Phase::Configure);
+        Ok(())
+    }
+
+    // ============================================================================
+    // Phase Orchestration
+    // ============================================================================
+
     /// Execute a single phase of the simulation.
     pub fn execute_step(&mut self) -> Result<crate::types::StepResult> {
+        // Get era config (dt and strata states)
         let (dt, strata_states) = {
             let era_config = self
                 .eras
@@ -513,7 +754,9 @@ impl Runtime {
             (era_config.dt, era_config.strata.clone())
         };
 
+        // Dispatch to appropriate phase handler
         match self.current_phase {
+            // Reject lifecycle phases (should not call execute_step during these)
             crate::types::TickPhase::Simulation(Phase::CollectConfig)
             | crate::types::TickPhase::Simulation(Phase::Initialize)
             | crate::types::TickPhase::Simulation(Phase::WarmUp) => {
@@ -525,226 +768,40 @@ impl Runtime {
                     },
                 });
             }
+            
+            // Main simulation phases
             crate::types::TickPhase::Simulation(Phase::Configure) => {
-                trace!("phase: configure");
-                self.active_tick_ctx = Some(TickContext {
-                    tick: self.tick,
-                    sim_time: self.sim_time,
-                    dt,
-                    era: self.current_era.clone(),
-                });
-                
-                // Execute Configure phase DAG (initial blocks)
-                if !self.bytecode_blocks.is_empty() {
-                    self.bytecode_executor.execute_configure(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &self.bytecode_blocks,
-                        &mut self.signals,
-                        &self.entities,
-                        &mut self.member_signals,
-                        &mut self.input_channels,
-                    )?;
-                }
-                
-                self.current_phase = crate::types::TickPhase::Simulation(Phase::Collect);
+                self.execute_configure_phase(dt, &strata_states)?;
             }
             crate::types::TickPhase::Simulation(Phase::Collect) => {
-                trace!("phase: collect");
-                if self.bytecode_blocks.is_empty() {
-                    self.phase_executor.execute_collect(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &self.signals,
-                        &self.entities,
-                        &mut self.input_channels,
-                        &mut self.pending_impulses,
-                    )?;
-                } else {
-                    self.bytecode_executor.execute_collect(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &self.bytecode_blocks,
-                        &self.signals,
-                        &self.entities,
-                        &self.member_signals,
-                        &mut self.input_channels,
-                    )?;
-                }
-                // Apply pending impulses (procedural for now)
-                let impulses = std::mem::take(&mut self.pending_impulses);
-                for (handler_idx, payload) in impulses {
-                    let handler = &self.phase_executor.impulse_handlers[handler_idx];
-                    let mut ctx = ImpulseContext {
-                        signals: &self.signals,
-                        entities: &self.entities,
-                        channels: &mut self.input_channels,
-                        dt,
-                        sim_time: self.sim_time,
-                    };
-                    handler(&mut ctx, &payload);
-                }
-                self.current_phase = crate::types::TickPhase::Simulation(Phase::Resolve);
+                self.execute_collect_phase(dt, &strata_states)?;
             }
             crate::types::TickPhase::Simulation(Phase::Resolve) => {
-                trace!("phase: resolve");
-                let signal = if self.bytecode_blocks.is_empty() {
-                    self.phase_executor.execute_resolve(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &mut self.signals,
-                        &self.entities,
-                        &mut self.member_signals,
-                        &mut self.input_channels,
-                        &mut self.assertion_checker,
-                        &self.breakpoints,
-                    )?
-                } else {
-                    self.bytecode_executor.execute_resolve(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &self.bytecode_blocks,
-                        &mut self.signals,
-                        &self.entities,
-                        &mut self.member_signals,
-                        &mut self.input_channels,
-                        &mut self.assertion_checker,
-                        &self.breakpoints,
-                    )?
-                };
-                if let Some(signal) = signal {
+                if let Some(signal) = self.execute_resolve_phase(dt, &strata_states)? {
                     return Ok(crate::types::StepResult::Breakpoint { signal });
                 }
-                self.current_phase = crate::types::TickPhase::Simulation(Phase::Fracture);
             }
             crate::types::TickPhase::Simulation(Phase::Fracture) => {
-                trace!("phase: fracture");
-                if self.bytecode_blocks.is_empty() {
-                    self.phase_executor.execute_fracture(
-                        &self.current_era,
-                        dt,
-                        self.sim_time,
-                        &self.dags,
-                        &self.signals,
-                        &self.entities,
-                        &mut self.fracture_queue,
-                    )?;
-                } else {
-                    self.bytecode_executor.execute_fracture(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &self.bytecode_blocks,
-                        &self.signals,
-                        &mut self.entities,
-                        &self.member_signals,
-                        &mut self.input_channels,
-                    )?;
-                }
-                self.current_phase = crate::types::TickPhase::Simulation(Phase::Measure);
+                self.execute_fracture_phase(dt, &strata_states)?;
             }
             crate::types::TickPhase::Simulation(Phase::Measure) => {
-                trace!("phase: measure");
-                if self.bytecode_blocks.is_empty() {
-                    self.phase_executor.execute_measure(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &self.signals,
-                        &self.entities,
-                        &mut self.field_buffer,
-                    )?;
-
-                    self.phase_executor.execute_chronicles(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &self.signals,
-                        &self.entities,
-                        &mut self.event_buffer,
-                    )?;
-                } else {
-                    self.bytecode_executor.execute_measure(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &self.bytecode_blocks,
-                        &self.signals,
-                        &self.entities,
-                        &self.member_signals,
-                        &mut self.field_buffer,
-                    )?;
-
-                    self.bytecode_executor.execute_chronicles(
-                        &self.current_era,
-                        self.tick,
-                        dt,
-                        self.sim_time,
-                        &strata_states,
-                        &self.dags,
-                        &self.bytecode_blocks,
-                        &self.signals,
-                        &self.entities,
-                        &self.member_signals,
-                        &mut self.event_buffer,
-                    )?;
-                }
-                self.current_phase = crate::types::TickPhase::EraTransition;
+                self.execute_measure_phase(dt, &strata_states)?;
             }
             crate::types::TickPhase::Simulation(Phase::Assert) => {
                 trace!("phase: assert");
                 self.current_phase = crate::types::TickPhase::EraTransition;
             }
+            
+            // Tick finalization phases
             crate::types::TickPhase::EraTransition => {
-                trace!("phase: era transition");
-                self.check_era_transition()?;
-                self.current_phase = crate::types::TickPhase::PostTick;
+                self.execute_era_transition_phase()?;
             }
             crate::types::TickPhase::PostTick => {
-                trace!("phase: post tick");
-                self.signals.advance_tick();
-                self.entities.advance_tick();
-                self.member_signals.advance_tick();
-                self.fracture_queue.drain_into(&mut self.input_channels);
-                self.sim_time += dt.seconds();
-                self.tick += 1;
-                self.validate_determinism()?;
-                self.current_phase = crate::types::TickPhase::Simulation(Phase::Configure);
+                self.execute_post_tick_phase(dt)?;
             }
         }
 
+        // Check if we completed a full tick
         if self.current_phase == crate::types::TickPhase::START {
             let ctx = self
                 .active_tick_ctx
