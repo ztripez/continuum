@@ -222,6 +222,7 @@ fn parse_unit_product(stream: &mut TokenStream) -> Result<UnitExpr, ParseError> 
 fn parse_unit_power(stream: &mut TokenStream) -> Result<UnitExpr, ParseError> {
     let base = parse_unit_base(stream)?;
 
+    // Check for caret notation (e.g., m^2)
     if matches!(stream.peek(), Some(Token::Caret)) {
         stream.advance();
 

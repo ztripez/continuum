@@ -9,6 +9,38 @@ use logos::Logos;
 use std::path::Path;
 use walkdir::WalkDir;
 
+/// Normalize Unicode superscripts to caret notation (e.g., m² → m^2).
+///
+/// This allows terra CDSL files to use readable superscript notation
+/// while keeping the lexer/parser simple.
+///
+/// Note: Negative superscripts must be replaced before positive ones
+/// to avoid partial replacements (e.g., ⁻¹ → ^-1, not ⁻^1).
+fn normalize_superscripts(source: &str) -> String {
+    source
+        // Negative superscripts first (multi-char sequences)
+        .replace("⁻¹", "^-1")
+        .replace("⁻²", "^-2")
+        .replace("⁻³", "^-3")
+        .replace("⁻⁴", "^-4")
+        .replace("⁻⁵", "^-5")
+        .replace("⁻⁶", "^-6")
+        .replace("⁻⁷", "^-7")
+        .replace("⁻⁸", "^-8")
+        .replace("⁻⁹", "^-9")
+        // Positive superscripts (single chars)
+        .replace('⁰', "^0")
+        .replace('¹', "^1")
+        .replace('²', "^2")
+        .replace('³', "^3")
+        .replace('⁴', "^4")
+        .replace('⁵', "^5")
+        .replace('⁶', "^6")
+        .replace('⁷', "^7")
+        .replace('⁸', "^8")
+        .replace('⁹', "^9")
+}
+
 /// Result type for compilation with source map.
 pub type CompileResultWithSources = Result<CompiledWorld, (SourceMap, Vec<CompileError>)>;
 
@@ -83,8 +115,11 @@ pub fn compile_with_sources(root: &Path) -> CompileResultWithSources {
 
         let file_id = source_map.add_file(file_path.clone(), source.clone());
 
+        // Normalize superscripts to caret notation before lexing
+        let normalized = normalize_superscripts(&source);
+
         // Lexing
-        let mut lexer = Token::lexer(&source);
+        let mut lexer = Token::lexer(&normalized);
         let mut tokens_with_spans = Vec::new();
         let mut lex_failed = false;
 

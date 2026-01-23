@@ -603,13 +603,7 @@ mod tests {
     #[test]
     fn test_strings() {
         let tokens = lex(r#""hello" "world""#);
-        assert_eq!(
-            tokens,
-            vec![
-                string("hello"),
-                string("world"),
-            ]
-        );
+        assert_eq!(tokens, vec![string("hello"), string("world"),]);
     }
 
     #[test]
@@ -728,30 +722,21 @@ mod tests {
     fn test_line_comments() {
         let source = "signal // comment\ntemp";
         let tokens = lex(source);
-        assert_eq!(
-            tokens,
-            vec![Token::Signal, ident("temp"),]
-        );
+        assert_eq!(tokens, vec![Token::Signal, ident("temp"),]);
     }
 
     #[test]
     fn test_hash_comments() {
         let source = "signal # comment\ntemp";
         let tokens = lex(source);
-        assert_eq!(
-            tokens,
-            vec![Token::Signal, ident("temp"),]
-        );
+        assert_eq!(tokens, vec![Token::Signal, ident("temp"),]);
     }
 
     #[test]
     fn test_block_comments() {
         let source = "signal /* multi\nline\ncomment */ temp";
         let tokens = lex(source);
-        assert_eq!(
-            tokens,
-            vec![Token::Signal, ident("temp"),]
-        );
+        assert_eq!(tokens, vec![Token::Signal, ident("temp"),]);
     }
 
     #[test]
@@ -838,10 +823,7 @@ mod tests {
     fn test_whitespace_handling() {
         let source = "  signal\t\ntemp\r\n";
         let tokens = lex(source);
-        assert_eq!(
-            tokens,
-            vec![Token::Signal, ident("temp"),]
-        );
+        assert_eq!(tokens, vec![Token::Signal, ident("temp"),]);
     }
 
     #[test]
@@ -897,10 +879,7 @@ mod tests {
         eprintln!("Lexing '<K>' produces: {:?}", results);
 
         let tokens: Vec<_> = results.into_iter().filter_map(|r| r.ok()).collect();
-        assert_eq!(
-            tokens,
-            vec![Token::Lt, ident("K"), Token::Gt]
-        );
+        assert_eq!(tokens, vec![Token::Lt, ident("K"), Token::Gt]);
     }
 
     #[test]
@@ -954,10 +933,7 @@ mod tests {
         let source = "// Regular comment\n/// Doc comment\n# Hash comment\nsignal";
         let tokens = lex(source);
         // Regular and hash comments are skipped, only doc comment captured
-        assert_eq!(
-            tokens,
-            vec![doc("Doc comment"), Token::Signal,]
-        );
+        assert_eq!(tokens, vec![doc("Doc comment"), Token::Signal,]);
     }
 
     #[test]
