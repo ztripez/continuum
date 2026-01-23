@@ -389,11 +389,21 @@ mod tests {
     }
 
     fn add_default_era(world: &mut World, span: Span) {
+        // Create a dummy dt expression (1.0 seconds)
+        let dt_expr = continuum_cdsl_ast::TypedExpr::new(
+            continuum_cdsl_ast::ExprKind::Literal {
+                value: 1.0,
+                unit: None,
+            },
+            continuum_cdsl_ast::foundation::Type::Bool, // Dummy type for tests
+            span,
+        );
         world.eras.insert(
             Path::from_path_str("default"),
             continuum_cdsl_ast::Era::new(
                 EraId::new("default"),
                 Path::from_path_str("default"),
+                dt_expr,
                 span,
             ),
         );

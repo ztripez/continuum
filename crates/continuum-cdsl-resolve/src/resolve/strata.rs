@@ -352,7 +352,7 @@ pub fn resolve_cadences(strata: &mut [Stratum]) -> Result<(), Vec<CompileError>>
 mod tests {
     use super::*;
     use continuum_cdsl_ast::foundation::{Path, Span};
-    use continuum_cdsl_ast::{Attribute, RoleData};
+    use continuum_cdsl_ast::{Attribute, Expr, RoleData};
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)
