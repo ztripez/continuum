@@ -6,8 +6,8 @@
 //! (e.g., multiplication, division of units).
 
 use crate::error::{CompileError, ErrorKind};
-use continuum_cdsl_ast::TypedExpr;
 use continuum_cdsl_ast::foundation::{KernelType, Shape, Type, Unit};
+use continuum_cdsl_ast::TypedExpr;
 use continuum_kernel_types::ValueType;
 
 /// Extracts the [`KernelType`] from a typed argument at the specified index.
@@ -92,6 +92,64 @@ pub fn derive_return_type(
         ShapeDerivation::SameAs(idx) => {
             let kt = get_kernel_arg(args, *idx, span, "shape")?;
             (kt.shape.clone(), kt.bounds.clone())
+        }
+        ShapeDerivation::VectorDim(dim_constraint) => {
+            use continuum_cdsl_ast::DimConstraint;
+            let dim = match dim_constraint {
+                DimConstraint::Exact(d) => *d,
+                DimConstraint::Any => {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::UnsupportedDSLFeature,
+                        span,
+                        "VectorDim(Any) requires exact dimension for return type".to_string(),
+                    )]);
+                }
+                DimConstraint::Var(_) => {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::UnsupportedDSLFeature,
+                        span,
+                        "VectorDim(Var) not yet supported for return types".to_string(),
+                    )]);
+                }
+            };
+            if dim < 2 || dim > 4 {
+                return Err(vec![CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    span,
+                    format!(
+                        "vector dimension {} not supported (must be 2, 3, or 4)",
+                        dim
+                    ),
+                )]);
+            }
+            (Shape::Vector { dim }, None)
+        }
+        ShapeDerivation::MatrixDims { rows, cols } => {
+            use continuum_cdsl_ast::DimConstraint;
+            let (r, c) = match (rows, cols) {
+                (DimConstraint::Exact(r), DimConstraint::Exact(c)) => (*r, *c),
+                _ => {
+                    return Err(vec![CompileError::new(
+                        ErrorKind::UnsupportedDSLFeature,
+                        span,
+                        format!(
+                            "MatrixDims requires exact dimensions, got rows={:?} cols={:?}",
+                            rows, cols
+                        ),
+                    )]);
+                }
+            };
+            if r < 2 || r > 4 || c < 2 || c > 4 {
+                return Err(vec![CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    span,
+                    format!(
+                        "matrix dimensions {}x{} not supported (must be 2-4 x 2-4)",
+                        r, c
+                    ),
+                )]);
+            }
+            (Shape::Matrix { rows: r, cols: c }, None)
         }
         _ => {
             return Err(vec![CompileError::new(
