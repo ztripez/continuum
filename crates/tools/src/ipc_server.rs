@@ -242,6 +242,56 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
                 },
             }
         }
+        "signal.describe" => {
+            let signal_id = match req.payload.get("signal_id").and_then(|v| v.as_str()) {
+                Some(id) => id,
+                None => {
+                    return WorldResponse {
+                        id: req.id,
+                        ok: false,
+                        payload: None,
+                        error: Some("Missing 'signal_id' parameter".to_string()),
+                    };
+                }
+            };
+
+            match state.compiled.world.globals.iter().find(|(path, node)| {
+                path.to_string() == signal_id && node.role_id() == RoleId::Signal
+            }) {
+                Some((path, node)) => {
+                    let info = SignalInfo {
+                        id: path.to_string(),
+                        title: node.title.clone(),
+                        symbol: None,
+                        doc: node.doc.clone(),
+                        value_type: node.output.as_ref().map(|t| t.to_string()),
+                        unit: None,
+                        range: None,
+                        stratum: node.stratum.as_ref().map(|s| s.to_string()),
+                    };
+                    match serde_json::to_value(info) {
+                        Ok(payload) => WorldResponse {
+                            id: req.id,
+                            ok: true,
+                            payload: Some(payload),
+                            error: None,
+                        },
+                        Err(e) => WorldResponse {
+                            id: req.id,
+                            ok: false,
+                            payload: None,
+                            error: Some(format!("Serialization error: {}", e)),
+                        },
+                    }
+                }
+                None => WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some(format!("Signal '{}' not found", signal_id)),
+                },
+            }
+        }
         "field.list" => {
             let fields: Vec<_> = state
                 .compiled
@@ -276,6 +326,77 @@ fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
                     payload: None,
                     error: Some(format!("Serialization error: {}", e)),
                 },
+            }
+        }
+        "field.describe" => {
+            let field_id = match req.payload.get("field_id").and_then(|v| v.as_str()) {
+                Some(id) => id,
+                None => {
+                    return WorldResponse {
+                        id: req.id,
+                        ok: false,
+                        payload: None,
+                        error: Some("Missing 'field_id' parameter".to_string()),
+                    };
+                }
+            };
+
+            match state.compiled.world.globals.iter().find(|(path, node)| {
+                path.to_string() == field_id && node.role_id() == RoleId::Field
+            }) {
+                Some((path, node)) => {
+                    let info = FieldInfo {
+                        id: path.to_string(),
+                        title: node.title.clone(),
+                        symbol: None,
+                        doc: node.doc.clone(),
+                        topology: None,
+                        value_type: node.output.as_ref().map(|t| t.to_string()),
+                        unit: None,
+                        range: None,
+                    };
+                    match serde_json::to_value(info) {
+                        Ok(payload) => WorldResponse {
+                            id: req.id,
+                            ok: true,
+                            payload: Some(payload),
+                            error: None,
+                        },
+                        Err(e) => WorldResponse {
+                            id: req.id,
+                            ok: false,
+                            payload: None,
+                            error: Some(format!("Serialization error: {}", e)),
+                        },
+                    }
+                }
+                None => WorldResponse {
+                    id: req.id,
+                    ok: false,
+                    payload: None,
+                    error: Some(format!("Field '{}' not found", field_id)),
+                },
+            }
+        }
+        "entity.describe" => {
+            let entity_id = match req.payload.get("entity_id").and_then(|v| v.as_str()) {
+                Some(id) => id,
+                None => {
+                    return WorldResponse {
+                        id: req.id,
+                        ok: false,
+                        payload: None,
+                        error: Some("Missing 'entity_id' parameter".to_string()),
+                    };
+                }
+            };
+
+            // POC doesn't have entities, return not found
+            WorldResponse {
+                id: req.id,
+                ok: false,
+                payload: None,
+                error: Some(format!("Entity '{}' not found", entity_id)),
             }
         }
         "impulse.list" => {
