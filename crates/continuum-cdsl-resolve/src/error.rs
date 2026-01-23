@@ -543,7 +543,7 @@ impl<'a> DiagnosticFormatter<'a> {
         output
     }
 
-    /// Formats multiple diagnostics.
+    /// Formats multiple diagnostics with a summary line at the end.
     ///
     /// # Parameters
     ///
@@ -551,7 +551,8 @@ impl<'a> DiagnosticFormatter<'a> {
     ///
     /// # Returns
     ///
-    /// Formatted string with all diagnostics separated by blank lines.
+    /// Formatted string with all diagnostics separated by blank lines,
+    /// followed by a summary line showing error and warning counts.
     ///
     /// # Examples
     /// ```rust
@@ -572,11 +573,42 @@ impl<'a> DiagnosticFormatter<'a> {
     /// assert!(output.contains("undefined"));
     /// ```
     pub fn format_all(&self, errors: &[CompileError]) -> String {
-        errors
+        let mut output = errors
             .iter()
             .map(|e| self.format(e))
             .collect::<Vec<_>>()
-            .join("\n")
+            .join("\n");
+
+        // Add summary line
+        if !errors.is_empty() {
+            let error_count = errors
+                .iter()
+                .filter(|e| e.severity == Severity::Error)
+                .count();
+            let warning_count = errors
+                .iter()
+                .filter(|e| e.severity == Severity::Warning)
+                .count();
+
+            output.push('\n');
+            if warning_count > 0 {
+                output.push_str(&format!(
+                    "compilation failed: {} error{}, {} warning{}\n",
+                    error_count,
+                    if error_count == 1 { "" } else { "s" },
+                    warning_count,
+                    if warning_count == 1 { "" } else { "s" }
+                ));
+            } else {
+                output.push_str(&format!(
+                    "compilation failed: {} error{}\n",
+                    error_count,
+                    if error_count == 1 { "" } else { "s" }
+                ));
+            }
+        }
+
+        output
     }
 }
 
