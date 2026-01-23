@@ -84,7 +84,8 @@ pub(crate) fn flatten_entity_members(
             flattened.push(decl.clone());
 
             // Extract stratum from entity attributes (if present)
-            let entity_stratum = extract_stratum_from_attributes(&entity.attributes);
+            let entity_stratum =
+                extract_stratum_from_attributes(&entity.attributes, entity.span, errors);
 
             // Flatten each nested member
             for member in &entity.members {
@@ -132,14 +133,29 @@ pub(crate) fn flatten_entity_members(
 /// This function is phase-boundary safe: it operates on untyped AST before the type
 /// resolution pass, extracting only syntactic information from attribute arguments.
 ///
+/// # Fail-Hard Behavior
+///
+/// This function follows the fail-hard principle:
+/// - Malformed `:stratum` attributes emit errors immediately (wrong argument type, missing args)
+/// - Returns `None` only when no `:stratum` attribute exists (legitimate absence)
+/// - Never silently discards invalid input
+///
 /// # Parameters
 ///
 /// * `attrs` - Attribute slice to search for `:stratum` attribute
+/// * `context_span` - Span of the entity/member for error reporting
+/// * `errors` - Error accumulator for malformed attributes
 ///
 /// # Returns
 ///
-/// - `Some(Path)`: Stratum path extracted from first `:stratum(...)` attribute argument
-/// - `None`: No stratum attribute found OR attribute has no arguments OR argument is not a path expression
+/// - `Some(Path)`: Stratum path extracted from valid `:stratum(...)` attribute
+/// - `None`: No stratum attribute found (legitimate - not an error)
+///
+/// # Errors
+///
+/// Emits `CompileError` for:
+/// - `:stratum` attribute with no arguments
+/// - `:stratum` attribute with non-path argument (e.g., `:stratum(42)`)
 ///
 /// # Examples
 ///
@@ -153,24 +169,95 @@ pub(crate) fn flatten_entity_members(
 ///     span,
 /// }];
 ///
-/// let stratum = extract_stratum_from_attributes(&attrs);
+/// let mut errors = Vec::new();
+/// let stratum = extract_stratum_from_attributes(&attrs, span, &mut errors);
 /// assert_eq!(stratum, Some(Path::from_path_str("thermal")));
+/// assert!(errors.is_empty());
 /// ```
 ///
 /// # Why Local and Signal?
 ///
 /// Parser emits `Local("name")` for bare identifiers, `Signal(path)` for dotted paths.
 /// Type resolution hasn't run yet, so we accept both syntactic forms.
-fn extract_stratum_from_attributes(attrs: &[Attribute]) -> Option<Path> {
-    attrs
-        .iter()
-        .find(|a| a.name == "stratum")
-        .and_then(|a| a.args.first())
-        .and_then(|arg| match &arg.kind {
-            UntypedKind::Signal(path) => Some(path.clone()),
-            UntypedKind::Local(name) => Some(Path::from_path_str(name)),
-            _ => None,
-        })
+fn extract_stratum_from_attributes(
+    attrs: &[Attribute],
+    context_span: continuum_cdsl_ast::foundation::Span,
+    errors: &mut Vec<CompileError>,
+) -> Option<Path> {
+    let stratum_attr = attrs.iter().find(|a| a.name == "stratum")?;
+
+    // Check if attribute has arguments
+    let arg = match stratum_attr.args.first() {
+        Some(arg) => arg,
+        None => {
+            errors.push(CompileError::new(
+                crate::error::ErrorKind::Syntax,
+                stratum_attr.span,
+                ":stratum attribute requires a path argument (e.g., :stratum(thermal))".to_string(),
+            ));
+            return None;
+        }
+    };
+
+    // Extract path from argument expression
+    match &arg.kind {
+        UntypedKind::Signal(path) => Some(path.clone()),
+        UntypedKind::Local(name) => Some(Path::from_path_str(name)),
+        _ => {
+            errors.push(
+                CompileError::new(
+                    crate::error::ErrorKind::Syntax,
+                    arg.span,
+                    format!(
+                        ":stratum argument must be a path, found {}",
+                        describe_expr_kind(&arg.kind)
+                    ),
+                )
+                .with_label(
+                    context_span,
+                    "in this entity or member declaration".to_string(),
+                ),
+            );
+            None
+        }
+    }
+}
+
+/// Describes an expression kind for error messages.
+fn describe_expr_kind(kind: &UntypedKind) -> &'static str {
+    match kind {
+        UntypedKind::Literal { .. } => "literal value",
+        UntypedKind::BoolLiteral(_) => "boolean",
+        UntypedKind::StringLiteral(_) => "string",
+        UntypedKind::Vector(_) => "vector",
+        UntypedKind::Signal(_) => "signal path",
+        UntypedKind::Field(_) => "field path",
+        UntypedKind::Config(_) => "config path",
+        UntypedKind::Const(_) => "const path",
+        UntypedKind::Local(_) => "local variable",
+        UntypedKind::Binary { .. } => "binary operation",
+        UntypedKind::Unary { .. } => "unary operation",
+        UntypedKind::Call { .. } | UntypedKind::KernelCall { .. } => "function call",
+        UntypedKind::Let { .. } => "let binding",
+        UntypedKind::If { .. } => "if expression",
+        UntypedKind::Aggregate { .. } => "aggregate expression",
+        UntypedKind::Fold { .. } => "fold expression",
+        UntypedKind::Struct { .. } => "struct literal",
+        UntypedKind::FieldAccess { .. } => "field access",
+        UntypedKind::Entity(_) => "entity reference",
+        UntypedKind::Nearest { .. } => "nearest query",
+        UntypedKind::Within { .. } => "within query",
+        UntypedKind::Filter { .. } => "filter query",
+        UntypedKind::OtherInstances(_) => "other instances",
+        UntypedKind::PairsInstances(_) => "pairs instances",
+        UntypedKind::Prev => "prev",
+        UntypedKind::Current => "current",
+        UntypedKind::Inputs => "inputs",
+        UntypedKind::Self_ => "self",
+        UntypedKind::Other => "other",
+        UntypedKind::Payload => "payload",
+        UntypedKind::ParseError(_) => "parse error",
+    }
 }
 
 /// Returns true if attribute list contains a `:stratum` attribute.
@@ -279,8 +366,11 @@ mod tests {
 
         if let Declaration::Member(member) = &flattened[1] {
             assert!(has_stratum_attribute(&member.attributes));
-            let stratum = extract_stratum_from_attributes(&member.attributes);
+            let mut test_errors = Vec::new();
+            let stratum =
+                extract_stratum_from_attributes(&member.attributes, span, &mut test_errors);
             assert_eq!(stratum, Some(Path::from_path_str("fast")));
+            assert!(test_errors.is_empty());
         } else {
             panic!("Expected Declaration::Member");
         }
@@ -325,8 +415,11 @@ mod tests {
         let flattened = flatten_entity_members(declarations, &mut errors);
 
         if let Declaration::Member(member) = &flattened[1] {
-            let stratum = extract_stratum_from_attributes(&member.attributes);
+            let mut test_errors = Vec::new();
+            let stratum =
+                extract_stratum_from_attributes(&member.attributes, span, &mut test_errors);
             assert_eq!(stratum, Some(Path::from_path_str("slow")));
+            assert!(test_errors.is_empty());
 
             let stratum_count = member
                 .attributes
@@ -353,5 +446,62 @@ mod tests {
         assert_eq!(flattened.len(), 1);
         assert!(matches!(flattened[0], Declaration::Entity(_)));
         assert!(errors.is_empty());
+    }
+
+    #[test]
+    fn test_extract_stratum_malformed_no_args() {
+        let span = test_span();
+        let attrs = vec![Attribute {
+            name: "stratum".to_string(),
+            args: vec![],
+            span,
+        }];
+
+        let mut errors = Vec::new();
+        let stratum = extract_stratum_from_attributes(&attrs, span, &mut errors);
+
+        assert_eq!(stratum, None);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0]
+            .message
+            .contains(":stratum attribute requires a path argument"));
+    }
+
+    #[test]
+    fn test_extract_stratum_malformed_wrong_type() {
+        let span = test_span();
+        let attrs = vec![Attribute {
+            name: "stratum".to_string(),
+            args: vec![Expr::new(
+                continuum_cdsl_ast::UntypedKind::Literal {
+                    value: 42.0,
+                    unit: None,
+                },
+                span,
+            )],
+            span,
+        }];
+
+        let mut errors = Vec::new();
+        let stratum = extract_stratum_from_attributes(&attrs, span, &mut errors);
+
+        assert_eq!(stratum, None);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0]
+            .message
+            .contains(":stratum argument must be a path"));
+        assert!(errors[0].message.contains("literal value"));
+    }
+
+    #[test]
+    fn test_extract_stratum_no_attribute() {
+        let span = test_span();
+        let attrs = vec![];
+
+        let mut errors = Vec::new();
+        let stratum = extract_stratum_from_attributes(&attrs, span, &mut errors);
+
+        assert_eq!(stratum, None);
+        assert!(errors.is_empty()); // No attribute is not an error
     }
 }
