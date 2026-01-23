@@ -7,8 +7,8 @@
 //! - **Overflow protection** - Checked arithmetic for dimensional exponents.
 
 use crate::error::{CompileError, ErrorKind};
-use continuum_cdsl_ast::UnitExpr;
 use continuum_cdsl_ast::foundation::{Span, Unit, UnitDimensions, UnitKind};
+use continuum_cdsl_ast::UnitExpr;
 
 /// Resolves a parsed [`UnitExpr`] into a semantic [`Unit`].
 ///
@@ -272,5 +272,72 @@ mod tests {
         let err = multiply_units(&right, &right, span).unwrap_err();
         assert_eq!(err.kind, ErrorKind::InvalidUnit);
         assert!(err.message.contains("overflow"));
+    }
+
+    #[test]
+    fn test_unit_power_zero() {
+        // Zero power should produce dimensionless unit
+        let m = Unit::meters();
+        let result = power_unit(&m, 0, test_span()).unwrap();
+        assert_eq!(result, Unit::DIMENSIONLESS);
+        assert_eq!(result.dims().length, 0);
+        assert_eq!(result.dims().mass, 0);
+    }
+
+    #[test]
+    fn test_unit_power_negative() {
+        // Negative power should invert dimensions
+        let m = Unit::meters();
+        let result = power_unit(&m, -1, test_span()).unwrap();
+        assert_eq!(result.dims().length, -1);
+
+        // m^-2 should give length = -2
+        let result2 = power_unit(&m, -2, test_span()).unwrap();
+        assert_eq!(result2.dims().length, -2);
+    }
+
+    #[test]
+    fn test_multiply_non_multiplicative_unit_fails() {
+        // Attempting to multiply affine units should fail
+        let span = test_span();
+        let affine = Unit::new(
+            UnitKind::Affine { offset: 273.15 },
+            UnitDimensions::DIMENSIONLESS,
+        );
+        let mult = Unit::meters();
+
+        let err = multiply_units(&affine, &mult, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("non-multiplicative") || err.message.contains("affine"));
+    }
+
+    #[test]
+    fn test_divide_non_multiplicative_unit_fails() {
+        // Attempting to divide affine units should fail
+        let span = test_span();
+        let affine = Unit::new(
+            UnitKind::Affine { offset: 273.15 },
+            UnitDimensions::DIMENSIONLESS,
+        );
+        let mult = Unit::meters();
+
+        let err = divide_units(&affine, &mult, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("non-multiplicative") || err.message.contains("affine"));
+
+        // Also test numerator being affine
+        let err2 = divide_units(&mult, &affine, span).unwrap_err();
+        assert_eq!(err2.kind, ErrorKind::InvalidUnit);
+    }
+
+    #[test]
+    fn test_power_non_multiplicative_unit_fails() {
+        // Attempting to raise affine unit to power should fail
+        let span = test_span();
+        let affine = Unit::new(UnitKind::Affine { offset: 273.15 }, UnitDimensions::METER);
+
+        let err = power_unit(&affine, 2, span).unwrap_err();
+        assert_eq!(err.kind, ErrorKind::InvalidUnit);
+        assert!(err.message.contains("non-multiplicative") || err.message.contains("affine"));
     }
 }
