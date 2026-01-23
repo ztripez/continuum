@@ -139,6 +139,9 @@ impl<'src> TokenStream<'src> {
     /// Synchronize to the next declaration keyword for error recovery.
     ///
     /// Skips tokens until we find a declaration keyword or EOF.
+    ///
+    /// Note: `Member` is intentionally excluded - it's deprecated syntax that
+    /// should be skipped during error recovery, not treated as a valid declaration.
     pub fn synchronize(&mut self) {
         while !self.at_end() {
             match self.peek() {
@@ -149,8 +152,8 @@ impl<'src> TokenStream<'src> {
                 | Some(Token::Impulse)
                 | Some(Token::Fracture)
                 | Some(Token::Chronicle)
+                | Some(Token::Analyzer)
                 | Some(Token::Entity)
-                | Some(Token::Member)
                 | Some(Token::Strata)
                 | Some(Token::Era)
                 | Some(Token::Type)
