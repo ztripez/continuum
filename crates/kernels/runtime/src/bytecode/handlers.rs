@@ -617,20 +617,6 @@ pub(crate) fn handle_load_dt(
     handle_load_ctx(runtime, ctx, |ctx| ctx.load_dt())
 }
 
-/// Loads collected signal inputs (synonym for accumulated inputs).
-///
-/// This is an alias for `handle_load_inputs` - both the DSL keywords `inputs`
-/// and `collected` refer to the same accumulated signal contributions from the
-/// Collect phase. The distinction in the DSL is historical/semantic only.
-pub(crate) fn handle_load_collected(
-    _instruction: &Instruction,
-    runtime: &mut dyn ExecutionRuntime,
-    _program: &BytecodeProgram,
-    ctx: &mut dyn ExecutionContext,
-) -> Result<(), ExecutionError> {
-    handle_load_ctx(runtime, ctx, |ctx| ctx.load_collected())
-}
-
 /// Loads the identity of the current entity instance.
 ///
 /// # Stack

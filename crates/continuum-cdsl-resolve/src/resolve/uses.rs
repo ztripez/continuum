@@ -206,9 +206,6 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
                 }
             }
 
-            // Collected - no special use requirements
-            ExprKind::Collected => {}
-
             // Other leaf nodes and containers that don't require specific uses
             ExprKind::Literal { .. }
             | ExprKind::StringLiteral(_)
@@ -344,9 +341,6 @@ fn collect_required_uses_untyped(
         UntypedKind::Unary { operand, .. } => {
             collect_required_uses_untyped(operand, registry, required);
         }
-
-        // Collected - no special use requirements
-        UntypedKind::Collected => {}
 
         // Recurse into subexpressions
         UntypedKind::Let { value, body, .. } => {

@@ -438,7 +438,7 @@ signal terra.geophysics.core.temp_k {
 - `const.path` — read constants
 - `config.path` — read configuration
 - `dt.raw` — timestep (prefer dt-robust operators, see @dsl/dt-robust.md)
-- `collected` — accumulated inputs from Collect phase
+- `inputs` — accumulated inputs from Collect phase
 - `namespace.fn(...)` — engine-provided functions (e.g. `maths.*`, `vector.*`, `dt.*`, `physics.*`)
 - `let name = expr in body` — local bindings (ML-style)
 
@@ -463,7 +463,7 @@ signal terra.thermal.equilibrium {
   }
 
   resolve {
-    prev + collected * dt
+    prev + inputs * dt
   }
 }
 ```
@@ -801,15 +801,15 @@ prev.y
 prev.z
 prev.w
 
-collected.x         // Component of accumulated inputs
-collected.y
+inputs.x         // Component of accumulated inputs
+inputs.y
 
 signal path.x       // Component of another signal
 signal path.y
 signal path.z
 ```
 
-These patterns work because `prev`, `collected`, and `signal.path` are statically known
+These patterns work because `prev`, `inputs`, and `signal.path` are statically known
 to refer to resolved storage locations.
 
 ### Unsupported Patterns
@@ -851,7 +851,7 @@ signal velocity_z { resolve { ... } }
 ```
 
 The compiler expands vector signal resolve blocks into per-component scalar expressions
-at compile time, so component access on `prev`, `collected`, and `signal.path` is
+at compile time, so component access on `prev`, `inputs`, and `signal.path` is
 resolved statically without runtime overhead.
 
 ---

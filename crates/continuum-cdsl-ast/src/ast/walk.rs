@@ -149,7 +149,6 @@ where
         | ExprKind::Prev
         | ExprKind::Current
         | ExprKind::Inputs
-        | ExprKind::Collected
         | ExprKind::Self_
         | ExprKind::Other
         | ExprKind::Payload

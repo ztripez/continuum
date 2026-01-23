@@ -459,7 +459,7 @@ config {
 }
 
 resolve {
-    maths.clamp(prev + collected, 0.0 <W>, config.max_power)
+    maths.clamp(prev + inputs, 0.0 <W>, config.max_power)
 }
 ```
 

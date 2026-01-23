@@ -290,11 +290,6 @@ impl Compiler {
                     .instructions
                     .push(Instruction::new(OpcodeKind::LoadInputs, vec![]));
             }
-            ExprKind::Collected => {
-                block
-                    .instructions
-                    .push(Instruction::new(OpcodeKind::LoadCollected, vec![]));
-            }
             ExprKind::Self_ => {
                 block
                     .instructions

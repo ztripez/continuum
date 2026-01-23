@@ -214,7 +214,6 @@ fn scan_for_effect_violations(
         | ExprKind::Prev
         | ExprKind::Current
         | ExprKind::Inputs
-        | ExprKind::Collected
         | ExprKind::Self_
         | ExprKind::Other
         | ExprKind::Payload

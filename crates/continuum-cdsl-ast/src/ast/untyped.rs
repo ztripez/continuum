@@ -103,7 +103,7 @@ impl Expr {
     /// Attempt to interpret this expression as a static [`Path`].
     ///
     /// Succeeds if the expression is a [`Local`] identifier, a keyword expression
-    /// (Prev, Current, Inputs, Dt, Collected, Self_, Payload), or a chain of [`FieldAccess`]
+    /// (Prev, Current, Inputs, Dt, Self_, Payload), or a chain of [`FieldAccess`]
     /// operations on a path.
     pub fn as_path(&self) -> Option<Path> {
         match &self.kind {
@@ -112,7 +112,6 @@ impl Expr {
             ExprKind::Prev => Some(Path::from("prev")),
             ExprKind::Current => Some(Path::from("current")),
             ExprKind::Inputs => Some(Path::from("inputs")),
-            ExprKind::Collected => Some(Path::from("collected")),
             ExprKind::Self_ => Some(Path::from("self")),
             ExprKind::Payload => Some(Path::from("payload")),
             ExprKind::FieldAccess { object, field } => {
@@ -396,20 +395,6 @@ pub enum ExprKind {
     /// inputs
     /// ```
     Inputs,
-
-    /// Collected signal inputs
-    ///
-    /// Available in signal resolve blocks. Represents the sum of all inputs
-    /// collected from impulses and fractures during the collect phase.
-    ///
-    /// # Examples
-    ///
-    /// ```cdsl
-    /// resolve {
-    ///     prev + collected
-    /// }
-    /// ```
-    Collected,
 
     /// Current entity instance
     ///
@@ -1077,12 +1062,6 @@ mod tests {
     fn expr_kind_inputs() {
         let expr = Expr::new(ExprKind::Inputs, make_span());
         assert!(matches!(expr.kind, ExprKind::Inputs));
-    }
-
-    #[test]
-    fn expr_kind_dt() {
-        let expr = Expr::new(ExprKind::Collected, make_span());
-        assert!(matches!(expr.kind, ExprKind::Collected));
     }
 
     #[test]

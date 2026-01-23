@@ -94,7 +94,6 @@ impl ExpressionVisitor for DependencyVisitor {
             | ExprKind::Local(_)
             | ExprKind::Current
             | ExprKind::Inputs
-            | ExprKind::Collected
             | ExprKind::Self_
             | ExprKind::Other
             | ExprKind::Payload

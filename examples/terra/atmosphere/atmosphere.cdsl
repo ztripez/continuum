@@ -113,7 +113,7 @@ signal atmosphere.external_power {
     resolve {
         # Ephemeral signal - sum of all external radiative inputs
         # On first tick before fractures emit, use default Earth-like value
-        if collected > 0.0 { collected } else { config.atmosphere.external_power.default_power }
+        if inputs > 0.0 { inputs } else { config.atmosphere.external_power.default_power }
     }
 
     assert {
@@ -239,9 +239,9 @@ signal atmosphere.co2_ppmv {
     resolve {
         # CO2 equilibrates through volcanic sources, weathering sinks, ocean exchange
         # For geological timescales (dt >> tau), use relaxation toward equilibrium
-        # collected contains equilibrium CO2 targets from fractures
+        # inputs contains equilibrium CO2 targets from fractures
         # If no fractures emit, maintain previous value
-        let equilibrium = if collected > 0.0 { collected } else { prev } in
+        let equilibrium = if inputs > 0.0 { inputs } else { prev } in
         let relaxed = dt.relax(prev, equilibrium, config.atmosphere.co2_ppmv.relaxation_tau_s) in
         maths.clamp(relaxed, config.atmosphere.co2_ppmv.min, config.atmosphere.co2_ppmv.max)
     }
@@ -273,8 +273,8 @@ signal atmosphere.ch4_ppmv {
     resolve {
         # Methane equilibrates rapidly due to short atmospheric lifetime
         # For geological timescales, it's essentially at equilibrium each tick
-        # collected contains equilibrium CH4 from biogenic/volcanic sources
-        let equilibrium = if collected > 0.0 { collected } else { prev } in
+        # inputs contains equilibrium CH4 from biogenic/volcanic sources
+        let equilibrium = if inputs > 0.0 { inputs } else { prev } in
         let relaxed = dt.relax(prev, equilibrium, config.atmosphere.ch4_ppmv.relaxation_tau_s) in
         maths.clamp(relaxed, config.atmosphere.ch4_ppmv.min, config.atmosphere.ch4_ppmv.max)
     }
@@ -308,7 +308,7 @@ signal atmosphere.cloud_cover {
         let water_vapor = signal.atmosphere.water_vapor in
         let cloud_potential = (water_vapor - config.atmosphere.cloud_cover.min_water_vapor) /
                              (config.atmosphere.cloud_cover.saturation_water_vapor - config.atmosphere.cloud_cover.min_water_vapor) in
-        maths.clamp(cloud_potential + collected, 0.0, 1.0)
+        maths.clamp(cloud_potential + inputs, 0.0, 1.0)
     }
 
     assert {
@@ -338,7 +338,7 @@ signal atmosphere.tau_greenhouse {
         let co2_contribution = (signal.atmosphere.co2_ppmv - const.atmosphere.co2_ref_ppmv) * config.atmosphere.tau_greenhouse.co2_sensitivity in
         let wv_contribution = signal.atmosphere.water_vapor * config.atmosphere.tau_greenhouse.water_vapor_sensitivity in
 
-        config.atmosphere.tau_greenhouse.base_tau + co2_contribution + wv_contribution + collected
+        config.atmosphere.tau_greenhouse.base_tau + co2_contribution + wv_contribution + inputs
     }
 
     assert {
@@ -366,7 +366,7 @@ signal atmosphere.pressure {
         # P = (M_atm * g) / (4 * π * R²)
         # Simplified: use configured initial pressure with mass ratio
         let mass_ratio = config.atmosphere.pressure.total_mass_kg / 5.15e18 in
-        config.atmosphere.pressure.reference_pressure_pa * mass_ratio + collected
+        config.atmosphere.pressure.reference_pressure_pa * mass_ratio + inputs
     }
 
     assert {
@@ -459,7 +459,7 @@ signal atmosphere.albedo {
                              + clear_frac * surface_albedo in
 
         # Physical constraint: reflectivity must be [0, 1]
-        maths.clamp(planetary_albedo + collected, 0.0, 1.0)
+        maths.clamp(planetary_albedo + inputs, 0.0, 1.0)
     }
 
     assert {
@@ -486,7 +486,7 @@ signal atmosphere.solar_constant {
     resolve {
         # Ephemeral signal - receives flux from stellar domain coupling
         # Default to reference value if no external input
-        if collected > 0.0 { collected } else { config.atmosphere.solar_constant.reference_flux }
+        if inputs > 0.0 { inputs } else { config.atmosphere.solar_constant.reference_flux }
     }
 
     assert {
@@ -506,7 +506,7 @@ signal atmosphere.absorbed_radiation {
         # Factor of 4: sphere receives radiation on disk area (πR²) but radiates from full surface (4πR²)
         let solar = signal.atmosphere.solar_constant in
         let albedo = signal.atmosphere.albedo in
-        solar * (1.0 - albedo) / 4.0 + collected
+        solar * (1.0 - albedo) / 4.0 + inputs
     }
 
     assert {

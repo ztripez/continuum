@@ -1045,7 +1045,7 @@ Equivalent to: `clamp(prev + delta, min, max)`.
 signal terra.atmosphere.co2 {
   : Scalar<ppm>
   resolve {
-    dt.accumulate(prev, collected.delta, 0 <ppm>, 1000000 <ppm>)
+    dt.accumulate(prev, inputs.delta, 0 <ppm>, 1000000 <ppm>)
   }
 }
 ```

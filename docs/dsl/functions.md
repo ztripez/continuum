@@ -163,7 +163,7 @@ signal terra.atmosphere.co2 {
   : strata(terra.atmosphere)
 
   resolve {
-    dt.accumulate(prev, collected, 0, 1000000)
+    dt.accumulate(prev, inputs, 0, 1000000)
   }
 }
 ```

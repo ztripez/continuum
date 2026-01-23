@@ -37,7 +37,6 @@ pub fn keyword_to_string(token: &Token) -> Option<String> {
         Token::Signal => Some("signal".to_string()),
         Token::Field => Some("field".to_string()),
         Token::Entity => Some("entity".to_string()),
-        Token::Collected => Some("collected".to_string()),
         Token::Strata => Some("strata".to_string()),
         Token::Type => Some("type".to_string()),
         _ => None,

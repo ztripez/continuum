@@ -259,15 +259,6 @@ fn scan_for_capability_violations(
             }
         }
 
-        ExprKind::Collected => {
-            // Collected provides access to accumulated signal inputs during Resolve phase.
-            // This requires Capability::Inputs, which is checked implicitly via the type system:
-            // - ctx.node_output must be Some() (only set in signal resolve blocks)
-            // - Type checker enforces this in expr_typing/mod.rs:122-125
-            // - Resolve phase automatically grants Capability::Inputs
-            // No additional check needed here.
-        }
-
         ExprKind::Payload => {
             if !ctx.has_capability(Capability::Payload) {
                 errors.push(CompileError::new(

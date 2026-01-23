@@ -789,13 +789,6 @@ mod tests {
     }
 
     #[test]
-    fn test_try_extract_path_keyword_collected() {
-        let expr = make_keyword(UntypedKind::Collected);
-        let path = try_extract_path(&expr);
-        assert_eq!(path, None);
-    }
-
-    #[test]
     fn test_try_extract_path_keyword_field_access() {
         // prev.temperature should not be treated as bare path
         let expr = make_field_access(make_keyword(UntypedKind::Prev), "temperature");

@@ -117,7 +117,7 @@ signal hydrology.water_mass {
         # Water budget: precipitation - evaporation + external inputs
         # Net rate = (precip - evap) * surface_area
         let net_rate = (signal.hydrology.precipitation_rate - signal.hydrology.evaporation_rate) * 5.1e14 in
-        maths.clamp(dt.integrate(prev, net_rate) + collected, config.hydrology.water_mass.min, config.hydrology.water_mass.max)
+        maths.clamp(dt.integrate(prev, net_rate) + inputs, config.hydrology.water_mass.min, config.hydrology.water_mass.max)
     }
 
     assert {
@@ -144,11 +144,11 @@ signal hydrology.ice_mass {
 
         if phase < 0.5 {
             # Freezing conditions - ice can accumulate
-            prev + collected
+            prev + inputs
         } else {
             # Melting/sublimation conditions - sublimation rate * area
             let sublimation_rate = config.hydrology.ice_mass.sublimation_rate * 1e13 in
-            maths.max(dt.integrate(prev, -sublimation_rate) + collected, 0.0)
+            maths.max(dt.integrate(prev, -sublimation_rate) + inputs, 0.0)
         }
     }
 
@@ -186,10 +186,10 @@ signal hydrology.evaporation_rate {
             let q_sat = 0.622 * e_sat / 101325.0 in  # Mixing ratio at saturation
             let q_air = q_sat * 0.6 in                # Assume 60% RH
             let evap = config.hydrology.evaporation_rate.bulk_transfer * config.hydrology.evaporation_rate.wind_speed * (q_sat - q_air) * 1.2 in
-            maths.clamp(evap + collected, config.hydrology.evaporation_rate.min, config.hydrology.evaporation_rate.max)
+            maths.clamp(evap + inputs, config.hydrology.evaporation_rate.min, config.hydrology.evaporation_rate.max)
         } else {
             # Ice or vapor - reduced/no evaporation
-            collected
+            inputs
         }
     }
 
@@ -220,7 +220,7 @@ signal hydrology.precipitation_rate {
         # Precipitation depends on water vapor availability
         let water_vapor = signal.atmosphere.water_vapor in
         let precip = config.hydrology.precipitation_rate.base_rate + water_vapor * config.hydrology.precipitation_rate.water_vapor_sensitivity in
-        maths.clamp(precip + collected, config.hydrology.precipitation_rate.min, config.hydrology.precipitation_rate.max)
+        maths.clamp(precip + inputs, config.hydrology.precipitation_rate.min, config.hydrology.precipitation_rate.max)
     }
 
     assert {
@@ -252,7 +252,7 @@ signal hydrology.runoff_accumulation {
         let net_water = maths.max(precip - evap, 0.0) in
         let runoff = net_water * config.hydrology.runoff_accumulation.coefficient * 5.1e14 in
 
-        maths.clamp(runoff + collected, config.hydrology.runoff_accumulation.min, config.hydrology.runoff_accumulation.max)
+        maths.clamp(runoff + inputs, config.hydrology.runoff_accumulation.min, config.hydrology.runoff_accumulation.max)
     }
 
     assert {
@@ -284,7 +284,7 @@ signal hydrology.sediment_load {
         let deposition_rate = prev * config.hydrology.sediment_load.deposition_rate in
         let net_rate = erosion_rate - deposition_rate in
 
-        maths.clamp(dt.integrate(prev, net_rate) + collected, 0.0, config.hydrology.sediment_load.max_load)
+        maths.clamp(dt.integrate(prev, net_rate) + inputs, 0.0, config.hydrology.sediment_load.max_load)
     }
 
     assert {
@@ -321,7 +321,7 @@ signal hydrology.chemical_weathering {
         let runoff_factor = 1.0 + runoff * config.hydrology.chemical_weathering.runoff_sensitivity in
         let co2_factor = 1.0 + (co2 - 280.0) * config.hydrology.chemical_weathering.co2_sensitivity in
 
-        maths.clamp(config.hydrology.chemical_weathering.base_rate * temp_factor * runoff_factor * co2_factor + collected, 0.0, 1.0)
+        maths.clamp(config.hydrology.chemical_weathering.base_rate * temp_factor * runoff_factor * co2_factor + inputs, 0.0, 1.0)
     }
 
     assert {
@@ -351,7 +351,7 @@ signal hydrology.water_temperature {
         # Water temperature relaxes toward surface temperature with latitude adjustment
         let surface_temp = signal.surface.temp in
         let target_temp = maths.clamp(surface_temp, config.hydrology.water_temperature.min_temp_k, config.hydrology.water_temperature.max_temp_k) in
-        dt.relax_to(prev, target_temp, config.hydrology.water_temperature.relaxation_tau_s) + collected
+        dt.relax_to(prev, target_temp, config.hydrology.water_temperature.relaxation_tau_s) + inputs
     }
 
     assert {
@@ -383,7 +383,7 @@ signal hydrology.groundwater_saturation {
         let infiltration = signal.hydrology.infiltration_rate in
         let baseflow = signal.hydrology.baseflow_rate in
         let net_rate = (infiltration - baseflow) / config.hydrology.groundwater_saturation.max_capacity_kg_m2 in
-        maths.clamp(dt.integrate(prev, net_rate) + collected, 0.0, 1.0)
+        maths.clamp(dt.integrate(prev, net_rate) + inputs, 0.0, 1.0)
     }
 
     assert {
@@ -413,7 +413,7 @@ signal hydrology.infiltration_rate {
         let available_pore = maths.max(1.0 - saturation, 0.0) * 0.3 in  # porosity = 0.3
         let rate_m_per_s = config.hydrology.infiltration_rate.permeability_m_per_s * available_pore in
         let rate_kg = rate_m_per_s * config.hydrology.infiltration_rate.water_density in
-        maths.clamp(rate_kg + collected, 0.0, config.hydrology.infiltration_rate.max_rate)
+        maths.clamp(rate_kg + inputs, 0.0, config.hydrology.infiltration_rate.max_rate)
     }
 
     assert {
@@ -440,7 +440,7 @@ signal hydrology.baseflow_rate {
         let saturation = signal.hydrology.groundwater_saturation in
         let excess = maths.max(saturation - config.hydrology.baseflow_rate.threshold, 0.0) in
         let rate = excess * config.hydrology.baseflow_rate.coefficient * 1e5 in  # scaled by capacity
-        maths.clamp(rate + collected, 0.0, config.hydrology.baseflow_rate.max_rate)
+        maths.clamp(rate + inputs, 0.0, config.hydrology.baseflow_rate.max_rate)
     }
 
     assert {
@@ -470,7 +470,7 @@ signal hydrology.dissolved_gas {
         let temp = signal.hydrology.water_temperature in
         let temp_factor = maths.exp(config.hydrology.dissolved_gas.temperature_sensitivity * (temp - 288.0)) in
         let equilibrium = config.hydrology.dissolved_gas.initial * temp_factor in
-        dt.relax_to(prev, equilibrium, 3.1536e7) + collected
+        dt.relax_to(prev, equilibrium, 3.1536e7) + inputs
     }
 
     assert {
@@ -497,7 +497,7 @@ signal hydrology.flow_accumulation {
     resolve {
         # Flow accumulation scales with runoff
         let runoff = signal.hydrology.runoff_accumulation in
-        config.hydrology.flow_accumulation.base_value + runoff * config.hydrology.flow_accumulation.runoff_sensitivity + collected
+        config.hydrology.flow_accumulation.base_value + runoff * config.hydrology.flow_accumulation.runoff_sensitivity + inputs
     }
 
     assert {
@@ -917,7 +917,7 @@ member hydrology.cell.water_mass {
     resolve {
         # Water mass changes from precipitation, evaporation, runoff
         # Net rate integrated over time
-        maths.clamp(prev + collected, 0.0, 1e6)
+        maths.clamp(prev + inputs, 0.0, 1e6)
     }
 
     assert {
@@ -946,7 +946,7 @@ member hydrology.cell.temperature {
         # Water temperature relaxes toward surface temperature
         let surface_temp = signal.surface.temp in
         let target_temp = maths.clamp(surface_temp, 271.0, 313.0) in
-        dt.relax_to(prev, target_temp, config.hydrology.cell.temperature.relaxation_tau_s) + collected
+        dt.relax_to(prev, target_temp, config.hydrology.cell.temperature.relaxation_tau_s) + inputs
     }
 
     assert {
@@ -973,7 +973,7 @@ member hydrology.cell.sediment_mass {
 
     resolve {
         # Sediment mass changes via erosion, transport, and deposition
-        maths.clamp(prev + collected, 0.0, config.hydrology.cell.sediment_mass.max_sediment)
+        maths.clamp(prev + inputs, 0.0, config.hydrology.cell.sediment_mass.max_sediment)
     }
 
     assert {

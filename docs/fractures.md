@@ -125,7 +125,7 @@ fracture thermal.coupling {
 
 signal heat {
     resolve {
-        dt.integrate(prev, collected)  # Signal handles dt.raw
+        dt.integrate(prev, inputs)  # Signal handles dt.raw
     }
 }
 ```
@@ -153,8 +153,8 @@ fracture atmosphere.volcanic_co2 {
 
 signal atmosphere.co2_ppmv {
     resolve {
-        # collected contains rates - integrate over dt
-        dt.integrate(prev, collected)
+        # inputs contains rates - integrate over dt
+        dt.integrate(prev, inputs)
     }
 }
 ```
@@ -171,15 +171,15 @@ fracture impact.mass_delivery {
 
 signal atmosphere.dust_mass {
     resolve {
-        # collected contains actual deltas - just add
-        prev + collected
+        # inputs contains actual deltas - just add
+        prev + inputs
     }
 }
 ```
 
 **The key distinction:**
 - If the process is **continuous** and the emission scales with time → emit a **rate**, signal uses `dt.integrate()`
-- If the process is **discrete** and happens instantaneously → emit the **delta**, signal uses `prev + collected`
+- If the process is **discrete** and happens instantaneously → emit the **delta**, signal uses `prev + inputs`
 
 Never use `dt.s()` or `dt.raw` in fracture emit blocks. The signal's resolve block is responsible for dt-correct integration.
 

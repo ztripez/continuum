@@ -177,9 +177,6 @@ pub enum Token {
     /// Keyword `inputs`
     #[token("inputs")]
     Inputs,
-    /// Keyword `collected`
-    #[token("collected")]
-    Collected,
     /// Keyword `payload`
     #[token("payload")]
     Payload,
