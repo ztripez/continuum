@@ -12,15 +12,7 @@ pub(super) fn parse_type_decl(stream: &mut TokenStream) -> Result<Declaration, P
     let start = stream.current_pos();
     stream.expect(Token::Type)?;
 
-    let name = {
-        let span = stream.current_span();
-        match stream.advance() {
-            Some(Token::Ident(s)) => s.clone(),
-            other => {
-                return Err(ParseError::unexpected_token(other, "type name", span));
-            }
-        }
-    };
+    let name = super::super::helpers::expect_ident(stream, "type name")?;
 
     stream.expect(Token::LBrace)?;
 
@@ -28,15 +20,7 @@ pub(super) fn parse_type_decl(stream: &mut TokenStream) -> Result<Declaration, P
 
     while !matches!(stream.peek(), Some(Token::RBrace)) {
         let field_start = stream.current_pos();
-        let field_name = {
-            let span = stream.current_span();
-            match stream.advance() {
-                Some(Token::Ident(s)) => s.clone(),
-                other => {
-                    return Err(ParseError::unexpected_token(other, "field name", span));
-                }
-            }
-        };
+        let field_name = super::super::helpers::expect_ident(stream, "field name")?;
 
         stream.expect(Token::Colon)?;
 

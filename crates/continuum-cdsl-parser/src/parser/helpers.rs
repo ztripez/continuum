@@ -149,3 +149,31 @@ pub fn parse_special_blocks(stream: &mut TokenStream) -> Result<SpecialBlocks, P
         observe,
     })
 }
+
+/// Expects and consumes an identifier token.
+///
+/// This is a common pattern used when parsing names, field names, etc.
+///
+/// # Parameters
+///
+/// - `stream`: Token stream to consume from
+/// - `context`: Description of what identifier is expected (for error messages)
+///
+/// # Returns
+///
+/// - `Ok(String)` with the identifier string if successful
+/// - `Err(ParseError)` if the next token is not an identifier
+///
+/// # Example
+///
+/// ```rust,ignore
+/// let type_name = expect_ident(stream, "type name")?;
+/// let field_name = expect_ident(stream, "field name")?;
+/// ```
+pub fn expect_ident(stream: &mut TokenStream, context: &str) -> Result<String, ParseError> {
+    let span = stream.current_span();
+    match stream.advance() {
+        Some(Token::Ident(s)) => Ok(s.clone()),
+        other => Err(ParseError::unexpected_token(other, context, span)),
+    }
+}

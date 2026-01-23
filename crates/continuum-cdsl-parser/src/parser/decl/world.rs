@@ -130,15 +130,7 @@ fn parse_policy_block(stream: &mut TokenStream) -> Result<WorldPolicy, ParseErro
 
         stream.expect(Token::Colon)?;
 
-        let value = {
-            let span = stream.current_span();
-            match stream.advance() {
-                Some(Token::Ident(val)) => val.clone(),
-                other => {
-                    return Err(ParseError::unexpected_token(other, "policy value", span));
-                }
-            }
-        };
+        let value = super::super::helpers::expect_ident(stream, "policy value")?;
 
         stream.expect(Token::Semicolon)?;
 

@@ -523,19 +523,7 @@ fn parse_let_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Let)?;
 
-    let name = {
-        let span = stream.current_span();
-        match stream.advance() {
-            Some(Token::Ident(s)) => s.clone(),
-            other => {
-                return Err(ParseError::unexpected_token(
-                    other,
-                    "variable name in let",
-                    span,
-                ));
-            }
-        }
-    };
+    let name = super::helpers::expect_ident(stream, "variable name in let")?;
 
     stream.expect(Token::Eq)?;
 

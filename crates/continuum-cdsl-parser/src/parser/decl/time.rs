@@ -109,15 +109,7 @@ fn parse_strata_policy_block(
         let stratum = super::super::types::parse_path(stream)?;
         stream.expect(Token::Colon)?;
 
-        let state_name = {
-            let span = stream.current_span();
-            match stream.advance() {
-                Some(Token::Ident(name)) => name.clone(),
-                other => {
-                    return Err(ParseError::unexpected_token(other, "stratum state", span));
-                }
-            }
-        };
+        let state_name = super::super::helpers::expect_ident(stream, "stratum state")?;
 
         entries.push(StratumPolicyEntry {
             stratum,
