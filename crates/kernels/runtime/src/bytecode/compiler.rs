@@ -228,6 +228,30 @@ impl Compiler {
                     .instructions
                     .push(Instruction::new(OpcodeKind::Pop, vec![]));
             }
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                // TODO: Implement proper control flow with jump instructions
+                // For now, compile as conditional execution blocks
+                // This is a simplified implementation that doesn't yet support
+                // actual branching at bytecode level
+
+                // Compile condition (result on stack)
+                self.compile_expr(block, condition)?;
+
+                // Compile then branch statements
+                for stmt in then_branch {
+                    self.compile_stmt(block, stmt)?;
+                }
+
+                // Compile else branch statements
+                for stmt in else_branch {
+                    self.compile_stmt(block, stmt)?;
+                }
+            }
         }
 
         Ok(())

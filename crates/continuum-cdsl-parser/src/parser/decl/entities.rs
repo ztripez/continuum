@@ -89,7 +89,13 @@ fn parse_entity_member(
     let type_expr = super::super::helpers::try_parse_type_expr(stream)?;
     attributes.extend(super::super::helpers::parse_attributes(stream)?);
 
+    // Skip config/const blocks inside members (not yet implemented in AST)
+    super::skip_nested_config_const(stream)?;
+
     let special = super::super::helpers::parse_special_blocks(stream)?;
+
+    // Skip any additional config/const blocks after special blocks
+    super::skip_nested_config_const(stream)?;
 
     let execution_blocks = super::super::blocks::parse_execution_blocks(stream)?;
     stream.expect(Token::RBrace)?;

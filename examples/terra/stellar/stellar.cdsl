@@ -720,15 +720,15 @@ impulse stellar.impact {
             let mantle_energy = energy_j * config.impulse.stellar.impact.mantle_partition
 
             # Heat deposition into geophysics thermal budget
-            mantle.heat_content <- mantle_energy;
-            surface.temp <- crust_energy / 1.0e20;  # Normalize to temperature increment
+            mantle.heat_content <- mantle_energy
+            surface.temp <- crust_energy / 1.0e20  # Normalize to temperature increment
 
             # Crustal thickening from ejecta/melt redistribution
             let ejecta_thickness = maths.pow(energy_j, 0.333) * config.impulse.stellar.impact.ejecta_thickness_factor
-            crust.thickness <- ejecta_thickness;
+            crust.thickness <- ejecta_thickness
 
             # Large impacts can trigger volcanic activity
-            tectonics.volcanism <- energy_j / 1.0e24;
+            tectonics.volcanism <- energy_j / 1.0e24
 
             # Very large impacts can alter rotation (angular momentum transfer)
             # Delta_omega ~ (m * v * R_impact) / (I_planet) where I ~ M_planet * R²
@@ -796,12 +796,12 @@ impulse stellar.orbital_change {
         # Apply obliquity change (affects seasonal forcing)
         if maths.abs(clamped_dobl) > config.impulse.stellar.orbital_change.min_significant_obliquity {
             rotation.obliquity <- clamped_dobl
-        };
+        }
 
         # Apply precession change (affects seasonal timing relative to perihelion)
         if maths.abs(clamped_dprec) > config.impulse.stellar.orbital_change.min_significant_precession {
             rotation.precession <- clamped_dprec
-        };
+        }
 
         # Apply eccentricity change (affects seasonal strength)
         if maths.abs(clamped_de) > config.impulse.stellar.orbital_change.min_significant_eccentricity {

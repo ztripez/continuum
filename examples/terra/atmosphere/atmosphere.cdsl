@@ -543,7 +543,7 @@ fracture atmosphere.stellar_insolation_coupling {
         # Transfer stellar flux to atmosphere solar constant
         # This replaces the default reference value with actual stellar input
         let flux = stellar.total_insolation
-        atmosphere.solar_constant <- flux;
+        atmosphere.solar_constant <- flux
 
         # Calculate absorbed power accounting for albedo
         # P_absorbed = S * (1 - α) * π * R² (disk area)
@@ -572,7 +572,7 @@ fracture atmosphere.runaway_greenhouse {
     }
 
     collect {
-        atmosphere.water_vapor <- 50.0;
+        atmosphere.water_vapor <- 50.0
         atmosphere.co2_ppmv <- 100.0
     }
 }
@@ -674,7 +674,7 @@ fracture atmosphere.ch4_equilibrium {
             config.fracture.atmosphere.ch4_equilibrium.base_equilibrium_ppmv * 
             (1.0 + config.fracture.atmosphere.ch4_equilibrium.activity_sensitivity * (activity - 1.0)),
             config.fracture.atmosphere.ch4_equilibrium.min_equilibrium_ppmv
-        ) in
+        )
 
         atmosphere.ch4_ppmv <- equilibrium_ppmv
     }

@@ -369,7 +369,7 @@ fn parse_assertion_metadata(
 ///
 /// # Returns
 ///
-/// - `true`: Next tokens form a statement (let-statement or assignment)
+/// - `true`: Next tokens form a statement (let-statement, assignment, or if-statement)
 /// - `false`: Next tokens form an expression (let-expression or function call)
 fn is_statement_start(stream: &TokenStream) -> bool {
     match stream.peek() {
@@ -382,6 +382,12 @@ fn is_statement_start(stream: &TokenStream) -> bool {
             // Single expressions like `maths.abs(x)` should be parsed as BlockBody::Expression
             is_assignment(stream)
         }
+        Some(Token::If) => {
+            // If statements in statement blocks (apply/collect) have statement bodies
+            // Look for patterns that indicate statement bodies inside the if
+            is_if_with_statements(stream)
+        }
+        Some(Token::Emit) => true, // emit is always a statement
         _ => false,
     }
 }
@@ -403,13 +409,8 @@ fn parse_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
         Some(Token::Let) => parse_let_statement(stream),
         Some(Token::Emit) => parse_emit_event_statement(stream),
         Some(Token::If) => {
-            // If statement (parsed as expression, wrapped in Stmt::Expr)
-            let expr = super::expr::parse_expr(stream)?;
-            // Consume optional trailing semicolon
-            if matches!(stream.peek(), Some(Token::Semicolon)) {
-                stream.advance();
-            }
-            Ok(Stmt::Expr(expr))
+            // If statement with statement bodies
+            parse_if_statement(stream)
         }
         Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => {
             // Could be assignment or expression
@@ -541,6 +542,84 @@ fn is_let_expression(stream: &TokenStream) -> bool {
     false
 }
 
+/// Check if an `if` at the current position contains statement-style bodies.
+///
+/// Scans past the condition to find the `{`, then looks at the first token inside
+/// the body to determine if it's a statement (let without in, assignment, or emit).
+fn is_if_with_statements(stream: &TokenStream) -> bool {
+    // Pattern: if <condition> { <body> }
+    // We need to find the { after the condition, then check what's inside
+
+    if !matches!(stream.peek(), Some(Token::If)) {
+        return false;
+    }
+
+    // Skip past 'if' and find the opening brace of the body
+    let mut pos = 1; // Start after 'if'
+    let mut depth = 0;
+    const MAX_LOOKAHEAD: usize = 100;
+
+    // Scan past condition to find `{`
+    while pos < MAX_LOOKAHEAD {
+        match stream.peek_nth(pos) {
+            Some(Token::LParen) | Some(Token::LBracket) => {
+                depth += 1;
+            }
+            Some(Token::RParen) | Some(Token::RBracket) => {
+                if depth > 0 {
+                    depth -= 1;
+                }
+            }
+            Some(Token::LBrace) if depth == 0 => {
+                // Found the body's opening brace
+                // Check what's inside (pos + 1 is first token of body)
+                let body_start = pos + 1;
+                return is_statement_token_at(stream, body_start);
+            }
+            None => return false,
+            _ => {}
+        }
+        pos += 1;
+    }
+
+    false
+}
+
+/// Check if the token at a given position looks like the start of a statement.
+fn is_statement_token_at(stream: &TokenStream, pos: usize) -> bool {
+    match stream.peek_nth(pos) {
+        Some(Token::Let) => {
+            // Check if it's let-statement (no 'in' follows the value)
+            // Simplified: if we see `let ident =` followed eventually by `<-` before `in`, it's a statement
+            // For now, assume let in a body is a statement unless we see strong evidence otherwise
+            true
+        }
+        Some(Token::Emit) => true,
+        Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => {
+            // Check if followed by path and `<-`
+            is_assignment_at(stream, pos)
+        }
+        _ => false,
+    }
+}
+
+/// Check if position starts an assignment: `path <- ...`
+fn is_assignment_at(stream: &TokenStream, start_pos: usize) -> bool {
+    let mut pos = start_pos;
+    const MAX_LOOKAHEAD: usize = 20;
+
+    while pos < start_pos + MAX_LOOKAHEAD {
+        match stream.peek_nth(pos) {
+            Some(Token::Ident(_)) | Some(Token::Dot) | Some(Token::Signal) | Some(Token::Field) => {
+                pos += 1;
+            }
+            Some(Token::LeftArrow) => return true,
+            _ => return false,
+        }
+    }
+    false
+}
+
 /// Check if tokens after 'in' look like an assignment statement.
 ///
 /// Returns true if we see a path followed by `<-`.
@@ -585,6 +664,45 @@ fn parse_let_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
     Ok(Stmt::Let {
         name,
         value,
+        span: stream.span_from(start),
+    })
+}
+
+/// Parse if statement with statement bodies.
+///
+/// Syntax: `if condition { statements } [else { statements }]`
+///
+/// Unlike if-expressions, if-statements have statement bodies and may omit the else branch.
+fn parse_if_statement(stream: &mut TokenStream) -> Result<Stmt, ParseError> {
+    let start = stream.current_pos();
+    stream.expect(Token::If)?;
+
+    let condition = super::expr::parse_expr(stream)?;
+
+    stream.expect(Token::LBrace)?;
+    let then_stmts = parse_statements(stream)?;
+    stream.expect(Token::RBrace)?;
+
+    let else_stmts = if matches!(stream.peek(), Some(Token::Else)) {
+        stream.advance(); // consume 'else'
+
+        if matches!(stream.peek(), Some(Token::If)) {
+            // else if - parse as single if statement
+            vec![parse_if_statement(stream)?]
+        } else {
+            stream.expect(Token::LBrace)?;
+            let stmts = parse_statements(stream)?;
+            stream.expect(Token::RBrace)?;
+            stmts
+        }
+    } else {
+        Vec::new()
+    };
+
+    Ok(Stmt::If {
+        condition,
+        then_branch: then_stmts,
+        else_branch: else_stmts,
         span: stream.span_from(start),
     })
 }

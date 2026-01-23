@@ -183,14 +183,17 @@ pub fn expect_ident(stream: &mut TokenStream, context: &str) -> Result<String, P
 /// This pattern is common in when blocks and transition conditions where multiple
 /// conditions are listed with semicolons between them.
 ///
+/// Parse newline-separated expressions in a `when` block.
+///
 /// # Grammar
 ///
 /// ```text
-/// expr ; expr ; expr
+/// expr
+/// expr
+/// expr
 /// ```
 ///
-/// Note: No trailing semicolon is expected. The list terminates at the first
-/// non-semicolon token (typically `}`).
+/// Expressions are separated by newlines (implicit). The list terminates at `}`.
 ///
 /// # Returns
 ///
@@ -204,20 +207,17 @@ pub fn expect_ident(stream: &mut TokenStream, context: &str) -> Result<String, P
 ///
 /// ```cdsl
 /// when {
-///     signal.temp > 1000 <K>;
-///     signal.pressure < 100 <Pa>;
+///     signal.temp > 1000 <K>
+///     signal.pressure < 100 <Pa>
 ///     signal.active
 /// }
 /// ```
 pub fn parse_semicolon_separated_exprs(stream: &mut TokenStream) -> Result<Vec<Expr>, ParseError> {
     let mut exprs = Vec::new();
-    loop {
-        exprs.push(expr::parse_expr(stream)?);
 
-        if !matches!(stream.peek(), Some(Token::Semicolon)) {
-            break;
-        }
-        stream.advance(); // consume semicolon
+    while !matches!(stream.peek(), Some(Token::RBrace)) {
+        exprs.push(expr::parse_expr(stream)?);
     }
+
     Ok(exprs)
 }

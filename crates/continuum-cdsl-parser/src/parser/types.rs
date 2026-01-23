@@ -167,11 +167,17 @@ fn parse_scalar_type(stream: &mut TokenStream) -> Result<TypeExpr, ParseError> {
     stream.expect(Token::Lt)?;
 
     // Check for dimensionless: <> or <1> or <1, bounds>
+    // But NOT <1/unit> which is a unit expression starting with 1
     let unit = if matches!(stream.peek(), Some(Token::Gt | Token::Comma)) {
         // Empty unit <> or <, ...> = dimensionless
         UnitExpr::Dimensionless
-    } else if matches!(stream.peek(), Some(Token::Integer(n)) if *n == 1) {
-        // Shorthand: <1> = dimensionless
+    } else if matches!(stream.peek(), Some(Token::Integer(n)) if *n == 1)
+        && !matches!(
+            stream.peek_nth(1),
+            Some(Token::Slash) | Some(Token::Star) | Some(Token::Caret)
+        )
+    {
+        // Shorthand: <1> = dimensionless (but not <1/unit> or <1*unit> or <1^n>)
         stream.advance();
         UnitExpr::Dimensionless
     } else {
@@ -362,6 +368,11 @@ fn parse_unit_base(stream: &mut TokenStream) -> Result<UnitExpr, ParseError> {
             let unit_name = name.clone();
             stream.advance();
             Ok(UnitExpr::Base(unit_name.to_string()))
+        }
+        // Handle `1` as dimensionless in unit expressions (e.g., 1/Myr)
+        Some(Token::Integer(n)) if *n == 1 => {
+            stream.advance();
+            Ok(UnitExpr::Dimensionless)
         }
         other => Err(ParseError::unexpected_token(
             other,

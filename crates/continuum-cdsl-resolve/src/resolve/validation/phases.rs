@@ -115,6 +115,32 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                         continuum_cdsl_ast::TypedStmt::Expr(expr) => {
                             errors.extend(validate_expr(expr, &ctx))
                         }
+                        continuum_cdsl_ast::TypedStmt::If {
+                            condition,
+                            then_branch,
+                            else_branch,
+                            ..
+                        } => {
+                            errors.extend(validate_expr(condition, &ctx));
+                            // Note: branches are TypedStmt, would need recursive validation
+                            // For now, just validate the condition
+                            // TODO: refactor to share stmt validation logic
+                            for branch_stmt in then_branch.iter().chain(else_branch.iter()) {
+                                if let continuum_cdsl_ast::TypedStmt::Expr(expr)
+                                | continuum_cdsl_ast::TypedStmt::Let { value: expr, .. }
+                                | continuum_cdsl_ast::TypedStmt::SignalAssign {
+                                    value: expr,
+                                    ..
+                                }
+                                | continuum_cdsl_ast::TypedStmt::Assert {
+                                    condition: expr,
+                                    ..
+                                } = branch_stmt
+                                {
+                                    errors.extend(validate_expr(expr, &ctx));
+                                }
+                            }
+                        }
                     }
                 }
             }

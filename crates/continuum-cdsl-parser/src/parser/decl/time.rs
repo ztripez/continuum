@@ -125,17 +125,32 @@ fn parse_strata_policy_block(
 }
 
 /// Parse transition declaration.
+///
+/// Syntax:
+/// ```cdsl
+/// transition {
+///     to: era.target
+///     when {
+///         condition1
+///         condition2
+///     }
+/// }
+/// ```
 fn parse_transition(stream: &mut TokenStream) -> Result<TransitionDecl, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Transition)?;
-
-    let target = super::super::types::parse_path(stream)?;
-
-    stream.expect(Token::When)?;
     stream.expect(Token::LBrace)?;
 
-    // Parse semicolon-separated conditions (same as WhenBlock)
+    // Parse `to: <path>`
+    stream.expect(Token::To)?;
+    stream.expect(Token::Colon)?;
+    let target = super::super::types::parse_path(stream)?;
+
+    // Parse `when { conditions }`
+    stream.expect(Token::When)?;
+    stream.expect(Token::LBrace)?;
     let conditions = super::super::helpers::parse_semicolon_separated_exprs(stream)?;
+    stream.expect(Token::RBrace)?;
 
     stream.expect(Token::RBrace)?;
 

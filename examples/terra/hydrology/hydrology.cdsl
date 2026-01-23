@@ -636,11 +636,11 @@ fracture hydrology.precipitation_coupling {
         # Equilibrium water = total * (weight / sum_weights)
         # Simplified: move toward mean with small adjustment
         let equilibrium = total_water
-        let current = hydrology.water_mass
+        let current_mass = hydrology.water_mass
         
         # Relaxation delta toward equilibrium (mass-conserving)
-        let delta = (equilibrium - current) * relaxation_factor
-        hydrology.water_mass <- delta;
+        let delta = (equilibrium - current_mass) * relaxation_factor
+        hydrology.water_mass <- delta
         
         # Emit precipitation rate for observation (not net change)
         # Normalized so global mean = base rate
@@ -729,8 +729,8 @@ fracture hydrology.water_thermal_relaxation {
         # Water temperature relaxes toward climate-adjusted equilibrium
         let surface_temp = surface.temp
         let target = maths.clamp(surface_temp, config.fracture.hydrology.water_thermal_relaxation.min_water_temp_k, config.fracture.hydrology.water_thermal_relaxation.max_water_temp_k)
-        let current = hydrology.water_temperature
-        let delta = (target - current) * 0.01
+        let current_temp = hydrology.water_temperature
+        let delta = (target - current_temp) * 0.01
         hydrology.water_temperature <- delta
     }
 }
@@ -780,12 +780,12 @@ fracture hydrology.evaporation_coupling {
         let evap_rate = config.fracture.hydrology.evaporation_coupling.bulk_transfer_coefficient 
                       * config.fracture.hydrology.evaporation_coupling.wind_speed_m_per_s 
                       * (q_sat - q_air) 
-                      * 1.2 in
+                      * 1.2
         
         # Convert to mass flux: multiply by surface area
         # Negative delta = water removed from hydrology
         let water_loss = maths.max(evap_rate * 5.1e14, 0.0)
-        hydrology.water_mass <- -water_loss;
+        hydrology.water_mass <- -water_loss
         
         # Emit water vapor to atmosphere (positive = added to atmosphere)
         atmosphere.water_vapor <- water_loss * 1e-14

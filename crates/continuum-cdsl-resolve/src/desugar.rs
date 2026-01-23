@@ -310,6 +310,17 @@ pub fn desugar_stmt(stmt: Stmt<Expr>) -> Stmt<Expr> {
             span,
         },
         Stmt::Expr(expr) => Stmt::Expr(desugar_expr(expr)),
+        Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+            span,
+        } => Stmt::If {
+            condition: desugar_expr(condition),
+            then_branch: then_branch.into_iter().map(desugar_stmt).collect(),
+            else_branch: else_branch.into_iter().map(desugar_stmt).collect(),
+            span,
+        },
     }
 }
 

@@ -167,6 +167,40 @@ pub enum Stmt<E = Expr> {
         /// Source location
         span: Span,
     },
+
+    /// If statement: `if condition { then_stmts } [else { else_stmts }]`
+    ///
+    /// Conditional execution in statement blocks. Unlike if-expressions, if-statements
+    /// have statement bodies and may omit the else branch.
+    ///
+    /// # Examples
+    ///
+    /// ```cdsl
+    /// if payload.energy > threshold {
+    ///     let contribution = payload.energy * factor
+    ///     signal.target <- contribution
+    /// }
+    ///
+    /// if condition {
+    ///     signal.a <- value_a
+    /// } else {
+    ///     signal.b <- value_b
+    /// }
+    /// ```
+    ///
+    /// # Usage
+    ///
+    /// Valid in statement blocks: collect, apply, observe.
+    If {
+        /// Condition expression (must evaluate to Bool)
+        condition: E,
+        /// Statements executed when condition is true
+        then_branch: Vec<Stmt<E>>,
+        /// Statements executed when condition is false (may be empty)
+        else_branch: Vec<Stmt<E>>,
+        /// Source location
+        span: Span,
+    },
 }
 
 impl<E: HasSpan> Stmt<E> {
@@ -179,6 +213,7 @@ impl<E: HasSpan> Stmt<E> {
             Stmt::Expr(expr) => expr.span(),
             Stmt::Assert { span, .. } => *span,
             Stmt::EmitEvent { span, .. } => *span,
+            Stmt::If { span, .. } => *span,
         }
     }
 }
@@ -360,6 +395,7 @@ pub trait StatementVisitor {
     /// - [`Stmt::Assert`] — visits the `condition` expression
     /// - [`Stmt::EmitEvent`] — visits all field value expressions
     /// - [`Stmt::Expr`] — visits the wrapped expression
+    /// - [`Stmt::If`] — visits condition, then walks then/else branches
     #[inline]
     fn walk_stmt(&mut self, stmt: &TypedStmt) {
         match stmt {
@@ -378,6 +414,20 @@ pub trait StatementVisitor {
                 }
             }
             Stmt::Expr(expr) => self.visit_expr(expr),
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.visit_expr(condition);
+                for stmt in then_branch {
+                    self.walk_stmt(stmt);
+                }
+                for stmt in else_branch {
+                    self.walk_stmt(stmt);
+                }
+            }
         }
     }
 

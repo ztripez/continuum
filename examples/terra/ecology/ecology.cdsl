@@ -378,7 +378,7 @@ fracture ecology.desertification_risk {
         # Sparse vegetation + heat = increased soil carbon loss
         let veg = ecology.vegetation_cover
         let temp = surface.temp
-        let heat_factor = (temp - 288.0) / 30.0 in  # Normalized heat stress
+        let heat_factor = (temp - 288.0) / 30.0  # Normalized heat stress
 
         # Soil carbon loss proportional to risk factors
         let degradation = config.fracture.ecology.desertification_risk.soil_degradation_rate * (1.0 - veg) * maths.max(heat_factor, 0.0)

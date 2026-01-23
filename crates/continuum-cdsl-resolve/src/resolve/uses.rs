@@ -216,6 +216,20 @@ fn collect_required_uses_untyped_stmt(
             }
         }
         Stmt::Expr(expr) => collect_required_uses_untyped(expr, registry, required),
+        Stmt::If {
+            condition,
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_required_uses_untyped(condition, registry, required);
+            for stmt in then_branch {
+                collect_required_uses_untyped_stmt(stmt, registry, required);
+            }
+            for stmt in else_branch {
+                collect_required_uses_untyped_stmt(stmt, registry, required);
+            }
+        }
     }
 }
 

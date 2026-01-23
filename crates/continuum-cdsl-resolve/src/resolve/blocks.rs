@@ -278,6 +278,54 @@ pub fn compile_statements(
                 Ok(typed_expr) => typed_stmts.push(TypedStmt::Expr(typed_expr)),
                 Err(mut e) => errors.append(&mut e),
             },
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+                span,
+            } => {
+                // Type-check condition
+                let typed_condition = match type_expression(condition, &current_ctx) {
+                    Ok(tc) => {
+                        // Validate condition is Bool type
+                        if tc.ty != continuum_cdsl_ast::foundation::Type::Bool {
+                            errors.push(CompileError::new(
+                                ErrorKind::TypeMismatch,
+                                *span,
+                                format!("if condition must be Bool, got {:?}", tc.ty),
+                            ));
+                        }
+                        tc
+                    }
+                    Err(mut e) => {
+                        errors.append(&mut e);
+                        continue;
+                    }
+                };
+
+                // Recursively compile branches
+                let typed_then = match compile_statements(then_branch, &current_ctx) {
+                    Ok(stmts) => stmts,
+                    Err(mut e) => {
+                        errors.append(&mut e);
+                        Vec::new()
+                    }
+                };
+                let typed_else = match compile_statements(else_branch, &current_ctx) {
+                    Ok(stmts) => stmts,
+                    Err(mut e) => {
+                        errors.append(&mut e);
+                        Vec::new()
+                    }
+                };
+
+                typed_stmts.push(TypedStmt::If {
+                    condition: typed_condition,
+                    then_branch: typed_then,
+                    else_branch: typed_else,
+                    span: *span,
+                });
+            }
         }
     }
 
@@ -321,6 +369,37 @@ pub fn compile_statements(
                             &effect_ctx,
                             ctx.kernel_registry,
                         ));
+                    }
+                }
+                TypedStmt::If {
+                    condition,
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    // Validate condition
+                    errors.extend(validate_effect_purity(
+                        condition,
+                        &effect_ctx,
+                        ctx.kernel_registry,
+                    ));
+                    // Validate branches - recursively call validation on nested statements
+                    // Note: This is simplified - ideally we'd call a helper that validates all stmts
+                    for branch_stmt in then_branch.iter().chain(else_branch.iter()) {
+                        if let TypedStmt::Expr(expr)
+                        | TypedStmt::Let { value: expr, .. }
+                        | TypedStmt::SignalAssign { value: expr, .. }
+                        | TypedStmt::FieldAssign { value: expr, .. }
+                        | TypedStmt::Assert {
+                            condition: expr, ..
+                        } = branch_stmt
+                        {
+                            errors.extend(validate_effect_purity(
+                                expr,
+                                &effect_ctx,
+                                ctx.kernel_registry,
+                            ));
+                        }
                     }
                 }
             }

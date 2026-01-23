@@ -53,6 +53,8 @@ pub fn keyword_to_string(token: &Token) -> Option<Rc<str>> {
         Token::Other => Some(Rc::from("other")),
         Token::Self_ => Some(Rc::from("self")),
         Token::Pairs => Some(Rc::from("pairs")),
+        // Time-related keywords that can appear in paths
+        Token::Era => Some(Rc::from("era")),
         _ => None,
     }
 }
