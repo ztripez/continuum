@@ -89,6 +89,9 @@ pub enum Token {
     /// Keyword `config`
     #[token("config")]
     Config,
+    /// Keyword `fn`
+    #[token("fn")]
+    Fn,
 
     // Phases & Blocks
     /// Keyword `resolve`
@@ -415,7 +418,8 @@ const TOKEN_STRINGS: &[&str] = &[
     "era",
     "type",
     "const",
-    "config", // structure
+    "config",
+    "fn", // structure
     "resolve",
     "warmup",
     "iterate",

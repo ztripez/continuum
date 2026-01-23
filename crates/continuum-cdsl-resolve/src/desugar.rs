@@ -423,6 +423,7 @@ pub fn desugar_declarations(decls: Vec<Declaration>) -> Vec<Declaration> {
                 Declaration::Config(entries)
             }
             Declaration::Type(_) => decl,
+            Declaration::Function(func) => Declaration::Function(func),
         })
         .collect()
 }

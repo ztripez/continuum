@@ -158,7 +158,8 @@ impl<'src> TokenStream<'src> {
                 | Some(Token::Era)
                 | Some(Token::Type)
                 | Some(Token::Const)
-                | Some(Token::Config) => break,
+                | Some(Token::Config)
+                | Some(Token::Fn) => break,
                 _ => {
                     self.advance();
                 }

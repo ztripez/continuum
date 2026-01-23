@@ -10,6 +10,7 @@
 
 mod definitions;
 mod entities;
+mod functions;
 mod primitives;
 mod time;
 mod world;
@@ -66,6 +67,7 @@ fn parse_declaration(stream: &mut TokenStream) -> Result<Declaration, ParseError
         Some(Token::Type) => definitions::parse_type_decl(stream),
         Some(Token::Const) => definitions::parse_const_block(stream),
         Some(Token::Config) => definitions::parse_config_block(stream),
+        Some(Token::Fn) => functions::parse_function_decl(stream),
         other => Err(ParseError::unexpected_token(
             other,
             "at declaration",

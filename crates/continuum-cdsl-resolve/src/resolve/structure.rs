@@ -154,10 +154,12 @@ fn format_cycle_error(cycle: &[Path]) -> String {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum DeclKind {
-    Entity,
     Node,
     Member,
-    Other,
+    Entity,
+    Stratum,
+    Era,
+    Function,
 }
 
 /// Validates that the AST contains no path collisions across all declarations.
@@ -235,28 +237,24 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
             Declaration::Stratum(s) => register_path(
                 &s.path,
                 s.span,
-                DeclKind::Other,
+                DeclKind::Stratum,
                 &mut path_index,
                 &mut errors,
             ),
-            Declaration::Era(e) => register_path(
-                &e.path,
-                e.span,
-                DeclKind::Other,
+            Declaration::Era(e) => {
+                register_path(&e.path, e.span, DeclKind::Era, &mut path_index, &mut errors)
+            }
+            Declaration::World(w) => register_path(
+                &w.path,
+                w.span,
+                DeclKind::Node,
                 &mut path_index,
                 &mut errors,
             ),
             Declaration::Type(t) => {
                 let path = Path::from(t.name.as_str());
-                register_path(&path, t.span, DeclKind::Other, &mut path_index, &mut errors);
+                register_path(&path, t.span, DeclKind::Node, &mut path_index, &mut errors);
             }
-            Declaration::World(w) => register_path(
-                &w.path,
-                w.span,
-                DeclKind::Other,
-                &mut path_index,
-                &mut errors,
-            ),
             Declaration::Const(_entries) => {
                 // Config/const entries are in a separate namespace (const.*, config.*)
                 // and don't participate in collision checking with other declarations.
@@ -267,6 +265,13 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
                 // and don't participate in collision checking with other declarations.
                 // They're only accessible via their respective prefixes.
             }
+            Declaration::Function(f) => register_path(
+                &f.path,
+                f.span,
+                DeclKind::Function,
+                &mut path_index,
+                &mut errors,
+            ),
         }
     }
 

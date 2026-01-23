@@ -59,6 +59,9 @@ pub enum Declaration {
 
     /// Top-level config block
     Config(Vec<ConfigEntry>),
+
+    /// Function declaration
+    Function(FunctionDecl),
 }
 
 /// Attribute parsed from source.
@@ -463,4 +466,42 @@ pub struct ObserveWhen {
 
     /// Source location
     pub span: Span,
+}
+
+/// Function declaration.
+///
+/// Defines a pure function that can be called from expressions.
+/// Functions are evaluated at compile-time during constant folding
+/// or at runtime if they contain dynamic expressions.
+///
+/// # Syntax
+/// ```cdsl
+/// fn namespace.function_name(arg1, arg2, ...) {
+///     expr
+/// }
+/// ```
+///
+/// # Example
+/// ```cdsl
+/// fn atmosphere.saturation_vapor_pressure(temperature_k) {
+///     let t_celsius = temperature_k - 273.15 in
+///     610.94 * maths.exp((17.625 * t_celsius) / (t_celsius + 243.04))
+/// }
+/// ```
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FunctionDecl {
+    /// Function path (e.g., `atmosphere.saturation_vapor_pressure`)
+    pub path: Path,
+
+    /// Parameter names (identifiers only, no types - inferred)
+    pub params: Vec<String>,
+
+    /// Function body (single expression)
+    pub body: Expr,
+
+    /// Source location
+    pub span: Span,
+
+    /// Doc comment
+    pub doc: Option<String>,
 }

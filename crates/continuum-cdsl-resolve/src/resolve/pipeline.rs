@@ -110,6 +110,9 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
             Declaration::Type(t) => _type_decls.push(t.clone()),
             Declaration::Const(c) => _const_entries.extend(c.clone()),
             Declaration::Config(c) => _config_entries.extend(c.clone()),
+            Declaration::Function(_) => {
+                // Functions are resolved separately in expression context
+            }
         }
     }
 
