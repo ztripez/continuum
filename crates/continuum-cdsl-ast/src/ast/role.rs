@@ -472,7 +472,7 @@ pub static ROLE_REGISTRY: [RoleSpec; RoleId::COUNT] = [
         name: "fracture",
         allowed_phases: PhaseSet::empty().with(Phase::Fracture).with(Phase::Assert),
         phase_capabilities: phase_caps![
-            Phase::Fracture => [Capability::Scoping, Capability::Signals, Capability::Dt],
+            Phase::Fracture => [Capability::Scoping, Capability::Signals, Capability::Dt, Capability::Emit],
             Phase::Assert => [Capability::Scoping, Capability::Signals, Capability::Dt]
         ],
         has_reconstruction: false,

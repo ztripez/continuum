@@ -768,9 +768,9 @@ impl<'a> ExecutionContext for VMContext<'a> {
         path: &Path,
         value: Value,
     ) -> std::result::Result<(), ExecutionError> {
-        if self.phase != Phase::Collect {
+        if self.phase != Phase::Collect && self.phase != Phase::Fracture {
             return Err(ExecutionError::InvalidOpcode {
-                opcode: "Emit signal only allowed in Collect phase".to_string(),
+                opcode: "Emit signal only allowed in Collect or Fracture phase".to_string(),
                 phase: self.phase,
             });
         }
