@@ -53,6 +53,7 @@ use continuum_cdsl_ast::{
 };
 
 use crate::error::{CompileError, ErrorKind};
+use crate::resolve::attributes::extract_multiple_paths;
 use continuum_cdsl_ast::foundation::Span;
 use std::collections::HashSet;
 
@@ -94,67 +95,20 @@ struct RequiredUse {
 ///     },
 /// ];
 /// let mut errors = Vec::new();
-/// let uses = extract_uses_declarations(&attrs, &mut errors);
+/// let uses = extract_uses_declarations(&attrs, node.span, &mut errors);
 /// assert!(uses.contains("maths.clamping"));
 /// assert!(uses.contains("dt.raw"));
 /// assert!(errors.is_empty());
 /// ```
 fn extract_uses_declarations(
     attrs: &[Attribute],
+    context_span: Span,
     errors: &mut Vec<CompileError>,
 ) -> HashSet<String> {
-    let mut uses = HashSet::new();
-
-    for attr in attrs {
-        if attr.name == "uses" {
-            // Each arg should be a path like maths.clamping or dt.raw
-            for arg in &attr.args {
-                match extract_uses_key_from_expr(arg) {
-                    Some(key) => {
-                        uses.insert(key);
-                    }
-                    None => {
-                        // Invalid argument - emit error
-                        errors.push(CompileError::new(
-                            ErrorKind::Internal,
-                            arg.span,
-                            format!(
-                                "invalid uses() argument: expected path like 'maths.clamping' or 'dt.raw', got {:?}",
-                                arg.kind
-                            ),
-                        ));
-                    }
-                }
-            }
-        }
-    }
-
-    uses
-}
-
-/// Extract uses key from attribute argument expression
-///
-/// Handles various expression forms that might represent a uses key:
-/// - Signal/Config/Const path expressions
-/// - Direct path strings
-fn extract_uses_key_from_expr(expr: &continuum_cdsl_ast::Expr) -> Option<String> {
-    use continuum_cdsl_ast::UntypedKind;
-
-    match &expr.kind {
-        // : uses(maths.clamping) - parsed as Signal path
-        UntypedKind::Signal(path) => Some(path.to_string()),
-        // : uses(dt.raw) - might be parsed as Config
-        UntypedKind::Config(path) => Some(path.to_string()),
-        // Fall back to const
-        UntypedKind::Const(path) => Some(path.to_string()),
-        // Field access might be used
-        UntypedKind::Field(path) => Some(path.to_string()),
-        // FieldAccess chains like `maths.clamping` - convert to path
-        UntypedKind::FieldAccess { .. } | UntypedKind::Local(_) => {
-            expr.as_path().map(|p| p.to_string())
-        }
-        _ => None,
-    }
+    extract_multiple_paths(attrs, "uses", context_span, errors)
+        .into_iter()
+        .map(|p| p.to_string())
+        .collect()
 }
 
 /// Walk typed expression tree collecting required uses from kernel calls and dt usage
@@ -437,7 +391,7 @@ fn validate_node_uses<I: Index>(node: &Node<I>, registry: &KernelRegistry) -> Ve
     let mut errors = Vec::new();
 
     // Extract declared uses from attributes (emits errors for invalid arguments)
-    let declared = extract_uses_declarations(&node.attributes, &mut errors);
+    let declared = extract_uses_declarations(&node.attributes, node.span, &mut errors);
 
     // Collect required uses from all execution-related blocks
     let mut required = Vec::new();
@@ -554,7 +508,7 @@ mod tests {
     fn test_extract_uses_declarations_single() {
         let attrs = vec![make_attr_uses(vec!["maths.clamping"])];
         let mut errors = Vec::new();
-        let uses = extract_uses_declarations(&attrs, &mut errors);
+        let uses = extract_uses_declarations(&attrs, make_span(), &mut errors);
 
         assert_eq!(uses.len(), 1);
         assert!(uses.contains("maths.clamping"));
@@ -565,7 +519,7 @@ mod tests {
     fn test_extract_uses_declarations_multiple() {
         let attrs = vec![make_attr_uses(vec!["maths.clamping", "dt.raw"])];
         let mut errors = Vec::new();
-        let uses = extract_uses_declarations(&attrs, &mut errors);
+        let uses = extract_uses_declarations(&attrs, make_span(), &mut errors);
 
         assert_eq!(uses.len(), 2);
         assert!(uses.contains("maths.clamping"));
@@ -577,7 +531,7 @@ mod tests {
     fn test_extract_uses_declarations_empty() {
         let attrs = vec![];
         let mut errors = Vec::new();
-        let uses = extract_uses_declarations(&attrs, &mut errors);
+        let uses = extract_uses_declarations(&attrs, make_span(), &mut errors);
 
         assert!(uses.is_empty());
         assert!(errors.is_empty());
@@ -601,13 +555,13 @@ mod tests {
         }];
 
         let mut errors = Vec::new();
-        let uses = extract_uses_declarations(&attrs, &mut errors);
+        let uses = extract_uses_declarations(&attrs, make_span(), &mut errors);
 
         // Invalid argument should be ignored but error emitted
         assert!(uses.is_empty());
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::Internal);
-        assert!(errors[0].message.contains("invalid uses() argument"));
+        assert_eq!(errors[0].kind, ErrorKind::Syntax);
+        assert!(errors[0].message.contains("must be a path or identifier"));
     }
 
     #[test]
