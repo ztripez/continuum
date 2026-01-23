@@ -33,6 +33,7 @@ use std::rc::Rc;
 /// ```
 pub fn keyword_to_string(token: &Token) -> Option<Rc<str>> {
     match token {
+        // Declaration keywords that can appear in paths
         Token::Config => Some(Rc::from("config")),
         Token::Const => Some(Rc::from("const")),
         Token::Signal => Some(Rc::from("signal")),
@@ -42,6 +43,16 @@ pub fn keyword_to_string(token: &Token) -> Option<Rc<str>> {
         Token::Type => Some(Rc::from("type")),
         Token::Initial => Some(Rc::from("initial")),
         Token::Terminal => Some(Rc::from("terminal")),
+        // Primitive keywords that can appear as path segments
+        Token::Operator => Some(Rc::from("operator")),
+        Token::Impulse => Some(Rc::from("impulse")),
+        Token::Fracture => Some(Rc::from("fracture")),
+        Token::Chronicle => Some(Rc::from("chronicle")),
+        Token::Analyzer => Some(Rc::from("analyzer")),
+        // Context keywords used in expressions/paths
+        Token::Other => Some(Rc::from("other")),
+        Token::Self_ => Some(Rc::from("self")),
+        Token::Pairs => Some(Rc::from("pairs")),
         _ => None,
     }
 }
