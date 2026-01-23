@@ -78,24 +78,10 @@
 //! ```
 
 use crate::error::{CompileError, ErrorKind};
+use crate::resolve::attributes::extract_single_identifier;
 use continuum_cdsl_ast::foundation::StratumId;
-use continuum_cdsl_ast::{Expr, Node, Stratum, UntypedKind};
+use continuum_cdsl_ast::{Node, Stratum, UntypedKind};
 use std::collections::BTreeMap;
-
-/// Extract identifier string from expression (for attribute arguments).
-///
-/// Attributes like `:stratum(thermal)` have expressions as arguments.
-/// This helper extracts the identifier string for simple cases.
-fn extract_identifier(expr: &Expr) -> Option<String> {
-    match &expr.kind {
-        UntypedKind::Signal(path)
-        | UntypedKind::Field(path)
-        | UntypedKind::Config(path)
-        | UntypedKind::Const(path) => path.last().map(|s| s.to_string()),
-        UntypedKind::Local(name) => Some(name.to_string()),
-        _ => None,
-    }
-}
 
 /// Resolve stratum assignments for all nodes.
 ///
@@ -176,22 +162,10 @@ pub fn resolve_strata<I: continuum_cdsl_ast::Index>(
         let stratum_attr = node.attributes.iter().find(|attr| attr.name == "stratum");
 
         match stratum_attr {
-            Some(attr) => {
-                // Extract stratum name from attribute value
-                // Attribute format: :stratum(name) where name is an identifier
-                if attr.args.len() != 1 {
-                    errors.push(CompileError::new(
-                        ErrorKind::InvalidCapability,
-                        node.span,
-                        format!(
-                            "stratum attribute expects exactly one argument, got {}",
-                            attr.args.len()
-                        ),
-                    ));
-                    continue;
-                }
-
-                match extract_identifier(&attr.args[0]) {
+            Some(_attr) => {
+                // Extract stratum name using common utility
+                match extract_single_identifier(&node.attributes, "stratum", node.span, &mut errors)
+                {
                     Some(stratum_name) => match stratum_map.get(&stratum_name) {
                         Some(stratum_id) => {
                             node.stratum = Some(stratum_id.clone());
@@ -215,11 +189,7 @@ pub fn resolve_strata<I: continuum_cdsl_ast::Index>(
                         }
                     },
                     None => {
-                        errors.push(CompileError::new(
-                            ErrorKind::InvalidCapability,
-                            node.span,
-                            "stratum attribute argument must be an identifier".to_string(),
-                        ));
+                        // Error already emitted by extract_single_identifier
                     }
                 }
             }
