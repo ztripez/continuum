@@ -14,6 +14,7 @@
 
 use crate::ast::declaration::Attribute;
 use crate::ast::expr::TypedExpr;
+use crate::ast::node::Node;
 use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, StratumId};
 
 // =============================================================================
@@ -66,9 +67,15 @@ pub struct Entity {
 
     /// Parsed attributes from source
     ///
-    /// Raw attributes like `:count(100)`, etc.
+    /// Raw attributes like `:count(100)`, `:stratum(name)`, etc.
     /// Processed during semantic analysis.
     pub attributes: Vec<Attribute>,
+
+    /// Nested member primitives (signals, fields, fractures, impulses)
+    ///
+    /// Parsed from nested declarations inside entity braces.
+    /// These are flattened into `World.members` during resolution.
+    pub members: Vec<Node<EntityId>>,
 }
 
 impl Entity {
@@ -80,6 +87,7 @@ impl Entity {
             span,
             doc: None,
             attributes: Vec::new(),
+            members: Vec::new(),
         }
     }
 }
