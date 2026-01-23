@@ -42,11 +42,26 @@ use std::fmt;
 /// A physical unit with dimensional analysis and kind classification.
 ///
 /// Units combine dimensional exponents (SI base dimensions) with a kind
-/// that determines algebraic rules.
+/// that determines algebraic rules and a scale factor relative to the
+/// SI coherent unit.
+///
+/// # Scale Factor
+///
+/// The scale represents the multiplicative factor relative to the SI coherent
+/// unit for this dimension. For example:
+/// - meter (m): scale = 1.0
+/// - kilometer (km): scale = 1000.0
+/// - millimeter (mm): scale = 0.001
+/// - year (yr): scale = 31_557_600.0 (Julian year in seconds)
+///
+/// Units with different scales are dimensionally equivalent but not
+/// type-compatible for arithmetic operations (policy-dependent).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Unit {
     kind: UnitKind,
     dims: UnitDimensions,
+    /// Scale factor relative to SI coherent unit (1.0 = base SI unit)
+    scale: f64,
 }
 
 /// Unit kind — determines algebraic rules.
@@ -100,11 +115,17 @@ impl Unit {
     pub const DIMENSIONLESS: Unit = Unit {
         kind: UnitKind::Multiplicative,
         dims: UnitDimensions::DIMENSIONLESS,
+        scale: 1.0,
     };
 
-    /// Create a new unit with specified kind and dimensions.
-    pub const fn new(kind: UnitKind, dims: UnitDimensions) -> Self {
-        Self { kind, dims }
+    /// Create a new unit with specified kind, dimensions, and scale.
+    ///
+    /// # Parameters
+    /// - `kind`: Unit kind (Multiplicative, Affine, Logarithmic)
+    /// - `dims`: Dimensional exponents
+    /// - `scale`: Scale factor relative to SI coherent unit (1.0 = base)
+    pub const fn new(kind: UnitKind, dims: UnitDimensions, scale: f64) -> Self {
+        Self { kind, dims, scale }
     }
 
     /// Create a dimensionless unit.
@@ -120,6 +141,11 @@ impl Unit {
     /// Get the dimensional exponents.
     pub const fn dims(&self) -> &UnitDimensions {
         &self.dims
+    }
+
+    /// Get the scale factor relative to SI coherent unit.
+    pub const fn scale(&self) -> f64 {
+        self.scale
     }
 
     /// Check if this unit is dimensionless.
@@ -148,42 +174,146 @@ impl Unit {
 
     /// Meter (m) - length
     pub const fn meters() -> Self {
-        Self::new(UnitKind::Multiplicative, UnitDimensions::METER)
+        Self::new(UnitKind::Multiplicative, UnitDimensions::METER, 1.0)
     }
 
     /// Kilogram (kg) - mass
     pub const fn kilograms() -> Self {
-        Self::new(UnitKind::Multiplicative, UnitDimensions::KILOGRAM)
+        Self::new(UnitKind::Multiplicative, UnitDimensions::KILOGRAM, 1.0)
     }
 
     /// Second (s) - time
     pub const fn seconds() -> Self {
-        Self::new(UnitKind::Multiplicative, UnitDimensions::SECOND)
+        Self::new(UnitKind::Multiplicative, UnitDimensions::SECOND, 1.0)
     }
 
     /// Kelvin (K) - temperature (Multiplicative, not Affine)
     pub const fn kelvin() -> Self {
-        Self::new(UnitKind::Multiplicative, UnitDimensions::KELVIN)
+        Self::new(UnitKind::Multiplicative, UnitDimensions::KELVIN, 1.0)
     }
 
     /// Ampere (A) - electric current
     pub const fn amperes() -> Self {
-        Self::new(UnitKind::Multiplicative, UnitDimensions::AMPERE)
+        Self::new(UnitKind::Multiplicative, UnitDimensions::AMPERE, 1.0)
     }
 
     /// Mole (mol) - amount of substance
     pub const fn moles() -> Self {
-        Self::new(UnitKind::Multiplicative, UnitDimensions::MOLE)
+        Self::new(UnitKind::Multiplicative, UnitDimensions::MOLE, 1.0)
     }
 
     /// Candela (cd) - luminous intensity
     pub const fn candelas() -> Self {
-        Self::new(UnitKind::Multiplicative, UnitDimensions::CANDELA)
+        Self::new(UnitKind::Multiplicative, UnitDimensions::CANDELA, 1.0)
     }
 
     /// Radian (rad) - angle
     pub const fn radians() -> Self {
-        Self::new(UnitKind::Multiplicative, UnitDimensions::RADIAN)
+        Self::new(UnitKind::Multiplicative, UnitDimensions::RADIAN, 1.0)
+    }
+
+    // ============================================================================
+    // Non-SI but recognized base units
+    // ============================================================================
+
+    /// Gram (g) - mass
+    /// Note: SI base is kilogram, but gram is recognized for prefix convenience
+    /// (allows mg, g, kg, Mg naturally)
+    pub const fn grams() -> Self {
+        Self::new(UnitKind::Multiplicative, UnitDimensions::KILOGRAM, 0.001)
+    }
+
+    /// Year (yr) - time
+    /// Julian year: 365.25 days = 31,557,600 seconds
+    /// Used in astronomical/geological contexts (Ma, Ga)
+    pub const fn years() -> Self {
+        Self::new(
+            UnitKind::Multiplicative,
+            UnitDimensions::SECOND,
+            31_557_600.0,
+        )
+    }
+
+    /// Day (day) - time
+    /// 86,400 seconds
+    pub const fn days() -> Self {
+        Self::new(UnitKind::Multiplicative, UnitDimensions::SECOND, 86_400.0)
+    }
+
+    // ============================================================================
+    // Derived SI units (Multiplicative)
+    // ============================================================================
+
+    /// Newton (N) - force: kg⋅m/s²
+    pub const fn newtons() -> Self {
+        Self::new(
+            UnitKind::Multiplicative,
+            UnitDimensions {
+                length: 1,
+                mass: 1,
+                time: -2,
+                temperature: 0,
+                current: 0,
+                amount: 0,
+                luminosity: 0,
+                angle: 0,
+            },
+            1.0,
+        )
+    }
+
+    /// Joule (J) - energy/work: kg⋅m²/s²
+    pub const fn joules() -> Self {
+        Self::new(
+            UnitKind::Multiplicative,
+            UnitDimensions {
+                length: 2,
+                mass: 1,
+                time: -2,
+                temperature: 0,
+                current: 0,
+                amount: 0,
+                luminosity: 0,
+                angle: 0,
+            },
+            1.0,
+        )
+    }
+
+    /// Watt (W) - power: kg⋅m²/s³ = J/s
+    pub const fn watts() -> Self {
+        Self::new(
+            UnitKind::Multiplicative,
+            UnitDimensions {
+                length: 2,
+                mass: 1,
+                time: -3,
+                temperature: 0,
+                current: 0,
+                amount: 0,
+                luminosity: 0,
+                angle: 0,
+            },
+            1.0,
+        )
+    }
+
+    /// Pascal (Pa) - pressure: kg/(m⋅s²) = N/m²
+    pub const fn pascals() -> Self {
+        Self::new(
+            UnitKind::Multiplicative,
+            UnitDimensions {
+                length: -1,
+                mass: 1,
+                time: -2,
+                temperature: 0,
+                current: 0,
+                amount: 0,
+                luminosity: 0,
+                angle: 0,
+            },
+            1.0,
+        )
     }
 
     // ============================================================================
@@ -193,13 +323,21 @@ impl Unit {
     /// Celsius (°C) - affine temperature scale
     /// °C = K - 273.15
     pub const fn celsius() -> Self {
-        Self::new(UnitKind::Affine { offset: 273.15 }, UnitDimensions::KELVIN)
+        Self::new(
+            UnitKind::Affine { offset: 273.15 },
+            UnitDimensions::KELVIN,
+            1.0,
+        )
     }
 
     /// Fahrenheit (°F) - affine temperature scale
     /// °F = (9/5)K - 459.67
     pub const fn fahrenheit() -> Self {
-        Self::new(UnitKind::Affine { offset: 459.67 }, UnitDimensions::KELVIN)
+        Self::new(
+            UnitKind::Affine { offset: 459.67 },
+            UnitDimensions::KELVIN,
+            1.0,
+        )
     }
 
     // ============================================================================
@@ -211,6 +349,7 @@ impl Unit {
         Self::new(
             UnitKind::Logarithmic { base: 10.0 },
             UnitDimensions::DIMENSIONLESS,
+            1.0,
         )
     }
 
@@ -219,6 +358,7 @@ impl Unit {
         Self::new(
             UnitKind::Logarithmic { base: 10.0 },
             UnitDimensions::DIMENSIONLESS,
+            1.0,
         )
     }
 
@@ -226,7 +366,7 @@ impl Unit {
     // Unit algebra (Multiplicative only)
     // ============================================================================
 
-    /// Multiply two units (dimensions add).
+    /// Multiply two units (dimensions add, scales multiply).
     ///
     /// Only valid for Multiplicative units.
     /// For Affine/Logarithmic, returns None.
@@ -238,10 +378,11 @@ impl Unit {
         Some(Unit::new(
             UnitKind::Multiplicative,
             self.dims.multiply(&other.dims),
+            self.scale * other.scale,
         ))
     }
 
-    /// Divide two units (dimensions subtract).
+    /// Divide two units (dimensions subtract, scales divide).
     ///
     /// Only valid for Multiplicative units.
     /// For Affine/Logarithmic, returns None.
@@ -253,10 +394,11 @@ impl Unit {
         Some(Unit::new(
             UnitKind::Multiplicative,
             self.dims.divide(&other.dims),
+            self.scale / other.scale,
         ))
     }
 
-    /// Raise unit to a power (dimensions scale).
+    /// Raise unit to a power (dimensions scale, scale raised to power).
     ///
     /// Only valid for Multiplicative units.
     /// For Affine/Logarithmic, returns None.
@@ -265,7 +407,11 @@ impl Unit {
             return None;
         }
 
-        Some(Unit::new(UnitKind::Multiplicative, self.dims.pow(exponent)))
+        Some(Unit::new(
+            UnitKind::Multiplicative,
+            self.dims.pow(exponent),
+            self.scale.powi(exponent as i32),
+        ))
     }
 
     /// Add two units (must have same dimensions).
@@ -299,7 +445,8 @@ impl Unit {
         }
 
         // Affine - Affine = Multiplicative (temperature difference)
-        Some(Unit::new(UnitKind::Multiplicative, self.dims))
+        // Scale preserved for affine subtraction (delta T has same scale)
+        Some(Unit::new(UnitKind::Multiplicative, self.dims, self.scale))
     }
 
     /// Check if two units are compatible for comparison.

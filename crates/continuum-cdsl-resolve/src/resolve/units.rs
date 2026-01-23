@@ -2,6 +2,7 @@
 //!
 //! This module implements the physical unit system, including:
 //! - **Base unit resolution** - Mapping symbols (m, kg, s) to dimensions.
+//! - **SI prefix support** - Metric prefixes (k, M, G, m, μ, n, etc.)
 //! - **Compound unit arithmetic** - Multiplication, division, and powers.
 //! - **Dimensional analysis** - Ensuring physical consistency during compilation.
 //! - **Overflow protection** - Checked arithmetic for dimensional exponents.
@@ -9,6 +10,60 @@
 use crate::error::{CompileError, ErrorKind};
 use continuum_cdsl_ast::foundation::{Span, Unit, UnitDimensions, UnitKind};
 use continuum_cdsl_ast::UnitExpr;
+
+/// SI metric prefixes with their scale factors (powers of 10).
+///
+/// Ordered by scale for deterministic iteration.
+/// Note: ASCII 'u' is accepted as fallback for 'μ' (micro).
+const SI_PREFIXES: &[(&str, i32)] = &[
+    ("Y", 24),  // yotta
+    ("Z", 21),  // zetta
+    ("E", 18),  // exa
+    ("P", 15),  // peta
+    ("T", 12),  // tera
+    ("G", 9),   // giga
+    ("M", 6),   // mega
+    ("k", 3),   // kilo
+    ("h", 2),   // hecto
+    ("da", 1),  // deca
+    ("d", -1),  // deci
+    ("c", -2),  // centi
+    ("m", -3),  // milli
+    ("μ", -6),  // micro
+    ("u", -6),  // micro (ASCII fallback)
+    ("n", -9),  // nano
+    ("p", -12), // pico
+    ("f", -15), // femto
+    ("a", -18), // atto
+    ("z", -21), // zepto
+    ("y", -24), // yocto
+];
+
+/// Units that must NOT be decomposed with prefix parsing.
+///
+/// These are checked before attempting prefix decomposition to avoid
+/// ambiguity (e.g., 'm' = meter, not milli-something).
+const RESERVED_UNITS: &[&str] = &[
+    // SI base units
+    "m",   // meter (not milli)
+    "kg",  // kilogram (already has prefix)
+    "s",   // second
+    "K",   // kelvin
+    "A",   // ampere (but 'a' is atto prefix)
+    "mol", // mole (not milli-ol)
+    "cd",  // candela (not centi-d)
+    "rad", // radian
+    // SI derived units
+    "N",  // newton
+    "J",  // joule
+    "W",  // watt
+    "Pa", // pascal (not peta-a)
+    // Time units (non-SI but recognized)
+    "yr",  // year
+    "day", // day
+    // Mass convenience
+    "g", // gram
+];
 
 /// Resolves a parsed [`UnitExpr`] into a semantic [`Unit`].
 ///
@@ -45,28 +100,114 @@ pub fn resolve_unit_expr(unit_expr: Option<&UnitExpr>, span: Span) -> Result<Uni
     }
 }
 
-/// Resolve a base unit name to a Unit.
-pub fn resolve_base_unit(name: &str, span: Span) -> Result<Unit, CompileError> {
-    let unit = match name {
-        // SI base units
-        "m" => Unit::meters(),
-        "kg" => Unit::kilograms(),
-        "s" => Unit::seconds(),
-        "K" => Unit::kelvin(),
-        "A" => Unit::amperes(),
-        "mol" => Unit::moles(),
-        "cd" => Unit::candelas(),
-        "rad" => Unit::radians(),
-
-        _ => {
-            return Err(CompileError::new(
-                ErrorKind::InvalidUnit,
-                span,
-                format!("Unknown base unit: {}", name),
-            ));
+/// Try to parse a unit name with SI prefix.
+///
+/// Returns `Some((prefix_scale, base_unit_name))` if a valid prefix is found,
+/// otherwise `None`.
+///
+/// # Strategy
+///
+/// Try each prefix from longest to shortest to avoid ambiguity
+/// (e.g., "da" before "d").
+fn try_parse_prefix(name: &str) -> Option<(f64, &str)> {
+    // Try two-character prefixes first (da)
+    if name.len() > 2 {
+        if let Some(&(_, exp)) = SI_PREFIXES
+            .iter()
+            .find(|(p, _)| p.len() == 2 && name.starts_with(p))
+        {
+            let base = &name[2..];
+            return Some((10.0_f64.powi(exp), base));
         }
-    };
-    Ok(unit)
+    }
+
+    // Try one-character prefixes
+    if name.len() > 1 {
+        if let Some(&(_, exp)) = SI_PREFIXES
+            .iter()
+            .find(|(p, _)| p.len() == 1 && name.starts_with(p))
+        {
+            let base = &name[1..];
+            return Some((10.0_f64.powi(exp), base));
+        }
+    }
+
+    None
+}
+
+/// Try to resolve a unit name without prefix parsing (exact match only).
+///
+/// Returns `Some(Unit)` if the name is a recognized base or derived unit,
+/// otherwise `None`.
+fn try_exact_base_unit(name: &str) -> Option<Unit> {
+    match name {
+        // SI base units
+        "m" => Some(Unit::meters()),
+        "kg" => Some(Unit::kilograms()),
+        "s" => Some(Unit::seconds()),
+        "K" => Some(Unit::kelvin()),
+        "A" => Some(Unit::amperes()),
+        "mol" => Some(Unit::moles()),
+        "cd" => Some(Unit::candelas()),
+        "rad" => Some(Unit::radians()),
+
+        // SI derived units
+        "N" => Some(Unit::newtons()),
+        "J" => Some(Unit::joules()),
+        "W" => Some(Unit::watts()),
+        "Pa" => Some(Unit::pascals()),
+
+        // Non-SI but recognized units
+        "g" => Some(Unit::grams()),  // mass (for prefix convenience)
+        "yr" => Some(Unit::years()), // time (Julian year)
+        "day" => Some(Unit::days()), // time
+
+        _ => None,
+    }
+}
+
+/// Resolve a base unit name to a Unit with SI prefix support.
+///
+/// # Resolution Strategy
+///
+/// 1. Try exact match first (handles reserved units: m, mol, Pa, cd, etc.)
+/// 2. If exact match fails, try SI prefix parsing
+/// 3. If neither works, return error
+///
+/// # Examples
+///
+/// ```ignore
+/// resolve_base_unit("m", span)    // -> meters (exact match, not milli)
+/// resolve_base_unit("km", span)   // -> meters with scale=1000.0
+/// resolve_base_unit("Myr", span)  // -> years with scale=1e6
+/// resolve_base_unit("mol", span)  // -> moles (exact match, not milli-ol)
+/// ```
+pub fn resolve_base_unit(name: &str, span: Span) -> Result<Unit, CompileError> {
+    // 1. Try exact match first (reserved units)
+    if let Some(unit) = try_exact_base_unit(name) {
+        return Ok(unit);
+    }
+
+    // 2. Try prefix parsing (only if not reserved)
+    if !RESERVED_UNITS.contains(&name) {
+        if let Some((prefix_scale, base_name)) = try_parse_prefix(name) {
+            if let Some(base_unit) = try_exact_base_unit(base_name) {
+                // Apply prefix scale to base unit
+                return Ok(Unit::new(
+                    *base_unit.kind(),
+                    *base_unit.dims(),
+                    base_unit.scale() * prefix_scale,
+                ));
+            }
+        }
+    }
+
+    // 3. Unknown unit
+    Err(CompileError::new(
+        ErrorKind::InvalidUnit,
+        span,
+        format!("Unknown base unit: {}", name),
+    ))
 }
 
 /// Multiply two units.
@@ -80,7 +221,8 @@ pub fn multiply_units(lhs: &Unit, rhs: &Unit, span: Span) -> Result<Unit, Compil
     }
 
     let dims = add_dimensions(lhs.dims(), rhs.dims(), span)?;
-    Ok(Unit::new(UnitKind::Multiplicative, dims))
+    let scale = lhs.scale() * rhs.scale();
+    Ok(Unit::new(UnitKind::Multiplicative, dims, scale))
 }
 
 /// Divide two units.
@@ -98,7 +240,8 @@ pub fn divide_units(
     }
 
     let dims = subtract_dimensions(numerator.dims(), denominator.dims(), span)?;
-    Ok(Unit::new(UnitKind::Multiplicative, dims))
+    let scale = numerator.scale() / denominator.scale();
+    Ok(Unit::new(UnitKind::Multiplicative, dims, scale))
 }
 
 /// Raise a unit to a power.
@@ -112,7 +255,8 @@ pub fn power_unit(base: &Unit, exponent: i8, span: Span) -> Result<Unit, Compile
     }
 
     let dims = scale_dimensions(base.dims(), exponent, span)?;
-    Ok(Unit::new(UnitKind::Multiplicative, dims))
+    let scale = base.scale().powi(exponent as i32);
+    Ok(Unit::new(UnitKind::Multiplicative, dims, scale))
 }
 
 /// Add dimensional exponents (for multiplication).
