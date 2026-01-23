@@ -6,7 +6,7 @@
 //! - filter operations
 //! - aggregate operations (agg.sum, agg.mean, etc.)
 //! - spatial queries (nearest, within)
-//! - special keyword expressions (prev, current, inputs, dt, collected, self, payload)
+//! - special keyword expressions (prev, current, inputs, dt, self, payload)
 //!
 //! ## Known Limitations (Ignored Tests)
 //!
@@ -280,27 +280,27 @@ fn test_agg_chain() {
 // === Special Keyword Expression Tests ===
 
 #[test]
-fn test_collected_keyword() {
-    // collected is used in signal resolve blocks to access accumulated inputs
-    assert_expr_parses("collected");
+fn test_inputs_keyword_basic() {
+    // inputs is used in signal resolve blocks to access accumulated inputs
+    assert_expr_parses("inputs");
 }
 
 #[test]
-fn test_collected_in_expression() {
-    // collected can be used in arithmetic expressions
-    assert_expr_parses("collected + 10.0");
+fn test_inputs_in_expression() {
+    // inputs can be used in arithmetic expressions
+    assert_expr_parses("inputs + 10.0");
 }
 
 #[test]
-fn test_collected_with_dt() {
-    // Common pattern: integrate collected inputs over timestep
-    assert_expr_parses("prev + collected * dt.raw()");
+fn test_inputs_with_dt() {
+    // Common pattern: integrate accumulated inputs over timestep
+    assert_expr_parses("prev + inputs * dt.raw()");
 }
 
 #[test]
-fn test_collected_in_if() {
-    // collected can be used in conditionals
-    assert_expr_parses("if collected > 0.0 { prev + collected } else { prev }");
+fn test_inputs_in_if() {
+    // inputs can be used in conditionals
+    assert_expr_parses("if inputs > 0.0 { prev + inputs } else { prev }");
 }
 
 #[test]
@@ -314,7 +314,7 @@ fn test_current_keyword() {
 }
 
 #[test]
-fn test_inputs_keyword() {
+fn test_inputs_keyword_standalone() {
     assert_expr_parses("inputs");
 }
 
@@ -349,5 +349,5 @@ fn test_keyword_in_arithmetic() {
 #[test]
 fn test_multiple_keywords() {
     // Multiple keywords in one expression
-    assert_expr_parses("prev + collected * dt.raw() - current");
+    assert_expr_parses("prev + inputs * dt.raw() - current");
 }
