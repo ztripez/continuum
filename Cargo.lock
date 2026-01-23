@@ -376,6 +376,7 @@ name = "continuum-cdsl-ast"
 version = "0.1.0"
 dependencies = [
  "continuum-foundation",
+ "continuum-functions",
  "continuum-kernel-types",
  "indexmap",
  "serde",

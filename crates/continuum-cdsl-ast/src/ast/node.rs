@@ -788,11 +788,7 @@ mod tests {
 
         assert!(!node.has_errors());
 
-        node.validation_errors.push(ValidationError::new(
-            crate::error::ErrorKind::TypeMismatch,
-            Span::new(0, 0, 10, 1),
-            "test error".to_string(),
-        ));
+        node.validation_errors.push("test error".to_string());
         assert!(node.has_errors());
     }
 

@@ -860,6 +860,10 @@ pub trait ExpressionVisitor {
 mod tests {
     use super::*;
 
+    // Import continuum-functions to ensure kernel signatures are linked
+    #[allow(unused_imports)]
+    use continuum_functions as _;
+
     #[test]
     fn kernel_id_qualified_name() {
         let add = KernelId::new("maths", "add");

@@ -880,35 +880,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn binary_op_kernels_complete() {
-        // Test all 14 binary operators
-        let cases = [
-            (BinaryOp::Add, KernelId::new("maths", "add")),
-            (BinaryOp::Sub, KernelId::new("maths", "sub")),
-            (BinaryOp::Mul, KernelId::new("maths", "mul")),
-            (BinaryOp::Div, KernelId::new("maths", "div")),
-            (BinaryOp::Mod, KernelId::new("maths", "mod")),
-            (BinaryOp::Pow, KernelId::new("maths", "pow")),
-            (BinaryOp::Eq, KernelId::new("compare", "eq")),
-            (BinaryOp::Ne, KernelId::new("compare", "ne")),
-            (BinaryOp::Lt, KernelId::new("compare", "lt")),
-            (BinaryOp::Le, KernelId::new("compare", "le")),
-            (BinaryOp::Gt, KernelId::new("compare", "gt")),
-            (BinaryOp::Ge, KernelId::new("compare", "ge")),
-            (BinaryOp::And, KernelId::new("logic", "and")),
-            (BinaryOp::Or, KernelId::new("logic", "or")),
-        ];
-        for (op, expected) in cases {
-            assert_eq!(op.kernel(), expected, "kernel mismatch for {:?}", op);
-        }
-    }
-
-    #[test]
-    fn unary_op_kernels() {
-        assert_eq!(UnaryOp::Neg.kernel(), KernelId::new("maths", "neg"));
-        assert_eq!(UnaryOp::Not.kernel(), KernelId::new("logic", "not"));
-    }
+    // Note: Operator-to-kernel mapping tests removed.
+    // BinaryOp and UnaryOp are just enums without kernel() methods.
+    // The mapping to kernel IDs happens during expression typing in continuum-cdsl-resolve.
 
     #[test]
     fn type_expr_scalar() {

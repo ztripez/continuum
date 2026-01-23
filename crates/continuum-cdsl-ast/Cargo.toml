@@ -12,3 +12,6 @@ continuum-kernel-types = { path = "../continuum-kernel-types" }
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 indexmap = { version = "2", features = ["serde"] }
+
+[dev-dependencies]
+continuum-functions = { path = "../kernels/functions" }

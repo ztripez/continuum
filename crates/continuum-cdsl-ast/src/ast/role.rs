@@ -674,7 +674,7 @@ mod tests {
         assert!(fracture_caps.contains(Capability::Scoping));
         assert!(fracture_caps.contains(Capability::Signals));
         assert!(fracture_caps.contains(Capability::Dt));
-        assert!(!fracture_caps.contains(Capability::Emit));
+        assert!(fracture_caps.contains(Capability::Emit)); // Fractures can emit events when tensions detected
         assert!(!fracture_caps.contains(Capability::Prev));
 
         // Assert phase capabilities
