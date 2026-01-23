@@ -206,6 +206,38 @@ pub fn build_runtime(compiled: CompiledWorld) -> Runtime {
         runtime.add_impulse_mapping(id, idx);
     }
 
+    // Extract and populate config/const values
+    use continuum_cdsl::ast::Declaration;
+    use std::collections::HashMap;
+    let mut config_values = HashMap::new();
+    let mut const_values = HashMap::new();
+
+    for decl in &compiled.world.declarations {
+        match decl {
+            Declaration::Config(entries) => {
+                for entry in entries {
+                    if let Some(default) = &entry.default {
+                        if let Some(value) = evaluate_literal(default) {
+                            config_values.insert(entry.path.clone(), value);
+                        }
+                    }
+                }
+            }
+            Declaration::Const(entries) => {
+                for entry in entries {
+                    if let Some(value) = evaluate_literal(&entry.value) {
+                        const_values.insert(entry.path.clone(), value);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // Populate config/const in bytecode executor  
+    runtime.set_config_values(config_values);
+    runtime.set_const_values(const_values);
+
     // Initialize signals from world defaults/metadata
     for (path, node) in &compiled.world.globals {
         if let Some(literal) = node
@@ -528,6 +560,35 @@ fn compile_bytecode_and_dags(
 fn literal_scalar(expr: &TypedExpr) -> Option<f64> {
     match &expr.expr {
         ExprKind::Literal { value, .. } => Some(*value),
+        _ => None,
+    }
+}
+
+/// Evaluate a literal expression to a Value (Scalar or Vec3).
+/// Returns None if the expression is not a simple literal.
+fn evaluate_literal(expr: &continuum_cdsl::ast::Expr) -> Option<Value> {
+    use continuum_cdsl::ast::UntypedKind;
+    
+    match &expr.kind {
+        UntypedKind::Literal { value, .. } => Some(Value::Scalar(*value)),
+        UntypedKind::Vector(elements) if elements.len() == 3 => {
+            let x = if let UntypedKind::Literal { value, .. } = &elements[0].kind {
+                *value
+            } else {
+                return None;
+            };
+            let y = if let UntypedKind::Literal { value, .. } = &elements[1].kind {
+                *value
+            } else {
+                return None;
+            };
+            let z = if let UntypedKind::Literal { value, .. } = &elements[2].kind {
+                *value
+            } else {
+                return None;
+            };
+            Some(Value::Vec3([x, y, z]))
+        }
         _ => None,
     }
 }

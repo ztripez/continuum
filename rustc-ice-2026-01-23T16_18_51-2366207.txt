@@ -1,0 +1,27 @@
+thread 'rustc' panicked at /rustc-dev/fcd630976c460c819c4bbcaf107d0c94501205d8/library/std/src/sys/sync/once/futex.rs:91:18:
+internal error: entered unreachable code: invalid Once state
+stack backtrace:
+   0:      0x8bbc201982b - <std[5347a33df0ec98e9]::backtrace::Backtrace>::create
+   1:      0x8bbc2019775 - <std[5347a33df0ec98e9]::backtrace::Backtrace>::force_capture
+   2:      0x8bbc1013af7 - std[5347a33df0ec98e9]::panicking::update_hook::<alloc[e8d9b7d9706d912c]::boxed::Box<rustc_driver_impl[d4e5b3e8cd9b5b39]::install_ice_hook::{closure#1}>>::{closure#0}
+   3:      0x8bbc202c1d2 - std[5347a33df0ec98e9]::panicking::panic_with_hook
+   4:      0x8bbc200e89a - std[5347a33df0ec98e9]::panicking::panic_handler::{closure#0}
+   5:      0x8bbc20059d9 - std[5347a33df0ec98e9]::sys::backtrace::__rust_end_short_backtrace::<std[5347a33df0ec98e9]::panicking::panic_handler::{closure#0}, !>
+   6:      0x8bbc201031d - __rustc[849529ebdd321e68]::rust_begin_unwind
+   7:      0x8bbbed47c4c - core[226096ff96d88ea4]::panicking::panic_fmt
+   8:      0x8bbc31bdd69 - <alloc[e8d9b7d9706d912c]::sync::Arc<rustc_middle[8d2bb4b331e181d0]::mir::basic_blocks::Cache>>::drop_slow
+   9:      0x8bbc2f859cf - core[226096ff96d88ea4]::ptr::drop_in_place::<rustc_middle[8d2bb4b331e181d0]::mir::Body>
+  10:      0x8bbc2f855db - core[226096ff96d88ea4]::ptr::drop_in_place::<rustc_arena[b1f4b0e5587acf2a]::TypedArena<rustc_middle[8d2bb4b331e181d0]::mir::Body>>
+  11:      0x8bbc387655e - core[226096ff96d88ea4]::ptr::drop_in_place::<rustc_data_structures[34daf48cf4f47334]::sync::CacheAligned<rustc_middle[8d2bb4b331e181d0]::arena::Arena>>
+  12:      0x8bbc387632d - core[226096ff96d88ea4]::ptr::drop_in_place::<rustc_data_structures[34daf48cf4f47334]::sync::worker_local::WorkerLocal<rustc_middle[8d2bb4b331e181d0]::arena::Arena>>
+  13:      0x8bbc3854f43 - rustc_interface[4516e39ea006f2c9]::interface::run_compiler::<(), rustc_driver_impl[d4e5b3e8cd9b5b39]::run_compiler::{closure#0}>::{closure#1}
+  14:      0x8bbc371fa8e - std[5347a33df0ec98e9]::sys::backtrace::__rust_begin_short_backtrace::<rustc_interface[4516e39ea006f2c9]::util::run_in_thread_with_globals<rustc_interface[4516e39ea006f2c9]::util::run_in_thread_pool_with_globals<rustc_interface[4516e39ea006f2c9]::interface::run_compiler<(), rustc_driver_impl[d4e5b3e8cd9b5b39]::run_compiler::{closure#0}>::{closure#1}, ()>::{closure#0}, ()>::{closure#0}::{closure#0}, ()>
+  15:      0x8bbc371f860 - <std[5347a33df0ec98e9]::thread::lifecycle::spawn_unchecked<rustc_interface[4516e39ea006f2c9]::util::run_in_thread_with_globals<rustc_interface[4516e39ea006f2c9]::util::run_in_thread_pool_with_globals<rustc_interface[4516e39ea006f2c9]::interface::run_compiler<(), rustc_driver_impl[d4e5b3e8cd9b5b39]::run_compiler::{closure#0}>::{closure#1}, ()>::{closure#0}, ()>::{closure#0}::{closure#0}, ()>::{closure#1} as core[226096ff96d88ea4]::ops::function::FnOnce<()>>::call_once::{shim:vtable#0}
+  16:      0x8bbc371dc38 - <std[5347a33df0ec98e9]::sys::thread::unix::Thread>::new::thread_start
+  17:      0x8bbbd09698b - <unknown>
+  18:      0x8bbbd11aa0c - <unknown>
+  19:                0x0 - <unknown>
+
+
+rustc version: 1.94.0-nightly (fcd630976 2026-01-01)
+platform: x86_64-unknown-linux-gnu

@@ -419,6 +419,18 @@ impl Runtime {
         }
     }
 
+    /// Set configuration values (called during world loading).
+    /// Values are frozen and immutable during execution.
+    pub fn set_config_values(&mut self, values: std::collections::HashMap<continuum_foundation::Path, Value>) {
+        self.bytecode_executor.set_config_values(values);
+    }
+
+    /// Set constant values (called during world loading).
+    /// Values are frozen and immutable during execution.
+    pub fn set_const_values(&mut self, values: std::collections::HashMap<continuum_foundation::Path, Value>) {
+        self.bytecode_executor.set_const_values(values);
+    }
+
     /// Add a breakpoint for a signal
     pub fn add_breakpoint(&mut self, signal: SignalId) {
         info!(%signal, "breakpoint added");
