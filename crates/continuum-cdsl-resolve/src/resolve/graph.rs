@@ -381,8 +381,8 @@ fn build_dag(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ast::{Execution, ExecutionBody, Node, RoleData};
-    use crate::foundation::{EraId, Phase, Span, StratumId};
+    use continuum_cdsl_ast::foundation::{EraId, Phase, Span, StratumId};
+    use continuum_cdsl_ast::{Execution, ExecutionBody, Node, RoleData};
 
     fn test_span() -> Span {
         Span::new(0, 0, 0, 1)
@@ -391,14 +391,18 @@ mod tests {
     fn add_default_era(world: &mut World, span: Span) {
         world.eras.insert(
             Path::from_path_str("default"),
-            crate::ast::Era::new(EraId::new("default"), Path::from_path_str("default"), span),
+            continuum_cdsl_ast::Era::new(
+                EraId::new("default"),
+                Path::from_path_str("default"),
+                span,
+            ),
         );
     }
 
     #[test]
     fn test_dag_compilation_simple() {
         let span = test_span();
-        let metadata = crate::ast::WorldDecl {
+        let metadata = continuum_cdsl_ast::WorldDecl {
             path: Path::from_path_str("world"),
             title: None,
             version: None,
@@ -407,7 +411,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
-            policy: crate::ast::WorldPolicy::default(),
+            policy: continuum_cdsl_ast::WorldPolicy::default(),
         };
 
         // signal a { resolve { 1.0 } }
@@ -416,12 +420,12 @@ mod tests {
         node_a.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Literal {
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Literal {
                     value: 1.0,
                     unit: None,
                 },
-                crate::foundation::Type::Bool, // Dummy type
+                continuum_cdsl_ast::foundation::Type::Bool, // Dummy type
                 span,
             )),
             vec![],
@@ -436,9 +440,9 @@ mod tests {
         node_b.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Signal(Path::from_path_str("a")),
-                crate::foundation::Type::Bool, // Dummy type
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Signal(Path::from_path_str("a")),
+                continuum_cdsl_ast::foundation::Type::Bool, // Dummy type
                 span,
             )),
             vec![Path::from_path_str("a")],
@@ -450,7 +454,7 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(
+            continuum_cdsl_ast::Stratum::new(
                 StratumId::new("default"),
                 Path::from_path_str("default"),
                 span,
@@ -478,7 +482,7 @@ mod tests {
     #[test]
     fn test_dag_compilation_cycle() {
         let span = test_span();
-        let metadata = crate::ast::WorldDecl {
+        let metadata = continuum_cdsl_ast::WorldDecl {
             path: Path::from_path_str("world"),
             title: None,
             version: None,
@@ -487,7 +491,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
-            policy: crate::ast::WorldPolicy::default(),
+            policy: continuum_cdsl_ast::WorldPolicy::default(),
         };
 
         // signal a { resolve { signal.b } }
@@ -496,9 +500,9 @@ mod tests {
         node_a.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Signal(Path::from_path_str("b")),
-                crate::foundation::Type::Bool,
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Signal(Path::from_path_str("b")),
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![Path::from_path_str("b")],
@@ -513,9 +517,9 @@ mod tests {
         node_b.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Signal(Path::from_path_str("a")),
-                crate::foundation::Type::Bool,
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Signal(Path::from_path_str("a")),
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![Path::from_path_str("a")],
@@ -527,7 +531,7 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(
+            continuum_cdsl_ast::Stratum::new(
                 StratumId::new("default"),
                 Path::from_path_str("default"),
                 span,
@@ -547,7 +551,7 @@ mod tests {
     #[test]
     fn test_field_isolation_in_kernel_phases() {
         let span = test_span();
-        let metadata = crate::ast::WorldDecl {
+        let metadata = continuum_cdsl_ast::WorldDecl {
             path: Path::from_path_str("world"),
             title: None,
             version: None,
@@ -556,7 +560,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
-            policy: crate::ast::WorldPolicy::default(),
+            policy: continuum_cdsl_ast::WorldPolicy::default(),
         };
 
         // field temperature { resolve { 1.0 } }  // INVALID: Fields can't execute in Resolve
@@ -572,12 +576,12 @@ mod tests {
         field_node.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Literal {
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Literal {
                     value: 1.0,
                     unit: None,
                 },
-                crate::foundation::Type::Bool,
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![],
@@ -589,7 +593,7 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(
+            continuum_cdsl_ast::Stratum::new(
                 StratumId::new("default"),
                 Path::from_path_str("default"),
                 span,
@@ -612,7 +616,7 @@ mod tests {
     #[test]
     fn test_parallel_node_deterministic_ordering() {
         let span = test_span();
-        let metadata = crate::ast::WorldDecl {
+        let metadata = continuum_cdsl_ast::WorldDecl {
             path: Path::from_path_str("world"),
             title: None,
             version: None,
@@ -621,7 +625,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
-            policy: crate::ast::WorldPolicy::default(),
+            policy: continuum_cdsl_ast::WorldPolicy::default(),
         };
 
         // Three signals with no dependencies - should sort alphabetically in same level
@@ -634,12 +638,12 @@ mod tests {
         node_zebra.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Literal {
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Literal {
                     value: 1.0,
                     unit: None,
                 },
-                crate::foundation::Type::Bool,
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![],
@@ -653,12 +657,12 @@ mod tests {
         node_apple.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Literal {
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Literal {
                     value: 2.0,
                     unit: None,
                 },
-                crate::foundation::Type::Bool,
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![],
@@ -672,12 +676,12 @@ mod tests {
         node_banana.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Literal {
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Literal {
                     value: 3.0,
                     unit: None,
                 },
-                crate::foundation::Type::Bool,
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![],
@@ -689,7 +693,7 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(
+            continuum_cdsl_ast::Stratum::new(
                 StratumId::new("default"),
                 Path::from_path_str("default"),
                 span,
@@ -727,7 +731,7 @@ mod tests {
     #[test]
     fn test_empty_dag_handling() {
         let span = test_span();
-        let metadata = crate::ast::WorldDecl {
+        let metadata = continuum_cdsl_ast::WorldDecl {
             path: Path::from_path_str("world"),
             title: None,
             version: None,
@@ -736,13 +740,13 @@ mod tests {
             span,
             doc: None,
             debug: false,
-            policy: crate::ast::WorldPolicy::default(),
+            policy: continuum_cdsl_ast::WorldPolicy::default(),
         };
 
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(
+            continuum_cdsl_ast::Stratum::new(
                 StratumId::new("default"),
                 Path::from_path_str("default"),
                 span,
@@ -760,7 +764,7 @@ mod tests {
     #[test]
     fn test_cross_stratum_dependency_violation() {
         let span = test_span();
-        let metadata = crate::ast::WorldDecl {
+        let metadata = continuum_cdsl_ast::WorldDecl {
             path: Path::from_path_str("world"),
             title: None,
             version: None,
@@ -769,7 +773,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
-            policy: crate::ast::WorldPolicy::default(),
+            policy: continuum_cdsl_ast::WorldPolicy::default(),
         };
 
         // signal slow_signal { : stratum(slow); resolve { 1.0 } }
@@ -783,12 +787,12 @@ mod tests {
         node_slow.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Literal {
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Literal {
                     value: 1.0,
                     unit: None,
                 },
-                crate::foundation::Type::Bool,
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![],
@@ -808,9 +812,9 @@ mod tests {
         node_fast.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Signal(Path::from_path_str("slow_signal")),
-                crate::foundation::Type::Bool,
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Signal(Path::from_path_str("slow_signal")),
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![Path::from_path_str("slow_signal")],
@@ -822,12 +826,20 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("slow"),
-            crate::ast::Stratum::new(StratumId::new("slow"), Path::from_path_str("slow"), span),
+            continuum_cdsl_ast::Stratum::new(
+                StratumId::new("slow"),
+                Path::from_path_str("slow"),
+                span,
+            ),
         );
         add_default_era(&mut world, span);
         world.strata.insert(
             Path::from_path_str("fast"),
-            crate::ast::Stratum::new(StratumId::new("fast"), Path::from_path_str("fast"), span),
+            continuum_cdsl_ast::Stratum::new(
+                StratumId::new("fast"),
+                Path::from_path_str("fast"),
+                span,
+            ),
         );
         add_default_era(&mut world, span);
         world.globals.insert(node_slow.path.clone(), node_slow);
@@ -846,7 +858,7 @@ mod tests {
     #[test]
     fn test_multi_emitter_conflict() {
         let span = test_span();
-        let metadata = crate::ast::WorldDecl {
+        let metadata = continuum_cdsl_ast::WorldDecl {
             path: Path::from_path_str("world"),
             title: None,
             version: None,
@@ -855,7 +867,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
-            policy: crate::ast::WorldPolicy::default(),
+            policy: continuum_cdsl_ast::WorldPolicy::default(),
         };
 
         // operator op1 { measure { field.a <- 1.0 } }
@@ -864,12 +876,12 @@ mod tests {
         node_op1.executions = vec![Execution::new(
             "measure".to_string(),
             Phase::Measure,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Literal {
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Literal {
                     value: 1.0,
                     unit: None,
                 },
-                crate::foundation::Type::Bool,
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![],
@@ -883,12 +895,12 @@ mod tests {
         node_op2.executions = vec![Execution::new(
             "measure".to_string(),
             Phase::Measure,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Literal {
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Literal {
                     value: 2.0,
                     unit: None,
                 },
-                crate::foundation::Type::Bool,
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![],
@@ -900,7 +912,7 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(
+            continuum_cdsl_ast::Stratum::new(
                 StratumId::new("default"),
                 Path::from_path_str("default"),
                 span,
@@ -921,7 +933,7 @@ mod tests {
     #[test]
     fn test_dag_compilation_temporal_success() {
         let span = test_span();
-        let metadata = crate::ast::WorldDecl {
+        let metadata = continuum_cdsl_ast::WorldDecl {
             path: Path::from_path_str("world"),
             title: None,
             version: None,
@@ -930,7 +942,7 @@ mod tests {
             span,
             doc: None,
             debug: false,
-            policy: crate::ast::WorldPolicy::default(),
+            policy: continuum_cdsl_ast::WorldPolicy::default(),
         };
 
         // signal a { resolve { prev } }
@@ -939,9 +951,9 @@ mod tests {
         node_a.executions = vec![Execution::new(
             "resolve".to_string(),
             Phase::Resolve,
-            ExecutionBody::Expr(crate::ast::TypedExpr::new(
-                crate::ast::ExprKind::Prev,
-                crate::foundation::Type::Bool,
+            ExecutionBody::Expr(continuum_cdsl_ast::TypedExpr::new(
+                continuum_cdsl_ast::ExprKind::Prev,
+                continuum_cdsl_ast::foundation::Type::Bool,
                 span,
             )),
             vec![],                    // No causal reads
@@ -953,7 +965,7 @@ mod tests {
         let mut world = World::new(metadata);
         world.strata.insert(
             Path::from_path_str("default"),
-            crate::ast::Stratum::new(
+            continuum_cdsl_ast::Stratum::new(
                 StratumId::new("default"),
                 Path::from_path_str("default"),
                 span,

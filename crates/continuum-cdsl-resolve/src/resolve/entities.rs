@@ -19,7 +19,7 @@
 //! - **Declaration Flattening**: Nested members become standalone `Declaration::Member` entries
 
 use crate::error::CompileError;
-use crate::resolve::attributes::{extract_single_path, has_attribute};
+use crate::resolve::attributes::{extract_single_identifier, extract_single_path, has_attribute};
 use continuum_cdsl_ast::foundation::Path;
 use continuum_cdsl_ast::{Attribute, Declaration, Expr, UntypedKind};
 
@@ -199,11 +199,11 @@ mod tests {
         let flattened = flatten_entity_members(declarations, &mut errors);
 
         if let Declaration::Member(member) = &flattened[1] {
-            assert!(has_stratum_attribute(&member.attributes));
+            assert!(has_attribute(&member.attributes, "stratum"));
             let mut test_errors = Vec::new();
             let stratum =
-                extract_stratum_from_attributes(&member.attributes, span, &mut test_errors);
-            assert_eq!(stratum, Some(Path::from_path_str("fast")));
+                extract_single_identifier(&member.attributes, "stratum", span, &mut test_errors);
+            assert_eq!(stratum, Some("fast".to_string()));
             assert!(test_errors.is_empty());
         } else {
             panic!("Expected Declaration::Member");
