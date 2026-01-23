@@ -308,6 +308,66 @@ pub fn compile_statements(
     }
 }
 
+/// Parses a string phase name into a Phase enum value with role-specific mapping.
+///
+/// For most roles, block names map directly to phases. However, for Fracture role:
+/// - "collect" blocks execute in Phase::Fracture (not Phase::Collect)
+/// - This allows fractures to emit signal inputs during fracture detection
+///
+/// # Parameters
+/// - `name`: Phase name string.
+/// - `role_id`: The role of the node (for role-specific mappings).
+/// - `span`: Source span used for diagnostics.
+///
+/// # Returns
+/// Parsed [`Phase`] value.
+///
+/// # Errors
+///
+/// Returns [`ErrorKind::InvalidCapability`] if the name is unrecognized or
+/// is a legacy name like "apply" or "emit".
+fn parse_phase_name_for_role(
+    name: &str,
+    role_id: RoleId,
+    span: continuum_cdsl_ast::foundation::Span,
+) -> Result<Phase, CompileError> {
+    match name.to_lowercase().as_str() {
+        "resolve" => Ok(Phase::Resolve),
+        "collect" => {
+            // For Fracture role, "collect" blocks execute in Fracture phase
+            // For all other roles, they execute in Collect phase
+            if role_id == RoleId::Fracture {
+                Ok(Phase::Fracture)
+            } else {
+                Ok(Phase::Collect)
+            }
+        }
+        "fracture" => Ok(Phase::Fracture),
+        "measure" => Ok(Phase::Measure),
+        "assert" => Ok(Phase::Assert),
+        "configure" => Ok(Phase::Configure),
+
+        // Handle legacy names with helpful error messages
+        "apply" | "emit" => Err(CompileError::new(
+            ErrorKind::InvalidCapability,
+            span,
+            format!(
+                "legacy execution phase '{}' is no longer supported. Use 'collect' for signal inputs or 'measure' for observations.",
+                name
+            ),
+        )),
+
+        _ => Err(CompileError::new(
+            ErrorKind::InvalidCapability,
+            span,
+            format!(
+                "unknown execution phase '{}'. Valid phases are: resolve, collect, fracture, measure, assert, configure",
+                name
+            ),
+        )),
+    }
+}
+
 /// Parses a string phase name into a Phase enum value.
 ///
 /// # Parameters
@@ -478,12 +538,20 @@ pub fn compile_execution_blocks<I: Index>(
     let mut executions = Vec::new();
 
     let role_id = node.role.id();
-    let base_ctx = ctx.with_execution_context(None, None, node.output.clone(), None, None);
+    
+    // For signals, inputs accumulate as the signal's own type
+    let inputs_type = if role_id == RoleId::Signal {
+        node.output.clone()
+    } else {
+        None
+    };
+    
+    let base_ctx = ctx.with_execution_context(None, None, node.output.clone(), inputs_type, None);
 
     // Process each execution block
     for (phase_name, block_body) in &node.execution_blocks {
-        // 1. Parse phase name
-        let phase = match parse_phase_name(phase_name, node.span) {
+        // 1. Parse phase name (with role-specific mapping)
+        let phase = match parse_phase_name_for_role(phase_name, role_id, node.span) {
             Ok(p) => p,
             Err(e) => {
                 errors.push(e);
@@ -499,13 +567,14 @@ pub fn compile_execution_blocks<I: Index>(
 
         // 3. Validate block body type matches phase purity
         //
-        // Resolve and Assert phases are strictly pure and must use single expressions.
+        // Resolve phase is strictly pure and must use single expressions.
+        // Assert phase is pure but uses statement blocks (for multiple assertions).
         // Measure phase is theoretically pure (no side effects on authoritative state)
         // but can contain FieldAssign statements to emit observations.
-        let is_pure_phase = matches!(phase, Phase::Resolve | Phase::Assert);
+        let is_pure_expression_only = matches!(phase, Phase::Resolve);
         let has_statements = matches!(block_body, BlockBody::Statements(_));
 
-        if is_pure_phase && has_statements {
+        if is_pure_expression_only && has_statements {
             errors.push(CompileError::new(
                 ErrorKind::EffectInPureContext,
                 block_body.span(),

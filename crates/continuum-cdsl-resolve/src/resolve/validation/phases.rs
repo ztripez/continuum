@@ -62,13 +62,17 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                             span,
                             ..
                         } => {
-                            // Verify assertions only in causal phases (observer boundary)
-                            if !matches!(execution.phase, Phase::Resolve | Phase::Fracture) {
+                            // Verify assertions only in validation phases
+                            // Assert phase is specifically for runtime validation
+                            if !matches!(
+                                execution.phase,
+                                Phase::Resolve | Phase::Fracture | Phase::Assert
+                            ) {
                                 errors.push(CompileError::new(
                                     ErrorKind::PhaseBoundaryViolation,
                                     *span,
                                     format!(
-                                        "Assertions only valid in Resolve/Fracture phases (current: {:?})",
+                                        "Assertions only valid in Resolve/Fracture/Assert phases (current: {:?})",
                                         execution.phase
                                     ),
                                 ));

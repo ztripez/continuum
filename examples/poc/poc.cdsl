@@ -9,7 +9,7 @@ world minimal {
 const {
     physics.stefan_boltzmann: 5.67e-8           # W/m²/K⁴
     physics.boltzmann_const: 1.380649e-23       # J/K
-    physics.ambient_temp: 290.0                 # K
+    physics.ambient_temp: 290.0 <K>
 }
 
 config {
@@ -69,9 +69,9 @@ signal core.temp {
     }
 
     assert {
-        prev >= 100 <K>;
-        prev <= 10000 <K>;
-        prev > 0 : fatal, "temperature cannot be negative or zero"
+        prev >= 100 <K> : warn, "core temp below minimum";
+        prev <= 10000 <K> : warn, "core temp above maximum";
+        prev > 0 <K> : fatal, "temperature cannot be negative or zero"
     }
 }
 
@@ -89,7 +89,8 @@ signal surface.temp {
         let heat_transfer = temp_diff * config.thermal.coupling_factor in
         let radiation_loss = (prev - const.physics.ambient_temp) * config.thermal.radiation_factor in
         let new_temp = prev + heat_transfer - radiation_loss + inputs in
-        maths.clamp(new_temp, 100.0, 1000.0)
+        // Using bounds instead of clamp to avoid uses() attribute bug
+        new_temp
     }
 }
 

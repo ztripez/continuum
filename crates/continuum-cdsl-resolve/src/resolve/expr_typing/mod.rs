@@ -132,17 +132,8 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
 
         // === Prev (previous tick value) ===
         UntypedKind::Prev => {
-            if ctx.phase != Some(Phase::Resolve) {
-                return Err(vec![CompileError::new(
-                    ErrorKind::InvalidCapability,
-                    span,
-                    format!(
-                        "'prev' may only be used in Resolve phase, found in {:?}",
-                        ctx.phase
-                    ),
-                )]);
-            }
-
+            // Capability check is performed by capabilities.rs validation pass
+            // which checks role-specific phase capabilities from RoleSpec
             let ty = require_context_type(span, "prev", &ctx.node_output)?;
             (ExprKind::Prev, ty)
         }
