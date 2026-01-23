@@ -110,9 +110,9 @@ pub fn parse_type_expr(stream: &mut TokenStream) -> Result<TypeExpr, ParseError>
 /// ```text
 /// Scalar                    # Dimensionless scalar, no bounds
 /// Scalar<m/s²>              # Scalar with unit
-/// Scalar<>                  # Dimensionless (explicit)
-/// Scalar<1>                 # Dimensionless shorthand
-/// Scalar<K, 0.0..1000.0>    # Dimensionless with bounds
+/// Scalar<>                  # Dimensionless (explicit, preferred)
+/// Scalar<>, 0.0..1.0>       # Dimensionless with bounds
+/// Scalar<K, 0.0..1000.0>    # Unit with bounds
 /// Scalar<m/s, -100..100>    # Unit with bounds
 /// ```
 ///
@@ -120,8 +120,8 @@ pub fn parse_type_expr(stream: &mut TokenStream) -> Result<TypeExpr, ParseError>
 ///
 /// Three forms represent dimensionless scalars:
 /// - `Scalar` (no `<>` brackets)
-/// - `Scalar<>` (empty brackets)
-/// - `Scalar<1>` (shorthand: `<1>` means dimensionless)
+/// - `Scalar<>` (empty brackets, preferred)
+/// - `Scalar<1>` (legacy shorthand, supported for backwards compatibility)
 ///
 /// # Bounds Parsing
 ///

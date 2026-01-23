@@ -73,6 +73,7 @@ pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Declaration, Parse
         path,
         title,
         version,
+        description: None, // Populated during semantic analysis
         warmup,
         attributes,
         span: stream.span_from(start),

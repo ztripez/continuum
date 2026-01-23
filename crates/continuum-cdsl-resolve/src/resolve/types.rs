@@ -648,8 +648,9 @@ mod tests {
 /// This is used for type bounds which must be compile-time constants.
 /// Currently supports:
 /// - Numeric literals
+/// - Built-in mathematical constants (PI, TAU, E)
 ///
-/// Future: Support config values, const values, and simple arithmetic.
+/// Future: Support config values, user-defined const values, and simple arithmetic.
 fn evaluate_const_expr(expr: &Expr, span: Span) -> Result<f64, CompileError> {
     match &expr.kind {
         UntypedKind::Literal { value, unit } => {
@@ -663,10 +664,55 @@ fn evaluate_const_expr(expr: &Expr, span: Span) -> Result<f64, CompileError> {
             }
             Ok(*value)
         }
+        UntypedKind::Const(path) => {
+            // Built-in mathematical constants
+            match path.to_string().as_str() {
+                "PI" => Ok(std::f64::consts::PI),
+                "TAU" => Ok(std::f64::consts::TAU),
+                "E" => Ok(std::f64::consts::E),
+                other => Err(CompileError::new(
+                    ErrorKind::InvalidBounds,
+                    span,
+                    format!(
+                        "Unknown constant '{}' in type bounds. Built-in constants: PI, TAU, E",
+                        other
+                    ),
+                )),
+            }
+        }
+        UntypedKind::Local(name) => {
+            // Bare identifiers for built-in constants (parser creates Local, not Const)
+            match name.as_str() {
+                "PI" => Ok(std::f64::consts::PI),
+                "TAU" => Ok(std::f64::consts::TAU),
+                "E" => Ok(std::f64::consts::E),
+                other => Err(CompileError::new(
+                    ErrorKind::InvalidBounds,
+                    span,
+                    format!(
+                        "Unknown identifier '{}' in type bounds. Built-in constants: PI, TAU, E",
+                        other
+                    ),
+                )),
+            }
+        }
+        UntypedKind::Unary { op, operand } => {
+            // Handle unary operators (mainly negation for negative bounds)
+            use continuum_cdsl_ast::foundation::UnaryOp;
+            let operand_val = evaluate_const_expr(operand, span)?;
+            match op {
+                UnaryOp::Neg => Ok(-operand_val),
+                UnaryOp::Not => Err(CompileError::new(
+                    ErrorKind::InvalidBounds,
+                    span,
+                    "Logical NOT operator not allowed in type bounds".to_string(),
+                )),
+            }
+        }
         _ => Err(CompileError::new(
             ErrorKind::InvalidBounds,
             span,
-            "Type bounds must be constant literals (for now)".to_string(),
+            "Type bounds must be constant literals or built-in constants (PI, TAU, E)".to_string(),
         )),
     }
 }

@@ -486,13 +486,19 @@ maths.exp(signal.temperature)  # must divide by reference temp first
 
 ### Dimensionless Quantities
 
-Some quantities are intentionally dimensionless:
+Some quantities are intentionally dimensionless. Use empty unit brackets `<>` or omit the unit entirely:
 
 ```
-: Scalar<1>                    # pure number
-: Scalar<1, 0..1>              # fraction/ratio
-: Vec4<1, magnitude: 1>        # unit quaternion
+: Scalar                       # dimensionless (no unit specified)
+: Scalar<>                     # dimensionless (explicit)
+: Scalar<>, 0..1>              # dimensionless fraction/ratio
+: Vec4<>, magnitude: 1>        # dimensionless unit quaternion
 ```
+
+**Legacy shorthand:** `Scalar<1>` is supported for backwards compatibility but `Scalar<>` is preferred.
+
+**Domain-specific dimensionless units:**
+- `ppmv` — parts per million by volume (scale: 1e-6)
 
 Transcendental functions (exp, log, sin, cos) require dimensionless inputs
 

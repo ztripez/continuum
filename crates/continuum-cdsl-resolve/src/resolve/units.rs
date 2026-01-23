@@ -2,8 +2,10 @@
 //!
 //! This module implements the physical unit system, including:
 //! - **Base unit resolution** - Mapping symbols (m, kg, s) to dimensions.
-//! - **SI prefix support** - Metric prefixes (k, M, G, m, μ, n, etc.)
-//! - **Compound unit arithmetic** - Multiplication, division, and powers.
+//! - **SI prefix support** - Metric prefixes (k, M, G, m, μ, n, etc.) with scale tracking.
+//! - **Dimensionless shorthand** - `1` as legacy shorthand for dimensionless quantities.
+//! - **Domain-specific units** - Recognized units like `ppmv` (parts per million by volume).
+//! - **Compound unit arithmetic** - Multiplication, division, and powers with scale propagation.
 //! - **Dimensional analysis** - Ensuring physical consistency during compilation.
 //! - **Overflow protection** - Checked arithmetic for dimensional exponents.
 
@@ -137,10 +139,21 @@ fn try_parse_prefix(name: &str) -> Option<(f64, &str)> {
 
 /// Try to resolve a unit name without prefix parsing (exact match only).
 ///
-/// Returns `Some(Unit)` if the name is a recognized base or derived unit,
-/// otherwise `None`.
+/// Returns `Some(Unit)` if the name is a recognized unit, otherwise `None`.
+///
+/// # Recognized Units
+///
+/// - **Dimensionless:** `1` (legacy shorthand)
+/// - **SI base:** m, kg, s, K, A, mol, cd, rad
+/// - **SI derived:** N, J, W, Pa
+/// - **Time:** yr (Julian year = 31,557,600 s), day (86,400 s)
+/// - **Mass:** g (for prefix convenience, e.g., kg, mg)
+/// - **Domain-specific:** ppmv (parts per million by volume, scale 1e-6)
 fn try_exact_base_unit(name: &str) -> Option<Unit> {
     match name {
+        // Dimensionless shorthand
+        "1" => Some(Unit::DIMENSIONLESS),
+
         // SI base units
         "m" => Some(Unit::meters()),
         "kg" => Some(Unit::kilograms()),
@@ -161,6 +174,13 @@ fn try_exact_base_unit(name: &str) -> Option<Unit> {
         "g" => Some(Unit::grams()),  // mass (for prefix convenience)
         "yr" => Some(Unit::years()), // time (Julian year)
         "day" => Some(Unit::days()), // time
+
+        // Domain-specific dimensionless units
+        "ppmv" => Some(Unit::new(
+            UnitKind::Multiplicative,
+            UnitDimensions::DIMENSIONLESS,
+            1e-6,
+        )), // parts per million by volume
 
         _ => None,
     }

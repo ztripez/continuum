@@ -637,6 +637,26 @@ fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileErro
                     )),
                 }
             }
+            "description" => {
+                if attr.args.len() != 1 {
+                    errors.push(CompileError::new(
+                        crate::error::ErrorKind::InvalidCapability,
+                        attr.span,
+                        "description attribute expects 1 argument".to_string(),
+                    ));
+                    continue;
+                }
+                match &attr.args[0].kind {
+                    continuum_cdsl_ast::UntypedKind::StringLiteral(s) => {
+                        metadata.description = Some(s.clone())
+                    }
+                    _ => errors.push(CompileError::new(
+                        crate::error::ErrorKind::TypeMismatch,
+                        attr.args[0].span,
+                        "description attribute expects a string literal".to_string(),
+                    )),
+                }
+            }
             "debug" => {
                 if metadata.debug {
                     errors.push(CompileError::new(
