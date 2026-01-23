@@ -380,4 +380,158 @@ mod tests {
         assert_eq!(stratum, None);
         assert!(errors.is_empty()); // No attribute is not an error
     }
+
+    #[test]
+    fn test_flatten_entity_members_no_stratum_anywhere() {
+        // Test that members without stratum and entity without stratum both have no stratum attribute
+        let span = test_span();
+        let mut entity = Entity::new(
+            EntityId::new("particle"),
+            Path::from_path_str("particle"),
+            span,
+        );
+
+        // Add two members without stratum attributes
+        let member1 = Node::new(
+            Path::from_path_str("mass"),
+            span,
+            RoleData::Signal,
+            EntityId::new("particle"),
+        );
+        entity.members.push(member1);
+
+        let member2 = Node::new(
+            Path::from_path_str("velocity"),
+            span,
+            RoleData::Signal,
+            EntityId::new("particle"),
+        );
+        entity.members.push(member2);
+
+        let declarations = vec![Declaration::Entity(entity)];
+        let mut errors = Vec::new();
+        let flattened = flatten_entity_members(declarations, &mut errors);
+
+        assert_eq!(flattened.len(), 3); // 1 Entity + 2 Members
+        assert!(errors.is_empty());
+
+        // Check that both members have no stratum attribute
+        for i in 1..3 {
+            if let Declaration::Member(member) = &flattened[i] {
+                assert!(!has_attribute(&member.attributes, "stratum"));
+            } else {
+                panic!("Expected Declaration::Member at index {}", i);
+            }
+        }
+    }
+
+    #[test]
+    fn test_flatten_entity_members_mixed_stratum_attributes() {
+        // Test members with mixed stratum behavior: inherit, override, and override again
+        let span = test_span();
+        let mut entity = Entity::new(
+            EntityId::new("particle"),
+            Path::from_path_str("particle"),
+            span,
+        );
+
+        // Entity has default stratum
+        entity.attributes.push(Attribute {
+            name: "stratum".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Signal(Path::from_path_str("default")),
+                span,
+            )],
+            span,
+        });
+
+        // Member1: no stratum (should inherit "default")
+        let member1 = Node::new(
+            Path::from_path_str("mass"),
+            span,
+            RoleData::Signal,
+            EntityId::new("particle"),
+        );
+        entity.members.push(member1);
+
+        // Member2: explicit stratum "fast" (should override)
+        let mut member2 = Node::new(
+            Path::from_path_str("velocity"),
+            span,
+            RoleData::Signal,
+            EntityId::new("particle"),
+        );
+        member2.attributes.push(Attribute {
+            name: "stratum".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Signal(Path::from_path_str("fast")),
+                span,
+            )],
+            span,
+        });
+        entity.members.push(member2);
+
+        // Member3: explicit stratum "slow" (should override)
+        let mut member3 = Node::new(
+            Path::from_path_str("position"),
+            span,
+            RoleData::Signal,
+            EntityId::new("particle"),
+        );
+        member3.attributes.push(Attribute {
+            name: "stratum".to_string(),
+            args: vec![Expr::new(
+                UntypedKind::Signal(Path::from_path_str("slow")),
+                span,
+            )],
+            span,
+        });
+        entity.members.push(member3);
+
+        let declarations = vec![Declaration::Entity(entity)];
+        let mut errors = Vec::new();
+        let flattened = flatten_entity_members(declarations, &mut errors);
+
+        assert_eq!(flattened.len(), 4); // 1 Entity + 3 Members
+        assert!(errors.is_empty());
+
+        // Check member1: inherited "default"
+        if let Declaration::Member(member) = &flattened[1] {
+            assert_eq!(member.path, Path::from_path_str("particle.mass"));
+            assert!(has_attribute(&member.attributes, "stratum"));
+            let mut test_errors = Vec::new();
+            let stratum =
+                extract_single_path(&member.attributes, "stratum", span, &mut test_errors);
+            assert_eq!(stratum, Some(Path::from_path_str("default")));
+            assert!(test_errors.is_empty());
+        } else {
+            panic!("Expected Declaration::Member at index 1");
+        }
+
+        // Check member2: overridden to "fast"
+        if let Declaration::Member(member) = &flattened[2] {
+            assert_eq!(member.path, Path::from_path_str("particle.velocity"));
+            assert!(has_attribute(&member.attributes, "stratum"));
+            let mut test_errors = Vec::new();
+            let stratum =
+                extract_single_path(&member.attributes, "stratum", span, &mut test_errors);
+            assert_eq!(stratum, Some(Path::from_path_str("fast")));
+            assert!(test_errors.is_empty());
+        } else {
+            panic!("Expected Declaration::Member at index 2");
+        }
+
+        // Check member3: overridden to "slow"
+        if let Declaration::Member(member) = &flattened[3] {
+            assert_eq!(member.path, Path::from_path_str("particle.position"));
+            assert!(has_attribute(&member.attributes, "stratum"));
+            let mut test_errors = Vec::new();
+            let stratum =
+                extract_single_path(&member.attributes, "stratum", span, &mut test_errors);
+            assert_eq!(stratum, Some(Path::from_path_str("slow")));
+            assert!(test_errors.is_empty());
+        } else {
+            panic!("Expected Declaration::Member at index 3");
+        }
+    }
 }
