@@ -20,8 +20,8 @@ use crate::resolve::uses::validate_uses;
 use crate::resolve::validation::{validate_node, validate_seq_escape};
 use continuum_cdsl_ast::foundation::{EntityId, Path, Type};
 use continuum_cdsl_ast::{
-    CompiledWorld, ConfigEntry, ConstEntry, Declaration, Era, Expr, KernelRegistry, Node, World,
-    WorldDecl,
+    Attribute, CompiledWorld, ConfigEntry, ConstEntry, Declaration, Era, Expr, KernelRegistry,
+    Node, UntypedKind, World, WorldDecl,
 };
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -78,10 +78,14 @@ macro_rules! validate_node_pass {
 pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<CompileError>> {
     let mut errors = Vec::new();
 
-    // 1. Desugar
+    // 1. Flatten entity nested members into standalone member declarations
+    // This must happen BEFORE desugar so that member expressions get desugared
+    let declarations = flatten_entity_members(declarations, &mut errors);
+
+    // 2. Desugar
     let declarations = desugar_declarations(declarations);
 
-    // 2. Group declarations by kind
+    // 3. Group declarations by kind
     let mut world_decl = None;
     let mut global_nodes = Vec::new();
     let mut member_nodes = Vec::new();
@@ -715,6 +719,111 @@ fn create_debug_node<I: continuum_cdsl_ast::Index>(source: &Node<I>, index: I) -
     debug_node
 }
 
+/// Flatten entity nested members into standalone member declarations.
+///
+/// Extracts members from entity.members and creates Declaration::Member entries
+/// with full paths (entity.path + member.path). Handles stratum inheritance:
+/// if a member doesn't specify a stratum, it inherits from the entity's stratum attribute.
+///
+/// # Arguments
+///
+/// * `declarations` - Input declarations to process
+/// * `errors` - Accumulator for compilation errors
+///
+/// # Returns
+///
+/// Flattened declaration list with nested members extracted as standalone members
+fn flatten_entity_members(
+    declarations: Vec<Declaration>,
+    errors: &mut Vec<CompileError>,
+) -> Vec<Declaration> {
+    let mut flattened = Vec::new();
+
+    for decl in declarations {
+        if let Declaration::Entity(ref entity) = decl {
+            // Keep the entity declaration
+            flattened.push(decl.clone());
+
+            // Extract stratum from entity attributes (if present)
+            let entity_stratum = extract_stratum_from_attributes(&entity.attributes);
+
+            // Flatten each nested member
+            for member in &entity.members {
+                let mut flattened_member = member.clone();
+
+                // Build full path: entity.path + member.path
+                // Member path is just the name (e.g., "output"), entity path is full (e.g., "heat_source")
+                // We need to concatenate segments: ["heat_source"] + ["output"] = ["heat_source", "output"]
+                let mut full_segments = entity.path.segments.clone();
+                full_segments.extend(member.path.segments.clone());
+                flattened_member.path = Path::new(full_segments);
+
+                // Inherit stratum if member doesn't have one
+                if !has_stratum_attribute(&flattened_member.attributes) {
+                    if let Some(ref stratum_path) = entity_stratum {
+                        // Add :stratum(name) attribute to member
+                        let stratum_attr = Attribute {
+                            name: "stratum".to_string(),
+                            args: vec![Expr::new(
+                                UntypedKind::Signal(stratum_path.clone()),
+                                member.span,
+                            )],
+                            span: member.span,
+                        };
+                        flattened_member.attributes.push(stratum_attr);
+                    }
+                }
+
+                // Add as member declaration
+                flattened.push(Declaration::Member(flattened_member));
+            }
+        } else {
+            // Keep non-entity declarations as-is
+            flattened.push(decl);
+        }
+    }
+
+    flattened
+}
+
+/// Extract stratum path from entity attributes.
+///
+/// Searches for `:stratum(name)` attribute and extracts the path argument.
+/// Handles both `Local("thermal")` and `Signal(path)` variants since this
+/// runs before type resolution.
+///
+/// # Arguments
+///
+/// * `attrs` - Attributes to search
+///
+/// # Returns
+///
+/// Some(Path) if stratum attribute found, None otherwise
+fn extract_stratum_from_attributes(attrs: &[Attribute]) -> Option<Path> {
+    attrs
+        .iter()
+        .find(|a| a.name == "stratum")
+        .and_then(|a| a.args.first())
+        .and_then(|arg| match &arg.kind {
+            UntypedKind::Signal(path) => Some(path.clone()),
+            UntypedKind::Local(name) => Some(Path::from_path_str(name)),
+            _ => None,
+        })
+}
+
+/// Check if attributes contain a stratum declaration.
+///
+/// # Arguments
+///
+/// * `attrs` - Attributes to check
+///
+/// # Returns
+///
+/// true if stratum attribute present, false otherwise
+fn has_stratum_attribute(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|a| a.name == "stratum")
+}
+
 fn resolve_initial_era(
     eras: &IndexMap<Path, Era>,
     initial_candidates: &[(Path, continuum_cdsl_ast::foundation::Span)],
@@ -1281,7 +1390,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod tests {
+mod config_const_tests {
     use super::*;
     use continuum_cdsl_ast::foundation::{KernelType, Shape, Span, Type, Unit};
     use continuum_cdsl_ast::{ConfigEntry, ConstEntry, Expr, TypeExpr, UntypedKind};

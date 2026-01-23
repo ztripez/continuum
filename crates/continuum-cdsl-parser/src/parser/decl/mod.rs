@@ -51,7 +51,6 @@ fn parse_declaration(stream: &mut TokenStream) -> Result<Declaration, ParseError
         Some(Token::Fracture) => primitives::parse_fracture(stream),
         Some(Token::Chronicle) => primitives::parse_chronicle(stream),
         Some(Token::Entity) => entities::parse_entity(stream),
-        Some(Token::Member) => entities::parse_member(stream),
         Some(Token::Strata) => time::parse_stratum(stream),
         Some(Token::Era) => time::parse_era(stream),
         Some(Token::Type) => definitions::parse_type_decl(stream),
