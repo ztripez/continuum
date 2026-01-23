@@ -42,6 +42,10 @@
 //! let result = compile(&sources);
 //! ```
 
+// Force-link: populates KERNEL_SIGNATURES distributed slice
+#[allow(unused_imports)]
+use continuum_functions::tensor_ops as _;
+
 // Re-export AST and foundation types
 pub use continuum_cdsl_ast::{self as ast, *};
 
@@ -51,7 +55,7 @@ pub use continuum_cdsl_lexer::Token;
 
 // Re-export parser
 pub use continuum_cdsl_parser as parser;
-pub use continuum_cdsl_parser::{ParseError, parse_declarations, parse_expr};
+pub use continuum_cdsl_parser::{parse_declarations, parse_expr, ParseError};
 
 // Re-export resolve
 pub use continuum_cdsl_resolve as resolve;

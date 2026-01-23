@@ -1,8 +1,8 @@
+use crate::parse_declarations;
+use crate::pipeline;
 use crate::CompileError;
 use crate::CompiledWorld;
 use crate::Token;
-use crate::parse_declarations;
-use crate::pipeline;
 use crate::{SourceMap, Span};
 use continuum_cdsl_resolve::error::ErrorKind;
 use logos::Logos;

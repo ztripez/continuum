@@ -57,11 +57,9 @@ fn test_compile_empty_directory_error() {
     let result = compile(dir.path());
     assert!(result.is_err());
     let errors = result.unwrap_err();
-    assert!(
-        errors
-            .iter()
-            .any(|e| e.message.contains("No .cdsl files found"))
-    );
+    assert!(errors
+        .iter()
+        .any(|e| e.message.contains("No .cdsl files found")));
 }
 
 #[test]
