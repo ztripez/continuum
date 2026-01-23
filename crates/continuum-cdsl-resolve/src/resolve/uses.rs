@@ -1363,7 +1363,14 @@ mod tests {
         let span = make_span();
 
         // let x = dt in x + prev (TypedExpr form)
-        let dt_expr = TypedExpr::new(ExprKind::Dt, Type::Bool, span);
+        let dt_expr = TypedExpr::new(
+            ExprKind::Call {
+                kernel: continuum_cdsl_ast::KernelId::new("dt", "raw"),
+                args: vec![],
+            },
+            Type::Bool,
+            span,
+        );
         let local_x = TypedExpr::new(ExprKind::Local("x".to_string()), Type::Bool, span);
         let prev_expr = TypedExpr::new(ExprKind::Prev, Type::Bool, span);
         let kernel_id = continuum_cdsl_ast::KernelId::new("maths", "add");

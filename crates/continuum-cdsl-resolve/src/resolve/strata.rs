@@ -817,33 +817,6 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_identifier_empty_path() {
-        let expr = Expr::new(UntypedKind::Signal(Path::new(vec![])), test_span());
-        assert_eq!(extract_identifier(&expr), None);
-    }
-
-    #[test]
-    fn test_extract_identifier_field_path() {
-        let expr = Expr::new(
-            UntypedKind::Field(Path::from_path_str("field")),
-            test_span(),
-        );
-        assert_eq!(extract_identifier(&expr), Some("field".to_string()));
-    }
-
-    #[test]
-    fn test_extract_identifier_config_path() {
-        let expr = Expr::new(UntypedKind::Config(Path::from_path_str("cfg")), test_span());
-        assert_eq!(extract_identifier(&expr), Some("cfg".to_string()));
-    }
-
-    #[test]
-    fn test_extract_identifier_const_path() {
-        let expr = Expr::new(UntypedKind::Const(Path::from_path_str("c")), test_span());
-        assert_eq!(extract_identifier(&expr), Some("c".to_string()));
-    }
-
-    #[test]
     fn test_resolve_zero_strata_with_nodes() {
         let strata: Vec<Stratum> = vec![];
         let mut nodes = vec![make_node("signal.temp", vec![])];

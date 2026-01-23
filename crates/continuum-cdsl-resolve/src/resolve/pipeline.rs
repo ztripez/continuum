@@ -1311,10 +1311,13 @@ mod config_const_tests {
     fn test_collect_config_types_explicit() {
         let entries = vec![ConfigEntry {
             path: Path::from_path_str("test.value"),
-            type_expr: TypeExpr::Named("Scalar".to_string()),
+            type_expr: TypeExpr::Scalar {
+                unit: None,
+                bounds: None,
+            },
             default: Some(make_literal(42.0)),
             span: test_span(),
-            attributes: vec![],
+            doc: None,
         }];
 
         let type_table = TypeTable::new();
@@ -1331,7 +1334,7 @@ mod config_const_tests {
             type_expr: TypeExpr::Infer,
             default: Some(make_literal(42.0)),
             span: test_span(),
-            attributes: vec![],
+            doc: None,
         }];
 
         let type_table = TypeTable::new();
@@ -1350,7 +1353,7 @@ mod config_const_tests {
             type_expr: TypeExpr::Infer,
             default: None,
             span: test_span(),
-            attributes: vec![],
+            doc: None,
         }];
 
         let type_table = TypeTable::new();
@@ -1373,14 +1376,14 @@ mod config_const_tests {
                 type_expr: TypeExpr::Infer,
                 default: Some(make_literal(1.0)),
                 span: test_span(),
-                attributes: vec![],
+                doc: None,
             },
             ConfigEntry {
                 path: Path::from_path_str("config.b"),
                 type_expr: TypeExpr::Infer,
                 default: Some(make_literal(2.0)),
                 span: test_span(),
-                attributes: vec![],
+                doc: None,
             },
         ];
 
@@ -1399,7 +1402,7 @@ mod config_const_tests {
             type_expr: TypeExpr::Infer,
             value: make_literal(3.14159),
             span: test_span(),
-            attributes: vec![],
+            doc: None,
         }];
 
         let type_table = TypeTable::new();
@@ -1418,7 +1421,7 @@ mod config_const_tests {
             type_expr: TypeExpr::Infer,
             value: Expr::new(UntypedKind::BoolLiteral(true), test_span()),
             span: test_span(),
-            attributes: vec![],
+            doc: None,
         }];
 
         let type_table = TypeTable::new();
@@ -1437,7 +1440,7 @@ mod config_const_tests {
             type_expr: TypeExpr::Infer,
             value: Expr::new(UntypedKind::Local("x".to_string()), test_span()),
             span: test_span(),
-            attributes: vec![],
+            doc: None,
         }];
 
         let type_table = TypeTable::new();
@@ -1458,7 +1461,7 @@ mod config_const_tests {
             type_expr: TypeExpr::Infer,
             default: None,
             span: test_span(),
-            attributes: vec![],
+            doc: None,
         };
 
         assert_eq!(entry.path(), &Path::from_path_str("test"));
@@ -1472,7 +1475,7 @@ mod config_const_tests {
             type_expr: TypeExpr::Infer,
             value: make_literal(1.0),
             span: test_span(),
-            attributes: vec![],
+            doc: None,
         };
 
         assert_eq!(entry.path(), &Path::from_path_str("test"));

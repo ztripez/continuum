@@ -158,7 +158,10 @@ mod tests {
 
     fn assertion_make_bool_expr(value: bool) -> TypedExpr {
         TypedExpr::new(
-            ExprKind::BoolLiteral(value),
+            ExprKind::Literal {
+                value: if value { 1.0 } else { 0.0 },
+                unit: None,
+            },
             assertion_bool_type(),
             test_span(),
         )
@@ -282,7 +285,14 @@ mod tests {
         // Assertions are NOT allowed in Measure phase (observer boundary violation)
         let span = test_span();
         let path = Path::from("test.field");
-        let mut node = Node::new(path, span, RoleData::Field, ());
+        let mut node = Node::new(
+            path,
+            span,
+            RoleData::Field {
+                reconstruction: None,
+            },
+            (),
+        );
 
         let assert_stmt = TypedStmt::Assert {
             condition: assertion_make_bool_expr(true),

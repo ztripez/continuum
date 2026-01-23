@@ -370,7 +370,7 @@ mod bare_path_integration_tests {
 
         let typed = result.unwrap();
         // Should resolve as Signal, not Local
-        assert!(matches!(typed.kind, ExprKind::Signal(_)));
+        assert!(matches!(typed.expr, ExprKind::Signal(_)));
     }
 
     #[test]
@@ -401,8 +401,8 @@ mod bare_path_integration_tests {
         assert!(result.is_ok(), "Nested bare signal path should resolve");
 
         let typed = result.unwrap();
-        assert!(matches!(typed.kind, ExprKind::Signal(_)));
-        if let ExprKind::Signal(path) = typed.kind {
+        assert!(matches!(typed.expr, ExprKind::Signal(_)));
+        if let ExprKind::Signal(path) = typed.expr {
             assert_eq!(path.to_string(), "core.temp");
         }
     }
@@ -435,7 +435,7 @@ mod bare_path_integration_tests {
         assert!(result.is_ok(), "Bare field path should resolve");
 
         let typed = result.unwrap();
-        assert!(matches!(typed.kind, ExprKind::Field(_)));
+        assert!(matches!(typed.expr, ExprKind::Field(_)));
     }
 
     #[test]
