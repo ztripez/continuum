@@ -443,7 +443,7 @@ entity stellar.moon {
     
         resolve {
             # Kepler's third law for orbital period
-            let mu = const.stellar.gravitational_constant * signal.planet.mass in
+            let mu = const.stellar.gravitational_constant * planet.mass in
             let period = TAU * maths.sqrt(maths.pow(self.orbit_radius, 3) / mu) in
             let omega = TAU / maths.max(period, 1.0) in
             maths.wrap(prev + omega * dt.raw, 0.0, TAU)
@@ -527,7 +527,7 @@ entity stellar.moon {
         resolve {
             # Tidal acceleration = 2 * G * M / r³ * R_planet
             let r3 = maths.pow(self.distance, 3) in
-            2.0 * const.stellar.gravitational_constant * self.mass * signal.planet.radius / maths.max(r3, 1.0)
+            2.0 * const.stellar.gravitational_constant * self.mass * planet.radius / maths.max(r3, 1.0)
         }
     }
 
@@ -539,11 +539,11 @@ entity stellar.moon {
     
         resolve {
             # Simplified tidal heating: P = k * (M_moon/r³)² * e² * R^5 * n
-            let n = maths.sqrt(const.stellar.gravitational_constant * signal.planet.mass / maths.pow(self.orbit_radius, 3)) in
+            let n = maths.sqrt(const.stellar.gravitational_constant * planet.mass / maths.pow(self.orbit_radius, 3)) in
             let factor = const.stellar.love_number / const.stellar.tidal_quality_factor in
             let r3 = maths.pow(self.distance, 3) in
             let term = self.mass / maths.max(r3, 1.0) in
-            factor * term * term * maths.pow(self.orbit_eccentricity, 2) * maths.pow(signal.planet.radius, 5) * n
+            factor * term * term * maths.pow(self.orbit_eccentricity, 2) * maths.pow(planet.radius, 5) * n
         }
     }
 
@@ -627,7 +627,7 @@ signal stellar.total_tidal_amplitude {
     : symbol("A_tidal_total")
 
     resolve {
-        agg.sum(entity.stellar.moon, self.tidal_force * signal.planet.radius)
+        agg.sum(entity.stellar.moon, self.tidal_force * planet.radius)
     }
 }
 
@@ -720,22 +720,22 @@ impulse stellar.impact {
             let mantle_energy = energy_j * config.impulse.stellar.impact.mantle_partition in
 
             # Heat deposition into geophysics thermal budget
-            signal.mantle.heat_content <- mantle_energy;
-            signal.surface.temp <- crust_energy / 1.0e20;  # Normalize to temperature increment
+            mantle.heat_content <- mantle_energy;
+            surface.temp <- crust_energy / 1.0e20;  # Normalize to temperature increment
 
             # Crustal thickening from ejecta/melt redistribution
             let ejecta_thickness = maths.pow(energy_j, 0.333) * config.impulse.stellar.impact.ejecta_thickness_factor in
-            signal.crust.thickness <- ejecta_thickness;
+            crust.thickness <- ejecta_thickness;
 
             # Large impacts can trigger volcanic activity
-            signal.tectonics.volcanism <- energy_j / 1.0e24;
+            tectonics.volcanism <- energy_j / 1.0e24;
 
             # Very large impacts can alter rotation (angular momentum transfer)
             # Delta_omega ~ (m * v * R_impact) / (I_planet) where I ~ M_planet * R²
-            let angular_momentum = payload.impactor_mass * payload.velocity * signal.planet.radius in
-            let moment_of_inertia = signal.planet.mass * signal.planet.radius * signal.planet.radius in
+            let angular_momentum = payload.impactor_mass * payload.velocity * planet.radius in
+            let moment_of_inertia = planet.mass * planet.radius * planet.radius in
             let delta_omega = angular_momentum / moment_of_inertia * config.impulse.stellar.impact.rotation_coupling_factor in
-            signal.rotation.state <- vector.vec2(0.0, delta_omega)
+            rotation.state <- vector.vec2(0.0, delta_omega)
         }
     }
 }
@@ -795,17 +795,17 @@ impulse stellar.orbital_change {
 
         # Apply obliquity change (affects seasonal forcing)
         if maths.abs(clamped_dobl) > config.impulse.stellar.orbital_change.min_significant_obliquity {
-            signal.rotation.obliquity <- clamped_dobl
+            rotation.obliquity <- clamped_dobl
         };
 
         # Apply precession change (affects seasonal timing relative to perihelion)
         if maths.abs(clamped_dprec) > config.impulse.stellar.orbital_change.min_significant_precession {
-            signal.rotation.precession <- clamped_dprec
+            rotation.precession <- clamped_dprec
         };
 
         # Apply eccentricity change (affects seasonal strength)
         if maths.abs(clamped_de) > config.impulse.stellar.orbital_change.min_significant_eccentricity {
-            signal.orbit.eccentricity <- clamped_de
+            orbit.eccentricity <- clamped_de
         }
     }
 }
@@ -821,7 +821,7 @@ field stellar.insolation_map {
     : title("Insolation Field")
 
     measure {
-        signal.stellar.total_insolation
+        stellar.total_insolation
     }
 }
 
@@ -833,6 +833,6 @@ field stellar.tidal_amplitude_map {
 
     measure {
         # Observe the aggregated signal (entity aggregation happens in signal resolve)
-        signal.stellar.total_tidal_amplitude
+        stellar.total_tidal_amplitude
     }
 }

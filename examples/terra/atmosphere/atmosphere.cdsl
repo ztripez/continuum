@@ -163,7 +163,7 @@ signal atmosphere.surface_temp {
         # T_eq = (P_in / (epsilon * sigma * A))^0.25
         # For Earth: A = 5.1e14 m²
         let surface_area = 5.1e14 in
-        let power_in = signal.atmosphere.external_power in
+        let power_in = atmosphere.external_power in
         let t_eq_fourth = power_in / (epsilon_eff * const.atmosphere.sigma * surface_area) in
         # T_eq = t_eq_fourth^0.25 = sqrt(sqrt(t_eq_fourth))
         let t_eq = maths.sqrt(maths.sqrt(t_eq_fourth)) in
@@ -205,7 +205,7 @@ signal atmosphere.water_vapor {
 
     resolve {
         # Water vapor relaxes toward equilibrium determined by surface temperature
-        let t_surf = signal.atmosphere.surface_temp.x in
+        let t_surf = atmosphere.surface_temp.x in
         let equilibrium = atmosphere.equilibrium_water_vapor(t_surf, config.atmosphere.water_vapor.relative_humidity, config.atmosphere.water_vapor.scale_height_m) in
 
         dt.relax_to(prev, equilibrium, config.atmosphere.water_vapor.relaxation_time_s)
@@ -305,7 +305,7 @@ signal atmosphere.cloud_cover {
     resolve {
         # Cloud cover depends on water vapor availability
         # Physical constraint: fraction must be [0, 1]
-        let water_vapor = signal.atmosphere.water_vapor in
+        let water_vapor = atmosphere.water_vapor in
         let cloud_potential = (water_vapor - config.atmosphere.cloud_cover.min_water_vapor) /
                              (config.atmosphere.cloud_cover.saturation_water_vapor - config.atmosphere.cloud_cover.min_water_vapor) in
         maths.clamp(cloud_potential + inputs, 0.0, 1.0)
@@ -335,8 +335,8 @@ signal atmosphere.tau_greenhouse {
 
     resolve {
         # Optical depth from CO2 and water vapor
-        let co2_contribution = (signal.atmosphere.co2_ppmv - const.atmosphere.co2_ref_ppmv) * config.atmosphere.tau_greenhouse.co2_sensitivity in
-        let wv_contribution = signal.atmosphere.water_vapor * config.atmosphere.tau_greenhouse.water_vapor_sensitivity in
+        let co2_contribution = (atmosphere.co2_ppmv - const.atmosphere.co2_ref_ppmv) * config.atmosphere.tau_greenhouse.co2_sensitivity in
+        let wv_contribution = atmosphere.water_vapor * config.atmosphere.tau_greenhouse.water_vapor_sensitivity in
 
         config.atmosphere.tau_greenhouse.base_tau + co2_contribution + wv_contribution + inputs
     }
@@ -398,8 +398,8 @@ signal atmosphere.ice_fraction {
     resolve {
         # Ice fraction calculated from pole temperature
         # Using smooth transition around freezing point
-        let t_pole = signal.atmosphere.surface_temp.z in
-        let t_equator = signal.atmosphere.surface_temp.y in
+        let t_pole = atmosphere.surface_temp.z in
+        let t_equator = atmosphere.surface_temp.y in
 
         # Calculate ice edge latitude based on linear temperature gradient
         # Ice exists where T < freezing temperature
@@ -447,13 +447,13 @@ signal atmosphere.albedo {
 
     resolve {
         # Surface albedo: blend of base and ice based on ice fraction
-        let ice_frac = signal.atmosphere.ice_fraction in
+        let ice_frac = atmosphere.ice_fraction in
         let surface_albedo = config.atmosphere.albedo.base_surface_albedo * (1.0 - ice_frac)
                            + config.atmosphere.albedo.ice_albedo * ice_frac in
 
         # Add cloud contribution
         # Model: fraction of sunlight reflected by clouds + rest hits surface
-        let cloud_frac = signal.atmosphere.cloud_cover in
+        let cloud_frac = atmosphere.cloud_cover in
         let clear_frac = 1.0 - cloud_frac in
         let planetary_albedo = cloud_frac * config.atmosphere.albedo.cloud_albedo
                              + clear_frac * surface_albedo in
@@ -504,8 +504,8 @@ signal atmosphere.absorbed_radiation {
     resolve {
         # Q_abs = S * (1 - α) / 4
         # Factor of 4: sphere receives radiation on disk area (πR²) but radiates from full surface (4πR²)
-        let solar = signal.atmosphere.solar_constant in
-        let albedo = signal.atmosphere.albedo in
+        let solar = atmosphere.solar_constant in
+        let albedo = atmosphere.albedo in
         solar * (1.0 - albedo) / 4.0 + inputs
     }
 
@@ -536,27 +536,27 @@ fracture atmosphere.stellar_insolation_coupling {
 
     when {
         # Always active when stellar domain provides insolation
-        signal.stellar.total_insolation > 0.0
+        stellar.total_insolation > 0.0
     }
 
     collect {
         # Transfer stellar flux to atmosphere solar constant
         # This replaces the default reference value with actual stellar input
-        let flux = signal.stellar.total_insolation in
-        signal.atmosphere.solar_constant <- flux;
+        let flux = stellar.total_insolation in
+        atmosphere.solar_constant <- flux;
 
         # Calculate absorbed power accounting for albedo
         # P_absorbed = S * (1 - α) * π * R² (disk area)
         # = S * (1 - α) / 4 * 4 * π * R² (full surface)
-        let albedo = signal.atmosphere.albedo in
+        let albedo = atmosphere.albedo in
         let absorbed_flux = flux * (1.0 - albedo) * config.fracture.atmosphere.stellar_insolation_coupling.geometric_factor in
 
         # Convert to total power: P = F * A = F * 4πR²
-        let planet_radius = signal.planet.radius in
+        let planet_radius = planet.radius in
         let surface_area = 4.0 * PI * planet_radius * planet_radius in
         let absorbed_power = absorbed_flux * surface_area in
 
-        signal.atmosphere.external_power <- absorbed_power
+        atmosphere.external_power <- absorbed_power
     }
 }
 
@@ -567,26 +567,26 @@ fracture atmosphere.stellar_insolation_coupling {
 # Runaway greenhouse threshold
 fracture atmosphere.runaway_greenhouse {
     when {
-        signal.atmosphere.surface_temp.x > 350.0 <K>
-        signal.atmosphere.water_vapor > 150.0
+        atmosphere.surface_temp.x > 350.0 <K>
+        atmosphere.water_vapor > 150.0
     }
 
     collect {
-        signal.atmosphere.water_vapor <- 50.0;
-        signal.atmosphere.co2_ppmv <- 100.0
+        atmosphere.water_vapor <- 50.0;
+        atmosphere.co2_ppmv <- 100.0
     }
 }
 
 # Ice age trigger
 fracture atmosphere.ice_age {
     when {
-        signal.atmosphere.surface_temp.x < 270.0 <K>
-        signal.atmosphere.co2_ppmv < 200.0
+        atmosphere.surface_temp.x < 270.0 <K>
+        atmosphere.co2_ppmv < 200.0
     }
 
     collect {
         # Reduced weathering allows CO2 buildup
-        signal.atmosphere.co2_ppmv <- 50.0
+        atmosphere.co2_ppmv <- 50.0
     }
 }
 
@@ -617,12 +617,12 @@ fracture atmosphere.co2_equilibrium {
     }
 
     when {
-        signal.tectonics.activity > 0.0
+        tectonics.activity > 0.0
     }
 
     collect {
-        let activity = maths.max(signal.tectonics.activity, 0.1) in
-        let temp = signal.atmosphere.surface_temp.x in
+        let activity = maths.max(tectonics.activity, 0.1) in
+        let temp = atmosphere.surface_temp.x in
         let ref_temp = config.fracture.atmosphere.co2_equilibrium.reference_temp_k in
         let temp_anomaly = temp - ref_temp in
 
@@ -645,7 +645,7 @@ fracture atmosphere.co2_equilibrium {
         # Note: weathering and ocean feedbacks partially cancel
         let equilibrium_ppmv = volcanic_equilibrium * weathering_factor * ocean_factor in
 
-        signal.atmosphere.co2_ppmv <- maths.clamp(equilibrium_ppmv, 50.0, 5000.0)
+        atmosphere.co2_ppmv <- maths.clamp(equilibrium_ppmv, 50.0, 5000.0)
     }
 }
 
@@ -664,19 +664,19 @@ fracture atmosphere.ch4_equilibrium {
     }
 
     when {
-        signal.tectonics.activity > 0.0
+        tectonics.activity > 0.0
     }
 
     collect {
         # Methane equilibrium depends on volcanic/hydrothermal activity
-        let activity = signal.tectonics.activity in
+        let activity = tectonics.activity in
         let equilibrium_ppmv = maths.max(
             config.fracture.atmosphere.ch4_equilibrium.base_equilibrium_ppmv * 
             (1.0 + config.fracture.atmosphere.ch4_equilibrium.activity_sensitivity * (activity - 1.0)),
             config.fracture.atmosphere.ch4_equilibrium.min_equilibrium_ppmv
         ) in
 
-        signal.atmosphere.ch4_ppmv <- equilibrium_ppmv
+        atmosphere.ch4_ppmv <- equilibrium_ppmv
     }
 }
 
@@ -691,7 +691,7 @@ field atmosphere.temperature {
     : title("Surface Temperature Field")
 
     measure {
-        signal.atmosphere.surface_temp.x
+        atmosphere.surface_temp.x
     }
 }
 
@@ -702,7 +702,7 @@ field atmosphere.water_vapor_map {
     : title("Water Vapor Column Field")
 
     measure {
-        signal.atmosphere.water_vapor
+        atmosphere.water_vapor
     }
 }
 
@@ -713,7 +713,7 @@ field atmosphere.cloud_map {
     : title("Cloud Cover Field")
 
     measure {
-        signal.atmosphere.cloud_cover
+        atmosphere.cloud_cover
     }
 }
 
@@ -724,7 +724,7 @@ field atmosphere.co2_map {
     : title("CO2 Concentration Field")
 
     measure {
-        signal.atmosphere.co2_ppmv
+        atmosphere.co2_ppmv
     }
 }
 
@@ -735,7 +735,7 @@ field atmosphere.pressure_map {
     : title("Surface Pressure Field")
 
     measure {
-        signal.atmosphere.pressure
+        atmosphere.pressure
     }
 }
 
@@ -746,7 +746,7 @@ field atmosphere.ice_fraction_map {
     : title("Ice Fraction Field")
 
     measure {
-        signal.atmosphere.ice_fraction
+        atmosphere.ice_fraction
     }
 }
 
@@ -757,7 +757,7 @@ field atmosphere.albedo_map {
     : title("Effective Albedo Field")
 
     measure {
-        signal.atmosphere.albedo
+        atmosphere.albedo
     }
 }
 
@@ -768,7 +768,7 @@ field atmosphere.solar_constant_map {
     : title("Solar Constant Field")
 
     measure {
-        signal.atmosphere.solar_constant
+        atmosphere.solar_constant
     }
 }
 
@@ -779,7 +779,7 @@ field atmosphere.absorbed_radiation_map {
     : title("Absorbed Radiation Field")
 
     measure {
-        signal.atmosphere.absorbed_radiation
+        atmosphere.absorbed_radiation
     }
 }
 
@@ -790,7 +790,7 @@ field atmosphere.greenhouse_map {
     : title("Greenhouse Optical Depth Field")
 
     measure {
-        signal.atmosphere.tau_greenhouse
+        atmosphere.tau_greenhouse
     }
 }
 
@@ -801,12 +801,12 @@ field atmosphere.greenhouse_map {
 # Snowball Earth event: global glaciation
 chronicle atmosphere.events.snowball_earth {
     observe {
-        when signal.atmosphere.ice_fraction > 0.9 {
+        when atmosphere.ice_fraction > 0.9 {
             emit event.snowball_earth {
-                ice_fraction: signal.atmosphere.ice_fraction
-                surface_temp: signal.atmosphere.surface_temp.x
-                co2_ppmv: signal.atmosphere.co2_ppmv
-                albedo: signal.atmosphere.albedo
+                ice_fraction: atmosphere.ice_fraction
+                surface_temp: atmosphere.surface_temp.x
+                co2_ppmv: atmosphere.co2_ppmv
+                albedo: atmosphere.albedo
                 severity: "critical"
                 description: "Global glaciation - snowball Earth conditions"
             }
@@ -817,12 +817,12 @@ chronicle atmosphere.events.snowball_earth {
 # Runaway greenhouse event: Venus-like conditions
 chronicle atmosphere.events.runaway_greenhouse {
     observe {
-        when signal.atmosphere.surface_temp.x > 350.0 <K> {
+        when atmosphere.surface_temp.x > 350.0 <K> {
             emit event.runaway_greenhouse {
-                surface_temp: signal.atmosphere.surface_temp.x
-                water_vapor: signal.atmosphere.water_vapor
-                co2_ppmv: signal.atmosphere.co2_ppmv
-                greenhouse_depth: signal.atmosphere.tau_greenhouse
+                surface_temp: atmosphere.surface_temp.x
+                water_vapor: atmosphere.water_vapor
+                co2_ppmv: atmosphere.co2_ppmv
+                greenhouse_depth: atmosphere.tau_greenhouse
                 severity: "critical"
                 description: "Runaway greenhouse - Venus-like atmospheric conditions"
             }
@@ -834,11 +834,11 @@ chronicle atmosphere.events.runaway_greenhouse {
 # Currently placeholder since O2 signal not implemented yet
 # chronicle atmosphere.events.oxygenation {
 #     observe {
-#         when signal.atmosphere.o2_ppmv > 1000.0 {
+#         when atmosphere.o2_ppmv > 1000.0 {
 #             emit event.oxygenation {
-#                 o2_ppmv: signal.atmosphere.o2_ppmv
-#                 co2_ppmv: signal.atmosphere.co2_ppmv
-#                 surface_temp: signal.atmosphere.surface_temp.x
+#                 o2_ppmv: atmosphere.o2_ppmv
+#                 co2_ppmv: atmosphere.co2_ppmv
+#                 surface_temp: atmosphere.surface_temp.x
 #                 severity: "major"
 #                 description: "Great oxygenation event - atmospheric O2 buildup"
 #             }
@@ -849,12 +849,12 @@ chronicle atmosphere.events.runaway_greenhouse {
 # Ice age onset: significant cooling and glaciation
 chronicle atmosphere.events.ice_age_onset {
     observe {
-        when signal.atmosphere.surface_temp.x < 270.0 <K> and
-             signal.atmosphere.ice_fraction > 0.3 {
+        when atmosphere.surface_temp.x < 270.0 <K> and
+             atmosphere.ice_fraction > 0.3 {
             emit event.ice_age_onset {
-                surface_temp: signal.atmosphere.surface_temp.x
-                ice_fraction: signal.atmosphere.ice_fraction
-                co2_ppmv: signal.atmosphere.co2_ppmv
+                surface_temp: atmosphere.surface_temp.x
+                ice_fraction: atmosphere.ice_fraction
+                co2_ppmv: atmosphere.co2_ppmv
                 severity: "major"
                 description: "Ice age onset - significant glaciation"
             }
@@ -865,11 +865,11 @@ chronicle atmosphere.events.ice_age_onset {
 # Atmospheric collapse: extreme pressure loss
 chronicle atmosphere.events.atmospheric_collapse {
     observe {
-        when signal.atmosphere.pressure < 10000.0 {
+        when atmosphere.pressure < 10000.0 {
             emit event.atmospheric_collapse {
-                pressure: signal.atmosphere.pressure
-                surface_temp: signal.atmosphere.surface_temp.x
-                water_vapor: signal.atmosphere.water_vapor
+                pressure: atmosphere.pressure
+                surface_temp: atmosphere.surface_temp.x
+                water_vapor: atmosphere.water_vapor
                 severity: "critical"
                 description: "Atmospheric collapse - extreme pressure loss"
             }

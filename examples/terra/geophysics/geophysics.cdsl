@@ -220,7 +220,7 @@ signal planet.gravity_mu {
     : symbol("mu")
 
     resolve {
-        const.physics.gravitational * signal.planet.mass
+        const.physics.gravitational * planet.mass
     }
 
     assert {
@@ -237,7 +237,7 @@ signal planet.surface_gravity {
     : symbol("g")
 
     resolve {
-        signal.planet.gravity_mu / (signal.planet.radius * signal.planet.radius)
+        planet.gravity_mu / (planet.radius * planet.radius)
     }
 
     assert {
@@ -335,8 +335,8 @@ signal rotation.spin_axis {
         # Compute unit vector from spherical angles
         # obliquity = angle from +Y axis
         # precession = rotation around Y axis in XZ plane
-        let obl = signal.rotation.obliquity in
-        let prec = signal.rotation.precession in
+        let obl = rotation.obliquity in
+        let prec = rotation.precession in
         let sin_obl = maths.sin(obl) in
         let cos_obl = maths.cos(obl) in
         vector.vec3(
@@ -415,7 +415,7 @@ signal mantle.heat_content {
     resolve {
         # Heat content changes with net power input: dQ/dt = P_in
         # Earth's mantle: mass ~4e24 kg, Cp ~1200 J/kg/K, T ~1600K = 8e30 J
-        dt.integrate(prev, signal.core.heat_power) + inputs
+        dt.integrate(prev, core.heat_power) + inputs
     }
 
     assert {
@@ -437,7 +437,7 @@ signal mantle.temp {
     }
 
     resolve {
-        let core_coupling = (signal.core.temp - prev) * config.mantle.temp.core_coupling_factor in
+        let core_coupling = (core.temp - prev) * config.mantle.temp.core_coupling_factor in
         maths.clamp(prev + core_coupling + inputs, config.mantle.temp.min_temp, config.mantle.temp.max_temp)
     }
 
@@ -479,7 +479,7 @@ signal surface.heat_flow {
     }
 
     resolve {
-        let thermal_contribution = (signal.mantle.temp - signal.surface.temp) * 0.00001 in
+        let thermal_contribution = (mantle.temp - surface.temp) * 0.00001 in
         maths.clamp(config.surface.heat_flow.baseline + thermal_contribution + inputs, 0.01, 0.5)
     }
 
@@ -547,7 +547,7 @@ signal crust.total_thickness {
     : title("Total Crustal Thickness")
 
     resolve {
-        signal.crust.thickness
+        crust.thickness
     }
 
     assert {
@@ -583,7 +583,7 @@ signal isostasy.reference_level {
     : title("Isostatic Reference Level")
 
     resolve {
-        signal.isostasy.factor * const.isostasy.reference_thickness
+        isostasy.factor * const.isostasy.reference_thickness
     }
 
     assert {
@@ -598,7 +598,7 @@ signal isostasy.elevation {
     : title("Isostatic Elevation")
 
     resolve {
-        isostasy.compute_elevation(signal.crust.thickness, signal.isostasy.factor, signal.isostasy.reference_level)
+        isostasy.compute_elevation(crust.thickness, isostasy.factor, isostasy.reference_level)
     }
 
     assert {
@@ -623,7 +623,7 @@ signal topography.dynamic_offset {
     }
 
     resolve {
-        let thermal_gradient = (signal.mantle.temp - const.thermal.mantle_temp) / 1000.0 in
+        let thermal_gradient = (mantle.temp - const.thermal.mantle_temp) / 1000.0 in
         let uplift = thermal_gradient * const.topography.max_plume_uplift * config.topography.dynamic_offset.flow_coupling * config.topography.dynamic_offset.uplift_scale in
         maths.clamp(
             prev + uplift + inputs,
@@ -658,7 +658,7 @@ signal crust.elevation {
         # Base elevation from isostasy + dynamic topography + fracture contributions
         # Note: continuous processes assume dt ~1 Myr for rate configs
         maths.clamp(
-            signal.isostasy.elevation + signal.topography.dynamic_offset + inputs,
+            isostasy.elevation + topography.dynamic_offset + inputs,
             -config.crust.elevation.max_depth,
             config.crust.elevation.max_height
         )
@@ -687,7 +687,7 @@ signal crust.pressure_base {
     }
 
     resolve {
-        pressure.lithostatic(config.crust.pressure_base.surface_pressure, config.crust.pressure_base.density, signal.planet.surface_gravity, signal.crust.thickness)
+        pressure.lithostatic(config.crust.pressure_base.surface_pressure, config.crust.pressure_base.density, planet.surface_gravity, crust.thickness)
     }
 
     assert {
@@ -702,7 +702,7 @@ signal crust.temp_base {
     : title("Base Crustal Temperature")
 
     resolve {
-        thermal.geothermal_temp(const.thermal.surface_temp, const.thermal.gradient, signal.crust.thickness / 1000.0)
+        thermal.geothermal_temp(const.thermal.surface_temp, const.thermal.gradient, crust.thickness / 1000.0)
     }
 
     assert {
@@ -717,7 +717,7 @@ signal crust.moho_depth {
     : title("Moho Depth")
 
     resolve {
-        signal.crust.thickness
+        crust.thickness
     }
 
     assert {
@@ -746,8 +746,8 @@ signal tectonics.boundary_stress {
     }
 
     resolve {
-        let thermal_stress = maths.abs(signal.mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor in
-        let thickness_stress = maths.abs(signal.crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor in
+        let thermal_stress = maths.abs(mantle.temp - config.tectonics.boundary_stress.reference_mantle_temp) * config.tectonics.boundary_stress.thermal_scale * config.tectonics.boundary_stress.thermal_factor in
+        let thickness_stress = maths.abs(crust.thickness - const.isostasy.reference_thickness) * config.tectonics.boundary_stress.thickness_scale * config.tectonics.boundary_stress.thickness_factor in
         maths.clamp(prev + thermal_stress + thickness_stress + inputs, 0.0, config.tectonics.boundary_stress.max_stress)
     }
 
@@ -843,8 +843,8 @@ signal mantle.rayleigh_number {
 
     resolve {
         # Normalized Rayleigh: Ra_eff ~ (Q/Q_ref) / (ν/ν_ref)
-        let q_norm = signal.core.heat_power / config.mantle.rayleigh_number.reference_heat_power in
-        let nu_norm = signal.mantle.viscosity / config.mantle.rayleigh_number.reference_viscosity in
+        let q_norm = core.heat_power / config.mantle.rayleigh_number.reference_heat_power in
+        let nu_norm = mantle.viscosity / config.mantle.rayleigh_number.reference_viscosity in
         if nu_norm > 0.0 {
             q_norm / nu_norm
         } else {
@@ -877,7 +877,7 @@ signal mantle.convection_cells {
     resolve {
         # n = mode * (Ra / Ra_ref)^exponent
         # Guard against negative Rayleigh (would cause NaN in pow with fractional exponent)
-        let ra = maths.max(signal.mantle.rayleigh_number, 0.0) in
+        let ra = maths.max(mantle.rayleigh_number, 0.0) in
         let ratio = ra / config.mantle.convection_cells.reference_ra in
         let n = config.mantle.convection_cells.mode_count * maths.pow(ratio, config.mantle.convection_cells.exponent) in
         maths.clamp(n, config.mantle.convection_cells.min_count, config.mantle.convection_cells.max_count)
@@ -905,7 +905,7 @@ signal mantle.flow_strength {
 
     resolve {
         # strength ~ base * (Q/Q_ref)^exponent
-        let ratio = signal.core.heat_power / config.mantle.flow_strength.reference_heat_power in
+        let ratio = core.heat_power / config.mantle.flow_strength.reference_heat_power in
         let scale = maths.pow(maths.max(ratio, 0.0), config.mantle.flow_strength.exponent) in
         config.mantle.flow_strength.base_strength * scale + inputs
     }
@@ -933,8 +933,8 @@ signal tectonics.orogeny_rate {
 
     resolve {
         # Orogeny driven by boundary stress and tectonic activity
-        let stress_contribution = signal.tectonics.boundary_stress * config.tectonics.orogeny_rate.stress_factor in
-        let activity_contribution = signal.tectonics.activity * config.tectonics.orogeny_rate.activity_factor in
+        let stress_contribution = tectonics.boundary_stress * config.tectonics.orogeny_rate.stress_factor in
+        let activity_contribution = tectonics.activity * config.tectonics.orogeny_rate.activity_factor in
         stress_contribution + activity_contribution + inputs
     }
 
@@ -959,9 +959,9 @@ signal tectonics.volcanism {
 
     resolve {
         # Volcanism driven by excess mantle temperature and convection strength
-        let temp_excess = maths.max(signal.mantle.temp - config.tectonics.volcanism.reference_mantle_temp, 0.0) in
+        let temp_excess = maths.max(mantle.temp - config.tectonics.volcanism.reference_mantle_temp, 0.0) in
         let temp_contribution = temp_excess * config.tectonics.volcanism.temp_sensitivity in
-        let flow_contribution = signal.mantle.flow_strength * config.tectonics.volcanism.flow_factor in
+        let flow_contribution = mantle.flow_strength * config.tectonics.volcanism.flow_factor in
         maths.clamp(temp_contribution + flow_contribution + inputs, 0.0, 100.0)
     }
 
@@ -985,9 +985,9 @@ signal tectonics.subduction_rate {
 
     resolve {
         # Subduction rate driven by plate velocities and convergent boundaries
-        let velocity_contribution = signal.plates.boundary_shear * 1e6 * config.tectonics.subduction_rate.velocity_factor in
-        let oceanic_fraction = signal.plates.oceanic_count / maths.max(signal.plates.count, 1.0) in
-        velocity_contribution * oceanic_fraction * signal.tectonics.activity + inputs
+        let velocity_contribution = plates.boundary_shear * 1e6 * config.tectonics.subduction_rate.velocity_factor in
+        let oceanic_fraction = plates.oceanic_count / maths.max(plates.count, 1.0) in
+        velocity_contribution * oceanic_fraction * tectonics.activity + inputs
     }
 
     assert {
@@ -1009,8 +1009,8 @@ signal tectonics.spreading_rate {
     resolve {
         # Spreading rate roughly balances subduction over long timescales
         # Driven by mantle upwelling strength
-        let flow_contribution = signal.mantle.flow_strength * config.tectonics.spreading_rate.mantle_coupling in
-        let activity_contribution = signal.tectonics.activity in
+        let flow_contribution = mantle.flow_strength * config.tectonics.spreading_rate.mantle_coupling in
+        let activity_contribution = tectonics.activity in
         flow_contribution * activity_contribution + inputs
     }
 
@@ -1162,7 +1162,7 @@ entity terra.plate {
     
         resolve {
             # v = omega * R (velocity at planet radius)
-            vector.length(self.omega) * signal.planet.radius
+            vector.length(self.omega) * planet.radius
         }
     
         assert {
@@ -1414,7 +1414,7 @@ signal plates.velocity_variance {
 
     resolve {
         # Variance = E[X²] - E[X]²
-        let mean_v = signal.plates.mean_velocity in
+        let mean_v = plates.mean_velocity in
         let mean_v_sq = agg.mean(entity.terra.plate, self.velocity * self.velocity) in
         maths.max(mean_v_sq - mean_v * mean_v, 0.0)
     }
@@ -1436,8 +1436,8 @@ signal plates.divergent_activity {
 
     resolve {
         # Divergent activity correlates with mantle upwelling and plate velocities
-        let flow_factor = signal.mantle.flow_strength * config.plates.divergent_activity.flow_sensitivity in
-        let velocity_factor = signal.plates.mean_velocity * config.plates.divergent_activity.velocity_sensitivity in
+        let flow_factor = mantle.flow_strength * config.plates.divergent_activity.flow_sensitivity in
+        let velocity_factor = plates.mean_velocity * config.plates.divergent_activity.velocity_sensitivity in
         maths.clamp(flow_factor + velocity_factor + inputs, 0.0, 10.0)
     }
 }
@@ -1458,8 +1458,8 @@ signal plates.convergent_activity {
 
     resolve {
         # Convergent activity driven by boundary shear and oceanic plate count
-        let shear_factor = signal.plates.boundary_shear * config.plates.convergent_activity.shear_sensitivity in
-        let oceanic_factor = signal.plates.oceanic_count * config.plates.convergent_activity.oceanic_weight in
+        let shear_factor = plates.boundary_shear * config.plates.convergent_activity.shear_sensitivity in
+        let oceanic_factor = plates.oceanic_count * config.plates.convergent_activity.oceanic_weight in
         maths.clamp(shear_factor * oceanic_factor + inputs, 0.0, 10.0)
     }
 }
@@ -1479,7 +1479,7 @@ signal plates.transform_activity {
 
     resolve {
         # Transform activity correlates with velocity variance (plates moving in different directions)
-        let variance_contribution = signal.plates.velocity_variance * config.plates.transform_activity.velocity_variance_weight in
+        let variance_contribution = plates.velocity_variance * config.plates.transform_activity.velocity_variance_weight in
         maths.clamp(variance_contribution + inputs, 0.0, 10.0)
     }
 }
@@ -1492,7 +1492,7 @@ signal plates.total_boundary_activity {
     : symbol("A_total")
 
     resolve {
-        signal.plates.divergent_activity + signal.plates.convergent_activity + signal.plates.transform_activity
+        plates.divergent_activity + plates.convergent_activity + plates.transform_activity
     }
 }
 
@@ -1503,53 +1503,53 @@ signal plates.total_boundary_activity {
 # Rifting: thin crust + high stress -> rift opening
 fracture tectonics.rift {
     when {
-        signal.crust.thickness < 25000
-        signal.tectonics.boundary_stress > 5e8
+        crust.thickness < 25000
+        tectonics.boundary_stress > 5e8
     }
 
     collect {
-        signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.8
-        signal.crust.thickness <- -500.0
-        signal.topography.dynamic_offset <- 200.0
+        tectonics.boundary_stress <- -tectonics.boundary_stress * 0.8
+        crust.thickness <- -500.0
+        topography.dynamic_offset <- 200.0
     }
 }
 
 # Orogeny: thick crust + compression -> mountain building
 fracture tectonics.orogeny {
     when {
-        signal.crust.thickness > 50000
-        signal.tectonics.boundary_stress > 7e8
+        crust.thickness > 50000
+        tectonics.boundary_stress > 7e8
     }
 
     collect {
-        signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.6
-        signal.crust.thickness <- 1000.0
-        signal.topography.dynamic_offset <- -100.0
+        tectonics.boundary_stress <- -tectonics.boundary_stress * 0.6
+        crust.thickness <- 1000.0
+        topography.dynamic_offset <- -100.0
     }
 }
 
 # Volcanism: hot mantle + thin crust -> volcanic activity
 fracture thermal.volcanism {
     when {
-        signal.mantle.temp > 1800 <K>
-        signal.crust.thickness < 30000
+        mantle.temp > 1800 <K>
+        crust.thickness < 30000
     }
 
     collect {
-        signal.mantle.temp <- -50.0
-        signal.crust.thickness <- 100.0
-        signal.topography.dynamic_offset <- 50.0
+        mantle.temp <- -50.0
+        crust.thickness <- 100.0
+        topography.dynamic_offset <- 50.0
     }
 }
 
 # Radioactive heating burst
 fracture core.decay_heat {
     when {
-        signal.core.temp < 5000 <K>
+        core.temp < 5000 <K>
     }
 
     collect {
-        signal.core.temp <- 10.0
+        core.temp <- 10.0
     }
 }
 
@@ -1570,14 +1570,14 @@ fracture thermal.mechanical_coupling {
 
     when {
         # Activate when heat content deviates significantly from reference
-        maths.abs(signal.mantle.heat_content - config.fracture.thermal.mechanical_coupling.reference_heat_j) > 1e29
+        maths.abs(mantle.heat_content - config.fracture.thermal.mechanical_coupling.reference_heat_j) > 1e29
     }
 
     collect {
         # Compute heat ratio: >1 means hotter, <1 means cooler
-        let ratio = signal.mantle.heat_content / config.fracture.thermal.mechanical_coupling.reference_heat_j in
+        let ratio = mantle.heat_content / config.fracture.thermal.mechanical_coupling.reference_heat_j in
         let delta = (ratio - 1.0) * config.fracture.thermal.mechanical_coupling.coupling_strength * config.fracture.thermal.mechanical_coupling.base_flow_strength in
-        signal.mantle.flow_strength <- delta
+        mantle.flow_strength <- delta
     }
 }
 
@@ -1601,7 +1601,7 @@ fracture thermal.heat_budget {
 
     when {
         # Always active - continuous heat budget
-        signal.mantle.heat_content > 0.0
+        mantle.heat_content > 0.0
     }
 
     collect {
@@ -1610,19 +1610,19 @@ fracture thermal.heat_budget {
 
         # Core heat contribution (from core.heat_power with efficiency)
         # Guard against negative heat power feeding back
-        let core_contribution = maths.max(signal.core.heat_power, 0.0) * config.fracture.thermal.heat_budget.core_transfer_efficiency in
+        let core_contribution = maths.max(core.heat_power, 0.0) * config.fracture.thermal.heat_budget.core_transfer_efficiency in
 
         # Surface heat loss (proportional to heat content above reference)
         let reference = 8.0e30 in
-        let excess_ratio = signal.mantle.heat_content / reference in
-        let surface_loss = excess_ratio * config.fracture.thermal.heat_budget.surface_loss_coefficient * signal.mantle.heat_content in
+        let excess_ratio = mantle.heat_content / reference in
+        let surface_loss = excess_ratio * config.fracture.thermal.heat_budget.surface_loss_coefficient * mantle.heat_content in
 
         # Net power change - cap surface loss to not exceed available heat
         let net_input = radiogenic + core_contribution in
-        let capped_loss = maths.min(surface_loss, net_input + maths.max(signal.core.heat_power, 0.0)) in
+        let capped_loss = maths.min(surface_loss, net_input + maths.max(core.heat_power, 0.0)) in
 
         # Emit net change (will be non-negative if current heat_power >= 0)
-        signal.core.heat_power <- net_input - capped_loss
+        core.heat_power <- net_input - capped_loss
     }
 }
 
@@ -1641,19 +1641,19 @@ fracture tectonics.convergent_uplift {
     }
 
     when {
-        signal.plates.boundary_shear > config.fracture.tectonics.convergent_uplift.convergence_threshold
-        signal.tectonics.activity > 0.5
+        plates.boundary_shear > config.fracture.tectonics.convergent_uplift.convergence_threshold
+        tectonics.activity > 0.5
     }
 
     collect {
         # Normalized convergence factor
-        let conv_factor = signal.plates.boundary_shear / 0.1 in
+        let conv_factor = plates.boundary_shear / 0.1 in
 
         # Emit deltas assuming ~1 Myr timestep (rate configs are per Myr)
         # TODO: These should be true rates with signal dt.integrate() once
         # the DSL supports separate rate/delta channels
-        signal.crust.thickness <- conv_factor * config.fracture.tectonics.convergent_uplift.thicken_m_per_myr
-        signal.crust.elevation <- conv_factor * config.fracture.tectonics.convergent_uplift.uplift_m_per_myr * 0.001
+        crust.thickness <- conv_factor * config.fracture.tectonics.convergent_uplift.thicken_m_per_myr
+        crust.elevation <- conv_factor * config.fracture.tectonics.convergent_uplift.uplift_m_per_myr * 0.001
     }
 }
 
@@ -1667,18 +1667,18 @@ fracture tectonics.divergent_subsidence {
     }
 
     when {
-        signal.mantle.flow_strength > 3.0
-        signal.crust.thickness > 10000
+        mantle.flow_strength > 3.0
+        crust.thickness > 10000
     }
 
     collect {
         # Divergence driven by mantle upwelling
-        let div_factor = signal.mantle.flow_strength / 10.0 in
+        let div_factor = mantle.flow_strength / 10.0 in
 
         # Emit delta assuming ~1 Myr timestep
-        signal.crust.thickness <- -div_factor * config.fracture.tectonics.divergent_subsidence.thin_m_per_myr
+        crust.thickness <- -div_factor * config.fracture.tectonics.divergent_subsidence.thin_m_per_myr
         # Instantaneous delta for dynamic offset
-        signal.topography.dynamic_offset <- div_factor * 50.0
+        topography.dynamic_offset <- div_factor * 50.0
     }
 }
 
@@ -1698,15 +1698,15 @@ fracture tectonics.wilson_fragmentation {
 
     when {
         # High boundary shear indicates internal strain accumulation
-        signal.plates.boundary_shear > config.fracture.tectonics.wilson_fragmentation.shear_threshold
-        signal.plates.count > 1
-        signal.plates.count < 50
+        plates.boundary_shear > config.fracture.tectonics.wilson_fragmentation.shear_threshold
+        plates.count > 1
+        plates.count < 50
     }
 
     collect {
         # Fragmentation releases boundary stress and creates new oceanic crust
-        signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.5
-        signal.topography.dynamic_offset <- 100.0
+        tectonics.boundary_stress <- -tectonics.boundary_stress * 0.5
+        topography.dynamic_offset <- 100.0
         # Note: actual plate creation requires entity mutation (not yet in CDSL)
     }
 }
@@ -1722,16 +1722,16 @@ fracture tectonics.wilson_merger {
 
     when {
         # Continental collision at high convergence rate
-        signal.plates.boundary_shear > 0.15
-        signal.plates.continental_count > 2
-        signal.tectonics.activity > 1.5
+        plates.boundary_shear > 0.15
+        plates.continental_count > 2
+        tectonics.activity > 1.5
     }
 
     collect {
         # Merger builds mountains and thickens crust
-        signal.crust.thickness <- 2000.0
-        signal.crust.elevation <- 500.0
-        signal.tectonics.boundary_stress <- signal.tectonics.boundary_stress * 0.3
+        crust.thickness <- 2000.0
+        crust.elevation <- 500.0
+        tectonics.boundary_stress <- tectonics.boundary_stress * 0.3
         # Note: actual plate merger requires entity mutation
     }
 }
@@ -1747,14 +1747,14 @@ fracture tectonics.wilson_subduction {
 
     when {
         # Old oceanic crust becomes negatively buoyant
-        signal.plates.mean_age > config.fracture.tectonics.wilson_subduction.subduction_age_threshold_myr
-        signal.plates.oceanic_count > 0
+        plates.mean_age > config.fracture.tectonics.wilson_subduction.subduction_age_threshold_myr
+        plates.oceanic_count > 0
     }
 
     collect {
         # Subduction releases heat and volatiles to mantle
-        signal.mantle.temp <- 10.0
-        signal.tectonics.volcanism <- 5.0
+        mantle.temp <- 10.0
+        tectonics.volcanism <- 5.0
         # Note: actual plate removal requires entity mutation
     }
 }
@@ -1774,17 +1774,17 @@ fracture tectonics.derive_motion {
     }
 
     when {
-        signal.mantle.flow_strength > 0.1
-        signal.plates.count > 0
+        mantle.flow_strength > 0.1
+        plates.count > 0
     }
 
     collect {
         # Plate motion derived from mantle flow
-        let flow_factor = signal.mantle.flow_strength * config.fracture.tectonics.derive_motion.flow_coupling in
+        let flow_factor = mantle.flow_strength * config.fracture.tectonics.derive_motion.flow_coupling in
 
         # Update tectonic activity based on flow-induced motion
-        signal.tectonics.activity <- flow_factor * 0.1
-        signal.plates.boundary_shear <- flow_factor * 1e-3
+        tectonics.activity <- flow_factor * 0.1
+        plates.boundary_shear <- flow_factor * 1e-3
     }
 }
 
@@ -1802,14 +1802,14 @@ fracture geophysics.stellar_tidal_coupling {
 
     when {
         # Active when stellar domain provides tidal power
-        signal.stellar.total_tidal_power > 0.01 <W>
+        stellar.total_tidal_power > 0.01 <W>
     }
 
     collect {
         # Add tidal power to core heat power (which feeds mantle heat via dt.integrate)
         # This couples tidal dissipation into the continuous thermal budget.
         # Assumes 100% efficiency: all tidal work dissipates as heat.
-        signal.core.heat_power <- signal.stellar.total_tidal_power
+        core.heat_power <- stellar.total_tidal_power
     }
 }
 
@@ -1824,7 +1824,7 @@ field elevation.map {
     : title("Elevation Map")
 
     measure {
-        signal.crust.elevation
+        crust.elevation
     }
 }
 
@@ -1835,7 +1835,7 @@ field thickness.map {
     : title("Crustal Thickness Map")
 
     measure {
-        signal.crust.thickness
+        crust.thickness
     }
 }
 
@@ -1846,7 +1846,7 @@ field thermal.core {
     : title("Core Temperature Field")
 
     measure {
-        signal.core.temp
+        core.temp
     }
 }
 
@@ -1857,7 +1857,7 @@ field thermal.mantle {
     : title("Mantle Temperature Field")
 
     measure {
-        signal.mantle.temp
+        mantle.temp
     }
 }
 
@@ -1868,7 +1868,7 @@ field pressure.crustal {
     : title("Crustal Pressure Field")
 
     measure {
-        signal.crust.pressure_base
+        crust.pressure_base
     }
 }
 
@@ -1879,7 +1879,7 @@ field stress.boundary {
     : title("Boundary Stress Field")
 
     measure {
-        signal.tectonics.boundary_stress
+        tectonics.boundary_stress
     }
 }
 
@@ -1890,7 +1890,7 @@ field topography.dynamic {
     : title("Dynamic Topography Field")
 
     measure {
-        signal.topography.dynamic_offset
+        topography.dynamic_offset
     }
 }
 
@@ -1901,7 +1901,7 @@ field isostasy.elevation_field {
     : title("Isostatic Elevation Field")
 
     measure {
-        signal.isostasy.elevation
+        isostasy.elevation
     }
 }
 
@@ -1912,7 +1912,7 @@ field density.crustal {
     : title("Crustal Density Field")
 
     measure {
-        signal.crust.density
+        crust.density
     }
 }
 
@@ -1923,7 +1923,7 @@ field thermal.heat_flow {
     : title("Surface Heat Flow Field")
 
     measure {
-        signal.surface.heat_flow
+        surface.heat_flow
     }
 }
 
@@ -1934,7 +1934,7 @@ field plates.velocity_map {
     : title("Plate Velocity Field")
 
     measure {
-        signal.plates.mean_velocity
+        plates.mean_velocity
     }
 }
 
@@ -1945,7 +1945,7 @@ field plates.boundary_shear_map {
     : title("Plate Boundary Shear Field")
 
     measure {
-        signal.plates.boundary_shear
+        plates.boundary_shear
     }
 }
 
@@ -1956,7 +1956,7 @@ field plates.age_map {
     : title("Mean Plate Age Field")
 
     measure {
-        signal.plates.mean_age
+        plates.mean_age
     }
 }
 
@@ -1967,7 +1967,7 @@ field mantle.rayleigh {
     : title("Rayleigh Number Field")
 
     measure {
-        signal.mantle.rayleigh_number
+        mantle.rayleigh_number
     }
 }
 
@@ -1978,7 +1978,7 @@ field mantle.flow {
     : title("Mantle Flow Strength Field")
 
     measure {
-        signal.mantle.flow_strength
+        mantle.flow_strength
     }
 }
 
@@ -1989,7 +1989,7 @@ field tectonics.orogeny {
     : title("Orogeny Rate Field")
 
     measure {
-        signal.tectonics.orogeny_rate
+        tectonics.orogeny_rate
     }
 }
 
@@ -2000,7 +2000,7 @@ field tectonics.volcanism_map {
     : title("Volcanism Index Field")
 
     measure {
-        signal.tectonics.volcanism
+        tectonics.volcanism
     }
 }
 
@@ -2011,7 +2011,7 @@ field tectonics.subduction {
     : title("Subduction Rate Field")
 
     measure {
-        signal.tectonics.subduction_rate
+        tectonics.subduction_rate
     }
 }
 
@@ -2022,7 +2022,7 @@ field tectonics.spreading {
     : title("Seafloor Spreading Field")
 
     measure {
-        signal.tectonics.spreading_rate
+        tectonics.spreading_rate
     }
 }
 
@@ -2033,7 +2033,7 @@ field plates.count_map {
     : title("Plate Count Field")
 
     measure {
-        signal.plates.count
+        plates.count
     }
 }
 
@@ -2044,7 +2044,7 @@ field tectonics.activity_map {
     : title("Tectonic Activity Field")
 
     measure {
-        signal.tectonics.activity
+        tectonics.activity
     }
 }
 
@@ -2055,7 +2055,7 @@ field plates.divergent_activity_map {
     : title("Divergent Boundary Activity Field")
 
     measure {
-        signal.plates.divergent_activity
+        plates.divergent_activity
     }
 }
 
@@ -2066,7 +2066,7 @@ field plates.convergent_activity_map {
     : title("Convergent Boundary Activity Field")
 
     measure {
-        signal.plates.convergent_activity
+        plates.convergent_activity
     }
 }
 
@@ -2077,7 +2077,7 @@ field plates.transform_activity_map {
     : title("Transform Boundary Activity Field")
 
     measure {
-        signal.plates.transform_activity
+        plates.transform_activity
     }
 }
 
@@ -2088,7 +2088,7 @@ field mantle.viscosity_map {
     : title("Mantle Viscosity Field")
 
     measure {
-        signal.mantle.viscosity
+        mantle.viscosity
     }
 }
 
@@ -2099,7 +2099,7 @@ field mantle.convection_cells_map {
     : title("Convection Cell Count Field")
 
     measure {
-        signal.mantle.convection_cells
+        mantle.convection_cells
     }
 }
 
@@ -2148,11 +2148,11 @@ impulse tectonics.plate_collision {
                 payload.energy * config.impulse.tectonics.plate_collision.orogeny_efficiency
                 / 1.0e18 in
 
-            signal.tectonics.orogeny_rate <- orogeny_contribution;
+            tectonics.orogeny_rate <- orogeny_contribution;
 
             # Collision energy also increases volcanic activity in collision zones
             let activity_boost = payload.energy / 1.0e22 in
-            signal.tectonics.activity <- activity_boost
+            tectonics.activity <- activity_boost
         }
     }
 }
@@ -2193,17 +2193,17 @@ impulse tectonics.volcanic {
             # Heat deposited increases local thermal budget
             let surface_heat =
                 payload.heat_j * config.impulse.tectonics.volcanic.surface_heat_efficiency in
-            signal.thermal.surface_flux <- surface_heat / 1.0e18;
+            thermal.surface_flux <- surface_heat / 1.0e18;
 
             # NOTE: CO2 release disabled - at geological timescales, CO2 is handled
             # by equilibrium dynamics in atmosphere.co2_equilibrium fracture
             # Individual eruptions are insignificant vs long-term volcanic degassing
 
             # Volcanic activity index boost
-            signal.tectonics.volcanism <- payload.volatiles / 10.0;
+            tectonics.volcanism <- payload.volatiles / 10.0;
 
             # Ejecta contributes to crustal thickening signal
-            signal.crust.thickness <- payload.ejecta_thickness_m
+            crust.thickness <- payload.ejecta_thickness_m
         }
     }
 }
@@ -2215,13 +2215,13 @@ impulse tectonics.volcanic {
 # Supercontinent formation: plates merge into unified landmass
 chronicle geophysics.events.supercontinent_formation {
     observe {
-        when signal.plates.continental_count < 3 and
-             signal.plates.total_buoyancy > 0.6 * signal.plates.count {
+        when plates.continental_count < 3 and
+             plates.total_buoyancy > 0.6 * plates.count {
             emit event.supercontinent_formation {
-                plate_count: signal.plates.count
-                continental_count: signal.plates.continental_count
-                mean_thickness: signal.plates.mean_thickness
-                boundary_stress: signal.tectonics.boundary_stress
+                plate_count: plates.count
+                continental_count: plates.continental_count
+                mean_thickness: plates.mean_thickness
+                boundary_stress: tectonics.boundary_stress
                 severity: "major"
                 description: "Supercontinent formation - continental plates unified"
             }
@@ -2232,14 +2232,14 @@ chronicle geophysics.events.supercontinent_formation {
 # Supercontinent breakup: rapid plate fragmentation
 chronicle geophysics.events.supercontinent_breakup {
     observe {
-        when signal.plates.count > 20 and
-             signal.tectonics.boundary_stress > 5.0e8 and
-             signal.mantle.flow_strength > 7.0 {
+        when plates.count > 20 and
+             tectonics.boundary_stress > 5.0e8 and
+             mantle.flow_strength > 7.0 {
             emit event.supercontinent_breakup {
-                plate_count: signal.plates.count
-                boundary_stress: signal.tectonics.boundary_stress
-                flow_strength: signal.mantle.flow_strength
-                spreading_rate: signal.tectonics.spreading_rate
+                plate_count: plates.count
+                boundary_stress: tectonics.boundary_stress
+                flow_strength: mantle.flow_strength
+                spreading_rate: tectonics.spreading_rate
                 severity: "major"
                 description: "Supercontinent breakup - rifting and fragmentation"
             }
@@ -2250,13 +2250,13 @@ chronicle geophysics.events.supercontinent_breakup {
 # Major volcanic eruption: extreme volcanism event
 chronicle geophysics.events.major_volcanic_eruption {
     observe {
-        when signal.tectonics.volcanism > 50.0 and
-             signal.mantle.temp > 1800.0 <K> {
+        when tectonics.volcanism > 50.0 and
+             mantle.temp > 1800.0 <K> {
             emit event.major_volcanic_eruption {
-                volcanism_index: signal.tectonics.volcanism
-                mantle_temp: signal.mantle.temp
-                core_heat_power: signal.core.heat_power
-                surface_heat_flow: signal.surface.heat_flow
+                volcanism_index: tectonics.volcanism
+                mantle_temp: mantle.temp
+                core_heat_power: core.heat_power
+                surface_heat_flow: surface.heat_flow
                 severity: "major"
                 description: "Major volcanic eruption - extreme tectonic activity"
             }
@@ -2267,12 +2267,12 @@ chronicle geophysics.events.major_volcanic_eruption {
 # Planetary cooling milestone: core temperature drops below threshold
 chronicle geophysics.events.planetary_cooling {
     observe {
-        when signal.core.temp < 3000.0 <K> {
+        when core.temp < 3000.0 <K> {
             emit event.planetary_cooling {
-                core_temp: signal.core.temp
-                mantle_temp: signal.mantle.temp
-                heat_power: signal.core.heat_power
-                tectonic_activity: signal.tectonics.activity
+                core_temp: core.temp
+                mantle_temp: mantle.temp
+                heat_power: core.heat_power
+                tectonic_activity: tectonics.activity
                 severity: "major"
                 description: "Planetary cooling - thermal evolution milestone"
             }
@@ -2283,13 +2283,13 @@ chronicle geophysics.events.planetary_cooling {
 # Tectonic stagnation: plate motion ceases
 chronicle geophysics.events.tectonic_stagnation {
     observe {
-        when signal.tectonics.activity < 0.1 and
-             signal.plates.mean_velocity < 0.001 {
+        when tectonics.activity < 0.1 and
+             plates.mean_velocity < 0.001 {
             emit event.tectonic_stagnation {
-                activity: signal.tectonics.activity
-                mean_velocity: signal.plates.mean_velocity
-                core_temp: signal.core.temp
-                mantle_temp: signal.mantle.temp
+                activity: tectonics.activity
+                mean_velocity: plates.mean_velocity
+                core_temp: core.temp
+                mantle_temp: mantle.temp
                 severity: "critical"
                 description: "Tectonic stagnation - plate motion ceased"
             }
@@ -2300,13 +2300,13 @@ chronicle geophysics.events.tectonic_stagnation {
 # Mountain building event: extreme orogeny
 chronicle geophysics.events.mountain_building {
     observe {
-        when signal.crust.elevation > 7000.0 and
-             signal.tectonics.orogeny_rate > 5000.0 {
+        when crust.elevation > 7000.0 and
+             tectonics.orogeny_rate > 5000.0 {
             emit event.mountain_building {
-                elevation: signal.crust.elevation
-                orogeny_rate: signal.tectonics.orogeny_rate
-                crust_thickness: signal.crust.thickness
-                boundary_stress: signal.tectonics.boundary_stress
+                elevation: crust.elevation
+                orogeny_rate: tectonics.orogeny_rate
+                crust_thickness: crust.thickness
+                boundary_stress: tectonics.boundary_stress
                 severity: "moderate"
                 description: "Mountain building - extreme orogenic uplift"
             }
