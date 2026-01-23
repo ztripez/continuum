@@ -218,3 +218,145 @@ impl BlockBody {
         }
     }
 }
+
+/// Visitor trait for traversing statement trees and their embedded expressions.
+///
+/// This trait provides a standardized way to walk statement nodes and visit
+/// their child expressions. It eliminates duplicated statement traversal logic
+/// across multiple compiler passes.
+///
+/// # Design
+///
+/// The visitor pattern is split into two responsibilities:
+///
+/// - [`visit_stmt`] — called once per statement node (override to collect statement-level data)
+/// - [`visit_expr`] — called for each expression embedded in statements (override to process expressions)
+///
+/// The default implementation of [`visit_stmt`] delegates to [`walk_stmt`],
+/// which handles the structural traversal by matching on statement variants
+/// and calling [`visit_expr`] for embedded expressions.
+///
+/// # Usage
+///
+/// Implement this trait to define custom statement traversal logic:
+///
+/// ```rust,ignore
+/// use continuum_cdsl_ast::{TypedStmt, TypedExpr, StatementVisitor};
+///
+/// struct MyVisitor {
+///     // ... visitor state
+/// }
+///
+/// impl StatementVisitor for MyVisitor {
+///     fn visit_stmt(&mut self, stmt: &TypedStmt) {
+///         // Custom statement-level logic here
+///         self.walk_stmt(stmt); // Continue traversal
+///     }
+///
+///     fn visit_expr(&mut self, expr: &TypedExpr) {
+///         // Custom expression logic here
+///     }
+/// }
+/// ```
+///
+/// # Example
+///
+/// Collecting all signal assignments from a statement list:
+///
+/// ```rust,ignore
+/// struct SignalCollector {
+///     signals: Vec<Path>,
+/// }
+///
+/// impl StatementVisitor for SignalCollector {
+///     fn visit_stmt(&mut self, stmt: &TypedStmt) {
+///         if let TypedStmt::SignalAssign { target, .. } = stmt {
+///             self.signals.push(target.clone());
+///         }
+///         self.walk_stmt(stmt); // Continue to expressions
+///     }
+///
+///     fn visit_expr(&mut self, _expr: &TypedExpr) {
+///         // Process embedded expressions if needed
+///     }
+/// }
+/// ```
+///
+/// # Eliminated Duplication
+///
+/// This trait consolidates statement traversal logic previously duplicated across:
+/// - `resolve/uses.rs` (lines 166-184)
+/// - `resolve/integrators.rs` (lines 195-212)
+/// - `resolve/dependencies.rs` (lines 111-158)
+/// - `desugar.rs` (lines 266-306)
+///
+/// Before this trait, adding [`Stmt::Assert`] required updating match arms in 5 files.
+/// Now, extending [`Stmt`] only requires updating [`walk_stmt`] once.
+pub trait StatementVisitor {
+    /// Visit a statement node.
+    ///
+    /// This method is called once for each statement in the tree.
+    /// The default implementation delegates to [`walk_stmt`] to traverse
+    /// the statement's structure and visit embedded expressions.
+    ///
+    /// Override this method to:
+    /// - Collect statement-level data (e.g., target paths in assignments)
+    /// - Perform statement-specific validation
+    /// - Transform or analyze statement patterns
+    ///
+    /// # Default Behavior
+    ///
+    /// The default impl calls [`walk_stmt`], which handles the structural
+    /// traversal by matching on statement variants and calling [`visit_expr`]
+    /// for embedded expressions.
+    #[inline]
+    fn visit_stmt(&mut self, stmt: &TypedStmt) {
+        self.walk_stmt(stmt);
+    }
+
+    /// Walk the structure of a statement, visiting embedded expressions.
+    ///
+    /// This method performs the structural traversal of a statement node:
+    /// - Matches on [`Stmt`] variants
+    /// - Calls [`visit_expr`] for each embedded expression
+    ///
+    /// Call this from your [`visit_stmt`] implementation to continue
+    /// the traversal after performing statement-level processing.
+    ///
+    /// # Statement Traversal Rules
+    ///
+    /// - [`Stmt::Let`] — visits the `value` expression
+    /// - [`Stmt::SignalAssign`] — visits the `value` expression  
+    /// - [`Stmt::FieldAssign`] — visits `position` then `value` expressions
+    /// - [`Stmt::Assert`] — visits the `condition` expression
+    /// - [`Stmt::Expr`] — visits the wrapped expression
+    #[inline]
+    fn walk_stmt(&mut self, stmt: &TypedStmt) {
+        match stmt {
+            Stmt::Let { value, .. } => self.visit_expr(value),
+            Stmt::SignalAssign { value, .. } => self.visit_expr(value),
+            Stmt::FieldAssign {
+                position, value, ..
+            } => {
+                self.visit_expr(position);
+                self.visit_expr(value);
+            }
+            Stmt::Assert { condition, .. } => self.visit_expr(condition),
+            Stmt::Expr(expr) => self.visit_expr(expr),
+        }
+    }
+
+    /// Visit an expression embedded in a statement.
+    ///
+    /// This method is called for every expression encountered while
+    /// traversing statement structures. Override this to process
+    /// expressions within statements.
+    ///
+    /// # Note
+    ///
+    /// This method receives expressions but does not automatically
+    /// recurse into their subexpressions. If you need to traverse
+    /// the full expression tree, use [`TypedExpr::walk`] with an
+    /// [`ExpressionVisitor`][crate::ast::ExpressionVisitor].
+    fn visit_expr(&mut self, expr: &TypedExpr);
+}

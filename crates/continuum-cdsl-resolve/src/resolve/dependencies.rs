@@ -5,7 +5,7 @@
 //! dependencies (entity set references) from expression trees.
 
 use continuum_cdsl_ast::foundation::{Path, Type};
-use continuum_cdsl_ast::{ExprKind, ExpressionVisitor, TypedExpr, TypedStmt};
+use continuum_cdsl_ast::{ExprKind, ExpressionVisitor, StatementVisitor, TypedExpr, TypedStmt};
 use std::collections::HashSet;
 
 /// Extracts signal and field paths from an expression tree.
@@ -111,47 +111,43 @@ pub fn extract_stmt_dependencies(
     stmt: &TypedStmt,
     current_node_path: &Path,
 ) -> (Vec<Path>, Vec<Path>, Vec<Path>) {
-    let mut reads = Vec::new();
-    let mut temporal_reads = Vec::new();
-    let mut emits = Vec::new();
+    let mut visitor = StatementDependencyVisitor {
+        current_node_path,
+        reads: Vec::new(),
+        temporal_reads: Vec::new(),
+        emits: Vec::new(),
+    };
+    visitor.visit_stmt(stmt);
+    (visitor.reads, visitor.temporal_reads, visitor.emits)
+}
 
-    match stmt {
-        TypedStmt::Let { value, .. } => {
-            let (r, t) = extract_dependencies(value, current_node_path);
-            reads.extend(r);
-            temporal_reads.extend(t);
+/// Visitor that extracts dependencies from statements and their expressions
+struct StatementDependencyVisitor<'a> {
+    current_node_path: &'a Path,
+    reads: Vec<Path>,
+    temporal_reads: Vec<Path>,
+    emits: Vec<Path>,
+}
+
+impl<'a> StatementVisitor for StatementDependencyVisitor<'a> {
+    fn visit_stmt(&mut self, stmt: &TypedStmt) {
+        // Handle statement-level side effects (emits)
+        match stmt {
+            TypedStmt::SignalAssign { target, .. } => {
+                self.emits.push(target.clone());
+            }
+            TypedStmt::FieldAssign { target, .. } => {
+                self.emits.push(target.clone());
+            }
+            _ => {}
         }
-        TypedStmt::SignalAssign { target, value, .. } => {
-            emits.push(target.clone());
-            let (r, t) = extract_dependencies(value, current_node_path);
-            reads.extend(r);
-            temporal_reads.extend(t);
-        }
-        TypedStmt::FieldAssign {
-            target,
-            position,
-            value,
-            ..
-        } => {
-            emits.push(target.clone());
-            let (r1, t1) = extract_dependencies(position, current_node_path);
-            let (r2, t2) = extract_dependencies(value, current_node_path);
-            reads.extend(r1);
-            reads.extend(r2);
-            temporal_reads.extend(t1);
-            temporal_reads.extend(t2);
-        }
-        TypedStmt::Assert { condition, .. } => {
-            let (r, t) = extract_dependencies(condition, current_node_path);
-            reads.extend(r);
-            temporal_reads.extend(t);
-        }
-        TypedStmt::Expr(expr) => {
-            let (r, t) = extract_dependencies(expr, current_node_path);
-            reads.extend(r);
-            temporal_reads.extend(t);
-        }
+        // Continue with default traversal to visit expressions
+        self.walk_stmt(stmt);
     }
 
-    (reads, temporal_reads, emits)
+    fn visit_expr(&mut self, expr: &TypedExpr) {
+        let (r, t) = extract_dependencies(expr, self.current_node_path);
+        self.reads.extend(r);
+        self.temporal_reads.extend(t);
+    }
 }

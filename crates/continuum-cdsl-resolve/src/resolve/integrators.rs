@@ -52,7 +52,8 @@
 use crate::error::{CompileError, ErrorKind};
 use continuum_cdsl_ast::foundation::Span;
 use continuum_cdsl_ast::{
-    Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node, TypedExpr,
+    Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node,
+    StatementVisitor, TypedExpr,
 };
 
 /// Valid integrator method names
@@ -196,24 +197,20 @@ fn collect_integration_calls_typed_stmt(
     stmt: &continuum_cdsl_ast::TypedStmt,
     calls: &mut Vec<IntegrationCall>,
 ) {
-    use continuum_cdsl_ast::TypedStmt;
-    match stmt {
-        TypedStmt::Let { value, .. } => collect_integration_calls(value, calls),
-        TypedStmt::SignalAssign { value, .. } => collect_integration_calls(value, calls),
-        TypedStmt::FieldAssign {
-            position, value, ..
-        } => {
-            collect_integration_calls(position, calls);
-            collect_integration_calls(value, calls);
-        }
-        TypedStmt::Assert { condition, .. } => collect_integration_calls(condition, calls),
-        TypedStmt::Expr(expr) => collect_integration_calls(expr, calls),
-    }
+    let mut visitor = IntegrationCallVisitor { calls };
+    visitor.visit_stmt(stmt);
 }
 
-/// Visitor that collects integration kernel calls from a typed expression tree
+/// Visitor that collects integration kernel calls from a typed expression tree and statements
 struct IntegrationCallVisitor<'a> {
     calls: &'a mut Vec<IntegrationCall>,
+}
+
+impl<'a> StatementVisitor for IntegrationCallVisitor<'a> {
+    fn visit_expr(&mut self, expr: &TypedExpr) {
+        // Recursively walk the full expression tree
+        expr.walk(self);
+    }
 }
 
 impl<'a> ExpressionVisitor for IntegrationCallVisitor<'a> {

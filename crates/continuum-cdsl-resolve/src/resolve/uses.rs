@@ -48,7 +48,8 @@
 //! ```
 
 use continuum_cdsl_ast::{
-    Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node, TypedExpr,
+    Attribute, ExecutionBody, ExprKind, ExpressionVisitor, Index, KernelRegistry, Node,
+    StatementVisitor, TypedExpr,
 };
 
 use crate::error::{CompileError, ErrorKind};
@@ -168,25 +169,21 @@ fn collect_required_uses_typed_stmt(
     registry: &KernelRegistry,
     required: &mut Vec<RequiredUse>,
 ) {
-    use continuum_cdsl_ast::TypedStmt;
-    match stmt {
-        TypedStmt::Let { value, .. } => collect_required_uses(value, registry, required),
-        TypedStmt::SignalAssign { value, .. } => collect_required_uses(value, registry, required),
-        TypedStmt::FieldAssign {
-            position, value, ..
-        } => {
-            collect_required_uses(position, registry, required);
-            collect_required_uses(value, registry, required);
-        }
-        TypedStmt::Assert { condition, .. } => collect_required_uses(condition, registry, required),
-        TypedStmt::Expr(expr) => collect_required_uses(expr, registry, required),
-    }
+    let mut visitor = RequiredUsesVisitor { registry, required };
+    visitor.visit_stmt(stmt);
 }
 
-/// Visitor that collects required uses from a typed expression tree
+/// Visitor that collects required uses from a typed expression tree and statements
 struct RequiredUsesVisitor<'a> {
     registry: &'a KernelRegistry,
     required: &'a mut Vec<RequiredUse>,
+}
+
+impl<'a> StatementVisitor for RequiredUsesVisitor<'a> {
+    fn visit_expr(&mut self, expr: &TypedExpr) {
+        // Recursively walk the full expression tree
+        expr.walk(self);
+    }
 }
 
 impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
