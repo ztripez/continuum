@@ -1249,3 +1249,197 @@ mod tests {
         assert_eq!(debug_member.index, EntityId::new("plate"));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use continuum_cdsl_ast::foundation::{KernelType, Shape, Span, Type, Unit};
+    use continuum_cdsl_ast::{ConfigEntry, ConstEntry, Expr, TypeExpr, UntypedKind};
+
+    fn test_span() -> Span {
+        Span::new(0, 0, 0, 1)
+    }
+
+    fn make_literal(value: f64) -> Expr {
+        Expr::new(
+            UntypedKind::Literal { value, unit: None },
+            test_span(),
+        )
+    }
+
+    fn scalar_type() -> Type {
+        Type::Kernel(KernelType {
+            shape: Shape::Scalar,
+            unit: Unit::dimensionless(),
+            bounds: None,
+        })
+    }
+
+    #[test]
+    fn test_collect_config_types_explicit() {
+        let entries = vec![ConfigEntry {
+            path: Path::from_path_str("test.value"),
+            type_expr: TypeExpr::Named("Scalar".to_string()),
+            default: Some(make_literal(42.0)),
+            span: test_span(),
+            attributes: vec![],
+        }];
+
+        let type_table = TypeTable::new();
+        let result = collect_config_types(&entries, &type_table);
+        
+        // Should succeed with explicit type
+        assert!(result.is_ok(), "Explicit type should resolve");
+    }
+
+    #[test]
+    fn test_collect_config_types_infer_from_literal() {
+        let entries = vec![ConfigEntry {
+            path: Path::from_path_str("test.value"),
+            type_expr: TypeExpr::Infer,
+            default: Some(make_literal(42.0)),
+            span: test_span(),
+            attributes: vec![],
+        }];
+
+        let type_table = TypeTable::new();
+        let result = collect_config_types(&entries, &type_table);
+        
+        assert!(result.is_ok(), "Type inference from literal should succeed");
+        let types = result.unwrap();
+        assert_eq!(types.len(), 1);
+        assert_eq!(types[&Path::from_path_str("test.value")], scalar_type());
+    }
+
+    #[test]
+    fn test_collect_config_types_infer_no_default() {
+        let entries = vec![ConfigEntry {
+            path: Path::from_path_str("test.value"),
+            type_expr: TypeExpr::Infer,
+            default: None,
+            span: test_span(),
+            attributes: vec![],
+        }];
+
+        let type_table = TypeTable::new();
+        let result = collect_config_types(&entries, &type_table);
+        
+        // Should fail - cannot infer without default
+        assert!(result.is_err(), "Inference without default should fail");
+        let errors = result.unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("requires explicit type or default"));
+    }
+
+    #[test]
+    fn test_collect_config_types_multiple_entries() {
+        let entries = vec![
+            ConfigEntry {
+                path: Path::from_path_str("config.a"),
+                type_expr: TypeExpr::Infer,
+                default: Some(make_literal(1.0)),
+                span: test_span(),
+                attributes: vec![],
+            },
+            ConfigEntry {
+                path: Path::from_path_str("config.b"),
+                type_expr: TypeExpr::Infer,
+                default: Some(make_literal(2.0)),
+                span: test_span(),
+                attributes: vec![],
+            },
+        ];
+
+        let type_table = TypeTable::new();
+        let result = collect_config_types(&entries, &type_table);
+        
+        assert!(result.is_ok());
+        let types = result.unwrap();
+        assert_eq!(types.len(), 2);
+    }
+
+    #[test]
+    fn test_collect_const_types_infer_from_literal() {
+        let entries = vec![ConstEntry {
+            path: Path::from_path_str("const.pi"),
+            type_expr: TypeExpr::Infer,
+            value: make_literal(3.14159),
+            span: test_span(),
+            attributes: vec![],
+        }];
+
+        let type_table = TypeTable::new();
+        let result = collect_const_types(&entries, &type_table);
+        
+        assert!(result.is_ok(), "Const type inference should succeed");
+        let types = result.unwrap();
+        assert_eq!(types.len(), 1);
+        assert_eq!(types[&Path::from_path_str("const.pi")], scalar_type());
+    }
+
+    #[test]
+    fn test_collect_const_types_bool_literal() {
+        let entries = vec![ConstEntry {
+            path: Path::from_path_str("const.enabled"),
+            type_expr: TypeExpr::Infer,
+            value: Expr::new(UntypedKind::BoolLiteral(true), test_span()),
+            span: test_span(),
+            attributes: vec![],
+        }];
+
+        let type_table = TypeTable::new();
+        let result = collect_const_types(&entries, &type_table);
+        
+        assert!(result.is_ok());
+        let types = result.unwrap();
+        assert_eq!(types[&Path::from_path_str("const.enabled")], Type::Bool);
+    }
+
+    #[test]
+    fn test_collect_const_types_complex_expr_fails() {
+        // Type inference only works for literals, not complex expressions
+        let entries = vec![ConstEntry {
+            path: Path::from_path_str("const.sum"),
+            type_expr: TypeExpr::Infer,
+            value: Expr::new(UntypedKind::Local("x".to_string()), test_span()),
+            span: test_span(),
+            attributes: vec![],
+        }];
+
+        let type_table = TypeTable::new();
+        let result = collect_const_types(&entries, &type_table);
+        
+        // Should fail - cannot infer from complex expressions
+        assert!(result.is_err(), "Complex expression inference should fail");
+        let errors = result.unwrap_err();
+        assert!(errors[0].message.contains("Cannot infer type from complex expression"));
+    }
+
+    #[test]
+    fn test_has_type_info_trait_config() {
+        let entry = ConfigEntry {
+            path: Path::from_path_str("test"),
+            type_expr: TypeExpr::Infer,
+            default: None,
+            span: test_span(),
+            attributes: vec![],
+        };
+
+        assert_eq!(entry.path(), &Path::from_path_str("test"));
+        assert!(matches!(entry.type_expr(), TypeExpr::Infer));
+    }
+
+    #[test]
+    fn test_has_type_info_trait_const() {
+        let entry = ConstEntry {
+            path: Path::from_path_str("test"),
+            type_expr: TypeExpr::Infer,
+            value: make_literal(1.0),
+            span: test_span(),
+            attributes: vec![],
+        };
+
+        assert_eq!(entry.path(), &Path::from_path_str("test"));
+        assert!(matches!(entry.type_expr(), TypeExpr::Infer));
+    }
+}
