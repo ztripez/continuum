@@ -50,6 +50,7 @@ fn parse_declaration(stream: &mut TokenStream) -> Result<Declaration, ParseError
         Some(Token::Impulse) => primitives::parse_impulse(stream),
         Some(Token::Fracture) => primitives::parse_fracture(stream),
         Some(Token::Chronicle) => primitives::parse_chronicle(stream),
+        Some(Token::Analyzer) => parse_analyzer_stub(stream),
         Some(Token::Entity) => entities::parse_entity(stream),
         Some(Token::Strata) => time::parse_stratum(stream),
         Some(Token::Era) => time::parse_era(stream),
@@ -62,6 +63,55 @@ fn parse_declaration(stream: &mut TokenStream) -> Result<Declaration, ParseError
             stream.current_span(),
         )),
     }
+}
+
+/// Stub parser for `analyzer` declarations (not yet implemented).
+///
+/// This allows terra CDSL files with analyzer blocks to parse without error.
+/// The analyzer declaration is consumed and skipped entirely.
+///
+/// Returns an error that will be handled by parse_declarations (synchronize and continue).
+fn parse_analyzer_stub(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
+    let start_span = stream.current_span();
+    stream.advance(); // consume 'analyzer' keyword
+
+    // Skip analyzer name (path)
+    while matches!(stream.peek(), Some(Token::Ident(_))) {
+        stream.advance();
+        if matches!(stream.peek(), Some(Token::Dot)) {
+            stream.advance();
+        } else {
+            break;
+        }
+    }
+
+    // Skip entire block
+    if matches!(stream.peek(), Some(Token::LBrace)) {
+        stream.advance();
+        let mut depth = 1;
+        while depth > 0 && !stream.at_end() {
+            match stream.peek() {
+                Some(Token::LBrace) => {
+                    depth += 1;
+                    stream.advance();
+                }
+                Some(Token::RBrace) => {
+                    depth -= 1;
+                    stream.advance();
+                }
+                _ => {
+                    stream.advance();
+                }
+            }
+        }
+    }
+
+    // Return error to skip this declaration
+    // parse_declarations will call synchronize() and continue
+    Err(ParseError::invalid_syntax(
+        "analyzer declarations not yet implemented (skipped)".to_string(),
+        start_span,
+    ))
 }
 
 // ============================================================================

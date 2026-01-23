@@ -63,6 +63,9 @@ pub enum Token {
     /// Keyword `chronicle`
     #[token("chronicle")]
     Chronicle,
+    /// Keyword `analyzer` (stub - not yet implemented)
+    #[token("analyzer")]
+    Analyzer,
 
     // Structure
     /// Keyword `entity`
