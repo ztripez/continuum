@@ -544,7 +544,7 @@ fracture hydrology.flash_flood {
         signal.hydrology.runoff_accumulation > 1e14
     }
 
-    emit {
+    collect {
         signal.hydrology.sediment_load <- 1.0
         signal.hydrology.runoff_accumulation <- -signal.hydrology.runoff_accumulation * 0.5
     }
@@ -557,7 +557,7 @@ fracture hydrology.drought {
         signal.hydrology.water_mass < 1e17
     }
 
-    emit {
+    collect {
         signal.hydrology.evaporation_rate <- -signal.hydrology.evaporation_rate * 0.5
     }
 }
@@ -569,7 +569,7 @@ fracture hydrology.glacial_surge {
         signal.surface.temp < 270.0 <K>
     }
 
-    emit {
+    collect {
         signal.hydrology.ice_mass <- -1e18
         signal.hydrology.sediment_load <- 2.0
     }
@@ -617,7 +617,7 @@ fracture hydrology.precipitation_coupling {
         signal.hydrology.water_mass > config.fracture.hydrology.precipitation_coupling.min_water_mass_kg
     }
 
-    emit {
+    collect {
         # Equilibrium-based water redistribution
         # At dt >> timescale: approaches equilibrium
         # At dt << timescale: small changes
@@ -668,7 +668,7 @@ fracture hydrology.hydraulic_erosion {
         signal.hydrology.runoff_accumulation > 1e10
     }
 
-    emit {
+    collect {
         # Stream power erosion: E = K * A^m * S^n
         let flow_acc = signal.hydrology.flow_accumulation in
         let erosion_factor = config.fracture.hydrology.hydraulic_erosion.erodibility * maths.pow(flow_acc, config.fracture.hydrology.hydraulic_erosion.m_exponent) in
@@ -695,7 +695,7 @@ fracture hydrology.sediment_transport {
         signal.hydrology.runoff_accumulation > 1e8
     }
 
-    emit {
+    collect {
         # Transport capacity: C = K * Q^a
         let discharge = signal.hydrology.runoff_accumulation in
         let capacity = config.fracture.hydrology.sediment_transport.capacity_coefficient * maths.pow(discharge, config.fracture.hydrology.sediment_transport.discharge_exponent) in
@@ -725,7 +725,7 @@ fracture hydrology.water_thermal_relaxation {
         signal.hydrology.water_mass > 1e10
     }
 
-    emit {
+    collect {
         # Water temperature relaxes toward climate-adjusted equilibrium
         let surface_temp = signal.surface.temp in
         let target = maths.clamp(surface_temp, config.fracture.hydrology.water_thermal_relaxation.min_water_temp_k, config.fracture.hydrology.water_thermal_relaxation.max_water_temp_k) in
@@ -761,7 +761,7 @@ fracture hydrology.evaporation_coupling {
         signal.hydrology.water_temperature > 273.15 <K>
     }
 
-    emit {
+    collect {
         # Bulk aerodynamic formula: E = C_E * U * (q_sat - q_air)
         # Where C_E = bulk transfer coefficient, U = wind speed
         # q_sat = saturation mixing ratio, q_air = actual mixing ratio
@@ -810,7 +810,7 @@ fracture hydrology.gas_exchange {
         signal.hydrology.water_mass > 1e10
     }
 
-    emit {
+    collect {
         # Gas solubility inversely related to temperature (Henry's law)
         let temp = signal.hydrology.water_temperature in
         let temp_fraction = maths.clamp((temp - config.fracture.hydrology.gas_exchange.cold_temp_k) / (config.fracture.hydrology.gas_exchange.warm_temp_k - config.fracture.hydrology.gas_exchange.cold_temp_k), 0.0, 1.0) in
@@ -841,7 +841,7 @@ fracture hydrology.groundwater_coupling {
         signal.hydrology.water_mass > config.fracture.hydrology.groundwater_coupling.min_surface_water_kg
     }
 
-    emit {
+    collect {
         # Infiltration: surface -> groundwater when pore space available
         let saturation = signal.hydrology.groundwater_saturation in
         let available_pore = maths.max(1.0 - saturation, 0.0) * config.fracture.hydrology.groundwater_coupling.porosity in
@@ -873,7 +873,7 @@ fracture hydrology.sediment_lithification {
         signal.hydrology.sediment_load > config.fracture.hydrology.sediment_lithification.threshold
     }
 
-    emit {
+    collect {
         # Excess sediment above threshold compacts and lithifies
         let sediment = signal.hydrology.sediment_load in
         let excess = sediment - config.fracture.hydrology.sediment_lithification.threshold in

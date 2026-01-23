@@ -1499,7 +1499,7 @@ fracture tectonics.rift {
         signal.tectonics.boundary_stress > 5e8
     }
 
-    emit {
+    collect {
         signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.8
         signal.crust.thickness <- -500.0
         signal.topography.dynamic_offset <- 200.0
@@ -1513,7 +1513,7 @@ fracture tectonics.orogeny {
         signal.tectonics.boundary_stress > 7e8
     }
 
-    emit {
+    collect {
         signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.6
         signal.crust.thickness <- 1000.0
         signal.topography.dynamic_offset <- -100.0
@@ -1527,7 +1527,7 @@ fracture thermal.volcanism {
         signal.crust.thickness < 30000
     }
 
-    emit {
+    collect {
         signal.mantle.temp <- -50.0
         signal.crust.thickness <- 100.0
         signal.topography.dynamic_offset <- 50.0
@@ -1540,7 +1540,7 @@ fracture core.decay_heat {
         signal.core.temp < 5000 <K>
     }
 
-    emit {
+    collect {
         signal.core.temp <- 10.0
     }
 }
@@ -1565,7 +1565,7 @@ fracture thermal.mechanical_coupling {
         maths.abs(signal.mantle.heat_content - config.fracture.thermal.mechanical_coupling.reference_heat_j) > 1e29
     }
 
-    emit {
+    collect {
         # Compute heat ratio: >1 means hotter, <1 means cooler
         let ratio = signal.mantle.heat_content / config.fracture.thermal.mechanical_coupling.reference_heat_j in
         let delta = (ratio - 1.0) * config.fracture.thermal.mechanical_coupling.coupling_strength * config.fracture.thermal.mechanical_coupling.base_flow_strength in
@@ -1596,7 +1596,7 @@ fracture thermal.heat_budget {
         signal.mantle.heat_content > 0.0
     }
 
-    emit {
+    collect {
         # Radiogenic heating contribution
         let radiogenic = config.fracture.thermal.heat_budget.radiogenic_power_w in
 
@@ -1637,7 +1637,7 @@ fracture tectonics.convergent_uplift {
         signal.tectonics.activity > 0.5
     }
 
-    emit {
+    collect {
         # Normalized convergence factor
         let conv_factor = signal.plates.boundary_shear / 0.1 in
 
@@ -1663,7 +1663,7 @@ fracture tectonics.divergent_subsidence {
         signal.crust.thickness > 10000
     }
 
-    emit {
+    collect {
         # Divergence driven by mantle upwelling
         let div_factor = signal.mantle.flow_strength / 10.0 in
 
@@ -1695,7 +1695,7 @@ fracture tectonics.wilson_fragmentation {
         signal.plates.count < 50
     }
 
-    emit {
+    collect {
         # Fragmentation releases boundary stress and creates new oceanic crust
         signal.tectonics.boundary_stress <- -signal.tectonics.boundary_stress * 0.5
         signal.topography.dynamic_offset <- 100.0
@@ -1719,7 +1719,7 @@ fracture tectonics.wilson_merger {
         signal.tectonics.activity > 1.5
     }
 
-    emit {
+    collect {
         # Merger builds mountains and thickens crust
         signal.crust.thickness <- 2000.0
         signal.crust.elevation <- 500.0
@@ -1743,7 +1743,7 @@ fracture tectonics.wilson_subduction {
         signal.plates.oceanic_count > 0
     }
 
-    emit {
+    collect {
         # Subduction releases heat and volatiles to mantle
         signal.mantle.temp <- 10.0
         signal.tectonics.volcanism <- 5.0
@@ -1770,7 +1770,7 @@ fracture tectonics.derive_motion {
         signal.plates.count > 0
     }
 
-    emit {
+    collect {
         # Plate motion derived from mantle flow
         let flow_factor = signal.mantle.flow_strength * config.fracture.tectonics.derive_motion.flow_coupling in
 
@@ -1797,7 +1797,7 @@ fracture geophysics.stellar_tidal_coupling {
         signal.stellar.total_tidal_power > 0.01 <W>
     }
 
-    emit {
+    collect {
         # Add tidal power to core heat power (which feeds mantle heat via dt.integrate)
         # This couples tidal dissipation into the continuous thermal budget.
         # Assumes 100% efficiency: all tidal work dissipates as heat.

@@ -539,7 +539,7 @@ fracture atmosphere.stellar_insolation_coupling {
         signal.stellar.total_insolation > 0.0
     }
 
-    emit {
+    collect {
         # Transfer stellar flux to atmosphere solar constant
         # This replaces the default reference value with actual stellar input
         let flux = signal.stellar.total_insolation in
@@ -571,7 +571,7 @@ fracture atmosphere.runaway_greenhouse {
         signal.atmosphere.water_vapor > 150.0
     }
 
-    emit {
+    collect {
         signal.atmosphere.water_vapor <- 50.0;
         signal.atmosphere.co2_ppmv <- 100.0
     }
@@ -584,7 +584,7 @@ fracture atmosphere.ice_age {
         signal.atmosphere.co2_ppmv < 200.0
     }
 
-    emit {
+    collect {
         # Reduced weathering allows CO2 buildup
         signal.atmosphere.co2_ppmv <- 50.0
     }
@@ -620,7 +620,7 @@ fracture atmosphere.co2_equilibrium {
         signal.tectonics.activity > 0.0
     }
 
-    emit {
+    collect {
         let activity = maths.max(signal.tectonics.activity, 0.1) in
         let temp = signal.atmosphere.surface_temp.x in
         let ref_temp = config.fracture.atmosphere.co2_equilibrium.reference_temp_k in
@@ -667,7 +667,7 @@ fracture atmosphere.ch4_equilibrium {
         signal.tectonics.activity > 0.0
     }
 
-    emit {
+    collect {
         # Methane equilibrium depends on volcanic/hydrothermal activity
         let activity = signal.tectonics.activity in
         let equilibrium_ppmv = maths.max(
