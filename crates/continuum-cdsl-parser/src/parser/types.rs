@@ -47,6 +47,49 @@ pub fn parse_type_expr(stream: &mut TokenStream) -> Result<TypeExpr, ParseError>
             stream.advance();
             parse_vector_type(stream)
         }
+        // Vec2, Vec3, Vec4 shorthand - fixed dimension vectors
+        Some(Token::Ident(name)) if &**name == "Vec2" => {
+            stream.advance();
+            parse_vecn_type(stream, 2)
+        }
+        Some(Token::Ident(name)) if &**name == "Vec3" => {
+            stream.advance();
+            parse_vecn_type(stream, 3)
+        }
+        Some(Token::Ident(name)) if &**name == "Vec4" => {
+            stream.advance();
+            parse_vecn_type(stream, 4)
+        }
+        // Quat - quaternion type (parsed as Vec4 for now - no dedicated Quaternion type in AST)
+        Some(Token::Ident(name)) if &**name == "Quat" => {
+            stream.advance();
+            // Quaternions are dimensionless 4-vectors
+            Ok(TypeExpr::Vector { dim: 4, unit: None })
+        }
+        // Matrix types - Mat2/Mat3/Mat4 are square matrices
+        Some(Token::Ident(name)) if &**name == "Mat2" => {
+            stream.advance();
+            parse_matrix_type(stream, 2, 2)
+        }
+        Some(Token::Ident(name)) if &**name == "Mat3" => {
+            stream.advance();
+            parse_matrix_type(stream, 3, 3)
+        }
+        Some(Token::Ident(name)) if &**name == "Mat4" => {
+            stream.advance();
+            parse_matrix_type(stream, 4, 4)
+        }
+        // Tensor type - not in current AST, parse as User type for now
+        Some(Token::Ident(name)) if &**name == "Tensor" => {
+            stream.advance();
+            // Skip any type parameters for now
+            if matches!(stream.peek(), Some(Token::Lt)) {
+                skip_angle_brackets(stream)?;
+            }
+            Ok(TypeExpr::User(Path {
+                segments: vec!["Tensor".to_string()],
+            }))
+        }
         Some(Token::Ident(_)) => {
             // User-defined type
             let path = parse_path(stream)?;
@@ -184,6 +227,56 @@ fn parse_vector_type(stream: &mut TokenStream) -> Result<TypeExpr, ParseError> {
         dim,
         unit: Some(unit),
     })
+}
+
+/// Parse Vec2/Vec3/Vec4 type: `Vec3<unit>` or `Vec3` (dimensionless)
+fn parse_vecn_type(stream: &mut TokenStream, dim: u8) -> Result<TypeExpr, ParseError> {
+    let unit = if matches!(stream.peek(), Some(Token::Lt)) {
+        stream.advance(); // consume '<'
+        let unit = parse_unit_expr(stream)?;
+        stream.expect(Token::Gt)?;
+        Some(unit)
+    } else {
+        None
+    };
+
+    Ok(TypeExpr::Vector { dim, unit })
+}
+
+/// Parse Mat2/Mat3/Mat4 type: `Mat3<unit>` or `Mat3` (dimensionless)
+fn parse_matrix_type(stream: &mut TokenStream, rows: u8, cols: u8) -> Result<TypeExpr, ParseError> {
+    let unit = if matches!(stream.peek(), Some(Token::Lt)) {
+        stream.advance(); // consume '<'
+        let unit = parse_unit_expr(stream)?;
+        stream.expect(Token::Gt)?;
+        Some(unit)
+    } else {
+        None
+    };
+
+    Ok(TypeExpr::Matrix { rows, cols, unit })
+}
+
+/// Skip angle-bracketed content: `<...>`
+fn skip_angle_brackets(stream: &mut TokenStream) -> Result<(), ParseError> {
+    stream.expect(Token::Lt)?;
+    let mut depth = 1;
+    while depth > 0 && !stream.at_end() {
+        match stream.peek() {
+            Some(Token::Lt) => {
+                depth += 1;
+                stream.advance();
+            }
+            Some(Token::Gt) => {
+                depth -= 1;
+                stream.advance();
+            }
+            _ => {
+                stream.advance();
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Parse a unit expression.

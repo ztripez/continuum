@@ -411,7 +411,8 @@ const TOKEN_STRINGS: &[&str] = &[
     "operator",
     "impulse",
     "fracture",
-    "chronicle", // primitives
+    "chronicle",
+    "analyzer", // primitives
     "entity",
     "member",
     "strata",

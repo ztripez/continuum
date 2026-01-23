@@ -5,6 +5,8 @@ use continuum_cdsl_ast::{Expr, UntypedKind};
 use continuum_cdsl_lexer::Token;
 
 /// Parse if-then-else expression.
+///
+/// Supports both `if cond { a } else { b }` and `if cond { a } else if cond2 { b } else { c }`
 pub(super) fn parse_if(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::If)?;
@@ -17,9 +19,15 @@ pub(super) fn parse_if(stream: &mut TokenStream) -> Result<Expr, ParseError> {
 
     stream.expect(Token::Else)?;
 
-    stream.expect(Token::LBrace)?;
-    let else_branch = super::parse_expr(stream)?;
-    stream.expect(Token::RBrace)?;
+    // Support `else if` by recursively parsing another if expression
+    let else_branch = if matches!(stream.peek(), Some(Token::If)) {
+        parse_if(stream)?
+    } else {
+        stream.expect(Token::LBrace)?;
+        let expr = super::parse_expr(stream)?;
+        stream.expect(Token::RBrace)?;
+        expr
+    };
 
     let span = stream.span_from(start);
     Ok(Expr::new(

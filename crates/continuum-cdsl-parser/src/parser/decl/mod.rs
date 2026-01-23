@@ -129,6 +129,47 @@ fn parse_analyzer_stub(stream: &mut TokenStream) -> Result<Declaration, ParseErr
 // Common Helpers
 // ============================================================================
 
+/// Skip config/const blocks that appear inside node declarations.
+///
+/// Terra CDSL uses inline config blocks inside signals to define per-node configuration:
+/// ```cdsl
+/// signal foo.bar {
+///     config {
+///         default_value: 42.0
+///     }
+///     resolve { ... }
+/// }
+/// ```
+///
+/// These are currently skipped as the Node AST doesn't support inline config.
+/// The config values are instead accessed via `config.foo.bar.default_value` in expressions.
+fn skip_nested_config_const(stream: &mut TokenStream) -> Result<(), ParseError> {
+    while matches!(stream.peek(), Some(Token::Config) | Some(Token::Const)) {
+        stream.advance(); // consume config/const keyword
+
+        if matches!(stream.peek(), Some(Token::LBrace)) {
+            stream.advance(); // consume '{'
+            let mut depth = 1;
+            while depth > 0 && !stream.at_end() {
+                match stream.peek() {
+                    Some(Token::LBrace) => {
+                        depth += 1;
+                        stream.advance();
+                    }
+                    Some(Token::RBrace) => {
+                        depth -= 1;
+                        stream.advance();
+                    }
+                    _ => {
+                        stream.advance();
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Parse attribute: `:name` or `:name(args)`.
 pub(super) fn parse_attribute(stream: &mut TokenStream) -> Result<Attribute, ParseError> {
     let start = stream.current_pos();
@@ -284,8 +325,15 @@ pub(super) fn parse_node_declaration(
     // Parse remaining attributes inside the body (before special/execution blocks)
     attributes.extend(super::helpers::parse_attributes(stream)?);
 
+    // Skip config/const blocks inside primitives (not yet implemented in AST)
+    // These can appear before or after special blocks
+    skip_nested_config_const(stream)?;
+
     // Parse special blocks (when, warmup, observe)
     let special = super::helpers::parse_special_blocks(stream)?;
+
+    // Skip any additional config/const blocks after special blocks
+    skip_nested_config_const(stream)?;
 
     let execution_blocks = super::blocks::parse_execution_blocks(stream)?;
     stream.expect(Token::RBrace)?;
