@@ -116,6 +116,31 @@ fn test_type_call_undefined_namespace() {
 }
 
 #[test]
+fn test_type_call_unknown_function_in_known_namespace() {
+    // Test that calling a non-existent function in a valid namespace produces clear error
+    let ctx = make_context();
+    let expr = Expr::new(
+        UntypedKind::Call {
+            func: Path::from_path_str("maths.nonexistent_func"),
+            args: vec![],
+        },
+        Span::new(0, 0, 22, 1),
+    );
+
+    let result = type_expression(&expr, &ctx);
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].kind, crate::error::ErrorKind::UndefinedName);
+    assert!(
+        errors[0].message.contains("maths.nonexistent_func")
+            || errors[0].message.contains("nonexistent_func"),
+        "Error message should mention the unknown function: {}",
+        errors[0].message
+    );
+}
+
+#[test]
 fn test_type_bool_literal() {
     let ctx = make_context();
     let expr = Expr::new(UntypedKind::BoolLiteral(true), Span::new(0, 0, 10, 1));
