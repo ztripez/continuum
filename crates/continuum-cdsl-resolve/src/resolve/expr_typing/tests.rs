@@ -483,3 +483,17 @@ fn test_type_fold_valid() {
     let typed = type_expression(&expr, &ctx).unwrap();
     assert!(matches!(typed.ty, Type::Kernel(_)));
 }
+
+// DOCUMENTATION: Phase validation gap for `prev()`
+//
+// The comment at line 164 claims validation happens in resolve/validation/phases.rs,
+// but ExprKind::Prev is in the no-op validation list (validation/types.rs:~155).
+//
+// Expected behavior: validate_node() should reject prev() in observer phases (Measure).
+// Actual behavior: No validation exists; prev() is allowed in any phase.
+//
+// TODO: Implement phase validation for prev() similar to assertion validation in
+// resolve/validation/phases.rs:66-79. Should reject prev() in Measure/observer phases.
+//
+// Test above (test_type_prev_in_wrong_phase) verifies typing succeeds with node_output context.
+// Missing integration test: verify validate_node() rejects prev() in Measure phase.
