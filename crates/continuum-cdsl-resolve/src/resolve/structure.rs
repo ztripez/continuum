@@ -58,7 +58,7 @@
 
 use crate::error::{CompileError, ErrorKind};
 use continuum_cdsl_ast::foundation::{EntityId, Path, Span};
-use continuum_cdsl_ast::{Declaration, Node};
+use continuum_cdsl_ast::{Declaration, Node, RoleId};
 use std::collections::{HashMap, HashSet};
 
 /// Validates that the AST contains no circular dependencies.
@@ -152,22 +152,45 @@ fn format_cycle_error(cycle: &[Path]) -> String {
     format!("Circular dependency detected: {}", cycle_str)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Declaration kind for collision detection.
+/// Different kinds can have the same path without collision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum DeclKind {
-    Node,
+    Signal,
+    Field,
+    Operator,
+    Impulse,
+    Fracture,
+    Chronicle,
     Member,
     Entity,
     Stratum,
     Era,
     Function,
+    World,
+    Type,
+}
+
+impl DeclKind {
+    /// Convert a node's RoleId to DeclKind
+    fn from_role(role: RoleId) -> Self {
+        match role {
+            RoleId::Signal => DeclKind::Signal,
+            RoleId::Field => DeclKind::Field,
+            RoleId::Operator => DeclKind::Operator,
+            RoleId::Impulse => DeclKind::Impulse,
+            RoleId::Fracture => DeclKind::Fracture,
+            RoleId::Chronicle => DeclKind::Chronicle,
+        }
+    }
 }
 
 /// Validates that the AST contains no path collisions across all declarations.
 ///
-/// Detects namespace conflicts where paths overlap in ways that create ambiguity:
-/// - A node at path `foo.bar` collides with a node at path `foo` with field `bar`
-/// - Parent paths shadowing child declarations
-/// - Multiple declarations of the same path (e.g., a signal and an entity)
+/// Collision rules:
+/// - Same (kind, path) pair is a collision (e.g., two signals with same path)
+/// - Different kinds with same path are allowed (e.g., `fn.foo.bar` and `field.foo.bar`)
+/// - Parent paths shadowing child declarations (with exceptions for strata, world, entity-member)
 ///
 /// # Errors
 ///
@@ -175,14 +198,18 @@ enum DeclKind {
 /// message describing the conflicting paths.
 pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
     let mut errors = Vec::new();
-    let mut path_index: HashMap<Path, (Span, DeclKind)> = HashMap::new();
+    // Key is (kind, path) - different kinds can have the same path
+    let mut path_index: HashMap<(DeclKind, Path), Span> = HashMap::new();
+    // Also track all paths regardless of kind for parent collision checking
+    let mut all_paths: HashMap<Path, (Span, DeclKind)> = HashMap::new();
 
     // Helper to register a path and check for direct collisions
     fn register_path(
         path: &Path,
         span: Span,
         kind: DeclKind,
-        index: &mut HashMap<Path, (Span, DeclKind)>,
+        index: &mut HashMap<(DeclKind, Path), Span>,
+        all_paths: &mut HashMap<Path, (Span, DeclKind)>,
         errors: &mut Vec<CompileError>,
     ) {
         // Reserve "debug" namespace for system-generated fields
@@ -197,34 +224,44 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
             }
         }
 
-        if let Some((other_span, _)) = index.get(path) {
+        // Check for same-kind collision
+        let key = (kind, path.clone());
+        if let Some(other_span) = index.get(&key) {
             errors.push(
                 CompileError::new(
                     ErrorKind::PathCollision,
                     span,
-                    format!("Path '{}' is declared multiple times", path),
+                    format!("Path '{}' is declared multiple times as {:?}", path, kind),
                 )
                 .with_label(*other_span, "first declared here".to_string()),
             );
         } else {
-            index.insert(path.clone(), (span, kind));
+            index.insert(key, span);
         }
+
+        // Track for parent collision checking (first one wins)
+        all_paths.entry(path.clone()).or_insert((span, kind));
     }
 
     for decl in declarations {
         match decl {
-            Declaration::Node(n) => register_path(
-                &n.path,
-                n.span,
-                DeclKind::Node,
-                &mut path_index,
-                &mut errors,
-            ),
+            Declaration::Node(n) => {
+                let kind = DeclKind::from_role(n.role.id());
+                register_path(
+                    &n.path,
+                    n.span,
+                    kind,
+                    &mut path_index,
+                    &mut all_paths,
+                    &mut errors,
+                );
+            }
             Declaration::Member(m) => register_path(
                 &m.path,
                 m.span,
                 DeclKind::Member,
                 &mut path_index,
+                &mut all_paths,
                 &mut errors,
             ),
             Declaration::Entity(e) => register_path(
@@ -232,6 +269,7 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
                 e.span,
                 DeclKind::Entity,
                 &mut path_index,
+                &mut all_paths,
                 &mut errors,
             ),
             Declaration::Stratum(s) => register_path(
@@ -239,21 +277,35 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
                 s.span,
                 DeclKind::Stratum,
                 &mut path_index,
+                &mut all_paths,
                 &mut errors,
             ),
-            Declaration::Era(e) => {
-                register_path(&e.path, e.span, DeclKind::Era, &mut path_index, &mut errors)
-            }
+            Declaration::Era(e) => register_path(
+                &e.path,
+                e.span,
+                DeclKind::Era,
+                &mut path_index,
+                &mut all_paths,
+                &mut errors,
+            ),
             Declaration::World(w) => register_path(
                 &w.path,
                 w.span,
-                DeclKind::Node,
+                DeclKind::World,
                 &mut path_index,
+                &mut all_paths,
                 &mut errors,
             ),
             Declaration::Type(t) => {
                 let path = Path::from(t.name.as_str());
-                register_path(&path, t.span, DeclKind::Node, &mut path_index, &mut errors);
+                register_path(
+                    &path,
+                    t.span,
+                    DeclKind::Type,
+                    &mut path_index,
+                    &mut all_paths,
+                    &mut errors,
+                );
             }
             Declaration::Const(_entries) => {
                 // Config/const entries are in a separate namespace (const.*, config.*)
@@ -270,14 +322,15 @@ pub fn validate_collisions(declarations: &[Declaration]) -> Vec<CompileError> {
                 f.span,
                 DeclKind::Function,
                 &mut path_index,
+                &mut all_paths,
                 &mut errors,
             ),
         }
     }
 
-    // Check for parent/child collisions
-    for (path, (span, kind)) in &path_index {
-        check_parent_collisions(path, &path_index, *span, *kind, &mut errors);
+    // Check for parent/child collisions using all_paths (ignoring kind for parent lookup)
+    for ((kind, path), span) in &path_index {
+        check_parent_collisions(path, &all_paths, *span, *kind, &mut errors);
     }
 
     errors
@@ -297,10 +350,24 @@ fn check_parent_collisions(
         let parent = Path::new(segments[..i].iter().map(|s| s.to_string()).collect());
         if let Some((parent_span, parent_kind)) = path_index.get(&parent) {
             // EXCEPTION: Members are allowed to have an Entity as their parent path
+            // e.g., `member stellar.moon.mass` has parent `entity stellar.moon`
             if kind == DeclKind::Member
                 && *parent_kind == DeclKind::Entity
                 && i == segments.len() - 1
             {
+                continue;
+            }
+
+            // EXCEPTION: Strata are namespace markers, not nodes that occupy the path
+            // e.g., `strata atmosphere` should not collide with `signal atmosphere.surface_temp`
+            // Strata exist in a separate conceptual namespace from signals/operators/fields
+            if *parent_kind == DeclKind::Stratum {
+                continue;
+            }
+
+            // EXCEPTION: World declarations define the root namespace for all declarations
+            // e.g., `world terra` should not collide with `entity terra.plate`
+            if *parent_kind == DeclKind::World {
                 continue;
             }
 

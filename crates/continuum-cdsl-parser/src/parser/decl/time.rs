@@ -6,9 +6,14 @@ use continuum_cdsl_ast::{Declaration, EraDecl, Stratum, StratumPolicyEntry, Tran
 use continuum_cdsl_lexer::Token;
 
 /// Parse stratum declaration.
+///
+/// Syntax: `strata.path { ... }`
 pub(super) fn parse_stratum(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Strata)?;
+
+    // Require dot after keyword: `strata.path` not `strata path`
+    stream.expect(Token::Dot)?;
 
     let path = super::super::types::parse_path(stream)?;
     let mut attributes = parse_attributes(stream)?;
@@ -40,9 +45,14 @@ pub(super) fn parse_stratum(stream: &mut TokenStream) -> Result<Declaration, Par
 }
 
 /// Parse era declaration.
+///
+/// Syntax: `era.path { ... }`
 pub(super) fn parse_era(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Era)?;
+
+    // Require dot after keyword: `era.path` not `era path`
+    stream.expect(Token::Dot)?;
 
     let path = super::super::types::parse_path(stream)?;
     let mut attributes = parse_attributes(stream)?;

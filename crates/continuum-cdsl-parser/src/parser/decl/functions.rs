@@ -8,12 +8,12 @@ use continuum_cdsl_lexer::Token;
 ///
 /// # Syntax
 /// ```cdsl
-/// fn path(arg1, arg2, ...) { expr }
+/// fn.path(arg1, arg2, ...) { expr }
 /// ```
 ///
 /// # Example
 /// ```cdsl
-/// fn atmosphere.saturation_vapor_pressure(temperature_k) {
+/// fn.atmosphere.saturation_vapor_pressure(temperature_k) {
 ///     let t_celsius = temperature_k - 273.15 in
 ///     610.94 * maths.exp((17.625 * t_celsius) / (t_celsius + 243.04))
 /// }
@@ -21,6 +21,9 @@ use continuum_cdsl_lexer::Token;
 pub(super) fn parse_function_decl(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Fn)?;
+
+    // Require dot after keyword: `fn.path` not `fn path`
+    stream.expect(Token::Dot)?;
 
     // Parse function path
     let path = super::super::types::parse_path(stream)?;

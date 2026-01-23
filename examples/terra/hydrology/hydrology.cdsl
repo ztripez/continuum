@@ -72,7 +72,7 @@ config {
 # =============================================================================
 
 # Determine water phase from temperature
-fn hydrology.water_phase(temperature_k) {
+fn.hydrology.water_phase(temperature_k) {
     if temperature_k < 273.15 {
         0.0  # Ice
     } else {
@@ -85,13 +85,13 @@ fn hydrology.water_phase(temperature_k) {
 }
 
 # Saturation vapor pressure (simplified)
-fn hydrology.saturation_vapor_pressure(temperature_k) {
+fn.hydrology.saturation_vapor_pressure(temperature_k) {
     let t_celsius = temperature_k - 273.15 in
     610.94 * maths.exp((17.625 * t_celsius) / (t_celsius + 243.04))
 }
 
 # Water presence from mass (normalized 0-1)
-fn hydrology.water_presence(water_mass_kg, reference_mass_kg) {
+fn.hydrology.water_presence(water_mass_kg, reference_mass_kg) {
     maths.clamp(water_mass_kg / reference_mass_kg, 0.0, 1.0)
 }
 
@@ -100,7 +100,7 @@ fn hydrology.water_presence(water_mass_kg, reference_mass_kg) {
 # =============================================================================
 
 # Global water mass budget
-signal hydrology.water_mass {
+signal.hydrology.water_mass {
     : Scalar<kg, 0..1e20>
     : uses(maths.clamping)
     : strata(hydrology)
@@ -126,7 +126,7 @@ signal hydrology.water_mass {
 }
 
 # Ice mass (glaciers, ice sheets)
-signal hydrology.ice_mass {
+signal.hydrology.ice_mass {
     : Scalar<kg, 0..1e19>
     : strata(hydrology)
     : title("Total Ice Mass")
@@ -161,7 +161,7 @@ signal hydrology.ice_mass {
 # Evaporation
 # =============================================================================
 
-signal hydrology.evaporation_rate {
+signal.hydrology.evaporation_rate {
     : Scalar<kg/m²/s, 0..1e-3>
     : uses(maths.clamping)
     : strata(hydrology)
@@ -202,7 +202,7 @@ signal hydrology.evaporation_rate {
 # Precipitation
 # =============================================================================
 
-signal hydrology.precipitation_rate {
+signal.hydrology.precipitation_rate {
     : Scalar<kg/m²/s, 0..1e-2>
     : uses(maths.clamping)
     : strata(hydrology)
@@ -232,7 +232,7 @@ signal hydrology.precipitation_rate {
 # Runoff and Flow
 # =============================================================================
 
-signal hydrology.runoff_accumulation {
+signal.hydrology.runoff_accumulation {
     : Scalar<kg/s, 0..1e15>
     : uses(maths.clamping)
     : strata(hydrology)
@@ -264,7 +264,7 @@ signal hydrology.runoff_accumulation {
 # Sediment Transport
 # =============================================================================
 
-signal hydrology.sediment_load {
+signal.hydrology.sediment_load {
     : Scalar<kg/m², 0..10>
     : uses(maths.clamping)
     : strata(hydrology)
@@ -297,7 +297,7 @@ signal hydrology.sediment_load {
 # Weathering (Chemical erosion)
 # =============================================================================
 
-signal hydrology.chemical_weathering {
+signal.hydrology.chemical_weathering {
     : Scalar<kg/m²/yr, 0..1>
     : uses(maths.clamping)
     : strata(hydrology)
@@ -333,7 +333,7 @@ signal hydrology.chemical_weathering {
 # Water Temperature
 # =============================================================================
 
-signal hydrology.water_temperature {
+signal.hydrology.water_temperature {
     : Scalar<K, 271..313>
     : uses(maths.clamping)
     : strata(hydrology)
@@ -365,7 +365,7 @@ signal hydrology.water_temperature {
 # =============================================================================
 
 # Groundwater saturation fraction
-signal hydrology.groundwater_saturation {
+signal.hydrology.groundwater_saturation {
     : Scalar<1, 0..1>
     : uses(maths.clamping)
     : strata(hydrology)
@@ -393,7 +393,7 @@ signal hydrology.groundwater_saturation {
 }
 
 # Infiltration rate from surface to groundwater
-signal hydrology.infiltration_rate {
+signal.hydrology.infiltration_rate {
     : Scalar<kg/m²/s, 0..1e-2>
     : uses(maths.clamping)
     : strata(atmosphere)
@@ -422,7 +422,7 @@ signal hydrology.infiltration_rate {
 }
 
 # Baseflow rate from groundwater to surface streams
-signal hydrology.baseflow_rate {
+signal.hydrology.baseflow_rate {
     : Scalar<kg/m²/s, 0..1e-3>
     : uses(maths.clamping)
     : strata(atmosphere)
@@ -453,7 +453,7 @@ signal hydrology.baseflow_rate {
 # =============================================================================
 
 # Dissolved gas in surface water
-signal hydrology.dissolved_gas {
+signal.hydrology.dissolved_gas {
     : Scalar<mol/m³, 0..100>
     : strata(hydrology)
     : title("Dissolved Gas Content")
@@ -483,7 +483,7 @@ signal hydrology.dissolved_gas {
 # =============================================================================
 
 # Flow accumulation (upstream contributing area proxy)
-signal hydrology.flow_accumulation {
+signal.hydrology.flow_accumulation {
     : Scalar<1, 0..1e6>
     : strata(hydrology)
     : title("Flow Accumulation")
@@ -506,7 +506,7 @@ signal hydrology.flow_accumulation {
 }
 
 # Stream order (Strahler)
-signal hydrology.stream_order {
+signal.hydrology.stream_order {
     : Scalar<1, 0..10>
     : uses(maths.clamping)
     : strata(hydrology)
@@ -538,7 +538,7 @@ signal hydrology.stream_order {
 # =============================================================================
 
 # Flash flood: sudden high precipitation
-fracture hydrology.flash_flood {
+fracture.hydrology.flash_flood {
     when {
         hydrology.precipitation_rate > 5e-4
         hydrology.runoff_accumulation > 1e14
@@ -551,7 +551,7 @@ fracture hydrology.flash_flood {
 }
 
 # Drought: prolonged low precipitation
-fracture hydrology.drought {
+fracture.hydrology.drought {
     when {
         hydrology.precipitation_rate < 1e-6
         hydrology.water_mass < 1e17
@@ -563,7 +563,7 @@ fracture hydrology.drought {
 }
 
 # Glacial surge
-fracture hydrology.glacial_surge {
+fracture.hydrology.glacial_surge {
     when {
         hydrology.ice_mass > 3e19
         surface.temp < 270.0 <K>
@@ -592,7 +592,7 @@ fracture hydrology.glacial_surge {
 # - Computes orographic weights based on prevailing wind and elevation gradients
 # - Target equilibrium is proportional to orographic weight
 # - Relaxation preserves total water mass
-fracture hydrology.precipitation_coupling {
+fracture.hydrology.precipitation_coupling {
     : strata(hydrology)
 
     config {
@@ -651,7 +651,7 @@ fracture hydrology.precipitation_coupling {
 
 # Hydraulic erosion: stream power erosion model
 # E = K * A^m * S^n (stream power law)
-fracture hydrology.hydraulic_erosion {
+fracture.hydrology.hydraulic_erosion {
     : strata(hydrology)
 
     config {
@@ -681,7 +681,7 @@ fracture hydrology.hydraulic_erosion {
 
 # Sediment transport: routes sediment downstream along drainage network
 # When transport capacity exceeded, sediment deposits
-fracture hydrology.sediment_transport {
+fracture.hydrology.sediment_transport {
     : strata(hydrology)
 
     config {
@@ -710,7 +710,7 @@ fracture hydrology.sediment_transport {
 
 # Water thermal relaxation: couples water temperature to climate
 # Water temperature relaxes toward surface temperature with latitude adjustment
-fracture hydrology.water_thermal_relaxation {
+fracture.hydrology.water_thermal_relaxation {
     : strata(hydrology)
     : uses(maths.clamping)
 
@@ -738,7 +738,7 @@ fracture hydrology.water_thermal_relaxation {
 # Evaporation coupling: hydrology → atmosphere
 # Water evaporates from surface based on temperature and water availability
 # Couples to atmosphere via water vapor emission
-fracture hydrology.evaporation_coupling {
+fracture.hydrology.evaporation_coupling {
     : strata(hydrology)
 
     config {
@@ -794,7 +794,7 @@ fracture hydrology.evaporation_coupling {
 
 # Dissolved gas exchange: temperature-dependent gas solubility
 # Cold water dissolves more gas, warm water releases gas
-fracture hydrology.gas_exchange {
+fracture.hydrology.gas_exchange {
     : strata(hydrology)
     : uses(maths.clamping)
 
@@ -823,7 +823,7 @@ fracture hydrology.gas_exchange {
 
 # Groundwater coupling: infiltration and baseflow
 # Bidirectional water transfer between surface and crust water reservoir
-fracture hydrology.groundwater_coupling {
+fracture.hydrology.groundwater_coupling {
     : strata(hydrology)
 
     config {
@@ -859,7 +859,7 @@ fracture hydrology.groundwater_coupling {
 
 # Sediment lithification: converts thick sediment to crustal rock
 # Prevents sediment saturation, creates sedimentary basins
-fracture hydrology.sediment_lithification {
+fracture.hydrology.sediment_lithification {
     : strata(hydrology)
 
     config {
@@ -891,7 +891,7 @@ fracture hydrology.sediment_lithification {
 # water samples on the planetary surface that can track local water state,
 # temperature, phase transitions, and sediment load.
 
-entity hydrology.cell {
+entity.hydrology.cell {
     : count_bounds(100, 10000)
 
     signal water_mass {
@@ -1055,7 +1055,7 @@ entity hydrology.cell {
 # -----------------------------------------------------------------------------
 
 # Total water mass across all cells
-signal hydrology.cells.total_water {
+signal.hydrology.cells.total_water {
     : Scalar<kg, 0..1e20>
     : strata(hydrology)
     : title("Total Cell Water Mass")
@@ -1067,7 +1067,7 @@ signal hydrology.cells.total_water {
 }
 
 # Mean water temperature
-signal hydrology.cells.mean_temperature {
+signal.hydrology.cells.mean_temperature {
     : Scalar<K, 271..313>
     : strata(hydrology)
     : title("Mean Cell Temperature")
@@ -1079,7 +1079,7 @@ signal hydrology.cells.mean_temperature {
 }
 
 # Total sediment load
-signal hydrology.cells.total_sediment {
+signal.hydrology.cells.total_sediment {
     : Scalar<kg/m², 0..10000>
     : strata(hydrology)
     : title("Total Cell Sediment")
@@ -1091,7 +1091,7 @@ signal hydrology.cells.total_sediment {
 }
 
 # Mean ice fraction (global ice coverage proxy)
-signal hydrology.cells.mean_ice_fraction {
+signal.hydrology.cells.mean_ice_fraction {
     : Scalar<1, 0..1>
     : strata(hydrology)
     : title("Mean Ice Fraction")
@@ -1103,7 +1103,7 @@ signal hydrology.cells.mean_ice_fraction {
 }
 
 # Count of frozen cells (ice phase dominant)
-signal hydrology.cells.frozen_count {
+signal.hydrology.cells.frozen_count {
     : Scalar<1, 0..10000>
     : strata(hydrology)
     : title("Frozen Cell Count")
@@ -1115,7 +1115,7 @@ signal hydrology.cells.frozen_count {
 }
 
 # Count of liquid cells
-signal hydrology.cells.liquid_count {
+signal.hydrology.cells.liquid_count {
     : Scalar<1, 0..10000>
     : strata(hydrology)
     : title("Liquid Cell Count")
@@ -1140,7 +1140,7 @@ signal hydrology.cells.liquid_count {
 # These sample from global hydrology signals
 # -----------------------------------------------------------------------------
 
-field hydrology.water_mass_map {
+field.hydrology.water_mass_map {
     : Scalar<kg>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1151,7 +1151,7 @@ field hydrology.water_mass_map {
     }
 }
 
-field hydrology.water_presence {
+field.hydrology.water_presence {
     : Scalar<1>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1162,7 +1162,7 @@ field hydrology.water_presence {
     }
 }
 
-field hydrology.ice_map {
+field.hydrology.ice_map {
     : Scalar<kg>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1173,7 +1173,7 @@ field hydrology.ice_map {
     }
 }
 
-field hydrology.evaporation {
+field.hydrology.evaporation {
     : Scalar<kg/m²/s>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1184,7 +1184,7 @@ field hydrology.evaporation {
     }
 }
 
-field hydrology.precipitation {
+field.hydrology.precipitation {
     : Scalar<kg/m²/s>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1195,7 +1195,7 @@ field hydrology.precipitation {
     }
 }
 
-field hydrology.runoff {
+field.hydrology.runoff {
     : Scalar<kg/s>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1206,7 +1206,7 @@ field hydrology.runoff {
     }
 }
 
-field hydrology.sediment {
+field.hydrology.sediment {
     : Scalar<kg/m²>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1217,7 +1217,7 @@ field hydrology.sediment {
     }
 }
 
-field hydrology.weathering {
+field.hydrology.weathering {
     : Scalar<kg/m²/yr>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1228,7 +1228,7 @@ field hydrology.weathering {
     }
 }
 
-field hydrology.water_phase {
+field.hydrology.water_phase {
     : Scalar<1>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1239,7 +1239,7 @@ field hydrology.water_phase {
     }
 }
 
-field hydrology.water_temperature_map {
+field.hydrology.water_temperature_map {
     : Scalar<K>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1250,7 +1250,7 @@ field hydrology.water_temperature_map {
     }
 }
 
-field hydrology.groundwater_saturation_map {
+field.hydrology.groundwater_saturation_map {
     : Scalar<1>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1261,7 +1261,7 @@ field hydrology.groundwater_saturation_map {
     }
 }
 
-field hydrology.infiltration_map {
+field.hydrology.infiltration_map {
     : Scalar<kg/m²/s>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1272,7 +1272,7 @@ field hydrology.infiltration_map {
     }
 }
 
-field hydrology.baseflow_map {
+field.hydrology.baseflow_map {
     : Scalar<kg/m²/s>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1283,7 +1283,7 @@ field hydrology.baseflow_map {
     }
 }
 
-field hydrology.dissolved_gas_map {
+field.hydrology.dissolved_gas_map {
     : Scalar<mol/m³>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1294,7 +1294,7 @@ field hydrology.dissolved_gas_map {
     }
 }
 
-field hydrology.flow_accumulation_map {
+field.hydrology.flow_accumulation_map {
     : Scalar<1>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1305,7 +1305,7 @@ field hydrology.flow_accumulation_map {
     }
 }
 
-field hydrology.stream_order_map {
+field.hydrology.stream_order_map {
     : Scalar<1>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1324,7 +1324,7 @@ field hydrology.stream_order_map {
 # Per-cell water mass distribution
 # in the hydrology.cell members. This field measures runoff accumulation
 # as a proxy for flow dynamics.
-field hydrology.flow_velocity_field {
+field.hydrology.flow_velocity_field {
     : Scalar<kg/s>
     : strata(hydrology)
     : topology(sphere_surface)
@@ -1337,7 +1337,7 @@ field hydrology.flow_velocity_field {
 
 # Drainage network field
 # Measures flow accumulation which traces drainage paths
-field hydrology.drainage_network_field {
+field.hydrology.drainage_network_field {
     : Scalar<1>
     : strata(hydrology)
     : topology(sphere_surface)

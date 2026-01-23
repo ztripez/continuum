@@ -6,9 +6,14 @@ use continuum_cdsl_ast::{Declaration, Entity, Node, RoleData};
 use continuum_cdsl_lexer::Token;
 
 /// Parse entity declaration with nested members.
+///
+/// Syntax: `entity.path { ... }`
 pub(super) fn parse_entity(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Entity)?;
+
+    // Require dot after keyword: `entity.path` not `entity path`
+    stream.expect(Token::Dot)?;
 
     let entity_path = super::super::types::parse_path(stream)?;
     let mut attributes = parse_attributes(stream)?;
