@@ -566,6 +566,10 @@ impl Runtime {
             }
         }
         
+        // Commit member signal initial values (copy current to previous buffer)
+        // This must happen after Configure phase so that prev is available in Resolve
+        self.commit_member_initials();
+        
         self.current_phase = crate::types::TickPhase::Simulation(Phase::Collect);
         Ok(())
     }
