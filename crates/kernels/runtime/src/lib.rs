@@ -371,6 +371,85 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
         }
     }
 
+    // Load nested config/const blocks from global nodes
+    use continuum_cdsl::ast::NestedBlock;
+    for (_path, node) in &compiled.world.globals {
+        for block in &node.nested_blocks {
+            match block {
+                NestedBlock::Config(entries) => {
+                    for entry in entries {
+                        // Construct qualified path: node.path + entry.path
+                        let qualified_path = node.path.append(entry.path.to_string());
+                        config_types.insert(qualified_path.clone(), entry.type_expr.clone());
+                        
+                        if let Some(default) = &entry.default {
+                            let value = evaluate_literal(default).unwrap_or_else(|| {
+                                panic!(
+                                    "Config '{}' has non-literal default expression. \
+                                     Config defaults must be compile-time literals (Scalar or Vec3 with literal components).",
+                                    qualified_path
+                                )
+                            });
+                            config_values.insert(qualified_path, value);
+                        }
+                    }
+                }
+                NestedBlock::Const(entries) => {
+                    for entry in entries {
+                        let qualified_path = node.path.append(entry.path.to_string());
+                        let value = evaluate_literal(&entry.value).unwrap_or_else(|| {
+                            panic!(
+                                "Const '{}' has non-literal expression. \
+                                 Const values must be compile-time literals (Scalar or Vec3 with literal components).",
+                                qualified_path
+                            )
+                        });
+                        const_values.insert(qualified_path, value);
+                    }
+                }
+            }
+        }
+    }
+
+    // Load nested config/const blocks from member nodes
+    for (_path, node) in &compiled.world.members {
+        for block in &node.nested_blocks {
+            match block {
+                NestedBlock::Config(entries) => {
+                    for entry in entries {
+                        // Construct qualified path: node.path + entry.path
+                        let qualified_path = node.path.append(entry.path.to_string());
+                        config_types.insert(qualified_path.clone(), entry.type_expr.clone());
+                        
+                        if let Some(default) = &entry.default {
+                            let value = evaluate_literal(default).unwrap_or_else(|| {
+                                panic!(
+                                    "Config '{}' has non-literal default expression. \
+                                     Config defaults must be compile-time literals (Scalar or Vec3 with literal components).",
+                                    qualified_path
+                                )
+                            });
+                            config_values.insert(qualified_path, value);
+                        }
+                    }
+                }
+                NestedBlock::Const(entries) => {
+                    for entry in entries {
+                        let qualified_path = node.path.append(entry.path.to_string());
+                        let value = evaluate_literal(&entry.value).unwrap_or_else(|| {
+                            panic!(
+                                "Const '{}' has non-literal expression. \
+                                 Const values must be compile-time literals (Scalar or Vec3 with literal components).",
+                                qualified_path
+                            )
+                        });
+                        const_values.insert(qualified_path, value);
+                    }
+                }
+            }
+        }
+    }
+
     // Apply scenario config overrides (const values cannot be overridden)
     if let Some(scenario) = scenario {
         for (path, value) in scenario.config_overrides {
@@ -1112,25 +1191,37 @@ fn literal_scalar(expr: &TypedExpr) -> Option<f64> {
 /// ```
 fn evaluate_literal(expr: &continuum_cdsl::ast::Expr) -> Option<Value> {
     use continuum_cdsl::ast::UntypedKind;
+    use continuum_cdsl::foundation::UnaryOp;
     
     match &expr.kind {
         UntypedKind::Literal { value, .. } => Some(Value::Scalar(*value)),
+        // Handle negative literals (parsed as UnaryOp::Neg)
+        UntypedKind::Unary { op, operand } if matches!(op, UnaryOp::Neg) => {
+            if let UntypedKind::Literal { value, .. } = &operand.kind {
+                Some(Value::Scalar(-value))
+            } else {
+                None
+            }
+        }
         UntypedKind::Vector(elements) if elements.len() == 3 => {
-            let x = if let UntypedKind::Literal { value, .. } = &elements[0].kind {
-                *value
-            } else {
-                return None;
+            // Helper to extract scalar from element (handles negative literals)
+            let extract_scalar = |elem: &continuum_cdsl::ast::Expr| -> Option<f64> {
+                match &elem.kind {
+                    UntypedKind::Literal { value, .. } => Some(*value),
+                    UntypedKind::Unary { op, operand } if matches!(op, UnaryOp::Neg) => {
+                        if let UntypedKind::Literal { value, .. } = &operand.kind {
+                            Some(-value)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                }
             };
-            let y = if let UntypedKind::Literal { value, .. } = &elements[1].kind {
-                *value
-            } else {
-                return None;
-            };
-            let z = if let UntypedKind::Literal { value, .. } = &elements[2].kind {
-                *value
-            } else {
-                return None;
-            };
+            
+            let x = extract_scalar(&elements[0])?;
+            let y = extract_scalar(&elements[1])?;
+            let z = extract_scalar(&elements[2])?;
             Some(Value::Vec3([x, y, z]))
         }
         _ => None,
