@@ -767,6 +767,10 @@ fn type_user_function_call(
     let desugared_body = desugar_expr(func.body.clone());
     let typed_body = type_expression(&desugared_body, &inner_ctx, None)?;
 
+    // NOTE: We do NOT validate uses declarations for the function body here.
+    // The caller is responsible for declaring uses for any dangerous features
+    // used by functions they call - the caller made the decision to use the function.
+
     // The result is a Let-chain that binds all parameters to their argument values,
     // with the function body as the innermost expression
     let mut result = typed_body;

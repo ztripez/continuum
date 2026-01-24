@@ -8,7 +8,10 @@ use continuum_cdsl_lexer::Token;
 ///
 /// # Syntax
 /// ```cdsl
-/// fn.path(arg1, arg2, ...) { expr }
+/// fn.path(arg1, arg2, ...) {
+///     : uses(maths.clamping)  // optional attributes
+///     expr
+/// }
 /// ```
 ///
 /// # Example
@@ -16,6 +19,11 @@ use continuum_cdsl_lexer::Token;
 /// fn.atmosphere.saturation_vapor_pressure(temperature_k) {
 ///     let t_celsius = temperature_k - 273.15 in
 ///     610.94 * maths.exp((17.625 * t_celsius) / (t_celsius + 243.04))
+/// }
+///
+/// fn.hydrology.water_presence(water_mass_kg, reference_mass_kg) {
+///     : uses(maths.clamping)
+///     maths.clamp(water_mass_kg / reference_mass_kg, 0.0, 1.0)
 /// }
 /// ```
 pub(super) fn parse_function_decl(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
@@ -43,8 +51,13 @@ pub(super) fn parse_function_decl(stream: &mut TokenStream) -> Result<Declaratio
 
     stream.expect(Token::RParen)?;
 
-    // Parse body - single expression in braces
+    // Parse body - optional attributes followed by single expression in braces
     stream.expect(Token::LBrace)?;
+
+    // Parse optional attributes (e.g., `: uses(maths.clamping)`)
+    let attrs = super::super::helpers::parse_attributes(stream)?;
+
+    // Parse body expression
     let body = super::super::expr::parse_expr(stream)?;
     stream.expect(Token::RBrace)?;
 
@@ -52,6 +65,7 @@ pub(super) fn parse_function_decl(stream: &mut TokenStream) -> Result<Declaratio
         path,
         params,
         body,
+        attrs,
         span: stream.span_from(start),
         doc: None,
     }))

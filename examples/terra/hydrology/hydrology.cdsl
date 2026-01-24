@@ -91,6 +91,7 @@ fn hydrology.saturation_vapor_pressure(temperature_k) {
 }
 
 # Water presence from mass (normalized 0-1)
+# Callers must declare : uses(maths.clamping)
 fn hydrology.water_presence(water_mass_kg, reference_mass_kg) {
     maths.clamp(water_mass_kg / reference_mass_kg, 0.0, 1.0)
 }
@@ -1160,6 +1161,7 @@ field hydrology.water_mass_map {
 field hydrology.water_presence {
     : Scalar<1>
     : stratum(hydrology)
+    : uses(maths.clamping)
     : topology(sphere_surface)
     : title("Water Presence")
 

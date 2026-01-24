@@ -499,6 +499,9 @@ pub struct FunctionDecl {
     /// Function body (single expression)
     pub body: Expr,
 
+    /// Function attributes (e.g., `: uses(maths.clamping)`)
+    pub attrs: Vec<Attribute>,
+
     /// Source location
     pub span: Span,
 

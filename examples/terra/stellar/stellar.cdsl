@@ -733,6 +733,7 @@ type OrbitalChangePayload {
 impulse stellar.orbital_change {
     : OrbitalChangePayload
     : stratum(orbit)
+    : uses(maths.clamping)
     : title("Orbital Change")
     : symbol("🌍")
 
