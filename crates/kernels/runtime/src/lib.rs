@@ -585,11 +585,21 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
 
     // Extract signal types for zero value initialization
     let mut signal_types = HashMap::new();
+    
+    // Extract types from global signals
     for (path, node) in &compiled.world.globals {
         if let Some(output_type) = &node.output {
             signal_types.insert(SignalId::from(path.to_string()), output_type.clone());
         }
     }
+    
+    // Extract types from member signals
+    for (path, node) in &compiled.world.members {
+        if let Some(output_type) = &node.output {
+            signal_types.insert(SignalId::from(path.to_string()), output_type.clone());
+        }
+    }
+    
     runtime.set_signal_types(signal_types);
 
     // Initialize signals from world defaults/metadata

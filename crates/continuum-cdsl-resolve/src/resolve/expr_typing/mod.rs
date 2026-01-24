@@ -396,7 +396,8 @@ fn select_binary_kernel(
     use BinaryOp::*;
     
     // Check if this is a vector operation and extract dimension
-    let vector_dim = if let Type::Kernel(k) = left_ty {
+    // Check left operand first
+    let left_vector_dim = if let Type::Kernel(k) = left_ty {
         if let continuum_cdsl_ast::foundation::Shape::Vector { dim } = k.shape {
             Some(dim)
         } else {
@@ -406,6 +407,19 @@ fn select_binary_kernel(
         None
     };
     
+    // Check right operand if left is not a vector
+    let right_vector_dim = if let Type::Kernel(k) = right_ty {
+        if let continuum_cdsl_ast::foundation::Shape::Vector { dim } = k.shape {
+            Some(dim)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    // Prefer left vector dimension, fall back to right
+    let vector_dim = left_vector_dim.or(right_vector_dim);
     let is_vector_op = vector_dim.is_some();
     
     let namespace = if is_vector_op && matches!(op, Add | Sub | Mul | Div) {
@@ -437,12 +451,22 @@ fn select_binary_kernel(
     
     // Append vector dimension for vector operations
     let name = if let Some(dim) = vector_dim {
-        // Check if right operand is a scalar (for vec*scalar operations)
-        let is_scalar_right = matches!(right_ty, Type::Kernel(k) if matches!(k.shape, continuum_cdsl_ast::foundation::Shape::Scalar));
+        let is_left_scalar = matches!(left_ty, Type::Kernel(k) if matches!(k.shape, continuum_cdsl_ast::foundation::Shape::Scalar));
+        let is_right_scalar = matches!(right_ty, Type::Kernel(k) if matches!(k.shape, continuum_cdsl_ast::foundation::Shape::Scalar));
         
-        if is_scalar_right && matches!(op, Mul | Div) {
-            format!("{}_vec{}_scalar", base_name, dim)
+        if matches!(op, Mul | Div) {
+            if is_left_scalar && !is_right_scalar {
+                // scalar * vector → mul_scalar_vec3
+                format!("{}_scalar_vec{}", base_name, dim)
+            } else if !is_left_scalar && is_right_scalar {
+                // vector * scalar → mul_vec3_scalar
+                format!("{}_vec{}_scalar", base_name, dim)
+            } else {
+                // vector * vector → mul_vec3 (component-wise, if we had it)
+                format!("{}_vec{}", base_name, dim)
+            }
         } else {
+            // add/sub operations
             format!("{}_vec{}", base_name, dim)
         }
     } else {

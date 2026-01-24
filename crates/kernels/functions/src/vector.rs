@@ -162,6 +162,45 @@ pub fn mul_vec4_scalar(v: [f64; 4], s: f64) -> [f64; 4] {
     [v[0] * s, v[1] * s, v[2] * s, v[3] * s]
 }
 
+/// Multiply scalar by Vec2: `mul(scalar, vec)` → scalar * vec
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [AnyScalar, VectorDim(DimExact(2))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = UnitDerivSameAs(1)
+)]
+pub fn mul_scalar_vec2(s: f64, v: [f64; 2]) -> [f64; 2] {
+    [s * v[0], s * v[1]]
+}
+
+/// Multiply scalar by Vec3: `mul(scalar, vec)` → scalar * vec
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [AnyScalar, VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(1)
+)]
+pub fn mul_scalar_vec3(s: f64, v: [f64; 3]) -> [f64; 3] {
+    [s * v[0], s * v[1], s * v[2]]
+}
+
+/// Multiply scalar by Vec4: `mul(scalar, vec)` → scalar * vec
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [AnyScalar, VectorDim(DimExact(4))],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = UnitDerivSameAs(1)
+)]
+pub fn mul_scalar_vec4(s: f64, v: [f64; 4]) -> [f64; 4] {
+    [s * v[0], s * v[1], s * v[2], s * v[3]]
+}
+
 /// Divide Vec2 by scalar: `div(vec, scalar)` → vec / scalar
 #[kernel_fn(
     namespace = "vector",

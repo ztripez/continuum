@@ -1066,15 +1066,14 @@ impl<'a> ExecutionContext for VMContext<'a> {
         }
 
         // Check if we're in entity context (member signal)
-        if let Some(_entity_ctx) = &self.entity_context {
+        if let Some(entity_ctx) = &self.entity_context {
             // TODO: Member signals don't currently support input accumulation
             // For now, return typed zero (no inputs)
             // Future: implement per-instance input channels
-            if let Some(ty) = self
-                .target_signal
-                .as_ref()
-                .and_then(|s| self.signal_types.get(s))
-            {
+
+            // For member signals, use target_member path to look up type
+            let member_signal_id = SignalId::from(entity_ctx.target_member.clone());
+            if let Some(ty) = self.signal_types.get(&member_signal_id) {
                 return Ok(zero_value_for_type(ty));
             }
             return Ok(Value::Scalar(0.0));
