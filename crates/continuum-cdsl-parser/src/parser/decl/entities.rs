@@ -94,13 +94,13 @@ fn parse_entity_member(
     let type_expr = super::super::helpers::try_parse_type_expr(stream)?;
     attributes.extend(super::super::helpers::parse_attributes(stream)?);
 
-    // Skip config/const blocks inside members (not yet implemented in AST)
-    super::skip_nested_config_const(stream)?;
+    // Parse config/const blocks inside members
+    let mut nested_blocks = super::parse_nested_config_const(stream)?;
 
     let special = super::super::helpers::parse_special_blocks(stream)?;
 
-    // Skip any additional config/const blocks after special blocks
-    super::skip_nested_config_const(stream)?;
+    // Parse any additional config/const blocks after special blocks
+    nested_blocks.extend(super::parse_nested_config_const(stream)?);
 
     let execution_blocks = super::super::blocks::parse_execution_blocks(stream)?;
     stream.expect(Token::RBrace)?;
@@ -112,6 +112,7 @@ fn parse_entity_member(
     node.when = special.when;
     node.warmup = special.warmup;
     node.observe = special.observe;
+    node.nested_blocks = nested_blocks;
     node.execution_blocks = execution_blocks;
 
     Ok(node)

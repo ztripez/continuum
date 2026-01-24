@@ -58,7 +58,9 @@ use crate::foundation::{AssertionSeverity, EntityId, Path, Span, StratumId, Type
 use std::path::PathBuf;
 
 use super::block::{BlockBody, TypedStmt};
-use super::declaration::{Attribute, ObserveBlock, WarmupBlock, WhenBlock};
+use super::declaration::{
+    Attribute, ConfigEntry, ConstEntry, ObserveBlock, WarmupBlock, WhenBlock,
+};
 use super::expr::TypedExpr;
 use super::role::RoleData;
 
@@ -79,6 +81,30 @@ impl Index for () {}
 
 // Implement Index for foundation EntityId type
 impl Index for EntityId {}
+
+/// Nested config or const block defined inside a node declaration.
+///
+/// Example:
+/// ```cdsl
+/// signal.atmosphere.external_power {
+///     config {
+///         default_power: 1.22e17
+///     }
+///     resolve { ... }
+/// }
+/// ```
+///
+/// During symbol table building, these are flattened to fully-qualified paths:
+/// - Nested: `config { default_power: 1.22e17 }` inside `signal.atmosphere.external_power`
+/// - Flattened: `config.atmosphere.external_power.default_power`
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+pub enum NestedBlock {
+    /// Nested config block entries
+    Config(Vec<ConfigEntry>),
+
+    /// Nested const block entries
+    Const(Vec<ConstEntry>),
+}
 
 /// Unified node structure - everything flows through this
 ///
@@ -203,6 +229,21 @@ pub struct Node<I: Index = ()> {
     /// Only valid for Chronicle role.
     pub observe: Option<ObserveBlock>,
 
+    /// Nested config/const blocks defined inside this node.
+    ///
+    /// Example:
+    /// ```cdsl
+    /// signal foo.bar {
+    ///     config { default: 42.0 }
+    /// }
+    /// ```
+    /// These are flattened to fully-qualified paths during symbol table building:
+    /// - `config.foo.bar.default`
+    ///
+    /// Config values are immutable after startup (populated from scenario/defaults,
+    /// then frozen for the run).
+    pub nested_blocks: Vec<NestedBlock>,
+
     /// Execution blocks from source (cleared after compilation)
     ///
     /// Map from phase name to block body (expression or statements).
@@ -273,6 +314,7 @@ impl<I: Index> Node<I> {
             warmup: None,
             when: None,
             observe: None,
+            nested_blocks: Vec::new(),
             execution_blocks: Vec::new(),
             reads: Vec::new(),
             temporal_reads: Vec::new(),

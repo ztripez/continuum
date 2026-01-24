@@ -16,7 +16,7 @@ mod time;
 mod world;
 
 use super::{ParseError, TokenStream};
-use continuum_cdsl_ast::{Attribute, Declaration, Node, RoleData};
+use continuum_cdsl_ast::{Attribute, Declaration, NestedBlock, Node, RoleData};
 use continuum_cdsl_lexer::Token;
 
 /// Parse all declarations from a token stream.
@@ -129,45 +129,83 @@ fn parse_analyzer_stub(stream: &mut TokenStream) -> Result<Declaration, ParseErr
 // Common Helpers
 // ============================================================================
 
-/// Skip config/const blocks that appear inside node declarations.
+/// Parse config/const blocks that appear inside node declarations.
 ///
 /// Terra CDSL uses inline config blocks inside signals to define per-node configuration:
 /// ```cdsl
-/// signal foo.bar {
+/// signal.atmosphere.external_power {
 ///     config {
-///         default_value: 42.0
+///         default_power: 1.22e17
 ///     }
 ///     resolve { ... }
 /// }
 /// ```
 ///
-/// These are currently skipped as the Node AST doesn't support inline config.
-/// The config values are instead accessed via `config.foo.bar.default_value` in expressions.
-fn skip_nested_config_const(stream: &mut TokenStream) -> Result<(), ParseError> {
-    while matches!(stream.peek(), Some(Token::Config) | Some(Token::Const)) {
-        stream.advance(); // consume config/const keyword
+/// These nested blocks are parsed and stored in `node.nested_blocks`.
+/// During symbol table building, they are flattened to fully-qualified paths:
+/// - `config.atmosphere.external_power.default_power`
+fn parse_nested_config_const(stream: &mut TokenStream) -> Result<Vec<NestedBlock>, ParseError> {
+    let mut blocks = Vec::new();
 
-        if matches!(stream.peek(), Some(Token::LBrace)) {
-            stream.advance(); // consume '{'
-            let mut depth = 1;
-            while depth > 0 && !stream.at_end() {
-                match stream.peek() {
-                    Some(Token::LBrace) => {
-                        depth += 1;
-                        stream.advance();
-                    }
-                    Some(Token::RBrace) => {
-                        depth -= 1;
-                        stream.advance();
-                    }
-                    _ => {
-                        stream.advance();
-                    }
-                }
+    while matches!(stream.peek(), Some(Token::Config) | Some(Token::Const)) {
+        let is_config = matches!(stream.peek(), Some(Token::Config));
+        stream.advance(); // consume config/const keyword
+        stream.expect(Token::LBrace)?;
+
+        let mut entries = Vec::new();
+
+        while !matches!(stream.peek(), Some(Token::RBrace)) {
+            // Skip doc comments inside blocks
+            while matches!(stream.peek(), Some(Token::DocComment(_))) {
+                stream.advance();
+            }
+
+            if matches!(stream.peek(), Some(Token::RBrace)) {
+                break;
+            }
+
+            let (path, type_expr, default, span) =
+                definitions::parse_const_or_config_entry(stream, is_config)?;
+
+            if is_config {
+                entries.push((path, type_expr, default, span));
+            } else {
+                entries.push((path, type_expr, default, span));
             }
         }
+
+        stream.expect(Token::RBrace)?;
+
+        if is_config {
+            use continuum_cdsl_ast::ConfigEntry;
+            let config_entries = entries
+                .into_iter()
+                .map(|(path, type_expr, default, span)| ConfigEntry {
+                    path,
+                    default,
+                    type_expr,
+                    span,
+                    doc: None,
+                })
+                .collect();
+            blocks.push(NestedBlock::Config(config_entries));
+        } else {
+            use continuum_cdsl_ast::ConstEntry;
+            let const_entries = entries
+                .into_iter()
+                .map(|(path, type_expr, default, span)| ConstEntry {
+                    path,
+                    value: default.expect("const must have value"),
+                    type_expr,
+                    span,
+                    doc: None,
+                })
+                .collect();
+            blocks.push(NestedBlock::Const(const_entries));
+        }
     }
-    Ok(())
+
+    Ok(blocks)
 }
 
 /// Parse attribute: `:name` or `:name(args)`.
@@ -328,15 +366,15 @@ pub(super) fn parse_node_declaration(
     // Parse remaining attributes inside the body (before special/execution blocks)
     attributes.extend(super::helpers::parse_attributes(stream)?);
 
-    // Skip config/const blocks inside primitives (not yet implemented in AST)
+    // Parse config/const blocks inside primitives
     // These can appear before or after special blocks
-    skip_nested_config_const(stream)?;
+    let mut nested_blocks = parse_nested_config_const(stream)?;
 
     // Parse special blocks (when, warmup, observe)
     let special = super::helpers::parse_special_blocks(stream)?;
 
-    // Skip any additional config/const blocks after special blocks
-    skip_nested_config_const(stream)?;
+    // Parse any additional config/const blocks after special blocks
+    nested_blocks.extend(parse_nested_config_const(stream)?);
 
     let execution_blocks = super::blocks::parse_execution_blocks(stream)?;
     stream.expect(Token::RBrace)?;
@@ -347,6 +385,7 @@ pub(super) fn parse_node_declaration(
     node.when = special.when;
     node.warmup = special.warmup;
     node.observe = special.observe;
+    node.nested_blocks = nested_blocks;
     node.execution_blocks = execution_blocks;
 
     Ok(Declaration::Node(node))

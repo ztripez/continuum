@@ -100,8 +100,52 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     for decl in &declarations {
         match decl {
             Declaration::World(w) => world_decl = Some(w.clone()),
-            Declaration::Node(n) => global_nodes.push(n.clone()),
-            Declaration::Member(m) => member_nodes.push(m.clone()),
+            Declaration::Node(n) => {
+                // Collect nested config/const blocks from nodes
+                for block in &n.nested_blocks {
+                    match block {
+                        continuum_cdsl_ast::NestedBlock::Config(entries) => {
+                            // Flatten nested configs with qualified paths
+                            for entry in entries {
+                                let mut qualified_entry = entry.clone();
+                                qualified_entry.path = n.path.append(entry.path.to_string());
+                                _config_entries.push(qualified_entry);
+                            }
+                        }
+                        continuum_cdsl_ast::NestedBlock::Const(entries) => {
+                            // Flatten nested consts with qualified paths
+                            for entry in entries {
+                                let mut qualified_entry = entry.clone();
+                                qualified_entry.path = n.path.append(entry.path.to_string());
+                                _const_entries.push(qualified_entry);
+                            }
+                        }
+                    }
+                }
+                global_nodes.push(n.clone());
+            }
+            Declaration::Member(m) => {
+                // Collect nested config/const blocks from members
+                for block in &m.nested_blocks {
+                    match block {
+                        continuum_cdsl_ast::NestedBlock::Config(entries) => {
+                            for entry in entries {
+                                let mut qualified_entry = entry.clone();
+                                qualified_entry.path = m.path.append(entry.path.to_string());
+                                _config_entries.push(qualified_entry);
+                            }
+                        }
+                        continuum_cdsl_ast::NestedBlock::Const(entries) => {
+                            for entry in entries {
+                                let mut qualified_entry = entry.clone();
+                                qualified_entry.path = m.path.append(entry.path.to_string());
+                                _const_entries.push(qualified_entry);
+                            }
+                        }
+                    }
+                }
+                member_nodes.push(m.clone());
+            }
             Declaration::Entity(e) => {
                 entities.insert(e.path.clone(), e.clone());
             }

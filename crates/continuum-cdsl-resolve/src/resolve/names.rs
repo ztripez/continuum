@@ -54,7 +54,7 @@
 
 use crate::error::{CompileError, ErrorKind};
 use continuum_cdsl_ast::foundation::{EntityId, Path};
-use continuum_cdsl_ast::{Declaration, Expr, UntypedKind as ExprKind};
+use continuum_cdsl_ast::{Declaration, Expr, NestedBlock, UntypedKind as ExprKind};
 use std::collections::{HashMap, HashSet};
 
 /// Symbol table for name resolution
@@ -180,16 +180,21 @@ impl SymbolTable {
 ///
 /// Collects all declared symbols from the list of top-level declarations.
 ///
+/// This includes:
+/// - Top-level config/const blocks
+/// - Nested config/const blocks inside node declarations (flattened to fully-qualified paths)
+///
 /// # Parameters
 /// - `declarations`: The list of all top-level declarations from the parser.
 ///
 /// # Returns
 /// Symbol table containing all declared symbols, separated by kind.
 pub fn build_symbol_table(declarations: &[Declaration]) -> SymbolTable {
-    use continuum_cdsl_ast::RoleId;
+    use continuum_cdsl_ast::{NestedBlock, RoleId};
 
     let mut table = SymbolTable::new();
 
+    // Register top-level declarations
     for decl in declarations {
         match decl {
             Declaration::Node(node) => match node.role_id() {
@@ -220,7 +225,60 @@ pub fn build_symbol_table(declarations: &[Declaration]) -> SymbolTable {
         }
     }
 
+    // Flatten nested config/const blocks from nodes
+    // Example:
+    //   signal.atmosphere.external_power {
+    //       config { default_power: 1.22e17 }
+    //   }
+    // Becomes: config.atmosphere.external_power.default_power
+    for decl in declarations {
+        match decl {
+            Declaration::Node(node) => {
+                flatten_nested_blocks(&mut table, &node.path, &node.nested_blocks);
+            }
+            Declaration::Member(node) => {
+                flatten_nested_blocks(&mut table, &node.path, &node.nested_blocks);
+            }
+            _ => {}
+        }
+    }
+
     table
+}
+
+/// Flatten nested config/const blocks to fully-qualified paths.
+///
+/// Nested blocks inside node declarations are registered with paths prepended
+/// by the node's path. This allows expressions to reference them using the
+/// full qualified path.
+///
+/// Example:
+/// ```cdsl
+/// signal.atmosphere.external_power {
+///     config {
+///         default_power: 1.22e17
+///     }
+/// }
+/// ```
+/// Registers: `config.atmosphere.external_power.default_power`
+fn flatten_nested_blocks(table: &mut SymbolTable, node_path: &Path, blocks: &[NestedBlock]) {
+    for block in blocks {
+        match block {
+            NestedBlock::Config(entries) => {
+                for entry in entries {
+                    // Prepend node path: default_power → atmosphere.external_power.default_power
+                    let qualified_path = node_path.append(entry.path.to_string());
+                    table.register_config(qualified_path);
+                }
+            }
+            NestedBlock::Const(entries) => {
+                for entry in entries {
+                    let qualified_path = node_path.append(entry.path.to_string());
+                    table.register_const(qualified_path);
+                }
+            }
+        }
+    }
 }
 
 /// Scope for tracking local variables

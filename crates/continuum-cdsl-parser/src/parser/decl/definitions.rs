@@ -120,7 +120,7 @@ pub(super) fn parse_type_decl(stream: &mut TokenStream) -> Result<Declaration, P
 /// - `parse_const_block()`: Uses this with `allow_missing_value = false`
 /// - `parse_config_block()`: Uses this with `allow_missing_value = true`
 /// - `continuum-cdsl-resolve::infer_type_from_expr()`: Performs type inference
-fn parse_const_or_config_entry(
+pub(super) fn parse_const_or_config_entry(
     stream: &mut TokenStream,
     allow_missing_value: bool,
 ) -> Result<(Path, TypeExpr, Option<Expr>, Span), ParseError> {

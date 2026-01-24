@@ -16,7 +16,7 @@ use crate::resolve::units::resolve_unit_expr;
 use continuum_cdsl_ast::foundation::{
     Bounds, EntityId, Path, Shape, Span, Type, Unit, UserType, UserTypeId,
 };
-use continuum_cdsl_ast::{Declaration, Expr, TypeExpr, UntypedKind};
+use continuum_cdsl_ast::{Declaration, Expr, NestedBlock, TypeExpr, UntypedKind};
 use std::collections::HashMap;
 
 /// Registry of user-defined types keyed by fully-qualified [`Path`].
@@ -387,13 +387,20 @@ pub(crate) fn infer_type_from_expr(expr: &Expr, span: Span) -> Result<Type, Comp
 }
 
 /// Resolves types for all constants and configurations.
+///
+/// This includes:
+/// - Top-level const/config blocks
+/// - Nested const/config blocks inside node declarations
 pub fn resolve_const_config_types(
     declarations: &mut [Declaration],
     type_table: &TypeTable,
 ) -> Result<(), Vec<CompileError>> {
+    use continuum_cdsl_ast::NestedBlock;
+
     let mut errors = Vec::new();
 
-    for decl in declarations {
+    // Resolve top-level const/config blocks AND nested blocks in a single pass
+    for decl in declarations.iter() {
         match decl {
             Declaration::Const(entries) => {
                 for entry in entries {
@@ -433,6 +440,94 @@ pub fn resolve_const_config_types(
                     match resolved_type {
                         Ok(_) => {} // Type resolved successfully
                         Err(e) => errors.push(e),
+                    }
+                }
+            }
+            Declaration::Node(node) => {
+                // Resolve nested const/config blocks inside nodes
+                for block in &node.nested_blocks {
+                    match block {
+                        NestedBlock::Config(entries) => {
+                            for entry in entries {
+                                let resolved_type = if matches!(entry.type_expr, TypeExpr::Infer) {
+                                    if let Some(default) = &entry.default {
+                                        infer_type_from_expr(default, entry.span)
+                                    } else {
+                                        Err(CompileError::new(
+                                            ErrorKind::TypeMismatch,
+                                            entry.span,
+                                            "Config entry with inferred type must have a default value"
+                                                .to_string(),
+                                        ))
+                                    }
+                                } else {
+                                    resolve_type_expr(&entry.type_expr, type_table, entry.span)
+                                };
+
+                                match resolved_type {
+                                    Ok(_) => {}
+                                    Err(e) => errors.push(e),
+                                }
+                            }
+                        }
+                        NestedBlock::Const(entries) => {
+                            for entry in entries {
+                                let resolved_type = if matches!(entry.type_expr, TypeExpr::Infer) {
+                                    infer_type_from_expr(&entry.value, entry.span)
+                                } else {
+                                    resolve_type_expr(&entry.type_expr, type_table, entry.span)
+                                };
+
+                                match resolved_type {
+                                    Ok(_) => {}
+                                    Err(e) => errors.push(e),
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Declaration::Member(node) => {
+                // Resolve nested const/config blocks inside members
+                for block in &node.nested_blocks {
+                    match block {
+                        NestedBlock::Config(entries) => {
+                            for entry in entries {
+                                let resolved_type = if matches!(entry.type_expr, TypeExpr::Infer) {
+                                    if let Some(default) = &entry.default {
+                                        infer_type_from_expr(default, entry.span)
+                                    } else {
+                                        Err(CompileError::new(
+                                            ErrorKind::TypeMismatch,
+                                            entry.span,
+                                            "Config entry with inferred type must have a default value"
+                                                .to_string(),
+                                        ))
+                                    }
+                                } else {
+                                    resolve_type_expr(&entry.type_expr, type_table, entry.span)
+                                };
+
+                                match resolved_type {
+                                    Ok(_) => {}
+                                    Err(e) => errors.push(e),
+                                }
+                            }
+                        }
+                        NestedBlock::Const(entries) => {
+                            for entry in entries {
+                                let resolved_type = if matches!(entry.type_expr, TypeExpr::Infer) {
+                                    infer_type_from_expr(&entry.value, entry.span)
+                                } else {
+                                    resolve_type_expr(&entry.type_expr, type_table, entry.span)
+                                };
+
+                                match resolved_type {
+                                    Ok(_) => {}
+                                    Err(e) => errors.push(e),
+                                }
+                            }
+                        }
                     }
                 }
             }
