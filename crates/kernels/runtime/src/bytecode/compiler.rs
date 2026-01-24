@@ -235,22 +235,45 @@ impl Compiler {
                 else_branch,
                 ..
             } => {
-                // TODO: Implement proper control flow with jump instructions
-                // For now, compile as conditional execution blocks
-                // This is a simplified implementation that doesn't yet support
-                // actual branching at bytecode level
-
-                // Compile condition (result on stack)
+                // Compile condition expression (leaves Bool on stack)
                 self.compile_expr(block, condition)?;
 
-                // Compile then branch statements
+                // Reserve space for JumpIfFalse (will patch offset later)
+                let jump_to_else_idx = block.instructions.len();
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::JumpIfFalse,
+                    vec![Operand::Offset(0)], // Placeholder
+                ));
+
+                // Compile then branch
                 for stmt in then_branch {
                     self.compile_stmt(block, stmt)?;
                 }
 
-                // Compile else branch statements
-                for stmt in else_branch {
-                    self.compile_stmt(block, stmt)?;
+                if else_branch.is_empty() {
+                    // No else branch: JumpIfFalse jumps to end
+                    let offset = (block.instructions.len() - jump_to_else_idx) as i32;
+                    block.instructions[jump_to_else_idx].operands[0] = Operand::Offset(offset);
+                } else {
+                    // Has else branch: add Jump to skip else, then compile else
+                    let jump_to_end_idx = block.instructions.len();
+                    block.instructions.push(Instruction::new(
+                        OpcodeKind::Jump,
+                        vec![Operand::Offset(0)], // Placeholder
+                    ));
+
+                    // Patch JumpIfFalse to jump here (start of else)
+                    let else_offset = (block.instructions.len() - jump_to_else_idx) as i32;
+                    block.instructions[jump_to_else_idx].operands[0] = Operand::Offset(else_offset);
+
+                    // Compile else branch
+                    for stmt in else_branch {
+                        self.compile_stmt(block, stmt)?;
+                    }
+
+                    // Patch Jump to skip else
+                    let end_offset = (block.instructions.len() - jump_to_end_idx) as i32;
+                    block.instructions[jump_to_end_idx].operands[0] = Operand::Offset(end_offset);
                 }
             }
         }

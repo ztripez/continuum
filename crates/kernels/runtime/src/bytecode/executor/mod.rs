@@ -44,6 +44,8 @@ pub struct BytecodeExecutor {
     stack: Vec<Value>,
     /// Slot storage for locals, signals, and temporaries allocated during compilation.
     slots: Vec<Option<Value>>,
+    /// Jump target for control flow (None = continue normally, Some(offset) = jump).
+    jump_target: Option<i32>,
 }
 
 /// Maximum depth of the VM evaluation stack.
@@ -55,6 +57,7 @@ impl BytecodeExecutor {
         Self {
             stack: Vec::with_capacity(256),
             slots: Vec::with_capacity(256),
+            jump_target: None,
         }
     }
 
@@ -122,12 +125,32 @@ impl BytecodeExecutor {
             })?;
         let base = self.stack.len();
 
-        for instruction in &block.instructions {
+        let mut ip: isize = 0; // Instruction pointer
+        while ip >= 0 && (ip as usize) < block.instructions.len() {
+            let instruction = &block.instructions[ip as usize];
             self.validate_instruction(instruction)?;
+
             if instruction.kind == OpcodeKind::Return {
                 return self.handle_return(block, base);
             }
+
+            // Execute handler
             handler_for(instruction.kind)(instruction, self, program, ctx)?;
+
+            // Check for jump request
+            if let Some(offset) = self.jump_target.take() {
+                let target = ip + offset as isize;
+                if target < 0 || target as usize >= block.instructions.len() {
+                    return Err(ExecutionError::InvalidJump {
+                        offset,
+                        position: ip as usize,
+                        block_size: block.instructions.len(),
+                    });
+                }
+                ip = target;
+            } else {
+                ip += 1;
+            }
         }
 
         self.stack.truncate(base);
@@ -275,6 +298,11 @@ impl ExecutionRuntime for BytecodeExecutor {
         ctx: &mut dyn ExecutionContext,
     ) -> Result<Option<Value>, ExecutionError> {
         self.execute_block(block_id, program, ctx)
+    }
+
+    fn jump(&mut self, offset: i32) -> Result<(), ExecutionError> {
+        self.jump_target = Some(offset);
+        Ok(())
     }
 }
 

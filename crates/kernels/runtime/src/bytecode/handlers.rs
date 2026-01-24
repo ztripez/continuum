@@ -5,8 +5,8 @@ use continuum_foundation::{AggregateOp, Value};
 use crate::bytecode::opcode::Instruction;
 use crate::bytecode::operand::{
     field_access, operand_aggregate_op, operand_block, operand_config_path, operand_const_path,
-    operand_entity, operand_field_path, operand_literal, operand_signal_path, operand_slot,
-    operand_string, operand_usize,
+    operand_entity, operand_field_path, operand_literal, operand_offset, operand_signal_path,
+    operand_slot, operand_string, operand_usize,
 };
 use crate::bytecode::program::BytecodeProgram;
 use crate::bytecode::runtime::{ExecutionContext, ExecutionError, ExecutionRuntime};
@@ -842,6 +842,94 @@ pub(crate) fn handle_assert(
             .map(|op| operand_string(op))
             .transpose()?;
         return ctx.trigger_assertion_fault(severity.as_deref(), message.as_deref());
+    }
+    Ok(())
+}
+
+/// Unconditional jump to relative offset.
+///
+/// # Operands
+///
+/// - operand[0]: Offset (i32) - relative jump offset from current instruction
+///
+/// # Behavior
+///
+/// Requests the executor to jump by the specified offset.
+/// Positive = forward, negative = backward.
+pub(crate) fn handle_jump(
+    instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    _ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let offset = operand_offset(&instruction.operands[0])?;
+    runtime.jump(offset)
+}
+
+/// Conditional jump: jumps if TOS is true.
+///
+/// # Operands
+///
+/// - operand[0]: Offset (i32) - relative jump offset
+///
+/// # Stack
+///
+/// - Pops: Bool condition
+///
+/// # Behavior
+///
+/// If condition is true, jumps. If false, continues to next instruction.
+pub(crate) fn handle_jump_if_true(
+    instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    _ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let condition = runtime.pop()?;
+    let is_true = condition
+        .as_bool()
+        .ok_or_else(|| ExecutionError::TypeMismatch {
+            expected: "Bool".into(),
+            found: format!("{:?}", condition),
+        })?;
+
+    if is_true {
+        let offset = operand_offset(&instruction.operands[0])?;
+        runtime.jump(offset)?;
+    }
+    Ok(())
+}
+
+/// Conditional jump: jumps if TOS is false.
+///
+/// # Operands
+///
+/// - operand[0]: Offset (i32) - relative jump offset
+///
+/// # Stack
+///
+/// - Pops: Bool condition
+///
+/// # Behavior
+///
+/// If condition is false, jumps. If true, continues to next instruction.
+pub(crate) fn handle_jump_if_false(
+    instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    _ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let condition = runtime.pop()?;
+    let is_true = condition
+        .as_bool()
+        .ok_or_else(|| ExecutionError::TypeMismatch {
+            expected: "Bool".into(),
+            found: format!("{:?}", condition),
+        })?;
+
+    if !is_true {
+        let offset = operand_offset(&instruction.operands[0])?;
+        runtime.jump(offset)?;
     }
     Ok(())
 }

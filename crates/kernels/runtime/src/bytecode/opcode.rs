@@ -278,6 +278,27 @@ pub enum OpcodeKind {
     /// ```
     Assert,
 
+    // === Control Flow (Branching) ===
+    /// Unconditional jump to offset specified in operand[0].
+    ///
+    /// Operand: Offset (i32) - relative instruction offset from current position.
+    /// Positive = forward, negative = backward.
+    Jump,
+
+    /// Conditional jump: jumps to offset if TOS is true.
+    ///
+    /// Pops: Bool
+    /// Operand: Offset (i32) - relative instruction offset.
+    /// If Bool is true, jumps. If false, continues to next instruction.
+    JumpIfTrue,
+
+    /// Conditional jump: jumps to offset if TOS is false.
+    ///
+    /// Pops: Bool
+    /// Operand: Offset (i32) - relative instruction offset.
+    /// If Bool is false, jumps. If true, continues to next instruction.
+    JumpIfFalse,
+
     // === Structural ===
     /// Terminates the current block execution and returns the top stack value (if any).
     Return,

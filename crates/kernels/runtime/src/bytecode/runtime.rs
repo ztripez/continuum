@@ -103,6 +103,17 @@ pub enum ExecutionError {
         /// Descriptive message about what failed.
         message: String,
     },
+
+    /// Invalid jump offset: target instruction is out of bounds.
+    #[error("Invalid jump: offset {offset} from position {position} is out of bounds (block has {block_size} instructions)")]
+    InvalidJump {
+        /// The requested jump offset.
+        offset: i32,
+        /// Current instruction position.
+        position: usize,
+        /// Total number of instructions in the block.
+        block_size: usize,
+    },
 }
 
 /// Execution context required by the bytecode executor to interface with the simulation.
@@ -403,4 +414,14 @@ pub trait ExecutionRuntime {
         program: &BytecodeProgram,
         ctx: &mut dyn ExecutionContext,
     ) -> Result<Option<Value>, ExecutionError>;
+
+    /// Requests a jump to a relative instruction offset.
+    ///
+    /// Used by Jump, JumpIfTrue, JumpIfFalse opcodes.
+    /// Positive offset = forward, negative = backward.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutionError::InvalidJump`] if the target offset is out of bounds.
+    fn jump(&mut self, offset: i32) -> Result<(), ExecutionError>;
 }

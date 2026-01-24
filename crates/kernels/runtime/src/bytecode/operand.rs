@@ -101,6 +101,10 @@ pub enum Operand {
 
     /// An identifier for an aggregation operation (sum, min, max, etc.).
     AggregateOp(AggregateOp),
+
+    /// A jump offset (relative to current instruction position).
+    /// Positive values jump forward, negative values jump backward.
+    Offset(i32),
 }
 
 /// Helper to expect a specific operand type.
@@ -329,6 +333,21 @@ pub fn operand_aggregate_op(
     expect_operand(operand, "AggregateOp", |op| {
         if let Operand::AggregateOp(agg) = op {
             Some(*agg)
+        } else {
+            None
+        }
+    })
+}
+
+/// Decode a jump offset operand.
+///
+/// # Errors
+///
+/// Returns [`ExecutionError::InvalidOperand`] if the operand is not an [`Operand::Offset`].
+pub fn operand_offset(operand: &Operand) -> Result<i32, crate::bytecode::runtime::ExecutionError> {
+    expect_operand(operand, "Offset", |op| {
+        if let Operand::Offset(offset) = op {
+            Some(*offset)
         } else {
             None
         }
