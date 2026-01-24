@@ -184,24 +184,34 @@ fn build_dag(
 
     let mut producers: IndexMap<Path, Path> = IndexMap::new();
     for (path, exec) in &nodes {
-        // In all phases, we look at 'emits' to determine causal links.
-        // For Resolve phase, the compiler explicitly populates 'emits' with the node's own path.
+        // In Resolve phase, signals produce their own values.
+        // In Collect phase, operators contribute to signals (but don't "produce" them for DAG purposes).
+        // In Fracture phase, fractures emit deltas to already-resolved signals - they don't produce them.
+        //
+        // We only track producers for phases where the emit represents authoritative production:
+        // - Resolve: signal resolves its own value
+        // - Measure: field computes its value
+        //
+        // In Collect and Fracture, emits are contributions/deltas, not productions.
+        // Reading a signal and emitting to it in these phases is valid (read current, emit delta).
+        if phase == Phase::Collect || phase == Phase::Fracture {
+            // Multiple emitters allowed, no "producer" tracking needed for dependency edges
+            // The execution order within these phases is determined by reads, not emits
+            continue;
+        }
+
         for emit in &exec.emits {
             if let Some(existing_producer) = producers.insert(emit.clone(), path.clone()) {
-                // Conflict: Multiple nodes emitting to the same signal in the same phase/stratum.
-                // This is only allowed in Collect phase (accumulation) where nodes contribute
-                // to a signal via += or similar (which are resolved as separate emits in IR).
-                if phase != Phase::Collect {
-                    return Err(vec![CompileError::new(
-                        ErrorKind::Conflict,
-                        exec.span,
-                        format!(
-                            "Multiple nodes emitting to '{}' in {:?} phase: '{}' and '{}'. \
-                             Only one producer is allowed per signal in this phase.",
-                            emit, phase, existing_producer, path
-                        ),
-                    )]);
-                }
+                // Conflict: Multiple nodes emitting to the same signal in a production phase.
+                return Err(vec![CompileError::new(
+                    ErrorKind::Conflict,
+                    exec.span,
+                    format!(
+                        "Multiple nodes emitting to '{}' in {:?} phase: '{}' and '{}'. \
+                         Only one producer is allowed per signal in this phase.",
+                        emit, phase, existing_producer, path
+                    ),
+                )]);
             }
         }
     }
