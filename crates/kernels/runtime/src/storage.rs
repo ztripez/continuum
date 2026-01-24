@@ -126,6 +126,11 @@ impl SignalStorage {
     pub fn signal_ids(&self) -> impl Iterator<Item = &SignalId> {
         self.previous.keys()
     }
+
+    /// Check if a signal has been initialized
+    pub fn has(&self, id: &SignalId) -> bool {
+        self.previous.contains_key(id) || self.current.contains_key(id)
+    }
 }
 
 /// Accumulator for signal inputs during Collect phase

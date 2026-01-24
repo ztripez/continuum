@@ -538,6 +538,24 @@ impl Runtime {
                 &mut self.member_signals,
                 &mut self.input_channels,
             )?;
+            
+            // Initialize any remaining uninitialized signals with zero/default values
+            // This ensures all signals have a prev value before the first Resolve phase
+            use crate::dag::NodeKind;
+            let era_dags = self.dags.get_era(&self.current_era).unwrap();
+            for dag in era_dags.for_phase(Phase::Resolve) {
+                for level in &dag.levels {
+                    for node in &level.nodes {
+                        if let NodeKind::SignalResolve { signal, .. } = &node.kind {
+                            // Initialize signal to zero if not already initialized
+                            if !self.signals.has(signal) {
+                                self.signals.init(signal.clone(), Value::Scalar(0.0));
+                                trace!("initialized uninitialized signal '{}' to 0.0", signal);
+                            }
+                        }
+                    }
+                }
+            }
         }
         
         self.current_phase = crate::types::TickPhase::Simulation(Phase::Collect);
