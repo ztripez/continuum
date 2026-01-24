@@ -27,7 +27,7 @@ use crate::resolve::expr_typing::{TypingContext, type_expression};
 use crate::resolve::utils::sort_unique;
 use continuum_cdsl_ast::foundation::Phase;
 use continuum_cdsl_ast::{
-    BlockBody, Execution, ExecutionBody, Expr, Index, Node, RoleId, Stmt, TypedStmt,
+    BlockBody, Execution, ExecutionBody, Expr, Index, Node, RoleData, RoleId, Stmt, TypedStmt,
 };
 use std::collections::HashSet;
 
@@ -651,6 +651,12 @@ pub fn compile_execution_blocks<I: Index>(
         None
     };
     
+    // For impulses, extract payload type from role data
+    let payload_type = match &node.role {
+        RoleData::Impulse { payload } => payload.clone(),
+        _ => None,
+    };
+    
     // Preserve existing self_type from ctx (set for member nodes in pipeline)
     // while setting up node-specific context (output, inputs, etc)
     let base_ctx = ctx.with_execution_context(
@@ -658,7 +664,7 @@ pub fn compile_execution_blocks<I: Index>(
         None,
         node.output.clone(),
         inputs_type,
-        None,
+        payload_type,
     );
 
     // Process each execution block
@@ -1147,7 +1153,7 @@ mod tests {
             node_output: None,
             inputs_type: None,
             payload_type: None,
-            phase: Some(Phase::Collect),
+            phase: Some(Phase::Resolve),  // Signal assignment is invalid in Resolve phase
         };
 
         let span = test_span();
@@ -1859,6 +1865,9 @@ mod tests {
 
     #[test]
     fn test_extract_dependencies_config_const() {
+        // Config and Const are intentionally excluded from the signal dependency graph.
+        // They are resolved statically during Configure phase and cannot participate
+        // in signal resolution cycles (see dependencies.rs lines 52-57).
         let span = test_span();
         let ty = scalar_type();
         let config_path = Path::from_path_str("config.max_temp");
@@ -1868,12 +1877,10 @@ mod tests {
         let const_expr = TypedExpr::new(ExprKind::Const(const_path.clone()), ty, span);
 
         let (deps_config, _) = extract_dependencies(&config_expr, &Path::from_path_str("test"));
-        assert_eq!(deps_config.len(), 1);
-        assert_eq!(deps_config[0], config_path);
+        assert_eq!(deps_config.len(), 0);  // Config not tracked as dependency
 
         let (deps_const, _) = extract_dependencies(&const_expr, &Path::from_path_str("test"));
-        assert_eq!(deps_const.len(), 1);
-        assert_eq!(deps_const[0], const_path);
+        assert_eq!(deps_const.len(), 0);  // Const not tracked as dependency
     }
 
     #[test]

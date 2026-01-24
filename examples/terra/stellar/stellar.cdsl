@@ -278,16 +278,10 @@ entity stellar.star {
         initial { config.stellar.default_variability_factor }
     
         resolve {
-            # Rotational modulation (starspots)
-            # At geological timescales this averages out, but we keep it for completeness
-            let rot_phase = sim.time / (self.rotation_period * 86400.0) in
-            let spot_mod = 1.0 - self.spot_amplitude * maths.sin(TAU * rot_phase) in
-    
-            # Activity cycle modulation
-            let cycle_phase = sim.time / (self.activity_cycle_period * 3.1536e7) in
-            let cycle_mod = 1.0 - self.spot_amplitude * 0.5 * maths.sin(TAU * cycle_phase) in
-    
-            spot_mod * cycle_mod
+            # TODO: Rotational modulation and activity cycles require sim.time
+            # For now, return constant variability factor
+            # Once time tracking is implemented, restore time-dependent calculations
+            prev
         }
     }
 
@@ -298,10 +292,9 @@ entity stellar.star {
         : symbol("L_star")
     
         resolve {
-            # Main sequence evolution: luminosity increases over time
-            let elapsed_myr = sim.time / 3.1536e13 in
-            let evolution_factor = 1.0 + elapsed_myr * self.luminosity_evolution_rate in
-            self.luminosity_base * evolution_factor * self.variability_factor
+            # TODO: Main sequence evolution requires sim.time tracking
+            # For now, use constant luminosity (no time evolution)
+            self.luminosity_base * self.variability_factor
         }
     }
 
@@ -695,17 +688,17 @@ impulse stellar.impact {
         # Compute impact energy: KE = 0.5 * m * v²
         let energy_j = 0.5 * payload.impactor_mass * payload.velocity * payload.velocity
 
-        if energy_j > config.impulse.stellar.impact.min_significant_energy_j {
+        if energy_j > config.stellar.impact.min_significant_energy_j {
             # Partition energy into crust, mantle, and ejecta
-            let crust_energy = energy_j * config.impulse.stellar.impact.crust_partition
-            let mantle_energy = energy_j * config.impulse.stellar.impact.mantle_partition
+            let crust_energy = energy_j * config.stellar.impact.crust_partition
+            let mantle_energy = energy_j * config.stellar.impact.mantle_partition
 
             # Heat deposition into geophysics thermal budget
             mantle.heat_content <- mantle_energy
             surface.temp <- crust_energy / 1.0e20  # Normalize to temperature increment
 
             # Crustal thickening from ejecta/melt redistribution
-            let ejecta_thickness = maths.pow(energy_j, 0.333) * config.impulse.stellar.impact.ejecta_thickness_factor
+            let ejecta_thickness = maths.pow(energy_j, 0.333) * config.stellar.impact.ejecta_thickness_factor
             crust.thickness <- ejecta_thickness
 
             # Large impacts can trigger volcanic activity
@@ -715,7 +708,7 @@ impulse stellar.impact {
             # Delta_omega ~ (m * v * R_impact) / (I_planet) where I ~ M_planet * R²
             let angular_momentum = payload.impactor_mass * payload.velocity * planet.radius
             let moment_of_inertia = planet.mass * planet.radius * planet.radius
-            let delta_omega = angular_momentum / moment_of_inertia * config.impulse.stellar.impact.rotation_coupling_factor
+            let delta_omega = angular_momentum / moment_of_inertia * config.stellar.impact.rotation_coupling_factor
             rotation.state <- vector.vec2(0.0, delta_omega)
         }
     }
@@ -761,32 +754,33 @@ impulse stellar.orbital_change {
         # to protect the simulation from bad external data.
         let clamped_de = maths.clamp(
             payload.delta_eccentricity,
-            -config.impulse.stellar.orbital_change.max_delta_eccentricity,
-            config.impulse.stellar.orbital_change.max_delta_eccentricity
+            -config.stellar.orbital_change.max_delta_eccentricity,
+            config.stellar.orbital_change.max_delta_eccentricity
         )
         let clamped_dobl = maths.clamp(
             payload.delta_obliquity,
-            -config.impulse.stellar.orbital_change.max_delta_obliquity,
-            config.impulse.stellar.orbital_change.max_delta_obliquity
+            -config.stellar.orbital_change.max_delta_obliquity,
+            config.stellar.orbital_change.max_delta_obliquity
         )
         let clamped_dprec = maths.clamp(
             payload.delta_precession,
-            -config.impulse.stellar.orbital_change.max_delta_precession,
-            config.impulse.stellar.orbital_change.max_delta_precession
+            -config.stellar.orbital_change.max_delta_precession,
+            config.stellar.orbital_change.max_delta_precession
         )
 
         # Apply obliquity change (affects seasonal forcing)
-        if maths.abs(clamped_dobl) > config.impulse.stellar.orbital_change.min_significant_obliquity {
+        if maths.abs(clamped_dobl) > config.stellar.orbital_change.min_significant_obliquity {
             rotation.obliquity <- clamped_dobl
         }
 
         # Apply precession change (affects seasonal timing relative to perihelion)
-        if maths.abs(clamped_dprec) > config.impulse.stellar.orbital_change.min_significant_precession {
+        if maths.abs(clamped_dprec) > config.stellar.orbital_change.min_significant_precession {
             rotation.precession <- clamped_dprec
         }
 
+        # TODO(continuum-3x0y): orbit.eccentricity should be stellar.star.orbit_eccentricity
         # Apply eccentricity change (affects seasonal strength)
-        if maths.abs(clamped_de) > config.impulse.stellar.orbital_change.min_significant_eccentricity {
+        if maths.abs(clamped_de) > config.stellar.orbital_change.min_significant_eccentricity {
             orbit.eccentricity <- clamped_de
         }
     }

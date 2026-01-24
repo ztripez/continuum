@@ -1578,13 +1578,13 @@ fracture thermal.mechanical_coupling {
 
     when {
         # Activate when heat content deviates significantly from reference
-        maths.abs(mantle.heat_content - config.fracture.thermal.mechanical_coupling.reference_heat_j) > 1e29
+        maths.abs(mantle.heat_content - config.thermal.mechanical_coupling.reference_heat_j) > 1e29
     }
 
     collect {
         # Compute heat ratio: >1 means hotter, <1 means cooler
-        let ratio = mantle.heat_content / config.fracture.thermal.mechanical_coupling.reference_heat_j
-        let delta = (ratio - 1.0) * config.fracture.thermal.mechanical_coupling.coupling_strength * config.fracture.thermal.mechanical_coupling.base_flow_strength
+        let ratio = mantle.heat_content / config.thermal.mechanical_coupling.reference_heat_j
+        let delta = (ratio - 1.0) * config.thermal.mechanical_coupling.coupling_strength * config.thermal.mechanical_coupling.base_flow_strength
         mantle.flow_strength <- delta
     }
 }
@@ -1614,16 +1614,16 @@ fracture thermal.heat_budget {
 
     collect {
         # Radiogenic heating contribution
-        let radiogenic = config.fracture.thermal.heat_budget.radiogenic_power_w
+        let radiogenic = config.thermal.heat_budget.radiogenic_power_w
 
         # Core heat contribution (from core.heat_power with efficiency)
         # Guard against negative heat power feeding back
-        let core_contribution = maths.max(core.heat_power, 0.0) * config.fracture.thermal.heat_budget.core_transfer_efficiency
+        let core_contribution = maths.max(core.heat_power, 0.0) * config.thermal.heat_budget.core_transfer_efficiency
 
         # Surface heat loss (proportional to heat content above reference)
         let reference = 8.0e30
         let excess_ratio = mantle.heat_content / reference
-        let surface_loss = excess_ratio * config.fracture.thermal.heat_budget.surface_loss_coefficient * mantle.heat_content
+        let surface_loss = excess_ratio * config.thermal.heat_budget.surface_loss_coefficient * mantle.heat_content
 
         # Net power change - cap surface loss to not exceed available heat
         let net_input = radiogenic + core_contribution
@@ -1649,7 +1649,7 @@ fracture tectonics.convergent_uplift {
     }
 
     when {
-        plates.boundary_shear > config.fracture.tectonics.convergent_uplift.convergence_threshold
+        plates.boundary_shear > config.tectonics.convergent_uplift.convergence_threshold
         tectonics.activity > 0.5
     }
 
@@ -1660,8 +1660,8 @@ fracture tectonics.convergent_uplift {
         # Emit deltas assuming ~1 Myr timestep (rate configs are per Myr)
         # TODO: These should be true rates with signal dt.integrate() once
         # the DSL supports separate rate/delta channels
-        crust.thickness <- conv_factor * config.fracture.tectonics.convergent_uplift.thicken_m_per_myr
-        crust.elevation <- conv_factor * config.fracture.tectonics.convergent_uplift.uplift_m_per_myr * 0.001
+        crust.thickness <- conv_factor * config.tectonics.convergent_uplift.thicken_m_per_myr
+        crust.elevation <- conv_factor * config.tectonics.convergent_uplift.uplift_m_per_myr * 0.001
     }
 }
 
@@ -1684,7 +1684,7 @@ fracture tectonics.divergent_subsidence {
         let div_factor = mantle.flow_strength / 10.0
 
         # Emit delta assuming ~1 Myr timestep
-        crust.thickness <- -div_factor * config.fracture.tectonics.divergent_subsidence.thin_m_per_myr
+        crust.thickness <- -div_factor * config.tectonics.divergent_subsidence.thin_m_per_myr
         # Instantaneous delta for dynamic offset
         topography.dynamic_offset <- div_factor * 50.0
     }
@@ -1706,7 +1706,7 @@ fracture tectonics.wilson_fragmentation {
 
     when {
         # High boundary shear indicates internal strain accumulation
-        plates.boundary_shear > config.fracture.tectonics.wilson_fragmentation.shear_threshold
+        plates.boundary_shear > config.tectonics.wilson_fragmentation.shear_threshold
         plates.count > 1
         plates.count < 50
     }
@@ -1755,7 +1755,7 @@ fracture tectonics.wilson_subduction {
 
     when {
         # Old oceanic crust becomes negatively buoyant
-        plates.mean_age > config.fracture.tectonics.wilson_subduction.subduction_age_threshold_myr
+        plates.mean_age > config.tectonics.wilson_subduction.subduction_age_threshold_myr
         plates.oceanic_count > 0
     }
 
@@ -1788,7 +1788,7 @@ fracture tectonics.derive_motion {
 
     collect {
         # Plate motion derived from mantle flow
-        let flow_factor = mantle.flow_strength * config.fracture.tectonics.derive_motion.flow_coupling
+        let flow_factor = mantle.flow_strength * config.tectonics.derive_motion.flow_coupling
 
         # Update tectonic activity based on flow-induced motion
         tectonics.activity <- flow_factor * 0.1
@@ -2150,11 +2150,11 @@ impulse tectonics.plate_collision {
 
     collect {
         # Only process collisions above threshold
-        if payload.energy > config.impulse.tectonics.plate_collision.min_significant_energy_j {
+        if payload.energy > config.tectonics.plate_collision.min_significant_energy_j {
             # Collision energy contributes to mountain building rate (m/Myr)
             # Scale: 1e21 J collision -> ~300 m/Myr orogeny boost
             let orogeny_contribution =
-                payload.energy * config.impulse.tectonics.plate_collision.orogeny_efficiency
+                payload.energy * config.tectonics.plate_collision.orogeny_efficiency
                 / 1.0e18
 
             tectonics.orogeny_rate <- orogeny_contribution
@@ -2199,10 +2199,11 @@ impulse tectonics.volcanic {
     }
 
     collect {
-        if payload.heat_j > config.impulse.tectonics.volcanic.min_eruption_heat_j {
+        if payload.heat_j > config.tectonics.volcanic.min_eruption_heat_j {
             # Heat deposited increases local thermal budget
             let surface_heat =
-                payload.heat_j * config.impulse.tectonics.volcanic.surface_heat_efficiency
+                payload.heat_j * config.tectonics.volcanic.surface_heat_efficiency
+            # TODO(continuum-k15x): thermal.surface_flux signal doesn't exist
             thermal.surface_flux <- surface_heat / 1.0e18
 
             # NOTE: CO2 release disabled - at geological timescales, CO2 is handled

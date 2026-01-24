@@ -16,7 +16,7 @@ use crate::resolve::units::resolve_unit_expr;
 use continuum_cdsl_ast::foundation::{
     Bounds, EntityId, Path, Shape, Span, Type, UnaryOp, Unit, UserType, UserTypeId,
 };
-use continuum_cdsl_ast::{Declaration, Expr, NestedBlock, TypeExpr, UntypedKind};
+use continuum_cdsl_ast::{Declaration, Expr, NestedBlock, RoleData, RoleId, TypeExpr, UntypedKind};
 use std::collections::HashMap;
 
 /// Registry of user-defined types keyed by fully-qualified [`Path`].
@@ -281,6 +281,12 @@ pub fn resolve_user_types(
 }
 
 /// Resolves `type_expr` into `output` for all nodes in the world.
+///
+/// For impulses, the type expression becomes the payload type (stored in RoleData)
+/// rather than the output type. This allows impulse handlers to access payload fields.
+///
+/// If an impulse has no explicit type_expr, we check attributes for a user-defined
+/// type name (e.g., `: PlateCollisionPayload` is parsed as an attribute with no args).
 pub fn resolve_node_types<I: continuum_cdsl_ast::Index>(
     nodes: &mut [continuum_cdsl_ast::Node<I>],
     type_table: &TypeTable,
@@ -288,13 +294,27 @@ pub fn resolve_node_types<I: continuum_cdsl_ast::Index>(
     let mut errors = Vec::new();
 
     for node in nodes {
+        // First try type_expr
         if let Some(type_expr) = &node.type_expr {
             match resolve_type_expr(type_expr, type_table, node.span) {
                 Ok(ty) => {
-                    node.output = Some(ty);
+                    // For impulses, the type is the payload type, not the output
+                    if node.role.id() == RoleId::Impulse {
+                        node.role = RoleData::Impulse { payload: Some(ty) };
+                    } else {
+                        node.output = Some(ty);
+                    }
                     node.type_expr = None; // Clear as consumed
                 }
                 Err(e) => errors.push(e),
+            }
+        } else if node.role.id() == RoleId::Impulse {
+            // For impulses without type_expr, check attributes for type name
+            // `: PlateCollisionPayload` is parsed as an attribute with no args
+            if let Some(payload_type) = find_payload_type_from_attrs(&node.attributes, type_table) {
+                node.role = RoleData::Impulse {
+                    payload: Some(payload_type),
+                };
             }
         }
     }
@@ -304,6 +324,30 @@ pub fn resolve_node_types<I: continuum_cdsl_ast::Index>(
     } else {
         Err(errors)
     }
+}
+
+/// Finds a payload type from attributes for impulses.
+///
+/// When `: TypeName` is used without angle brackets (e.g., `: PlateCollisionPayload`),
+/// the parser treats it as an attribute (not a type_expr). This function finds such
+/// attributes by looking for attribute names that match registered user types.
+fn find_payload_type_from_attrs(
+    attrs: &[continuum_cdsl_ast::Attribute],
+    type_table: &TypeTable,
+) -> Option<Type> {
+    for attr in attrs {
+        // Skip attributes with args (like `:stratum(tectonics)`)
+        if !attr.args.is_empty() {
+            continue;
+        }
+
+        // Check if the attribute name is a registered user type
+        let path = Path::from_path_str(&attr.name);
+        if let Some(id) = type_table.get_id(&path) {
+            return Some(Type::User(id));
+        }
+    }
+    None
 }
 
 /// Infers a type from an untyped expression (for const/config type inference).

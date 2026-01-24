@@ -620,7 +620,7 @@ fracture hydrology.precipitation_coupling {
     }
 
     when {
-        hydrology.water_mass > config.fracture.hydrology.precipitation_coupling.min_water_mass_kg
+        hydrology.water_mass > config.hydrology.precipitation_coupling.min_water_mass_kg
     }
 
     collect {
@@ -650,7 +650,7 @@ fracture hydrology.precipitation_coupling {
         
         # Emit precipitation rate for observation (not net change)
         # Normalized so global mean = base rate
-        let precip_rate = config.fracture.hydrology.precipitation_coupling.base_precipitation_rate * orographic_weight
+        let precip_rate = config.hydrology.precipitation_coupling.base_precipitation_rate * orographic_weight
         hydrology.precipitation_rate <- precip_rate
     }
 }
@@ -670,18 +670,18 @@ fracture hydrology.hydraulic_erosion {
     }
 
     when {
-        hydrology.flow_accumulation > config.fracture.hydrology.hydraulic_erosion.erosion_threshold
+        hydrology.flow_accumulation > config.hydrology.hydraulic_erosion.erosion_threshold
         hydrology.runoff_accumulation > 1e10
     }
 
     collect {
         # Stream power erosion: E = K * A^m * S^n
         let flow_acc = hydrology.flow_accumulation
-        let erosion_factor = config.fracture.hydrology.hydraulic_erosion.erodibility * maths.pow(flow_acc, config.fracture.hydrology.hydraulic_erosion.m_exponent)
-        let erosion_rate = maths.min(erosion_factor, config.fracture.hydrology.hydraulic_erosion.max_erosion_rate_m_per_myr)
+        let erosion_factor = config.hydrology.hydraulic_erosion.erodibility * maths.pow(flow_acc, config.hydrology.hydraulic_erosion.m_exponent)
+        let erosion_rate = maths.min(erosion_factor, config.hydrology.hydraulic_erosion.max_erosion_rate_m_per_myr)
 
         # Eroded material becomes sediment
-        hydrology.sediment_load <- erosion_rate * config.fracture.hydrology.hydraulic_erosion.sediment_conversion * 1e-6
+        hydrology.sediment_load <- erosion_rate * config.hydrology.hydraulic_erosion.sediment_conversion * 1e-6
     }
 }
 
@@ -704,12 +704,12 @@ fracture hydrology.sediment_transport {
     collect {
         # Transport capacity: C = K * Q^a
         let discharge = hydrology.runoff_accumulation
-        let capacity = config.fracture.hydrology.sediment_transport.capacity_coefficient * maths.pow(discharge, config.fracture.hydrology.sediment_transport.discharge_exponent)
+        let capacity = config.hydrology.sediment_transport.capacity_coefficient * maths.pow(discharge, config.hydrology.sediment_transport.discharge_exponent)
         let sediment = hydrology.sediment_load
 
         # If sediment > capacity, deposit excess
         let excess = maths.max(sediment - capacity * 1e-10, 0.0)
-        let deposition = excess * config.fracture.hydrology.sediment_transport.deposition_rate
+        let deposition = excess * config.hydrology.sediment_transport.deposition_rate
         hydrology.sediment_load <- -deposition
     }
 }
@@ -734,7 +734,7 @@ fracture hydrology.water_thermal_relaxation {
     collect {
         # Water temperature relaxes toward climate-adjusted equilibrium
         let surface_temp = surface.temp
-        let target = maths.clamp(surface_temp, config.fracture.hydrology.water_thermal_relaxation.min_water_temp_k, config.fracture.hydrology.water_thermal_relaxation.max_water_temp_k)
+        let target = maths.clamp(surface_temp, config.hydrology.water_thermal_relaxation.min_water_temp_k, config.hydrology.water_thermal_relaxation.max_water_temp_k)
         let current_temp = hydrology.water_temperature
         let delta = (target - current_temp) * 0.01
         hydrology.water_temperature <- delta
@@ -763,7 +763,7 @@ fracture hydrology.evaporation_coupling {
     }
 
     when {
-        hydrology.water_mass > config.fracture.hydrology.evaporation_coupling.min_water_mass_kg
+        hydrology.water_mass > config.hydrology.evaporation_coupling.min_water_mass_kg
         hydrology.water_temperature > 273.15 <K>
     }
 
@@ -776,15 +776,15 @@ fracture hydrology.evaporation_coupling {
         let e_sat = hydrology.saturation_vapor_pressure(temp)
         
         # Saturation mixing ratio: q_sat = 0.622 * e_sat / P
-        let q_sat = config.fracture.hydrology.evaporation_coupling.mixing_ratio_scale * e_sat / config.fracture.hydrology.evaporation_coupling.reference_pressure_pa
+        let q_sat = config.hydrology.evaporation_coupling.mixing_ratio_scale * e_sat / config.hydrology.evaporation_coupling.reference_pressure_pa
         
         # Actual mixing ratio (assume 60% relative humidity)
-        let q_air = q_sat * config.fracture.hydrology.evaporation_coupling.relative_humidity
+        let q_air = q_sat * config.hydrology.evaporation_coupling.relative_humidity
         
         # Evaporation rate (kg/m²/s) = C_E * U * (q_sat - q_air) * air_density
         # Air density ~1.2 kg/m³
-        let evap_rate = config.fracture.hydrology.evaporation_coupling.bulk_transfer_coefficient 
-                      * config.fracture.hydrology.evaporation_coupling.wind_speed_m_per_s 
+        let evap_rate = config.hydrology.evaporation_coupling.bulk_transfer_coefficient 
+                      * config.hydrology.evaporation_coupling.wind_speed_m_per_s 
                       * (q_sat - q_air) 
                       * 1.2
         
@@ -819,8 +819,8 @@ fracture hydrology.gas_exchange {
     collect {
         # Gas solubility inversely related to temperature (Henry's law)
         let temp = hydrology.water_temperature
-        let temp_fraction = maths.clamp((temp - config.fracture.hydrology.gas_exchange.cold_temp_k) / (config.fracture.hydrology.gas_exchange.warm_temp_k - config.fracture.hydrology.gas_exchange.cold_temp_k), 0.0, 1.0)
-        let target_gas = config.fracture.hydrology.gas_exchange.solubility_cold * (1.0 - temp_fraction) + config.fracture.hydrology.gas_exchange.solubility_warm * temp_fraction
+        let temp_fraction = maths.clamp((temp - config.hydrology.gas_exchange.cold_temp_k) / (config.hydrology.gas_exchange.warm_temp_k - config.hydrology.gas_exchange.cold_temp_k), 0.0, 1.0)
+        let target_gas = config.hydrology.gas_exchange.solubility_cold * (1.0 - temp_fraction) + config.hydrology.gas_exchange.solubility_warm * temp_fraction
         let current_gas = hydrology.dissolved_gas
         let delta = (target_gas * 10.0 - current_gas) * 0.001
         hydrology.dissolved_gas <- delta
@@ -844,18 +844,18 @@ fracture hydrology.groundwater_coupling {
     }
 
     when {
-        hydrology.water_mass > config.fracture.hydrology.groundwater_coupling.min_surface_water_kg
+        hydrology.water_mass > config.hydrology.groundwater_coupling.min_surface_water_kg
     }
 
     collect {
         # Infiltration: surface -> groundwater when pore space available
         let saturation = hydrology.groundwater_saturation
-        let available_pore = maths.max(1.0 - saturation, 0.0) * config.fracture.hydrology.groundwater_coupling.porosity
-        let infiltration_rate = config.fracture.hydrology.groundwater_coupling.permeability_m_per_s * available_pore * 1000.0
+        let available_pore = maths.max(1.0 - saturation, 0.0) * config.hydrology.groundwater_coupling.porosity
+        let infiltration_rate = config.hydrology.groundwater_coupling.permeability_m_per_s * available_pore * 1000.0
 
         # Baseflow: groundwater -> surface when saturated
-        let excess = maths.max(saturation - config.fracture.hydrology.groundwater_coupling.baseflow_threshold, 0.0)
-        let baseflow_rate = excess * config.fracture.hydrology.groundwater_coupling.baseflow_coefficient * 1e5
+        let excess = maths.max(saturation - config.hydrology.groundwater_coupling.baseflow_threshold, 0.0)
+        let baseflow_rate = excess * config.hydrology.groundwater_coupling.baseflow_coefficient * 1e5
 
         # Net exchange
         let net_surface = baseflow_rate - infiltration_rate
@@ -876,14 +876,14 @@ fracture hydrology.sediment_lithification {
     }
 
     when {
-        hydrology.sediment_load > config.fracture.hydrology.sediment_lithification.threshold
+        hydrology.sediment_load > config.hydrology.sediment_lithification.threshold
     }
 
     collect {
         # Excess sediment above threshold compacts and lithifies
         let sediment = hydrology.sediment_load
-        let excess = sediment - config.fracture.hydrology.sediment_lithification.threshold
-        let lithified = excess * config.fracture.hydrology.sediment_lithification.rate_per_myr * 1e-6
+        let excess = sediment - config.hydrology.sediment_lithification.threshold
+        let lithified = excess * config.hydrology.sediment_lithification.rate_per_myr * 1e-6
         hydrology.sediment_load <- -lithified
     }
 }

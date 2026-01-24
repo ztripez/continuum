@@ -345,12 +345,12 @@ fracture ecology.carrying_capacity_exceeded {
     collect {
         # Compute carrying capacity: K = NPP * turnover / maintenance
         # Inlined to reduce let nesting (parser stack overflow workaround)
-        let carrying_capacity = ecology.npp * config.fracture.ecology.carrying_capacity_exceeded.turnover_time_yr / config.fracture.ecology.carrying_capacity_exceeded.maintenance_cost
-        let threshold = carrying_capacity * config.fracture.ecology.carrying_capacity_exceeded.overshoot_threshold
+        let carrying_capacity = ecology.npp * config.ecology.carrying_capacity_exceeded.turnover_time_yr / config.ecology.carrying_capacity_exceeded.maintenance_cost
+        let threshold = carrying_capacity * config.ecology.carrying_capacity_exceeded.overshoot_threshold
 
         if ecology.biomass > threshold {
             # Dieback: reduce biomass toward carrying capacity
-            let dieback = (ecology.biomass - carrying_capacity) * config.fracture.ecology.carrying_capacity_exceeded.dieback_rate_per_yr * 1e-6
+            let dieback = (ecology.biomass - carrying_capacity) * config.ecology.carrying_capacity_exceeded.dieback_rate_per_yr * 1e-6
             ecology.biomass <- -dieback
         } else {
             ecology.biomass <- 0.0
@@ -371,8 +371,8 @@ fracture ecology.desertification_risk {
     }
 
     when {
-        ecology.vegetation_cover < config.fracture.ecology.desertification_risk.veg_threshold
-        surface.temp > config.fracture.ecology.desertification_risk.heat_stress_temp_k
+        ecology.vegetation_cover < config.ecology.desertification_risk.veg_threshold
+        surface.temp > config.ecology.desertification_risk.heat_stress_temp_k
     }
 
     collect {
@@ -383,7 +383,7 @@ fracture ecology.desertification_risk {
         let heat_factor = (temp - 288.0) / 30.0  # Normalized heat stress
 
         # Soil carbon loss proportional to risk factors
-        let degradation = config.fracture.ecology.desertification_risk.soil_degradation_rate * (1.0 - veg) * maths.max(heat_factor, 0.0)
+        let degradation = config.ecology.desertification_risk.soil_degradation_rate * (1.0 - veg) * maths.max(heat_factor, 0.0)
         ecology.soil_carbon <- -ecology.soil_carbon * degradation
 
         # Vegetation cover further reduced (positive feedback)
@@ -404,20 +404,20 @@ fracture ecology.fire_disturbance {
     }
 
     when {
-        ecology.biomass > config.fracture.ecology.fire_disturbance.biomass_threshold
-        surface.temp > config.fracture.ecology.fire_disturbance.temp_threshold_k
+        ecology.biomass > config.ecology.fire_disturbance.biomass_threshold
+        surface.temp > config.ecology.fire_disturbance.temp_threshold_k
         ecology.vegetation_cover > 0.3
     }
 
     collect {
         # Fire consumes biomass
         let biomass = ecology.biomass
-        let burned = biomass * config.fracture.ecology.fire_disturbance.burn_fraction
+        let burned = biomass * config.ecology.fire_disturbance.burn_fraction
         ecology.biomass <- -burned
 
         # Remaining carbon enters soil as char/ash
         # CO2 release handled by equilibrium dynamics (fire is fast, equilibration is geological)
-        let charred = burned * (1.0 - config.fracture.ecology.fire_disturbance.carbon_release_fraction)
+        let charred = burned * (1.0 - config.ecology.fire_disturbance.carbon_release_fraction)
         ecology.soil_carbon <- charred * 0.5
     }
 }
@@ -433,13 +433,13 @@ fracture ecology.pest_outbreak {
     }
 
     when {
-        ecology.biomass > config.fracture.ecology.pest_outbreak.outbreak_threshold
-        surface.temp > config.fracture.ecology.pest_outbreak.stress_temp_threshold_k
+        ecology.biomass > config.ecology.pest_outbreak.outbreak_threshold
+        surface.temp > config.ecology.pest_outbreak.stress_temp_threshold_k
     }
 
     collect {
         # Pest/disease reduces biomass
-        let mortality = ecology.biomass * config.fracture.ecology.pest_outbreak.mortality_rate * 0.001
+        let mortality = ecology.biomass * config.ecology.pest_outbreak.mortality_rate * 0.001
         ecology.biomass <- -mortality
 
         # Dead biomass enters litter/soil carbon pool

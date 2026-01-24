@@ -556,14 +556,16 @@ mod tests {
     }
 
     #[test]
-    fn test_cross_type_collision() {
+    fn test_cross_type_no_collision() {
+        // Different declaration kinds CAN share paths because the prefix syntax
+        // makes them unambiguous (e.g., `entity sim` vs `signal.sim`).
+        // This is by design since commit b9bcbbc.
         let decls = vec![
             Declaration::Entity(make_entity("sim")),
             Declaration::Node(make_signal("sim", vec![])),
         ];
 
         let errors = validate_collisions(&decls);
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].kind, ErrorKind::PathCollision);
+        assert!(errors.is_empty(), "Different kinds can share paths");
     }
 }
