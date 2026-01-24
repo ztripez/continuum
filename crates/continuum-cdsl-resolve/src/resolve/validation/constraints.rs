@@ -378,8 +378,9 @@ pub(super) fn validate_unit_constraint(
                 return errors;
             };
 
-            // Use is_compatible_with() to allow scale mismatch for dimensionless units
-            if !arg_unit.is_compatible_with(expected_unit) {
+            // Allow dimensionless to match any unit (implicit unit adoption)
+            // This enables config values without units to work with dimensional signals
+            if !arg_unit.is_dimensionless() && !arg_unit.is_compatible_with(expected_unit) {
                 errors.push(CompileError::new(
                     ErrorKind::InvalidKernelUnit,
                     span,
@@ -423,8 +424,11 @@ pub(super) fn validate_unit_constraint(
                 return errors;
             };
 
-            // Check dimensional type equality (kind + dimensions), allow scale to differ
-            if arg_unit.dimensional_type() != expected_unit.dimensional_type() {
+            // Allow dimensionless to match any unit (implicit unit adoption)
+            // This enables config values without units to work with dimensional signals
+            if !arg_unit.is_dimensionless()
+                && arg_unit.dimensional_type() != expected_unit.dimensional_type()
+            {
                 errors.push(CompileError::new(
                     ErrorKind::InvalidKernelUnit,
                     span,
