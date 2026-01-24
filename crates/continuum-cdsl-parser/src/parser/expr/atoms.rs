@@ -67,6 +67,7 @@ pub(super) fn parse_atom(stream: &mut TokenStream) -> Result<Expr, ParseError> {
         Some(Token::Entity) => parse_entity_reference(stream),
         Some(Token::Config) => parse_config_reference(stream),
         Some(Token::Const) => parse_const_reference(stream),
+        Some(Token::Fn) => parse_function_call(stream),
         Some(Token::Ident(_)) | Some(Token::Signal) | Some(Token::Field) => {
             parse_identifier(stream)
         }
@@ -293,4 +294,41 @@ fn parse_const_reference(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let path = super::super::types::parse_path(stream)?;
 
     Ok(Expr::new(UntypedKind::Const(path), stream.span_from(start)))
+}
+
+/// Parse a user-defined function call: `fn.path(args)`.
+///
+/// # Syntax
+///
+/// ```cdsl
+/// fn.atmosphere.effective_emissivity(base, tau)
+/// fn.hydrology.water_phase(temp)
+/// ```
+fn parse_function_call(stream: &mut TokenStream) -> Result<Expr, ParseError> {
+    let start = stream.current_pos();
+    stream.expect(Token::Fn)?;
+    stream.expect(Token::Dot)?;
+
+    let path = super::super::types::parse_path(stream)?;
+
+    // Parse argument list
+    stream.expect(Token::LParen)?;
+    let mut args = Vec::new();
+
+    if !matches!(stream.peek(), Some(Token::RParen)) {
+        loop {
+            args.push(super::parse_expr(stream)?);
+            if matches!(stream.peek(), Some(Token::RParen)) {
+                break;
+            }
+            stream.expect(Token::Comma)?;
+        }
+    }
+
+    stream.expect(Token::RParen)?;
+
+    Ok(Expr::new(
+        UntypedKind::Call { func: path, args },
+        stream.span_from(start),
+    ))
 }
