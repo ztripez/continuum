@@ -183,6 +183,89 @@ impl BytecodePhaseExecutor {
 
                             level_results.push((signal.clone(), value));
                         }
+                        NodeKind::MemberSignalResolve {
+                            member_signal,
+                            kernel_idx,
+                        } => {
+                            let compiled = compiled_blocks.get(*kernel_idx).ok_or_else(|| {
+                                Error::ExecutionFailure {
+                                    message: format!(
+                                        "Missing bytecode block for member signal configure {}",
+                                        kernel_idx
+                                    ),
+                                }
+                            })?;
+
+                            // Get entity instance count
+                            let full_signal_path = format!(
+                                "{}.{}",
+                                member_signal.entity_id, member_signal.signal_name
+                            );
+                            let instance_count =
+                                member_signals.instance_count_for_signal(&full_signal_path);
+
+                            tracing::debug!(
+                                "Executing Configure for member signal '{}' ({} instances)",
+                                full_signal_path,
+                                instance_count
+                            );
+
+                            // Execute for each entity instance
+                            for instance_idx in 0..instance_count {
+                                let entity_ctx = EntityContext {
+                                    entity_id: &member_signal.entity_id,
+                                    instance_index: instance_idx,
+                                    target_member: &Path::from(full_signal_path.clone()),
+                                };
+
+                                let mut placeholder_fracture_queue = FractureQueue::default();
+                                let mut ctx = VMContext {
+                                    phase: Phase::Configure,
+                                    era,
+                                    dt,
+                                    sim_time,
+                                    signals,
+                                    entities,
+                                    member_signals,
+                                    channels: input_channels,
+                                    fracture_queue: &mut placeholder_fracture_queue,
+                                    field_buffer: &mut placeholder_field_buffer,
+                                    event_buffer: &mut EventBuffer::default(),
+                                    target_signal: None,
+                                    cached_inputs: None,
+                                    config_values: &self.config_values,
+                                    const_values: &self.const_values,
+                                    payload: None,
+                                    entity_context: Some(entity_ctx),
+                                };
+
+                                let value = self
+                                    .executor
+                                    .execute(compiled, &mut ctx)
+                                    .map_err(|e| Error::ExecutionFailure {
+                                        message: format!(
+                                            "member signal '{}' instance {}: {}",
+                                            full_signal_path, instance_idx, e
+                                        ),
+                                    })?
+                                    .ok_or_else(|| Error::ExecutionFailure {
+                                        message: format!(
+                                            "Member signal configure for '{}' instance {} returned no value",
+                                            full_signal_path, instance_idx
+                                        ),
+                                    })?;
+
+                                // Store in member signal buffer
+                                member_signals
+                                    .set_current(&full_signal_path, instance_idx, value)
+                                    .map_err(|e| Error::ExecutionFailure {
+                                        message: format!(
+                                            "Failed to store member signal '{}' instance {}: {}",
+                                            full_signal_path, instance_idx, e
+                                        ),
+                                    })?;
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -383,6 +466,93 @@ impl BytecodePhaseExecutor {
                                 })?;
 
                             level_results.push((signal.clone(), value));
+                        }
+                        NodeKind::MemberSignalResolve {
+                            member_signal,
+                            kernel_idx,
+                        } => {
+                            let compiled = compiled_blocks.get(*kernel_idx).ok_or_else(|| {
+                                Error::ExecutionFailure {
+                                    message: format!(
+                                        "Missing bytecode block for member signal resolve {}",
+                                        kernel_idx
+                                    ),
+                                }
+                            })?;
+
+                            // Construct full signal path
+                            let full_signal_path = format!(
+                                "{}.{}",
+                                member_signal.entity_id, member_signal.signal_name
+                            );
+
+                            // Get instance count for this entity
+                            let instance_count =
+                                member_signals.instance_count_for_signal(&full_signal_path);
+
+                            tracing::debug!(
+                                "Resolving member signal '{}' for {} instances",
+                                full_signal_path,
+                                instance_count
+                            );
+
+                            // Execute bytecode for each entity instance
+                            for instance_idx in 0..instance_count {
+                                // Set up entity context for this instance
+                                let entity_ctx = EntityContext {
+                                    entity_id: &member_signal.entity_id,
+                                    instance_index: instance_idx,
+                                    target_member: &Path::from(full_signal_path.clone()),
+                                };
+
+                                let mut placeholder_fracture_queue = FractureQueue::default();
+                                let mut ctx = VMContext {
+                                    phase: Phase::Resolve,
+                                    era,
+                                    dt,
+                                    sim_time,
+                                    signals,
+                                    entities,
+                                    member_signals,
+                                    channels: input_channels,
+                                    fracture_queue: &mut placeholder_fracture_queue,
+                                    field_buffer: &mut placeholder_field_buffer,
+                                    event_buffer: &mut EventBuffer::default(),
+                                    target_signal: None, // Member signals don't use target_signal
+                                    cached_inputs: None,
+                                    config_values: &self.config_values,
+                                    const_values: &self.const_values,
+                                    payload: None,
+                                    entity_context: Some(entity_ctx),
+                                };
+
+                                // Execute bytecode with entity context
+                                let value = self
+                                    .executor
+                                    .execute(compiled, &mut ctx)
+                                    .map_err(|e| Error::ExecutionFailure {
+                                        message: format!(
+                                            "member signal '{}' instance {}: {}",
+                                            full_signal_path, instance_idx, e
+                                        ),
+                                    })?
+                                    .ok_or_else(|| Error::ExecutionFailure {
+                                        message: format!(
+                                            "Member signal resolve for '{}' instance {} returned no value",
+                                            full_signal_path, instance_idx
+                                        ),
+                                    })?;
+
+                                // Store result in member signal buffer at this instance
+                                member_signals
+                                    .set_current(&full_signal_path, instance_idx, value)
+                                    .map_err(|e| Error::ExecutionFailure {
+                                        message: format!(
+                                            "Failed to store member signal '{}' instance {}: {}",
+                                            full_signal_path, instance_idx, e
+                                        ),
+                                    })?;
+                            }
                         }
                         _ => {}
                     }
