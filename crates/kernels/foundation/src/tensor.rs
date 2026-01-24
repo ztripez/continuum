@@ -16,7 +16,6 @@ pub struct TensorData {
     pub rows: usize,
     /// Number of columns in the tensor.
     pub cols: usize,
-    #[allow(dead_code)]
     pub(crate) data: Arc<[f64]>, // Row-major storage
 }
 

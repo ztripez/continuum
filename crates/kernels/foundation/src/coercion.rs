@@ -79,7 +79,8 @@ pub fn can_operate(
             TypeCheckResult::Valid(Vector { dim: *d1 })
         }
         (TypeCheckOp::Mul, Vector { dim: d1 }, Vector { dim: d2 }) if d1 == d2 => {
-            // TODO: Should be dot product returning Scalar, but currently element-wise
+            // Element-wise multiplication (Hadamard product)
+            // For dot product, use maths::dot(a, b) explicitly
             TypeCheckResult::Valid(Vector { dim: *d1 })
         }
 

@@ -43,7 +43,6 @@ pub enum Value {
 
     /// Ordered sequence of values (intermediate only, wrapped in Arc).
     Seq(Arc<Vec<Value>>),
-    // TODO: Grid
 }
 
 impl Value {
