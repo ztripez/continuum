@@ -350,8 +350,15 @@ They do not override the invariants above.
 
 ### Tooling
 
-- `tools/run.md`
-- `tools/analyze.md`
+- `@docs/tools/run.md`
+- `@docs/tools/analyze.md`
+
+### Alpha Generation
+
+References to the old aplha generation engine that was 100% rust based and not cdsl. That engine is 100% working and this generation should aim to implement all feature that is appliabble. This is the gold standad.
+
+- @docs/old-alpha-refs/execution-flow.md
+- @docs/old-alpha-refs/signal-field-model.md
 
 ---
 
@@ -387,6 +394,7 @@ When in doubt:
    git push
    git status  # MUST show "up to date with origin"
    ```
+
 1. **Clean up** - Clear stashes, prune remote branches
 1. **Verify** - All changes committed AND pushed
 1. **Hand off** - Provide context for next session
