@@ -75,10 +75,17 @@ config {
 # =============================================================================
 
 /// Tetens formula for saturation vapor pressure
+/// Returns pressure in Pa
 fn atmosphere.saturation_vapor_pressure(temperature_k) {
-    # e_sat(T) = 610.94 * maths.exp((17.625 * T_C) / (T_C + 243.04))
-    let t_celsius = temperature_k - 273.15 in
-    610.94 * maths.exp((17.625 * t_celsius) / (t_celsius + 243.04))
+    # e_sat(T) = 610.94 Pa * exp((17.625 * T_C) / (T_C + 243.04))
+    # The Tetens formula coefficients are empirical and dimensionless
+    # T_C is temperature in Celsius (but we keep K internally for unit safety)
+    # To make this work with units, we normalize temperature to dimensionless
+    let t_ref = 273.15 <K> in
+    let t_scale = 243.04 <K> in
+    let t_normalized = (temperature_k - t_ref) / t_scale in  # dimensionless
+    let exponent = 17.625 * t_normalized / (1.0 + t_normalized) in  # dimensionless
+    610.94 <Pa> * maths.exp(exponent)
 }
 
 /// Equilibrium water vapor column mass
@@ -87,7 +94,9 @@ fn atmosphere.saturation_vapor_pressure(temperature_k) {
 fn atmosphere.equilibrium_water_vapor(surface_temp_k, relative_humidity, scale_height_m) {
     let e_sat = atmosphere.saturation_vapor_pressure(surface_temp_k) in
     let rh = maths.clamp(relative_humidity, 0.0, 1.0) in
-    (e_sat * rh * scale_height_m) / (461.0 * surface_temp_k)
+    # Gas constant for water vapor Rv = 461 J/(kg·K)
+    let rv = 461.0 <J*kg⁻¹*K⁻¹> in
+    (e_sat * rh * scale_height_m) / (rv * surface_temp_k)
 }
 
 # Effective greenhouse emissivity
@@ -163,7 +172,7 @@ signal atmosphere.surface_temp {
         # P_in = epsilon * sigma * A * T^4
         # T_eq = (P_in / (epsilon * sigma * A))^0.25
         # For Earth: A = 5.1e14 m²
-        let surface_area = 5.1e14 in
+        let surface_area = 5.1e14 <m²> in
         let power_in = atmosphere.external_power in
         let t_eq_fourth = power_in / (epsilon_eff * const.atmosphere.sigma * surface_area) in
         # T_eq = t_eq_fourth^0.25 = sqrt(sqrt(t_eq_fourth))
@@ -199,10 +208,10 @@ signal atmosphere.water_vapor {
 
     config {
         relative_humidity: 0.6
-        scale_height_m: 2000.0
-        relaxation_time_s: 86400.0
-        min: 0.1
-        max: 200.0
+        scale_height_m: 2000.0 <m>
+        relaxation_time_s: 86400.0 <s>
+        min: 0.1 <kg/m²>
+        max: 200.0 <kg/m²>
     }
 
     resolve {
@@ -331,8 +340,8 @@ signal atmosphere.tau_greenhouse {
 
     config {
         base_tau: 1.0
-        co2_sensitivity: 0.002
-        water_vapor_sensitivity: 0.01
+        co2_sensitivity: 0.002          # per ppmv (dimensionless)
+        water_vapor_sensitivity: 0.01 <m²/kg>  # tau per kg/m² water vapor
     }
 
     resolve {
@@ -360,14 +369,15 @@ signal atmosphere.pressure {
     : symbol("P_surf")
 
     config {
-        total_mass_kg: 5.15e18       # Earth atmospheric mass (kg)
-        reference_pressure_pa: 101325.0  # Earth surface pressure (Pa)
+        total_mass_kg: 5.15e18 <kg>       # Earth atmospheric mass
+        reference_pressure_pa: 101325.0 <Pa>  # Earth surface pressure
+        reference_mass_kg: 5.15e18 <kg>   # Reference mass for ratio calculation
     }
 
     resolve {
         # P = (M_atm * g) / (4 * π * R²)
         # Simplified: use configured initial pressure with mass ratio
-        let mass_ratio = config.atmosphere.pressure.total_mass_kg / 5.15e18 in
+        let mass_ratio = config.atmosphere.pressure.total_mass_kg / config.atmosphere.pressure.reference_mass_kg in
         config.atmosphere.pressure.reference_pressure_pa * mass_ratio + inputs
     }
 
@@ -390,11 +400,11 @@ signal atmosphere.ice_fraction {
 
     config {
         # Ice forms below freezing (273.15 K)
-        freezing_temp_k: 273.15
+        freezing_temp_k: 273.15 <K>
         # Ice edge transition width (K) - smooth transition zone
-        transition_width_k: 10.0
+        transition_width_k: 10.0 <K>
         # Relaxation timescale for ice dynamics (s) - ~1 year
-        relaxation_tau_s: 3.1536e7
+        relaxation_tau_s: 3.1536e7 <s>
     }
 
     resolve {
@@ -418,7 +428,7 @@ signal atmosphere.ice_fraction {
             # Ice edge at latitude where T = t_freeze
             # Approximate: ice_fraction ≈ (t_freeze - t_pole) / (t_equator - t_pole)
             # Physical constraint: fraction must be [0, 1]
-            let temp_range = maths.max(t_equator - t_pole, 1.0) in
+            let temp_range = maths.max(t_equator - t_pole, 1.0 <K>) in
             let ice_extent = (t_freeze - t_pole) / temp_range in
             maths.clamp(ice_extent, 0.0, 1.0)
         }
@@ -616,11 +626,11 @@ fracture atmosphere.co2_equilibrium {
         min_equilibrium_ppmv: 50.0
         # Temperature sensitivity (silicate weathering thermostat)
         # Weathering efficiency doubles every 10K above reference
-        weathering_sensitivity: 0.0693      # ln(2)/10
+        weathering_sensitivity: 0.0693 <K⁻¹>  # ln(2)/10 per K
         # Ocean solubility: CO2 capacity decreases ~3% per K warming
-        ocean_sensitivity: 0.03
+        ocean_sensitivity: 0.03 <K⁻¹>
         # Reference temperature for feedbacks
-        reference_temp_k: 288.0
+        reference_temp_k: 288.0 <K>
     }
 
     when {
