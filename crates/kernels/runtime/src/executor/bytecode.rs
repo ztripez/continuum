@@ -9,7 +9,8 @@ use crate::storage::{
     EntityStorage, EventBuffer, FieldBuffer, FractureQueue, InputChannels, SignalStorage,
 };
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
-use continuum_foundation::{AggregateOp, EntityId, Path};
+use continuum_cdsl::foundation::{Shape, Type};
+use continuum_foundation::{AggregateOp, EntityId, Mat2, Mat3, Mat4, Path, Quat};
 use indexmap::IndexMap;
 use std::collections::HashMap;
 use tracing::instrument;
@@ -24,6 +25,9 @@ pub struct BytecodePhaseExecutor {
     /// Global simulation constants loaded from const {} blocks.
     /// Frozen at world initialization, immutable during execution.
     const_values: HashMap<Path, Value>,
+    /// Signal types for zero value initialization.
+    /// Used to create correct zero values for inputs accumulator.
+    signal_types: HashMap<SignalId, Type>,
 }
 
 impl Default for BytecodePhaseExecutor {
@@ -39,6 +43,7 @@ impl BytecodePhaseExecutor {
             executor: BytecodeExecutor::new(),
             config_values: HashMap::new(),
             const_values: HashMap::new(),
+            signal_types: HashMap::new(),
         }
     }
 
@@ -82,6 +87,15 @@ impl BytecodePhaseExecutor {
     /// model).
     pub fn set_const_values(&mut self, values: HashMap<Path, Value>) {
         self.const_values = values;
+    }
+
+    /// Stores signal type information for zero value initialization.
+    ///
+    /// Signal types are used to create correct zero values when no inputs
+    /// have been accumulated for a signal (e.g., Vec3([0.0, 0.0, 0.0]) instead
+    /// of Scalar(0.0) for vector signals).
+    pub fn set_signal_types(&mut self, types: HashMap<SignalId, Type>) {
+        self.signal_types = types;
     }
 
     /// Execute the Configure phase (initial blocks)
@@ -148,6 +162,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                signal_types: &self.signal_types,
                                 payload: None,
                                 entity_context: None,
                             };
@@ -235,6 +250,7 @@ impl BytecodePhaseExecutor {
                                     cached_inputs: None,
                                     config_values: &self.config_values,
                                     const_values: &self.const_values,
+                                    signal_types: &self.signal_types,
                                     payload: None,
                                     entity_context: Some(entity_ctx),
                                 };
@@ -338,6 +354,7 @@ impl BytecodePhaseExecutor {
                             cached_inputs: None,
                             config_values: &self.config_values,
                             const_values: &self.const_values,
+                            signal_types: &self.signal_types,
                             payload: None,
                             entity_context: None,
                         };
@@ -432,6 +449,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                signal_types: &self.signal_types,
                                 payload: None,
                                 entity_context: None,
                             };
@@ -522,6 +540,7 @@ impl BytecodePhaseExecutor {
                                     cached_inputs: None,
                                     config_values: &self.config_values,
                                     const_values: &self.const_values,
+                                    signal_types: &self.signal_types,
                                     payload: None,
                                     entity_context: Some(entity_ctx),
                                 };
@@ -649,6 +668,7 @@ impl BytecodePhaseExecutor {
                             cached_inputs: None,
                             config_values: &self.config_values,
                             const_values: &self.const_values,
+                            signal_types: &self.signal_types,
                             payload: None,
                             entity_context: None,
                         };
@@ -725,6 +745,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                signal_types: &self.signal_types,
                                 payload: None,
                                 entity_context: None,
                             };
@@ -803,6 +824,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                signal_types: &self.signal_types,
                                 payload: None,
                                 entity_context: None,
                             };
@@ -833,6 +855,49 @@ impl BytecodePhaseExecutor {
     }
 }
 
+/// Create a zero value for a given Type.
+///
+/// Returns the additive identity for the type:
+/// - Scalar → 0.0
+/// - Vec2 → [0.0, 0.0]
+/// - Vec3 → [0.0, 0.0, 0.0]
+/// - Vec4 → [0.0, 0.0, 0.0, 0.0]
+/// - Bool → false
+/// - Quat → identity quaternion (1.0, 0.0, 0.0, 0.0)
+/// - Mat2/3/4 → zero matrices
+///
+/// For User types and other complex types, panics (not supported for inputs).
+fn zero_value_for_type(ty: &Type) -> Value {
+    match ty {
+        Type::Kernel(kt) => match &kt.shape {
+            Shape::Scalar => Value::Scalar(0.0),
+            Shape::Vector { dim } => match dim {
+                2 => Value::Vec2([0.0, 0.0]),
+                3 => Value::Vec3([0.0, 0.0, 0.0]),
+                4 => Value::Vec4([0.0, 0.0, 0.0, 0.0]),
+                _ => panic!(
+                    "Unsupported vector dimension for inputs zero value: {}",
+                    dim
+                ),
+            },
+            Shape::Matrix { rows, cols } => match (rows, cols) {
+                (2, 2) => Value::Mat2(Mat2([0.0; 4])),
+                (3, 3) => Value::Mat3(Mat3([0.0; 9])),
+                (4, 4) => Value::Mat4(Mat4([0.0; 16])),
+                _ => panic!(
+                    "Unsupported matrix dimensions for inputs zero value: {}x{}",
+                    rows, cols
+                ),
+            },
+            _ => panic!("Unsupported shape for inputs zero value: {:?}", kt.shape),
+        },
+        Type::Bool => Value::Boolean(false),
+        Type::User(_) | Type::String | Type::Unit | Type::Seq(_) => {
+            panic!("Unsupported type for inputs zero value: {:?}", ty)
+        }
+    }
+}
+
 /// Implementation of the VM execution context that bridges to runtime storage.
 pub struct VMContext<'a> {
     pub phase: Phase,
@@ -847,11 +912,13 @@ pub struct VMContext<'a> {
     pub field_buffer: &'a mut FieldBuffer,
     pub event_buffer: &'a mut EventBuffer,
     pub target_signal: Option<SignalId>,
-    pub cached_inputs: Option<f64>,
+    pub cached_inputs: Option<Value>,
     /// World configuration values loaded from config {} blocks
     pub config_values: &'a HashMap<Path, Value>,
     /// Global simulation constants loaded from const {} blocks
     pub const_values: &'a HashMap<Path, Value>,
+    /// Signal types for zero value initialization
+    pub signal_types: &'a HashMap<SignalId, Type>,
     /// Current impulse payload (only valid when executing impulse collect blocks)
     pub payload: Option<&'a Value>,
     /// Current entity context for member signal execution
@@ -1001,8 +1068,15 @@ impl<'a> ExecutionContext for VMContext<'a> {
         // Check if we're in entity context (member signal)
         if let Some(_entity_ctx) = &self.entity_context {
             // TODO: Member signals don't currently support input accumulation
-            // For now, return 0.0 (no inputs)
+            // For now, return typed zero (no inputs)
             // Future: implement per-instance input channels
+            if let Some(ty) = self
+                .target_signal
+                .as_ref()
+                .and_then(|s| self.signal_types.get(s))
+            {
+                return Ok(zero_value_for_type(ty));
+            }
             return Ok(Value::Scalar(0.0));
         }
 
@@ -1015,13 +1089,26 @@ impl<'a> ExecutionContext for VMContext<'a> {
                 phase: self.phase,
             })?;
 
-        if let Some(cached) = self.cached_inputs {
-            return Ok(Value::Scalar(cached));
+        if let Some(cached) = &self.cached_inputs {
+            return Ok(cached.clone());
         }
 
         let value = self.channels.drain_sum(signal);
-        self.cached_inputs = Some(value);
-        Ok(Value::Scalar(value))
+
+        // Create the appropriate Value based on the signal type
+        let result = if value == 0.0 {
+            // If no inputs were accumulated, return typed zero
+            if let Some(ty) = self.signal_types.get(signal) {
+                zero_value_for_type(ty)
+            } else {
+                Value::Scalar(0.0)
+            }
+        } else {
+            Value::Scalar(value)
+        };
+
+        self.cached_inputs = Some(result.clone());
+        Ok(result)
     }
 
     fn load_dt(&self) -> std::result::Result<Value, ExecutionError> {

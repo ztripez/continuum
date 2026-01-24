@@ -227,6 +227,14 @@ impl Runtime {
         self.bytecode_executor.set_const_values(values);
     }
 
+    /// Stores signal type information for zero value initialization.
+    ///
+    /// Signal types are used by the bytecode executor to create correct zero values
+    /// when no inputs have been accumulated for a signal.
+    pub fn set_signal_types(&mut self, types: std::collections::HashMap<crate::types::SignalId, continuum_cdsl::foundation::Type>) {
+        self.bytecode_executor.set_signal_types(types);
+    }
+
     /// Add a breakpoint for a signal
     pub fn add_breakpoint(&mut self, signal: SignalId) {
         info!(%signal, "breakpoint added");
