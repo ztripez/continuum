@@ -148,16 +148,56 @@ pub fn require_context_type(
 /// - `value`: The numeric value of the literal.
 /// - `unit`: Optional unit expression syntax from the parser.
 ///
+/// # Parameters
+/// - `span`: Source location for error reporting
+/// - `value`: The numeric value
+/// - `unit`: Optional explicit unit annotation from source
+/// - `expected`: Optional expected type from context (for bidirectional inference)
+///
 /// # Returns
 /// A tuple containing the typed expression kind and the resolved [`Type`].
+///
+/// # Bidirectional Type Inference
+///
+/// When a literal has no explicit unit annotation (`0.0` instead of `0.0<K>`),
+/// the unit is inferred from context if available:
+///
+/// - If `expected` is `Some(Type::Kernel(kt))`, use `kt.unit`
+/// - Otherwise, default to dimensionless
+///
+/// # Examples
+///
+/// ```cdsl
+/// // Explicit unit (synthesis mode)
+/// 0.0<K>           // → Scalar<K>
+///
+/// // Inferred from context (checking mode)
+/// if temp > 0.0 { ... }
+///    ^^^^   ^^^ // 0.0 infers Scalar<K> from temp's type
+///
+/// // Default to dimensionless (no context)
+/// let x = 0.0      // → Scalar<1> (dimensionless)
+/// ```
 pub fn type_literal(
     span: continuum_cdsl_ast::foundation::Span,
     value: f64,
     unit: Option<&continuum_cdsl_ast::UnitExpr>,
+    expected: Option<&Type>,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let resolved_unit = match unit {
+        // Explicit unit annotation - always takes precedence
         Some(unit_expr) => resolve_unit_expr(Some(unit_expr), span).map_err(|e| vec![e])?,
-        None => Unit::DIMENSIONLESS,
+
+        // No explicit unit - try to infer from expected type
+        None => {
+            if let Some(Type::Kernel(expected_kt)) = expected {
+                // Infer unit from context (bidirectional inference)
+                expected_kt.unit
+            } else {
+                // No context available - default to dimensionless
+                Unit::DIMENSIONLESS
+            }
+        }
     };
 
     let kernel_type = KernelType {
@@ -275,7 +315,7 @@ pub fn type_field_access(
         // Path doesn't match a signal or field, continue with normal field access typing
     }
 
-    let typed_object = type_expression(object, ctx)?;
+    let typed_object = type_expression(object, ctx, None)?;
 
     let field_type = match &typed_object.ty {
         Type::User(type_id) => {
@@ -380,7 +420,7 @@ pub fn type_vector(
 
     let typed_elements: Result<Vec<_>, _> = elements
         .iter()
-        .map(|elem| type_expression(elem, ctx))
+        .map(|elem| type_expression(elem, ctx, None))
         .collect();
     let typed_elements = typed_elements?;
 
@@ -452,9 +492,9 @@ pub fn type_let(
     body: &Expr,
     _span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
-    let typed_value = type_expression(value, ctx)?;
+    let typed_value = type_expression(value, ctx, None)?;
     let extended_ctx = ctx.with_binding(name.to_string(), typed_value.ty.clone());
-    let typed_body = type_expression(body, &extended_ctx)?;
+    let typed_body = type_expression(body, &extended_ctx, None)?;
     let ty = typed_body.ty.clone();
 
     Ok((
@@ -503,7 +543,7 @@ pub fn type_struct(
             )]);
         }
 
-        let typed_expr = type_expression(field_expr, ctx)?;
+        let typed_expr = type_expression(field_expr, ctx, None)?;
         let expected_type = user_type.field(field_name).ok_or_else(|| {
             err_undefined(
                 field_expr.span,
@@ -562,7 +602,7 @@ pub fn type_aggregate(
     body: &Expr,
     span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
-    let typed_source = type_expression(source, ctx)?;
+    let typed_source = type_expression(source, ctx, None)?;
 
     let element_ty = match &typed_source.ty {
         Type::Seq(inner) => *inner.clone(),
@@ -582,7 +622,7 @@ pub fn type_aggregate(
     if matches!(element_ty, Type::User(_)) {
         extended_ctx.self_type = Some(element_ty);
     }
-    let typed_body = type_expression(body, &extended_ctx)?;
+    let typed_body = type_expression(body, &extended_ctx, None)?;
 
     let aggregate_ty = match op {
         AggregateOp::Map => Type::Seq(Box::new(typed_body.ty.clone())),
@@ -627,8 +667,8 @@ pub fn type_fold(
     body: &Expr,
     span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
-    let typed_source = type_expression(source, ctx)?;
-    let typed_init = type_expression(init, ctx)?;
+    let typed_source = type_expression(source, ctx, None)?;
+    let typed_init = type_expression(init, ctx, None)?;
 
     let element_ty = match &typed_source.ty {
         Type::Seq(inner) => *inner.clone(),
@@ -652,7 +692,7 @@ pub fn type_fold(
         extended_ctx.self_type = Some(element_ty);
     }
 
-    let typed_body = type_expression(body, &extended_ctx)?;
+    let typed_body = type_expression(body, &extended_ctx, None)?;
 
     if typed_body.ty != typed_init.ty {
         return Err(vec![CompileError::new(
@@ -692,7 +732,7 @@ pub fn type_call(
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
     let typed_args: Vec<TypedExpr> = args
         .iter()
-        .map(|arg| type_expression(arg, ctx))
+        .map(|arg| type_expression(arg, ctx, None))
         .collect::<Result<Vec<_>, _>>()?;
 
     let segments = func.segments();
@@ -801,21 +841,76 @@ pub fn type_call(
 /// - `kernel`: The specific kernel ID being called.
 /// - `args`: Argument expressions.
 /// - `span`: Source location of the call.
+/// Derives the expected type for a kernel parameter based on its constraints.
+///
+/// For constraints that reference other parameters (SameAs, SameDimsAs),
+/// this looks up the referenced parameter's actual type from already-typed arguments.
+///
+/// # Parameters
+/// - `param`: The kernel parameter constraint
+/// - `typed_args`: Already-typed arguments (for looking up SameAs/SameDimsAs references)
+///
+/// # Returns
+/// - `Some(Type)` if an expected type can be derived from the constraint
+/// - `None` if the constraint doesn't provide enough information (e.g., Any, Dimensionless)
+///
+/// # Examples
+///
+/// ```ignore
+/// // For compare.gt(temp, ???) where temp: Scalar<K>
+/// // Parameter 1 has constraint UnitSameDimsAs(0)
+/// // Returns Some(Scalar<K>) so ??? infers as K
+/// ```
+fn derive_expected_type_for_param(
+    param: &continuum_cdsl_ast::KernelParam,
+    typed_args: &[TypedExpr],
+) -> Option<Type> {
+    use continuum_cdsl_ast::UnitConstraint;
+
+    // Check if the unit constraint references another parameter
+    let reference_index = match &param.unit {
+        UnitConstraint::SameAs(idx) | UnitConstraint::SameDimsAs(idx) => Some(*idx),
+        _ => None,
+    };
+
+    // If it references another parameter, use that parameter's type
+    if let Some(idx) = reference_index {
+        if idx < typed_args.len() {
+            return Some(typed_args[idx].ty.clone());
+        }
+    }
+
+    // For other constraints (Exact, Dimensionless, Angle, Any), no expected type
+    None
+}
+
 pub fn type_as_kernel_call(
     ctx: &TypingContext,
     kernel: &continuum_kernel_types::KernelId,
     args: &[Expr],
     span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
-    let typed_args: Vec<TypedExpr> = args
-        .iter()
-        .map(|arg| type_expression(arg, ctx))
-        .collect::<Result<Vec<_>, _>>()?;
-
+    // Look up kernel signature first to derive expected types for arguments
     let sig = ctx
         .kernel_registry
         .get(kernel)
         .ok_or_else(|| err_internal(span, format!("unknown kernel: {:?}", kernel)))?;
+
+    // Type arguments in order, deriving expected types from kernel signature
+    // and previously-typed arguments (for SameAs/SameDimsAs constraints)
+    let mut typed_args = Vec::with_capacity(args.len());
+
+    for (i, arg) in args.iter().enumerate() {
+        // Derive expected type from kernel parameter constraint
+        let expected = if i < sig.params.len() {
+            derive_expected_type_for_param(&sig.params[i], &typed_args)
+        } else {
+            None
+        };
+
+        let typed_arg = type_expression(arg, ctx, expected.as_ref())?;
+        typed_args.push(typed_arg);
+    }
 
     let return_type = derive_return_type(sig, &typed_args, span)?;
 

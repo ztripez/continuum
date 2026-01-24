@@ -39,10 +39,24 @@ use helpers::*;
 /// # Parameters
 /// - `expr`: The untyped expression to resolve.
 /// - `ctx`: The typing context providing access to registries and local bindings.
+/// - `expected`: Optional expected type for bidirectional inference (default: None).
 ///
 /// # Returns
 /// - `Ok(TypedExpr)` containing the resolved kind, type, and source span.
 /// - `Err(Vec<CompileError>)` if any typing or structural violations are found.
+///
+/// # Bidirectional Type Inference
+///
+/// The system uses bidirectional type inference:
+/// - **Synthesis mode** (`expected = None`): Infer type from expression structure
+/// - **Checking mode** (`expected = Some(ty)`): Use context to guide inference
+///
+/// When `expected` is provided, literals without explicit unit annotations
+/// inherit the unit from the expected type. This enables ergonomic code:
+///
+/// ```cdsl
+/// if temperature > 0.0 { ... }  // 0.0 infers Scalar<K> from temperature's type
+/// ```
 ///
 /// # Errors
 ///
@@ -51,13 +65,17 @@ use helpers::*;
 /// - Types are mismatched (e.g., in struct fields or fold bodies).
 /// - A phase boundary is violated (e.g., reading a field outside the Measure phase).
 /// - A capability is missing (e.g., using `prev` outside the Resolve phase).
-pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Vec<CompileError>> {
+pub fn type_expression(
+    expr: &Expr,
+    ctx: &TypingContext,
+    expected: Option<&Type>,
+) -> Result<TypedExpr, Vec<CompileError>> {
     let span = expr.span;
 
     let (kind, ty) = match &expr.kind {
         // === Literals ===
         UntypedKind::Literal { value, unit } => {
-            let (k, t) = type_literal(span, *value, unit.as_ref())?;
+            let (k, t) = type_literal(span, *value, unit.as_ref(), expected)?;
             (k, t)
         }
 
@@ -221,7 +239,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         UntypedKind::Filter { source, predicate } => {
-            let typed_source = type_expression(source, ctx)?;
+            let typed_source = type_expression(source, ctx, None)?;
             let element_ty = match &typed_source.ty {
                 Type::Seq(inner) => *inner.clone(),
                 _ => {
@@ -238,7 +256,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             if matches!(element_ty, Type::User(_)) {
                 extended_ctx.self_type = Some(element_ty.clone());
             }
-            let typed_predicate = type_expression(predicate, &extended_ctx)?;
+            let typed_predicate = type_expression(predicate, &extended_ctx, None)?;
 
             if typed_predicate.ty != Type::Bool {
                 return Err(err_type_mismatch(
@@ -258,7 +276,7 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
         }
 
         UntypedKind::Nearest { entity, position } => {
-            let typed_position = type_expression(position, ctx)?;
+            let typed_position = type_expression(position, ctx, None)?;
             (
                 ExprKind::Nearest {
                     entity: entity.clone(),
@@ -273,8 +291,8 @@ pub fn type_expression(expr: &Expr, ctx: &TypingContext) -> Result<TypedExpr, Ve
             position,
             radius,
         } => {
-            let typed_position = type_expression(position, ctx)?;
-            let typed_radius = type_expression(radius, ctx)?;
+            let typed_position = type_expression(position, ctx, None)?;
+            let typed_radius = type_expression(radius, ctx, None)?;
             let instance_ty = Type::User(continuum_foundation::TypeId::from(entity.0.clone()));
             (
                 ExprKind::Within {
@@ -376,7 +394,7 @@ mod bare_path_integration_tests {
             &const_types,
         );
 
-        let result = type_expression(&expr, &ctx);
+        let result = type_expression(&expr, &ctx, None);
         // Should fail: bare identifiers don't fall back to signals (ambiguous)
         assert!(result.is_err(), "Bare identifier without explicit signal. prefix should fail");
         
@@ -412,7 +430,7 @@ mod bare_path_integration_tests {
         // Add local binding for 'temperature'
         ctx.local_bindings.insert("temperature".to_string(), scalar_type());
 
-        let result = type_expression(&expr, &ctx);
+        let result = type_expression(&expr, &ctx, None);
         // Should succeed: local binding found, signal is ignored
         assert!(result.is_ok(), "Local binding should shadow signal with same name");
         
@@ -449,7 +467,7 @@ mod bare_path_integration_tests {
             &const_types,
         );
 
-        let result = type_expression(&expr, &ctx);
+        let result = type_expression(&expr, &ctx, None);
         assert!(result.is_ok(), "Nested bare signal path should resolve");
 
         let typed = result.unwrap();
@@ -487,7 +505,7 @@ mod bare_path_integration_tests {
             &const_types,
         );
 
-        let result = type_expression(&expr, &ctx);
+        let result = type_expression(&expr, &ctx, None);
         assert!(result.is_ok(), "Bare field path should resolve");
 
         let typed = result.unwrap();
@@ -526,7 +544,7 @@ mod bare_path_integration_tests {
         // Add `core` as a local variable (struct type would be needed for proper test)
         // For now, this will fail since we don't have a proper struct type for core
         // but the test documents the expected behavior
-        let result = type_expression(&expr, &ctx);
+        let result = type_expression(&expr, &ctx, None);
         // This should try to resolve as field access on local, not as signal
         // (will fail in this minimal test, but documents the precedence rule)
     }

@@ -297,7 +297,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
         }
 
         let dt = match &era_decl.dt {
-            Some(expr) => match type_expression(expr, &ctx) {
+            Some(expr) => match type_expression(expr, &ctx, None) {
                 Ok(typed) => typed,
                 Err(mut e) => {
                     errors.append(&mut e);

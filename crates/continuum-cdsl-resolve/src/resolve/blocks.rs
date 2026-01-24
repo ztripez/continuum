@@ -107,7 +107,7 @@ pub fn compile_statements(
 
     for stmt in stmts {
         match stmt {
-            Stmt::Let { name, value, span } => match type_expression(value, &current_ctx) {
+            Stmt::Let { name, value, span } => match type_expression(value, &current_ctx, None) {
                 Ok(typed_value) => {
                     current_ctx
                         .local_bindings
@@ -140,7 +140,7 @@ pub fn compile_statements(
                     ));
                 }
 
-                match type_expression(value, &current_ctx) {
+                match type_expression(value, &current_ctx, None) {
                     Ok(typed_value) => {
                         // Validate target signal exists and type is compatible
                         if let Some(expected_ty) = current_ctx.signal_types.get(target) {
@@ -191,8 +191,8 @@ pub fn compile_statements(
                     ));
                 }
 
-                let typed_pos = type_expression(position, &current_ctx);
-                let typed_val = type_expression(value, &current_ctx);
+                let typed_pos = type_expression(position, &current_ctx, None);
+                let typed_val = type_expression(value, &current_ctx, None);
 
                 match (typed_pos, typed_val) {
                     (Ok(p), Ok(v)) => {
@@ -235,7 +235,7 @@ pub fn compile_statements(
                 severity,
                 message,
                 span,
-            } => match type_expression(condition, &current_ctx) {
+            } => match type_expression(condition, &current_ctx, None) {
                 Ok(typed_condition) => {
                     // Validate condition is Bool type
                     if typed_condition.ty != continuum_cdsl_ast::foundation::Type::Bool {
@@ -262,7 +262,7 @@ pub fn compile_statements(
                 // Type-check all field expressions
                 let mut typed_fields = Vec::new();
                 for (name, value) in fields {
-                    match type_expression(value, &current_ctx) {
+                    match type_expression(value, &current_ctx, None) {
                         Ok(typed_value) => typed_fields.push((name.clone(), typed_value)),
                         Err(mut e) => errors.append(&mut e),
                     }
@@ -274,7 +274,7 @@ pub fn compile_statements(
                     span: *span,
                 });
             }
-            Stmt::Expr(expr) => match type_expression(expr, &current_ctx) {
+            Stmt::Expr(expr) => match type_expression(expr, &current_ctx, None) {
                 Ok(typed_expr) => typed_stmts.push(TypedStmt::Expr(typed_expr)),
                 Err(mut e) => errors.append(&mut e),
             },
@@ -285,7 +285,7 @@ pub fn compile_statements(
                 span,
             } => {
                 // Type-check condition
-                let typed_condition = match type_expression(condition, &current_ctx) {
+                let typed_condition = match type_expression(condition, &current_ctx, None) {
                     Ok(tc) => {
                         // Validate condition is Bool type
                         if tc.ty != continuum_cdsl_ast::foundation::Type::Bool {
@@ -708,7 +708,7 @@ pub fn compile_execution_blocks<I: Index>(
             BlockBody::Expression(expr) => {
                 // Type untyped expression
                 let block_ctx = base_ctx.with_phase(phase);
-                match type_expression(expr, &block_ctx) {
+                match type_expression(expr, &block_ctx, None) {
                     Ok(typed_expr) => ExecutionBody::Expr(typed_expr),
                     Err(mut e) => {
                         errors.append(&mut e);

@@ -74,7 +74,7 @@ fn test_type_literal_dimensionless() {
         Span::new(0, 0, 10, 1),
     );
 
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert!(matches!(typed.ty, Type::Kernel(_)));
 }
 
@@ -89,7 +89,7 @@ fn test_type_call_invalid_depth() {
         Span::new(0, 0, 10, 1),
     );
 
-    let result = type_expression(&expr, &ctx);
+    let result = type_expression(&expr, &ctx, None);
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert_eq!(errors[0].kind, crate::error::ErrorKind::Syntax);
@@ -109,7 +109,7 @@ fn test_type_call_undefined_namespace() {
         Span::new(0, 0, 10, 1),
     );
 
-    let result = type_expression(&expr, &ctx);
+    let result = type_expression(&expr, &ctx, None);
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert_eq!(errors[0].kind, crate::error::ErrorKind::UndefinedName);
@@ -127,7 +127,7 @@ fn test_type_call_unknown_function_in_known_namespace() {
         Span::new(0, 0, 22, 1),
     );
 
-    let result = type_expression(&expr, &ctx);
+    let result = type_expression(&expr, &ctx, None);
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert_eq!(errors.len(), 1);
@@ -145,7 +145,7 @@ fn test_type_bool_literal() {
     let ctx = make_context();
     let expr = Expr::new(UntypedKind::BoolLiteral(true), Span::new(0, 0, 10, 1));
 
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert!(matches!(typed.ty, Type::Bool));
 }
 
@@ -154,7 +154,7 @@ fn test_type_local_not_in_scope() {
     let ctx = make_context();
     let expr = Expr::new(UntypedKind::Local("x".to_string()), Span::new(0, 0, 10, 1));
 
-    let result = type_expression(&expr, &ctx);
+    let result = type_expression(&expr, &ctx, None);
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert_eq!(errors.len(), 1);
@@ -172,7 +172,7 @@ fn test_type_prev_with_node_output() {
     let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
 
     let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert_eq!(typed.ty, output_type);
 }
 
@@ -180,7 +180,7 @@ fn test_type_prev_with_node_output() {
 fn test_type_prev_without_node_output() {
     let ctx = make_context().with_phase(Phase::Resolve);
     let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
-    let errors = type_expression(&expr, &ctx).unwrap_err();
+    let errors = type_expression(&expr, &ctx, None).unwrap_err();
     assert_eq!(errors.len(), 1);
     assert!(matches!(errors[0].kind, ErrorKind::Internal));
     assert!(errors[0].message.contains("prev"));
@@ -202,7 +202,7 @@ fn test_type_prev_in_wrong_phase() {
     let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
 
     let expr = Expr::new(UntypedKind::Prev, Span::new(0, 0, 4, 1));
-    let typed = type_expression(&expr, &ctx)
+    let typed = type_expression(&expr, &ctx, None)
         .expect("Typing should succeed; phase validation happens in separate pass");
     assert_eq!(typed.ty, output_type);
 }
@@ -218,7 +218,7 @@ fn test_type_current_with_node_output() {
     let ctx = ctx.with_execution_context(None, None, Some(output_type.clone()), None, None);
 
     let expr = Expr::new(UntypedKind::Current, Span::new(0, 0, 7, 1));
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert_eq!(typed.ty, output_type);
 }
 
@@ -226,7 +226,7 @@ fn test_type_current_with_node_output() {
 fn test_type_current_without_node_output() {
     let ctx = make_context();
     let expr = Expr::new(UntypedKind::Current, Span::new(0, 0, 7, 1));
-    let errors = type_expression(&expr, &ctx).unwrap_err();
+    let errors = type_expression(&expr, &ctx, None).unwrap_err();
     assert_eq!(errors.len(), 1);
     assert!(matches!(errors[0].kind, ErrorKind::Internal));
     assert!(errors[0].message.contains("current"));
@@ -243,7 +243,7 @@ fn test_type_inputs_with_inputs_type() {
     let ctx = ctx.with_execution_context(None, None, None, Some(inputs_type.clone()), None);
 
     let expr = Expr::new(UntypedKind::Inputs, Span::new(0, 0, 6, 1));
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert_eq!(typed.ty, inputs_type);
 }
 
@@ -251,7 +251,7 @@ fn test_type_inputs_with_inputs_type() {
 fn test_type_inputs_without_inputs_type() {
     let ctx = make_context();
     let expr = Expr::new(UntypedKind::Inputs, Span::new(0, 0, 6, 1));
-    let errors = type_expression(&expr, &ctx).unwrap_err();
+    let errors = type_expression(&expr, &ctx, None).unwrap_err();
     assert_eq!(errors.len(), 1);
     assert!(matches!(errors[0].kind, ErrorKind::Internal));
     assert!(errors[0].message.contains("inputs"));
@@ -264,7 +264,7 @@ fn test_type_payload_with_payload_type() {
     let ctx = ctx.with_execution_context(None, None, None, None, Some(payload_type.clone()));
 
     let expr = Expr::new(UntypedKind::Payload, Span::new(0, 0, 7, 1));
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert_eq!(typed.ty, payload_type);
 }
 
@@ -272,7 +272,7 @@ fn test_type_payload_with_payload_type() {
 fn test_type_payload_without_payload_type() {
     let ctx = make_context();
     let expr = Expr::new(UntypedKind::Payload, Span::new(0, 0, 7, 1));
-    let errors = type_expression(&expr, &ctx).unwrap_err();
+    let errors = type_expression(&expr, &ctx, None).unwrap_err();
     assert_eq!(errors.len(), 1);
     assert!(matches!(errors[0].kind, ErrorKind::Internal));
     assert!(errors[0].message.contains("payload"));
@@ -296,7 +296,7 @@ fn test_type_config_found() {
     ctx.config_types = config_types;
 
     let expr = Expr::new(UntypedKind::Config(path.clone()), Span::new(0, 0, 7, 1));
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert_eq!(typed.ty, config_type);
 }
 
@@ -305,7 +305,7 @@ fn test_type_config_not_found() {
     let ctx = make_context();
     let path = Path::from("unknown_config");
     let expr = Expr::new(UntypedKind::Config(path), Span::new(0, 0, 14, 1));
-    let errors = type_expression(&expr, &ctx).unwrap_err();
+    let errors = type_expression(&expr, &ctx, None).unwrap_err();
     assert_eq!(errors.len(), 1);
     assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
     assert!(errors[0].message.contains("config"));
@@ -329,7 +329,7 @@ fn test_type_const_found() {
     ctx.const_types = const_types;
 
     let expr = Expr::new(UntypedKind::Const(path.clone()), Span::new(0, 0, 2, 1));
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert_eq!(typed.ty, const_type);
 }
 
@@ -338,7 +338,7 @@ fn test_type_const_not_found() {
     let ctx = make_context();
     let path = Path::from("UNKNOWN");
     let expr = Expr::new(UntypedKind::Const(path), Span::new(0, 0, 7, 1));
-    let errors = type_expression(&expr, &ctx).unwrap_err();
+    let errors = type_expression(&expr, &ctx, None).unwrap_err();
     assert_eq!(errors.len(), 1);
     assert!(matches!(errors[0].kind, ErrorKind::UndefinedName));
     assert!(errors[0].message.contains("const"));
@@ -367,7 +367,7 @@ fn test_type_vector_2d() {
         Span::new(0, 0, 10, 1),
     );
 
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     match &typed.ty {
         Type::Kernel(kt) => {
             assert_eq!(kt.shape, Shape::Vector { dim: 2 });
@@ -446,7 +446,7 @@ fn test_type_struct_valid_construction() {
         Span::new(0, 0, 30, 1),
     );
 
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert_eq!(typed.ty, Type::User(TypeId::from("Position")));
 }
 
@@ -471,7 +471,7 @@ fn test_type_aggregate_map() {
         span,
     );
 
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     match &typed.ty {
         Type::Seq(inner) => {
             assert!(matches!(**inner, Type::Kernel(_)));
@@ -505,7 +505,7 @@ fn test_type_fold_valid() {
         span,
     );
 
-    let typed = type_expression(&expr, &ctx).unwrap();
+    let typed = type_expression(&expr, &ctx, None).unwrap();
     assert!(matches!(typed.ty, Type::Kernel(_)));
 }
 
