@@ -382,12 +382,14 @@ mod bare_path_integration_tests {
 
         let type_table = crate::resolve::types::TypeTable::new();
         let kernels = KernelRegistry::global();
+        let function_table = HashMap::new();
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
         let ctx = TypingContext::new(
             &type_table,
             kernels,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -415,12 +417,14 @@ mod bare_path_integration_tests {
 
         let type_table = crate::resolve::types::TypeTable::new();
         let kernels = KernelRegistry::global();
+        let function_table = HashMap::new();
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
         let mut ctx = TypingContext::new(
             &type_table,
             kernels,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -455,12 +459,14 @@ mod bare_path_integration_tests {
 
         let type_table = crate::resolve::types::TypeTable::new();
         let kernels = KernelRegistry::global();
+        let function_table = HashMap::new();
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
         let ctx = TypingContext::new(
             &type_table,
             kernels,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -493,12 +499,14 @@ mod bare_path_integration_tests {
 
         let type_table = crate::resolve::types::TypeTable::new();
         let kernels = KernelRegistry::global();
+        let function_table = HashMap::new();
         let signal_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
         let ctx = TypingContext::new(
             &type_table,
             kernels,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -529,12 +537,14 @@ mod bare_path_integration_tests {
 
         let type_table = crate::resolve::types::TypeTable::new();
         let kernels = KernelRegistry::global();
+        let function_table = HashMap::new();
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
         let mut ctx = TypingContext::new(
             &type_table,
             kernels,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,

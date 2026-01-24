@@ -7,6 +7,7 @@
 use super::context::TypingContext;
 use super::derivation::derive_return_type;
 use super::type_expression;
+use crate::desugar::desugar_expr;
 use crate::error::{CompileError, ErrorKind};
 use crate::resolve::units::resolve_unit_expr;
 use continuum_cdsl_ast::ast::{DimConstraint, ShapeConstraint};
@@ -718,6 +719,76 @@ pub fn type_fold(
 }
 
 /// Resolves the type of a function or kernel call (e.g., `sin(x)`).
+/// Types a user-defined function call by inlining the function body.
+///
+/// User functions are pure expression macros - their bodies are substituted
+/// at the call site with arguments bound to parameter names.
+///
+/// # Parameters
+/// - `ctx`: The typing context.
+/// - `func`: The user function declaration.
+/// - `typed_args`: Already type-checked argument expressions.
+/// - `span`: Source location of the call.
+///
+/// # Returns
+/// The typed expression and its result type.
+fn type_user_function_call(
+    ctx: &TypingContext,
+    func: &continuum_cdsl_ast::FunctionDecl,
+    typed_args: &[TypedExpr],
+    span: continuum_cdsl_ast::foundation::Span,
+) -> Result<(ExprKind, Type), Vec<CompileError>> {
+    // Validate argument count
+    if typed_args.len() != func.params.len() {
+        return Err(vec![CompileError::new(
+            ErrorKind::TypeMismatch,
+            span,
+            format!(
+                "function '{}' expects {} arguments, got {}",
+                func.path,
+                func.params.len(),
+                typed_args.len()
+            ),
+        )]);
+    }
+
+    // Create a new context with parameter bindings
+    // Each parameter is bound to the type of its corresponding argument
+    let mut inner_ctx = ctx.clone();
+    for (param_name, typed_arg) in func.params.iter().zip(typed_args.iter()) {
+        inner_ctx
+            .local_bindings
+            .insert(param_name.clone(), typed_arg.ty.clone());
+    }
+
+    // Desugar and type-check the function body with the parameter bindings
+    // Function bodies are parsed but not desugared during declaration processing,
+    // so we must desugar operator expressions (Binary, Unary, If) here.
+    let desugared_body = desugar_expr(func.body.clone());
+    let typed_body = type_expression(&desugared_body, &inner_ctx, None)?;
+
+    // The result is a Let-chain that binds all parameters to their argument values,
+    // with the function body as the innermost expression
+    let mut result = typed_body;
+    let result_type = result.ty.clone();
+    for (param_name, typed_arg) in func.params.iter().zip(typed_args.iter()).rev() {
+        result = TypedExpr::new(
+            ExprKind::Let {
+                name: param_name.clone(),
+                value: Box::new(typed_arg.clone()),
+                body: Box::new(result),
+            },
+            result_type.clone(),
+            span,
+        );
+    }
+
+    Ok((result.expr, result_type))
+}
+
+/// Resolves the type of a function call expression.
+///
+/// First attempts to resolve as a kernel, then falls back to user-defined functions.
 ///
 /// # Parameters
 /// - `ctx`: The typing context.
@@ -754,7 +825,7 @@ pub fn type_call(
         (segments[0].as_str(), segments[1].as_str())
     };
 
-    // Try exact match first
+    // Try exact kernel match first
     let sig = if let Some(sig) = ctx.kernel_registry.get_by_name(namespace, name) {
         sig
     } else {
@@ -764,7 +835,11 @@ pub fn type_call(
             .get_overloads(namespace, &format!("{}_", name));
 
         if candidates.is_empty() {
-            return Err(err_undefined(span, &func.to_string(), "kernel"));
+            // No kernel found - try user-defined function
+            if let Some(user_func) = ctx.function_table.get(func) {
+                return type_user_function_call(ctx, user_func, &typed_args, span);
+            }
+            return Err(err_undefined(span, &func.to_string(), "kernel or function"));
         }
 
         // Find best match based on argument shapes and copy its ID

@@ -147,9 +147,6 @@ pub struct WorldDecl {
     /// Version string
     pub version: Option<String>,
 
-    /// Description text
-    pub description: Option<String>,
-
     /// Raw warmup attributes from world declaration
     ///
     /// Semantic analysis validates these and builds a WarmupPolicy.

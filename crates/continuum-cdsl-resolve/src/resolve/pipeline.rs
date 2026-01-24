@@ -96,6 +96,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     let mut _type_decls = Vec::new();
     let mut _const_entries = Vec::new();
     let mut _config_entries = Vec::new();
+    let mut function_table = HashMap::new();
 
     for decl in &declarations {
         match decl {
@@ -154,8 +155,8 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
             Declaration::Type(t) => _type_decls.push(t.clone()),
             Declaration::Const(c) => _const_entries.extend(c.clone()),
             Declaration::Config(c) => _config_entries.extend(c.clone()),
-            Declaration::Function(_) => {
-                // Functions are resolved separately in expression context
+            Declaration::Function(f) => {
+                function_table.insert(f.path.clone(), f.clone());
             }
         }
     }
@@ -257,6 +258,7 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
     let ctx = TypingContext::new(
         &type_table,
         &registry,
+        &function_table,
         &signal_types,
         &field_types,
         &config_types,
@@ -690,26 +692,6 @@ fn resolve_world_metadata(metadata: &mut WorldDecl, errors: &mut Vec<CompileErro
                         crate::error::ErrorKind::TypeMismatch,
                         attr.args[0].span,
                         "version attribute expects a string literal".to_string(),
-                    )),
-                }
-            }
-            "description" => {
-                if attr.args.len() != 1 {
-                    errors.push(CompileError::new(
-                        crate::error::ErrorKind::InvalidCapability,
-                        attr.span,
-                        "description attribute expects 1 argument".to_string(),
-                    ));
-                    continue;
-                }
-                match &attr.args[0].kind {
-                    continuum_cdsl_ast::UntypedKind::StringLiteral(s) => {
-                        metadata.description = Some(s.clone())
-                    }
-                    _ => errors.push(CompileError::new(
-                        crate::error::ErrorKind::TypeMismatch,
-                        attr.args[0].span,
-                        "description attribute expects a string literal".to_string(),
                     )),
                 }
             }

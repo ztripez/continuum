@@ -12,6 +12,7 @@ use std::collections::HashMap;
 fn make_context<'a>() -> TypingContext<'a> {
     let type_table = Box::leak(Box::new(TypeTable::new()));
     let kernel_registry = KernelRegistry::global();
+    let function_table = Box::leak(Box::new(HashMap::new()));
     let signal_types = Box::leak(Box::new(HashMap::new()));
     let field_types = Box::leak(Box::new(HashMap::new()));
     let config_types = Box::leak(Box::new(HashMap::new()));
@@ -20,6 +21,7 @@ fn make_context<'a>() -> TypingContext<'a> {
     TypingContext::new(
         type_table,
         kernel_registry,
+        function_table,
         signal_types,
         field_types,
         config_types,
@@ -48,6 +50,7 @@ fn make_context_with_types<'a>(types: &[(&str, &[(&str, Type)])]) -> TypingConte
     }));
 
     let kernel_registry = KernelRegistry::global();
+    let function_table = Box::leak(Box::new(HashMap::new()));
     let signal_types = Box::leak(Box::new(HashMap::new()));
     let field_types = Box::leak(Box::new(HashMap::new()));
     let config_types = Box::leak(Box::new(HashMap::new()));
@@ -56,6 +59,7 @@ fn make_context_with_types<'a>(types: &[(&str, &[(&str, Type)])]) -> TypingConte
     TypingContext::new(
         type_table,
         kernel_registry,
+        function_table,
         signal_types,
         field_types,
         config_types,
@@ -411,10 +415,11 @@ fn test_type_struct_valid_construction() {
     let ctx = TypingContext::new(
         type_table,
         KernelRegistry::global(),
-        Box::leak(Box::new(HashMap::new())),
-        Box::leak(Box::new(HashMap::new())),
-        Box::leak(Box::new(HashMap::new())),
-        Box::leak(Box::new(HashMap::new())),
+        Box::leak(Box::new(HashMap::new())), // function_table
+        Box::leak(Box::new(HashMap::new())), // signal_types
+        Box::leak(Box::new(HashMap::new())), // field_types
+        Box::leak(Box::new(HashMap::new())), // config_types
+        Box::leak(Box::new(HashMap::new())), // const_types
     );
 
     let expr = Expr::new(

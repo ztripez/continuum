@@ -5,8 +5,8 @@
 //! resolve the type of an expression.
 
 use crate::resolve::types::TypeTable;
-use continuum_cdsl_ast::KernelRegistry;
 use continuum_cdsl_ast::foundation::{Path, Type};
+use continuum_cdsl_ast::{FunctionDecl, KernelRegistry};
 use continuum_foundation::Phase;
 use std::collections::HashMap;
 
@@ -22,6 +22,9 @@ pub struct TypingContext<'a> {
 
     /// Kernel signatures used to resolve function calls and derive return types.
     pub kernel_registry: &'a KernelRegistry,
+
+    /// User-defined functions declared with `fn path(params) { body }`.
+    pub function_table: &'a HashMap<Path, FunctionDecl>,
 
     /// Mapping from signal path to its authoritative resolved type.
     pub signal_types: &'a HashMap<Path, Type>,
@@ -66,6 +69,7 @@ impl<'a> TypingContext<'a> {
     /// # Parameters
     /// - `type_table`: Registry of user-defined struct types.
     /// - `kernel_registry`: Registry of built-in kernel signatures.
+    /// - `function_table`: Map of user-defined function paths to their declarations.
     /// - `signal_types`: Map of declared signal paths to their types.
     /// - `field_types`: Map of declared field paths to their types.
     /// - `config_types`: Map of world configuration paths to their types.
@@ -73,6 +77,7 @@ impl<'a> TypingContext<'a> {
     pub fn new(
         type_table: &'a TypeTable,
         kernel_registry: &'a KernelRegistry,
+        function_table: &'a HashMap<Path, FunctionDecl>,
         signal_types: &'a HashMap<Path, Type>,
         field_types: &'a HashMap<Path, Type>,
         config_types: &'a HashMap<Path, Type>,
@@ -81,6 +86,7 @@ impl<'a> TypingContext<'a> {
         Self {
             type_table,
             kernel_registry,
+            function_table,
             signal_types,
             field_types,
             config_types,

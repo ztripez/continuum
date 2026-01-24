@@ -897,6 +897,7 @@ mod tests {
     fn make_test_context<'a>(
         type_table: &'a crate::resolve::types::TypeTable,
         registry: &'a KernelRegistry,
+        function_table: &'a HashMap<Path, continuum_cdsl_ast::FunctionDecl>,
         signal_types: &'a HashMap<Path, Type>,
         field_types: &'a HashMap<Path, Type>,
         config_types: &'a HashMap<Path, Type>,
@@ -905,6 +906,7 @@ mod tests {
         TypingContext::new(
             type_table,
             registry,
+            function_table,
             signal_types,
             field_types,
             config_types,
@@ -921,11 +923,13 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
 
         let ctx = TypingContext {
             type_table: &type_table,
             kernel_registry: &registry,
+            function_table: &function_table,
             signal_types: &signal_types,
             field_types: &field_types,
             config_types: &config_types,
@@ -978,11 +982,13 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
 
         let ctx = TypingContext {
             type_table: &type_table,
             kernel_registry: &registry,
+            function_table: &function_table,
             signal_types: &signal_types,
             field_types: &field_types,
             config_types: &config_types,
@@ -1030,11 +1036,13 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
 
         let ctx = TypingContext {
             type_table: &type_table,
             kernel_registry: &registry,
+            function_table: &function_table,
             signal_types: &signal_types,
             field_types: &field_types,
             config_types: &config_types,
@@ -1074,11 +1082,13 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
 
         let ctx = TypingContext {
             type_table: &type_table,
             kernel_registry: &registry,
+            function_table: &function_table,
             signal_types: &signal_types,
             field_types: &field_types,
             config_types: &config_types,
@@ -1120,11 +1130,13 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
 
         let ctx = TypingContext {
             type_table: &type_table,
             kernel_registry: &registry,
+            function_table: &function_table,
             signal_types: &signal_types,
             field_types: &field_types,
             config_types: &config_types,
@@ -1135,7 +1147,7 @@ mod tests {
             node_output: None,
             inputs_type: None,
             payload_type: None,
-            phase: Some(Phase::Resolve),
+            phase: Some(Phase::Collect),
         };
 
         let span = test_span();
@@ -1380,10 +1392,12 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
         let ctx = make_test_context(
             &type_table,
             &registry,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -1447,10 +1461,12 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
         let ctx = make_test_context(
             &type_table,
             &registry,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -1502,10 +1518,12 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
         let ctx = make_test_context(
             &type_table,
             &registry,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -1550,10 +1568,12 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
         let ctx = make_test_context(
             &type_table,
             &registry,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -1592,10 +1612,12 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
         let ctx = make_test_context(
             &type_table,
             &registry,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -1731,10 +1753,12 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
         let ctx = make_test_context(
             &type_table,
             &registry,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,
@@ -1785,10 +1809,12 @@ mod tests {
         let field_types = HashMap::new();
         let config_types = HashMap::new();
         let const_types = HashMap::new();
+        let function_table = HashMap::new();
         let type_table = crate::resolve::types::TypeTable::new();
         let ctx = make_test_context(
             &type_table,
             &registry,
+            &function_table,
             &signal_types,
             &field_types,
             &config_types,

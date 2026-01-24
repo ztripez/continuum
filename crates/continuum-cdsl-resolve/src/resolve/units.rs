@@ -431,7 +431,7 @@ mod tests {
     #[test]
     fn test_dimension_overflow_fails() {
         let span = test_span();
-        let left = Unit::new(UnitKind::Multiplicative, UnitDimensions::METER);
+        let left = Unit::new(UnitKind::Multiplicative, UnitDimensions::METER, 1.0);
         let right = power_unit(&left, 120, span).unwrap();
         let err = multiply_units(&right, &right, span).unwrap_err();
         assert_eq!(err.kind, ErrorKind::InvalidUnit);
@@ -467,6 +467,7 @@ mod tests {
         let affine = Unit::new(
             UnitKind::Affine { offset: 273.15 },
             UnitDimensions::DIMENSIONLESS,
+            1.0,
         );
         let mult = Unit::meters();
 
@@ -482,6 +483,7 @@ mod tests {
         let affine = Unit::new(
             UnitKind::Affine { offset: 273.15 },
             UnitDimensions::DIMENSIONLESS,
+            1.0,
         );
         let mult = Unit::meters();
 
@@ -498,7 +500,11 @@ mod tests {
     fn test_power_non_multiplicative_unit_fails() {
         // Attempting to raise affine unit to power should fail
         let span = test_span();
-        let affine = Unit::new(UnitKind::Affine { offset: 273.15 }, UnitDimensions::METER);
+        let affine = Unit::new(
+            UnitKind::Affine { offset: 273.15 },
+            UnitDimensions::METER,
+            1.0,
+        );
 
         let err = power_unit(&affine, 2, span).unwrap_err();
         assert_eq!(err.kind, ErrorKind::InvalidUnit);

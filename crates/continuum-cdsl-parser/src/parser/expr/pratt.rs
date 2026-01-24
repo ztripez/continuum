@@ -104,14 +104,6 @@ fn parse_unary(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     ))
 }
 
-/// Check if an identifier is a kernel namespace that should not be desugared.
-fn is_kernel_namespace(ident: &str) -> bool {
-    matches!(
-        ident,
-        "dt" | "maths" | "vector" | "physics" | "stats" | "util" | "field"
-    )
-}
-
 /// Parse postfix expressions (field access, function calls, method calls).
 fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
     let mut expr = atoms::parse_atom(stream)?;
@@ -139,27 +131,28 @@ fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
                     let args = parse_call_args(stream)?;
                     let span = expr.span;
 
-                    // Check if this is a kernel namespace call (dt.relax, maths.pow, etc)
-                    // These should NOT be desugared as method calls
+                    // Check if this looks like a namespaced function call: path.function(args)
+                    // If the base expression is a simple path (identifier or dotted path),
+                    // preserve the full path and let the resolver determine if it's a
+                    // function call or method call.
                     if let Some(namespace_path) = expr.as_path() {
-                        if namespace_path.segments().len() == 1
-                            && is_kernel_namespace(namespace_path.segments()[0].as_str())
-                        {
-                            // Kernel namespace call: preserve as namespace.function
-                            let kernel_path = namespace_path.append(field.as_ref());
-                            expr = Expr::new(
-                                UntypedKind::Call {
-                                    func: kernel_path,
-                                    args,
-                                },
-                                span,
-                            );
-                            continue;
-                        }
+                        // Preserve as namespace.function call for:
+                        // - Kernel namespaces (dt, maths, etc.)
+                        // - Single-segment identifiers that could be user function namespaces
+                        // The resolver will distinguish between functions and method calls
+                        let full_path = namespace_path.append(field.as_ref());
+                        expr = Expr::new(
+                            UntypedKind::Call {
+                                func: full_path,
+                                args,
+                            },
+                            span,
+                        );
+                        continue;
                     }
 
-                    // Regular method call: obj.method(args) becomes method(obj, args)
-                    // Insert the object as the first argument
+                    // Non-path base expression (e.g., computed value): method call
+                    // obj.method(args) becomes method(obj, args)
                     let mut method_args = args;
                     method_args.insert(0, expr);
 
