@@ -102,6 +102,7 @@ use continuum_cdsl::ast::{CompiledWorld, ExprKind, RoleId, TypedExpr, TypeExpr};
 use continuum_foundation::Path;
 use indexmap::IndexMap;
 use std::collections::HashMap;
+use tracing::debug;
 
 /// Scenario configuration for a Continuum world.
 ///

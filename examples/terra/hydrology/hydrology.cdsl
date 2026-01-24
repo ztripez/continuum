@@ -35,6 +35,9 @@ const {
 # =============================================================================
 
 config {
+    # Cell configuration
+    hydrology.cell_count: 1000                  # Number of surface water cells
+
     # Evaporation
     hydrology.evaporation_coefficient: 1.0
     hydrology.bulk_transfer_coefficient: 1.5e-3
@@ -922,6 +925,7 @@ fracture hydrology.sediment_lithification {
 # temperature, phase transitions, and sediment load.
 
 entity hydrology.cell {
+    : count(config.hydrology.cell_count)
     : count_bounds(100, 10000)
 
     signal water_mass {
