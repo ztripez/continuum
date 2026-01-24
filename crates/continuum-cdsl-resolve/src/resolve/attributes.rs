@@ -236,6 +236,10 @@ fn extract_path_from_expr(
         | UntypedKind::Config(path)
         | UntypedKind::Const(path) => Some(path.clone()),
         UntypedKind::Local(name) => Some(Path::from_path_str(name)),
+        // FieldAccess chains like `maths.clamping` - convert to path via as_path()
+        // This handles cases like `: uses(maths.clamping)` where the dotted syntax
+        // is parsed as field access but should be treated as a path
+        UntypedKind::FieldAccess { .. } => expr.as_path(),
         _ => {
             errors.push(
                 CompileError::new(
