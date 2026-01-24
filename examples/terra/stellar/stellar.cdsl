@@ -779,11 +779,12 @@ impulse stellar.orbital_change {
             rotation.precession <- clamped_dprec
         }
 
-        # TODO(continuum-3x0y): orbit.eccentricity should be stellar.star.orbit_eccentricity
-        # Apply eccentricity change (affects seasonal strength)
-        if maths.abs(clamped_de) > config.stellar.orbital_change.min_significant_eccentricity {
-            orbit.eccentricity <- clamped_de
-        }
+        # NOTE: Eccentricity change disabled - orbit_eccentricity is a member signal
+        # on star entities, and impulses can't target specific entity members.
+        # TODO(continuum-3x0y): Design pattern for impulses affecting entity members
+        # if maths.abs(clamped_de) > config.stellar.orbital_change.min_significant_eccentricity {
+        #     stellar.star.orbit_eccentricity <- clamped_de
+        # }
     }
 }
 

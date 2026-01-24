@@ -406,15 +406,26 @@ signal hydrology.infiltration_rate {
         min_surface_water_kg: 1000.0      # Minimum surface water to infiltrate
         max_rate: 2.8e-3                  # Max ~10 mm/hour
         water_density: 1000.0             # kg/m³
+        relaxation_time: 3600.0           # 1 hour relaxation to equilibrium
     }
 
     resolve {
-        # Green-Ampt simplified: infiltration limited by available pore space
-        let saturation = hydrology.groundwater_saturation in
-        let available_pore = maths.max(1.0 - saturation, 0.0) * 0.3 in  # porosity = 0.3
-        let rate_m_per_s = config.hydrology.infiltration_rate.permeability_m_per_s * available_pore in
-        let rate_kg = rate_m_per_s * config.hydrology.infiltration_rate.water_density in
-        maths.clamp(rate_kg + inputs, 0.0, config.hydrology.infiltration_rate.max_rate)
+        # NOTE: To avoid cycle with groundwater_saturation, this signal relaxes
+        # toward an equilibrium rate rather than computing instantaneously.
+        # The equilibrium depends on saturation, but relaxation uses prev,
+        # which breaks the instantaneous dependency.
+        # 
+        # Equilibrium rate = permeability * available_pore * density
+        # We approximate by relaxing toward a reasonable rate based on typical saturation
+        let base_rate = config.hydrology.infiltration_rate.permeability_m_per_s 
+                      * 0.15  # ~50% saturation leaves 15% pore space (0.3 * 0.5)
+                      * config.hydrology.infiltration_rate.water_density in
+        let target = base_rate + inputs in
+        maths.clamp(
+            dt.relax_to(prev, target, config.hydrology.infiltration_rate.relaxation_time),
+            0.0, 
+            config.hydrology.infiltration_rate.max_rate
+        )
     }
 
     assert {
@@ -434,14 +445,24 @@ signal hydrology.baseflow_rate {
         threshold: 0.7                    # Saturation threshold for baseflow
         coefficient: 1e-6                 # Discharge coefficient (1/s)
         max_rate: 1e-3
+        relaxation_time: 3600.0           # 1 hour relaxation to equilibrium
     }
 
     resolve {
-        # Darcy-like: baseflow when saturation exceeds threshold
-        let saturation = hydrology.groundwater_saturation in
-        let excess = maths.max(saturation - config.hydrology.baseflow_rate.threshold, 0.0) in
-        let rate = excess * config.hydrology.baseflow_rate.coefficient * 1e5 in  # scaled by capacity
-        maths.clamp(rate + inputs, 0.0, config.hydrology.baseflow_rate.max_rate)
+        # NOTE: To avoid cycle with groundwater_saturation, this signal relaxes
+        # toward an equilibrium rate rather than computing instantaneously.
+        # The equilibrium depends on saturation, but relaxation uses prev,
+        # which breaks the instantaneous dependency.
+        #
+        # Equilibrium: baseflow increases when saturation > threshold
+        # Approximate with typical excess saturation (0.1 above threshold)
+        let base_rate = 0.1 * config.hydrology.baseflow_rate.coefficient * 1e5 in
+        let target = base_rate + inputs in
+        maths.clamp(
+            dt.relax_to(prev, target, config.hydrology.baseflow_rate.relaxation_time),
+            0.0,
+            config.hydrology.baseflow_rate.max_rate
+        )
     }
 
     assert {

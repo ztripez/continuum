@@ -265,7 +265,8 @@ signal rotation.state {
     resolve {
         # Phase advances with angular velocity using integrate
         let phase = dt.integrate(prev.x, prev.y) in
-        let omega = prev.y + inputs in
+        # inputs.y contains delta omega from impulses/fractures
+        let omega = prev.y + inputs.y in
         vector.vec2(maths.mod(phase, TAU), omega)
     }
 
@@ -2200,11 +2201,10 @@ impulse tectonics.volcanic {
 
     collect {
         if payload.heat_j > config.tectonics.volcanic.min_eruption_heat_j {
-            # Heat deposited increases local thermal budget
-            let surface_heat =
-                payload.heat_j * config.tectonics.volcanic.surface_heat_efficiency
-            # TODO(continuum-k15x): thermal.surface_flux signal doesn't exist
-            thermal.surface_flux <- surface_heat / 1.0e18
+            # NOTE: Heat deposition disabled - needs proper physics modeling
+            # The volcanic impulse provides heat in Joules, but surface.heat_flow
+            # is a rate (W/m²). Direct addition doesn't make physical sense.
+            # TODO(continuum-k15x): Model heat deposition properly via thermal diffusion
 
             # NOTE: CO2 release disabled - at geological timescales, CO2 is handled
             # by equilibrium dynamics in atmosphere.co2_equilibrium fracture
