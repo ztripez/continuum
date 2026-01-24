@@ -332,9 +332,19 @@ impl Compiler {
                     .push(Instruction::new(OpcodeKind::LoadInputs, vec![]));
             }
             ExprKind::Self_ => {
-                block
-                    .instructions
-                    .push(Instruction::new(OpcodeKind::LoadSelf, vec![]));
+                // Check if "self" is bound as a local variable (e.g., in aggregate/filter bodies)
+                // If yes, load from the binding slot instead of using LoadSelf opcode
+                if let Some(slot) = self.lookup_local("self") {
+                    block.instructions.push(Instruction::new(
+                        OpcodeKind::Load,
+                        vec![Operand::Slot(slot)],
+                    ));
+                } else {
+                    // No local binding - use LoadSelf for member signal context
+                    block
+                        .instructions
+                        .push(Instruction::new(OpcodeKind::LoadSelf, vec![]));
+                }
             }
             ExprKind::Other => {
                 block
