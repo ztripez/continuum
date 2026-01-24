@@ -127,7 +127,7 @@ fn extract_integrator_declaration(
             .map(|arg| arg.span)
             .unwrap_or(node_span);
 
-        errors.push(CompileError::new(
+        let mut error = CompileError::new(
             ErrorKind::InvalidCapability,
             attr_span,
             format!(
@@ -135,7 +135,16 @@ fn extract_integrator_declaration(
                 method,
                 VALID_INTEGRATORS.join(", ")
             ),
-        ));
+        );
+
+        // Add note if span was degraded to entire node
+        if attr_span == node_span {
+            error = error.with_note(
+                "Error location points to entire node declaration (integrator attribute span unavailable)".to_string()
+            );
+        }
+
+        errors.push(error);
         return None;
     }
 

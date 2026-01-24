@@ -325,10 +325,22 @@ pub enum Token {
 
     // === Literals ===
     /// Integer literal (e.g., 42, 0, 1000)
+    ///
+    /// LIMITATION: If integer parsing fails (overflow, invalid format),
+    /// logos returns None and lexer emits generic Error token.
+    /// The original text and specific parse error (overflow vs invalid)
+    /// are not preserved. This is a logos framework limitation.
+    ///
+    /// In practice, regex ensures valid format, so only overflow can fail.
+    /// Overflow produces: "Error: unexpected token at line X column Y"
+    /// which is acceptable (numeric literals don't overflow in real CDSL).
     #[regex(r"[0-9]+", |lex| lex.slice().parse::<i64>().ok())]
     Integer(i64),
 
     /// Float literal (e.g., 3.14, 1.0, 5.67e-8)
+    ///
+    /// LIMITATION: Same as Integer - parse failures become generic Error tokens.
+    /// Regex ensures valid format, so only extreme exponents can fail.
     #[regex(r"[0-9]+\.[0-9]+([eE][+-]?[0-9]+)?", |lex| lex.slice().parse::<f64>().ok())]
     #[regex(r"[0-9]+[eE][+-]?[0-9]+", |lex| lex.slice().parse::<f64>().ok())]
     Float(f64),

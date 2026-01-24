@@ -233,10 +233,13 @@ fn build_dag(
                     // This should only happen via temporal access (prev), which should have
                     // been filtered out during dependency extraction. If we see it here,
                     // it's a non-temporal self-read, which is a circular dependency.
-                    let span = node_spans
-                        .get(path)
-                        .copied()
-                        .unwrap_or_else(|| Span::new(0, 0, 0, 0));
+                    let span = node_spans.get(path).copied().unwrap_or_else(|| {
+                        panic!(
+                            "BUG: Missing span for node '{}' during cyclic dependency check. \
+                                 All nodes must have spans registered before graph analysis.",
+                            path
+                        )
+                    });
                     return Err(vec![CompileError::new(
                         ErrorKind::CyclicDependency,
                         span,
@@ -319,7 +322,13 @@ fn build_dag(
             .first()
             .and_then(|p| node_spans.get(p))
             .copied()
-            .unwrap_or_else(|| Span::new(0, 0, 0, 0));
+            .unwrap_or_else(|| {
+                panic!(
+                    "BUG: Missing span for cycle node '{}' during cycle detection. \
+                     All nodes must have spans registered before graph analysis.",
+                    cycle_path.first().unwrap()
+                )
+            });
 
         // Format the cycle as a dependency chain: a → b → c → a
         let cycle_description = cycle_path

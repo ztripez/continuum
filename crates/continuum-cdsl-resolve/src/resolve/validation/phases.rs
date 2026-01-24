@@ -124,7 +124,9 @@ pub fn validate_node<I: continuum_cdsl_ast::Index>(
                             errors.extend(validate_expr(condition, &ctx));
                             // Note: branches are TypedStmt, would need recursive validation
                             // For now, just validate the condition
-                            // TODO: refactor to share stmt validation logic
+                            // FIXME(continuum-frjc): Statement validation duplicated here and in block compilation
+                            // Reason: Need phase context during validation, but stmt structure varies
+                            // Plan: Extract `validate_stmt(stmt: &TypedStmt, ctx: &PhaseContext)` helper
                             for branch_stmt in then_branch.iter().chain(else_branch.iter()) {
                                 if let continuum_cdsl_ast::TypedStmt::Expr(expr)
                                 | continuum_cdsl_ast::TypedStmt::Let { value: expr, .. }

@@ -10,8 +10,10 @@ use crate::ast::structural::{Entity, Era, Stratum};
 use crate::foundation::{EntityId, EraId, Path};
 use indexmap::IndexMap;
 
-// TODO: Move DagSet to continuum-cdsl-ast or make it generic
-// For now, use a placeholder type
+// FIXME(continuum-vdcp): DagSet should be in continuum-cdsl-ast for reuse
+// Current: Defined in dag.rs, re-exported here
+// Issue: DagSet is execution-specific but lives in AST crate
+// Plan: Make DagSet generic over node ID types, move to foundation
 pub use super::dag::{DagSet, ExecutionDag, ExecutionLevel};
 
 /// A compiled and resolved Continuum world.

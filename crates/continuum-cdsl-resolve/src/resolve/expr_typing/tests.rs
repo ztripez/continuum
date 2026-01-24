@@ -522,8 +522,10 @@ fn test_type_fold_valid() {
 // Expected behavior: validate_node() should reject prev() in observer phases (Measure).
 // Actual behavior: No validation exists; prev() is allowed in any phase.
 //
-// TODO: Implement phase validation for prev() similar to assertion validation in
-// resolve/validation/phases.rs:66-79. Should reject prev() in Measure/observer phases.
+// FIXME(continuum-2kk5): prev() phase validation not implemented
+// Expected: validate_node() should reject prev() in observer phases (Measure)
+// Current: prev() is allowed in any phase (typing succeeds, no runtime validation)
+// See: resolve/validation/phases.rs:66-79 for assertion phase validation pattern
 //
 // Test above (test_type_prev_in_wrong_phase) verifies typing succeeds with node_output context.
-// Missing integration test: verify validate_node() rejects prev() in Measure phase.
+// Missing: Integration test verifying validate_node() rejects prev() in Measure phase.

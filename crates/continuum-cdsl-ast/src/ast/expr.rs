@@ -738,7 +738,15 @@ impl TypedExpr {
                 let kernel_is_pure = KernelRegistry::global()
                     .get(kernel)
                     .map(|sig| sig.purity.is_pure())
-                    .unwrap_or(false); // Unknown kernels assumed impure (conservative)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "BUG: Unknown kernel '{}' in purity check. \
+                             All kernels must be registered before AST construction. \
+                             This indicates the kernel was not found during resolution, \
+                             which should have been caught earlier in the pipeline.",
+                            kernel
+                        )
+                    });
 
                 kernel_is_pure && args.iter().all(|arg| arg.is_pure())
             }

@@ -828,11 +828,21 @@ fn resolve_initial_era(
         .next()
         .map(|era| era.span)
         .unwrap_or(world_span);
-    errors.push(CompileError::new(
+
+    let mut error = CompileError::new(
         crate::error::ErrorKind::Conflict,
         first_span,
         "no era marked :initial; add :initial to exactly one era".to_string(),
-    ));
+    );
+
+    // Add note if span was degraded to world declaration
+    if first_span == world_span && !eras.is_empty() {
+        error = error.with_note(
+            "Error location points to world declaration (era spans unavailable)".to_string(),
+        );
+    }
+
+    errors.push(error);
     None
 }
 
