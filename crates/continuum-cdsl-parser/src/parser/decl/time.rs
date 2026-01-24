@@ -7,13 +7,10 @@ use continuum_cdsl_lexer::Token;
 
 /// Parse stratum declaration.
 ///
-/// Syntax: `strata.path { ... }`
+/// Syntax: `strata path { ... }`
 pub(super) fn parse_stratum(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Strata)?;
-
-    // Require dot after keyword: `strata.path` not `strata path`
-    stream.expect(Token::Dot)?;
 
     let path = super::super::types::parse_path(stream)?;
     let mut attributes = parse_attributes(stream)?;
@@ -46,13 +43,10 @@ pub(super) fn parse_stratum(stream: &mut TokenStream) -> Result<Declaration, Par
 
 /// Parse era declaration.
 ///
-/// Syntax: `era.path { ... }`
+/// Syntax: `era path { ... }`
 pub(super) fn parse_era(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Era)?;
-
-    // Require dot after keyword: `era.path` not `era path`
-    stream.expect(Token::Dot)?;
 
     let path = super::super::types::parse_path(stream)?;
     let mut attributes = parse_attributes(stream)?;
@@ -136,37 +130,66 @@ fn parse_strata_policy_block(
 
 /// Parse transition declaration.
 ///
-/// Syntax:
+/// Supports two syntaxes:
+///
+/// 1. Inline: `transition target when { conditions }`
+/// 2. Block:  `transition { to: era.target when { conditions } }`
+///
+/// Example (inline):
+/// ```cdsl
+/// transition stable when {
+///     core.temp < 4000 <K>
+/// }
+/// ```
+///
+/// Example (block):
 /// ```cdsl
 /// transition {
-///     to: era.target
+///     to: era.active_tectonics
 ///     when {
-///         condition1
-///         condition2
+///         crust.total_thickness > 40000
 ///     }
 /// }
 /// ```
 fn parse_transition(stream: &mut TokenStream) -> Result<TransitionDecl, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::Transition)?;
-    stream.expect(Token::LBrace)?;
 
-    // Parse `to: <path>`
-    stream.expect(Token::To)?;
-    stream.expect(Token::Colon)?;
-    let target = super::super::types::parse_path(stream)?;
+    // Check if block syntax: `transition { ... }`
+    if matches!(stream.peek(), Some(Token::LBrace)) {
+        stream.advance(); // consume '{'
 
-    // Parse `when { conditions }`
-    stream.expect(Token::When)?;
-    stream.expect(Token::LBrace)?;
-    let conditions = super::super::helpers::parse_semicolon_separated_exprs(stream)?;
-    stream.expect(Token::RBrace)?;
+        // Parse `to: <path>`
+        stream.expect(Token::To)?;
+        stream.expect(Token::Colon)?;
+        let target = super::super::types::parse_path(stream)?;
 
-    stream.expect(Token::RBrace)?;
+        // Parse `when { conditions }`
+        stream.expect(Token::When)?;
+        stream.expect(Token::LBrace)?;
+        let conditions = super::super::helpers::parse_semicolon_separated_exprs(stream)?;
+        stream.expect(Token::RBrace)?;
 
-    Ok(TransitionDecl {
-        target,
-        conditions,
-        span: stream.span_from(start),
-    })
+        stream.expect(Token::RBrace)?;
+
+        Ok(TransitionDecl {
+            target,
+            conditions,
+            span: stream.span_from(start),
+        })
+    } else {
+        // Inline syntax: `transition target when { conditions }`
+        let target = super::super::types::parse_path(stream)?;
+
+        stream.expect(Token::When)?;
+        stream.expect(Token::LBrace)?;
+        let conditions = super::super::helpers::parse_semicolon_separated_exprs(stream)?;
+        stream.expect(Token::RBrace)?;
+
+        Ok(TransitionDecl {
+            target,
+            conditions,
+            span: stream.span_from(start),
+        })
+    }
 }

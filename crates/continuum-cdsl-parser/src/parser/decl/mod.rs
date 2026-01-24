@@ -347,9 +347,6 @@ pub(super) fn parse_node_declaration(
     let start = stream.current_pos();
     stream.expect(keyword.clone())?;
 
-    // Require dot after keyword: `signal.path` not `signal path`
-    stream.expect(Token::Dot)?;
-
     let path = super::types::parse_path(stream)?;
     let mut attributes = parse_attributes(stream)?;
 

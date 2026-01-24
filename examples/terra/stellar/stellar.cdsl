@@ -69,19 +69,19 @@ config {
 # Stellar Strata
 # =============================================================================
 
-strata.stellar.orbit {
+strata stellar.orbit {
     : title("Stellar Orbit")
     : symbol("SO")
     : stride(1)
 }
 
-strata.stellar.activity {
+strata stellar.activity {
     : title("Stellar Activity")
     : symbol("SA")
     : stride(100)
 }
 
-strata.stellar.tides {
+strata stellar.tides {
     : title("Stellar Tides")
     : symbol("ST")
     : stride(1)
@@ -91,7 +91,7 @@ strata.stellar.tides {
 # Star Entity
 # =============================================================================
 
-entity.stellar.star {
+entity stellar.star {
     : count(config.stellar.star_count)
     : count_bounds(1, 4)
 
@@ -382,7 +382,7 @@ entity.stellar.star {
 # Moon Entity
 # =============================================================================
 
-entity.stellar.moon {
+entity stellar.moon {
     : count(config.stellar.moon_count)
     : count_bounds(0, 20)
 
@@ -581,7 +581,7 @@ entity.stellar.moon {
 # Total insolation from all stars
 # NOTE: Using constant value as workaround for entity member initialization issue
 # TODO: Fix entity member initial value propagation (continuum-wpqp)
-signal.stellar.total_insolation {
+signal stellar.total_insolation {
     : Scalar<W/m², 0..1e6>
     : stratum(orbit)
     : title("Total Stellar Insolation")
@@ -599,7 +599,7 @@ signal.stellar.total_insolation {
 }
 
 # Total tidal heating power from all moons
-signal.stellar.total_tidal_power {
+signal stellar.total_tidal_power {
     : Scalar<W, 0..1e16>
     : stratum(tides)
     : title("Total Tidal Heating Power")
@@ -612,7 +612,7 @@ signal.stellar.total_tidal_power {
 
 # Total tidal amplitude from all moons
 # Used for field visualization - aggregates tidal force contribution
-signal.stellar.total_tidal_amplitude {
+signal stellar.total_tidal_amplitude {
     : Scalar<m, 0..1e6>
     : stratum(tides)
     : title("Total Tidal Amplitude")
@@ -624,7 +624,7 @@ signal.stellar.total_tidal_amplitude {
 }
 
 # Star count
-signal.stellar.star_count {
+signal stellar.star_count {
     : Scalar<1, 0..4>
     : stratum(orbit)
     : title("Number of Stars")
@@ -636,7 +636,7 @@ signal.stellar.star_count {
 }
 
 # Moon count
-signal.stellar.moon_count {
+signal stellar.moon_count {
     : Scalar<1, 0..20>
     : stratum(orbit)
     : title("Number of Moons")
@@ -668,7 +668,7 @@ type ImpactImpulsePayload {
 /// Asteroid or comet impact event. Deposits kinetic energy into crust and mantle,
 /// triggers volcanic activity, deposits ejecta, and can alter planetary rotation
 /// for very large impacts. Energy partitioned between thermal heating and mechanical deformation.
-impulse.stellar.impact {
+impulse stellar.impact {
     : ImpactImpulsePayload
     : stratum(orbit)
     : title("Impact Impulse")
@@ -737,7 +737,7 @@ type OrbitalChangePayload {
 /// External perturbation to planetary orbital elements. Models Milankovitch cycles
 /// (long-term orbital variations driving climate) or sudden events like planetary migration
 /// or close encounters. Changes eccentricity, obliquity, and precession of orbit.
-impulse.stellar.orbital_change {
+impulse stellar.orbital_change {
     : OrbitalChangePayload
     : stratum(orbit)
     : title("Orbital Change")
@@ -796,7 +796,7 @@ impulse.stellar.orbital_change {
 # Stellar Fields
 # =============================================================================
 
-field.stellar.insolation_map {
+field stellar.insolation_map {
     : Scalar<W/m²>
     : stratum(orbit)
     : topology(sphere_surface)
@@ -807,7 +807,7 @@ field.stellar.insolation_map {
     }
 }
 
-field.stellar.tidal_amplitude_map {
+field stellar.tidal_amplitude_map {
     : Scalar<m>
     : stratum(tides)
     : topology(sphere_surface)

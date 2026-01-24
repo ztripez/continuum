@@ -12,7 +12,7 @@
 //!   - ecology/ecology.cdsl: Biosphere, carbon cycling, productivity
 //! =============================================================================
 
-world.terra {
+world terra {
     : title("Terra Geophysics Simulation")
     : version("0.1.0")
     : description("Realistic crust dynamics with isostasy and dynamic topography")
@@ -29,49 +29,49 @@ world.terra {
 // Each stratum can have signals that resolve at different rates.
 
 /// Genesis stratum for one-time planetary formation events.
-strata.genesis {
+strata genesis {
     : title("Genesis")
     : symbol("G")
     : stride(1)
 }
 
 /// Rotation stratum for planetary rotation dynamics.
-strata.rotation {
+strata rotation {
     : title("Rotation")
     : symbol("R")
     : stride(1)
 }
 
 /// Thermal stratum for heat flow and temperature calculations.
-strata.thermal {
+strata thermal {
     : title("Thermal")
     : symbol("Q")
     : stride(1)
 }
 
 /// Tectonics stratum for plate motion and crustal dynamics.
-strata.tectonics {
+strata tectonics {
     : title("Tectonics")
     : symbol("T")
     : stride(10)
 }
 
 /// Atmosphere stratum for atmospheric processes.
-strata.atmosphere {
+strata atmosphere {
     : title("Atmosphere")
     : symbol("A")
     : stride(1)
 }
 
 /// Hydrology stratum for water cycle processes.
-strata.hydrology {
+strata hydrology {
     : title("Hydrology")
     : symbol("H")
     : stride(1)
 }
 
 /// Ecology stratum for biosphere dynamics.
-strata.ecology {
+strata ecology {
     : title("Ecology")
     : symbol("E")
     : stride(10)
@@ -84,7 +84,7 @@ strata.ecology {
 // and active strata configurations.
 
 /// Planetary formation era with initial accretion and differentiation.
-era.formation {
+era formation {
     : initial
     : title("Planetary Formation")
     : dt(10 <Myr>)
@@ -111,7 +111,7 @@ era.formation {
 }
 
 /// Active tectonics era with plate motion and crustal recycling.
-era.active_tectonics {
+era active_tectonics {
     : title("Active Tectonics")
     : dt(1 <Myr>)
 
@@ -137,7 +137,7 @@ era.active_tectonics {
 }
 
 /// Cooling phase era as planetary heat dissipates.
-era.cooling {
+era cooling {
     : terminal
     : title("Cooling Phase")
     : dt(100 <kyr>)

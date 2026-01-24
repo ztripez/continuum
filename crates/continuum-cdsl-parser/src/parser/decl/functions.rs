@@ -22,9 +22,6 @@ pub(super) fn parse_function_decl(stream: &mut TokenStream) -> Result<Declaratio
     let start = stream.current_pos();
     stream.expect(Token::Fn)?;
 
-    // Require dot after keyword: `fn.path` not `fn path`
-    stream.expect(Token::Dot)?;
-
     // Parse function path
     let path = super::super::types::parse_path(stream)?;
 

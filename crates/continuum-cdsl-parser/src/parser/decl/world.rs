@@ -8,13 +8,10 @@ use std::rc::Rc;
 
 /// Parse world declaration.
 ///
-/// Syntax: `world.path { ... }`
+/// Syntax: `world path { ... }`
 pub(super) fn parse_world(stream: &mut TokenStream) -> Result<Declaration, ParseError> {
     let start = stream.current_pos();
     stream.expect(Token::World)?;
-
-    // Require dot after keyword: `world.path` not `world path`
-    stream.expect(Token::Dot)?;
 
     let path = super::super::types::parse_path(stream)?;
 
