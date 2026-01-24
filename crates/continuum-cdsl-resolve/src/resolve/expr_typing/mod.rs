@@ -26,9 +26,10 @@ mod tests;
 
 use crate::error::{CompileError, ErrorKind};
 pub use context::TypingContext;
-use continuum_cdsl_ast::foundation::{KernelType, Shape, Type, Unit};
+use continuum_cdsl_ast::foundation::{BinaryOp, KernelType, Shape, Type, UnaryOp, Unit};
 use continuum_cdsl_ast::{Expr, ExprKind, TypedExpr, UntypedKind};
 use continuum_foundation::Phase;
+use derivation::derive_return_type;
 use helpers::*;
 
 /// Infers and validates the type of an expression.
@@ -124,6 +125,43 @@ pub fn type_expression(
 
             let ty = lookup_path_type(ctx, path, span, "field", ctx.field_types)?;
             (ExprKind::Field(path.clone()), ty)
+        }
+
+        // === Binary operators (type-aware dispatch) ===
+        UntypedKind::Binary { op, left, right } => {
+            let typed_left = type_expression(left, ctx, None)?;
+            let typed_right = type_expression(right, ctx, None)?;
+            
+            // Dispatch to appropriate kernel based on operand types
+            let kernel = select_binary_kernel(*op, &typed_left.ty, &typed_right.ty)?;
+            
+            // Check kernel signature and derive return type
+            let sig = ctx
+                .kernel_registry
+                .get(&kernel)
+                .ok_or_else(|| err_internal(span, format!("unknown kernel: {:?}", kernel)))?;
+            let typed_args = vec![typed_left, typed_right];
+            let return_type = derive_return_type(sig, &typed_args, span)?;
+            
+            (ExprKind::Call { kernel, args: typed_args }, return_type)
+        }
+
+        // === Unary operators (type-aware dispatch) ===
+        UntypedKind::Unary { op, operand } => {
+            let typed_operand = type_expression(operand, ctx, None)?;
+            
+            // Dispatch to appropriate kernel based on operand type
+            let kernel = select_unary_kernel(*op, &typed_operand.ty)?;
+            
+            // Check kernel signature and derive return type
+            let sig = ctx
+                .kernel_registry
+                .get(&kernel)
+                .ok_or_else(|| err_internal(span, format!("unknown kernel: {:?}", kernel)))?;
+            let typed_args = vec![typed_operand];
+            let return_type = derive_return_type(sig, &typed_args, span)?;
+            
+            (ExprKind::Call { kernel, args: typed_args }, return_type)
         }
 
         // === Kernel calls ===
@@ -328,12 +366,12 @@ pub fn type_expression(
             (k, t)
         }
 
-        // === Operator desugaring guard ===
-        UntypedKind::Binary { .. } | UntypedKind::Unary { .. } | UntypedKind::If { .. } => {
+        // === If-expressions should be desugared before typing ===
+        UntypedKind::If { .. } => {
             return Err(vec![CompileError::new(
                 ErrorKind::Internal,
                 span,
-                "operator expressions must be desugared before typing".to_string(),
+                "if-expression must be desugared to logic.select before typing".to_string(),
             )]);
         }
 
@@ -348,6 +386,90 @@ pub fn type_expression(
 
     Ok(TypedExpr::new(kind, ty, span))
 }
+
+/// Select appropriate kernel for binary operator based on operand types
+fn select_binary_kernel(
+    op: BinaryOp,
+    left_ty: &Type,
+    right_ty: &Type,
+) -> Result<continuum_kernel_types::KernelId, Vec<CompileError>> {
+    use BinaryOp::*;
+    
+    // Check if this is a vector operation and extract dimension
+    let vector_dim = if let Type::Kernel(k) = left_ty {
+        if let continuum_cdsl_ast::foundation::Shape::Vector { dim } = k.shape {
+            Some(dim)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    
+    let is_vector_op = vector_dim.is_some();
+    
+    let namespace = if is_vector_op && matches!(op, Add | Sub | Mul | Div) {
+        "vector"
+    } else {
+        match op {
+            Add | Sub | Mul | Div | Mod | Pow => "maths",
+            Eq | Ne | Lt | Le | Gt | Ge => "compare",
+            And | Or => "logic",
+        }
+    };
+    
+    let base_name = match op {
+        Add => "add",
+        Sub => "sub",
+        Mul => "mul",
+        Div => "div",
+        Mod => "mod",
+        Pow => "pow",
+        Eq => "eq",
+        Ne => "ne",
+        Lt => "lt",
+        Le => "le",
+        Gt => "gt",
+        Ge => "ge",
+        And => "and",
+        Or => "or",
+    };
+    
+    // Append vector dimension for vector operations
+    let name = if let Some(dim) = vector_dim {
+        // Check if right operand is a scalar (for vec*scalar operations)
+        let is_scalar_right = matches!(right_ty, Type::Kernel(k) if matches!(k.shape, continuum_cdsl_ast::foundation::Shape::Scalar));
+        
+        if is_scalar_right && matches!(op, Mul | Div) {
+            format!("{}_vec{}_scalar", base_name, dim)
+        } else {
+            format!("{}_vec{}", base_name, dim)
+        }
+    } else {
+        base_name.to_string()
+    };
+    
+    Ok(continuum_kernel_types::KernelId {
+        namespace: std::borrow::Cow::Borrowed(namespace),
+        name: std::borrow::Cow::Owned(name),
+    })
+}
+
+/// Select appropriate kernel for unary operator based on operand type
+fn select_unary_kernel(
+    op: UnaryOp,
+    _operand_ty: &Type,
+) -> Result<continuum_kernel_types::KernelId, Vec<CompileError>> {
+    use UnaryOp::*;
+    
+    let (namespace, name) = match op {
+        Neg => ("maths", "neg"),
+        Not => ("logic", "not"),
+    };
+    
+    Ok(continuum_kernel_types::KernelId::new(namespace, name))
+}
+
 /// Integration test for bare signal path resolution feature.
 ///
 /// This test verifies that expressions like `core.temp` are automatically

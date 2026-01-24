@@ -43,6 +43,164 @@ pub fn vec4(x: f64, y: f64, z: f64, w: f64) -> [f64; 4] {
     [x, y, z, w]
 }
 
+// === Vector Arithmetic ===
+
+/// Add two Vec2 vectors: `add(a, b)` → a + b
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2)), VectorDim(DimExact(2))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn add_vec2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    [a[0] + b[0], a[1] + b[1]]
+}
+
+/// Add two Vec3 vectors: `add(a, b)` → a + b
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn add_vec3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
+}
+
+/// Add two Vec4 vectors: `add(a, b)` → a + b
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4)), VectorDim(DimExact(4))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn add_vec4(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    [a[0] + b[0], a[1] + b[1], a[2] + b[2], a[3] + b[3]]
+}
+
+/// Subtract two Vec2 vectors: `sub(a, b)` → a - b
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2)), VectorDim(DimExact(2))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn sub_vec2(a: [f64; 2], b: [f64; 2]) -> [f64; 2] {
+    [a[0] - b[0], a[1] - b[1]]
+}
+
+/// Subtract two Vec3 vectors: `sub(a, b)` → a - b
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), VectorDim(DimExact(3))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn sub_vec3(a: [f64; 3], b: [f64; 3]) -> [f64; 3] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
+}
+
+/// Subtract two Vec4 vectors: `sub(a, b)` → a - b
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4)), VectorDim(DimExact(4))],
+    unit_in = [UnitAny, UnitSameAs(0)],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn sub_vec4(a: [f64; 4], b: [f64; 4]) -> [f64; 4] {
+    [a[0] - b[0], a[1] - b[1], a[2] - b[2], a[3] - b[3]]
+}
+
+/// Multiply Vec2 by scalar: `mul(vec, scalar)` → vec * scalar
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2)), AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn mul_vec2_scalar(v: [f64; 2], s: f64) -> [f64; 2] {
+    [v[0] * s, v[1] * s]
+}
+
+/// Multiply Vec3 by scalar: `mul(vec, scalar)` → vec * scalar
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn mul_vec3_scalar(v: [f64; 3], s: f64) -> [f64; 3] {
+    [v[0] * s, v[1] * s, v[2] * s]
+}
+
+/// Multiply Vec4 by scalar: `mul(vec, scalar)` → vec * scalar
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4)), AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn mul_vec4_scalar(v: [f64; 4], s: f64) -> [f64; 4] {
+    [v[0] * s, v[1] * s, v[2] * s, v[3] * s]
+}
+
+/// Divide Vec2 by scalar: `div(vec, scalar)` → vec / scalar
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(2)), AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(2)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn div_vec2_scalar(v: [f64; 2], s: f64) -> [f64; 2] {
+    [v[0] / s, v[1] / s]
+}
+
+/// Divide Vec3 by scalar: `div(vec, scalar)` → vec / scalar
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(3)), AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(3)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn div_vec3_scalar(v: [f64; 3], s: f64) -> [f64; 3] {
+    [v[0] / s, v[1] / s, v[2] / s]
+}
+
+/// Divide Vec4 by scalar: `div(vec, scalar)` → vec / scalar
+#[kernel_fn(
+    namespace = "vector",
+    purity = Pure,
+    shape_in = [VectorDim(DimExact(4)), AnyScalar],
+    unit_in = [UnitAny, UnitAny],
+    shape_out = ShapeVectorDim(DimExact(4)),
+    unit_out = UnitDerivSameAs(0)
+)]
+pub fn div_vec4_scalar(v: [f64; 4], s: f64) -> [f64; 4] {
+    [v[0] / s, v[1] / s, v[2] / s, v[3] / s]
+}
+
 /// Vector length/magnitude for Vec2: `length(vec)`
 #[kernel_fn(
     namespace = "vector",

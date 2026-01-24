@@ -98,15 +98,23 @@ pub fn desugar_expr(expr: Expr) -> Expr {
     let span = expr.span;
 
     match expr.kind {
-        ExprKind::Binary { op, left, right } => kernel_call(
-            binary_kernel(op),
-            vec![desugar_expr(*left), desugar_expr(*right)],
+        // Keep Binary nodes for type-aware dispatch during type resolution
+        ExprKind::Binary { op, left, right } => Expr {
+            kind: ExprKind::Binary {
+                op,
+                left: Box::new(desugar_expr(*left)),
+                right: Box::new(desugar_expr(*right)),
+            },
             span,
-        ),
+        },
 
-        ExprKind::Unary { op, operand } => {
-            kernel_call(unary_kernel(op), vec![desugar_expr(*operand)], span)
-        }
+        ExprKind::Unary { op, operand } => Expr {
+            kind: ExprKind::Unary {
+                op,
+                operand: Box::new(desugar_expr(*operand)),
+            },
+            span,
+        },
 
         ExprKind::If {
             condition,
