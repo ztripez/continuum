@@ -14,7 +14,7 @@
 use crate::error::{CompileError, ErrorKind};
 use crate::resolve::units::resolve_unit_expr;
 use continuum_cdsl_ast::foundation::{
-    Bounds, EntityId, Path, Shape, Span, Type, Unit, UserType, UserTypeId,
+    Bounds, EntityId, Path, Shape, Span, Type, UnaryOp, Unit, UserType, UserTypeId,
 };
 use continuum_cdsl_ast::{Declaration, Expr, NestedBlock, TypeExpr, UntypedKind};
 use std::collections::HashMap;
@@ -373,6 +373,23 @@ pub(crate) fn infer_type_from_expr(expr: &Expr, span: Span) -> Result<Type, Comp
                 Unit::dimensionless(),
                 None,
             ))
+        }
+
+        // Special case: unary negation of a literal (e.g., -0.02, -500.0)
+        // This is a common pattern in config blocks for negative defaults
+        UntypedKind::Unary { op: UnaryOp::Neg, operand } => {
+            if let UntypedKind::Literal { unit, .. } = &operand.kind {
+                // Infer type from the literal, preserving its unit
+                let resolved_unit = resolve_unit_expr(unit.as_ref(), span)?;
+                Ok(Type::kernel(Shape::Scalar, resolved_unit, None))
+            } else {
+                // For more complex expressions under negation, require explicit type
+                Err(CompileError::new(
+                    ErrorKind::TypeMismatch,
+                    span,
+                    "Cannot infer type from negated non-literal expression. Explicit type annotation required.".to_string(),
+                ))
+            }
         }
 
         _ => Err(CompileError::new(
