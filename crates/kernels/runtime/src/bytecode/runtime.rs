@@ -333,6 +333,28 @@ pub trait ExecutionContext {
         severity: Option<&str>,
         message: Option<&str>,
     ) -> Result<(), ExecutionError>;
+
+    /// Loads a member signal value for the current entity instance.
+    ///
+    /// This is only valid when executing member signal bytecode with entity context.
+    /// The member signal path is relative to the current entity (e.g., "temperature"
+    /// accesses "hydrology.cell.temperature" when executing hydrology.cell member signals).
+    ///
+    /// # Parameters
+    ///
+    /// - `member_name`: The member signal name (e.g., "temperature")
+    ///
+    /// # Returns
+    ///
+    /// The current value of the member signal for the executing instance.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if:
+    /// - Not executing in entity context
+    /// - Member signal not found
+    /// - Member signal not initialized for this instance
+    fn load_member_signal(&self, member_name: &str) -> Result<Value, ExecutionError>;
 }
 
 /// Runtime interface provided by the executor to opcode handlers.

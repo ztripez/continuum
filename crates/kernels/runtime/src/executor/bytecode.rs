@@ -149,6 +149,7 @@ impl BytecodePhaseExecutor {
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
                                 payload: None,
+                                entity_context: None,
                             };
 
                             let block_id = compiled.root;
@@ -255,6 +256,7 @@ impl BytecodePhaseExecutor {
                             config_values: &self.config_values,
                             const_values: &self.const_values,
                             payload: None,
+                            entity_context: None,
                         };
 
                         match self.executor.execute(compiled, &mut ctx) {
@@ -348,6 +350,7 @@ impl BytecodePhaseExecutor {
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
                                 payload: None,
+                                entity_context: None,
                             };
 
                             let block_id = compiled.root;
@@ -477,6 +480,7 @@ impl BytecodePhaseExecutor {
                             config_values: &self.config_values,
                             const_values: &self.const_values,
                             payload: None,
+                            entity_context: None,
                         };
                         self.executor.execute(compiled, &mut ctx).map_err(|e| {
                             Error::ExecutionFailure {
@@ -552,6 +556,7 @@ impl BytecodePhaseExecutor {
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
                                 payload: None,
+                                entity_context: None,
                             };
 
                             self.executor.execute(compiled, &mut ctx).map_err(|e| {
@@ -629,6 +634,7 @@ impl BytecodePhaseExecutor {
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
                                 payload: None,
+                                entity_context: None,
                             };
 
                             self.executor.execute(compiled, &mut ctx).map_err(|e| {
@@ -678,6 +684,25 @@ pub struct VMContext<'a> {
     pub const_values: &'a HashMap<Path, Value>,
     /// Current impulse payload (only valid when executing impulse collect blocks)
     pub payload: Option<&'a Value>,
+    /// Current entity context for member signal execution
+    /// When Some, enables LoadSelf/LoadOther opcodes for member signal access
+    pub entity_context: Option<EntityContext<'a>>,
+}
+
+/// Entity execution context for member signal bytecode.
+///
+/// When executing member signal resolve/initial blocks, this provides:
+/// - Entity ID (e.g., "hydrology.cell")
+/// - Instance index (0..N for N instances)
+/// - Access to member signal buffer for self/other member reads
+#[derive(Debug, Clone, Copy)]
+pub struct EntityContext<'a> {
+    /// The entity ID (e.g., "hydrology.cell")
+    pub entity_id: &'a EntityId,
+    /// The instance index being executed (0..instance_count)
+    pub instance_index: usize,
+    /// The member signal path being resolved (e.g., "hydrology.cell.temperature")
+    pub target_member: &'a Path,
 }
 
 impl<'a> ExecutionContext for VMContext<'a> {
@@ -792,16 +817,39 @@ impl<'a> ExecutionContext for VMContext<'a> {
     }
 
     fn load_self(&self) -> std::result::Result<Value, ExecutionError> {
-        Err(ExecutionError::InvalidOpcode {
-            opcode: "LoadSelf requires entity context".to_string(),
-            phase: self.phase,
-        })
+        let _entity_ctx = self
+            .entity_context
+            .ok_or_else(|| ExecutionError::InvalidOpcode {
+                opcode: "LoadSelf requires entity context (member signal execution)".to_string(),
+                phase: self.phase,
+            })?;
+
+        // LoadSelf returns a special marker value that signals to FieldAccess
+        // that member signal access should be used.
+        // We use a Map with a special "__entity_instance__" key set to 1.
+        // This is a sentinel value that FieldAccess will recognize.
+        Ok(Value::Map(std::sync::Arc::new(vec![(
+            "__entity_instance__".to_string(),
+            Value::Integer(1),
+        )])))
     }
 
     fn load_other(&self) -> std::result::Result<Value, ExecutionError> {
-        Err(ExecutionError::InvalidOpcode {
-            opcode: "LoadOther requires entity context".to_string(),
-            phase: self.phase,
+        let entity_ctx = self
+            .entity_context
+            .ok_or_else(|| ExecutionError::InvalidOpcode {
+                opcode: "LoadOther requires entity context (member signal execution)".to_string(),
+                phase: self.phase,
+            })?;
+
+        // LoadOther is used for accessing other member signals of the same entity instance
+        // The path is determined by the opcode operand (handled by the opcode handler)
+        // This stub should not be called directly - the opcode handler resolves the path
+        Err(ExecutionError::InvalidOperand {
+            message: format!(
+                "LoadOther requires path operand (entity: {}, instance: {})",
+                entity_ctx.entity_id, entity_ctx.instance_index
+            ),
         })
     }
 
@@ -1190,6 +1238,31 @@ impl<'a> ExecutionContext for VMContext<'a> {
             severity: severity.unwrap_or("error").to_string(),
             message: message.unwrap_or("assertion failed").to_string(),
         })
+    }
+
+    fn load_member_signal(&self, member_name: &str) -> std::result::Result<Value, ExecutionError> {
+        let entity_ctx = self
+            .entity_context
+            .ok_or_else(|| ExecutionError::InvalidOpcode {
+                opcode: format!(
+                    "load_member_signal('{}') requires entity context",
+                    member_name
+                ),
+                phase: self.phase,
+            })?;
+
+        // Construct the full member signal path: entity_id.member_name
+        let full_path = format!("{}.{}", entity_ctx.entity_id, member_name);
+
+        // Load the current value from the member signal buffer
+        self.member_signals
+            .get_current(&full_path, entity_ctx.instance_index)
+            .ok_or_else(|| ExecutionError::InvalidOperand {
+                message: format!(
+                    "Member signal '{}' at instance {} not found or not initialized",
+                    full_path, entity_ctx.instance_index
+                ),
+            })
     }
 }
 

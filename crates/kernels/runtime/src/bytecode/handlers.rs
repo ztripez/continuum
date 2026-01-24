@@ -10,6 +10,31 @@ use crate::bytecode::operand::{
 };
 use crate::bytecode::program::BytecodeProgram;
 use crate::bytecode::runtime::{ExecutionContext, ExecutionError, ExecutionRuntime};
+use continuum_foundation::Path;
+
+/// Helper to access fields with entity context support for member signals.
+///
+/// This extends `field_access` to handle the special case where `LoadSelf` returns
+/// an entity instance marker, and `FieldAccess` needs to load from member signals.
+fn field_access_with_context(
+    object: &Value,
+    field: &str,
+    ctx: &dyn ExecutionContext,
+) -> Result<Value, ExecutionError> {
+    // Check if this is an entity instance marker from LoadSelf
+    if let Value::Map(fields) = object {
+        if let Some((key, _val)) = fields.first() {
+            if key == "__entity_instance__" {
+                // This is a member signal access: self.<field>
+                // Use the new load_member_signal method to access the member
+                return ctx.load_member_signal(field);
+            }
+        }
+    }
+
+    // Normal field access (Vec3, Map, etc.)
+    field_access(object, field)
+}
 
 /// Functional interface for an opcode execution handler.
 ///
@@ -504,11 +529,11 @@ pub(crate) fn handle_field_access(
     instruction: &Instruction,
     runtime: &mut dyn ExecutionRuntime,
     _program: &BytecodeProgram,
-    _ctx: &mut dyn ExecutionContext,
+    ctx: &mut dyn ExecutionContext,
 ) -> Result<(), ExecutionError> {
     let field = operand_string(&instruction.operands[0])?;
     let object = runtime.pop()?;
-    let value = field_access(&object, &field)?;
+    let value = field_access_with_context(&object, &field, ctx)?;
     runtime.push(value)?;
     Ok(())
 }
