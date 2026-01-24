@@ -656,7 +656,7 @@ impl Runtime {
                 &self.signals,
                 &mut self.entities,
                 &self.member_signals,
-                &mut self.input_channels,
+                &mut self.fracture_queue,
             )?;
         }
         self.current_phase = crate::types::TickPhase::Simulation(Phase::Measure);

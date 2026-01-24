@@ -5,7 +5,9 @@ use crate::error::{Error, Result};
 use crate::executor::assertions::AssertionChecker;
 use crate::reductions;
 use crate::soa_storage::MemberSignalBuffer;
-use crate::storage::{EntityStorage, EventBuffer, FieldBuffer, InputChannels, SignalStorage};
+use crate::storage::{
+    EntityStorage, EventBuffer, FieldBuffer, FractureQueue, InputChannels, SignalStorage,
+};
 use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 use continuum_foundation::{AggregateOp, EntityId, Path};
 use indexmap::IndexMap;
@@ -129,6 +131,7 @@ impl BytecodePhaseExecutor {
                                 }
                             })?;
 
+                            let mut placeholder_fracture_queue = FractureQueue::default();
                             let mut ctx = VMContext {
                                 phase: Phase::Configure,
                                 era,
@@ -138,6 +141,7 @@ impl BytecodePhaseExecutor {
                                 entities,
                                 member_signals,
                                 channels: input_channels,
+                                fracture_queue: &mut placeholder_fracture_queue,
                                 field_buffer: &mut placeholder_field_buffer,
                                 event_buffer: &mut EventBuffer::default(),
                                 target_signal: Some(signal.clone()),
@@ -217,6 +221,7 @@ impl BytecodePhaseExecutor {
                                 ),
                             }
                         })?;
+                        let mut placeholder_fracture_queue = FractureQueue::default();
                         let mut ctx = VMContext {
                             phase: Phase::Collect,
                             era,
@@ -226,6 +231,7 @@ impl BytecodePhaseExecutor {
                             entities,
                             member_signals,
                             channels: input_channels,
+                            fracture_queue: &mut placeholder_fracture_queue,
                             field_buffer: &mut placeholder_field_buffer,
                             event_buffer: &mut EventBuffer::default(),
                             target_signal: None,
@@ -296,6 +302,7 @@ impl BytecodePhaseExecutor {
                                 }
                             })?;
 
+                            let mut placeholder_fracture_queue = FractureQueue::default();
                             let mut ctx = VMContext {
                                 phase: Phase::Resolve,
                                 era,
@@ -305,6 +312,7 @@ impl BytecodePhaseExecutor {
                                 entities,
                                 member_signals,
                                 channels: input_channels,
+                                fracture_queue: &mut placeholder_fracture_queue,
                                 field_buffer: &mut placeholder_field_buffer,
                                 event_buffer: &mut EventBuffer::default(),
                                 target_signal: Some(signal.clone()),
@@ -381,7 +389,7 @@ impl BytecodePhaseExecutor {
         signals: &SignalStorage,
         entities: &mut EntityStorage,
         member_signals: &MemberSignalBuffer,
-        input_channels: &mut InputChannels,
+        fracture_queue: &mut FractureQueue,
     ) -> Result<()> {
         let era_dags = dags.get_era(era).unwrap();
 
@@ -407,6 +415,7 @@ impl BytecodePhaseExecutor {
                                 ),
                             }
                         })?;
+                        let mut placeholder_input_channels = InputChannels::default();
                         let mut ctx = VMContext {
                             phase: Phase::Fracture,
                             era,
@@ -415,7 +424,8 @@ impl BytecodePhaseExecutor {
                             signals,
                             entities,
                             member_signals,
-                            channels: input_channels,
+                            channels: &mut placeholder_input_channels,
+                            fracture_queue,
                             field_buffer: &mut placeholder_field_buffer,
                             event_buffer: &mut EventBuffer::default(),
                             target_signal: None, // TODO: Fracture nodes currently lack single-signal target context
@@ -480,6 +490,7 @@ impl BytecodePhaseExecutor {
                                 }
                             })?;
                             let mut inner_input_channels = InputChannels::default();
+                            let mut placeholder_fracture_queue = FractureQueue::default();
                             let mut ctx = VMContext {
                                 phase: Phase::Measure,
                                 era,
@@ -489,6 +500,7 @@ impl BytecodePhaseExecutor {
                                 entities,
                                 member_signals,
                                 channels: &mut inner_input_channels,
+                                fracture_queue: &mut placeholder_fracture_queue,
                                 field_buffer,
                                 event_buffer: &mut EventBuffer::default(),
                                 target_signal: None,
@@ -555,6 +567,7 @@ impl BytecodePhaseExecutor {
                                     }
                                 })?;
                             let mut input_channels = InputChannels::default();
+                            let mut placeholder_fracture_queue = FractureQueue::default();
                             let mut ctx = VMContext {
                                 phase: Phase::Measure,
                                 era,
@@ -564,6 +577,7 @@ impl BytecodePhaseExecutor {
                                 entities,
                                 member_signals,
                                 channels: &mut input_channels,
+                                fracture_queue: &mut placeholder_fracture_queue,
                                 field_buffer: &mut placeholder_field_buffer,
                                 event_buffer,
                                 target_signal: None,
@@ -609,6 +623,7 @@ pub struct VMContext<'a> {
     pub entities: &'a EntityStorage,
     pub member_signals: &'a MemberSignalBuffer,
     pub channels: &'a mut InputChannels,
+    pub fracture_queue: &'a mut FractureQueue,
     pub field_buffer: &'a mut FieldBuffer,
     pub event_buffer: &'a mut EventBuffer,
     pub target_signal: Option<SignalId>,
@@ -839,18 +854,30 @@ impl<'a> ExecutionContext for VMContext<'a> {
         path: &Path,
         value: Value,
     ) -> std::result::Result<(), ExecutionError> {
-        if self.phase != Phase::Collect && self.phase != Phase::Fracture {
-            return Err(ExecutionError::InvalidOpcode {
-                opcode: "Emit signal only allowed in Collect or Fracture phase".to_string(),
-                phase: self.phase,
-            });
-        }
         let val = value
             .as_scalar()
             .ok_or_else(|| ExecutionError::InvalidOperand {
                 message: "Only scalar signals supported for VM emit for now".to_string(),
             })?;
-        self.channels.accumulate(&SignalId::from(path.clone()), val);
+
+        let signal_id = SignalId::from(path.clone());
+
+        match self.phase {
+            Phase::Collect => {
+                // Collect phase: inputs for THIS tick's resolve
+                self.channels.accumulate(&signal_id, val);
+            }
+            Phase::Fracture => {
+                // Fracture phase: queue for NEXT tick's resolve (alpha model)
+                self.fracture_queue.queue(signal_id, val);
+            }
+            _ => {
+                return Err(ExecutionError::InvalidOpcode {
+                    opcode: "Emit signal only allowed in Collect or Fracture phase".to_string(),
+                    phase: self.phase,
+                });
+            }
+        }
         Ok(())
     }
 
