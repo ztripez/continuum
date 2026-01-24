@@ -543,7 +543,34 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
         }
     }
     
+    // Register all member signals with the member signal buffer
+    // This must happen BEFORE init_member_instances
+    eprintln!("DEBUG: Registering {} member signals", compiled.world.members.len());
+    for (path, node) in &compiled.world.members {
+        eprintln!("DEBUG: Checking member signal {} with type {:?}", path, node.type_expr);
+        // Skip if no type expression (entity fields, not signals)
+        let Some(type_expr) = node.type_expr.as_ref() else {
+            eprintln!("DEBUG: Skipping {} (no type expr)", path);
+            continue;
+        };
+        
+        let value_type = match type_expr {
+            TypeExpr::Scalar { .. } => ValueType::scalar(),
+            TypeExpr::Vector { dim, .. } => match dim {
+                2 => ValueType::vec2(),
+                3 => ValueType::vec3(),
+                4 => ValueType::vec4(),
+                _ => panic!("Unsupported vector dimension {} for member signal {}", dim, path),
+            },
+            _ => panic!("Unsupported member signal type for {}: {:?}", path, node.type_expr),
+        };
+        
+        eprintln!("DEBUG: Registering {} with type {:?}", path, value_type);
+        runtime.register_member_signal(&path.to_string(), value_type);
+    }
+    
     // Initialize member signal storage with the maximum entity count
+    // This must happen AFTER registering all signals
     if max_entity_count > 0 {
         runtime.init_member_instances(max_entity_count);
     }
@@ -1108,16 +1135,20 @@ fn compile_bytecode_and_dags(
 
                 let node_kind = match (role_id, *phase) {
                     (RoleId::Signal, Phase::Configure) | (RoleId::Signal, Phase::Resolve) => {
-                        // Check if this is a member signal (entity.member)
+                        // Check if this is a member signal (domain.entity.member)
                         if compiled.world.members.contains_key(path) {
-                            // Parse entity.member path
+                            // Parse domain.entity.member path
                             let path_str = path.to_string();
                             let path_parts: Vec<&str> = path_str.split('.').collect();
-                            if path_parts.len() != 2 {
+                            if path_parts.len() < 2 {
                                 panic!("Invalid member signal path format: {}", path_str);
                             }
-                            let entity_id = EntityId::from(path_parts[0].to_string());
-                            let signal_name = path_parts[1].to_string();
+                            // Last part is the member signal name
+                            let signal_name = path_parts[path_parts.len() - 1].to_string();
+                            // Everything before the last part is the entity ID
+                            let entity_id = EntityId::from(
+                                path_parts[..path_parts.len() - 1].join(".")
+                            );
 
                             NodeKind::MemberSignalResolve {
                                 member_signal: MemberSignalId {
