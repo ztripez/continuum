@@ -152,11 +152,26 @@ impl BytecodePhaseExecutor {
                             };
 
                             let block_id = compiled.root;
+
+                            // Diagnostic: dump bytecode structure
+                            tracing::debug!(
+                                "Executing Configure block for signal '{}': block_id={:?}, slot_count={}, instructions={}",
+                                signal,
+                                block_id,
+                                compiled.slot_count,
+                                compiled.program.block(block_id).map(|b| b.instructions.len()).unwrap_or(0),
+                            );
+                            if let Some(block) = compiled.program.block(block_id) {
+                                for (i, instr) in block.instructions.iter().enumerate() {
+                                    tracing::debug!("  [{}] {:?}", i, instr);
+                                }
+                            }
+
                             let value = self
                                 .executor
-                                .execute_block(block_id, &compiled.program, &mut ctx)
+                                .execute(compiled, &mut ctx)
                                 .map_err(|e| Error::ExecutionFailure {
-                                    message: e.to_string(),
+                                    message: format!("signal '{}': {}", signal, e),
                                 })?
                                 .ok_or_else(|| Error::ExecutionFailure {
                                     message: format!(
@@ -242,11 +257,7 @@ impl BytecodePhaseExecutor {
                             payload: None,
                         };
 
-                        let block_id = compiled.root;
-                        match self
-                            .executor
-                            .execute_block(block_id, &compiled.program, &mut ctx)
-                        {
+                        match self.executor.execute(compiled, &mut ctx) {
                             Ok(_) => {}
                             Err(ExecutionError::InvalidOperand { message })
                                 if message.contains("no impulse payload is available") =>
@@ -340,11 +351,26 @@ impl BytecodePhaseExecutor {
                             };
 
                             let block_id = compiled.root;
+
+                            // Diagnostic: dump bytecode structure
+                            tracing::debug!(
+                                "Executing Resolve block for signal '{}': block_id={:?}, slot_count={}, instructions={}",
+                                signal,
+                                block_id,
+                                compiled.slot_count,
+                                compiled.program.block(block_id).map(|b| b.instructions.len()).unwrap_or(0),
+                            );
+                            if let Some(block) = compiled.program.block(block_id) {
+                                for (i, instr) in block.instructions.iter().enumerate() {
+                                    tracing::debug!("  [{}] {:?}", i, instr);
+                                }
+                            }
+
                             let value = self
                                 .executor
-                                .execute_block(block_id, &compiled.program, &mut ctx)
+                                .execute(compiled, &mut ctx)
                                 .map_err(|e| Error::ExecutionFailure {
-                                    message: e.to_string(),
+                                    message: format!("signal '{}': {}", signal, e),
                                 })?
                                 .ok_or_else(|| Error::ExecutionFailure {
                                     message: format!(
@@ -452,12 +478,11 @@ impl BytecodePhaseExecutor {
                             const_values: &self.const_values,
                             payload: None,
                         };
-                        let block_id = compiled.root;
-                        self.executor
-                            .execute_block(block_id, &compiled.program, &mut ctx)
-                            .map_err(|e| Error::ExecutionFailure {
+                        self.executor.execute(compiled, &mut ctx).map_err(|e| {
+                            Error::ExecutionFailure {
                                 message: e.to_string(),
-                            })?;
+                            }
+                        })?;
                     }
                 }
             }
@@ -529,12 +554,11 @@ impl BytecodePhaseExecutor {
                                 payload: None,
                             };
 
-                            let block_id = compiled.root;
-                            self.executor
-                                .execute_block(block_id, &compiled.program, &mut ctx)
-                                .map_err(|e| Error::ExecutionFailure {
+                            self.executor.execute(compiled, &mut ctx).map_err(|e| {
+                                Error::ExecutionFailure {
                                     message: e.to_string(),
-                                })?;
+                                }
+                            })?;
                         }
                         _ => {}
                     }
@@ -607,12 +631,11 @@ impl BytecodePhaseExecutor {
                                 payload: None,
                             };
 
-                            let block_id = compiled.root;
-                            self.executor
-                                .execute_block(block_id, &compiled.program, &mut ctx)
-                                .map_err(|e| Error::ExecutionFailure {
+                            self.executor.execute(compiled, &mut ctx).map_err(|e| {
+                                Error::ExecutionFailure {
                                     message: e.to_string(),
-                                })?;
+                                }
+                            })?;
                             let _ = event_buffer;
                         }
                         NodeKind::OperatorMeasure { .. } | NodeKind::FieldEmit { .. } => {
