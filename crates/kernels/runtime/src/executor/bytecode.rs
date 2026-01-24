@@ -915,25 +915,41 @@ impl<'a> ExecutionContext for VMContext<'a> {
     }
 
     fn load_prev(&self) -> std::result::Result<Value, ExecutionError> {
-        if self.phase != Phase::Resolve {
+        if self.phase != Phase::Resolve && self.phase != Phase::Configure {
             return Err(ExecutionError::InvalidOpcode {
                 opcode: "LoadPrev".to_string(),
                 phase: self.phase,
             });
         }
-        let signal = self
-            .target_signal
-            .as_ref()
-            .ok_or_else(|| ExecutionError::InvalidOpcode {
-                opcode: "LoadPrev requires target signal context".to_string(),
-                phase: self.phase,
-            })?;
-        self.signals
-            .get_prev(signal)
-            .cloned()
-            .ok_or_else(|| ExecutionError::InvalidOperand {
-                message: format!("Signal '{}' has no previous value", signal),
-            })
+
+        // Check if we're in entity context (member signal)
+        if let Some(entity_ctx) = &self.entity_context {
+            // Load from member signal buffer
+            let full_path = entity_ctx.target_member.to_string();
+            self.member_signals
+                .get_previous(&full_path, entity_ctx.instance_index)
+                .ok_or_else(|| ExecutionError::InvalidOperand {
+                    message: format!(
+                        "Member signal '{}' instance {} has no previous value",
+                        full_path, entity_ctx.instance_index
+                    ),
+                })
+        } else {
+            // Load from global signal storage
+            let signal =
+                self.target_signal
+                    .as_ref()
+                    .ok_or_else(|| ExecutionError::InvalidOpcode {
+                        opcode: "LoadPrev requires target signal or entity context".to_string(),
+                        phase: self.phase,
+                    })?;
+            self.signals
+                .get_prev(signal)
+                .cloned()
+                .ok_or_else(|| ExecutionError::InvalidOperand {
+                    message: format!("Signal '{}' has no previous value", signal),
+                })
+        }
     }
 
     fn load_current(&self) -> std::result::Result<Value, ExecutionError> {
@@ -943,19 +959,35 @@ impl<'a> ExecutionContext for VMContext<'a> {
                 phase: self.phase,
             });
         }
-        let signal = self
-            .target_signal
-            .as_ref()
-            .ok_or_else(|| ExecutionError::InvalidOpcode {
-                opcode: "LoadCurrent requires target signal context".to_string(),
-                phase: self.phase,
-            })?;
-        self.signals
-            .get(signal)
-            .cloned()
-            .ok_or_else(|| ExecutionError::InvalidOperand {
-                message: format!("Signal '{}' has no resolved value", signal),
-            })
+
+        // Check if we're in entity context (member signal)
+        if let Some(entity_ctx) = &self.entity_context {
+            // Load from member signal buffer
+            let full_path = entity_ctx.target_member.to_string();
+            self.member_signals
+                .get_current(&full_path, entity_ctx.instance_index)
+                .ok_or_else(|| ExecutionError::InvalidOperand {
+                    message: format!(
+                        "Member signal '{}' instance {} has no current value",
+                        full_path, entity_ctx.instance_index
+                    ),
+                })
+        } else {
+            // Load from global signal storage
+            let signal =
+                self.target_signal
+                    .as_ref()
+                    .ok_or_else(|| ExecutionError::InvalidOpcode {
+                        opcode: "LoadCurrent requires target signal or entity context".to_string(),
+                        phase: self.phase,
+                    })?;
+            self.signals
+                .get(signal)
+                .cloned()
+                .ok_or_else(|| ExecutionError::InvalidOperand {
+                    message: format!("Signal '{}' has no resolved value", signal),
+                })
+        }
     }
 
     fn load_inputs(&mut self) -> std::result::Result<Value, ExecutionError> {
@@ -965,11 +997,21 @@ impl<'a> ExecutionContext for VMContext<'a> {
                 phase: self.phase,
             });
         }
+
+        // Check if we're in entity context (member signal)
+        if let Some(_entity_ctx) = &self.entity_context {
+            // TODO: Member signals don't currently support input accumulation
+            // For now, return 0.0 (no inputs)
+            // Future: implement per-instance input channels
+            return Ok(Value::Scalar(0.0));
+        }
+
+        // Global signal - load from input channels
         let signal = self
             .target_signal
             .as_ref()
             .ok_or_else(|| ExecutionError::InvalidOpcode {
-                opcode: "LoadInputs requires target signal context".to_string(),
+                opcode: "LoadInputs requires target signal or entity context".to_string(),
                 phase: self.phase,
             })?;
 

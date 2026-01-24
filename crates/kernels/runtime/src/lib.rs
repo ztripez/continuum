@@ -99,6 +99,7 @@ pub use vectorized::{
 
 use crate::dag::NodeKind;
 use continuum_cdsl::ast::{CompiledWorld, ExprKind, RoleId, TypedExpr, TypeExpr};
+use continuum_cdsl::Type;
 use continuum_foundation::Path;
 use indexmap::IndexMap;
 use std::collections::HashMap;
@@ -546,22 +547,27 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
     // Register all member signals with the member signal buffer
     // This must happen BEFORE init_member_instances
     for (path, node) in &compiled.world.members {
-        // Skip if no type expression (entity fields, not signals)
-        // NOTE: Currently all member signals have type_expr = None due to missing
-        // type inference in the DSL compiler. This blocks registration.
-        let Some(type_expr) = node.type_expr.as_ref() else {
+        // Use output type (set by type resolution) instead of type_expr (cleared after resolution)
+        let Some(output_type) = node.output.as_ref() else {
+            // Not a signal (probably entity field metadata)
             continue;
         };
         
-        let value_type = match type_expr {
-            TypeExpr::Scalar { .. } => ValueType::scalar(),
-            TypeExpr::Vector { dim, .. } => match dim {
-                2 => ValueType::vec2(),
-                3 => ValueType::vec3(),
-                4 => ValueType::vec4(),
-                _ => panic!("Unsupported vector dimension {} for member signal {}", dim, path),
+        use continuum_kernel_types::Shape;
+        let value_type = match output_type {
+            Type::Kernel(kt) => match &kt.shape {
+                Shape::Scalar => ValueType::scalar(),
+                Shape::Vector { dim: 2 } => ValueType::vec2(),
+                Shape::Vector { dim: 3 } => ValueType::vec3(),
+                Shape::Vector { dim: 4 } => ValueType::vec4(),
+                Shape::Vector { dim } => {
+                    panic!("Unsupported vector dimension {} for member signal {}", dim, path)
+                }
+                _ => panic!("Unsupported shape {:?} for member signal {}", kt.shape, path),
             },
-            _ => panic!("Unsupported member signal type for {}: {:?}", path, node.type_expr),
+            Type::Bool => ValueType::boolean(),
+            Type::String => panic!("String member signals not yet supported: {}", path),
+            _ => panic!("Unsupported type {:?} for member signal {}", output_type, path),
         };
         
         runtime.register_member_signal(&path.to_string(), value_type);
