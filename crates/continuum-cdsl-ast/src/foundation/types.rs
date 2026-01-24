@@ -207,27 +207,26 @@ impl Type {
     ///
     /// # Bounds Compatibility Rules
     ///
-    /// - `None → Any`: Unbounded values can be assigned to any target (bounded or unbounded)
-    /// - `Some(b1) → Some(b2)`: Bounded values must have exact bounds match (`b1 == b2`)
-    /// - `Some(_) → None`: Cannot assign bounded value to unbounded target (would lose constraint)
+    /// Bounds are runtime constraints, not compile-time type constraints.
+    /// Any value can be assigned to any target regardless of bounds.
+    /// Runtime enforcement will clamp or error based on policy.
+    ///
+    /// # Unit Compatibility Rules
+    ///
+    /// - Dimensionless values can be assigned to any unit (implicit unit adoption)
+    /// - Dimensional values require unit compatibility (same dimensions and scale)
     pub fn is_assignable_to(&self, expected: &Type) -> bool {
         match (self, expected) {
             (Type::Kernel(value_kt), Type::Kernel(expected_kt)) => {
-                // Shape must match exactly, unit must be compatible
-                // (allows scale mismatch for dimensionless units)
-                if value_kt.shape != expected_kt.shape
-                    || !value_kt.unit.is_compatible_with(&expected_kt.unit)
-                {
+                // Shape must match exactly
+                if value_kt.shape != expected_kt.shape {
                     return false;
                 }
 
-                // Bounds compatibility: None (unbounded) is compatible with any bounds
-                // This allows literals without bounds to be assigned to bounded signals
-                match (&value_kt.bounds, &expected_kt.bounds) {
-                    (None, _) => true,                // Unbounded value can be assigned to any target
-                    (Some(vb), Some(eb)) => vb == eb, // Bounded values must have exact bounds
-                    (Some(_), None) => false, // Cannot assign bounded value to unbounded target (would lose constraint)
-                }
+                // Unit must be assignable (dimensionless can assign to any unit)
+                value_kt.unit.is_assignable_to(&expected_kt.unit)
+
+                // Bounds are ignored for type compatibility - they are runtime constraints
             }
             // For non-kernel types, require exact equality
             _ => self == expected,

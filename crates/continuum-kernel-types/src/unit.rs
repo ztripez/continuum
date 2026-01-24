@@ -620,6 +620,42 @@ impl Unit {
         // Using approximate equality for floating point
         (self.scale - other.scale).abs() < 1e-10
     }
+
+    /// Check if this unit is assignable to another unit.
+    ///
+    /// This is more permissive than `is_compatible_with` for signal/variable assignment:
+    /// - Dimensionless values can be assigned to any target (implicit unit adoption)
+    /// - Otherwise, same rules as `is_compatible_with`
+    ///
+    /// # Rationale
+    ///
+    /// When assigning a dimensionless value (like a config constant or literal)
+    /// to a dimensional signal, the value implicitly adopts the target's units.
+    /// This is safe because the DSL author has declared the target's type,
+    /// and runtime enforcement happens via bounds checking.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use continuum_kernel_types::unit::*;
+    /// // Dimensionless can be assigned to any unit
+    /// let dimensionless = Unit::DIMENSIONLESS;
+    /// let meters = Unit::meters();
+    /// assert!(dimensionless.is_assignable_to(&meters));
+    ///
+    /// // Dimensional to dimensional requires compatibility
+    /// let km = Unit::new(UnitKind::Multiplicative, UnitDimensions::METER, 1000.0);
+    /// assert!(!meters.is_assignable_to(&km)); // Different scale
+    /// ```
+    pub fn is_assignable_to(&self, other: &Unit) -> bool {
+        // Dimensionless can be assigned to any unit (implicit unit adoption)
+        if self.is_dimensionless() {
+            return true;
+        }
+
+        // Otherwise, use standard compatibility check
+        self.is_compatible_with(other)
+    }
 }
 
 impl UnitDimensions {
