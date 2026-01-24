@@ -291,7 +291,8 @@ pub(super) fn validate_unit_constraint(
 
     match constraint {
         UnitConstraint::Exact(expected) => {
-            if arg_unit != expected {
+            // Use is_compatible_with() to allow scale mismatch for dimensionless units
+            if !arg_unit.is_compatible_with(expected) {
                 errors.push(CompileError::new(
                     ErrorKind::InvalidKernelUnit,
                     span,
@@ -370,7 +371,8 @@ pub(super) fn validate_unit_constraint(
                 return errors;
             };
 
-            if arg_unit != expected_unit {
+            // Use is_compatible_with() to allow scale mismatch for dimensionless units
+            if !arg_unit.is_compatible_with(expected_unit) {
                 errors.push(CompileError::new(
                     ErrorKind::InvalidKernelUnit,
                     span,

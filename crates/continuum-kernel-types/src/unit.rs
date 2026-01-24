@@ -110,6 +110,48 @@ pub struct UnitDimensions {
     pub angle: i8,
 }
 
+/// Dimensional type - the type-level properties of a unit.
+///
+/// This represents the **type-compatible** aspects of a unit:
+/// - What kind of algebra is allowed (kind)
+/// - What physical dimension it represents (dims)
+///
+/// The scale factor is **not** part of the type - it's value-level metadata.
+/// This means two units with the same DimensionalType but different scales
+/// (e.g., meters vs kilometers) can be compatible for certain operations.
+///
+/// # Dimensional Compatibility
+///
+/// Two units are **dimensionally compatible** if they have the same DimensionalType.
+/// This is weaker than full equality, which also checks scale.
+///
+/// # Examples
+///
+/// ```rust
+/// # use continuum_kernel_types::unit::*;
+/// // Same DimensionalType, different scales
+/// let m = Unit::meters();     // scale = 1.0
+/// let km = Unit::new(UnitKind::Multiplicative, UnitDimensions::METER, 1000.0);
+///
+/// // They have the same dimensional type (Multiplicative + length dimension)
+/// assert_eq!(m.dimensional_type(), km.dimensional_type());
+///
+/// // But they're not exactly equal (different scales)
+/// assert_ne!(m, km);
+///
+/// // For dimensionless units, scale differences are ignored for compatibility
+/// let ppmv = Unit::new(UnitKind::Multiplicative, UnitDimensions::DIMENSIONLESS, 1e-6);
+/// let pure = Unit::DIMENSIONLESS;  // scale = 1.0
+/// assert!(ppmv.is_compatible_with(&pure));
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct DimensionalType {
+    /// Unit kind (Multiplicative, Affine, Logarithmic)
+    pub kind: UnitKind,
+    /// Dimensional exponents
+    pub dims: UnitDimensions,
+}
+
 impl Unit {
     /// Dimensionless unit constant (all exponents zero).
     pub const DIMENSIONLESS: Unit = Unit {
@@ -146,6 +188,18 @@ impl Unit {
     /// Get the scale factor relative to SI coherent unit.
     pub const fn scale(&self) -> f64 {
         self.scale
+    }
+
+    /// Get the dimensional type (kind + dimensions, without scale).
+    ///
+    /// The dimensional type represents the type-level properties of this unit.
+    /// Units with the same dimensional type but different scales are
+    /// dimensionally compatible.
+    pub const fn dimensional_type(&self) -> DimensionalType {
+        DimensionalType {
+            kind: self.kind,
+            dims: self.dims,
+        }
     }
 
     /// Check if this unit is dimensionless.
@@ -510,6 +564,61 @@ impl Unit {
     /// regardless of kind.
     pub fn is_comparable(&self, other: &Unit) -> bool {
         self.dims == other.dims
+    }
+
+    /// Check if two units are compatible for type checking.
+    ///
+    /// Units are compatible if:
+    /// 1. They have the same kind (Multiplicative, Affine, Logarithmic)
+    /// 2. They have the same dimensional exponents
+    /// 3. Either:
+    ///    - They have the same scale, OR
+    ///    - They are both dimensionless (scale difference allowed)
+    ///
+    /// This is used for kernel type validation where dimensionless units
+    /// with different scales (e.g., ppmv vs pure ratio) should be accepted.
+    ///
+    /// # Rationale
+    ///
+    /// Scale is a value-level property, not a type-level property.
+    /// For dimensionless quantities, comparing `ppmv` (scale 1e-6) with
+    /// a bare `0.0` (scale 1.0) is physically meaningful - both are ratios.
+    ///
+    /// For dimensional quantities, scale mismatches indicate unit conversion
+    /// issues (meters vs kilometers), so we remain strict.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// # use continuum_kernel_types::unit::*;
+    /// // Dimensionless units with different scales are compatible
+    /// let ppmv = Unit::new(UnitKind::Multiplicative, UnitDimensions::DIMENSIONLESS, 1e-6);
+    /// let pure = Unit::DIMENSIONLESS;  // scale = 1.0
+    /// assert!(ppmv.is_compatible_with(&pure));
+    ///
+    /// // Dimensional units with different scales are NOT compatible
+    /// let m = Unit::meters();   // scale = 1.0
+    /// let km = Unit::new(UnitKind::Multiplicative, UnitDimensions::METER, 1000.0);
+    /// assert!(!m.is_compatible_with(&km));
+    ///
+    /// // Different dimensions are never compatible
+    /// let s = Unit::seconds();
+    /// assert!(!m.is_compatible_with(&s));
+    /// ```
+    pub fn is_compatible_with(&self, other: &Unit) -> bool {
+        // Kind and dimensions must always match
+        if self.kind != other.kind || self.dims != other.dims {
+            return false;
+        }
+
+        // For dimensionless units, allow scale mismatch
+        if self.is_dimensionless() {
+            return true;
+        }
+
+        // For dimensional units, scale must match
+        // Using approximate equality for floating point
+        (self.scale - other.scale).abs() < 1e-10
     }
 }
 

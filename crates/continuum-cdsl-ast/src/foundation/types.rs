@@ -213,8 +213,11 @@ impl Type {
     pub fn is_assignable_to(&self, expected: &Type) -> bool {
         match (self, expected) {
             (Type::Kernel(value_kt), Type::Kernel(expected_kt)) => {
-                // Shape and unit must match exactly
-                if value_kt.shape != expected_kt.shape || value_kt.unit != expected_kt.unit {
+                // Shape must match exactly, unit must be compatible
+                // (allows scale mismatch for dimensionless units)
+                if value_kt.shape != expected_kt.shape
+                    || !value_kt.unit.is_compatible_with(&expected_kt.unit)
+                {
                     return false;
                 }
 
