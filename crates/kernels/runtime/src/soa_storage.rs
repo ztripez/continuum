@@ -40,7 +40,7 @@ use std::ptr::NonNull;
 use indexmap::IndexMap;
 
 use crate::types::{EntityId, Value};
-use continuum_foundation::{PrimitiveStorageClass, PrimitiveTypeId, primitive_type_by_name};
+use continuum_foundation::{primitive_type_by_name, PrimitiveStorageClass, PrimitiveTypeId};
 
 /// Alignment for SIMD-friendly allocation (64 bytes = cache line).
 pub const SIMD_ALIGNMENT: usize = 64;
@@ -924,6 +924,29 @@ impl MemberSignalBuffer {
         }
     }
 
+    /// Get all signal names for a specific entity.
+    ///
+    /// Returns a vector of full signal paths (e.g., "hydrology.cell.temperature")
+    /// that belong to the specified entity.
+    ///
+    /// # Example
+    /// ```ignore
+    /// let signals = buffer.signals_for_entity("hydrology.cell");
+    /// // Returns: ["hydrology.cell.temperature", "hydrology.cell.pressure", ...]
+    /// ```
+    pub fn signals_for_entity(&self, entity_id: &str) -> Vec<String> {
+        self.registry
+            .iter()
+            .filter_map(|(name, _)| {
+                if self.entity_id_from_signal(name).as_deref() == Some(entity_id) {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
     /// Get the registry for signal lookup.
     pub fn registry(&self) -> &MemberSignalRegistry {
         &self.registry
@@ -939,6 +962,66 @@ impl MemberSignalBuffer {
     pub fn get_previous(&self, signal: &str, instance_idx: usize) -> Option<Value> {
         let meta = self.registry.get(signal)?;
         self.get_value(meta, instance_idx, true)
+    }
+
+    /// Get zero-copy slice of scalar values for all instances of a signal.
+    ///
+    /// Returns None if signal doesn't exist or is not a scalar type.
+    /// This enables efficient aggregate operations without boxing.
+    pub fn get_scalar_slice(&self, signal: &str) -> Option<&[f64]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type.buffer_class() != MemberBufferClass::Scalar {
+            return None;
+        }
+        Some(self.scalars.signal_slice(meta.buffer_index))
+    }
+
+    /// Get zero-copy slice of Vec2 values for all instances of a signal.
+    pub fn get_vec2_slice(&self, signal: &str) -> Option<&[[f64; 2]]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type.buffer_class() != MemberBufferClass::Vec2 {
+            return None;
+        }
+        Some(self.vec2s.signal_slice(meta.buffer_index))
+    }
+
+    /// Get zero-copy slice of Vec3 values for all instances of a signal.
+    pub fn get_vec3_slice(&self, signal: &str) -> Option<&[[f64; 3]]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type.buffer_class() != MemberBufferClass::Vec3 {
+            return None;
+        }
+        Some(self.vec3s.signal_slice(meta.buffer_index))
+    }
+
+    /// Get zero-copy slice of Vec4 values for all instances of a signal.
+    ///
+    /// Note: This also works for Quat types (which are stored as Vec4).
+    pub fn get_vec4_slice(&self, signal: &str) -> Option<&[[f64; 4]]> {
+        let meta = self.registry.get(signal)?;
+        let class = meta.value_type.buffer_class();
+        if class != MemberBufferClass::Vec4 {
+            return None;
+        }
+        Some(self.vec4s.signal_slice(meta.buffer_index))
+    }
+
+    /// Get zero-copy slice of boolean values for all instances of a signal.
+    pub fn get_boolean_slice(&self, signal: &str) -> Option<&[bool]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type.buffer_class() != MemberBufferClass::Boolean {
+            return None;
+        }
+        Some(self.booleans.signal_slice(meta.buffer_index))
+    }
+
+    /// Get zero-copy slice of integer values for all instances of a signal.
+    pub fn get_integer_slice(&self, signal: &str) -> Option<&[i64]> {
+        let meta = self.registry.get(signal)?;
+        if meta.value_type.buffer_class() != MemberBufferClass::Integer {
+            return None;
+        }
+        Some(self.integers.signal_slice(meta.buffer_index))
     }
 
     fn get_value(

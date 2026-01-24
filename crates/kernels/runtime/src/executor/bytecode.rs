@@ -1255,19 +1255,37 @@ impl<'a> ExecutionContext for VMContext<'a> {
     }
 
     fn iter_entity(&self, entity: &EntityId) -> std::result::Result<Vec<Value>, ExecutionError> {
-        let instances = self.entities.get_current_instances(entity).ok_or_else(|| {
-            ExecutionError::InvalidOperand {
-                message: format!("Missing current instances for entity {}", entity),
-            }
-        })?;
+        // Read from MemberSignalBuffer (the single source of truth for entity state)
+        let entity_str = entity.to_string();
+        let instance_count = self.member_signals.instance_count_for_entity(&entity_str);
 
-        let mut values = Vec::with_capacity(instances.count());
-        for (_id, data) in instances.iter() {
-            let fields = data
-                .fields
-                .iter()
-                .map(|(name, value)| (name.clone(), value.clone()))
-                .collect();
+        if instance_count == 0 {
+            return Err(ExecutionError::InvalidOperand {
+                message: format!("Entity {} has no instances", entity),
+            });
+        }
+
+        // Get all member signal names for this entity
+        let signal_names = self.member_signals.signals_for_entity(&entity_str);
+
+        if signal_names.is_empty() {
+            return Err(ExecutionError::InvalidOperand {
+                message: format!("Entity {} has no member signals", entity),
+            });
+        }
+
+        // Build a Value::Map for each instance containing all member signals
+        let mut values = Vec::with_capacity(instance_count);
+        for idx in 0..instance_count {
+            let mut fields = Vec::new();
+            for signal in &signal_names {
+                // Extract member name from full path (e.g., "hydrology.cell.temperature" -> "temperature")
+                let member_name = signal.rsplit('.').next().unwrap_or(signal).to_string();
+
+                if let Some(value) = self.member_signals.get_current(signal, idx) {
+                    fields.push((member_name, value));
+                }
+            }
             values.push(Value::map(fields));
         }
         Ok(values)
