@@ -46,11 +46,14 @@ struct DependencyVisitor {
 impl ExpressionVisitor for DependencyVisitor {
     fn visit_expr(&mut self, expr: &TypedExpr) {
         match &expr.expr {
-            ExprKind::Signal(path)
-            | ExprKind::Field(path)
-            | ExprKind::Config(path)
-            | ExprKind::Const(path) => {
+            ExprKind::Signal(path) | ExprKind::Field(path) => {
                 self.paths.insert(path.clone());
+            }
+            // Config and Const are not part of the signal dependency graph.
+            // They are resolved statically during Configure phase and cannot
+            // participate in signal resolution cycles.
+            ExprKind::Config(_) | ExprKind::Const(_) => {
+                // No dependency tracking needed
             }
             ExprKind::Aggregate { source, .. } | ExprKind::Fold { source, .. } => {
                 // Iterating over an entity set is a read dependency on the entity's lifetime
