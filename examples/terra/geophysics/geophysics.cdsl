@@ -703,7 +703,7 @@ signal crust.temp_base {
     : title("Base Crustal Temperature")
 
     resolve {
-        thermal.geothermal_temp(const.thermal.surface_temp, const.thermal.gradient, crust.thickness / 1000.0)
+        thermal.geothermal_temp(const.thermal.surface_temp, const.thermal.gradient, crust.thickness * 0.001 <km/m>)
     }
 
     assert {
@@ -739,11 +739,11 @@ signal tectonics.boundary_stress {
 
     config {
         thermal_factor: 0.001
-        thermal_scale: 1e4
+        thermal_scale: 1e4 <Pa/K>
         thickness_factor: 0.001
-        thickness_scale: 1e3
-        max_stress: 1e9
-        reference_mantle_temp: 1600.0
+        thickness_scale: 1e3 <Pa/m>
+        max_stress: 1e9 <Pa>
+        reference_mantle_temp: 1600.0 <K>
     }
 
     resolve {
@@ -928,8 +928,8 @@ signal tectonics.orogeny_rate {
     : symbol("dh/dt")
 
     config {
-        stress_factor: 1e-8            # Conversion from stress to uplift rate
-        activity_factor: 100.0         # Base rate per unit activity
+        stress_factor: 1e-8 <m*Myr⁻¹*Pa⁻¹>    # Conversion from stress to uplift rate
+        activity_factor: 100.0 <m/Myr>         # Base rate per unit activity
     }
 
     resolve {
@@ -953,9 +953,9 @@ signal tectonics.volcanism {
     : symbol("V_idx")
 
     config {
-        reference_mantle_temp: 1600.0  # K
-        temp_sensitivity: 0.01         # Index per K above reference
-        flow_factor: 0.5               # Contribution from mantle flow
+        reference_mantle_temp: 1600.0 <K>
+        temp_sensitivity: 0.01 <K⁻¹>   # Index per K above reference
+        flow_factor: 0.5 <yr/cm>       # Contribution from mantle flow
     }
 
     resolve {
@@ -980,13 +980,15 @@ signal tectonics.subduction_rate {
     : symbol("A_sub")
 
     config {
-        velocity_factor: 1e-6          # Conversion from plate velocity
-        boundary_factor: 0.1           # Factor for boundary length contribution
+        # 1e6 m boundary length * 1e-6 conversion = 1.0, then convert m²/s to km²/Myr
+        # m²/s → km²/Myr: multiply by (1e-6 km²/m²) * (31.557e12 s/Myr) = 31557
+        velocity_factor: 31557.0 <km²*Myr⁻¹*m⁻²*s>
+        boundary_length: 1e6 <m>       # Characteristic boundary length
     }
 
     resolve {
         # Subduction rate driven by plate velocities and convergent boundaries
-        let velocity_contribution = plates.boundary_shear * 1e6 * config.tectonics.subduction_rate.velocity_factor in
+        let velocity_contribution = plates.boundary_shear * config.tectonics.subduction_rate.boundary_length * config.tectonics.subduction_rate.velocity_factor in
         let oceanic_fraction = plates.oceanic_count / maths.max(plates.count, 1.0) in
         velocity_contribution * oceanic_fraction * tectonics.activity + inputs
     }
@@ -1004,7 +1006,10 @@ signal tectonics.spreading_rate {
     : symbol("A_spread")
 
     config {
-        mantle_coupling: 0.2           # Coupling to mantle flow
+        # Convert cm/yr → km²/Myr: need km²·Myr⁻¹/(cm·yr⁻¹) = km²·yr/(Myr·cm)
+        # = km²/(1e6·cm) = (1e6 m²)/(1e6·0.01m) = 1e6/(1e4) = 100 m
+        # So 0.2 coupling * 100 m ≈ 20 m effective width → 0.002 km²/Myr per cm/yr
+        mantle_coupling: 0.002 <km²*Myr⁻¹*yr*cm⁻¹>
     }
 
     resolve {
@@ -1431,8 +1436,8 @@ signal plates.divergent_activity {
     : symbol("A_div")
 
     config {
-        flow_sensitivity: 0.5
-        velocity_sensitivity: 10.0
+        flow_sensitivity: 0.5 <yr/cm>      # Convert cm/yr to dimensionless
+        velocity_sensitivity: 10.0 <s/m>   # Convert m/s to dimensionless
     }
 
     resolve {
@@ -1779,7 +1784,7 @@ fracture tectonics.derive_motion {
 
     config {
         omega_scale: 1e-15               # rad/s per unit flow
-        flow_coupling: 0.8               # Coupling strength to mantle
+        flow_coupling: 0.8 <yr/cm>       # Coupling strength to mantle
     }
 
     when {

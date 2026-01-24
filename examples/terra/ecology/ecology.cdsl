@@ -32,14 +32,14 @@ const {
     ecology.light_half_sat: 100.0
 
     # Turnover
-    ecology.biomass_turnover_years: 20.0
+    ecology.biomass_turnover_years: 20.0 <yr>
 
     # Soil Carbon
     ecology.humification_fraction: 0.3         # Portion of litter -> stable SOC
     ecology.k_decomp_base: 0.02 <yr⁻¹>         # Base decomposition rate
     ecology.q10_decomp: 2.0                    # Q10 for decomposition
     ecology.t_ref_decomp_k: 288.0              # Reference temp for decomposition (K)
-    ecology.soc_max: 100.0                     # Maximum soil carbon (kg C/m²)
+    ecology.soc_max: 100.0 <kg/m²>              # Maximum soil carbon
 }
 
 # =============================================================================
@@ -56,7 +56,7 @@ config {
     ecology.co2_ppmv: 280.0
 
     # Biomass parameters
-    ecology.biomass_turnover_years: 20.0
+    ecology.biomass_turnover_years: 20.0 <yr>
     ecology.initial_biomass: 10.0
     ecology.max_biomass: 100.0
     ecology.min_biomass: 0.0
