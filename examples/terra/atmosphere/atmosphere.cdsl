@@ -18,7 +18,7 @@ const {
     atmosphere.l_over_r: 5423.86               # Lv/Rv precomputed
 
     # Stefan-Boltzmann
-    atmosphere.sigma: 5.67e-8                  # Stefan-Boltzmann constant (W/m²/K⁴)
+    atmosphere.sigma: 5.67e-8 <W*m⁻²*K⁻⁴>     # Stefan-Boltzmann constant
 
     # Earth reference values
     atmosphere.earth_surface_temp: 288.0       # Earth mean surface temp (K)
