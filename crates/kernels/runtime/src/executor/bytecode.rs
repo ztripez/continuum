@@ -148,6 +148,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                payload: None,
                             };
 
                             let block_id = compiled.root;
@@ -238,14 +239,30 @@ impl BytecodePhaseExecutor {
                             cached_inputs: None,
                             config_values: &self.config_values,
                             const_values: &self.const_values,
+                            payload: None,
                         };
 
                         let block_id = compiled.root;
-                        self.executor
+                        match self
+                            .executor
                             .execute_block(block_id, &compiled.program, &mut ctx)
-                            .map_err(|e| Error::ExecutionFailure {
-                                message: e.to_string(),
-                            })?;
+                        {
+                            Ok(_) => {}
+                            Err(ExecutionError::InvalidOperand { message })
+                                if message.contains("no impulse payload is available") =>
+                            {
+                                // This is an impulse collect block executing without a scheduled impulse.
+                                // Skip it silently - impulses only fire when explicitly triggered.
+                                tracing::trace!(
+                                    "Skipping impulse collect block (no scheduled impulse)"
+                                );
+                            }
+                            Err(e) => {
+                                return Err(Error::ExecutionFailure {
+                                    message: e.to_string(),
+                                });
+                            }
+                        }
                     }
                 }
             }
@@ -319,6 +336,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                payload: None,
                             };
 
                             let block_id = compiled.root;
@@ -432,6 +450,7 @@ impl BytecodePhaseExecutor {
                             cached_inputs: None,
                             config_values: &self.config_values,
                             const_values: &self.const_values,
+                            payload: None,
                         };
                         let block_id = compiled.root;
                         self.executor
@@ -507,6 +526,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                payload: None,
                             };
 
                             let block_id = compiled.root;
@@ -584,6 +604,7 @@ impl BytecodePhaseExecutor {
                                 cached_inputs: None,
                                 config_values: &self.config_values,
                                 const_values: &self.const_values,
+                                payload: None,
                             };
 
                             let block_id = compiled.root;
@@ -632,6 +653,8 @@ pub struct VMContext<'a> {
     pub config_values: &'a HashMap<Path, Value>,
     /// Global simulation constants loaded from const {} blocks
     pub const_values: &'a HashMap<Path, Value>,
+    /// Current impulse payload (only valid when executing impulse collect blocks)
+    pub payload: Option<&'a Value>,
 }
 
 impl<'a> ExecutionContext for VMContext<'a> {
@@ -760,10 +783,17 @@ impl<'a> ExecutionContext for VMContext<'a> {
     }
 
     fn load_payload(&self) -> std::result::Result<Value, ExecutionError> {
-        Err(ExecutionError::InvalidOpcode {
-            opcode: "LoadPayload not yet supported in VM".to_string(),
-            phase: self.phase,
-        })
+        if self.phase != Phase::Collect {
+            return Err(ExecutionError::InvalidOpcode {
+                opcode: "LoadPayload".to_string(),
+                phase: self.phase,
+            });
+        }
+        self.payload
+            .cloned()
+            .ok_or_else(|| ExecutionError::InvalidOperand {
+                message: "LoadPayload called but no impulse payload is available. This block should only execute when an impulse is triggered.".to_string(),
+            })
     }
 
     fn find_nearest(
