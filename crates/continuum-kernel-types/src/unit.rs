@@ -741,7 +741,14 @@ impl UnitDimensions {
 impl fmt::Display for Unit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.kind {
-            UnitKind::Multiplicative => write!(f, "{}", self.dims),
+            UnitKind::Multiplicative => {
+                // Show scale if it's not 1.0 (to distinguish e.g. K from mK)
+                if (self.scale - 1.0).abs() > 1e-10 {
+                    write!(f, "{}×{}", self.scale, self.dims)
+                } else {
+                    write!(f, "{}", self.dims)
+                }
+            }
             UnitKind::Affine { offset } => {
                 write!(f, "{}+{}", self.dims, offset)
             }

@@ -273,8 +273,15 @@ pub(super) fn validate_unit_constraint(
 
     // Extract unit from type (only kernel types have units)
     let Some(arg_unit) = arg_type.as_kernel().map(|k| &k.unit) else {
-        // Non-kernel types don't have units
-        if !matches!(constraint, UnitConstraint::Any) {
+        // Non-kernel types don't have units - check if they're acceptable
+        // Bool is conceptually dimensionless, so accept it for Dimensionless or Any constraints
+        let acceptable = match (arg_type, constraint) {
+            (Type::Bool, UnitConstraint::Any | UnitConstraint::Dimensionless) => true,
+            (_, UnitConstraint::Any) => true,
+            _ => false,
+        };
+
+        if !acceptable {
             errors.push(CompileError::new(
                 ErrorKind::InvalidKernelUnit,
                 span,
