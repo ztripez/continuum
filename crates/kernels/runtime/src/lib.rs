@@ -486,6 +486,67 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
         }
     }
 
+    // Initialize entities - spawn instances based on :count(...) attributes
+    // (Must happen before set_config_values which moves config_values)
+    use continuum_cdsl::ast::UntypedKind;
+    let mut max_entity_count = 0;
+    for (entity_path, entity) in &compiled.world.entities {
+        // Look for :count(...) attribute
+        let count_attr = entity.attributes.iter().find(|attr| attr.name == "count");
+        
+        if let Some(attr) = count_attr {
+            if attr.args.len() == 1 {
+                // Evaluate the count expression
+                let count_expr = &attr.args[0];
+                
+                // Try to evaluate as literal or config reference
+                let count = match &count_expr.kind {
+                    UntypedKind::Config(config_path) => {
+                        // It's a config reference like config.plates.count
+                        if let Some(Value::Scalar(val)) = config_values.get(config_path) {
+                            *val as usize
+                        } else if let Some(Value::Integer(val)) = config_values.get(config_path) {
+                            *val as usize
+                        } else {
+                            panic!("Entity '{}' count references unknown config: {}", entity_path, config_path);
+                        }
+                    }
+                    _ => {
+                        // Try literal
+                        if let Some(Value::Scalar(literal)) = evaluate_literal(count_expr) {
+                            literal as usize
+                        } else if let Some(Value::Integer(literal)) = evaluate_literal(count_expr) {
+                            literal as usize
+                        } else {
+                            panic!(
+                                "Entity '{}' has non-literal, non-config count expression. \
+                                 Count must be a compile-time literal or config reference.",
+                                entity_path
+                            );
+                        }
+                    }
+                };
+                
+                runtime.register_entity_count(&entity.id.to_string(), count);
+                max_entity_count = max_entity_count.max(count);
+            } else {
+                panic!(
+                    "Entity '{}' has :count attribute with {} arguments, expected 1",
+                    entity_path,
+                    attr.args.len()
+                );
+            }
+        } else {
+            // No count attribute - default to 0 instances
+            runtime.register_entity_count(&entity.id.to_string(), 0);
+        }
+    }
+    
+    // Initialize member signal storage with the maximum entity count
+    if max_entity_count > 0 {
+        runtime.init_member_instances(max_entity_count);
+    }
+
     // Populate config/const in bytecode executor  
     runtime.set_config_values(config_values);
     runtime.set_const_values(const_values);
