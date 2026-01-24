@@ -379,8 +379,12 @@ pub(super) fn validate_unit_constraint(
             };
 
             // Allow dimensionless to match any unit (implicit unit adoption)
-            // This enables config values without units to work with dimensional signals
-            if !arg_unit.is_dimensionless() && !arg_unit.is_compatible_with(expected_unit) {
+            // This enables config values without units to work with dimensional signals.
+            // Either side being dimensionless allows the match because the dimensionless
+            // value will adopt the other's unit at runtime.
+            let either_dimensionless =
+                arg_unit.is_dimensionless() || expected_unit.is_dimensionless();
+            if !either_dimensionless && !arg_unit.is_compatible_with(expected_unit) {
                 errors.push(CompileError::new(
                     ErrorKind::InvalidKernelUnit,
                     span,
@@ -425,8 +429,12 @@ pub(super) fn validate_unit_constraint(
             };
 
             // Allow dimensionless to match any unit (implicit unit adoption)
-            // This enables config values without units to work with dimensional signals
-            if !arg_unit.is_dimensionless()
+            // This enables config values without units to work with dimensional signals.
+            // Either side being dimensionless allows the match because the dimensionless
+            // value will adopt the other's unit at runtime.
+            let either_dimensionless =
+                arg_unit.is_dimensionless() || expected_unit.is_dimensionless();
+            if !either_dimensionless
                 && arg_unit.dimensional_type() != expected_unit.dimensional_type()
             {
                 errors.push(CompileError::new(

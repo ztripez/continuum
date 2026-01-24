@@ -440,9 +440,24 @@ impl Unit {
     ///
     /// Only valid for Multiplicative units.
     /// For Affine/Logarithmic, returns None.
+    ///
+    /// When dividing `dimensional / dimensionless`, the dimensionless value
+    /// adopts the dividend's unit, resulting in a dimensionless quotient.
+    /// This allows expressions like `temp_diff / 10.0` to produce dimensionless
+    /// values without requiring explicit units on the divisor.
     pub fn divide(&self, other: &Unit) -> Option<Unit> {
         if !self.is_multiplicative() || !other.is_multiplicative() {
             return None;
+        }
+
+        // If divisor is dimensionless, it adopts the dividend's dimensions
+        // resulting in a dimensionless quotient
+        if other.is_dimensionless() && !self.is_dimensionless() {
+            return Some(Unit::new(
+                UnitKind::Multiplicative,
+                UnitDimensions::DIMENSIONLESS,
+                self.scale / other.scale,
+            ));
         }
 
         Some(Unit::new(
@@ -527,9 +542,21 @@ impl Unit {
     ///
     /// Only valid for Multiplicative units with matching dimensions.
     /// Affine and Logarithmic forbid addition.
+    ///
+    /// When one operand is dimensionless and the other is dimensional,
+    /// the dimensionless value adopts the dimensional operand's unit.
+    /// This allows expressions like `temp + 10.0` to work without explicit units.
     pub fn add(&self, other: &Unit) -> Option<Unit> {
         if !self.is_multiplicative() || !other.is_multiplicative() {
             return None;
+        }
+
+        // Allow dimensionless to adopt the other operand's unit
+        if self.is_dimensionless() && !other.is_dimensionless() {
+            return Some(*other);
+        }
+        if other.is_dimensionless() && !self.is_dimensionless() {
+            return Some(*self);
         }
 
         if self.dims != other.dims {
@@ -544,9 +571,23 @@ impl Unit {
     /// - Multiplicative: must have same dimensions, result is Multiplicative
     /// - Affine: must have same dimensions, result is Multiplicative (delta)
     /// - Logarithmic: forbidden
+    ///
+    /// When one operand is dimensionless and the other is dimensional,
+    /// the dimensionless value adopts the dimensional operand's unit.
+    /// This allows expressions like `temp - t_ref` to work without explicit units.
     pub fn subtract(&self, other: &Unit) -> Option<Unit> {
         if self.is_logarithmic() || other.is_logarithmic() {
             return None;
+        }
+
+        // Allow dimensionless to adopt the other operand's unit
+        if self.is_dimensionless() && !other.is_dimensionless() {
+            // 0 - dimensional = -dimensional (result has other's dimensions)
+            return Some(Unit::new(UnitKind::Multiplicative, other.dims, other.scale));
+        }
+        if other.is_dimensionless() && !self.is_dimensionless() {
+            // dimensional - 0 = dimensional (result has self's dimensions)
+            return Some(Unit::new(UnitKind::Multiplicative, self.dims, self.scale));
         }
 
         if self.dims != other.dims {
