@@ -740,7 +740,7 @@ impl TypedExpr {
                     .map(|sig| sig.purity.is_pure())
                     .unwrap_or_else(|| {
                         panic!(
-                            "BUG: Unknown kernel '{}' in purity check. \
+                            "BUG: Unknown kernel '{:?}' in purity check. \
                              All kernels must be registered before AST construction. \
                              This indicates the kernel was not found during resolution, \
                              which should have been caught earlier in the pipeline.",

@@ -12,7 +12,6 @@ use crate::types::{Dt, EraId, Phase, SignalId, StratumId, StratumState, Value};
 use continuum_cdsl::foundation::{Shape, Type};
 use continuum_foundation::{AggregateOp, EntityId, Mat2, Mat3, Mat4, Path, Quat};
 use indexmap::IndexMap;
-use std::collections::HashMap;
 use tracing::instrument;
 
 /// Executes individual simulation phases using the bytecode VM.
@@ -21,13 +20,13 @@ pub struct BytecodePhaseExecutor {
     executor: BytecodeExecutor,
     /// World configuration values loaded from config {} blocks.
     /// Frozen at world initialization, immutable during execution.
-    config_values: HashMap<Path, Value>,
+    config_values: IndexMap<Path, Value>,
     /// Global simulation constants loaded from const {} blocks.
     /// Frozen at world initialization, immutable during execution.
-    const_values: HashMap<Path, Value>,
+    const_values: IndexMap<Path, Value>,
     /// Signal types for zero value initialization.
     /// Used to create correct zero values for inputs accumulator.
-    signal_types: HashMap<SignalId, Type>,
+    signal_types: IndexMap<SignalId, Type>,
 }
 
 impl Default for BytecodePhaseExecutor {
@@ -41,9 +40,9 @@ impl BytecodePhaseExecutor {
     pub fn new() -> Self {
         Self {
             executor: BytecodeExecutor::new(),
-            config_values: HashMap::new(),
-            const_values: HashMap::new(),
-            signal_types: HashMap::new(),
+            config_values: IndexMap::new(),
+            const_values: IndexMap::new(),
+            signal_types: IndexMap::new(),
         }
     }
 
@@ -64,7 +63,7 @@ impl BytecodePhaseExecutor {
     /// Once set, config values cannot be modified. Operators may read them via
     /// `ctx.load_config()` but cannot write to them (enforcing the frozen parameter
     /// model).
-    pub fn set_config_values(&mut self, values: HashMap<Path, Value>) {
+    pub fn set_config_values(&mut self, values: IndexMap<Path, Value>) {
         self.config_values = values;
     }
 
@@ -85,7 +84,7 @@ impl BytecodePhaseExecutor {
     /// Once set, const values cannot be modified. Operators may read them via
     /// `ctx.load_const()` but cannot write to them (enforcing the frozen parameter
     /// model).
-    pub fn set_const_values(&mut self, values: HashMap<Path, Value>) {
+    pub fn set_const_values(&mut self, values: IndexMap<Path, Value>) {
         self.const_values = values;
     }
 
@@ -94,7 +93,7 @@ impl BytecodePhaseExecutor {
     /// Signal types are used to create correct zero values when no inputs
     /// have been accumulated for a signal (e.g., Vec3([0.0, 0.0, 0.0]) instead
     /// of Scalar(0.0) for vector signals).
-    pub fn set_signal_types(&mut self, types: HashMap<SignalId, Type>) {
+    pub fn set_signal_types(&mut self, types: IndexMap<SignalId, Type>) {
         self.signal_types = types;
     }
 
@@ -914,11 +913,11 @@ pub struct VMContext<'a> {
     pub target_signal: Option<SignalId>,
     pub cached_inputs: Option<Value>,
     /// World configuration values loaded from config {} blocks
-    pub config_values: &'a HashMap<Path, Value>,
+    pub config_values: &'a IndexMap<Path, Value>,
     /// Global simulation constants loaded from const {} blocks
-    pub const_values: &'a HashMap<Path, Value>,
+    pub const_values: &'a IndexMap<Path, Value>,
     /// Signal types for zero value initialization
-    pub signal_types: &'a HashMap<SignalId, Type>,
+    pub signal_types: &'a IndexMap<SignalId, Type>,
     /// Current impulse payload (only valid when executing impulse collect blocks)
     pub payload: Option<&'a Value>,
     /// Current entity context for member signal execution
@@ -1067,16 +1066,13 @@ impl<'a> ExecutionContext for VMContext<'a> {
 
         // Check if we're in entity context (member signal)
         if let Some(entity_ctx) = &self.entity_context {
-            // TODO: Member signals don't currently support input accumulation
-            // For now, return typed zero (no inputs)
-            // Future: implement per-instance input channels
-
-            // For member signals, use target_member path to look up type
-            let member_signal_id = SignalId::from(entity_ctx.target_member.clone());
-            if let Some(ty) = self.signal_types.get(&member_signal_id) {
-                return Ok(zero_value_for_type(ty));
-            }
-            return Ok(Value::Scalar(0.0));
+            // Member signals don't currently support input accumulation
+            panic!(
+                "Member signal input accumulation not implemented. Signal '{}' instance {} attempted to use LoadInputs. \
+                This feature requires per-instance input channels.",
+                entity_ctx.target_member,
+                entity_ctx.instance_index
+            );
         }
 
         // Global signal - load from input channels

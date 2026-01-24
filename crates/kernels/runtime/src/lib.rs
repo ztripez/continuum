@@ -102,7 +102,6 @@ use continuum_cdsl::ast::{CompiledWorld, ExprKind, RoleId, TypedExpr, TypeExpr};
 use continuum_cdsl::Type;
 use continuum_foundation::Path;
 use indexmap::IndexMap;
-use std::collections::HashMap;
 use tracing::debug;
 
 /// Scenario configuration for a Continuum world.
@@ -146,7 +145,7 @@ pub struct Scenario {
     ///
     /// These override world defaults from `config {}` blocks. Only config values
     /// may be overridden - const values are immutable.
-    pub config_overrides: HashMap<Path, Value>,
+    pub config_overrides: IndexMap<Path, Value>,
 }
 
 impl Scenario {
@@ -156,7 +155,7 @@ impl Scenario {
     }
 
     /// Creates a scenario with the given config overrides.
-    pub fn with_config_overrides(config_overrides: HashMap<Path, Value>) -> Self {
+    pub fn with_config_overrides(config_overrides: IndexMap<Path, Value>) -> Self {
         Self { config_overrides }
     }
 }
@@ -332,10 +331,9 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
 
     // Extract and populate config/const values
     use continuum_cdsl::ast::Declaration;
-    use std::collections::HashMap;
-    let mut config_values = HashMap::new();
-    let mut const_values = HashMap::new();
-    let mut config_types = HashMap::new();
+    let mut config_values = IndexMap::new();
+    let mut const_values = IndexMap::new();
+    let mut config_types = IndexMap::new();
 
     // Load world defaults for config and const
     for decl in &compiled.world.declarations {
@@ -584,7 +582,7 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
     runtime.set_const_values(const_values);
 
     // Extract signal types for zero value initialization
-    let mut signal_types = HashMap::new();
+    let mut signal_types = IndexMap::new();
     
     // Extract types from global signals
     for (path, node) in &compiled.world.globals {

@@ -26,9 +26,8 @@
 //! If the queue is full, checkpoint requests are dropped with a warning.
 //! The simulation continues without interruption.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{Receiver, SyncSender, TrySendError, sync_channel};
+use std::sync::mpsc::{sync_channel, Receiver, SyncSender, TrySendError};
 use std::thread::{self, JoinHandle};
 use std::time::SystemTime;
 
@@ -106,10 +105,10 @@ pub struct StratumState {
 pub struct MemberSignalData {
     /// Signal name → (type_id, instance values)
     /// Values stored as generic Value enum for portability
-    pub signals: HashMap<String, Vec<(usize, Value)>>,
+    pub signals: IndexMap<String, Vec<(usize, Value)>>,
 
     /// Entity type → instance count
-    pub entity_instance_counts: HashMap<String, usize>,
+    pub entity_instance_counts: IndexMap<String, usize>,
 
     /// Total instance count across all entities
     pub total_instance_count: usize,
@@ -121,7 +120,7 @@ impl MemberSignalData {
     /// This converts the SoA representation (with custom allocators) into a
     /// portable format that can be serialized.
     pub fn from_buffer(buffer: &MemberSignalBuffer) -> Result<Self, CheckpointError> {
-        let mut signals = HashMap::new();
+        let mut signals = IndexMap::new();
         let registry = buffer.registry();
 
         // Extract all registered signals
@@ -182,7 +181,7 @@ pub struct CheckpointState {
     pub era_configs: IndexMap<EraId, EraConfigSnapshot>,
 
     /// Stratum states (cadence counters, gate status)
-    pub stratum_states: HashMap<StratumId, StratumState>,
+    pub stratum_states: IndexMap<StratumId, StratumState>,
 }
 
 /// Complete checkpoint (header + state).

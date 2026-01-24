@@ -102,7 +102,7 @@ pub struct Runtime {
     /// Initial seed for determinism
     initial_seed: u64,
     /// Mapping from impulse ID to bytecode block index (for interactive injection)
-    impulse_map: std::collections::HashMap<ImpulseId, usize>,
+    impulse_map: IndexMap<ImpulseId, usize>,
     /// Execution policy for the world
     policy: WorldPolicy,
 }
@@ -145,7 +145,7 @@ impl Runtime {
             checkpoint_writer: None,
             world_ir_hash: None,
             initial_seed: 0,
-            impulse_map: std::collections::HashMap::new(),
+            impulse_map: IndexMap::new(),
             policy,
         }
     }
@@ -184,7 +184,7 @@ impl Runtime {
     ///
     /// The caller (`build_runtime`) panics if any config value contains a non-literal
     /// expression (enforcing Fail Loudly).
-    pub fn set_config_values(&mut self, values: std::collections::HashMap<continuum_foundation::Path, Value>) {
+    pub fn set_config_values(&mut self, values: IndexMap<continuum_foundation::Path, Value>) {
         self.bytecode_executor.set_config_values(values);
     }
 
@@ -223,7 +223,7 @@ impl Runtime {
     ///
     /// The caller (`build_runtime`) panics if any const value contains a non-literal
     /// expression (enforcing Fail Loudly).
-    pub fn set_const_values(&mut self, values: std::collections::HashMap<continuum_foundation::Path, Value>) {
+    pub fn set_const_values(&mut self, values: IndexMap<continuum_foundation::Path, Value>) {
         self.bytecode_executor.set_const_values(values);
     }
 
@@ -231,7 +231,7 @@ impl Runtime {
     ///
     /// Signal types are used by the bytecode executor to create correct zero values
     /// when no inputs have been accumulated for a signal.
-    pub fn set_signal_types(&mut self, types: std::collections::HashMap<crate::types::SignalId, continuum_cdsl::foundation::Type>) {
+    pub fn set_signal_types(&mut self, types: IndexMap<crate::types::SignalId, continuum_cdsl::foundation::Type>) {
         self.bytecode_executor.set_signal_types(types);
     }
 
@@ -555,10 +555,9 @@ impl Runtime {
                 for level in &dag.levels {
                     for node in &level.nodes {
                         if let NodeKind::SignalResolve { signal, .. } = &node.kind {
-                            // Initialize signal to zero if not already initialized
+                            // Signals must be initialized before first Resolve phase
                             if !self.signals.has(signal) {
-                                self.signals.init(signal.clone(), Value::Scalar(0.0));
-                                trace!("initialized uninitialized signal '{}' to 0.0", signal);
+                                panic!("Signal '{}' in DAG not initialized before Resolve phase. This indicates a compiler/loader bug.", signal);
                             }
                         }
                     }
@@ -918,9 +917,11 @@ impl Runtime {
         if self.policy.determinism != DeterminismPolicy::Strict {
             return Ok(());
         }
-        // TODO: Implement actual determinism checks (hash state etc)
-        trace!("Strict determinism check performed (placeholder)");
-        Ok(())
+        // FIXME: State hashing not implemented - cannot guarantee determinism
+        panic!(
+            "Strict determinism policy enabled but validation not implemented. \
+            Cannot guarantee deterministic execution. Implement state hashing or disable strict policy."
+        );
     }
 
     /// Request a checkpoint write (non-blocking).

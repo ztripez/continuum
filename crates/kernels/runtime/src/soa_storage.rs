@@ -33,7 +33,6 @@
 //! - [`PopulationStorage`] - Entity population with SoA member signals
 
 use std::alloc::{self, Layout};
-use std::collections::HashMap;
 use std::marker::PhantomData;
 use std::ptr::NonNull;
 
@@ -178,9 +177,15 @@ impl ValueType {
             Value::Vec3(_) => ValueType::vec3(),
             Value::Vec4(_) => ValueType::vec4(),
             Value::Quat(_) => ValueType::quat(),
-            Value::Mat2(_) => ValueType::scalar(), // TODO: proper matrix value type
-            Value::Mat3(_) => ValueType::scalar(), // TODO: proper matrix value type
-            Value::Mat4(_) => ValueType::scalar(), // TODO: proper matrix value type
+            Value::Mat2(_) => {
+                unimplemented!("Matrix types not supported for member signals (Mat2)")
+            }
+            Value::Mat3(_) => {
+                unimplemented!("Matrix types not supported for member signals (Mat3)")
+            }
+            Value::Mat4(_) => {
+                unimplemented!("Matrix types not supported for member signals (Mat4)")
+            }
             Value::Boolean(_) => ValueType::boolean(),
             Value::Integer(_) => ValueType::integer(),
             Value::String(_) => panic!("String values are not supported in member signals"),
@@ -197,9 +202,15 @@ impl ValueType {
             PrimitiveStorageClass::Vec2 => ValueType::vec2(),
             PrimitiveStorageClass::Vec3 => ValueType::vec3(),
             PrimitiveStorageClass::Vec4 => ValueType::vec4(),
-            PrimitiveStorageClass::Mat2 => ValueType::scalar(), // TODO: implement matrix types
-            PrimitiveStorageClass::Mat3 => ValueType::scalar(), // TODO: implement matrix types
-            PrimitiveStorageClass::Mat4 => ValueType::scalar(), // TODO: implement matrix types
+            PrimitiveStorageClass::Mat2 => {
+                unimplemented!("Matrix types not supported for member signals (Mat2)")
+            }
+            PrimitiveStorageClass::Mat3 => {
+                unimplemented!("Matrix types not supported for member signals (Mat3)")
+            }
+            PrimitiveStorageClass::Mat4 => {
+                unimplemented!("Matrix types not supported for member signals (Mat4)")
+            }
             PrimitiveStorageClass::Tensor => ValueType::scalar(),
             PrimitiveStorageClass::Grid => ValueType::scalar(),
             PrimitiveStorageClass::Seq => ValueType::scalar(),
@@ -218,9 +229,15 @@ impl ValueType {
                 PrimitiveStorageClass::Vec2 => MemberBufferClass::Vec2,
                 PrimitiveStorageClass::Vec3 => MemberBufferClass::Vec3,
                 PrimitiveStorageClass::Vec4 => MemberBufferClass::Vec4,
-                PrimitiveStorageClass::Mat2 => MemberBufferClass::Scalar, // TODO: matrix buffer class
-                PrimitiveStorageClass::Mat3 => MemberBufferClass::Scalar, // TODO: matrix buffer class
-                PrimitiveStorageClass::Mat4 => MemberBufferClass::Scalar, // TODO: matrix buffer class
+                PrimitiveStorageClass::Mat2 => {
+                    unimplemented!("Matrix types not supported for member signals (Mat2)")
+                }
+                PrimitiveStorageClass::Mat3 => {
+                    unimplemented!("Matrix types not supported for member signals (Mat3)")
+                }
+                PrimitiveStorageClass::Mat4 => {
+                    unimplemented!("Matrix types not supported for member signals (Mat4)")
+                }
                 PrimitiveStorageClass::Tensor => MemberBufferClass::Scalar,
                 PrimitiveStorageClass::Grid => MemberBufferClass::Scalar,
                 PrimitiveStorageClass::Seq => MemberBufferClass::Scalar,
@@ -627,7 +644,7 @@ pub struct MemberSignalRegistry {
     /// Signal name → metadata
     signals: IndexMap<String, MemberSignalMeta>,
     /// Count of signals per buffer class (for assigning buffer indices)
-    type_counts: HashMap<MemberBufferClass, usize>,
+    type_counts: IndexMap<MemberBufferClass, usize>,
 }
 
 impl MemberSignalRegistry {
@@ -804,7 +821,7 @@ pub struct MemberSignalBuffer {
     /// Maximum number of entity instances (used for storage allocation)
     instance_count: usize,
     /// Per-entity instance counts (entity_id → count)
-    entity_instance_counts: std::collections::HashMap<String, usize>,
+    entity_instance_counts: IndexMap<String, usize>,
     /// Double-buffered scalar storage
     scalars: DoubleBuffer<f64>,
     /// Double-buffered Vec2 storage
@@ -825,7 +842,7 @@ impl MemberSignalBuffer {
         Self {
             registry: MemberSignalRegistry::new(),
             instance_count: 0,
-            entity_instance_counts: std::collections::HashMap::new(),
+            entity_instance_counts: IndexMap::new(),
             scalars: DoubleBuffer::new(),
             vec2s: DoubleBuffer::new(),
             vec3s: DoubleBuffer::new(),
@@ -894,7 +911,7 @@ impl MemberSignalBuffer {
     }
 
     /// Get all entity instance counts (for checkpoint serialization).
-    pub fn entity_instance_counts(&self) -> &std::collections::HashMap<String, usize> {
+    pub fn entity_instance_counts(&self) -> &IndexMap<String, usize> {
         &self.entity_instance_counts
     }
 

@@ -27,7 +27,7 @@
 //! - Outer: parallel over entity instances (L1)
 //! - Inner: sub-DAG per entity (L3)
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use indexmap::IndexMap;
@@ -126,8 +126,8 @@ impl MemberDag {
         }
 
         // Build adjacency and in-degree maps
-        let mut in_degree: HashMap<&MemberSignalId, usize> = HashMap::new();
-        let mut dependents: HashMap<&MemberSignalId, Vec<&MemberSignalId>> = HashMap::new();
+        let mut in_degree: IndexMap<&MemberSignalId, usize> = IndexMap::new();
+        let mut dependents: IndexMap<&MemberSignalId, Vec<&MemberSignalId>> = IndexMap::new();
 
         for member in &self.members {
             in_degree.insert(member, 0);
@@ -262,9 +262,9 @@ pub struct L3ResolveContext<'a, T> {
     pub signals: &'a SignalStorage,
     /// Already-resolved member values for this entity (current tick)
     /// Maps member signal name to its current value
-    pub resolved_members: &'a HashMap<String, f64>,
+    pub resolved_members: &'a IndexMap<String, f64>,
     /// Already-resolved Vec3 members for this entity
-    pub resolved_vec3_members: &'a HashMap<String, [f64; 3]>,
+    pub resolved_vec3_members: &'a IndexMap<String, [f64; 3]>,
     /// Time step
     pub dt: Dt,
 }
@@ -293,8 +293,8 @@ pub trait L3MemberResolver: Send + Sync {
         prev: Self::Value,
         index: EntityIndex,
         signals: &SignalStorage,
-        resolved_scalars: &HashMap<String, f64>,
-        resolved_vec3s: &HashMap<String, [f64; 3]>,
+        resolved_scalars: &IndexMap<String, f64>,
+        resolved_vec3s: &IndexMap<String, [f64; 3]>,
         dt: Dt,
     ) -> Self::Value;
 }
@@ -330,8 +330,8 @@ impl L3MemberResolver for ScalarL3MemberResolver {
         prev: f64,
         index: EntityIndex,
         signals: &SignalStorage,
-        resolved_scalars: &HashMap<String, f64>,
-        resolved_vec3s: &HashMap<String, [f64; 3]>,
+        resolved_scalars: &IndexMap<String, f64>,
+        resolved_vec3s: &IndexMap<String, [f64; 3]>,
         dt: Dt,
     ) -> f64 {
         let ctx = ScalarL3ResolveContext {
@@ -377,8 +377,8 @@ impl L3MemberResolver for Vec3L3MemberResolver {
         prev: [f64; 3],
         index: EntityIndex,
         signals: &SignalStorage,
-        resolved_scalars: &HashMap<String, f64>,
-        resolved_vec3s: &HashMap<String, [f64; 3]>,
+        resolved_scalars: &IndexMap<String, f64>,
+        resolved_vec3s: &IndexMap<String, [f64; 3]>,
         dt: Dt,
     ) -> [f64; 3] {
         let ctx = Vec3L3ResolveContext {
@@ -469,8 +469,8 @@ impl L3Kernel {
         population: &PopulationStorage,
         dt: Dt,
     ) -> Result<EntityResolveResult, LaneKernelError> {
-        let mut resolved_scalars: HashMap<String, f64> = HashMap::new();
-        let mut resolved_vec3s: HashMap<String, [f64; 3]> = HashMap::new();
+        let mut resolved_scalars: IndexMap<String, f64> = IndexMap::new();
+        let mut resolved_vec3s: IndexMap<String, [f64; 3]> = IndexMap::new();
 
         // Process levels sequentially, members within level can read from previous levels
         for level in self.dag.levels() {
@@ -620,8 +620,8 @@ impl L3Kernel {
 
 /// Result of resolving all members for a single entity.
 struct EntityResolveResult {
-    scalars: HashMap<String, f64>,
-    vec3s: HashMap<String, [f64; 3]>,
+    scalars: IndexMap<String, f64>,
+    vec3s: IndexMap<String, [f64; 3]>,
 }
 
 impl LaneKernel for L3Kernel {
