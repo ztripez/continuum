@@ -328,10 +328,10 @@ pub enum DimConstraint {
 /// ```
 #[derive(Debug, Clone, PartialEq)]
 pub enum UnitConstraint {
-    /// Must be exactly this unit
+    /// Must be exactly this unit (including scale)
     Exact(Unit),
 
-    /// Must be dimensionless
+    /// Must be dimensionless (any scale)
     Dimensionless,
 
     /// Must be angle (for trig functions)
@@ -340,8 +340,23 @@ pub enum UnitConstraint {
     /// Any unit
     Any,
 
-    /// Same unit as parameter N
+    /// Same unit as parameter N (exact match including scale)
+    ///
+    /// Use for operations that require exact unit match like add/subtract.
     SameAs(usize),
+
+    /// Same dimensional type as parameter N (scale can differ)
+    ///
+    /// Requires matching kind (Multiplicative/Affine/Logarithmic) and
+    /// dimensions, but allows scale differences. Use for operations like
+    /// comparisons where dimensional compatibility matters but scale doesn't.
+    ///
+    /// # Examples
+    ///
+    /// - Comparing `1000<m>` with `1<km>` - compatible (both length)
+    /// - Comparing `100<ppmv>` with `0.0001` - compatible (both dimensionless)
+    /// - Comparing `5<K>` with `278<C>` - incompatible (different kinds)
+    SameDimsAs(usize),
 }
 
 /// Kernel return type
@@ -836,6 +851,7 @@ impl KernelRegistry {
             CtUnitConstraint::Angle => UnitConstraint::Angle,
             CtUnitConstraint::Any => UnitConstraint::Any,
             CtUnitConstraint::SameAs(idx) => UnitConstraint::SameAs(*idx),
+            CtUnitConstraint::SameDimsAs(idx) => UnitConstraint::SameDimsAs(*idx),
         }
     }
 

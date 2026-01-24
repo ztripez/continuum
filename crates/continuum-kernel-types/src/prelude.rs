@@ -38,7 +38,7 @@ pub use crate::ShapeDerivation::{
 };
 pub use crate::UnitConstraint::{
     Angle, Any as UnitAny, Dimensionless as UnitDimensionless, Exact as UnitExact,
-    SameAs as UnitSameAs,
+    SameAs as UnitSameAs, SameDimsAs as UnitSameDimsAs,
 };
 pub use crate::UnitDerivation::{
     Dimensionless, Divide, Exact as UnitDerivExact, Inverse, Multiply, SameAs as UnitDerivSameAs,

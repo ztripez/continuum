@@ -7,8 +7,12 @@ use continuum_kernel_macros::kernel_fn;
 /// Helper macro for comparison kernels with standard type constraints
 ///
 /// All comparison operations have identical signatures:
-/// - Two parameters of matching shape and unit
+/// - Two parameters of matching shape and dimensional type (scale can differ)
 /// - Return dimensionless boolean with same shape as inputs
+///
+/// Uses `UnitSameDimsAs(0)` to allow comparing values with the same
+/// dimensional type but different scales (e.g., meters vs kilometers,
+/// ppmv vs pure ratio).
 macro_rules! comparison_kernel {
     (
         $(#[$meta:meta])*
@@ -19,7 +23,7 @@ macro_rules! comparison_kernel {
             namespace = "compare",
             purity = Pure,
             shape_in = [Any, SameAs(0)],
-            unit_in = [UnitAny, UnitSameAs(0)],
+            unit_in = [UnitAny, UnitSameDimsAs(0)],
             shape_out = ShapeSameAs(0),
             unit_out = Dimensionless
         )]

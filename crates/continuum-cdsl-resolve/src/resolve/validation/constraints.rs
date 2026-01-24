@@ -386,6 +386,52 @@ pub(super) fn validate_unit_constraint(
                 ));
             }
         }
+
+        UnitConstraint::SameDimsAs(param_index) => {
+            if *param_index >= all_args.len() {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "kernel {} unit constraint SameDimsAs({}) references out-of-bounds argument (only {} args)",
+                        kernel.qualified_name(),
+                        param_index,
+                        all_args.len()
+                    ),
+                ));
+                return errors;
+            }
+
+            let Some(expected_unit) = all_args[*param_index].ty.as_kernel().map(|k| &k.unit) else {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "kernel {} unit constraint SameDimsAs({}) references non-kernel argument type {:?}",
+                        kernel.qualified_name(),
+                        param_index,
+                        all_args[*param_index].ty
+                    ),
+                ));
+                return errors;
+            };
+
+            // Check dimensional type equality (kind + dimensions), allow scale to differ
+            if arg_unit.dimensional_type() != expected_unit.dimensional_type() {
+                errors.push(CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "{} argument {} must have same dimensional type as argument {}, expected '{}', found '{}'",
+                        kernel.qualified_name(),
+                        arg_index,
+                        param_index,
+                        expected_unit,
+                        arg_unit
+                    ),
+                ));
+            }
+        }
     }
 
     errors
