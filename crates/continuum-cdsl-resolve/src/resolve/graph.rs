@@ -250,33 +250,11 @@ fn build_dag(
                     *in_degree.entry(path.clone()).or_default() += 1;
                 }
             } else {
-                // If the read is a signal/field that exists but isn't in this stratum's producers,
-                // it's a cross-stratum dependency violation.
-                // We check world globals and members for stratum mismatch.
-                let target_info = world
-                    .globals
-                    .get(read)
-                    .map(|n| (n.role_id(), &n.stratum))
-                    .or_else(|| world.members.get(read).map(|n| (n.role_id(), &n.stratum)));
-
-                if let Some((role_id, target_stratum)) = target_info {
-                    // Only Signal and Field roles have strata that matter for DAG construction.
-                    // Config and Const are globally available and don't create DAG edges here
-                    // because they are immutable during execution (resolved in Configure or earlier).
-                    if matches!(role_id, RoleId::Signal | RoleId::Field) {
-                        if target_stratum.as_ref() != Some(stratum) {
-                            return Err(vec![CompileError::new(
-                                ErrorKind::InvalidDependency,
-                                exec.span,
-                                format!(
-                                    "Node '{}' (stratum {:?}) reads from '{}' (stratum {:?}). \
-                                     Cross-stratum dependencies are forbidden to preserve strict determinism.",
-                                    path, stratum, read, target_stratum
-                                ),
-                            )]);
-                        }
-                    }
-                }
+                // The read targets a signal/field from another stratum.
+                // Cross-stratum reads are allowed - signals can depend on values from
+                // other strata. The execution order is determined by stratum cadence
+                // and the runtime ensures dependencies are resolved before consumers run.
+                // No DAG edge is added here because the target is in a different stratum's graph.
             }
         }
     }
@@ -772,7 +750,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cross_stratum_dependency_violation() {
+    fn test_cross_stratum_dependency_allowed() {
         let span = test_span();
         let metadata = continuum_cdsl_ast::WorldDecl {
             path: Path::from_path_str("world"),
@@ -855,14 +833,14 @@ mod tests {
         world.globals.insert(node_slow.path.clone(), node_slow);
         world.globals.insert(node_fast.path.clone(), node_fast);
 
-        // Should fail: fast_signal reads slow_signal from different stratum
+        // Cross-stratum reads are allowed - fast_signal can read slow_signal
+        // The runtime handles execution ordering between strata
         let result = compile_graphs(&world);
-        assert!(result.is_err());
-        let errors = result.unwrap_err();
-        assert_eq!(errors[0].kind, ErrorKind::InvalidDependency);
-        assert!(errors[0]
-            .message
-            .contains("Cross-stratum dependencies are forbidden"));
+        assert!(
+            result.is_ok(),
+            "Cross-stratum reads should be allowed: {:?}",
+            result.err()
+        );
     }
 
     #[test]
