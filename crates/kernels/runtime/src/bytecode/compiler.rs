@@ -21,6 +21,7 @@
 use std::collections::BTreeMap;
 
 use continuum_cdsl::ast::{Execution, ExecutionBody, ExprKind, TypedExpr, TypedStmt};
+use continuum_cdsl::foundation::Type;
 use continuum_foundation::{AggregateOp, Path, Phase, Value};
 
 use crate::bytecode::opcode::{Instruction, OpcodeKind};
@@ -265,9 +266,16 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         match &expr.expr {
             ExprKind::Literal { value, .. } => {
+                // Boolean literals are encoded as 1.0/0.0 in typed AST
+                // Check the type to emit the correct Value variant
+                let literal_value = if matches!(expr.ty, Type::Bool) {
+                    Value::Boolean(*value != 0.0)
+                } else {
+                    Value::Scalar(*value)
+                };
                 block.instructions.push(Instruction::new(
                     OpcodeKind::PushLiteral,
-                    vec![Operand::Literal(Value::Scalar(*value))],
+                    vec![Operand::Literal(literal_value)],
                 ));
             }
             ExprKind::StringLiteral(value) => {

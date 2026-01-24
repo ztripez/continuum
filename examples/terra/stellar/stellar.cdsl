@@ -215,7 +215,16 @@ entity stellar.star {
         : symbol("d_star")
     
         resolve {
-            vector.normalize(self.position)
+            # For stars at origin, position is [0,0,0], so direction defaults to +Z
+            # Compute magnitude and use safe threshold to avoid division by zero
+            let mag = vector.length(self.position) in
+            let safe_mag = maths.max(mag, 1e-9) in
+            # Normalize by safe magnitude (effectively [0,0,0]/1e-9 ≈ [0,0,0] for stars at origin)
+            vector.vec3(
+                self.position.x / safe_mag,
+                self.position.y / safe_mag,
+                self.position.z / safe_mag
+            )
         }
     }
 
@@ -483,7 +492,16 @@ entity stellar.moon {
         : symbol("d_moon")
     
         resolve {
-            vector.normalize(self.position)
+            # For moons at origin, position is [0,0,0], so direction defaults to +Z
+            # Compute magnitude and use safe threshold to avoid division by zero
+            let mag = vector.length(self.position) in
+            let safe_mag = maths.max(mag, 1e-9) in
+            # Normalize by safe magnitude
+            vector.vec3(
+                self.position.x / safe_mag,
+                self.position.y / safe_mag,
+                self.position.z / safe_mag
+            )
         }
     }
 
