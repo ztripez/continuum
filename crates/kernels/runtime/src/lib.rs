@@ -545,12 +545,11 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
     
     // Register all member signals with the member signal buffer
     // This must happen BEFORE init_member_instances
-    eprintln!("DEBUG: Registering {} member signals", compiled.world.members.len());
     for (path, node) in &compiled.world.members {
-        eprintln!("DEBUG: Checking member signal {} with type {:?}", path, node.type_expr);
         // Skip if no type expression (entity fields, not signals)
+        // NOTE: Currently all member signals have type_expr = None due to missing
+        // type inference in the DSL compiler. This blocks registration.
         let Some(type_expr) = node.type_expr.as_ref() else {
-            eprintln!("DEBUG: Skipping {} (no type expr)", path);
             continue;
         };
         
@@ -565,7 +564,6 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
             _ => panic!("Unsupported member signal type for {}: {:?}", path, node.type_expr),
         };
         
-        eprintln!("DEBUG: Registering {} with type {:?}", path, value_type);
         runtime.register_member_signal(&path.to_string(), value_type);
     }
     
