@@ -414,6 +414,61 @@ impl Unit {
         ))
     }
 
+    /// Square root of a unit.
+    ///
+    /// Only valid for Multiplicative units where all dimension exponents are even.
+    /// Returns None if the unit is not multiplicative or has odd exponents.
+    ///
+    /// # Examples
+    /// - sqrt(m²) = m
+    /// - sqrt(m²/s²) = m/s
+    /// - sqrt(m) = None (odd exponent)
+    pub fn sqrt(&self) -> Option<Unit> {
+        if !self.is_multiplicative() {
+            return None;
+        }
+
+        // Check if all exponents are even
+        if self.dims.length % 2 != 0
+            || self.dims.mass % 2 != 0
+            || self.dims.time % 2 != 0
+            || self.dims.temperature % 2 != 0
+            || self.dims.current % 2 != 0
+            || self.dims.amount % 2 != 0
+            || self.dims.luminosity % 2 != 0
+            || self.dims.angle % 2 != 0
+        {
+            return None;
+        }
+
+        Some(Unit::new(
+            UnitKind::Multiplicative,
+            UnitDimensions {
+                length: self.dims.length / 2,
+                mass: self.dims.mass / 2,
+                time: self.dims.time / 2,
+                temperature: self.dims.temperature / 2,
+                current: self.dims.current / 2,
+                amount: self.dims.amount / 2,
+                luminosity: self.dims.luminosity / 2,
+                angle: self.dims.angle / 2,
+            },
+            self.scale.sqrt(),
+        ))
+    }
+
+    /// Multiplicative inverse of a unit (1/unit).
+    ///
+    /// Only valid for Multiplicative units.
+    /// Equivalent to pow(-1) but more explicit.
+    ///
+    /// # Examples
+    /// - inverse(m/s) = s/m
+    /// - inverse(kg) = 1/kg
+    pub fn inverse(&self) -> Option<Unit> {
+        self.pow(-1)
+    }
+
     /// Add two units (must have same dimensions).
     ///
     /// Only valid for Multiplicative units with matching dimensions.

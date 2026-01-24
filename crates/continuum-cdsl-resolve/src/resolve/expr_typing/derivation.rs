@@ -201,15 +201,28 @@ pub fn derive_return_type(
                 )]
             })?
         }
-        UnitDerivation::Sqrt(_idx) | UnitDerivation::Inverse(_idx) => {
-            return Err(vec![CompileError::new(
-                ErrorKind::UnsupportedDSLFeature,
-                span,
-                format!(
-                    "unit derivation variant not yet implemented: {:?}",
-                    sig.returns.unit
-                ),
-            )]);
+        UnitDerivation::Sqrt(idx) => {
+            let kt = get_kernel_arg(args, *idx, span, "unit sqrt")?;
+            kt.unit.sqrt().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "cannot take square root of unit {} (all dimension exponents must be even)",
+                        kt.unit
+                    ),
+                )]
+            })?
+        }
+        UnitDerivation::Inverse(idx) => {
+            let kt = get_kernel_arg(args, *idx, span, "unit inverse")?;
+            kt.unit.inverse().ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::Internal,
+                    span,
+                    format!("cannot invert non-multiplicative unit (parameter {})", idx),
+                )]
+            })?
         }
     };
 
