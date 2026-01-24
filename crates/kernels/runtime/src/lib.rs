@@ -1107,14 +1107,33 @@ fn compile_bytecode_and_dags(
                 };
 
                 let node_kind = match (role_id, *phase) {
-                    (RoleId::Signal, Phase::Configure) => NodeKind::SignalResolve {
-                        signal: SignalId::from(path.to_string()),
-                        resolver_idx: block_idx,
-                    },
-                    (RoleId::Signal, Phase::Resolve) => NodeKind::SignalResolve {
-                        signal: SignalId::from(path.to_string()),
-                        resolver_idx: block_idx,
-                    },
+                    (RoleId::Signal, Phase::Configure) | (RoleId::Signal, Phase::Resolve) => {
+                        // Check if this is a member signal (entity.member)
+                        if compiled.world.members.contains_key(path) {
+                            // Parse entity.member path
+                            let path_str = path.to_string();
+                            let path_parts: Vec<&str> = path_str.split('.').collect();
+                            if path_parts.len() != 2 {
+                                panic!("Invalid member signal path format: {}", path_str);
+                            }
+                            let entity_id = EntityId::from(path_parts[0].to_string());
+                            let signal_name = path_parts[1].to_string();
+
+                            NodeKind::MemberSignalResolve {
+                                member_signal: MemberSignalId {
+                                    entity_id,
+                                    signal_name,
+                                },
+                                kernel_idx: block_idx,
+                            }
+                        } else {
+                            // Regular global signal
+                            NodeKind::SignalResolve {
+                                signal: SignalId::from(path.to_string()),
+                                resolver_idx: block_idx,
+                            }
+                        }
+                    }
                     (RoleId::Operator, Phase::Collect) | (RoleId::Impulse, Phase::Collect) => {
                         if role_id == RoleId::Impulse {
                             impulse_map.insert(ImpulseId::new(path.to_string()), block_idx);
