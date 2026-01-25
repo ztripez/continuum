@@ -127,6 +127,13 @@ pub enum OpcodeKind {
     /// Pops: [Seq, Position, Radius].
     /// Pushes: [Filtered Seq].
     Within,
+
+    /// Spatial neighbors query (finds topologically connected neighbors of an instance)
+    ///
+    /// Pops: [Seq, Instance].
+    /// Pushes: [Seq of neighbor instances].
+    Neighbors,
+
     /// Iterates over a sequence and reduces results using an aggregate operation.
     ///
     /// Pops: [Seq].

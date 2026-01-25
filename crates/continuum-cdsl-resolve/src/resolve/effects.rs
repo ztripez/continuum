@@ -203,6 +203,10 @@ fn scan_for_effect_violations(
             scan_for_effect_violations(&radius, ctx, registry, errors);
         }
 
+        ExprKind::Neighbors { instance, .. } => {
+            scan_for_effect_violations(&instance, ctx, registry, errors);
+        }
+
         // Leaf nodes - no kernel calls possible
         ExprKind::Literal { .. }
         | ExprKind::StringLiteral(_)

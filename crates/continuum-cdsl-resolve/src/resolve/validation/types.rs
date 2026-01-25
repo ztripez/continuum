@@ -144,6 +144,10 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
             errors.extend(validate_expr(radius, ctx));
         }
 
+        ExprKind::Neighbors { instance, .. } => {
+            errors.extend(validate_expr(instance, ctx));
+        }
+
         // References don't need validation
         ExprKind::Local(_)
         | ExprKind::Signal(_)

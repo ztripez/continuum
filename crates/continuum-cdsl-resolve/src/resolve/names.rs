@@ -533,6 +533,10 @@ pub fn validate_expr(
             validate_expr(radius, table, scope, errors);
         }
 
+        ExprKind::Neighbors { instance, .. } => {
+            validate_expr(instance, table, scope, errors);
+        }
+
         ExprKind::Entity(_) | ExprKind::OtherInstances(_) | ExprKind::PairsInstances(_) => {
             // These are direct references to entity sets
         }

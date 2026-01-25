@@ -342,6 +342,10 @@ fn scan_for_capability_violations(
             scan_for_capability_violations(radius, ctx, errors);
         }
 
+        ExprKind::Neighbors { instance, .. } => {
+            scan_for_capability_violations(instance, ctx, errors);
+        }
+
         ExprKind::Self_ => {
             if !ctx.has_capability(Capability::Index) {
                 errors.push(CompileError::new(

@@ -456,6 +456,12 @@ pub enum ExprKind {
         radius: Box<Expr>,
     },
 
+    /// Spatial topology: neighbors(instance)
+    Neighbors {
+        /// Instance to get neighbors for
+        instance: Box<Expr>,
+    },
+
     /// Filtered entity set: filter(entity, predicate)
     Filter {
         /// Entity or Seq to filter

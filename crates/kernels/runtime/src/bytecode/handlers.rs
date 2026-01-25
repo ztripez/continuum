@@ -427,6 +427,25 @@ pub(crate) fn handle_within(
     Ok(())
 }
 
+/// Spatial topology query - finds neighbors of an instance.
+///
+/// # Stack
+/// - [Seq<Entity>, Instance] → [Seq<Instance>]
+pub(crate) fn handle_neighbors(
+    _instruction: &Instruction,
+    runtime: &mut dyn ExecutionRuntime,
+    _program: &BytecodeProgram,
+    _ctx: &mut dyn ExecutionContext,
+) -> Result<(), ExecutionError> {
+    let _instance = runtime.pop()?;
+    let _seq_value = runtime.pop()?;
+
+    // TODO: Implement topology neighbor lookup
+    // For now, return empty sequence
+    runtime.push(Value::Seq(std::sync::Arc::new(vec![])))?;
+    Ok(())
+}
+
 /// Performs a distributed aggregate operation (sum, map, count, etc.) over a sequence.
 ///
 /// # Operands

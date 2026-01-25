@@ -62,7 +62,9 @@ impl ExpressionVisitor for DependencyVisitor {
                         .insert(Path::from(entity_id.0.to_string().as_str()));
                 }
             }
-            ExprKind::Nearest { entity, .. } | ExprKind::Within { entity, .. } => {
+            ExprKind::Nearest { entity, .. }
+            | ExprKind::Within { entity, .. }
+            | ExprKind::Neighbors { entity, .. } => {
                 self.paths.insert(Path::from(entity.0.to_string().as_str()));
             }
             ExprKind::Filter { source, .. } => {

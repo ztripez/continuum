@@ -11,8 +11,8 @@ use super::handlers::{
     handle_jump_if_true, handle_load, handle_load_config, handle_load_const, handle_load_current,
     handle_load_dt, handle_load_entity, handle_load_field, handle_load_inputs, handle_load_other,
     handle_load_payload, handle_load_prev, handle_load_self, handle_load_signal, handle_nearest,
-    handle_noop, handle_pop, handle_push_literal, handle_spawn, handle_store, handle_within,
-    Handler,
+    handle_neighbors, handle_noop, handle_pop, handle_push_literal, handle_spawn, handle_store,
+    handle_within, Handler,
 };
 use super::opcode::{OpcodeKind, OpcodeMetadata, OperandCount};
 
@@ -47,7 +47,7 @@ pub fn opcode_specs() -> &'static [OpcodeSpec] {
 ///
 /// This constant must match the number of variants in [`OpcodeKind`]. It is used
 /// to size the internal jump tables for O(1) metadata and handler lookups.
-const OPCODE_COUNT: usize = 38;
+const OPCODE_COUNT: usize = 39;
 
 /// Retrieves metadata for a specific opcode kind in O(1) time.
 ///
@@ -135,6 +135,7 @@ fn build_specs() -> Vec<OpcodeSpec> {
         op!(Filter, OperandCount::Fixed(2), handle_filter),
         op!(Nearest, OperandCount::Fixed(0), handle_nearest),
         op!(Within, OperandCount::Fixed(0), handle_within),
+        op!(Neighbors, OperandCount::Fixed(0), handle_neighbors),
         op!(Aggregate, OperandCount::Fixed(3), handle_aggregate),
         op!(Fold, OperandCount::Fixed(3), handle_fold),
         op!(FieldAccess, OperandCount::Fixed(1), handle_field_access),

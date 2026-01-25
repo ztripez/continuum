@@ -829,6 +829,46 @@ pub fn type_call(
         (segments[0].as_str(), segments[1].as_str())
     };
 
+    // Handle special spatial.neighbors() call
+    if namespace == "spatial" && name == "neighbors" {
+        if typed_args.len() != 1 {
+            return Err(vec![CompileError::new(
+                ErrorKind::TypeMismatch,
+                span,
+                format!(
+                    "spatial.neighbors() expects 1 argument (instance), found {}",
+                    typed_args.len()
+                ),
+            )]);
+        }
+
+        let instance = &typed_args[0];
+
+        // Extract entity type from instance type
+        let entity_id = match &instance.ty {
+            Type::User(type_id) => {
+                // Convert TypeId to EntityId
+                continuum_cdsl_ast::foundation::EntityId::new(type_id.path().clone())
+            }
+            _ => {
+                return Err(err_type_mismatch(
+                    span,
+                    "entity instance",
+                    &format!("{}", instance.ty),
+                ));
+            }
+        };
+
+        let instance_ty = instance.ty.clone();
+        return Ok((
+            ExprKind::Neighbors {
+                entity: entity_id,
+                instance: Box::new(instance.clone()),
+            },
+            Type::Seq(Box::new(instance_ty)),
+        ));
+    }
+
     // Try exact kernel match first
     let sig = if let Some(sig) = ctx.kernel_registry.get_by_name(namespace, name) {
         sig

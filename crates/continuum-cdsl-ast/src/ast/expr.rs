@@ -434,6 +434,17 @@ pub enum ExprKind {
         radius: Box<TypedExpr>,
     },
 
+    /// Spatial topology: neighbors(instance)
+    ///
+    /// Returns all topologically connected neighbors of the given instance.
+    /// Requires the entity to have a topology defined (e.g., icosahedron_grid).
+    Neighbors {
+        /// Entity type (inferred from instance)
+        entity: EntityId,
+        /// Instance to get neighbors for
+        instance: Box<TypedExpr>,
+    },
+
     /// Filtered entity set: filter(entity, predicate)
     Filter {
         /// Entity or Seq to filter
@@ -739,6 +750,7 @@ impl TypedExpr {
             ExprKind::Within {
                 position, radius, ..
             } => position.is_pure() && radius.is_pure(),
+            ExprKind::Neighbors { instance, .. } => instance.is_pure(),
             ExprKind::Filter { source, predicate } => source.is_pure() && predicate.is_pure(),
 
             // Vector is pure if all elements are pure
@@ -830,6 +842,9 @@ impl TypedExpr {
             } => {
                 position.walk(visitor);
                 radius.walk(visitor);
+            }
+            ExprKind::Neighbors { instance, .. } => {
+                instance.walk(visitor);
             }
             ExprKind::Filter { source, predicate } => {
                 source.walk(visitor);

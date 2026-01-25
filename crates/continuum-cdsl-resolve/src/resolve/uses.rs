@@ -183,6 +183,7 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
             | ExprKind::Filter { .. }
             | ExprKind::Nearest { .. }
             | ExprKind::Within { .. }
+            | ExprKind::Neighbors { .. }
             | ExprKind::Struct { .. }
             | ExprKind::FieldAccess { .. } => {}
         }
@@ -378,6 +379,10 @@ fn collect_required_uses_untyped(
         } => {
             collect_required_uses_untyped(position, registry, required);
             collect_required_uses_untyped(radius, registry, required);
+        }
+
+        UntypedKind::Neighbors { instance } => {
+            collect_required_uses_untyped(instance, registry, required);
         }
 
         // Leaf nodes - no recursion needed

@@ -138,6 +138,10 @@ where
             walk_expr(radius, visitor);
         }
 
+        ExprKind::Neighbors { instance, .. } => {
+            walk_expr(instance, visitor);
+        }
+
         // === Leaf nodes (no children to traverse) ===
         ExprKind::Literal { .. }
         | ExprKind::StringLiteral(_)

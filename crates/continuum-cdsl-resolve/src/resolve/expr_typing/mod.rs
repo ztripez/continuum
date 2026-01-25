@@ -342,6 +342,33 @@ pub fn type_expression(
             )
         }
 
+        UntypedKind::Neighbors { instance } => {
+            let typed_instance = type_expression(instance, ctx, None)?;
+            
+            // Extract entity type from instance type
+            let entity_id = match &typed_instance.ty {
+                Type::User(type_id) => {
+                    continuum_cdsl_ast::foundation::EntityId::new(type_id.path().clone())
+                }
+                _ => {
+                    return Err(err_type_mismatch(
+                        span,
+                        "entity instance",
+                        &format!("{}", typed_instance.ty),
+                    ));
+                }
+            };
+
+            let instance_ty = typed_instance.ty.clone();
+            (
+                ExprKind::Neighbors {
+                    entity: entity_id,
+                    instance: Box::new(typed_instance),
+                },
+                Type::Seq(Box::new(instance_ty)),
+            )
+        }
+
         UntypedKind::OtherInstances(entity_id) => {
             let instance_ty = Type::User(continuum_foundation::TypeId::from(entity_id.0.clone()));
             (

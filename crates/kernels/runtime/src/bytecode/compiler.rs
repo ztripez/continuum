@@ -454,6 +454,16 @@ impl Compiler {
                     .instructions
                     .push(Instruction::new(OpcodeKind::Within, vec![]));
             }
+            ExprKind::Neighbors { entity, instance } => {
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::LoadEntity,
+                    vec![Operand::Entity(entity.clone())],
+                ));
+                self.compile_expr(block, instance)?;
+                block
+                    .instructions
+                    .push(Instruction::new(OpcodeKind::Neighbors, vec![]));
+            }
             ExprKind::Filter { source, predicate } => {
                 self.compile_expr(block, source)?;
                 let binding_slot = self.alloc_slot();

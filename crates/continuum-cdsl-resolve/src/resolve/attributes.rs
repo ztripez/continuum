@@ -284,6 +284,7 @@ fn describe_expr_kind(kind: &UntypedKind) -> &'static str {
         UntypedKind::Entity(_) => "entity reference",
         UntypedKind::Nearest { .. } => "nearest query",
         UntypedKind::Within { .. } => "within query",
+        UntypedKind::Neighbors { .. } => "neighbors query",
         UntypedKind::Filter { .. } => "filter query",
         UntypedKind::OtherInstances(_) => "other instances",
         UntypedKind::PairsInstances(_) => "pairs instances",
