@@ -365,6 +365,7 @@ signal atmosphere.tau_greenhouse {
 signal atmosphere.pressure {
     : Scalar<Pa, 0..1e8>
     : stratum(atmosphere)
+    : initial(101325.0)
     : title("Surface Atmospheric Pressure")
     : symbol("P_surf")
 
@@ -487,6 +488,7 @@ signal atmosphere.albedo {
 signal atmosphere.solar_constant {
     : Scalar<W/m², 0..1e5>
     : stratum(atmosphere)
+    : initial(1361.0)
     : title("Solar Constant")
     : symbol("S")
 
