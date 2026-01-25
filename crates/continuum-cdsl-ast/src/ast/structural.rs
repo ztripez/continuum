@@ -18,6 +18,49 @@ use crate::ast::node::Node;
 use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, StratumId};
 
 // =============================================================================
+// Topology Expressions
+// =============================================================================
+
+/// Topology expression - defines spatial structure for entities
+///
+/// Topologies enable spatial queries like `spatial.neighbors()` and `spatial.gradient()`.
+/// Topology is frozen in Configure phase (deterministic, authoritative structure).
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum TopologyExpr {
+    /// Icosahedral spherical grid
+    ///
+    /// Subdivides a regular icosahedron (20 faces) into a nearly-uniform
+    /// spherical grid. Each subdivision level increases the number of cells.
+    ///
+    /// Properties:
+    /// - Near-uniform cell area (better than lat/lon grids)
+    /// - Each cell has 5 or 6 neighbors (mostly hexagonal)
+    /// - Subdivision levels control resolution:
+    ///   - Level 0: 20 cells
+    ///   - Level 1: 80 cells
+    ///   - Level 2: 320 cells
+    ///   - Level n: 20 × 4^n cells
+    ///
+    /// Example:
+    /// ```cdsl
+    /// entity cell {
+    ///     :topology(icosahedron_grid { subdivisions: 5 })
+    ///     member elevation : Scalar<m>
+    /// }
+    /// ```
+    IcosahedronGrid {
+        /// Number of subdivision iterations
+        ///
+        /// Must be >= 0. Default is 0 (20 cells).
+        /// Typical Terra simulation uses 5-6 (2k-40k cells).
+        subdivisions: u32,
+
+        /// Source location for error messages
+        span: Span,
+    },
+}
+
+// =============================================================================
 // Structural Declarations
 // =============================================================================
 
@@ -41,6 +84,13 @@ use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, Stratu
 /// - Instance IDs are stable throughout simulation
 /// - `prev` is always valid (no "newborn" entity edge case)
 ///
+/// # Topology (Optional)
+///
+/// Entities may optionally declare spatial topology for neighbor queries:
+/// - `:topology(icosahedron_grid)` — spherical icosahedral grid
+/// - Topology is frozen in Configure phase (deterministic)
+/// - Enables spatial.neighbors(), spatial.gradient() kernels
+///
 /// # Examples
 ///
 /// ```cdsl
@@ -49,6 +99,11 @@ use crate::foundation::{AnalyzerId, EntityId, EraId, FieldId, Path, Span, Stratu
 ///     field stress : Scalar<Pa>        // Field per plate
 ///     fracture rift { ... }            // Fracture per plate
 ///     operator apply_friction { ... } // Operator per plate
+/// }
+///
+/// entity cell {
+///     :topology(icosahedron_grid)     // Spatial topology for neighbor queries
+///     member elevation : Scalar<m>
 /// }
 /// ```
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
@@ -71,6 +126,12 @@ pub struct Entity {
     /// Processed during semantic analysis.
     pub attributes: Vec<Attribute>,
 
+    /// Optional topology declaration for spatial queries
+    ///
+    /// Parsed from `:topology(...)` attribute. None if entity has no spatial structure.
+    /// Topology is frozen in Configure phase and used for spatial.* kernel queries.
+    pub topology: Option<TopologyExpr>,
+
     /// Nested member primitives (signals, fields, fractures, impulses)
     ///
     /// Parsed from nested declarations inside entity braces.
@@ -87,6 +148,7 @@ impl Entity {
             span,
             doc: None,
             attributes: Vec::new(),
+            topology: None,
             members: Vec::new(),
         }
     }

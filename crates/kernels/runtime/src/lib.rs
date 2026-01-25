@@ -67,6 +67,7 @@ pub mod lens_sink;
 pub mod reductions;
 pub mod soa_storage;
 pub mod storage;
+pub mod topology;
 pub mod types;
 pub mod vectorized;
 
