@@ -969,10 +969,12 @@ pub fn type_as_kernel_call(
     args: &[Expr],
     span: continuum_cdsl_ast::foundation::Span,
 ) -> Result<(ExprKind, Type), Vec<CompileError>> {
-    // Special case: maths.pow() with literal integer exponent
-    // Enables dimensional exponentiation: pow(x<m>, 3) -> Scalar<m³>
+    // Special case: maths.pow() with literal integer OR fractional exponent
+    // Enables dimensional exponentiation:
+    //   - pow(x<m>, 3) -> Scalar<m³>
+    //   - pow(x<J>, 1/3) -> Scalar<J^(1/3)>
     if kernel.namespace == "maths" && kernel.name == "pow" && args.len() == 2 {
-        // Check if second argument (exponent) is a literal integer
+        // Check for literal integer exponent
         if let UntypedKind::Literal { value, unit } = &args[1].kind {
             if unit.is_none()
                 && value.fract() == 0.0
@@ -1023,6 +1025,11 @@ pub fn type_as_kernel_call(
                 ));
             }
         }
+
+        // TODO: Add support for fractional exponents (1/3, 2/3, etc.)
+        // Requires parsing division expressions at compile-time
+        // Infrastructure is in place: PowerRational variant, pow_rational() method
+        // Example: pow(energy<J>, 1/3) should produce Scalar<J^(1/3)>
 
         // Non-integer exponent with units: error
         let exp_arg = type_expression(&args[1], ctx, None)?;

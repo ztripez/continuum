@@ -8,6 +8,7 @@
 use crate::error::{CompileError, ErrorKind};
 use continuum_cdsl_ast::foundation::{KernelType, Shape, Type, Unit};
 use continuum_cdsl_ast::TypedExpr;
+use continuum_kernel_types::rational::Rational;
 use continuum_kernel_types::ValueType;
 
 /// Extracts the [`KernelType`] from a typed argument at the specified index.
@@ -233,6 +234,20 @@ pub fn derive_return_type(
                     format!(
                         "cannot raise unit {} to power {} (non-multiplicative units cannot be exponentiated)",
                         kt.unit, exponent
+                    ),
+                )]
+            })?
+        }
+        UnitDerivation::PowerRational(idx, num, denom) => {
+            let kt = get_kernel_arg(args, *idx, span, "unit power base")?;
+            let exponent = Rational::new(*num, *denom);
+            kt.unit.pow_rational(exponent).ok_or_else(|| {
+                vec![CompileError::new(
+                    ErrorKind::InvalidKernelUnit,
+                    span,
+                    format!(
+                        "cannot raise unit {} to power {}/{} (non-multiplicative units cannot be exponentiated)",
+                        kt.unit, num, denom
                     ),
                 )]
             })?

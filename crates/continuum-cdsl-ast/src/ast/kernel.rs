@@ -507,6 +507,18 @@ pub enum UnitDerivation {
     /// Power(param_index, exponent)
     /// Example: Power(0, 3) means param_0_unit³
     Power(usize, i8),
+
+    /// Parameter N unit raised to rational (fractional) power
+    /// PowerRational(param_index, numerator, denominator)
+    /// Example: PowerRational(0, 1, 3) means param_0_unit^(1/3)
+    ///
+    /// Used for physics formulas that require fractional dimensional exponents:
+    /// - ejecta thickness ∝ energy^(1/3)
+    /// - sediment transport ∝ flow^(3/2)
+    ///
+    /// The rational exponent is represented as (num/denom) and automatically
+    /// normalized to lowest terms.
+    PowerRational(usize, i8, u8),
 }
 
 /// Kernel purity class

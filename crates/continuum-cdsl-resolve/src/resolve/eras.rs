@@ -63,8 +63,8 @@
 //! ```
 
 use crate::error::{CompileError, ErrorKind};
-use continuum_cdsl_ast::Era;
 use continuum_cdsl_ast::foundation::{EraId, KernelType, StratumId, Type};
+use continuum_cdsl_ast::Era;
 use std::collections::{HashMap, HashSet};
 
 /// Validate all era declarations.
@@ -159,7 +159,7 @@ fn validate_era_dt(era: &Era) -> Result<(), CompileError> {
     match &era.dt.ty {
         Type::Kernel(KernelType { unit, .. }) => {
             // Check if unit has time dimension (time exponent != 0)
-            if unit.dims().time == 0 {
+            if unit.dims().time.is_zero() {
                 return Err(CompileError::new(
                     ErrorKind::TypeMismatch,
                     era.span,
@@ -935,11 +935,9 @@ mod tests {
         let error_messages: Vec<String> = errors.iter().map(|e| e.message.clone()).collect();
         assert!(error_messages.iter().any(|m| m.contains("time units")));
         assert!(error_messages.iter().any(|m| m.contains("nonexistent")));
-        assert!(
-            error_messages
-                .iter()
-                .any(|m| m.contains("missing_era") || m.contains("must be Bool"))
-        );
+        assert!(error_messages
+            .iter()
+            .any(|m| m.contains("missing_era") || m.contains("must be Bool")));
     }
 
     #[test]

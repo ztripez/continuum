@@ -331,7 +331,7 @@ pub(super) fn validate_unit_constraint(
 
         UnitConstraint::Angle => {
             // Check if the unit has angle dimension (angle exponent != 0)
-            if arg_unit.dims().angle == 0 {
+            if arg_unit.dims().angle.is_zero() {
                 errors.push(CompileError::new(
                     ErrorKind::InvalidKernelUnit,
                     span,

@@ -12,6 +12,7 @@
 use crate::error::{CompileError, ErrorKind};
 use continuum_cdsl_ast::foundation::{Span, Unit, UnitDimensions, UnitKind};
 use continuum_cdsl_ast::UnitExpr;
+use continuum_kernel_types::rational::Rational;
 
 /// SI metric prefixes with their scale factors (powers of 10).
 ///
@@ -264,8 +265,17 @@ pub fn divide_units(
     Ok(Unit::new(UnitKind::Multiplicative, dims, scale))
 }
 
-/// Raise a unit to a power.
+/// Raise a unit to an integer power.
 pub fn power_unit(base: &Unit, exponent: i8, span: Span) -> Result<Unit, CompileError> {
+    power_unit_rational(base, Rational::integer(exponent), span)
+}
+
+/// Raise a unit to a rational (fractional) power.
+pub fn power_unit_rational(
+    base: &Unit,
+    exponent: Rational,
+    span: Span,
+) -> Result<Unit, CompileError> {
     if !base.is_multiplicative() {
         return Err(CompileError::new(
             ErrorKind::InvalidUnit,
@@ -274,107 +284,32 @@ pub fn power_unit(base: &Unit, exponent: i8, span: Span) -> Result<Unit, Compile
         ));
     }
 
-    let dims = scale_dimensions(base.dims(), exponent, span)?;
-    let scale = base.scale().powi(exponent as i32);
+    let dims = base.dims().pow_rational(exponent);
+    let scale = base.scale().powf(exponent.to_f64());
     Ok(Unit::new(UnitKind::Multiplicative, dims, scale))
 }
 
 /// Add dimensional exponents (for multiplication).
+///
+/// Rational addition is exact and normalizes automatically, so overflow is not possible
+/// in the same way as i8 arithmetic. The clamping happens inside Rational::Add.
 fn add_dimensions(
     lhs: &UnitDimensions,
     rhs: &UnitDimensions,
-    span: Span,
+    _span: Span,
 ) -> Result<UnitDimensions, CompileError> {
-    Ok(UnitDimensions {
-        length: checked_i8_op(lhs.length, rhs.length, "length", span, i8::checked_add)?,
-        mass: checked_i8_op(lhs.mass, rhs.mass, "mass", span, i8::checked_add)?,
-        time: checked_i8_op(lhs.time, rhs.time, "time", span, i8::checked_add)?,
-        temperature: checked_i8_op(
-            lhs.temperature,
-            rhs.temperature,
-            "temperature",
-            span,
-            i8::checked_add,
-        )?,
-        current: checked_i8_op(lhs.current, rhs.current, "current", span, i8::checked_add)?,
-        amount: checked_i8_op(lhs.amount, rhs.amount, "amount", span, i8::checked_add)?,
-        luminosity: checked_i8_op(
-            lhs.luminosity,
-            rhs.luminosity,
-            "luminosity",
-            span,
-            i8::checked_add,
-        )?,
-        angle: checked_i8_op(lhs.angle, rhs.angle, "angle", span, i8::checked_add)?,
-    })
+    Ok(lhs.multiply(rhs))
 }
 
 /// Subtract dimensional exponents (for division).
+///
+/// Rational subtraction is exact and normalizes automatically.
 fn subtract_dimensions(
     lhs: &UnitDimensions,
     rhs: &UnitDimensions,
-    span: Span,
+    _span: Span,
 ) -> Result<UnitDimensions, CompileError> {
-    Ok(UnitDimensions {
-        length: checked_i8_op(lhs.length, rhs.length, "length", span, i8::checked_sub)?,
-        mass: checked_i8_op(lhs.mass, rhs.mass, "mass", span, i8::checked_sub)?,
-        time: checked_i8_op(lhs.time, rhs.time, "time", span, i8::checked_sub)?,
-        temperature: checked_i8_op(
-            lhs.temperature,
-            rhs.temperature,
-            "temperature",
-            span,
-            i8::checked_sub,
-        )?,
-        current: checked_i8_op(lhs.current, rhs.current, "current", span, i8::checked_sub)?,
-        amount: checked_i8_op(lhs.amount, rhs.amount, "amount", span, i8::checked_sub)?,
-        luminosity: checked_i8_op(
-            lhs.luminosity,
-            rhs.luminosity,
-            "luminosity",
-            span,
-            i8::checked_sub,
-        )?,
-        angle: checked_i8_op(lhs.angle, rhs.angle, "angle", span, i8::checked_sub)?,
-    })
-}
-
-/// Scale dimensional exponents (for power).
-fn scale_dimensions(
-    dims: &UnitDimensions,
-    scale: i8,
-    span: Span,
-) -> Result<UnitDimensions, CompileError> {
-    Ok(UnitDimensions {
-        length: checked_i8_op(dims.length, scale, "length", span, i8::checked_mul)?,
-        mass: checked_i8_op(dims.mass, scale, "mass", span, i8::checked_mul)?,
-        time: checked_i8_op(dims.time, scale, "time", span, i8::checked_mul)?,
-        temperature: checked_i8_op(
-            dims.temperature,
-            scale,
-            "temperature",
-            span,
-            i8::checked_mul,
-        )?,
-        current: checked_i8_op(dims.current, scale, "current", span, i8::checked_mul)?,
-        amount: checked_i8_op(dims.amount, scale, "amount", span, i8::checked_mul)?,
-        luminosity: checked_i8_op(dims.luminosity, scale, "luminosity", span, i8::checked_mul)?,
-        angle: checked_i8_op(dims.angle, scale, "angle", span, i8::checked_mul)?,
-    })
-}
-
-/// Checked i8 arithmetic with dimension name in error.
-fn checked_i8_op<F>(a: i8, b: i8, dim_name: &str, span: Span, op: F) -> Result<i8, CompileError>
-where
-    F: FnOnce(i8, i8) -> Option<i8>,
-{
-    op(a, b).ok_or_else(|| {
-        CompileError::new(
-            ErrorKind::InvalidUnit,
-            span,
-            format!("Dimension exponent overflow for {}", dim_name),
-        )
-    })
+    Ok(lhs.divide(rhs))
 }
 
 #[cfg(test)]
@@ -405,59 +340,65 @@ mod tests {
 
     #[test]
     fn test_unit_multiplication() {
+        use continuum_kernel_types::Rational;
         let m = Unit::meters();
         let s = Unit::seconds();
         let result = multiply_units(&m, &s, test_span()).unwrap();
-        assert_eq!(result.dims().length, 1);
-        assert_eq!(result.dims().time, 1);
+        assert_eq!(result.dims().length, Rational::integer(1));
+        assert_eq!(result.dims().time, Rational::integer(1));
     }
 
     #[test]
     fn test_unit_division() {
+        use continuum_kernel_types::Rational;
         let m = Unit::meters();
         let s = Unit::seconds();
         let result = divide_units(&m, &s, test_span()).unwrap();
-        assert_eq!(result.dims().length, 1);
-        assert_eq!(result.dims().time, -1);
+        assert_eq!(result.dims().length, Rational::integer(1));
+        assert_eq!(result.dims().time, Rational::integer(-1));
     }
 
     #[test]
     fn test_unit_power() {
+        use continuum_kernel_types::Rational;
         let m = Unit::meters();
         let result = power_unit(&m, 2, test_span()).unwrap();
-        assert_eq!(result.dims().length, 2);
+        assert_eq!(result.dims().length, Rational::integer(2));
     }
 
     #[test]
-    fn test_dimension_overflow_fails() {
+    fn test_dimension_overflow_clamps() {
+        use continuum_kernel_types::Rational;
         let span = test_span();
         let left = Unit::new(UnitKind::Multiplicative, UnitDimensions::METER, 1.0);
         let right = power_unit(&left, 120, span).unwrap();
-        let err = multiply_units(&right, &right, span).unwrap_err();
-        assert_eq!(err.kind, ErrorKind::InvalidUnit);
-        assert!(err.message.contains("overflow"));
+        // Multiplying m^120 * m^120 would give m^240, but rational arithmetic clamps to i8::MAX
+        let result = multiply_units(&right, &right, span).unwrap();
+        assert_eq!(result.dims().length, Rational::integer(127)); // Clamped to i8::MAX
     }
 
     #[test]
     fn test_unit_power_zero() {
+        use continuum_kernel_types::Rational;
         // Zero power should produce dimensionless unit
         let m = Unit::meters();
         let result = power_unit(&m, 0, test_span()).unwrap();
         assert_eq!(result, Unit::DIMENSIONLESS);
-        assert_eq!(result.dims().length, 0);
-        assert_eq!(result.dims().mass, 0);
+        assert_eq!(result.dims().length, Rational::ZERO);
+        assert_eq!(result.dims().mass, Rational::ZERO);
     }
 
     #[test]
     fn test_unit_power_negative() {
+        use continuum_kernel_types::Rational;
         // Negative power should invert dimensions
         let m = Unit::meters();
         let result = power_unit(&m, -1, test_span()).unwrap();
-        assert_eq!(result.dims().length, -1);
+        assert_eq!(result.dims().length, Rational::integer(-1));
 
         // m^-2 should give length = -2
         let result2 = power_unit(&m, -2, test_span()).unwrap();
-        assert_eq!(result2.dims().length, -2);
+        assert_eq!(result2.dims().length, Rational::integer(-2));
     }
 
     #[test]

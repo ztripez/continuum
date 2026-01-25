@@ -77,9 +77,11 @@
 //! - No kernel depends on wall-clock time, thread scheduling, or external state
 
 pub mod prelude;
+pub mod rational;
 pub mod shape;
 pub mod unit;
 
+pub use rational::Rational;
 pub use shape::Shape;
 pub use unit::{Unit, UnitDimensions, UnitKind};
 

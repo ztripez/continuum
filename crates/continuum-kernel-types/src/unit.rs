@@ -22,10 +22,11 @@
 //!
 //! ```rust
 //! # use continuum_kernel_types::unit::*;
+//! # use continuum_kernel_types::rational::Rational;
 //! // Multiplicative units
 //! let velocity = Unit::meters().divide(&Unit::seconds()).unwrap();
-//! assert_eq!(velocity.dims().length, 1);
-//! assert_eq!(velocity.dims().time, -1);
+//! assert_eq!(velocity.dims().length, Rational::ONE);
+//! assert_eq!(velocity.dims().time, Rational::integer(-1));
 //!
 //! // Affine units (temperature)
 //! let celsius = Unit::celsius();
@@ -36,6 +37,7 @@
 //! assert!(matches!(decibels.kind(), UnitKind::Logarithmic { .. }));
 //! ```
 
+use crate::rational::Rational;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
@@ -86,28 +88,52 @@ pub enum UnitKind {
     },
 }
 
-/// SI base dimensional exponents.
+/// SI base dimensional exponents with rational (fractional) support.
 ///
 /// Each dimension represents a power of the corresponding SI base unit.
+/// Exponents are rational numbers to support fractional dimensional analysis
+/// (e.g., energy^(1/3) for ejecta thickness formulas).
+///
+/// # Examples
+///
+/// ```rust
+/// use continuum_kernel_types::unit::UnitDimensions;
+/// use continuum_kernel_types::rational::Rational;
+///
+/// // Integer exponents (common case)
+/// let velocity_dims = UnitDimensions {
+///     length: Rational::integer(1),
+///     time: Rational::integer(-1),
+///     ..UnitDimensions::DIMENSIONLESS
+/// };
+///
+/// // Fractional exponents (for physics formulas)
+/// let ejecta_dims = UnitDimensions {
+///     mass: Rational::new(1, 3),  // kg^(1/3)
+///     length: Rational::new(2, 3), // m^(2/3)
+///     time: Rational::new(-2, 3),  // s^(-2/3)
+///     ..UnitDimensions::DIMENSIONLESS
+/// };
+/// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct UnitDimensions {
     /// Length dimension exponent (L) - base unit: meter (m)
-    pub length: i8,
+    pub length: Rational,
     /// Mass dimension exponent (M) - base unit: kilogram (kg)
-    pub mass: i8,
+    pub mass: Rational,
     /// Time dimension exponent (T) - base unit: second (s)
-    pub time: i8,
+    pub time: Rational,
     /// Temperature dimension exponent (Θ) - base unit: kelvin (K)
-    pub temperature: i8,
+    pub temperature: Rational,
     /// Electric current dimension exponent (I) - base unit: ampere (A)
-    pub current: i8,
+    pub current: Rational,
     /// Amount of substance dimension exponent (N) - base unit: mole (mol)
-    pub amount: i8,
+    pub amount: Rational,
     /// Luminous intensity dimension exponent (J) - base unit: candela (cd)
-    pub luminosity: i8,
+    pub luminosity: Rational,
     /// Angle dimension - base unit: radian (rad)
     /// Treated as dimensionless in SI but tracked for type safety
-    pub angle: i8,
+    pub angle: Rational,
 }
 
 /// Dimensional type - the type-level properties of a unit.
@@ -303,14 +329,10 @@ impl Unit {
         Self::new(
             UnitKind::Multiplicative,
             UnitDimensions {
-                length: 1,
-                mass: 1,
-                time: -2,
-                temperature: 0,
-                current: 0,
-                amount: 0,
-                luminosity: 0,
-                angle: 0,
+                length: Rational::ONE,
+                mass: Rational::ONE,
+                time: Rational::integer(-2),
+                ..UnitDimensions::DIMENSIONLESS
             },
             1.0,
         )
@@ -321,14 +343,10 @@ impl Unit {
         Self::new(
             UnitKind::Multiplicative,
             UnitDimensions {
-                length: 2,
-                mass: 1,
-                time: -2,
-                temperature: 0,
-                current: 0,
-                amount: 0,
-                luminosity: 0,
-                angle: 0,
+                length: Rational::integer(2),
+                mass: Rational::ONE,
+                time: Rational::integer(-2),
+                ..UnitDimensions::DIMENSIONLESS
             },
             1.0,
         )
@@ -339,14 +357,10 @@ impl Unit {
         Self::new(
             UnitKind::Multiplicative,
             UnitDimensions {
-                length: 2,
-                mass: 1,
-                time: -3,
-                temperature: 0,
-                current: 0,
-                amount: 0,
-                luminosity: 0,
-                angle: 0,
+                length: Rational::integer(2),
+                mass: Rational::ONE,
+                time: Rational::integer(-3),
+                ..UnitDimensions::DIMENSIONLESS
             },
             1.0,
         )
@@ -357,14 +371,10 @@ impl Unit {
         Self::new(
             UnitKind::Multiplicative,
             UnitDimensions {
-                length: -1,
-                mass: 1,
-                time: -2,
-                temperature: 0,
-                current: 0,
-                amount: 0,
-                luminosity: 0,
-                angle: 0,
+                length: Rational::integer(-1),
+                mass: Rational::ONE,
+                time: Rational::integer(-2),
+                ..UnitDimensions::DIMENSIONLESS
             },
             1.0,
         )
@@ -467,63 +477,79 @@ impl Unit {
         ))
     }
 
-    /// Raise unit to a power (dimensions scale, scale raised to power).
+    /// Raise unit to an integer power (dimensions scale, scale raised to power).
+    ///
+    /// This is a convenience wrapper around `pow_rational()` for integer exponents.
     ///
     /// Only valid for Multiplicative units.
     /// For Affine/Logarithmic, returns None.
     pub fn pow(&self, exponent: i8) -> Option<Unit> {
+        self.pow_rational(Rational::integer(exponent))
+    }
+
+    /// Raise unit to a rational (fractional) power.
+    ///
+    /// Only valid for Multiplicative units.
+    /// For Affine/Logarithmic, returns None.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_kernel_types::unit::Unit;
+    /// use continuum_kernel_types::rational::Rational;
+    ///
+    /// // Integer exponent (common case)
+    /// let area = Unit::meters().pow_rational(Rational::integer(2)).unwrap();
+    ///
+    /// // Fractional exponent (for physics formulas)
+    /// // energy^(1/3) for ejecta thickness
+    /// let joules = Unit::joules();
+    /// let ejecta_unit = joules.pow_rational(Rational::new(1, 3)).unwrap();
+    ///
+    /// // Verify dimensions: J = kg⋅m²/s²
+    /// // J^(1/3) = kg^(1/3)⋅m^(2/3)⋅s^(-2/3)
+    /// assert_eq!(ejecta_unit.dims().mass, Rational::new(1, 3));
+    /// assert_eq!(ejecta_unit.dims().length, Rational::new(2, 3));
+    /// assert_eq!(ejecta_unit.dims().time, Rational::new(-2, 3));
+    /// ```
+    pub fn pow_rational(&self, exponent: Rational) -> Option<Unit> {
         if !self.is_multiplicative() {
             return None;
         }
 
         Some(Unit::new(
             UnitKind::Multiplicative,
-            self.dims.pow(exponent),
-            self.scale.powi(exponent as i32),
+            self.dims.pow_rational(exponent),
+            self.scale.powf(exponent.to_f64()),
         ))
     }
 
     /// Square root of a unit.
     ///
-    /// Only valid for Multiplicative units where all dimension exponents are even.
-    /// Returns None if the unit is not multiplicative or has odd exponents.
+    /// This is equivalent to `pow_rational(Rational::new(1, 2))` and always succeeds
+    /// for Multiplicative units (including those with odd or fractional exponents).
+    ///
+    /// Only valid for Multiplicative units.
+    /// Returns None for Affine/Logarithmic.
     ///
     /// # Examples
-    /// - sqrt(m²) = m
-    /// - sqrt(m²/s²) = m/s
-    /// - sqrt(m) = None (odd exponent)
+    ///
+    /// ```rust
+    /// use continuum_kernel_types::unit::Unit;
+    /// use continuum_kernel_types::rational::Rational;
+    ///
+    /// // Integer exponents (common case)
+    /// let area = Unit::meters().pow(2).unwrap();
+    /// let length = area.sqrt().unwrap();
+    /// assert_eq!(length.dims().length, Rational::ONE);
+    ///
+    /// // Fractional exponents: sqrt(m^(2/3)) = m^(1/3)
+    /// let frac = Unit::meters().pow_rational(Rational::new(2, 3)).unwrap();
+    /// let sqrt_frac = frac.sqrt().unwrap();
+    /// assert_eq!(sqrt_frac.dims().length, Rational::new(1, 3));
+    /// ```
     pub fn sqrt(&self) -> Option<Unit> {
-        if !self.is_multiplicative() {
-            return None;
-        }
-
-        // Check if all exponents are even
-        if self.dims.length % 2 != 0
-            || self.dims.mass % 2 != 0
-            || self.dims.time % 2 != 0
-            || self.dims.temperature % 2 != 0
-            || self.dims.current % 2 != 0
-            || self.dims.amount % 2 != 0
-            || self.dims.luminosity % 2 != 0
-            || self.dims.angle % 2 != 0
-        {
-            return None;
-        }
-
-        Some(Unit::new(
-            UnitKind::Multiplicative,
-            UnitDimensions {
-                length: self.dims.length / 2,
-                mass: self.dims.mass / 2,
-                time: self.dims.time / 2,
-                temperature: self.dims.temperature / 2,
-                current: self.dims.current / 2,
-                amount: self.dims.amount / 2,
-                luminosity: self.dims.luminosity / 2,
-                angle: self.dims.angle / 2,
-            },
-            self.scale.sqrt(),
-        ))
+        self.pow_rational(Rational::new(1, 2))
     }
 
     /// Multiplicative inverse of a unit (1/unit).
@@ -702,74 +728,74 @@ impl Unit {
 impl UnitDimensions {
     /// Dimensionless constant (all exponents zero).
     pub const DIMENSIONLESS: UnitDimensions = UnitDimensions {
-        length: 0,
-        mass: 0,
-        time: 0,
-        temperature: 0,
-        current: 0,
-        amount: 0,
-        luminosity: 0,
-        angle: 0,
+        length: Rational::ZERO,
+        mass: Rational::ZERO,
+        time: Rational::ZERO,
+        temperature: Rational::ZERO,
+        current: Rational::ZERO,
+        amount: Rational::ZERO,
+        luminosity: Rational::ZERO,
+        angle: Rational::ZERO,
     };
 
     /// Meter dimension (length = 1)
     pub const METER: UnitDimensions = UnitDimensions {
-        length: 1,
+        length: Rational::ONE,
         ..Self::DIMENSIONLESS
     };
 
     /// Kilogram dimension (mass = 1)
     pub const KILOGRAM: UnitDimensions = UnitDimensions {
-        mass: 1,
+        mass: Rational::ONE,
         ..Self::DIMENSIONLESS
     };
 
     /// Second dimension (time = 1)
     pub const SECOND: UnitDimensions = UnitDimensions {
-        time: 1,
+        time: Rational::ONE,
         ..Self::DIMENSIONLESS
     };
 
     /// Kelvin dimension (temperature = 1)
     pub const KELVIN: UnitDimensions = UnitDimensions {
-        temperature: 1,
+        temperature: Rational::ONE,
         ..Self::DIMENSIONLESS
     };
 
     /// Ampere dimension (current = 1)
     pub const AMPERE: UnitDimensions = UnitDimensions {
-        current: 1,
+        current: Rational::ONE,
         ..Self::DIMENSIONLESS
     };
 
     /// Mole dimension (amount = 1)
     pub const MOLE: UnitDimensions = UnitDimensions {
-        amount: 1,
+        amount: Rational::ONE,
         ..Self::DIMENSIONLESS
     };
 
     /// Candela dimension (luminosity = 1)
     pub const CANDELA: UnitDimensions = UnitDimensions {
-        luminosity: 1,
+        luminosity: Rational::ONE,
         ..Self::DIMENSIONLESS
     };
 
     /// Radian dimension (angle = 1)
     pub const RADIAN: UnitDimensions = UnitDimensions {
-        angle: 1,
+        angle: Rational::ONE,
         ..Self::DIMENSIONLESS
     };
 
     /// Check if all dimensions are zero.
     pub fn is_dimensionless(&self) -> bool {
-        self.length == 0
-            && self.mass == 0
-            && self.time == 0
-            && self.temperature == 0
-            && self.current == 0
-            && self.amount == 0
-            && self.luminosity == 0
-            && self.angle == 0
+        self.length.is_zero()
+            && self.mass.is_zero()
+            && self.time.is_zero()
+            && self.temperature.is_zero()
+            && self.current.is_zero()
+            && self.amount.is_zero()
+            && self.luminosity.is_zero()
+            && self.angle.is_zero()
     }
 
     /// Multiply dimensions (add exponents).
@@ -800,8 +826,44 @@ impl UnitDimensions {
         }
     }
 
-    /// Raise dimensions to a power (scale exponents).
+    /// Raise dimensions to an integer power (scale exponents).
+    ///
+    /// This is a convenience wrapper around `pow_rational()` for integer exponents.
     pub fn pow(&self, exponent: i8) -> UnitDimensions {
+        self.pow_rational(Rational::integer(exponent))
+    }
+
+    /// Raise dimensions to a rational power (scale exponents).
+    ///
+    /// Multiplies each dimension exponent by the given rational exponent.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use continuum_kernel_types::unit::UnitDimensions;
+    /// use continuum_kernel_types::rational::Rational;
+    ///
+    /// // Integer exponent
+    /// let area = UnitDimensions::METER.pow_rational(Rational::integer(2));
+    /// assert_eq!(area.length, Rational::integer(2));
+    ///
+    /// // Fractional exponent: m^(1/2)
+    /// let sqrt_m = UnitDimensions::METER.pow_rational(Rational::new(1, 2));
+    /// assert_eq!(sqrt_m.length, Rational::new(1, 2));
+    ///
+    /// // Combined: (kg⋅m²/s²)^(1/3) for ejecta thickness
+    /// let energy = UnitDimensions {
+    ///     mass: Rational::ONE,
+    ///     length: Rational::integer(2),
+    ///     time: Rational::integer(-2),
+    ///     ..UnitDimensions::DIMENSIONLESS
+    /// };
+    /// let ejecta = energy.pow_rational(Rational::new(1, 3));
+    /// assert_eq!(ejecta.mass, Rational::new(1, 3));
+    /// assert_eq!(ejecta.length, Rational::new(2, 3));
+    /// assert_eq!(ejecta.time, Rational::new(-2, 3));
+    /// ```
+    pub fn pow_rational(&self, exponent: Rational) -> UnitDimensions {
         UnitDimensions {
             length: self.length * exponent,
             mass: self.mass * exponent,
@@ -844,28 +906,28 @@ impl fmt::Display for UnitDimensions {
 
         let mut parts = Vec::new();
 
-        if self.length != 0 {
+        if !self.length.is_zero() {
             parts.push(format_dim("m", self.length));
         }
-        if self.mass != 0 {
+        if !self.mass.is_zero() {
             parts.push(format_dim("kg", self.mass));
         }
-        if self.time != 0 {
+        if !self.time.is_zero() {
             parts.push(format_dim("s", self.time));
         }
-        if self.temperature != 0 {
+        if !self.temperature.is_zero() {
             parts.push(format_dim("K", self.temperature));
         }
-        if self.current != 0 {
+        if !self.current.is_zero() {
             parts.push(format_dim("A", self.current));
         }
-        if self.amount != 0 {
+        if !self.amount.is_zero() {
             parts.push(format_dim("mol", self.amount));
         }
-        if self.luminosity != 0 {
+        if !self.luminosity.is_zero() {
             parts.push(format_dim("cd", self.luminosity));
         }
-        if self.angle != 0 {
+        if !self.angle.is_zero() {
             parts.push(format_dim("rad", self.angle));
         }
 
@@ -873,10 +935,28 @@ impl fmt::Display for UnitDimensions {
     }
 }
 
-fn format_dim(symbol: &str, exponent: i8) -> String {
-    match exponent {
-        1 => symbol.to_string(),
-        exp => format!("{}^{}", symbol, exp),
+/// Format a dimension with rational exponent.
+///
+/// # Examples
+///
+/// - exponent = 1 → "m"
+/// - exponent = 2 → "m^2"
+/// - exponent = -1 → "m^-1"
+/// - exponent = 1/2 → "m^(1/2)"
+/// - exponent = -2/3 → "m^(-2/3)"
+fn format_dim(symbol: &str, exponent: Rational) -> String {
+    if exponent == Rational::ONE {
+        symbol.to_string()
+    } else if exponent.denom == 1 {
+        // Integer exponent: use compact form (m^2, not m^(2/1))
+        format!("{}^{}", symbol, exponent.num)
+    } else {
+        // Fractional exponent: use parentheses for clarity
+        if exponent.num < 0 {
+            format!("{}^({}/{})", symbol, exponent.num, exponent.denom)
+        } else {
+            format!("{}^({}/{})", symbol, exponent.num, exponent.denom)
+        }
     }
 }
 
@@ -894,14 +974,14 @@ mod tests {
     #[test]
     fn test_base_units() {
         let m = Unit::meters();
-        assert_eq!(m.dims().length, 1);
+        assert_eq!(m.dims().length, Rational::ONE);
         assert!(m.is_multiplicative());
 
         let kg = Unit::kilograms();
-        assert_eq!(kg.dims().mass, 1);
+        assert_eq!(kg.dims().mass, Rational::ONE);
 
         let s = Unit::seconds();
-        assert_eq!(s.dims().time, 1);
+        assert_eq!(s.dims().time, Rational::ONE);
     }
 
     #[test]
@@ -911,12 +991,12 @@ mod tests {
 
         // Test multiply: m * s = m·s
         let m_s = m.multiply(&s).unwrap();
-        assert_eq!(m_s.dims().length, 1);
-        assert_eq!(m_s.dims().time, 1);
+        assert_eq!(m_s.dims().length, Rational::ONE);
+        assert_eq!(m_s.dims().time, Rational::ONE);
 
         // Test multiply to create area: m * m = m²
         let area = m.multiply(&m).unwrap();
-        assert_eq!(area.dims().length, 2);
+        assert_eq!(area.dims().length, Rational::integer(2));
     }
 
     #[test]
@@ -925,8 +1005,8 @@ mod tests {
         let s = Unit::seconds();
 
         let m_per_s = m.divide(&s).unwrap();
-        assert_eq!(m_per_s.dims().length, 1);
-        assert_eq!(m_per_s.dims().time, -1);
+        assert_eq!(m_per_s.dims().length, Rational::ONE);
+        assert_eq!(m_per_s.dims().time, Rational::integer(-1));
     }
 
     #[test]
@@ -934,10 +1014,10 @@ mod tests {
         let m = Unit::meters();
 
         let area = m.pow(2).unwrap();
-        assert_eq!(area.dims().length, 2);
+        assert_eq!(area.dims().length, Rational::integer(2));
 
         let inv_s = Unit::seconds().pow(-1).unwrap();
-        assert_eq!(inv_s.dims().time, -1);
+        assert_eq!(inv_s.dims().time, Rational::integer(-1));
     }
 
     #[test]
@@ -955,7 +1035,7 @@ mod tests {
 
         let delta = c1.subtract(&c2).unwrap();
         assert!(delta.is_multiplicative());
-        assert_eq!(delta.dims().temperature, 1);
+        assert_eq!(delta.dims().temperature, Rational::ONE);
     }
 
     #[test]
@@ -999,6 +1079,30 @@ mod tests {
     }
 
     #[test]
+    fn test_rational_dimensional_exponents() {
+        use crate::rational::Rational;
+
+        // Test fractional exponents: energy^(1/3) for ejecta thickness
+        let joules = Unit::joules(); // kg⋅m²/s²
+        let ejecta_unit = joules.pow_rational(Rational::new(1, 3)).unwrap();
+
+        // J^(1/3) = (kg⋅m²/s²)^(1/3) = kg^(1/3)⋅m^(2/3)⋅s^(-2/3)
+        assert_eq!(ejecta_unit.dims().mass, Rational::new(1, 3));
+        assert_eq!(ejecta_unit.dims().length, Rational::new(2, 3));
+        assert_eq!(ejecta_unit.dims().time, Rational::new(-2, 3));
+
+        // Test dimensional algebra: m^(1/2) * m^(1/2) = m
+        let sqrt_m = Unit::meters().pow_rational(Rational::new(1, 2)).unwrap();
+        let m = sqrt_m.multiply(&sqrt_m).unwrap();
+        assert_eq!(m.dims().length, Rational::ONE);
+
+        // Test sqrt() is equivalent to pow_rational(1/2)
+        let area = Unit::meters().pow(2).unwrap();
+        let sqrt_area = area.sqrt().unwrap();
+        assert_eq!(sqrt_area.dims().length, Rational::ONE);
+    }
+
+    #[test]
     fn test_multiplicative_subtract() {
         let m1 = Unit::meters();
         let m2 = Unit::meters();
@@ -1006,7 +1110,7 @@ mod tests {
         // Same dimensions: subtraction allowed
         let result = m1.subtract(&m2).unwrap();
         assert!(result.is_multiplicative());
-        assert_eq!(result.dims().length, 1);
+        assert_eq!(result.dims().length, Rational::ONE);
 
         // Different dimensions: subtraction forbidden
         let s = Unit::seconds();
