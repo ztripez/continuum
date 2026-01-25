@@ -377,6 +377,15 @@ pub fn compile(declarations: Vec<Declaration>) -> Result<CompiledWorld, Vec<Comp
         resolved_eras.insert(era.path.clone(), era);
     }
 
+    // 6.5. Orphaned Strata Validation
+    let orphaned_warnings = crate::resolve::orphaned::validate_orphaned_strata(
+        &strata_map,
+        &resolved_eras,
+        &global_nodes,
+        &member_nodes,
+    );
+    errors.extend(orphaned_warnings);
+
     // 7. Block Compilation
     // Compile global nodes with base context
     for node in &mut global_nodes {

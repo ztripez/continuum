@@ -133,6 +133,7 @@ pub mod expr_typing;
 pub mod graph;
 pub mod integrators;
 pub mod names;
+pub mod orphaned;
 pub mod pipeline;
 pub mod strata;
 pub mod structure;
