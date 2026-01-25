@@ -189,6 +189,21 @@ fn parse_postfix(stream: &mut TokenStream) -> Result<Expr, ParseError> {
                     ));
                 }
             }
+            Some(Token::LBrace) => {
+                // Struct literal: type_name { field1: value1, field2: value2 }
+                // Base expression must be a path (type name)
+                let ty = expr.as_path().ok_or_else(|| {
+                    ParseError::invalid_syntax(
+                        "struct literal requires a type name (path), found complex expression",
+                        expr.span,
+                    )
+                })?;
+
+                let fields = parse_struct_fields(stream)?;
+                let span = expr.span;
+
+                expr = Expr::new(UntypedKind::Struct { ty, fields }, span);
+            }
             _ => break,
         }
     }
@@ -203,12 +218,52 @@ fn parse_call_args(stream: &mut TokenStream) -> Result<Vec<Expr>, ParseError> {
     let mut args = Vec::new();
     while !matches!(stream.peek(), Some(Token::RParen)) {
         args.push(super::parse_expr(stream)?);
-
-        if !matches!(stream.peek(), Some(Token::RParen)) {
-            stream.expect(Token::Comma)?;
+        if matches!(stream.peek(), Some(Token::RParen)) {
+            break;
         }
+        stream.expect(Token::Comma)?;
     }
 
     stream.expect(Token::RParen)?;
     Ok(args)
+}
+
+/// Parse struct literal fields: `{ field1: value1, field2: value2 }`
+fn parse_struct_fields(stream: &mut TokenStream) -> Result<Vec<(String, Expr)>, ParseError> {
+    stream.expect(Token::LBrace)?;
+
+    let mut fields = Vec::new();
+    while !matches!(stream.peek(), Some(Token::RBrace)) {
+        // Parse field name
+        let field_name = {
+            let span = stream.current_span();
+            match stream.advance() {
+                Some(Token::Ident(s)) => s.clone(),
+                Some(token) => {
+                    super::super::token_utils::keyword_to_string(&token).ok_or_else(|| {
+                        ParseError::unexpected_token(Some(&token), "field name", span)
+                    })?
+                }
+                None => {
+                    return Err(ParseError::unexpected_token(None, "field name", span));
+                }
+            }
+        };
+
+        stream.expect(Token::Colon)?;
+
+        // Parse field value
+        let field_value = super::parse_expr(stream)?;
+
+        fields.push((field_name.to_string(), field_value));
+
+        // Check for comma or closing brace
+        if matches!(stream.peek(), Some(Token::RBrace)) {
+            break;
+        }
+        stream.expect(Token::Comma)?;
+    }
+
+    stream.expect(Token::RBrace)?;
+    Ok(fields)
 }
