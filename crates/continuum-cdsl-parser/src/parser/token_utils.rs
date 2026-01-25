@@ -19,16 +19,17 @@ use std::rc::Rc;
 /// - `token`: The token to convert
 ///
 /// # Returns
-/// - `Some(String)` if the token is a keyword that can be used as an identifier
+/// - `Some(Rc<str>)` if the token is a keyword that can be used as an identifier
 /// - `None` if the token is not a convertible keyword
 ///
 /// # Examples
 /// ```
 /// use continuum_cdsl_lexer::Token;
 /// use continuum_cdsl_parser::parser::token_utils::keyword_to_string;
+/// use std::rc::Rc;
 ///
-/// assert_eq!(keyword_to_string(&Token::Config), Some("config".to_string()));
-/// assert_eq!(keyword_to_string(&Token::Signal), Some("signal".to_string()));
+/// assert_eq!(keyword_to_string(&Token::Config), Some(Rc::from("config")));
+/// assert_eq!(keyword_to_string(&Token::Signal), Some(Rc::from("signal")));
 /// assert_eq!(keyword_to_string(&Token::Plus), None);
 /// ```
 pub fn keyword_to_string(token: &Token) -> Option<Rc<str>> {
