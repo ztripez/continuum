@@ -4,7 +4,7 @@
 //! and keeps it running for the inspector to connect to.
 
 use clap::Parser;
-use continuum_tools::ipc_server::SimulationServer;
+use continuum_tools::ipc_server::SimulationController;
 use continuum_tools::run_world_intent::{RunWorldIntent, WorldSource};
 use std::path::PathBuf;
 use tracing::{error, info};
@@ -67,7 +67,7 @@ async fn main() {
 
     // steps == 0: Start IPC server for interactive mode
     info!("Creating simulation server...");
-    let server = match SimulationServer::new(intent) {
+    let server = match SimulationController::new(intent) {
         Ok(s) => s,
         Err(e) => {
             error!("Failed to load world:\n{}", e);
