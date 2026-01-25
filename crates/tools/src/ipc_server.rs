@@ -1,24 +1,18 @@
-use crate::ipc_types::{AssertionInfo, FieldInfo, ImpulseInfo, SignalInfo};
+use crate::request_handlers::{RequestRouter, ServerState};
 use crate::run_world_intent::RunWorldIntent;
 use crate::world_api::framing::{read_message, write_message};
-use crate::world_api::{WorldMessage, WorldRequest, WorldResponse};
-use continuum_cdsl::ast::{CompiledWorld, RoleData, RoleId};
-use continuum_runtime::{Runtime, build_runtime};
+use crate::world_api::{WorldMessage, WorldResponse};
+use continuum_runtime::build_runtime;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::UnixListener;
 use tracing::{debug, error, info, warn};
 
-/// Shared state for the simulation server.
-struct ServerState {
-    compiled: CompiledWorld,
-    runtime: Mutex<Runtime>,
-}
-
 /// A simulation server that executes a world intent and provides IPC access.
 pub struct SimulationServer {
     state: Arc<ServerState>,
+    router: Arc<RequestRouter>,
 }
 
 impl SimulationServer {
@@ -30,8 +24,9 @@ impl SimulationServer {
         Ok(Self {
             state: Arc::new(ServerState {
                 compiled,
-                runtime: Mutex::new(runtime),
+                runtime: std::sync::Mutex::new(runtime),
             }),
+            router: Arc::new(RequestRouter::new()),
         })
     }
 
@@ -51,8 +46,9 @@ impl SimulationServer {
                     error_count = 0;
                     info!("Client connected to Simulation IPC");
                     let state = self.state.clone();
+                    let router = self.router.clone();
                     tokio::spawn(async move {
-                        if let Err(e) = handle_connection(stream, state).await {
+                        if let Err(e) = handle_connection(stream, state, router).await {
                             error!("Connection error: {}", e);
                         }
                     });
@@ -71,7 +67,11 @@ impl SimulationServer {
     }
 }
 
-async fn handle_connection<S>(mut stream: S, state: Arc<ServerState>) -> Result<(), std::io::Error>
+async fn handle_connection<S>(
+    mut stream: S,
+    state: Arc<ServerState>,
+    router: Arc<RequestRouter>,
+) -> Result<(), std::io::Error>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -90,7 +90,7 @@ where
         match msg {
             WorldMessage::Request(req) => {
                 debug!("Received request: {} ({})", req.kind, req.id);
-                let response = handle_request(req, &state);
+                let response = router.handle(req, &state);
                 write_message(&mut stream, &WorldMessage::Response(response)).await?;
             }
             WorldMessage::Response(_) => {
@@ -119,443 +119,3 @@ where
     }
 }
 
-fn handle_request(req: WorldRequest, state: &ServerState) -> WorldResponse {
-    let mut rt = state.runtime.lock().unwrap();
-
-    match req.kind.as_str() {
-        "world.get" => WorldResponse {
-            id: req.id,
-            ok: true,
-            payload: Some(serde_json::to_value(&state.compiled.world.metadata).unwrap()),
-            error: None,
-        },
-        "run.step" => {
-            let steps = match req.payload.get("steps").and_then(|v| v.as_u64()) {
-                Some(s) => s,
-                None => {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some(
-                            "Missing or invalid 'steps' parameter (requires u64)".to_string(),
-                        ),
-                    };
-                }
-            };
-
-            for _ in 0..steps {
-                if let Err(e) = rt.execute_tick() {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some(format!("Execution error: {}", e)),
-                    };
-                }
-            }
-            WorldResponse {
-                id: req.id,
-                ok: true,
-                payload: Some(serde_json::json!({
-                    "tick": rt.tick(),
-                    "sim_time": rt.sim_time(),
-                })),
-                error: None,
-            }
-        }
-        "signal.get" => {
-            let path = match req.payload.get("path").and_then(|v| v.as_str()) {
-                Some(p) => p,
-                None => {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some("Missing 'path' parameter".to_string()),
-                    };
-                }
-            };
-
-            let signal_id = continuum_foundation::SignalId::from(path);
-            match rt.get_signal(&signal_id) {
-                Some(val) => {
-                    let payload = match serde_json::to_value(val) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            return WorldResponse {
-                                id: req.id,
-                                ok: false,
-                                payload: None,
-                                error: Some(format!("Serialization error: {}", e)),
-                            };
-                        }
-                    };
-                    WorldResponse {
-                        id: req.id,
-                        ok: true,
-                        payload: Some(payload),
-                        error: None,
-                    }
-                }
-                None => WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some(format!("Signal '{}' not found", path)),
-                },
-            }
-        }
-        "signal.list" => {
-            let signals: Vec<_> = state
-                .compiled
-                .world
-                .globals
-                .iter()
-                .filter(|(_, node)| node.role_id() == RoleId::Signal)
-                .map(|(path, node)| {
-                    SignalInfo {
-                        id: path.to_string(),
-                        title: node.title.clone(),
-                        symbol: None, // TODO: add symbol to Node
-                        doc: node.doc.clone(),
-                        value_type: node.output.as_ref().map(|t| t.to_string()),
-                        unit: None,  // TODO: extract unit from Type
-                        range: None, // TODO: extract range from Type
-                        stratum: node.stratum.as_ref().map(|s| s.to_string()),
-                    }
-                })
-                .collect();
-
-            match serde_json::to_value(signals) {
-                Ok(payload) => WorldResponse {
-                    id: req.id,
-                    ok: true,
-                    payload: Some(payload),
-                    error: None,
-                },
-                Err(e) => WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some(format!("Serialization error: {}", e)),
-                },
-            }
-        }
-        "signal.describe" => {
-            let signal_id = match req.payload.get("signal_id").and_then(|v| v.as_str()) {
-                Some(id) => id,
-                None => {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some("Missing 'signal_id' parameter".to_string()),
-                    };
-                }
-            };
-
-            match state.compiled.world.globals.iter().find(|(path, node)| {
-                path.to_string() == signal_id && node.role_id() == RoleId::Signal
-            }) {
-                Some((path, node)) => {
-                    let info = SignalInfo {
-                        id: path.to_string(),
-                        title: node.title.clone(),
-                        symbol: None,
-                        doc: node.doc.clone(),
-                        value_type: node.output.as_ref().map(|t| t.to_string()),
-                        unit: None,
-                        range: None,
-                        stratum: node.stratum.as_ref().map(|s| s.to_string()),
-                    };
-                    match serde_json::to_value(info) {
-                        Ok(payload) => WorldResponse {
-                            id: req.id,
-                            ok: true,
-                            payload: Some(payload),
-                            error: None,
-                        },
-                        Err(e) => WorldResponse {
-                            id: req.id,
-                            ok: false,
-                            payload: None,
-                            error: Some(format!("Serialization error: {}", e)),
-                        },
-                    }
-                }
-                None => WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some(format!("Signal '{}' not found", signal_id)),
-                },
-            }
-        }
-        "field.list" => {
-            let fields: Vec<_> = state
-                .compiled
-                .world
-                .globals
-                .iter()
-                .filter(|(_, node)| node.role_id() == RoleId::Field)
-                .map(|(path, node)| {
-                    FieldInfo {
-                        id: path.to_string(),
-                        title: node.title.clone(),
-                        symbol: None,
-                        doc: node.doc.clone(),
-                        topology: None, // TODO: add topology to Field role data
-                        value_type: node.output.as_ref().map(|t| t.to_string()),
-                        unit: None,
-                        range: None,
-                    }
-                })
-                .collect();
-
-            match serde_json::to_value(fields) {
-                Ok(payload) => WorldResponse {
-                    id: req.id,
-                    ok: true,
-                    payload: Some(payload),
-                    error: None,
-                },
-                Err(e) => WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some(format!("Serialization error: {}", e)),
-                },
-            }
-        }
-        "field.describe" => {
-            let field_id = match req.payload.get("field_id").and_then(|v| v.as_str()) {
-                Some(id) => id,
-                None => {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some("Missing 'field_id' parameter".to_string()),
-                    };
-                }
-            };
-
-            match state.compiled.world.globals.iter().find(|(path, node)| {
-                path.to_string() == field_id && node.role_id() == RoleId::Field
-            }) {
-                Some((path, node)) => {
-                    let info = FieldInfo {
-                        id: path.to_string(),
-                        title: node.title.clone(),
-                        symbol: None,
-                        doc: node.doc.clone(),
-                        topology: None,
-                        value_type: node.output.as_ref().map(|t| t.to_string()),
-                        unit: None,
-                        range: None,
-                    };
-                    match serde_json::to_value(info) {
-                        Ok(payload) => WorldResponse {
-                            id: req.id,
-                            ok: true,
-                            payload: Some(payload),
-                            error: None,
-                        },
-                        Err(e) => WorldResponse {
-                            id: req.id,
-                            ok: false,
-                            payload: None,
-                            error: Some(format!("Serialization error: {}", e)),
-                        },
-                    }
-                }
-                None => WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some(format!("Field '{}' not found", field_id)),
-                },
-            }
-        }
-        "entity.describe" => {
-            let entity_id = match req.payload.get("entity_id").and_then(|v| v.as_str()) {
-                Some(id) => id,
-                None => {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some("Missing 'entity_id' parameter".to_string()),
-                    };
-                }
-            };
-
-            // POC doesn't have entities, return not found
-            WorldResponse {
-                id: req.id,
-                ok: false,
-                payload: None,
-                error: Some(format!("Entity '{}' not found", entity_id)),
-            }
-        }
-        "impulse.list" => {
-            let impulses: Vec<_> = state
-                .compiled
-                .world
-                .globals
-                .iter()
-                .filter(|(_, node)| node.role_id() == RoleId::Impulse)
-                .map(|(path, node)| {
-                    let payload_type = if let RoleData::Impulse { payload } = &node.role {
-                        payload.as_ref().map(|t| t.to_string())
-                    } else {
-                        None
-                    };
-                    ImpulseInfo {
-                        path: path.to_string(),
-                        doc: node.doc.clone(),
-                        payload_type,
-                    }
-                })
-                .collect();
-
-            match serde_json::to_value(impulses) {
-                Ok(payload) => WorldResponse {
-                    id: req.id,
-                    ok: true,
-                    payload: Some(payload),
-                    error: None,
-                },
-                Err(e) => WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some(format!("Serialization error: {}", e)),
-                },
-            }
-        }
-        "impulse.emit" => {
-            let path = match req.payload.get("path").and_then(|v| v.as_str()) {
-                Some(p) => p,
-                None => {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some("Missing 'path' parameter".to_string()),
-                    };
-                }
-            };
-            let payload = match req.payload.get("payload") {
-                Some(p) => match serde_json::from_value(p.clone()) {
-                    Ok(v) => v,
-                    Err(e) => {
-                        return WorldResponse {
-                            id: req.id,
-                            ok: false,
-                            payload: None,
-                            error: Some(format!("Invalid payload format: {}", e)),
-                        };
-                    }
-                },
-                None => {
-                    return WorldResponse {
-                        id: req.id,
-                        ok: false,
-                        payload: None,
-                        error: Some("Missing 'payload' parameter".to_string()),
-                    };
-                }
-            };
-
-            let impulse_id = continuum_foundation::ImpulseId::from(path);
-            match rt.inject_impulse_by_id(&impulse_id, payload) {
-                Ok(_) => WorldResponse {
-                    id: req.id,
-                    ok: true,
-                    payload: None,
-                    error: None,
-                },
-                Err(e) => WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some(format!("Failed to inject impulse: {}", e)),
-                },
-            }
-        }
-        "assertion.list" => {
-            let mut assertions = Vec::new();
-            for node in state.compiled.world.globals.values() {
-                for assertion in &node.assertions {
-                    assertions.push(AssertionInfo {
-                        signal_id: node.path.to_string(),
-                        message: assertion.message.clone(),
-                        severity: format!("{:?}", assertion.severity),
-                    });
-                }
-            }
-            match serde_json::to_value(assertions) {
-                Ok(payload) => WorldResponse {
-                    id: req.id,
-                    ok: true,
-                    payload: Some(payload),
-                    error: None,
-                },
-                Err(e) => WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some(format!("Serialization error: {}", e)),
-                },
-            }
-        }
-        "assertion.failures" => {
-            let failures = rt.assertion_checker().failures();
-            match serde_json::to_value(failures) {
-                Ok(payload) => WorldResponse {
-                    id: req.id,
-                    ok: true,
-                    payload: Some(payload),
-                    error: None,
-                },
-                Err(e) => WorldResponse {
-                    id: req.id,
-                    ok: false,
-                    payload: None,
-                    error: Some(format!("Serialization error: {}", e)),
-                },
-            }
-        }
-        "status" => {
-            let status = serde_json::json!({
-                "tick": rt.tick(),
-                "sim_time": rt.sim_time(),
-                "era": rt.era().to_string(),
-                "warmup_complete": rt.is_warmup_complete(),
-            });
-            WorldResponse {
-                id: req.id,
-                ok: true,
-                payload: Some(status),
-                error: None,
-            }
-        }
-        "entity.list" => {
-            // POC doesn't have entities yet, return empty array
-            WorldResponse {
-                id: req.id,
-                ok: true,
-                payload: Some(serde_json::json!([])),
-                error: None,
-            }
-        }
-        _ => WorldResponse {
-            id: req.id,
-            ok: false,
-            payload: None,
-            error: Some(format!("Unknown request kind: {}", req.kind)),
-        },
-    }
-}
