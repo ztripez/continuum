@@ -601,6 +601,9 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
     
     runtime.set_signal_types(signal_types);
 
+    // Initialize spatial topologies from entity declarations
+    runtime.initialize_topologies(&compiled.world.entities);
+
     // Initialize signals from world defaults/metadata
     for (path, node) in &compiled.world.globals {
         if let Some(literal) = node

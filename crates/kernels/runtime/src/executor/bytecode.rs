@@ -101,6 +101,38 @@ impl BytecodePhaseExecutor {
         self.signal_types = types;
     }
 
+    /// Initializes spatial topologies from entity topology expressions.
+    ///
+    /// Topologies are frozen at initialization (Configure phase) and remain
+    /// immutable during execution. This ensures deterministic neighbor queries.
+    ///
+    /// # Parameters
+    ///
+    /// * `entities` - Entity declarations with optional topology expressions (from World.entities)
+    ///
+    /// # Panics
+    ///
+    /// Panics if topology construction fails (e.g., invalid subdivisions).
+    pub fn initialize_topologies(
+        &mut self,
+        entities: &IndexMap<Path, continuum_cdsl::ast::Entity>,
+    ) {
+        use continuum_cdsl::ast::TopologyExpr;
+
+        for (_path, entity) in entities {
+            if let Some(ref topology_expr) = entity.topology {
+                match topology_expr {
+                    TopologyExpr::IcosahedronGrid { subdivisions, .. } => {
+                        let topology =
+                            crate::topology::icosahedron::IcosahedralTopology::new(*subdivisions);
+                        self.topologies
+                            .register(entity.id.clone(), std::sync::Arc::new(topology));
+                    }
+                }
+            }
+        }
+    }
+
     /// Execute the Configure phase (initial blocks)
     #[instrument(skip_all, name = "configure")]
     pub fn execute_configure(

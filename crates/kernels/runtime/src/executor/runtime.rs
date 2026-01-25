@@ -229,10 +229,22 @@ impl Runtime {
 
     /// Stores signal type information for zero value initialization.
     ///
+    /// Called during `build_runtime()` (stage 4: Scenario Application) after compiling
+    /// signal blocks and extracting their types. This must happen before execution begins
+    /// to ensure correct zero value initialization for signal inputs.
+    ///
     /// Signal types are used by the bytecode executor to create correct zero values
     /// when no inputs have been accumulated for a signal.
     pub fn set_signal_types(&mut self, types: IndexMap<crate::types::SignalId, continuum_cdsl::foundation::Type>) {
         self.bytecode_executor.set_signal_types(types);
+    }
+
+    /// Initializes spatial topologies from entity topology expressions.
+    ///
+    /// Called during `build_runtime()` after signal registration to populate
+    /// topology storage for spatial.* kernel queries.
+    pub fn initialize_topologies(&mut self, entities: &IndexMap<continuum_foundation::Path, continuum_cdsl::ast::Entity>) {
+        self.bytecode_executor.initialize_topologies(entities);
     }
 
     /// Add a breakpoint for a signal
