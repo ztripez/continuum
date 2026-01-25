@@ -203,6 +203,7 @@ signal atmosphere.water_vapor {
     : Scalar<kg/m², 0.1..200>
     : stratum(atmosphere)
     : uses(maths.clamping)
+    : initial(25.0)
     : title("Water Vapor Column")
     : symbol("W_v")
 
@@ -335,6 +336,7 @@ signal atmosphere.cloud_cover {
 signal atmosphere.tau_greenhouse {
     : Scalar<1, 0..10>
     : stratum(atmosphere)
+    : initial(1.0)
     : title("Greenhouse Optical Depth")
     : symbol("tau")
 
@@ -396,6 +398,7 @@ signal atmosphere.ice_fraction {
     : Scalar<1, 0..1>
     : stratum(atmosphere)
     : uses(maths.clamping)
+    : initial(0.3)
     : title("Ice Fraction")
     : symbol("f_ice")
 
