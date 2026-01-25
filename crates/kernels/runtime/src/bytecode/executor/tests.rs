@@ -57,6 +57,10 @@ impl ExecutionContext for TestContext {
         Ok(Value::Scalar(11.0))
     }
 
+    fn load_member_signal(&self, _member_name: &str) -> Result<Value, ExecutionError> {
+        Ok(Value::Scalar(12.0))
+    }
+
     fn emit_signal(&mut self, _target: &Path, _value: Value) -> Result<(), ExecutionError> {
         Ok(())
     }

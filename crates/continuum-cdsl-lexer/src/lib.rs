@@ -544,6 +544,7 @@ impl std::fmt::Display for Token {
 }
 
 #[cfg(test)]
+#[allow(clippy::approx_constant)] // Tests verify lexing of literal 3.14, not mathematical PI
 mod tests {
     use super::*;
 

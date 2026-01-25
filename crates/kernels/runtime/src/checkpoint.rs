@@ -436,12 +436,12 @@ mod tests {
                 signals: SignalStorage::default(),
                 entities: EntityStorage::default(),
                 member_signals: MemberSignalData {
-                    signals: HashMap::new(),
-                    entity_instance_counts: HashMap::new(),
+                    signals: IndexMap::new(),
+                    entity_instance_counts: IndexMap::new(),
                     total_instance_count: 0,
                 },
                 era_configs: IndexMap::new(),
-                stratum_states: HashMap::new(),
+                stratum_states: IndexMap::new(),
             },
         }
     }

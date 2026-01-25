@@ -14,8 +14,8 @@ fn test_kernel_signatures_populated() {
     // Note: Variadic functions (12 total) don't have compile-time signatures
     assert_eq!(
         KERNEL_SIGNATURES.len(),
-        202,
-        "Expected exactly 202 signatures, found {}",
+        221,
+        "Expected exactly 221 signatures, found {}",
         KERNEL_SIGNATURES.len()
     );
 
