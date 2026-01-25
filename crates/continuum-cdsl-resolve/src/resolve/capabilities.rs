@@ -395,6 +395,7 @@ fn scan_for_capability_violations(
         // === Non-capability-requiring expressions (leaf nodes or pure) ===
         ExprKind::Literal { .. }
         | ExprKind::StringLiteral(_)
+        | ExprKind::BoolLiteral(_)
         | ExprKind::Local(_)
         | ExprKind::Config(_)
         | ExprKind::Const(_)

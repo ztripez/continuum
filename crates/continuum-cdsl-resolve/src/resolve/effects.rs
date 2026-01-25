@@ -210,6 +210,7 @@ fn scan_for_effect_violations(
         // Leaf nodes - no kernel calls possible
         ExprKind::Literal { .. }
         | ExprKind::StringLiteral(_)
+        | ExprKind::BoolLiteral(_)
         | ExprKind::Local(_)
         | ExprKind::Signal(_)
         | ExprKind::Field(_)

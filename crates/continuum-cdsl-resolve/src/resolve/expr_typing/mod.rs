@@ -80,13 +80,7 @@ pub fn type_expression(
             (k, t)
         }
 
-        UntypedKind::BoolLiteral(val) => (
-            ExprKind::Literal {
-                value: if *val { 1.0 } else { 0.0 },
-                unit: None,
-            },
-            Type::Bool,
-        ),
+        UntypedKind::BoolLiteral(val) => (ExprKind::BoolLiteral(*val), Type::Bool),
 
         UntypedKind::StringLiteral(val) => (ExprKind::StringLiteral(val.clone()), Type::String),
 

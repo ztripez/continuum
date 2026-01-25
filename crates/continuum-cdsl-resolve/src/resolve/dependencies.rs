@@ -95,6 +95,7 @@ impl ExpressionVisitor for DependencyVisitor {
             // during the recursive walk)
             ExprKind::Literal { .. }
             | ExprKind::StringLiteral(_)
+            | ExprKind::BoolLiteral(_)
             | ExprKind::Vector(_)
             | ExprKind::Local(_)
             | ExprKind::Current

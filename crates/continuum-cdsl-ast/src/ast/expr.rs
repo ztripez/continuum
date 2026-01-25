@@ -250,6 +250,12 @@ pub enum ExprKind {
     /// String literal
     StringLiteral(String),
 
+    /// Boolean literal (true/false)
+    ///
+    /// Preserved in typed AST to maintain semantic distinction from numeric literals.
+    /// Type-checked to ensure Type::Bool.
+    BoolLiteral(bool),
+
     // === References ===
     /// Local let-bound variable reference
     ///
@@ -732,6 +738,7 @@ impl TypedExpr {
             // Literals and references are always pure
             ExprKind::Literal { .. }
             | ExprKind::StringLiteral(_)
+            | ExprKind::BoolLiteral(_)
             | ExprKind::Local(_)
             | ExprKind::Signal(_)
             | ExprKind::Field(_)
@@ -854,6 +861,7 @@ impl TypedExpr {
             // Leaf nodes (explicitly listed to ensure exhaustiveness)
             ExprKind::Literal { .. }
             | ExprKind::StringLiteral(_)
+            | ExprKind::BoolLiteral(_)
             | ExprKind::Local(_)
             | ExprKind::Signal(_)
             | ExprKind::Field(_)

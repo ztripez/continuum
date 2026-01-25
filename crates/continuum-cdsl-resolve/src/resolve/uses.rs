@@ -164,6 +164,7 @@ impl<'a> ExpressionVisitor for RequiredUsesVisitor<'a> {
             // Other leaf nodes and containers that don't require specific uses
             ExprKind::Literal { .. }
             | ExprKind::StringLiteral(_)
+            | ExprKind::BoolLiteral(_)
             | ExprKind::Vector(_)
             | ExprKind::Local(_)
             | ExprKind::Signal(_)

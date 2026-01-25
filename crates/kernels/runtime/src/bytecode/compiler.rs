@@ -289,16 +289,21 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         match &expr.expr {
             ExprKind::Literal { value, .. } => {
-                // Boolean literals are encoded as 1.0/0.0 in typed AST
-                // Check the type to emit the correct Value variant
-                let literal_value = if matches!(expr.ty, Type::Bool) {
-                    Value::Boolean(*value != 0.0)
-                } else {
-                    Value::Scalar(*value)
-                };
                 block.instructions.push(Instruction::new(
                     OpcodeKind::PushLiteral,
-                    vec![Operand::Literal(literal_value)],
+                    vec![Operand::Literal(Value::Scalar(*value))],
+                ));
+            }
+            ExprKind::BoolLiteral(value) => {
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::PushLiteral,
+                    vec![Operand::Literal(Value::Boolean(*value))],
+                ));
+            }
+            ExprKind::StringLiteral(value) => {
+                block.instructions.push(Instruction::new(
+                    OpcodeKind::PushLiteral,
+                    vec![Operand::String(value.clone())],
                 ));
             }
             ExprKind::StringLiteral(value) => {

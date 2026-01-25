@@ -161,7 +161,8 @@ pub fn validate_expr(expr: &TypedExpr, ctx: &ValidationContext<'_>) -> Vec<Compi
         | ExprKind::Other
         | ExprKind::Payload
         | ExprKind::Entity(_)
-        | ExprKind::StringLiteral(_) => {}
+        | ExprKind::StringLiteral(_)
+        | ExprKind::BoolLiteral(_) => {}
     }
 
     errors
