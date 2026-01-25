@@ -620,16 +620,12 @@ pub fn build_runtime(compiled: CompiledWorld, scenario: Option<Scenario>) -> Run
             continue; // Already initialized, skip config check
         }
 
-        // If no literal resolve, check for config initialization values
-        // Look for common initial value names: "initial", "default", "default_*"
+        // If no literal resolve, check for config.initial value
         for nested in &node.nested_blocks {
             if let continuum_cdsl::ast::NestedBlock::Config(entries) = nested {
-                // Try multiple naming conventions for initial values
-                let initial_names = ["initial", "default", "default_power", "default_value", "initial_value"];
-                
+                // Look for an entry named "initial"
                 if let Some(initial_entry) = entries.iter().find(|entry| {
-                    let last_segment = entry.path.segments().last().map(|s| s.as_ref());
-                    initial_names.iter().any(|name| last_segment == Some(*name))
+                    entry.path.segments().last().map(|s| s.as_ref()) == Some("initial")
                 }) {
                     // Extract literal value from the default expression
                     if let Some(default_expr) = &initial_entry.default {
